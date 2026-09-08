@@ -199,15 +199,126 @@ Explicitly excluded. Documented to prevent scope creep.
 
 Which phases cover which requirements. Populated during roadmap creation.
 
+### By Phase
+
+| Phase | Name | Requirements | IDs |
+|-------|------|--------------|-----|
+| Phase 1 | The Board Is The Store Of Record | 15 | DATA-01, DATA-02, DATA-03, DATA-05, DATA-07, DATA-08, BOARD-01, BOARD-02, BOARD-04, BOARD-05, BOARD-06, BOARD-07, BOARD-08, BOARD-09, BOARD-10 |
+| Phase 2 | One Agent, One Worktree, Watched Live | 15 | DATA-04, DATA-06, WORK-01, WORK-02, WORK-08, LINK-01, PROC-01, PROC-02, PROC-06, PROC-07, AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-06 |
+| Phase 3 | Nothing Lost, Nothing Left Running | 8 | WORK-03, WORK-04, WORK-05, WORK-06, PROC-03, PROC-04, PROC-05, AGNT-07 |
+| Phase 4 | `/clear` Is Free | 9 | BOARD-03, CTX-01, CTX-02, CTX-03, CTX-04, CTX-05, CTX-06, CTX-07, CTX-08 |
+| Phase 5 | Socratic Epic Authoring | 5 | SHAPE-01, SHAPE-02, SHAPE-03, SHAPE-04, SHAPE-05 |
+| Phase 6 | Agents File Their Own Backlog | 7 | PROP-01, PROP-02, PROP-03, PROP-04, PROP-05, PROP-06, PROP-07 |
+| Phase 7 | The Board Tells The Git Truth | 10 | LINK-02, LINK-03, LINK-04, LINK-05, LINK-06, LINK-07, LINK-08, LINK-09, LINK-10, LINK-11 |
+| Phase 8 | Review And Merge Inside Flywheel | 5 | REVW-01, REVW-02, REVW-03, REVW-04, REVW-05 |
+| Phase 9 | Planned Fan-Out That Does Not Collide | 8 | AGNT-05, PLAN-01, PLAN-02, PLAN-03, PLAN-04, PLAN-05, PLAN-06, PLAN-07 |
+| Phase 10 | Fleet Supervision Across Every Project | 7 | WORK-07, AGNT-08, FLEET-01, FLEET-02, FLEET-03, FLEET-04, FLEET-05 |
+| Phase 11 | Ship It | 4 | DIST-01, DIST-02, DIST-03, DIST-04 |
+
+### By Requirement
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (pending roadmap) | — | Pending |
+| DATA-01 | Phase 1 | Pending |
+| DATA-02 | Phase 1 | Pending |
+| DATA-03 | Phase 1 | Pending |
+| DATA-04 | Phase 2 | Pending |
+| DATA-05 | Phase 1 | Pending |
+| DATA-06 | Phase 2 | Pending |
+| DATA-07 | Phase 1 | Pending |
+| DATA-08 | Phase 1 | Pending |
+| BOARD-01 | Phase 1 | Pending |
+| BOARD-02 | Phase 1 | Pending |
+| BOARD-03 | Phase 4 | Pending |
+| BOARD-04 | Phase 1 | Pending |
+| BOARD-05 | Phase 1 | Pending |
+| BOARD-06 | Phase 1 | Pending |
+| BOARD-07 | Phase 1 | Pending |
+| BOARD-08 | Phase 1 | Pending |
+| BOARD-09 | Phase 1 | Pending |
+| BOARD-10 | Phase 1 | Pending |
+| WORK-01 | Phase 2 | Pending |
+| WORK-02 | Phase 2 | Pending |
+| WORK-03 | Phase 3 | Pending |
+| WORK-04 | Phase 3 | Pending |
+| WORK-05 | Phase 3 | Pending |
+| WORK-06 | Phase 3 | Pending |
+| WORK-07 | Phase 10 | Pending |
+| WORK-08 | Phase 2 | Pending |
+| LINK-01 | Phase 2 | Pending |
+| LINK-02 | Phase 7 | Pending |
+| LINK-03 | Phase 7 | Pending |
+| LINK-04 | Phase 7 | Pending |
+| LINK-05 | Phase 7 | Pending |
+| LINK-06 | Phase 7 | Pending |
+| LINK-07 | Phase 7 | Pending |
+| LINK-08 | Phase 7 | Pending |
+| LINK-09 | Phase 7 | Pending |
+| LINK-10 | Phase 7 | Pending |
+| LINK-11 | Phase 7 | Pending |
+| PROC-01 | Phase 2 | Pending |
+| PROC-02 | Phase 2 | Pending |
+| PROC-03 | Phase 3 | Pending |
+| PROC-04 | Phase 3 | Pending |
+| PROC-05 | Phase 3 | Pending |
+| PROC-06 | Phase 2 | Pending |
+| PROC-07 | Phase 2 | Pending |
+| AGNT-01 | Phase 2 | Pending |
+| AGNT-02 | Phase 2 | Pending |
+| AGNT-03 | Phase 2 | Pending |
+| AGNT-04 | Phase 2 | Pending |
+| AGNT-05 | Phase 9 | Pending |
+| AGNT-06 | Phase 2 | Pending |
+| AGNT-07 | Phase 3 | Pending |
+| AGNT-08 | Phase 10 | Pending |
+| CTX-01 | Phase 4 | Pending |
+| CTX-02 | Phase 4 | Pending |
+| CTX-03 | Phase 4 | Pending |
+| CTX-04 | Phase 4 | Pending |
+| CTX-05 | Phase 4 | Pending |
+| CTX-06 | Phase 4 | Pending |
+| CTX-07 | Phase 4 | Pending |
+| CTX-08 | Phase 4 | Pending |
+| SHAPE-01 | Phase 5 | Pending |
+| SHAPE-02 | Phase 5 | Pending |
+| SHAPE-03 | Phase 5 | Pending |
+| SHAPE-04 | Phase 5 | Pending |
+| SHAPE-05 | Phase 5 | Pending |
+| PROP-01 | Phase 6 | Pending |
+| PROP-02 | Phase 6 | Pending |
+| PROP-03 | Phase 6 | Pending |
+| PROP-04 | Phase 6 | Pending |
+| PROP-05 | Phase 6 | Pending |
+| PROP-06 | Phase 6 | Pending |
+| PROP-07 | Phase 6 | Pending |
+| PLAN-01 | Phase 9 | Pending |
+| PLAN-02 | Phase 9 | Pending |
+| PLAN-03 | Phase 9 | Pending |
+| PLAN-04 | Phase 9 | Pending |
+| PLAN-05 | Phase 9 | Pending |
+| PLAN-06 | Phase 9 | Pending |
+| PLAN-07 | Phase 9 | Pending |
+| FLEET-01 | Phase 10 | Pending |
+| FLEET-02 | Phase 10 | Pending |
+| FLEET-03 | Phase 10 | Pending |
+| FLEET-04 | Phase 10 | Pending |
+| FLEET-05 | Phase 10 | Pending |
+| REVW-01 | Phase 8 | Pending |
+| REVW-02 | Phase 8 | Pending |
+| REVW-03 | Phase 8 | Pending |
+| REVW-04 | Phase 8 | Pending |
+| REVW-05 | Phase 8 | Pending |
+| DIST-01 | Phase 11 | Pending |
+| DIST-02 | Phase 11 | Pending |
+| DIST-03 | Phase 11 | Pending |
+| DIST-04 | Phase 11 | Pending |
 
 **Coverage:**
 - v1 requirements: 93 total
-- Mapped to phases: 0
-- Unmapped: 93 ⚠️
+- Mapped to phases: 93 ✓
+- Unmapped: 0
+- Duplicated across phases: 0
 
 ---
 *Requirements defined: 2026-09-08*
-*Last updated: 2026-09-08 after initial definition*
+*Last updated: 2026-09-08 after roadmap creation (11 phases, 100% coverage)*

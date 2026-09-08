@@ -1,0 +1,86 @@
+---
+gsd_state_version: '1.0'
+status: planning
+progress:
+  total_phases: 11
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+---
+
+# Project State
+
+## Project Reference
+
+See: .planning/PROJECT.md (updated 2026-09-08)
+
+**Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
+**Current focus:** Phase 1 — The Board Is The Store Of Record
+
+## Current Position
+
+Phase: 1 of 11 (The Board Is The Store Of Record)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-09-08 — Roadmap created; 93/93 v1 requirements mapped across 11 vertical MVP phases
+
+Progress: [░░░░░░░░░░] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 0
+- Average duration: —
+- Total execution time: —
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| - | - | - | - |
+
+**Recent Trend:**
+- Last 5 plans: —
+- Trend: —
+
+*Updated after each plan completion*
+
+## Accumulated Context
+
+### Decisions
+
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work:
+
+- [Research]: Build the PM core from scratch — every cloud tracker fails local-first; Plane trades a simpler schema for AGPL plus a server stack.
+- [Research]: Stack settled — Tauri v2 (Rust core) + bundled Node.js sidecar (Claude Agent SDK) + React UI; rusqlite/SQLite with an append-only event log. No sync vendor chosen; schema-first, vendor-second.
+- [Roadmap]: Vertical MVP structure, not the research's horizontal build order. Each phase ships a runnable capability.
+- [Roadmap]: Moat before commodity — context reconstitution (Phase 4), Socratic authoring (Phase 5) and agent-authored backlog (Phase 6) sequenced ahead of git/forge surfaces (Phases 7-8), because Nimbalyst can copy the board-plus-worktree combination in weeks.
+- [Roadmap]: The thinnest vertical slice (one task, two sequential sessions, second reconstituted from the board) completes at Phase 4 — the earliest the dependency graph allows.
+
+### Pending Todos
+
+None yet.
+
+### Blockers/Concerns
+
+- **Anthropic credential policy is an external dependency, not a solved problem.** A policy shift on third-party harness use of subscription credentials could invalidate v1 overnight. AGNT-04 (explicit API-key path) is first-class in Phase 2 as the hedge; review this at every milestone boundary.
+- **Nimbalyst competitive checkpoint.** Ships local desktop + Claude Code + worktrees + kanban already. Re-scout before Phase 5 (Socratic authoring) to confirm the moat is still where the research said it was.
+- **Phase 4 needs evidence, not vibes.** Do not ship context reconstitution without the synthetic multi-cycle test suite and explicit context-quality metrics built during planning.
+- **Phase 5 rests on an unvalidated assumption** that Socratic epic authoring beats prompting in a terminal. Spike it during planning before building the full surface.
+- **Phase 11 has a hard prerequisite** outside the codebase: an Apple Developer account ($99/yr) for signing and notarization.
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone close, most recent first:
+
+| Category | Item | Status | Deferred At | Milestone |
+|----------|------|--------|-------------|-----------|
+| *(none)* | | | | |
+
+## Session Continuity
+
+Last session: 2026-09-08
+Stopped at: Roadmap and state initialized from PROJECT.md, REQUIREMENTS.md and research
+Resume file: None
