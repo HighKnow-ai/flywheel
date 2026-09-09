@@ -6,6 +6,7 @@ use anyhow::Context;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::domain::acceptance_criterion::delete_criteria_for_parent;
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
 use crate::ranking::rank_after;
@@ -218,6 +219,11 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
         tx.commit().context("failed to commit no-op delete_task transaction")?;
         return Ok(());
     };
+
+    // Criteria belong exclusively to their parent (unlike a task's epic, which is orphaned, not
+    // cascaded) — deleting the parent deletes its criteria, one `criterion.deleted` event per
+    // row, inside this same transaction (D-06, D-19).
+    delete_criteria_for_parent(&tx, &project_id, actor_id, "task", task_id, &now)?;
 
     tx.execute("DELETE FROM tasks WHERE id = ?1", params![task_id])
         .context("failed to delete task")?;

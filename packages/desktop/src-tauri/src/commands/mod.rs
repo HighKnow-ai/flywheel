@@ -5,6 +5,7 @@
 //! a successful mutation, emits `board:changed` (D-04).
 
 pub mod board;
+pub mod criterion;
 pub mod epic;
 pub mod issue;
 pub mod project;

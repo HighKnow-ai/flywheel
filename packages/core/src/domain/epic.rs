@@ -10,6 +10,7 @@ use anyhow::Context;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::domain::acceptance_criterion::delete_criteria_for_parent;
 use crate::domain::event::{append_event, next_sequence};
 use crate::domain::task::DEFAULT_PRIORITY;
 use crate::ids::new_id;
@@ -220,6 +221,10 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
         params![now, epic_id],
     )
     .context("failed to orphan child tasks")?;
+
+    // The epic's own criteria are deleted with it (unlike its child tasks, which are orphaned,
+    // not cascaded) — one `criterion.deleted` event per row, inside this same transaction.
+    delete_criteria_for_parent(&tx, &project_id, actor_id, "epic", epic_id, &now)?;
 
     tx.execute("DELETE FROM epics WHERE id = ?1", params![epic_id])
         .context("failed to delete epic")?;

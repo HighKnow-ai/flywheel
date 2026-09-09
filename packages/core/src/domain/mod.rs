@@ -3,6 +3,7 @@
 //! sidecar reach the database only through the Rust command surface in `packages/desktop`, which
 //! calls straight through to these functions — never by opening the SQLite file itself.
 
+pub mod acceptance_criterion;
 pub mod actor;
 pub mod epic;
 pub mod event;

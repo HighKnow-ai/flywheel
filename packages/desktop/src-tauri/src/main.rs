@@ -44,6 +44,12 @@ fn main() {
             commands::issue::issue_update,
             commands::issue::issue_delete,
             commands::board::board_list,
+            commands::criterion::criterion_create,
+            commands::criterion::criterion_update,
+            commands::criterion::criterion_toggle,
+            commands::criterion::criterion_reorder,
+            commands::criterion::criterion_delete,
+            commands::criterion::criterion_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

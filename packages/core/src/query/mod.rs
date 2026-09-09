@@ -30,6 +30,12 @@ pub struct BoardItem {
     pub rank: String,
     pub priority: i64,
     pub epic_id: Option<String>,
+    /// How many of this item's acceptance criteria are checked, out of its total (BOARD-02,
+    /// D-08) — computed by a single grouped aggregate joined into this same query, never a
+    /// per-row follow-up query (D-08's "visible wherever the item appears" would violate the
+    /// 1,000-item performance contract otherwise). An item with zero criteria reports `0`/`0`.
+    pub criteria_checked: i64,
+    pub criteria_total: i64,
 }
 
 /// One row of the board window's issues lane (D-07) — proposals and notes, not units of work, so
@@ -107,6 +113,8 @@ fn row_to_item(row: &Row) -> rusqlite::Result<BoardItem> {
         rank: row.get(5)?,
         priority: row.get(6)?,
         epic_id: row.get(7)?,
+        criteria_checked: row.get(8)?,
+        criteria_total: row.get(9)?,
     })
 }
 
@@ -137,25 +145,32 @@ pub fn list_board(
     let items: Vec<BoardItem> = match cursor {
         None => {
             let mut stmt = conn.prepare(
-                "SELECT id, kind, key, title, status, rank, priority, epic_id
+                "SELECT b.id, b.kind, b.key, b.title, b.status, b.rank, b.priority, b.epic_id,
+                        COALESCE(c.checked, 0) AS criteria_checked,
+                        COALESCE(c.total, 0) AS criteria_total
                  FROM (
                      SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id
                      FROM epics WHERE project_id = ?1
                      UNION ALL
                      SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id
                      FROM tasks WHERE project_id = ?1
-                 )
+                 ) b
+                 LEFT JOIN (
+                     SELECT parent_id, SUM(checked) AS checked, COUNT(*) AS total
+                     FROM acceptance_criteria
+                     GROUP BY parent_id
+                 ) c ON c.parent_id = b.id
                  ORDER BY
-                     CASE status
+                     CASE b.status
                          WHEN 'backlog' THEN 0
                          WHEN 'todo' THEN 1
                          WHEN 'in_progress' THEN 2
                          WHEN 'in_review' THEN 3
                          WHEN 'done' THEN 4
                      END ASC,
-                     (CASE WHEN priority = 0 THEN 5 ELSE priority END) ASC,
-                     rank ASC,
-                     id ASC
+                     (CASE WHEN b.priority = 0 THEN 5 ELSE b.priority END) ASC,
+                     b.rank ASC,
+                     b.id ASC
                  LIMIT ?2",
             )?;
             let rows = stmt
@@ -165,37 +180,44 @@ pub fn list_board(
         }
         Some(c) => {
             let mut stmt = conn.prepare(
-                "SELECT id, kind, key, title, status, rank, priority, epic_id
+                "SELECT b.id, b.kind, b.key, b.title, b.status, b.rank, b.priority, b.epic_id,
+                        COALESCE(cr.checked, 0) AS criteria_checked,
+                        COALESCE(cr.total, 0) AS criteria_total
                  FROM (
                      SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id
                      FROM epics WHERE project_id = ?1
                      UNION ALL
                      SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id
                      FROM tasks WHERE project_id = ?1
-                 )
+                 ) b
+                 LEFT JOIN (
+                     SELECT parent_id, SUM(checked) AS checked, COUNT(*) AS total
+                     FROM acceptance_criteria
+                     GROUP BY parent_id
+                 ) cr ON cr.parent_id = b.id
                  WHERE (
-                     CASE status
+                     CASE b.status
                          WHEN 'backlog' THEN 0
                          WHEN 'todo' THEN 1
                          WHEN 'in_progress' THEN 2
                          WHEN 'in_review' THEN 3
                          WHEN 'done' THEN 4
                      END,
-                     (CASE WHEN priority = 0 THEN 5 ELSE priority END),
-                     rank,
-                     id
+                     (CASE WHEN b.priority = 0 THEN 5 ELSE b.priority END),
+                     b.rank,
+                     b.id
                    ) > (?2, ?3, ?4, ?5)
                  ORDER BY
-                     CASE status
+                     CASE b.status
                          WHEN 'backlog' THEN 0
                          WHEN 'todo' THEN 1
                          WHEN 'in_progress' THEN 2
                          WHEN 'in_review' THEN 3
                          WHEN 'done' THEN 4
                      END ASC,
-                     (CASE WHEN priority = 0 THEN 5 ELSE priority END) ASC,
-                     rank ASC,
-                     id ASC
+                     (CASE WHEN b.priority = 0 THEN 5 ELSE b.priority END) ASC,
+                     b.rank ASC,
+                     b.id ASC
                  LIMIT ?6",
             )?;
             let rows = stmt
