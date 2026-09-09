@@ -129,9 +129,10 @@ pub fn update_task(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let (project_id, epic_id, current_title, current_description, status, rank, priority): (
+    let (project_id, epic_id, key, current_title, current_description, status, rank, priority): (
         String,
         Option<String>,
+        String,
         String,
         Option<String>,
         String,
@@ -139,7 +140,7 @@ pub fn update_task(
         i64,
     ) = tx
         .query_row(
-            "SELECT project_id, epic_id, title, description, status, rank, priority FROM tasks WHERE id = ?1",
+            "SELECT project_id, epic_id, key, title, description, status, rank, priority FROM tasks WHERE id = ?1",
             params![task_id],
             |row| {
                 Ok((
@@ -150,6 +151,7 @@ pub fn update_task(
                     row.get(4)?,
                     row.get(5)?,
                     row.get(6)?,
+                    row.get(7)?,
                 ))
             },
         )
@@ -192,7 +194,7 @@ pub fn update_task(
         id: task_id.to_string(),
         project_id,
         epic_id,
-        key: String::new(),
+        key,
         title: new_title.to_string(),
         status,
         rank,

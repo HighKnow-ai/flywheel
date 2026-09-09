@@ -124,7 +124,8 @@ pub fn update_epic(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let (project_id, current_title, current_description, status, rank, priority): (
+    let (project_id, key, current_title, current_description, status, rank, priority): (
+        String,
         String,
         String,
         Option<String>,
@@ -133,7 +134,7 @@ pub fn update_epic(
         i64,
     ) = tx
         .query_row(
-            "SELECT project_id, title, description, status, rank, priority FROM epics WHERE id = ?1",
+            "SELECT project_id, key, title, description, status, rank, priority FROM epics WHERE id = ?1",
             params![epic_id],
             |row| {
                 Ok((
@@ -143,6 +144,7 @@ pub fn update_epic(
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
@@ -184,7 +186,7 @@ pub fn update_epic(
     Ok(Epic {
         id: epic_id.to_string(),
         project_id,
-        key: String::new(),
+        key,
         title: new_title.to_string(),
         description: new_description.map(|s| s.to_string()),
         status,

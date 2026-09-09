@@ -15,10 +15,10 @@
 
 use core::db::open_and_migrate;
 use core::domain::actor::local_human_actor_id;
-use core::domain::epic::{create_epic, delete_epic};
-use core::domain::issue::create_issue;
+use core::domain::epic::{create_epic, delete_epic, update_epic};
+use core::domain::issue::{create_issue, update_issue};
 use core::domain::project::{self, Project};
-use core::domain::task::{create_task, delete_task, set_task_status};
+use core::domain::task::{create_task, delete_task, set_task_status, update_task};
 use core::domain::WORKFLOW_STATES;
 use core::query::{list_board, BoardFilter};
 use rusqlite::{params, Connection};
@@ -304,4 +304,48 @@ fn deleting_an_epic_or_task_orphans_linked_issues_instead_of_failing() {
         remaining_issue_task_id, None,
         "a deleted task's linked issue must have task_id set to NULL, not be deleted itself"
     );
+}
+
+#[test]
+fn update_epic_task_and_issue_read_back_the_real_key_not_a_blank_one() {
+    let (mut conn, actor_id, project) = seeded_project();
+
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Epic", None)
+        .expect("create_epic should succeed");
+    let updated_epic = update_epic(&mut conn, &actor_id, &epic.id, Some("Renamed epic"), None)
+        .expect("update_epic should succeed");
+    assert_eq!(
+        updated_epic.key, epic.key,
+        "update_epic must read back the real key, not String::new() (WR-02)"
+    );
+    assert!(!updated_epic.key.is_empty());
+
+    let task = create_task(&mut conn, &project.id, &actor_id, "Task", None)
+        .expect("create_task should succeed");
+    let updated_task = update_task(&mut conn, &actor_id, &task.id, Some("Renamed task"), None)
+        .expect("update_task should succeed");
+    assert_eq!(
+        updated_task.key, task.key,
+        "update_task must read back the real key, not String::new() (WR-02)"
+    );
+    assert!(!updated_task.key.is_empty());
+
+    let issue = create_issue(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Issue",
+        None,
+        "idea",
+        None,
+        None,
+    )
+    .expect("create_issue should succeed");
+    let updated_issue = update_issue(&mut conn, &actor_id, &issue.id, Some("Renamed issue"), None)
+        .expect("update_issue should succeed");
+    assert_eq!(
+        updated_issue.key, issue.key,
+        "update_issue must read back the real key, not String::new() (WR-02)"
+    );
+    assert!(!updated_issue.key.is_empty());
 }

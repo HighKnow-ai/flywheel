@@ -122,16 +122,17 @@ pub fn update_issue(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let (project_id, epic_id, task_id, current_title, current_body, kind): (
+    let (project_id, epic_id, task_id, key, current_title, current_body, kind): (
         String,
         Option<String>,
         Option<String>,
+        String,
         String,
         Option<String>,
         String,
     ) = tx
         .query_row(
-            "SELECT project_id, epic_id, task_id, title, body, kind FROM issues WHERE id = ?1",
+            "SELECT project_id, epic_id, task_id, key, title, body, kind FROM issues WHERE id = ?1",
             params![issue_id],
             |row| {
                 Ok((
@@ -141,6 +142,7 @@ pub fn update_issue(
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
@@ -184,7 +186,7 @@ pub fn update_issue(
         project_id,
         epic_id,
         task_id,
-        key: String::new(),
+        key,
         title: new_title.to_string(),
         body: new_body.map(|s| s.to_string()),
         kind,
