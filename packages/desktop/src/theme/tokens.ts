@@ -31,6 +31,14 @@ export const STRIP = {
   rowSurfaceHover: "rgba(60, 100, 221, 0.06)",
   rowSurfaceSelected: "rgba(60, 100, 221, 0.14)",
   rowSurfaceSelectedUnfocused: "rgba(74, 82, 97, 0.14)",
+  /**
+   * The reference strip-stock swatch 01-UI-SPEC.md's "Pinned brand, and the
+   * lifts it requires" table measures brand-accent (and destructive) text
+   * legibility against — a measurement-only reference distinct from the five
+   * per-status tints above, with no corresponding CSS custom property since
+   * nothing in the product renders it directly.
+   */
+  referenceStock: "#ddd6c6",
 } as const;
 
 /** Ink and accents on strip stock. */

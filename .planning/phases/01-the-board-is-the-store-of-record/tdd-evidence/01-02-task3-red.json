@@ -1,0 +1,9 @@
+{
+  "command": "npx vitest run src/theme/__tests__/contrast.test.ts",
+  "exitCode": 1,
+  "targetFile": "contrast.test.ts",
+  "targetTest": "is 1 for white",
+  "expected": "relativeLuminance(\"#ffffff\") === 1",
+  "actual": "relativeLuminance stub returns 0 for every input, so the assertion failed with 'expected +0 to be 1'",
+  "output": "TAP version 13\n1..9\nnot ok 1 - is 1 for white\nok 2 - is 0 for black\nnot ok 3 - is 21 for white on black\nnot ok 4 - clears AA for brand-coloured text on the rack (accentText on surfaceSecondary)\nnot ok 5 - clears AA for brand-coloured text on strip stock (INK.accentText on the reference stock)\nnot ok 6 - pins accentNonText to non-text-only use: clears 3:1 but stays below 4.5:1 on the rack\nnot ok 7 - clears AA for primary and muted rack text on surfaceSecondary\nnot ok 8 - clears AA for ink on every one of the five strip-stock tints\nnot ok 9 - clears AA for destructive ink on the reference stock\n# tests 9\n# pass 1\n# fail 8\n"
+}
