@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-06-PLAN.md
-last_updated: "2026-09-09T04:09:16.096Z"
+stopped_at: Completed 01-07-PLAN.md
+last_updated: "2026-09-09T06:58:10.245Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: 96f17a0061ee18dedf391bf494f82a1f2232f694
+state_head: 1291269534cb0cc2b80adb389fc10efac4620320
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 7 of 11
+Plan: 8 of 11
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P04 | 55min | 3 tasks | 30 files |
 | Phase 01 P05 | 35min | 3 tasks | 7 files |
 | Phase 01 P06 | 35min | 3 tasks | 21 files |
+| Phase 01 P07 | 65min | 3 tasks | 26 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,9 @@ Recent decisions affecting current work:
 - [Phase 01]: delete_task/delete_epic now cascade-delete their criteria (one criterion.deleted event per row) inside their existing transaction — required by Task 3's own named test, auto-added per deviation Rule 2.
 - [Phase 01]: DoneWarning gates the status mutation BEFORE it is sent rather than applying it optimistically and compensating on cancel — Escape 'reverts' by the mutation never having been sent.
 - [Phase 01]: reorder_criterion supports 'between two neighbours' and 'append after prev' but not inserting before the very front of an existing list — no rank_before helper exists and ranking.rs is not extended by this plan.
+- [Phase 01]: 01-07: filtered the reorder neighbour lookup by priority (not just project_id/status) so a keyboard reorder never displaces a neighbour in a different priority band
+- [Phase 01]: 01-07: priority change does not rewrite rank — an item's position within its new priority band falls wherever its existing rank naturally compares
+- [Phase 01]: 01-07: estimate letters (S/M/L) are rendered from a lookup table, never derived from the stored 1-3 integer via display formatting
 
 ### Pending Todos
 
@@ -115,6 +119,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T04:09:16.080Z
-Stopped at: Completed 01-06-PLAN.md
+Last session: 2026-09-09T06:58:10.228Z
+Stopped at: Completed 01-07-PLAN.md
 Resume file: None

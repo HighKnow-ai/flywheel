@@ -24,7 +24,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **BOARD-02**: Every task carries structured acceptance criteria as discrete, individually checkable items — not free prose
 - [ ] **BOARD-03**: Acceptance criteria are immutable once a task starts work; changing them creates a new revision rather than overwriting
 - [x] **BOARD-04**: Items move through a fixed workflow (Backlog → Todo → In Progress → In Review → Done) that cannot be customised
-- [ ] **BOARD-05**: User can reorder and reprioritise items within an epic and within the backlog
+- [x] **BOARD-05**: User can reorder and reprioritise items within an epic and within the backlog
 - [ ] **BOARD-06**: User can filter and search across all items in a project by text, status, epic and assignee
 - [x] **BOARD-07**: User can drive board navigation and the common item actions entirely from the keyboard
 - [x] **BOARD-08**: Board interactions complete without perceptible lag on a project containing at least 1,000 items
@@ -231,7 +231,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BOARD-02 | Phase 1 | Complete |
 | BOARD-03 | Phase 4 | Pending |
 | BOARD-04 | Phase 1 | Complete |
-| BOARD-05 | Phase 1 | Pending |
+| BOARD-05 | Phase 1 | Complete |
 | BOARD-06 | Phase 1 | Pending |
 | BOARD-07 | Phase 1 | Complete |
 | BOARD-08 | Phase 1 | Complete |
