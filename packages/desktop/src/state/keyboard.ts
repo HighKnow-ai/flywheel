@@ -54,6 +54,7 @@ export type ActionId =
   | "open-priority-picker"
   | "open-estimate-picker"
   | "open-assignee-picker"
+  | "open-epic-picker"
   | "reorder-up"
   | "reorder-down"
   | "delete-item";
@@ -112,6 +113,10 @@ export const BINDINGS: Binding[] = [
   { id: "open-priority-picker", region: "board-list", key: "p", label: "Set Priority" },
   { id: "open-estimate-picker", region: "board-list", key: "e", label: "Set Estimate" },
   { id: "open-assignee-picker", region: "board-list", key: "a", label: "Set Assignee" },
+  // The four dimension pickers above took their own first letters, leaving `e` to estimate — so
+  // the epic picker is bound to `m` for "move under" (the action, not the noun), the only free
+  // mnemonic key left in the board-list region (G-01-EPIC-ASSIGN).
+  { id: "open-epic-picker", region: "board-list", key: "m", label: "Set Epic" },
   { id: "reorder-up", region: "board-list", key: "ArrowUp", meta: true, label: "Reorder up" },
   { id: "reorder-down", region: "board-list", key: "ArrowDown", meta: true, label: "Reorder down" },
   { id: "delete-item", region: "board-list", key: "Backspace", meta: true, label: "Delete" },

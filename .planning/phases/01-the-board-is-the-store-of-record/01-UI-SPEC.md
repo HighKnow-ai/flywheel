@@ -472,6 +472,7 @@ refetches:
 | `p` | Open priority picker for the selected item; while open, `0`–`4` select levels directly |
 | `e` | Open estimate picker for the selected item |
 | `a` | Open assignee picker for the selected item |
+| `m` | Open epic picker for the selected item; tasks only — an epic has no epic parent |
 | ⌘↑ / ⌘↓ | Reorder the selected item up/down within its priority band (manual rank, D-11) |
 | ⌘⌫ | Delete selected item (destructive confirmation, see Copywriting Contract) |
 | Escape | Clear selection |
@@ -510,7 +511,7 @@ refetches:
 Project: {name} (one per registered project) · Register Project… · Create Task · Create Epic ·
 Create Issue · Search Board · Filter by Status / Epic / Assignee / Priority · Toggle Group By · every
 hot action available on the currently selected item (Set Status, Set Priority, Set Estimate, Set
-Assignee, Delete).
+Assignee, Set Epic, Delete).
 
 ---
 
