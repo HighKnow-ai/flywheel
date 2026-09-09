@@ -20,7 +20,7 @@ use core::domain::issue::create_issue;
 use core::domain::project::{self, Project};
 use core::domain::task::{create_task, delete_task, set_task_status};
 use core::domain::WORKFLOW_STATES;
-use core::query::list_board;
+use core::query::{list_board, BoardFilter};
 use rusqlite::{params, Connection};
 
 fn scratch_dir() -> tempfile::TempDir {
@@ -229,7 +229,7 @@ fn deleting_an_epic_orphans_its_tasks() {
         "a deleted epic's child task must have epic_id set to NULL, not be deleted itself"
     );
 
-    let window = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let window = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     assert!(
         window.items.iter().any(|item| item.id == task.id),
         "the orphaned task must still appear in the board query"

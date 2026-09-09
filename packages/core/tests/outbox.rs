@@ -29,7 +29,7 @@ use core::domain::event::{append_event, next_sequence};
 use core::domain::project::{self, Project};
 use core::domain::task::create_task;
 use core::ids::new_id;
-use core::query::list_board;
+use core::query::{list_board, BoardFilter};
 use rusqlite::{params, Connection};
 
 fn scratch_dir() -> tempfile::TempDir {
@@ -441,7 +441,7 @@ fn orphan_task_survives_board_query() {
         .expect("create_task should succeed");
     assert_eq!(task.epic_id, None, "create_task defaults to no epic (D-13)");
 
-    let window = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let window = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     let found = window.items.iter().find(|item| item.id == task.id);
     assert!(
         found.is_some(),
@@ -466,7 +466,7 @@ fn priority_zero_no_priority_sorts_last_within_its_band() {
         .expect("create_task should succeed");
     assert_eq!(no_priority_task.priority, 0, "new tasks default to No priority (0)");
 
-    let window = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let window = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     let low_index = window
         .items
         .iter()

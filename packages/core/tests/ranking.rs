@@ -18,7 +18,7 @@ use core::db::open_and_migrate;
 use core::domain::actor::local_human_actor_id;
 use core::domain::project::{self, Project};
 use core::domain::task::{create_task, reorder_task, set_assignee, set_priority, DEFAULT_PRIORITY};
-use core::query::list_board;
+use core::query::{list_board, BoardFilter};
 use core::ranking::{rank_after, rank_between, ReorderDirection};
 use rusqlite::{params, Connection};
 
@@ -135,7 +135,7 @@ fn many_moves_keep_ranks_distinct() {
         );
     }
 
-    let window = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let window = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     let read_ids: Vec<String> = window.items.iter().map(|item| item.id.clone()).collect();
     assert_eq!(
         read_ids, ids,
@@ -223,7 +223,7 @@ fn priority_sorts_before_rank() {
         .expect("create_task should succeed");
     set_priority(&mut conn, &actor_id, &urgent_item.id, 1).expect("set_priority to Urgent should succeed");
 
-    let window = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let window = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     let order: Vec<&str> = window.items.iter().map(|item| item.id.as_str()).collect();
     assert_eq!(
         order,
@@ -237,7 +237,7 @@ fn priority_sorts_before_rank() {
     set_priority(&mut conn, &actor_id, &no_priority_item.id, 3).expect("set_priority to Medium should succeed");
     set_priority(&mut conn, &actor_id, &urgent_item.id, 3).expect("set_priority to Medium should succeed");
 
-    let window2 = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let window2 = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     let order2: Vec<&str> = window2.items.iter().map(|item| item.id.as_str()).collect();
     assert_eq!(
         order2,
@@ -255,8 +255,8 @@ fn board_order_is_reproducible() {
             .expect("create_task should succeed");
     }
 
-    let first = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
-    let second = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let first = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
+    let second = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     let first_ids: Vec<&str> = first.items.iter().map(|item| item.id.as_str()).collect();
     let second_ids: Vec<&str> = second.items.iter().map(|item| item.id.as_str()).collect();
     assert_eq!(

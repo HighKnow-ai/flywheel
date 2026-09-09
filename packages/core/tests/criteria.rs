@@ -25,7 +25,7 @@ use core::domain::epic::create_epic;
 use core::domain::issue::create_issue;
 use core::domain::project::{self, Project};
 use core::domain::task::{create_task, delete_task, set_task_status, update_task};
-use core::query::list_board;
+use core::query::{list_board, BoardFilter};
 use rusqlite::Connection;
 
 fn scratch_dir() -> tempfile::TempDir {
@@ -97,7 +97,7 @@ fn empty_parent_reports_zero_of_zero() {
     let listed = list_criteria(&conn, "task", &task.id).expect("list_criteria should succeed");
     assert!(listed.is_empty(), "a parent with zero criteria must return an empty vector");
 
-    let window = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let window = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     let row = window
         .items
         .iter()
@@ -344,7 +344,7 @@ fn create_criterion_on_an_epic_is_also_supported() {
     )
     .expect("create_criterion against an epic should succeed (D-07)");
 
-    let window = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let window = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     let row = window
         .items
         .iter()
@@ -354,7 +354,7 @@ fn create_criterion_on_an_epic_is_also_supported() {
     assert_eq!(row.criteria_checked, 0);
 
     toggle_criterion(&mut conn, &actor_id, &criterion.id).expect("toggle should succeed");
-    let window = list_board(&conn, &project.id, 200, None).expect("list_board should succeed");
+    let window = list_board(&conn, &project.id, &BoardFilter::default(), 200, None).expect("list_board should succeed");
     let row = window.items.iter().find(|item| item.id == epic.id).unwrap();
     assert_eq!(row.criteria_checked, 1, "the board query must reflect the toggle");
 }

@@ -53,6 +53,7 @@ fn main() {
             commands::issue::issue_delete,
             commands::issue::issue_reorder,
             commands::board::board_list,
+            commands::board::board_search,
             commands::actor::actor_list,
             commands::criterion::criterion_create,
             commands::criterion::criterion_update,
