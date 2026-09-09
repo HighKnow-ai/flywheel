@@ -237,6 +237,18 @@ export const MARKS: Mark[] = [
     label: "Unassigned",
     meaning: "No assignee is set on this item.",
   },
+  // The third peer in the actor model (DATA-03) — Flywheel itself, acting without a human at the
+  // keyboard (e.g. a future background reconciliation). No item is ever assigned to it in Phase 1
+  // (`actorTypeMarkId` below only reaches this mark for the activity trail's own actor badge, not
+  // for an assignee), but the mark exists now so `render_description`'s human/agent/system triad
+  // (01-UI-SPEC.md "Activity trail") is never missing its third case.
+  {
+    id: "assignee-system",
+    channel: "assignee",
+    glyph: "Cog",
+    label: "System",
+    meaning: "This event or item is attributed to Flywheel itself, not a human or an agent.",
+  },
 ];
 
 /**
@@ -323,9 +335,13 @@ export function estimateLetter(estimate: number | null | undefined): string | un
  * schema's `estimate` value, 1-3) — `EstimatePicker.tsx` builds its option list from this. */
 export const ESTIMATE_MARKS: Mark[] = ESTIMATE_MARK_IDS.map((id) => MARKS_BY_ID[id]);
 
-/** `actors.type` (`human`/`agent`/`system`) -> the matching assignee-badge Mark's id. `system`
- * falls back to the `human` badge — Phase 1 never assigns an item to the system actor from the
- * renderer, so this is a defensive default, not an expected path. */
+/** `actors.type` (`human`/`agent`/`system`) -> the matching actor-badge Mark's id — the one
+ * lookup both the assignee picker and the activity trail (`ActivityTrail.tsx`, BOARD-09) use to
+ * render human/agent/system as three visually distinct badges, never colour alone. Any other
+ * string (a future actor type, or a malformed row) falls back to the `human` badge as a
+ * defensive default, not an expected path. */
 export function actorTypeMarkId(actorType: string): string {
-  return actorType === "agent" ? "assignee-agent" : "assignee-human";
+  if (actorType === "agent") return "assignee-agent";
+  if (actorType === "system") return "assignee-system";
+  return "assignee-human";
 }

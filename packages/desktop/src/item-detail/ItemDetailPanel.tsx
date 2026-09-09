@@ -6,8 +6,9 @@
  *
  * Renders the inline-editable title and description, the status picker (tasks/epics only — an
  * issue has no status, D-07), the acceptance-criteria list (tasks and epics only, never for an
- * issue — D-07, BOARD-02), and a placeholder-free section boundary where the activity trail
- * (plan 01-10) is inserted later.
+ * issue — D-07, BOARD-02), and the activity trail (tasks and epics only — `core::query::events`
+ * only accepts `"task"`/`"epic"` as a trail's `parent_kind`; no surface opens this panel for an
+ * issue yet, matching `AcceptanceCriteriaList`'s own `!isIssue` guard).
  *
  * Below 1100px window width this becomes an overlay with a scrim rather than sharing horizontal
  * space with the list (01-UI-SPEC.md "Item detail — side panel", responsive rule) — the caller
@@ -20,6 +21,7 @@ import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { StatusPicker } from "../board/pickers/StatusPicker";
 import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
+import { ActivityTrail } from "./ActivityTrail";
 
 export type DetailItemKind = "epic" | "task" | "issue";
 
@@ -182,8 +184,7 @@ export function ItemDetailPanel({ item, onClose, onUpdateTitle, onSetStatus }: I
             />
           )}
 
-          {/* Section boundary: plan 01-10 inserts the activity trail here. Intentionally empty
-              — no placeholder copy — until that plan lands. */}
+          {!isIssue && <ActivityTrail parentType={item.kind === "epic" ? "epic" : "task"} parentId={item.id} />}
         </aside>
       </DismissableLayer>
     </FocusScope>

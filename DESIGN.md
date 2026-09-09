@@ -978,3 +978,128 @@ None that block this plan's own goal.
   that needs to invoke an existing keyboard-bound action.
 - `Legend.tsx`'s optional `onClose` overlay mode, ready for any future surface that wants to show
   the legend inline instead of through the palette.
+
+---
+
+# Phase 1, Plan 01-10 — The Activity Trail and the Cursor-Resumable Event Stream
+
+**Status:** every task/epic detail panel now ends in a chronological, actor-attributed activity
+trail read straight from the append-only `events` table — no second history store anywhere in the
+schema or the renderer. The same table is also readable as a resumable, gap-free, duplicate-free
+stream via `(project_id, origin, sequence)` cursors, proven by a dedicated invariant suite that
+writes a second `origin` value even though nothing in this phase produces one yet — the entire
+integration surface a future relay needs already exists and is tested.
+
+## What was built
+
+- **`core::domain::event::render_description`** — the one function that turns an event's own
+  `payload` into the one-line sentence the trail shows. Every domain mutation function already
+  wrote a pre-rendered `"label"` string into its payload at the moment of the event (a fact
+  discovered while reading `task.rs`/`epic.rs`/`issue.rs`/`acceptance_criterion.rs` before writing
+  this function, not assumed) — `render_description` reads that back, with a generic
+  `field`/`before`/`after` fallback for the case a payload lacks one, so every event type this
+  phase emits has a defined, non-empty rendering.
+- **`core::query::events`** (new module) — `activity_trail(conn, parent_kind, parent_id, limit,
+  offset)`: one indexed query against the denormalised `task_id`/`epic_id` column, ascending by
+  the ULID `id` (chronological by construction, no separate timestamp sort), covering a task's
+  criteria events for free since criterion events already carry their parent's id in that same
+  column. `events_since_cursor(conn, cursor, limit)`: `WHERE project_id = ?1 AND origin = ?2 AND
+  sequence > ?3 ORDER BY sequence ASC LIMIT ?4` — filtered on both `project_id` and `origin`,
+  never `sequence` alone (D-17). Every query in this module is a single literal `&str`, never
+  `format!`-assembled. No migration was added — the schema gains no new table, satisfying this
+  plan's own load-bearing prohibition against a second, denormalised history.
+- **`desktop/src-tauri/src/commands/events.rs`** — `events_activity_trail`/`events_since_cursor`,
+  each capping its requested window server-side (T-01-24: 50 for the trail, 500 for the cursor
+  stream), registered in `main.rs`'s `generate_handler!` and `capabilities/default.json`'s roster.
+- **`item-detail/ActivityTrail.tsx`** — the trail section embedded inside `ItemDetailPanel.tsx`
+  (never a separate route or overlay), rendered for tasks and epics only (mirrors
+  `AcceptanceCriteriaList.tsx`'s own `!isIssue` guard — `core::query::events` only accepts
+  `"task"`/`"epic"` as a `parent_kind`, and no surface opens the detail panel for an issue yet).
+  Uses `useInfiniteQuery` so "Load more" fetches the next bounded 50-event page rather than
+  re-requesting an ever-growing window. Entries render newest-first (reversed at display time
+  only — the query itself stays ascending) with an actor badge (human/agent/system, resolved via
+  `useActors()` and `legend/marks.ts`'s `actorTypeMarkId`, never colour alone), the core's
+  pre-rendered description, and a relative timestamp (`<time>`, `tabular-nums`, absolute value in
+  the native `title` tooltip). Subscribes to `board:changed` (D-04) so any mutation anywhere in
+  the app refreshes the trail, never trusting a stale cache.
+- **`legend/marks.ts`** — added the `assignee-system` mark (the third peer in the actor model,
+  DATA-03) and widened `actorTypeMarkId` to map `"system"` to it instead of silently falling back
+  to the human badge, so the trail's human/agent/system triad is never missing its third case.
+- **Tests** — `packages/core/tests/activity_trail.rs` (5 tests) and
+  `packages/core/tests/cursor_resume.rs` (5 tests), proving: a fresh item has exactly one entry; a
+  task's own trail includes its criteria's events; two same-millisecond events order stably across
+  ten reads; every entry carries a non-empty description and a non-null actor; paging with a limit
+  of 2 covers every entry exactly once; cursor batches of 7 across a 100-event log deliver exactly
+  100 events, each once, in ascending sequence (a batch size that does not divide the log length,
+  so an off-by-one at the boundary would show up as a gap or a duplicate, not hide inside an even
+  split); a cursor past the end returns empty, not an error; a cursor of zero returns the first
+  event; a second `origin` value has its own cursor, invisible to the first origin's; replaying
+  every event from sequence zero reconstructs the same item id/title set the `tasks` table itself
+  holds. Plus `item-detail/__tests__/activity-trail.test.tsx` (component: a single-event trail
+  renders one entry; a 60-event trail renders 50 with a "Load more" affordance).
+
+## Craft floor review (self-conducted)
+
+No agent-spawning tool is available to this executor in this execution context, matching every
+prior plan in this phase (`01-02` through `01-09`). Reviewed directly against `craft-floor.md`'s
+Verify/Refuse checklist and the standing direction contract (`packages/desktop/index.html`, seed
+`59b0beb9`) instead of spawning `impeccable-finish-reviewer`/`impeccable-documenter`.
+
+- **Detector:** `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
+  --json packages/desktop/src/item-detail packages/desktop/src/legend` returned `[]` — no findings.
+- **Contrast:** reuses the already-measured `--text-muted-rack`/`--surface-secondary` and
+  `--accent-text-rack` token pairs `ItemDetailPanel.tsx`/`AcceptanceCriteriaList.tsx` already
+  establish — no new colour pairing introduced.
+- **Motion:** none authored. The Motion contract explicitly requires the trail to "render fully
+  populated instantly on open" and "not animate each historical event into place" — the absence of
+  motion here is the spec, not an oversight.
+- **Type:** `type-body`/`type-label` reused from the established scale; `.tabular-nums` on the
+  timestamp per this plan's own binding decision #2.
+- **Browser surfaces:** the relative timestamp uses a semantic `<time dateTime>` element with the
+  absolute value in its native `title` tooltip — the cheapest, most honest way to expose "absolute
+  on hover" without a custom tooltip component.
+- **No mark without a legend entry:** the new `assignee-system` mark is declared in `legend/marks.ts`
+  before `ActivityTrail.tsx` ever renders it.
+- **Icons:** `Cog` (lucide-react) for the system actor badge — outline-only, consistent stroke,
+  matching `User`/`Bot`'s existing weight.
+
+Screenshots of a long trail, a single-entry trail and the "Load more" boundary were not captured
+(no confirmed GUI display in this execution context, matching `01-02` through `01-09`'s own
+documented limitation) — deferred to `/gsd-verify-work`, same precedent as every prior plan's own
+`<human-check>` block.
+
+## Known Stubs
+
+None that block this plan's own goal. Every entry the trail renders comes from a real
+`events_activity_trail` query result — nothing hardcoded or mocked in the shipped component.
+
+## Known deferred surfaces (not stubs — explicit scope boundaries)
+
+- **Issue trails do not exist.** `events` carries no `issue_id` column (only `task_id`/`epic_id`
+  are denormalised), and no surface opens the item detail panel for an issue yet — `ActivityTrail`
+  mirrors `AcceptanceCriteriaList`'s `!isIssue` guard rather than half-supporting a lane the schema
+  does not denormalise for. If a future plan opens issue detail, extending `events_since_cursor`-
+  style filtering to `stream_type = 'issue' AND stream_id = ?` (rather than a new column) is the
+  natural extension.
+- **`events_since_cursor` has no caller in the renderer.** It exists purely as the proven,
+  tested integration surface D-22 names for a future relay — no UI-SPEC surface in Phase 1 calls
+  for a renderer-side consumer of it.
+- **`BoardRow.tsx`'s "actor-of-last-change" row field (01-UI-SPEC.md Row Anatomy) is not wired.**
+  That field lives on the board strip itself, not the detail panel's trail, and `BoardRow.tsx` is
+  not in this plan's `files_modified` — the trail this plan builds is the detail-panel surface
+  only.
+- **Live `tauri dev` walkthrough** (this plan's own `<human-check>` block: create a task, rename
+  it, change its status twice, add and check a criterion, then open it and read the trail) was not
+  run live this session, matching every prior plan's own deferral to `/gsd-verify-work` for the
+  same no-confirmed-GUI-display limitation.
+
+## What the next plan inherits
+
+- `core::query::events::{activity_trail, events_since_cursor, EventCursor, EventRow}` and
+  `core::domain::event::render_description` as the one place any future surface (a relay, a
+  mobile client, a second desktop feature) reads or renders the event log — never a second
+  formatter.
+- `item-detail/ActivityTrail.tsx`'s `useInfiniteQuery` pattern as the established shape for any
+  future paginated, `board:changed`-invalidated read inside the detail panel.
+- `legend/marks.ts`'s `assignee-system` mark and the now-complete `actorTypeMarkId` triad, ready
+  for any future surface that needs to badge a system-attributed action.
