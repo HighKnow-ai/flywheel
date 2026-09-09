@@ -11,14 +11,23 @@
  * Owns roving-focus keyboard selection over the list (01-UI-SPEC.md "Keyboard Map" — `j`/`k`,
  * Home/End, Enter/`o` to open detail, `s` to open the status picker) and the item detail panel /
  * status picker overlays for the currently selected item.
+ *
+ * All of that keyboard dispatch reads through `state/keyboard.ts`'s `resolveBinding` — this file
+ * contains no `event.key === '...'` switch of its own (01-09-PLAN.md Task 1). Selection is held as
+ * the selected item's **id** in `state/uiStore.ts` (`selectedItemId`), never a row index, so it
+ * survives a pushed delta reordering or shrinking the window (01-UI-SPEC.md "Focus & selection
+ * model"). The Escape ladder (palette → detail panel → quick-add → clear selection,
+ * `nextEscapeLayer`) is coordinated from the `useEffect` below, since it must be able to see
+ * `state/uiStore.ts`'s `paletteOpen` even though `CommandPalette.tsx` mounts outside this tree.
  */
-import { useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { BoardRow, ROW_HEIGHT } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
 import { IssuesLane } from "./IssuesLane";
 import { QuickAdd } from "./QuickAdd";
 import { DoneWarning } from "./DoneWarning";
+import { DeleteConfirm } from "./DeleteConfirm";
 import { StatusPicker } from "./pickers/StatusPicker";
 import { PriorityPicker } from "./pickers/PriorityPicker";
 import { EstimatePicker } from "./pickers/EstimatePicker";
@@ -26,8 +35,18 @@ import { AssigneePicker } from "./pickers/AssigneePicker";
 import { ItemDetailPanel, type DetailItem } from "../item-detail/ItemDetailPanel";
 import { useCollapseStore } from "./collapseStore";
 import {
+  boundarySelectionId,
+  nextEscapeLayer,
+  nextSelectionId,
+  resolveBinding,
+  useGlobalBindings,
+} from "../state/keyboard";
+import { useUiStore } from "../state/uiStore";
+import {
   useActors,
+  useCreateEpic,
   useCreateIssue,
+  useDeleteItem,
   useReorderItem,
   useSetAssignee,
   useSetEstimate,
@@ -61,7 +80,13 @@ const BAND_COUNT_KEY: Record<BandStatus, keyof BandCounts> = {
 type RackRow =
   | { kind: "header"; status: BandStatus }
   | { kind: "quick-add" }
-  | { kind: "item"; item: BoardItem };
+  | { kind: "item"; item: BoardItem; posInSet: number };
+
+/** `Epic`/`Task`/`Issue` — the exact wording `DeleteConfirm`'s heading (Copywriting Contract)
+ * requires, derived from a `BoardItemKind` rather than hand-typed at each call site. */
+function itemTypeLabel(kind: BoardItemKind): "Epic" | "Task" {
+  return kind === "epic" ? "Epic" : "Task";
+}
 
 /** Which row-level picker is open, if any. One piece of state covers all four (status, priority,
  * estimate, assignee) rather than four parallel `useState` triples — they share the same
@@ -108,11 +133,26 @@ export function BoardView({
 }: BoardViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Selection is an item id, held in the shared store (01-09-PLAN.md Task 1) — never a row index
+  // — so it survives a pushed delta reordering the window, and so `CommandPalette.tsx` (mounted
+  // outside this tree) can read/drive it too.
+  const selectedId = useUiStore((state) => state.selectedItemId);
+  const setSelectedId = useUiStore((state) => state.setSelectedItemId);
+  // Both held in the shared store, not local state — `CommandPalette.tsx`'s "Open selected item"
+  // and "Delete" commands (generated from the board-list binding table, Task 2) drive them from
+  // outside this tree, exactly like `selectedItemId` above (see `state/uiStore.ts`'s doc comments).
+  const detailItemId = useUiStore((state) => state.detailItemId);
+  const setDetailItemId = useUiStore((state) => state.setDetailItemId);
+  const deleteTarget = useUiStore((state) => state.deleteTarget);
+  const setDeleteTarget = useUiStore((state) => state.setDeleteTarget);
   const [listFocused, setListFocused] = useState(false);
   const [activePicker, setActivePicker] = useState<{ kind: PickerKind; id: string } | null>(null);
   const [pickerAnchor, setPickerAnchor] = useState<AnchorRect | null>(null);
-  const [detailItemId, setDetailItemId] = useState<string | null>(null);
+  // Quick-add is on demand (`c`/`⌘N` opens it; 01-UI-SPEC.md "Quick-add", "Surface Inventory") —
+  // `effectiveQuickAddOpen` below additionally forces it open for a project with zero items, per
+  // the empty-board default ("quick-add is already visible and focused," State Inventory).
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddKind, setQuickAddKind] = useState<BoardItemKind>("task");
   // D-08: moving an item to Done with unchecked criteria warns but never blocks. The pending
   // change is held here rather than applied optimistically — `DoneWarning`'s Escape "reverts the
   // status change" by the mutation simply never having been sent (01-UI-SPEC.md State Inventory).
@@ -138,6 +178,47 @@ export function BoardView({
   const reorderItem = useReorderItem(projectId);
   const updateItem = useUpdateItem(projectId);
   const createIssue = useCreateIssue(projectId);
+  const createEpic = useCreateEpic(projectId);
+  const deleteItem = useDeleteItem(projectId);
+
+  // Switching projects must not carry a stale selection/detail/delete-target over onto a
+  // different project's items (and, as a side effect, resets any leftover state between test
+  // renders that reuse the same singleton `uiStore` — 01-09-PLAN.md keyboard-nav/palette test
+  // suites rely on this).
+  useEffect(() => {
+    setSelectedId(null);
+    setDetailItemId(null);
+    setDeleteTarget(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // "Selection follows a pushed delta" (01-UI-SPEC.md "Focus & selection model") has two halves.
+  // Reordering needs no code here at all: `selectedId` is an id, so a rank change that leaves the
+  // item in `items` leaves `selectedId` untouched and the row it now labels simply moves. The
+  // other half — the selected id being REMOVED from the window (deleted, or newly excluded by an
+  // active filter) — does need code: fall to the next-nearest surviving id in the *previous*
+  // order, never reset to the top. `prevItemsRef` is what "previous order" means here; it is
+  // updated at the end of every run, so the comparison is always against the window one delta ago.
+  const prevItemsRef = useRef<BoardItem[]>(items);
+  useEffect(() => {
+    const prevItems = prevItemsRef.current;
+    if (selectedId && !items.some((item) => item.id === selectedId)) {
+      const prevIndex = prevItems.findIndex((item) => item.id === selectedId);
+      if (prevIndex !== -1) {
+        const stillPresent = new Set(items.map((item) => item.id));
+        let nearest: string | null = null;
+        for (let offset = 1; offset < prevItems.length && nearest === null; offset++) {
+          const after = prevItems[prevIndex + offset];
+          const before = prevItems[prevIndex - offset];
+          if (after && stillPresent.has(after.id)) nearest = after.id;
+          else if (before && stillPresent.has(before.id)) nearest = before.id;
+        }
+        setSelectedId(nearest);
+      }
+    }
+    prevItemsRef.current = items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   // The `AssigneePicker`'s roster (BOARD-06) and the id -> actor lookup `BoardRow` resolves its
   // avatar/badge from — fetched once here, never by the row or the picker itself (opening a
@@ -148,6 +229,11 @@ export function BoardView({
     () => Object.fromEntries(actors.map((actor) => [actor.id, actor])),
     [actors],
   );
+
+  // Quick-add is a layer of its own (Escape ladder step 3) — an empty project still shows it,
+  // pre-focused, per the empty-board default (State Inventory), independent of whether the user
+  // has explicitly opened it via `c`/`⌘N`.
+  const effectiveQuickAddOpen = quickAddOpen || items.length === 0;
 
   const rows = useMemo<RackRow[]>(() => {
     const byStatus = new Map<BandStatus, BoardItem[]>();
@@ -161,18 +247,18 @@ export function BoardView({
       out.push({ kind: "header", status });
       if (collapsedByStatus[status]) continue;
       // Quick-add lives at the top of Backlog — the band new work always enters (D-09).
-      if (status === "backlog") {
+      if (status === "backlog" && effectiveQuickAddOpen) {
         out.push({ kind: "quick-add" });
       }
-      for (const item of byStatus.get(status) ?? []) {
-        out.push({ kind: "item", item });
-      }
+      (byStatus.get(status) ?? []).forEach((item, index) => {
+        out.push({ kind: "item", item, posInSet: index + 1 });
+      });
     }
     return out;
-  }, [items, collapsedByStatus]);
+  }, [items, collapsedByStatus, effectiveQuickAddOpen]);
 
   const selectableItems = useMemo(
-    () => rows.filter((r): r is { kind: "item"; item: BoardItem } => r.kind === "item"),
+    () => rows.filter((r): r is { kind: "item"; item: BoardItem; posInSet: number } => r.kind === "item"),
     [rows],
   );
 
@@ -222,83 +308,81 @@ export function BoardView({
     reorderItem.mutate({ kind: selectedItem.kind ?? "task", id: selectedId, direction });
   }
 
+  /** `nextSelectionId`/`boundarySelectionId` (`state/keyboard.ts`) are the one implementation
+   * both this keyboard path and `CommandPalette.tsx`'s "Move selection down"/"Jump to first row"
+   * commands call — "what does moving mean" is derived once. */
   function moveSelection(delta: number) {
-    if (selectableItems.length === 0) return;
-    const currentIndex = selectableItems.findIndex((r) => r.item.id === selectedId);
-    const nextIndex =
-      currentIndex === -1
-        ? delta > 0
-          ? 0
-          : selectableItems.length - 1
-        : Math.min(Math.max(currentIndex + delta, 0), selectableItems.length - 1);
-    setSelectedId(selectableItems[nextIndex]?.item.id ?? null);
+    setSelectedId(nextSelectionId(selectableItems.map((r) => r.item), selectedId, delta));
+  }
+
+  /** `c` (board-list) / `⌘N` (global) — opens quick-add for a task; `⌘⇧N` (global, via
+   * `useGlobalBindings` below) opens it for an epic. Both funnel through this one setter pair so
+   * quick-add's own "which kind am I creating" state has a single writer. */
+  function openQuickAdd(kind: BoardItemKind) {
+    setQuickAddKind(kind);
+    setQuickAddOpen(true);
+  }
+
+  /** ⌘⌫ (threat T-01-25) — always opens the named confirmation; the mutation itself is only
+   * issued from `confirmDelete` below, never directly from a keystroke. */
+  function requestDelete(item: BoardItem) {
+    setDeleteTarget({ kind: item.kind ?? "task", id: item.id, key: item.key, title: item.title });
+  }
+
+  function confirmDelete() {
+    if (!deleteTarget) return;
+    deleteItem.mutate({ kind: deleteTarget.kind, id: deleteTarget.id });
+    if (selectedId === deleteTarget.id) setSelectedId(null);
+    if (detailItemId === deleteTarget.id) setDetailItemId(null);
+    setDeleteTarget(null);
   }
 
   function handleContainerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (activePicker || detailItemId) return; // overlays own their own keyboard handling
+    if (activePicker || detailItemId || deleteTarget) return; // overlays own their own keyboard handling
 
-    // ⌘↑ / ⌘↓ reorder (D-11, BOARD-05) — checked ahead of the plain-arrow selection-move case
-    // below, since both share the same base key.
-    if (event.metaKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-      if (selectedId) {
-        event.preventDefault();
-        reorderSelected(event.key === "ArrowUp" ? "up" : "down");
-      }
-      return;
-    }
+    const binding = resolveBinding(event, "board-list");
+    if (!binding) return;
+    event.preventDefault();
 
-    switch (event.key) {
-      case "j":
-      case "ArrowDown":
-        event.preventDefault();
+    switch (binding.id) {
+      case "move-down":
         moveSelection(1);
         break;
-      case "k":
-      case "ArrowUp":
-        event.preventDefault();
+      case "move-up":
         moveSelection(-1);
         break;
-      case "Home":
-        event.preventDefault();
-        setSelectedId(selectableItems[0]?.item.id ?? null);
+      case "select-first":
+        setSelectedId(boundarySelectionId(selectableItems.map((r) => r.item), "first"));
         break;
-      case "End":
-        event.preventDefault();
-        setSelectedId(selectableItems[selectableItems.length - 1]?.item.id ?? null);
+      case "select-last":
+        setSelectedId(boundarySelectionId(selectableItems.map((r) => r.item), "last"));
         break;
-      case "Enter":
-      case "o":
-        if (selectedId) {
-          event.preventDefault();
-          setDetailItemId(selectedId);
-        }
+      case "open-detail":
+        if (selectedId) setDetailItemId(selectedId);
         break;
-      case "s":
-        if (selectedId) {
-          event.preventDefault();
-          openPickerFor("status", selectedId);
-        }
+      case "create-task":
+        openQuickAdd("task");
         break;
-      case "p":
-        if (selectedId) {
-          event.preventDefault();
-          openPickerFor("priority", selectedId);
-        }
+      case "open-status-picker":
+        if (selectedId) openPickerFor("status", selectedId);
         break;
-      case "e":
-        if (selectedId) {
-          event.preventDefault();
-          openPickerFor("estimate", selectedId);
-        }
+      case "open-priority-picker":
+        if (selectedId) openPickerFor("priority", selectedId);
         break;
-      case "a":
-        if (selectedId) {
-          event.preventDefault();
-          openPickerFor("assignee", selectedId);
-        }
+      case "open-estimate-picker":
+        if (selectedId) openPickerFor("estimate", selectedId);
         break;
-      case "Escape":
-        setSelectedId(null);
+      case "open-assignee-picker":
+        if (selectedId) openPickerFor("assignee", selectedId);
+        break;
+      case "reorder-up":
+        if (selectedId) reorderSelected("up");
+        break;
+      case "reorder-down":
+        if (selectedId) reorderSelected("down");
+        break;
+      case "delete-item":
+        if (selectedItem) requestDelete(selectedItem);
         break;
       default:
         break;
@@ -306,6 +390,59 @@ export function BoardView({
   }
 
   const selectedItem = selectableItems.find((r) => r.item.id === selectedId)?.item;
+
+  // `⌘N`/`⌘⇧N` must open quick-add regardless of which region currently owns focus — the
+  // board-list container's own `resolveBinding` call above only fires while the list itself is
+  // focused, so this project's board also registers the same two global action ids directly.
+  useGlobalBindings({
+    "create-task": () => openQuickAdd("task"),
+    "create-epic": () => openQuickAdd("epic"),
+  });
+
+  // The Escape ladder (01-UI-SPEC.md "Focus & selection model") — exactly one layer closes per
+  // press, in the fixed order palette → detail panel → quick-add → clear selection. A capture-
+  // phase `window` listener runs ahead of every layer's own Radix `DismissableLayer` (which also
+  // listens on `document`, one step later in the capture chain), so `stopPropagation` here fully
+  // owns the keystroke and no two layers can ever close on the same press.
+  useEffect(() => {
+    // The bare `KeyboardEvent` name is shadowed in this file by React's own generic type (this
+    // module's top-of-file import for `handleContainerKeyDown`'s synthetic-event param) — spell
+    // out `globalThis.KeyboardEvent` so this native `window` listener is typed against the real
+    // DOM event, not React's.
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      const layer = nextEscapeLayer({
+        paletteOpen: useUiStore.getState().paletteOpen,
+        detailOpen: detailItemId !== null,
+        quickAddOpen,
+        // A row-level picker AND `DeleteConfirm` both already own their own Escape (Radix
+        // `DismissableLayer`) — the ladder steps aside for either, exactly as it does for a
+        // picker (see `nextEscapeLayer`'s doc comment).
+        pickerOpen: activePicker !== null || deleteTarget !== null,
+        hasSelection: selectedId !== null,
+      });
+      if (!layer) return;
+      event.preventDefault();
+      event.stopPropagation();
+      switch (layer) {
+        case "palette":
+          useUiStore.getState().setPaletteOpen(false);
+          break;
+        case "detail":
+          setDetailItemId(null);
+          break;
+        case "quick-add":
+          setQuickAddOpen(false);
+          break;
+        case "selection":
+          setSelectedId(null);
+          break;
+      }
+    }
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailItemId, quickAddOpen, activePicker, deleteTarget, selectedId]);
 
   const containerStyle: CSSProperties = {
     height: "100%",
@@ -358,7 +495,19 @@ export function BoardView({
             if (row.kind === "quick-add") {
               return (
                 <div key={virtualRow.key} style={positionStyle}>
-                  <QuickAdd onCreate={onCreateTask} />
+                  <QuickAdd
+                    autoFocus
+                    onCreate={(title) =>
+                      quickAddKind === "epic" ? createEpic.mutate(title) : onCreateTask(title)
+                    }
+                    onEscape={() => setQuickAddOpen(false)}
+                    placeholder={
+                      quickAddKind === "epic"
+                        ? "Type an epic title, press Enter to create…"
+                        : undefined
+                    }
+                    ariaLabel={quickAddKind === "epic" ? "Quick add an epic" : undefined}
+                  />
                 </div>
               );
             }
@@ -384,6 +533,8 @@ export function BoardView({
                   selected={row.item.id === selectedId}
                   focused={row.item.id === selectedId && listFocused}
                   actorsById={actorsById}
+                  posInSet={row.posInSet}
+                  setSize={counts[BAND_COUNT_KEY[row.item.status as BandStatus]]}
                   onSelect={() => setSelectedId(row.item.id)}
                   onOpenDetail={() => {
                     setSelectedId(row.item.id);
@@ -567,6 +718,16 @@ export function BoardView({
             setPendingDone(null);
           }}
           onCancel={() => setPendingDone(null)}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteConfirm
+          itemType={itemTypeLabel(deleteTarget.kind)}
+          itemKey={deleteTarget.key}
+          title={deleteTarget.title}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>

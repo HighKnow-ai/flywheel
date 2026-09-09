@@ -14,6 +14,9 @@
  * lives there too (at the query boundary, not here — 01-UI-SPEC.md "Performance Contract").
  */
 import { create } from "zustand";
+// Type-only — erased at compile time, so this does not create a runtime circular dependency even
+// though `board/useBoardQuery.ts` itself imports `BoardFilterDraft` from this module.
+import type { BoardItemKind } from "../board/useBoardQuery";
 
 /**
  * The in-progress filter selection (BOARD-06): every field is an empty array when that dimension
@@ -62,6 +65,25 @@ interface UiState {
   searchTerm: string;
   filterDraft: BoardFilterDraft;
   selectedItemId: string | null;
+  /**
+   * Whether the command palette overlay is open (01-09-PLAN.md, `board/CommandPalette.tsx`) —
+   * lives here, not as `CommandPalette`-local state, because the Escape ladder in
+   * `BoardView.tsx` (`state/keyboard.ts`'s `nextEscapeLayer`) must be able to read it even though
+   * `CommandPalette` is mounted at the app-shell level, outside `BoardView`'s own tree.
+   */
+  paletteOpen: boolean;
+  /** The currently viewed project (01-UI-SPEC.md "Project switcher", `⌘1`-`⌘9`) — `null` means
+   * "no explicit choice yet," in which case `AppShell` falls back to the first registered
+   * project, exactly as it did before this field existed. */
+  currentProjectId: string | null;
+  /** The item detail panel's open item, if any (Escape ladder step 2). Held here rather than as
+   * `BoardView`-local state so `CommandPalette.tsx`'s "Open selected item" command (generated
+   * from the board-list binding table, 01-09-PLAN.md Task 2) can drive it from outside
+   * `BoardView`'s own tree, exactly like `selectedItemId`. */
+  detailItemId: string | null;
+  /** The pending destructive-delete target, if any (⌘⌫, threat T-01-25) — same cross-tree
+   * reasoning as `detailItemId`: `CommandPalette.tsx`'s "Delete" hot action sets this too. */
+  deleteTarget: { kind: BoardItemKind; id: string; key: string; title: string } | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -70,12 +92,20 @@ interface UiState {
   toggleEstimate: (estimate: number) => void;
   clearFilters: () => void;
   setSelectedItemId: (id: string | null) => void;
+  setPaletteOpen: (open: boolean) => void;
+  setCurrentProjectId: (id: string | null) => void;
+  setDetailItemId: (id: string | null) => void;
+  setDeleteTarget: (target: UiState["deleteTarget"]) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
   searchTerm: "",
   filterDraft: EMPTY_FILTER_DRAFT,
   selectedItemId: null,
+  paletteOpen: false,
+  currentProjectId: null,
+  detailItemId: null,
+  deleteTarget: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -119,4 +149,8 @@ export const useUiStore = create<UiState>((set) => ({
   clearFilters: () => set({ filterDraft: EMPTY_FILTER_DRAFT, searchTerm: "" }),
 
   setSelectedItemId: (id) => set({ selectedItemId: id }),
+  setPaletteOpen: (open) => set({ paletteOpen: open }),
+  setCurrentProjectId: (id) => set({ currentProjectId: id }),
+  setDetailItemId: (id) => set({ detailItemId: id }),
+  setDeleteTarget: (target) => set({ deleteTarget: target }),
 }));

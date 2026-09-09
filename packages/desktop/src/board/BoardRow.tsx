@@ -21,8 +21,22 @@
  * implemented — no activity trail exists until a later plan — and is simply not rendered, not
  * rendered as an empty placeholder, matching the precedent 01-03/01-04 documented for the same
  * reason; see this plan's SUMMARY "Known Stubs" section.
+ *
+ * This row owns NO key handling of its own (01-09-PLAN.md, `state/keyboard.ts`'s doc comment):
+ * `state/keyboard.ts` is the only module that maps a key to a board action, and `BoardView.tsx`'s
+ * container-level handler is the only place that mapping is applied — a second, row-local
+ * `onKeyDown` switching on the same letters would be exactly the "two key-handling systems
+ * fighting each other" failure mode this plan exists to remove (it also used to double-fire,
+ * since a bare `handleRowKeyDown` on the focused row does not stop the identical case in the
+ * container's own handler from also running on the same bubbled event).
+ *
+ * `setSize`/`posInSet` back `aria-setsize`/`aria-posinset` (01-UI-SPEC.md "Accessibility"): the
+ * band's true total (from the core's filter-aware per-band counts, 01-08) and this row's true
+ * 1-indexed position within that band's currently loaded window — not the virtualizer's mounted
+ * window — so a screen reader announces total/position correctly even though only a few rows
+ * exist in the DOM at any moment.
  */
-import type { CSSProperties, ComponentType, KeyboardEvent, MouseEvent } from "react";
+import type { CSSProperties, ComponentType, MouseEvent } from "react";
 import * as icons from "lucide-react";
 import {
   actorTypeMarkId,
@@ -61,6 +75,12 @@ export interface BoardRowProps {
    * "the renderer never trusts its own write" discipline extends to "never fetches its own
    * dependency data mid-render" here — `BoardView` owns the one `useActors()` call). */
   actorsById?: Record<string, Actor>;
+  /** This item's true 1-indexed position within its status band's currently loaded window —
+   * `aria-posinset`'s source (see the module doc comment). */
+  posInSet?: number;
+  /** The band's true total item count (from the core's per-band counts) — `aria-setsize`'s
+   * source. */
+  setSize?: number;
   onSelect?: () => void;
   onOpenDetail?: () => void;
   onOpenStatusPicker?: () => void;
@@ -74,6 +94,8 @@ export function BoardRow({
   selected = false,
   focused = false,
   actorsById,
+  posInSet,
+  setSize,
   onSelect,
   onOpenDetail,
   onOpenStatusPicker,
@@ -104,25 +126,6 @@ export function BoardRow({
 
   function handleRowClick() {
     onSelect?.();
-  }
-
-  function handleRowKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Enter" || event.key === "o") {
-      event.preventDefault();
-      onOpenDetail?.();
-    } else if (event.key === "s") {
-      event.preventDefault();
-      onOpenStatusPicker?.();
-    } else if (event.key === "p") {
-      event.preventDefault();
-      onOpenPriorityPicker?.();
-    } else if (event.key === "e") {
-      event.preventDefault();
-      onOpenEstimatePicker?.();
-    } else if (event.key === "a") {
-      event.preventDefault();
-      onOpenAssigneePicker?.();
-    }
   }
 
   function handleStatusGlyphClick(event: MouseEvent<HTMLSpanElement>) {
@@ -176,11 +179,12 @@ export function BoardRow({
       role="listitem"
       aria-label={accessibleName}
       aria-selected={selected}
+      aria-setsize={setSize}
+      aria-posinset={posInSet}
       tabIndex={focused ? 0 : -1}
       style={rowStyle}
       onClick={handleRowClick}
       onDoubleClick={onOpenDetail}
-      onKeyDown={handleRowKeyDown}
     >
       <span
         role="button"

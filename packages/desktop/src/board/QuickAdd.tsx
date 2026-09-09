@@ -11,6 +11,15 @@ export interface QuickAddProps {
   placeholder?: string;
   ariaLabel?: string;
   background?: string;
+  /** Focuses the input on mount (01-09-PLAN.md: `c`/`⌘N` opening quick-add on demand must land
+   * the cursor in it immediately, matching "quick-add is already visible and focused" for the
+   * empty-board default). Left `false` by default so `IssuesLane.tsx`'s always-mounted quick-add
+   * (01-04) does not steal focus on every app load. */
+  autoFocus?: boolean;
+  /** Fires in addition to the existing clear-and-blur behavior when Escape cancels the row — lets
+   * a caller that renders this row conditionally (`BoardView.tsx`'s on-demand quick-add) also
+   * unmount it, completing the Escape ladder's "quick-add" layer (01-09-PLAN.md Task 1). */
+  onEscape?: () => void;
 }
 
 export function QuickAdd({
@@ -18,6 +27,8 @@ export function QuickAdd({
   placeholder = "Type a title, press Enter to create…",
   ariaLabel = "Quick add a task",
   background = "var(--strip-backlog)",
+  autoFocus = false,
+  onEscape,
 }: QuickAddProps) {
   const [value, setValue] = useState("");
 
@@ -31,6 +42,7 @@ export function QuickAdd({
     } else if (event.key === "Escape") {
       setValue("");
       event.currentTarget.blur();
+      onEscape?.();
     }
   }
 
@@ -58,6 +70,8 @@ export function QuickAdd({
         placeholder={placeholder}
         aria-label={ariaLabel}
         value={value}
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- opt-in only; see the prop doc comment.
+        autoFocus={autoFocus}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={handleKeyDown}
       />

@@ -14,7 +14,7 @@
  * documented in this plan's SUMMARY ("Known Stubs"): composing the epic filter with another
  * active filter that hides every row of a given epic will drop that epic from the chip list too.
  */
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useMemo, useRef, type CSSProperties } from "react";
 import { Search, X } from "lucide-react";
 import {
   ESTIMATE_MARKS,
@@ -25,6 +25,7 @@ import {
   priorityValueFromMarkId,
   statusValueFromMarkId,
 } from "../legend/marks";
+import { useGlobalBindings } from "../state/keyboard";
 import { isFilterDraftActive, useUiStore } from "../state/uiStore";
 import { useActors, type BoardItem } from "./useBoardQuery";
 
@@ -53,33 +54,16 @@ function chipStyle(active: boolean): CSSProperties {
   };
 }
 
-/** Global `⌘F`/`/` search-focus shortcut, ignored while another text field already has focus
- * (so `/` still types a literal slash into, say, the quick-add title input). */
-function useSearchFocusShortcut(inputRef: React.RefObject<HTMLInputElement | null>) {
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      const isShortcut = (event.metaKey && event.key.toLowerCase() === "f") || event.key === "/";
-      if (!isShortcut) return;
-
-      const active = document.activeElement;
-      const alreadyTypingElsewhere =
-        active instanceof HTMLElement &&
-        (active.tagName === "INPUT" || active.tagName === "TEXTAREA") &&
-        active !== inputRef.current;
-      if (alreadyTypingElsewhere) return;
-
-      event.preventDefault();
-      inputRef.current?.focus();
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [inputRef]);
-}
-
 export function FilterBar({ items, isFetching = false }: FilterBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  useSearchFocusShortcut(inputRef);
+
+  // `⌘F`/`/` (01-UI-SPEC.md "Search & filter") — routed through `state/keyboard.ts`'s
+  // `useGlobalBindings`, not a hand-rolled `event.key === '/'` listener (01-09-PLAN.md Task 1:
+  // "no board component attaches its own bare-letter key handler"). The ambiguity guard that used
+  // to live here — ignore the shortcut while another text field already has focus, so `/` still
+  // types a literal slash into, say, the quick-add title input — is now `resolveBinding`'s own
+  // `isTypingTarget` check, applied uniformly to every global binding, not just this one.
+  useGlobalBindings({ "focus-search": () => inputRef.current?.focus() });
 
   const searchTerm = useUiStore((state) => state.searchTerm);
   const setSearchTerm = useUiStore((state) => state.setSearchTerm);
@@ -168,7 +152,10 @@ export function FilterBar({ items, isFetching = false }: FilterBarProps) {
         )}
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+      {/* `id`s below are `CommandPalette.tsx`'s "Filter by Status/Epic/Assignee/Priority" commands'
+          focus target (01-09-PLAN.md Task 2) — the palette moves focus to the first chip in the
+          matching group rather than duplicating this group's own toggle logic. */}
+      <div id="filter-status" style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
         {STATUS_MARKS.map((mark) => {
           const value = statusValueFromMarkId(mark.id);
           const selected = filterDraft.statuses.includes(value);
@@ -187,7 +174,7 @@ export function FilterBar({ items, isFetching = false }: FilterBarProps) {
         })}
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+      <div id="filter-priority" style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
         {PRIORITY_MARKS.map((mark) => {
           const value = priorityValueFromMarkId(mark.id);
           const selected = filterDraft.priorities.includes(value);
@@ -225,7 +212,7 @@ export function FilterBar({ items, isFetching = false }: FilterBarProps) {
         })}
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+      <div id="filter-epic" style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
         <button
           key="no-epic"
           type="button"
@@ -253,7 +240,7 @@ export function FilterBar({ items, isFetching = false }: FilterBarProps) {
         })}
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+      <div id="filter-assignee" style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
         <button
           key="unassigned"
           type="button"
