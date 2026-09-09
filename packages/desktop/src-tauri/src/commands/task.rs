@@ -247,3 +247,27 @@ pub fn task_set_assignee(
         .ok();
     Ok(())
 }
+
+/// Reparent a task under an epic, or clear its epic with `epic_id: None` (G-01-EPIC-ASSIGN).
+/// Performs no application-layer existence or same-project check of its own —
+/// `flywheel_core::domain::task::set_epic`'s `assert_parent_in_project` and the `epic_id`
+/// foreign key are the authority, exactly as `task_set_assignee` defers to the `assignee_id`
+/// foreign key. `actor_id` is resolved server-side (T-01-04); emits `board:changed` after
+/// commit (D-04).
+#[tauri::command]
+pub fn task_set_epic(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+    epic_id: Option<String>,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::task::set_epic(&mut conn, &actor_id, &task_id, epic_id.as_deref())
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
+        .ok();
+    Ok(())
+}

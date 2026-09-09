@@ -174,3 +174,34 @@ pub fn issue_reorder(
         .ok();
     Ok(())
 }
+
+/// Reparent an issue to an epic, to a task, or detach it — `parent_kind` is `None`, `"epic"` or
+/// `"task"`; `parent_id` is required when `parent_kind` is `"epic"`/`"task"` (G-01-EPIC-ASSIGN).
+/// Parsed with `IssueParent::parse` before the connection is locked, mirroring how
+/// `issue_reorder` parses its direction first. `actor_id` is resolved server-side (T-01-04);
+/// emits `board:changed` after commit (D-04).
+#[tauri::command]
+pub fn issue_set_parent(
+    state: State<AppState>,
+    app: AppHandle,
+    issue_id: String,
+    parent_kind: Option<String>,
+    parent_id: Option<String>,
+) -> Result<(), String> {
+    let parent = flywheel_core::domain::issue::IssueParent::parse(
+        parent_kind.as_deref(),
+        parent_id.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::issue::set_parent(&mut conn, &actor_id, &issue_id, parent)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "issue", "id": issue_id }))
+        .ok();
+    Ok(())
+}
