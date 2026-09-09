@@ -167,3 +167,7 @@ None - no external service configuration required.
 ---
 *Phase: 01-the-board-is-the-store-of-record*
 *Completed: 2026-09-09*
+
+## Self-Check: PASSED
+
+All 8 modified files found on disk; all 4 commits (`e035026`, `2a683e3`, `accae08`, `e3542ea`) found in `git log`. `cargo test --workspace` and `cargo test -p core --test hierarchy_workflow` both pass with zero failures; `task_set_epic`/`issue_set_parent` confirmed present in `generate_handler!`; BOARD-01 confirmed unticked in `.planning/REQUIREMENTS.md`.
