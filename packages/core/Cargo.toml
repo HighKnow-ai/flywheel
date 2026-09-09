@@ -7,6 +7,10 @@ description = "Flywheel domain crate: schema, persistence, and the store-of-reco
 [lib]
 name = "core"
 
+[[bin]]
+name = "crash_harness"
+path = "tests/bin/crash_harness.rs"
+
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
 rusqlite_migration = "2.6"
