@@ -20,7 +20,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Board
 
-- [x] **BOARD-01**: User can create, edit and delete epics, tasks and issues in a fixed three-level hierarchy that cannot be reconfigured
+- [ ] **BOARD-01**: User can create, edit and delete epics, tasks and issues in a fixed three-level hierarchy that cannot be reconfigured (reachable only once gap G-01-EPIC-ASSIGN closes — the reparenting commands landed in plan 01-12, but nothing in the running application calls them yet; plan 01-15 restores this tick with evidence)
 - [x] **BOARD-02**: Every task carries structured acceptance criteria as discrete, individually checkable items — not free prose
 - [ ] **BOARD-03**: Acceptance criteria are immutable once a task starts work; changing them creates a new revision rather than overwriting
 - [x] **BOARD-04**: Items move through a fixed workflow (Backlog → Todo → In Progress → In Review → Done) that cannot be customised
