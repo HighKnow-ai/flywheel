@@ -10,7 +10,7 @@
  * etc.) rather than inventing an undocumented mark.
  */
 
-export type MarkChannel = "row-state" | "focus" | "status" | "priority" | "epic";
+export type MarkChannel = "row-state" | "focus" | "status" | "priority" | "epic" | "criteria";
 
 export interface Mark {
   /** Stable identifier — matches the CSS token role this mark represents, where one exists. */
@@ -153,6 +153,31 @@ export const MARKS: Mark[] = [
     glyph: "CircleSlash",
     label: "No epic",
     meaning: "This task has no parent epic yet (D-13) — it may exist before its epic is known.",
+  },
+  // Acceptance-criteria marks (BOARD-02, D-05/D-06/D-08). The checked/total badge is
+  // structurally exempt from the row's progressive-disclosure ladder (01-UI-SPEC.md "Row
+  // Anatomy") — D-08 requires it "visible wherever the item appears."
+  {
+    id: "criterion-checked",
+    channel: "criteria",
+    glyph: "SquareCheck",
+    label: "Checked criterion",
+    meaning: "This acceptance criterion has been verified true.",
+  },
+  {
+    id: "criterion-unchecked",
+    channel: "criteria",
+    glyph: "Square",
+    label: "Unchecked criterion",
+    meaning: "This acceptance criterion has not yet been verified.",
+  },
+  {
+    id: "criteria-count-badge",
+    channel: "criteria",
+    glyph: "ListChecks",
+    label: "Criteria checked/total",
+    meaning:
+      "How many of this item's acceptance criteria are checked, out of its total. Visible wherever the item appears (D-08); an item with none shows 0/0.",
   },
 ];
 

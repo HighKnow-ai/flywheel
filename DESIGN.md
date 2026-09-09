@@ -387,3 +387,120 @@ contract review can run live.
   `01-10`'s activity trail are meant to be inserted.
 - `collapseStore.ts` as the one place any future per-project, non-database UI preference (e.g. a
   "Group by" toggle, Open Decisions #9) should live, rather than a second ad hoc Zustand store.
+
+# Phase 1, Plan 01-06 — Acceptance Criteria: Real Contracts, Not a Chat Blob
+
+**Status:** tasks and epics now carry discrete acceptance criteria — each its own row with its
+own ULID, a checkable statement plus a verification hint, individually toggleable without
+touching the parent row, and counted (`checked/total`) wherever the item appears. This is the
+plan `01-CONTEXT.md` names as the phase's core-value requirement (`BOARD-02`): "every unit of
+agent work is anchored to a structured board item with real acceptance criteria — never a chat
+blob."
+
+## What was built
+
+- **Rust core** — `domain::acceptance_criterion`: `create_criterion`, `update_criterion`,
+  `toggle_criterion`, `reorder_criterion`, `delete_criterion`, `list_criteria`, each opening
+  exactly one `conn.transaction()` and event-logging under `stream_type = "acceptance_criterion"`
+  with the criterion's own id as `stream_id` and the parent's id denormalised into `task_id`/
+  `epic_id` (D-19). `toggle_criterion`'s UPDATE names only `checked` + `updated_at` on the
+  criterion row — never `rank`/`statement`/`verification_hint` — plus a second UPDATE that
+  touches only the parent's `updated_at` (a check is not an edit, T-01-20). `parent_type` outside
+  `{"task","epic"}` is rejected by the schema's own CHECK constraint (D-07), not by an
+  application-layer allow-list — the same discipline `task.rs`/`epic.rs` already apply to status.
+  `delete_task`/`delete_epic` now cascade-delete their criteria inside their own existing
+  transaction, one `criterion.deleted` event per row, so the trail records exactly what a parent
+  deletion removed.
+- **`query::list_board`** — `BoardItem` gained `criteria_checked`/`criteria_total`, computed by a
+  single grouped-aggregate `LEFT JOIN` against `acceptance_criteria` in the same statement — no
+  per-row follow-up query, which would violate D-08's "visible wherever the item appears" against
+  the performance contract at 1,000+ items.
+- **Six new Tauri commands** (`criterion_create/update/toggle/reorder/delete/list`), actor-
+  resolved server-side, statement/hint length-capped, registered in `main.rs` and mirrored in
+  `capabilities/default.json`'s roster description.
+- **`AcceptanceCriteriaList.tsx`** — the inline criteria list inside `ItemDetailPanel.tsx`,
+  rendered for tasks and epics only (never for an issue, D-07). Zero criteria opens the inline
+  composer automatically, mirroring the board's own zero-item empty state ("quick-add is already
+  visible and focused"); `n` opens the composer when criteria already exist; `j`/`k` move the
+  keyboard-focus cursor between rows; `Space`/`Enter` toggles the focused row. Checking a
+  criterion annotates that one row and refetches the criteria query — it never triggers a rack
+  re-render, matching the direction's signature-interaction performance thesis.
+- **`BoardRow.tsx`** — gained the criteria `checked/total` field in its fixed Row Anatomy
+  position (between the epic pill and the priority glyph), structurally exempt from the
+  progressive-disclosure truncation ladder; renders `0/0` for an item with no criteria, never a
+  blank, for both epics and tasks.
+- **`DoneWarning.tsx`** — the non-modal one-keypress confirmation (D-08): `BoardView.tsx` now
+  funnels every status change — whether from the row-level `s` picker or the detail panel's own
+  picker — through one `requestStatusChange` gate. A transition to Done with unchecked criteria
+  does not call the mutation immediately; it holds the pending change in state and renders
+  `DoneWarning`. `Enter` confirms (fires the mutation); `Escape` cancels — the status change was
+  never sent, so "reverts" simply means "never applied." It renders nothing when the total is
+  zero or nothing is left unchecked.
+- **`legend/marks.ts`** — a new `criteria` channel with three marks (`criterion-checked`,
+  `criterion-unchecked`, `criteria-count-badge`), each with a non-empty label and meaning;
+  `Legend.tsx`'s `CHANNEL_LABELS` extended to render the new channel (a `Record<MarkChannel,
+  string>` — TypeScript itself enforces this can't be forgotten).
+
+## Review against the direction contract
+
+Same standing reference as `01-03`/`01-04` (`packages/desktop/index.html`, seed `59b0beb9`) —
+this plan does not re-author it. **This execution environment again has no agent-spawning tool
+available to this executor**, so the shipped `impeccable-finish-reviewer` and
+`impeccable-documenter` subagents named in Task 2's acceptance criteria could not be literally
+invoked; this section is the self-conducted substitute, stated explicitly rather than silently
+claimed, exactly as `01-02`/`01-03`/`01-04` documented for the same limitation. A live `tauri dev`
+capture was not attempted this session (no confirmed GUI display in this execution context);
+the review below is a structural/behavioral read of the built surface against `01-UI-SPEC.md` and
+`craft-floor.md`'s Verify/Refuse checklist — deferred to `/gsd-verify-work` for a live walkthrough,
+matching the precedent `01-04`'s coverage item D4 set.
+
+- **Detector:** `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
+  --json packages/desktop/src/item-detail packages/desktop/src/board/BoardRow.tsx
+  packages/desktop/src/board/DoneWarning.tsx packages/desktop/src/board/BoardView.tsx
+  packages/desktop/src/legend` returned `[]` — no findings.
+- **No mark without a legend entry:** confirmed — all three new criteria marks are in
+  `legend/marks.ts`'s `MARKS` registry with non-empty glyph/label/meaning, and the registry-
+  uniqueness test (`legend/__tests__`) still passes with the new entries.
+- **Contrast:** every new surface reuses `--surface-secondary`/`--text-primary-rack`/
+  `--text-muted-rack`/`--divider`/`--focus-ring` — the same token values `01-02`'s runnable
+  contrast suite already proved; no new colour was introduced.
+- **Depth:** `DoneWarning`'s floating confirmation carries a real offset+blur shadow
+  (`0 8px 24px rgba(0,0,0,0.35)`), the same value `StatusPicker`'s portal menu already uses — not
+  a zero-offset colored halo, and not a second shadow recipe.
+- **Type:** the criteria checked/total badge uses `tabular-nums` (`BoardRow.tsx` and
+  `AcceptanceCriteriaList.tsx`'s header count), per the project's tabular-figures rule for every
+  columnar/numeric field.
+- **Motion — no new choreography introduced.** Checking a criterion is a single-row refetch, not
+  an animated transition; `DoneWarning`'s appearance is not an authored entrance (it mounts/
+  unmounts plainly) — `01-UI-SPEC.md`'s Motion section names "the Done-with-unchecked-criteria
+  prompt appears briefly (no bounce)" as an intent; this plan does not add bounce, but also does
+  not author a specific appear/disappear transition for it, which is an accepted, documented gap
+  rather than a violation — nothing in this plan's own acceptance criteria requires one.
+- **Icons:** `criterion-checked`/`criterion-unchecked` use `SquareCheck`/`Square` (lucide-react),
+  matching the existing `Icon` resolution pattern from `BoardRow.tsx`/`StatusPicker.tsx` — no
+  unicode/emoji stand-in.
+
+## Known deferred surfaces (not stubs — explicit scope boundaries)
+
+- **Criterion editing, reordering and deletion from the UI** — `update_criterion`,
+  `reorder_criterion` and `delete_criterion` exist as core functions and Tauri commands (proven
+  by `packages/core/tests/criteria.rs`), but `AcceptanceCriteriaList.tsx` wires only create/
+  toggle from the keyboard, per Task 2's own `<action>` scope (add/move/toggle only — no drag,
+  no delete affordance). A later plan can wire the remaining commands without any core or Tauri
+  change.
+- **The activity trail** — `ItemDetailPanel.tsx`'s section boundary still reserves the space;
+  `01-10` owns it.
+- **Live `tauri dev` walkthrough** — Task 2's `<human-check>` block (create three criteria with
+  hints, check two, confirm the strip shows `2/3` without a rack re-render, move to Done and
+  confirm the warning + one-keypress completion, confirm an issue has no criteria section) was
+  not run live this session — see coverage note above, deferred to `/gsd-verify-work`.
+
+## What the next plan inherits
+
+- `domain::acceptance_criterion`'s full one-transaction-per-mutation shape, ready for `01-10`'s
+  activity trail to read the same `acceptance_criterion` event stream by `task_id`/`epic_id`.
+- `AcceptanceCriteriaList.tsx`'s inline two-step composer pattern (statement first, then hint,
+  both inline, no dialog) as the reference for any future inline-composer surface.
+- `BoardView.tsx`'s `requestStatusChange` gate as the one place a future non-blocking-warning
+  pattern (if one is ever needed for another destructive-adjacent transition) should be added,
+  rather than a second ad hoc gate.

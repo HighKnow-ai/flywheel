@@ -31,6 +31,12 @@ export interface BoardItem {
   rank: string;
   priority: number;
   epicId: string | null;
+  /** How many of this item's acceptance criteria are checked, out of its total (BOARD-02, D-08).
+   * Optional for the same backward-compatibility reason `kind` is: callers built before this
+   * plan land supply neither field. `BoardRow.tsx` defaults both to 0 when absent, rendering
+   * `0/0` — never a blank. */
+  criteriaChecked?: number;
+  criteriaTotal?: number;
 }
 
 /** One row of the workflow-less issues lane (D-07) — issues carry no `status` field. */

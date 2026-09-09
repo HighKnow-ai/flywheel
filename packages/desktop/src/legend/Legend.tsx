@@ -8,6 +8,7 @@ const CHANNEL_LABELS: Record<MarkChannel, string> = {
   status: "Status",
   priority: "Priority",
   epic: "Epic",
+  criteria: "Criteria",
 };
 
 const SWATCH_BASE: CSSProperties = {

@@ -18,11 +18,12 @@ import { BoardRow, ROW_HEIGHT } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
 import { IssuesLane } from "./IssuesLane";
 import { QuickAdd } from "./QuickAdd";
+import { DoneWarning } from "./DoneWarning";
 import { StatusPicker } from "./pickers/StatusPicker";
 import { ItemDetailPanel, type DetailItem } from "../item-detail/ItemDetailPanel";
 import { useCollapseStore } from "./collapseStore";
 import { useCreateIssue, useSetStatus, useUpdateItem } from "./useBoardQuery";
-import type { BandCounts, BoardItem, IssueItem } from "./useBoardQuery";
+import type { BandCounts, BoardItem, BoardItemKind, IssueItem } from "./useBoardQuery";
 
 const BAND_ORDER = ["backlog", "todo", "in_progress", "in_review", "done"] as const;
 type BandStatus = (typeof BAND_ORDER)[number];
@@ -72,6 +73,16 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
   const [statusPickerForId, setStatusPickerForId] = useState<string | null>(null);
   const [statusPickerAnchor, setStatusPickerAnchor] = useState<AnchorRect | null>(null);
   const [detailItemId, setDetailItemId] = useState<string | null>(null);
+  // D-08: moving an item to Done with unchecked criteria warns but never blocks. The pending
+  // change is held here rather than applied optimistically — `DoneWarning`'s Escape "reverts the
+  // status change" by the mutation simply never having been sent (01-UI-SPEC.md State Inventory).
+  const [pendingDone, setPendingDone] = useState<{
+    kind: BoardItemKind;
+    id: string;
+    status: string;
+    checked: number;
+    total: number;
+  } | null>(null);
 
   // A stable module-level empty object — returning a fresh `{}` literal from the selector would
   // give Zustand's default reference-equality check a new value on every call, causing an
@@ -117,6 +128,23 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
   });
+
+  /**
+   * The single point every status change funnels through, whether it originated from the
+   * row-level picker (`s`) or from the detail panel's own picker (D-08). Moving to Done with
+   * unchecked criteria (total > 0, checked < total) does not call the mutation immediately —
+   * it raises `DoneWarning` and waits for one keypress. Every other transition commits at once.
+   */
+  function requestStatusChange(kind: BoardItemKind, id: string, status: string) {
+    const item = selectableItems.find((r) => r.item.id === id)?.item;
+    const checked = item?.criteriaChecked ?? 0;
+    const total = item?.criteriaTotal ?? 0;
+    if (status === "done" && total > 0 && checked < total) {
+      setPendingDone({ kind, id, status, checked, total });
+      return;
+    }
+    setStatus.mutate({ kind, id, status });
+  }
 
   function openStatusPickerFor(id: string) {
     const el = rowElRefs.current.get(id);
@@ -279,7 +307,7 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
               currentStatus={pickedRow.status}
               anchorRect={statusPickerAnchor}
               onSelect={(status) => {
-                setStatus.mutate({ kind: pickedRow.kind ?? "task", id: pickedRow.id, status });
+                requestStatusChange(pickedRow.kind ?? "task", pickedRow.id, status);
                 setStatusPickerForId(null);
               }}
               onClose={() => setStatusPickerForId(null)}
@@ -296,15 +324,26 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
               key: selectedItem.key,
               title: selectedItem.title,
               status: selectedItem.status,
+              projectId,
             } satisfies DetailItem
           }
           onClose={() => setDetailItemId(null)}
           onUpdateTitle={(title) =>
             updateItem.mutate({ kind: selectedItem.kind ?? "task", id: selectedItem.id, title })
           }
-          onSetStatus={(status) =>
-            setStatus.mutate({ kind: selectedItem.kind ?? "task", id: selectedItem.id, status })
-          }
+          onSetStatus={(status) => requestStatusChange(selectedItem.kind ?? "task", selectedItem.id, status)}
+        />
+      )}
+
+      {pendingDone && (
+        <DoneWarning
+          checked={pendingDone.checked}
+          total={pendingDone.total}
+          onConfirm={() => {
+            setStatus.mutate({ kind: pendingDone.kind, id: pendingDone.id, status: pendingDone.status });
+            setPendingDone(null);
+          }}
+          onCancel={() => setPendingDone(null)}
         />
       )}
     </div>

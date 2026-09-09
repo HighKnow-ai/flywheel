@@ -5,11 +5,9 @@
  * unmount-restore behavior — see `pickers/StatusPicker.tsx` for the same pattern).
  *
  * Renders the inline-editable title and description, the status picker (tasks/epics only — an
- * issue has no status, D-07), and a placeholder-free section boundary where the
- * acceptance-criteria list (plan 01-06) and the activity trail (plan 01-10) are inserted later —
- * this plan renders no criteria section for an issue and no criteria/activity content at all
- * yet, since neither feature exists in any plan through this one (see the SUMMARY's "Known
- * Stubs" section).
+ * issue has no status, D-07), the acceptance-criteria list (tasks and epics only, never for an
+ * issue — D-07, BOARD-02), and a placeholder-free section boundary where the activity trail
+ * (plan 01-10) is inserted later.
  *
  * Below 1100px window width this becomes an overlay with a scrim rather than sharing horizontal
  * space with the list (01-UI-SPEC.md "Item detail — side panel", responsive rule) — the caller
@@ -21,6 +19,7 @@ import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { StatusPicker } from "../board/pickers/StatusPicker";
 import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
+import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
 
 export type DetailItemKind = "epic" | "task" | "issue";
 
@@ -31,6 +30,8 @@ export interface DetailItem {
   title: string;
   /** `undefined` for an issue (D-07) — issues carry no status. */
   status?: string;
+  /** Needed by the acceptance-criteria list to create a criterion against the right project. */
+  projectId?: string;
 }
 
 export interface ItemDetailPanelProps {
@@ -173,9 +174,16 @@ export function ItemDetailPanel({ item, onClose, onUpdateTitle, onSetStatus }: I
             </div>
           )}
 
-          {/* Section boundary: plan 01-06 inserts the acceptance-criteria list here for tasks
-              and epics (never for an issue, per D-07); plan 01-10 inserts the activity trail
-              below that. Intentionally empty — no placeholder copy — until those plans land. */}
+          {!isIssue && (
+            <AcceptanceCriteriaList
+              parentType={item.kind === "epic" ? "epic" : "task"}
+              parentId={item.id}
+              projectId={item.projectId}
+            />
+          )}
+
+          {/* Section boundary: plan 01-10 inserts the activity trail here. Intentionally empty
+              — no placeholder copy — until that plan lands. */}
         </aside>
       </DismissableLayer>
     </FocusScope>

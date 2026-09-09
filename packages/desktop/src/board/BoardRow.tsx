@@ -1,13 +1,16 @@
 /**
  * One strip (01-UI-SPEC.md "Row Anatomy"): fixed-height, single-line, truncate-not-wrap. The
- * status glyph, key and priority glyph are never dropped at any supported window width. An epic
- * renders as an ordinary strip in its own band (01-UI-SPEC.md "Board list"); a task with no epic
- * shows the muted "No epic" pill (`legend/marks.ts`'s `epic-pill-none` mark) in the epic field
- * slot, never a blank (D-13). Fields this plan does not yet implement (assignee avatar, criteria
- * checked/total, actor-of-last-change) are simply not rendered — not rendered as an empty
- * placeholder — because their underlying features (assignee picker, acceptance criteria,
- * activity trail) do not exist yet in any plan through this one; see the SUMMARY's "Known
- * Stubs" section, matching the precedent plan 01-03 documented for these same fields.
+ * status glyph, key, priority glyph and the criteria checked/total count are never dropped at
+ * any supported window width. An epic renders as an ordinary strip in its own band (01-UI-SPEC.md
+ * "Board list"); a task with no epic shows the muted "No epic" pill (`legend/marks.ts`'s
+ * `epic-pill-none` mark) in the epic field slot, never a blank (D-13). The criteria checked/total
+ * count (BOARD-02, D-08) is structurally exempt from the progressive-disclosure truncation
+ * ladder — it renders `0/0` for an item with zero criteria, never a blank, for both tasks and
+ * epics (D-07: never for issues, but issues never reach `BoardRow` — they render in
+ * `IssuesLane.tsx`'s separate lane). Fields this plan does not yet implement (assignee avatar,
+ * actor-of-last-change) are simply not rendered — not rendered as an empty placeholder — because
+ * their underlying features do not exist yet in any plan through this one; see the SUMMARY's
+ * "Known Stubs" section, matching the precedent plan 01-03/01-04 documented for these fields.
  */
 import type { CSSProperties, ComponentType, KeyboardEvent, MouseEvent } from "react";
 import * as icons from "lucide-react";
@@ -53,13 +56,17 @@ export function BoardRow({
   const statusMark = MARKS_BY_ID[statusMarkId(item.status)];
   const priorityMark = MARKS_BY_ID[priorityMarkId(item.priority)];
   const epicMark = MARKS_BY_ID["epic-pill-none"];
+  const criteriaBadgeMark = MARKS_BY_ID["criteria-count-badge"];
   const statusLabel = statusMark?.label ?? item.status;
   const priorityLabel = priorityMark?.label ?? "No priority";
   const isEpic = item.kind === "epic";
+  const criteriaChecked = item.criteriaChecked ?? 0;
+  const criteriaTotal = item.criteriaTotal ?? 0;
 
-  // 01-UI-SPEC.md Accessibility: each row's accessible name concatenates key, title, status and
-  // priority — virtualization must not silently break linear screen-reader navigation.
-  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}, priority ${priorityLabel}`;
+  // 01-UI-SPEC.md Accessibility: each row's accessible name concatenates key, title, status,
+  // priority and the criteria checked/total count — virtualization must not silently break
+  // linear screen-reader navigation.
+  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked`;
 
   function handleRowClick() {
     onSelect?.();
@@ -153,6 +160,13 @@ export function BoardRow({
           {item.epicId ?? epicMark?.label ?? "No epic"}
         </span>
       )}
+      <span
+        className="type-label tabular-nums"
+        title={criteriaBadgeMark?.meaning}
+        style={{ flexShrink: 0, color: "var(--text-muted-strip)" }}
+      >
+        {criteriaChecked}/{criteriaTotal}
+      </span>
       <span aria-hidden="true" title={priorityLabel} style={{ display: "inline-flex", flexShrink: 0 }}>
         <Icon name={priorityMark?.glyph ?? "SignalZero"} />
       </span>
