@@ -22,7 +22,7 @@ import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { Legend } from "../legend/Legend";
-import { useRegisterProjectFlow } from "../projects/RegisterProjectFlow";
+import { useRegisterProjectFlow, useRegistrationErrorNotice } from "../projects/RegisterProjectFlow";
 import { StatusPicker } from "./pickers/StatusPicker";
 import { PriorityPicker } from "./pickers/PriorityPicker";
 import { EstimatePicker } from "./pickers/EstimatePicker";
@@ -128,8 +128,16 @@ export function CommandPalette() {
   const selectedItem = items.find((item) => item.id === selectedItemId);
 
   // The SAME registration flow ⌘⇧O and the rail's `+` button use (`RegisterProjectFlow.tsx`) —
-  // never a re-derived copy.
-  const { registerProjectFlow } = useRegisterProjectFlow();
+  // never a re-derived copy. `isError`/`error` are surfaced below (CR-02) — this command runs
+  // `close()` immediately (see `run` below), so by the time the mutation actually rejects the
+  // palette has already closed; the notice below is rendered from the `!open` early return so it
+  // survives the close instead of vanishing with the rest of the palette's content.
+  const {
+    registerProjectFlow,
+    isError: registerIsError,
+    error: registerError,
+  } = useRegisterProjectFlow();
+  const registerNotice = useRegistrationErrorNotice(registerIsError, registerError);
   const createIssue = useCreateIssue(effectiveProjectId);
   const setStatus = useSetStatus(effectiveProjectId);
   const setPriority = useSetPriority(effectiveProjectId);
@@ -331,7 +339,35 @@ export function CommandPalette() {
     }
   }
 
-  if (!open) return null;
+  if (!open) {
+    // The one branch that must still render something: `run()` above calls `close()`
+    // synchronously, so `open` is already false by the time a rejected registration sets
+    // `registerNotice` — without this, the notice would never reach the screen.
+    return registerNotice
+      ? createPortal(
+          <div
+            role="status"
+            className="type-label"
+            style={{
+              position: "fixed",
+              bottom: "var(--space-lg)",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 1400,
+              color: "var(--destructive-strip)",
+              background: "var(--surface-secondary)",
+              border: "1px solid var(--divider)",
+              borderRadius: "var(--radius-chrome)",
+              padding: "var(--space-sm) var(--space-md)",
+              maxWidth: "80vw",
+            }}
+          >
+            {registerNotice}
+          </div>,
+          document.body,
+        )
+      : null;
+  }
 
   if (overlay === "legend") {
     return <Legend onClose={() => setOverlay(null)} />;

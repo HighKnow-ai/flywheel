@@ -14,9 +14,14 @@
  * becomes immutable at the first item) is intentionally left as its own, separate path — it
  * predates this plan and is not one of this plan's `<files>`.
  */
+import { useEffect, useState } from "react";
 import { useProjects, useRegisterProject, type Project } from "../board/useBoardQuery";
 import { deriveKeyPrefix } from "../board/FirstRun";
 import { openFolderDialog } from "../adapters/tauri";
+
+/** How long a registration-failure notice stays visible before auto-clearing — the same
+ * transient-notice duration `ProjectRail.tsx`'s pre-existing `alreadyRegistered` notice uses. */
+const REGISTRATION_NOTICE_VISIBLE_MS = 4000;
 
 export interface RegisterProjectResult {
   project: Project;
@@ -70,4 +75,29 @@ export function useRegisterProjectFlow(onRegistered?: (result: RegisterProjectRe
     isError: registerProject.isError,
     error: registerProject.error,
   };
+}
+
+/**
+ * Turns a `useRegisterProjectFlow` mutation's `isError`/`error` into a transient message string
+ * that auto-clears after `REGISTRATION_NOTICE_VISIBLE_MS` — the one shared "how a registration
+ * failure is worded and how long it stays visible" every caller reuses (CR-02), rather than each
+ * of the three entry points that discard `isError`/`error` today re-deriving its own copy and
+ * timeout. Mirrors `FirstRun.tsx`'s own inline `registerProject.isError` copy
+ * ("Couldn't register this project — {message}") — the caller renders the returned string in
+ * whatever container fits its surface (a fixed toast in `CommandPalette.tsx`, an inline notice in
+ * `ProjectRail.tsx`/`App.tsx`), styled with `type-label` and `var(--destructive-strip)` the same
+ * way `FirstRun.tsx` already does, so there is exactly one error idiom, not a second one invented
+ * per call site.
+ */
+export function useRegistrationErrorNotice(isError: boolean, error: unknown): string | null {
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isError) return;
+    setMessage(`Couldn't register this project — ${(error as Error).message}`);
+    const timeout = window.setTimeout(() => setMessage(null), REGISTRATION_NOTICE_VISIBLE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [isError, error]);
+
+  return message;
 }

@@ -9,7 +9,7 @@ import { FirstRun } from "./board/FirstRun";
 import { useBoardChangedSubscription, useBoardQuery, useCreateTask, useProjects } from "./board/useBoardQuery";
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
-import { useRegisterProjectFlow } from "./projects/RegisterProjectFlow";
+import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
 import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
 import "./styles/tokens.css";
@@ -90,8 +90,36 @@ function AppShell() {
   const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
   // `⌘⇧O`'s actual effect — the SAME registration flow the rail's `+` button and the palette's
   // "Register Project…" command use (`projects/RegisterProjectFlow.tsx`), never a re-derived
-  // copy (01-UI-SPEC.md "Project switcher").
-  const { registerProjectFlow } = useRegisterProjectFlow();
+  // copy (01-UI-SPEC.md "Project switcher"). `isError`/`error` are surfaced below (CR-02) —
+  // this was previously the one entry point that discarded them entirely, leaving the folder
+  // picker closing with zero feedback on a rejected registration.
+  const { registerProjectFlow, isError: registerIsError, error: registerError } = useRegisterProjectFlow();
+  const registerNotice = useRegistrationErrorNotice(registerIsError, registerError);
+  // A fixed-position toast so a `⌘⇧O` failure is visible regardless of which of the three
+  // return branches below is currently active (boot, zero-project FirstRun, or the rail+board) —
+  // reuses FirstRun.tsx's own `type-label`/`var(--destructive-strip)` error styling rather than
+  // inventing a second idiom (CR-02).
+  const registerNoticeNode = registerNotice ? (
+    <div
+      role="status"
+      className="type-label"
+      style={{
+        position: "fixed",
+        bottom: "var(--space-lg)",
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 1400,
+        color: "var(--destructive-strip)",
+        background: "var(--surface-secondary)",
+        border: "1px solid var(--divider)",
+        borderRadius: "var(--radius-chrome)",
+        padding: "var(--space-sm) var(--space-md)",
+        maxWidth: "80vw",
+      }}
+    >
+      {registerNotice}
+    </div>
+  ) : null;
 
   // `⌘⇧O` and `⌘1`-`⌘9` (01-UI-SPEC.md Keyboard Map, Global) — held here because this is where
   // the registered-project list and the "which project is current" state both live.
@@ -131,6 +159,7 @@ function AppShell() {
       <>
         <div id="app-root" className="rack-ground" />
         <CommandPalette />
+        {registerNoticeNode}
       </>
     );
   }
@@ -142,6 +171,7 @@ function AppShell() {
           <FirstRun />
         </div>
         <CommandPalette />
+        {registerNoticeNode}
       </>
     );
   }
@@ -168,6 +198,7 @@ function AppShell() {
         </div>
       </div>
       <CommandPalette />
+      {registerNoticeNode}
     </>
   );
 }

@@ -12,11 +12,21 @@ import { useState, type CSSProperties } from "react";
 import { openFolderDialog } from "../adapters/tauri";
 import { useRegisterProject } from "./useBoardQuery";
 
-/** A short, uppercase, greppable default derived from a repo path's directory name (D-10). */
+/** A short, uppercase, greppable default derived from a repo path's directory name (D-10).
+ * Always emits a prefix `domain/project.rs::validate_key_prefix` accepts (2-10 uppercase
+ * letters/digits, starting with a letter) — a directory name like `2024-app` or a single-
+ * character name used to derive a prefix that failed validation (CR-02/IN-01), leaving three of
+ * the four registration entry points (which register immediately, with no confirmation step to
+ * edit the prefix the way this component's own two-step flow allows) with nothing to show for a
+ * rejected registration. Pad short results and force a leading letter rather than relying on
+ * every caller to handle the rejection. */
 export function deriveKeyPrefix(pathOrName: string): string {
   const base = pathOrName.split(/[\\/]/).filter(Boolean).pop() ?? "";
   const alnum = base.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  return alnum.slice(0, 4) || "PRJ";
+  const candidate = alnum.slice(0, 4);
+  const startsWithLetter = /^[A-Z]/.test(candidate);
+  const prefixed = startsWithLetter ? candidate : `P${candidate}`.slice(0, 4);
+  return prefixed.length >= 2 ? prefixed : "PRJ";
 }
 
 const emptyStateStyle: CSSProperties = {

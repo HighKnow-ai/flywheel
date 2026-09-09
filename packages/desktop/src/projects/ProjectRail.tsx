@@ -19,7 +19,7 @@
 import { useState, type CSSProperties } from "react";
 import { Plus, TriangleAlert } from "lucide-react";
 import type { Project } from "../board/useBoardQuery";
-import { useRegisterProjectFlow } from "./RegisterProjectFlow";
+import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 
 // 01-UI-SPEC.md "Project switcher (left rail)": "collapsed width ~56–72px" — 72 (the upper
 // bound) is what gives the "Unreachable" label below an unreachable entry's icon enough measure
@@ -76,7 +76,11 @@ export interface ProjectRailProps {
 
 export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRailProps) {
   const [notice, setNotice] = useState<string | null>(null);
-  const { registerProjectFlow } = useRegisterProjectFlow((result) => {
+  const {
+    registerProjectFlow,
+    isError: registerIsError,
+    error: registerError,
+  } = useRegisterProjectFlow((result) => {
     if (result.alreadyRegistered) {
       // A clone being re-adopted (or the same repository re-registered) is a visible event, not
       // a silent one (01-UI-SPEC.md "Project switcher", this plan's own read of D-15) — surfaced
@@ -86,6 +90,10 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
       window.setTimeout(() => setNotice(null), NOTICE_VISIBLE_MS);
     }
   });
+  // The rail's `+` button was previously the third of three entry points that discarded
+  // `isError`/`error` entirely (CR-02) — reuses the same transient-notice slot below rather than
+  // a second one, and `FirstRun.tsx`'s own error copy/styling rather than a third idiom.
+  const registrationErrorNotice = useRegistrationErrorNotice(registerIsError, registerError);
 
   if (projects.length === 0) {
     // Not present pre-first-registration — `App.tsx` renders `FirstRun` instead, but this guard
@@ -169,6 +177,15 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
           style={{ color: "var(--text-muted-rack)", textAlign: "center", padding: "0 var(--space-xs)" }}
         >
           {notice}
+        </div>
+      )}
+      {registrationErrorNotice && (
+        <div
+          role="status"
+          className="type-micro"
+          style={{ color: "var(--destructive-strip)", textAlign: "center", padding: "0 var(--space-xs)" }}
+        >
+          {registrationErrorNotice}
         </div>
       )}
     </nav>
