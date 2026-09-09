@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-05-PLAN.md
-last_updated: "2026-09-09T03:44:11.901Z"
+stopped_at: Completed 01-06-PLAN.md
+last_updated: "2026-09-09T04:09:16.096Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: e48dacf65b9f2278c8f5d2d3cde3bfac47f8a355
+state_head: 96f17a0061ee18dedf391bf494f82a1f2232f694
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 11
-  completed_plans: 4
+  completed_plans: 6
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 6 of 11
+Plan: 7 of 11
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P03 | 34min | 3 tasks | 38 files |
 | Phase 01 P04 | 55min | 3 tasks | 30 files |
 | Phase 01 P05 | 35min | 3 tasks | 7 files |
+| Phase 01 P06 | 35min | 3 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,9 @@ Recent decisions affecting current work:
 - [Phase 01]: Pickers portal-render to document.body (not in-row) because @tanstack/react-virtual gives each row its own CSS stacking context
 - [Phase 01]: Exposed core::db::migration_sources() (the same ordered SQL list the MIGRATIONS static compiles from) so migration_safety.rs builds its N-1 and bad-migration fixtures from the real sources rather than a duplicated, driftable copy
 - [Phase 01]: Crash-safety and migration-safety suites both passed against Task 2's already-correct implementation on first write (migration_safety.rs) or after one genuine intentional RED (crash_safety.rs) — documented in the SUMMARY per the same task-sequencing pattern 01-03 established
+- [Phase 01]: delete_task/delete_epic now cascade-delete their criteria (one criterion.deleted event per row) inside their existing transaction — required by Task 3's own named test, auto-added per deviation Rule 2.
+- [Phase 01]: DoneWarning gates the status mutation BEFORE it is sent rather than applying it optimistically and compensating on cancel — Escape 'reverts' by the mutation never having been sent.
+- [Phase 01]: reorder_criterion supports 'between two neighbours' and 'append after prev' but not inserting before the very front of an existing list — no rank_before helper exists and ranking.rs is not extended by this plan.
 
 ### Pending Todos
 
@@ -111,6 +115,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T03:44:11.885Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-09-09T04:09:16.080Z
+Stopped at: Completed 01-06-PLAN.md
 Resume file: None
