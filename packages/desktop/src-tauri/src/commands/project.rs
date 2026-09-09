@@ -1,6 +1,7 @@
 //! `project_register` / `project_list` — project registration and listing.
 
 use serde::Serialize;
+use std::path::Path;
 use tauri::State;
 
 use crate::state::AppState;
@@ -53,6 +54,18 @@ pub fn project_register(
     if repo_path.is_empty() || repo_path.len() > MAX_REPO_PATH_LEN {
         return Err("repository path is invalid".to_string());
     }
+    // T-01-13: the native folder picker returns an absolute path, but this handler is the trust
+    // boundary — canonicalize it here (resolving symlinks and `.`/`..` segments) before it is
+    // ever stored. `packages/core` never derives a path by concatenating stored content
+    // (ARCHITECTURE.md Anti-Pattern 3); canonicalizing at the one write point is what keeps that
+    // guarantee meaningful.
+    let canonical_repo_path = Path::new(repo_path)
+        .canonicalize()
+        .map_err(|e| format!("repository path could not be resolved: {e}"))?;
+    let canonical_repo_path = canonical_repo_path
+        .to_str()
+        .ok_or_else(|| "repository path is not valid UTF-8".to_string())?;
+
     let key_prefix = key_prefix.trim();
     if key_prefix.is_empty() || key_prefix.len() > MAX_KEY_PREFIX_LEN {
         return Err(format!(
@@ -63,7 +76,7 @@ pub fn project_register(
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let project = flywheel_core::domain::project::create_project(
-        &mut conn, &actor_id, name, repo_path, key_prefix, "main",
+        &mut conn, &actor_id, name, canonical_repo_path, key_prefix, "main",
     )
     .map_err(|e| e.to_string())?;
 
