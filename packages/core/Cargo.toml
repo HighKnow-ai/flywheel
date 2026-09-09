@@ -1,0 +1,21 @@
+[package]
+name = "core"
+version = "0.1.0"
+edition = "2021"
+description = "Flywheel domain crate: schema, persistence, and the store-of-record write path"
+
+[lib]
+name = "core"
+
+[dependencies]
+rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
+rusqlite_migration = "2.6"
+ulid = { version = "3.0", features = ["serde"] }
+fractional_index = { version = "2.0", features = ["serde"] }
+once_cell = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"

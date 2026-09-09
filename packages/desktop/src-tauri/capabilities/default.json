@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default-deny capability for the main window — no fs:, no shell:, only core defaults and window management (T-01-02).",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,16 @@
+/*
+ * Minimal reset only — no color, no typeface, no radius, no component chrome.
+ * The Flight Progress Strips visual world and every component surface are
+ * authored starting in plan 01-02; this plan renders only the boot mount.
+ */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}

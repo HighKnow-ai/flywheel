@@ -1,1 +1,16 @@
 .planning/research/.cache/
+
+# Rust
+/target/
+packages/*/target/
+packages/desktop/src-tauri/target/
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Impeccable working files
+.impeccable/
+
