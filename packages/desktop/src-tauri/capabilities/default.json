@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default-deny capability for the main window — no fs:, no shell:, only core defaults, window management, and the narrow dialog:allow-open grant for the project registration folder picker (T-01-02). Each new command this plan introduces is added explicitly below; no blanket grant is added.",
+  "description": "Default-deny capability for the main window — no fs:, no shell:, only core defaults, window management, and the narrow dialog:allow-open grant for the project registration folder picker (T-01-02). Tauri v2's ACL/permission system gates PLUGIN commands (dialog:*, core:*); this app's own #[tauri::command] handlers are not plugin commands and are exposed solely via main.rs's generate_handler! list, which is the actual default-deny boundary for them — no permissions/ directory defines custom ACL entries for them in this project, so listing them here would have no runtime effect (verified empirically: project_register/project_list/task_create/board_list from plan 01-03 already work without such an entry). Full app-command roster, kept here for auditability since generate_handler! is the enforcement point: project_register, project_list, task_create, task_update, task_delete, task_set_status, epic_create, epic_update, epic_delete, epic_set_status, issue_create, issue_update, issue_delete, board_list.",
   "windows": ["main"],
   "permissions": ["core:default", "dialog:allow-open"]
 }

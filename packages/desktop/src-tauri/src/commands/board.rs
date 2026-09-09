@@ -13,6 +13,7 @@ const DEFAULT_LIMIT: i64 = 200;
 #[serde(rename_all = "camelCase")]
 pub struct BoardItemDto {
     pub id: String,
+    pub kind: String,
     pub key: String,
     pub title: String,
     pub status: String,
@@ -25,12 +26,37 @@ impl From<flywheel_core::query::BoardItem> for BoardItemDto {
     fn from(item: flywheel_core::query::BoardItem) -> Self {
         Self {
             id: item.id,
+            kind: item.kind,
             key: item.key,
             title: item.title,
             status: item.status,
             rank: item.rank,
             priority: item.priority,
             epic_id: item.epic_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueItemDto {
+    pub id: String,
+    pub key: String,
+    pub title: String,
+    pub kind: String,
+    pub epic_id: Option<String>,
+    pub task_id: Option<String>,
+}
+
+impl From<flywheel_core::query::IssueItem> for IssueItemDto {
+    fn from(item: flywheel_core::query::IssueItem) -> Self {
+        Self {
+            id: item.id,
+            key: item.key,
+            title: item.title,
+            kind: item.kind,
+            epic_id: item.epic_id,
+            task_id: item.task_id,
         }
     }
 }
@@ -61,12 +87,14 @@ impl From<flywheel_core::query::BandCounts> for BandCountsDto {
 #[serde(rename_all = "camelCase")]
 pub struct BoardWindowDto {
     pub items: Vec<BoardItemDto>,
+    pub issues: Vec<IssueItemDto>,
     pub counts: BandCountsDto,
 }
 
-/// Return the first bounded window of `project_id`'s board. Cursor-based pagination beyond the
-/// first window lands with the scroll-to-load-more UI in a later plan; this tracer proves the
-/// bounded-read path itself (D-03).
+/// Return the first bounded window of `project_id`'s board: epics and tasks banded by status,
+/// plus the full issues lane (D-07). Cursor-based pagination beyond the first window lands with
+/// the scroll-to-load-more UI in a later plan; this tracer proves the bounded-read path itself
+/// (D-03).
 #[tauri::command]
 pub fn board_list(state: State<AppState>, project_id: String) -> Result<BoardWindowDto, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
@@ -75,6 +103,7 @@ pub fn board_list(state: State<AppState>, project_id: String) -> Result<BoardWin
 
     Ok(BoardWindowDto {
         items: window.items.into_iter().map(BoardItemDto::from).collect(),
+        issues: window.issues.into_iter().map(IssueItemDto::from).collect(),
         counts: window.counts.into(),
     })
 }

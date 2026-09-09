@@ -33,6 +33,16 @@ fn main() {
             commands::project::project_register,
             commands::project::project_list,
             commands::task::task_create,
+            commands::task::task_update,
+            commands::task::task_delete,
+            commands::task::task_set_status,
+            commands::epic::epic_create,
+            commands::epic::epic_update,
+            commands::epic::epic_delete,
+            commands::epic::epic_set_status,
+            commands::issue::issue_create,
+            commands::issue::issue_update,
+            commands::issue::issue_delete,
             commands::board::board_list,
         ])
         .run(tauri::generate_context!())
