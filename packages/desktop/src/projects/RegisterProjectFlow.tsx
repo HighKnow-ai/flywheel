@@ -93,7 +93,14 @@ export function useRegistrationErrorNotice(isError: boolean, error: unknown): st
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isError) return;
+    if (!isError) {
+      // WR-01: a successful retry flips `isError` back to `false` before the previous failure's
+      // timeout has fired — without this branch, the effect's cleanup cancels that pending
+      // `clearTimeout` and then returns early here without ever clearing `message` itself,
+      // leaving the stale "Couldn't register this project — …" notice on screen indefinitely.
+      setMessage(null);
+      return;
+    }
     setMessage(`Couldn't register this project — ${(error as Error).message}`);
     const timeout = window.setTimeout(() => setMessage(null), REGISTRATION_NOTICE_VISIBLE_MS);
     return () => window.clearTimeout(timeout);
