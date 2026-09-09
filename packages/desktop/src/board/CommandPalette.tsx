@@ -308,7 +308,17 @@ export function CommandPalette() {
             run: () => {
               if (!effectiveProjectId) return;
               const title = "New issue";
-              createIssue.mutate({ title, kind: "idea" });
+              // Files the new issue under whatever is currently selected — an epic, a task, or
+              // neither with no selection — the second half of G-01-EPIC-ASSIGN's first cause
+              // (`useCreateIssue` previously dropped both ids regardless of what this command
+              // sent it).
+              const selectedKind = selectedItem?.kind ?? "task";
+              createIssue.mutate({
+                title,
+                kind: "idea",
+                epicId: selectedItem && selectedKind === "epic" ? selectedItem.id : undefined,
+                taskId: selectedItem && selectedKind === "task" ? selectedItem.id : undefined,
+              });
               close();
             },
           });

@@ -66,7 +66,7 @@ function toggleValue<T>(list: T[], value: T): T[] {
  * per `state/keyboard.ts`'s layer model). One piece of state covers all four (status, priority,
  * estimate, assignee) rather than four parallel fields — they share the same
  * open/anchor/close shape. */
-export type PickerKind = "status" | "priority" | "estimate" | "assignee" | "epic";
+export type PickerKind = "status" | "priority" | "estimate" | "assignee" | "epic" | "issue-parent";
 
 /** The in-flight Done-transition warning (D-08): moving an item to Done with unchecked criteria
  * warns but never blocks. The pending change is held here rather than applied optimistically —

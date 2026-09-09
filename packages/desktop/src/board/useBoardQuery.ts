@@ -245,15 +245,23 @@ export function useCreateEpic(projectId: string | undefined) {
   });
 }
 
-/** Create an issue (proposals/notes — no status, D-07). */
+/**
+ * Create an issue (proposals/notes — no status, D-07), optionally filed under an epic or a task.
+ * `issue_create` has accepted `epic_id`/`task_id: Option<String>` since plan 01-04 — this hook
+ * silently dropping both was the second half of G-01-EPIC-ASSIGN's first cause (the live database
+ * held an issue with both columns NULL because nothing ever sent them): `CommandPalette.tsx`'s
+ * "Create Issue" command now supplies whichever one the current selection implies.
+ */
 export function useCreateIssue(projectId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { title: string; kind: string }) =>
+    mutationFn: (input: { title: string; kind: string; epicId?: string | null; taskId?: string | null }) =>
       invokeCommand<IssueItem>("issue_create", {
         projectId,
         title: input.title,
         kind: input.kind,
+        epicId: input.epicId,
+        taskId: input.taskId,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
   });
@@ -352,6 +360,27 @@ export function useSetTaskEpic(projectId: string | undefined) {
   return useMutation({
     mutationFn: (input: { taskId: string; epicId: string | null }) =>
       invokeCommand<void>("task_set_epic", { taskId: input.taskId, epicId: input.epicId }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/**
+ * Reparent an issue under an epic, under a task, or detach it (`ParentPicker`,
+ * G-01-EPIC-ASSIGN, plan 01-15 — the issue half of the hierarchy `useSetTaskEpic` above closed
+ * for tasks). Invokes plan 01-12's `issue_set_parent` command with the exact camelCase
+ * `issueId`/`parentKind`/`parentId` arguments it expects; `parentKind: null, parentId: null`
+ * detaches the issue entirely. An issue holds exactly one parent at a time — the renderer sends
+ * one `parentKind`/`parentId` pair, matching `IssueParent`'s single-variant write on the server.
+ */
+export function useSetIssueParent(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { issueId: string; parentKind: "epic" | "task" | null; parentId: string | null }) =>
+      invokeCommand<void>("issue_set_parent", {
+        issueId: input.issueId,
+        parentKind: input.parentKind,
+        parentId: input.parentId,
+      }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
   });
 }

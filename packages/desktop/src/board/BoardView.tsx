@@ -60,6 +60,7 @@ import {
   useReorderItem,
   useSetAssignee,
   useSetEstimate,
+  useSetIssueParent,
   useSetPriority,
   useSetStatus,
   useSetTaskEpic,
@@ -190,6 +191,7 @@ export function BoardView({
   const setEstimate = useSetEstimate(projectId);
   const setAssignee = useSetAssignee(projectId);
   const setTaskEpic = useSetTaskEpic(projectId);
+  const setIssueParent = useSetIssueParent(projectId);
   const reorderItem = useReorderItem(projectId);
   const updateItem = useUpdateItem(projectId);
   const createIssue = useCreateIssue(projectId);
@@ -253,6 +255,20 @@ export function BoardView({
     () =>
       Object.fromEntries(
         items.filter((item) => item.kind === "epic").map((epic) => [epic.id, epic]),
+      ),
+    [items],
+  );
+
+  // Item id -> {key, title, kind} for EVERY item in the loaded window (epics and tasks alike) —
+  // the same single-window derivation `epicsById` above uses, with the same known limitation (an
+  // item outside the loaded window cannot be offered/resolved as a parent). `IssuesLane.tsx`
+  // looks an issue's `epicId`/`taskId` up against this map to render its parent button
+  // (G-01-EPIC-ASSIGN, plan 01-15) — one lookup table for both kinds, rather than a second
+  // `tasksById` mirroring `epicsById`.
+  const parentsById = useMemo<Record<string, { key: string; title: string; kind: string }>>(
+    () =>
+      Object.fromEntries(
+        items.map((item) => [item.id, { key: item.key, title: item.title, kind: item.kind ?? "task" }]),
       ),
     [items],
   );
@@ -611,6 +627,12 @@ export function BoardView({
         <IssuesLane
           issues={issues}
           onCreateIssue={(title) => createIssue.mutate({ title, kind: "idea" })}
+          parentsById={parentsById}
+          onOpenParentPicker={(issue, anchorEl) => {
+            const rect = anchorEl.getBoundingClientRect();
+            setPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
+            setActivePicker({ kind: "issue-parent", id: issue.id });
+          }}
         />
       </div>
 
@@ -676,10 +698,52 @@ export function BoardView({
       {activePicker &&
         pickerAnchor &&
         (() => {
+          const closePicker = () => setActivePicker(null);
+
+          // The "issue-parent" kind resolves its subject from `issues`, not `selectableItems` —
+          // an issue is never a `BoardItem` and never appears there. Resolved once, ahead of the
+          // switch below, so the other five kinds keep resolving from `selectableItems` exactly
+          // as before rather than duplicating this whole block (G-01-EPIC-ASSIGN, plan 01-15).
+          if (activePicker.kind === "issue-parent") {
+            const pickedIssue = issues.find((i) => i.id === activePicker.id);
+            if (!pickedIssue) return null;
+            // Two labelled runs in one list — every epic first, then every task — reusing plan
+            // 01-14's `ParentPicker` with grouped options rather than a second picker component.
+            const parentOptions: ParentOption[] = [
+              ...items
+                .filter((item) => item.kind === "epic")
+                .map((epic) => ({ id: epic.id, label: `${epic.key} ${epic.title}`, group: "Epics" })),
+              ...items
+                .filter((item) => (item.kind ?? "task") === "task")
+                .map((task) => ({ id: task.id, label: `${task.key} ${task.title}`, group: "Tasks" })),
+            ];
+            return (
+              <ParentPicker
+                ariaLabel="Set parent"
+                emptyLabel="No parent"
+                currentId={pickedIssue.taskId ?? pickedIssue.epicId}
+                options={parentOptions}
+                anchorRect={pickerAnchor}
+                onSelect={(id) => {
+                  if (id === null) {
+                    setIssueParent.mutate({ issueId: pickedIssue.id, parentKind: null, parentId: null });
+                  } else {
+                    // Map the chosen id back to its kind by looking it up in the loaded window —
+                    // the picker itself never carries the parent kind, only an id.
+                    const target = items.find((item) => item.id === id);
+                    const parentKind = target?.kind === "epic" ? "epic" : "task";
+                    setIssueParent.mutate({ issueId: pickedIssue.id, parentKind, parentId: id });
+                  }
+                  closePicker();
+                }}
+                onClose={closePicker}
+              />
+            );
+          }
+
           const pickedRow = selectableItems.find((r) => r.item.id === activePicker.id)?.item;
           if (!pickedRow) return null;
           const kind = pickedRow.kind ?? "task";
-          const closePicker = () => setActivePicker(null);
 
           switch (activePicker.kind) {
             case "status":
