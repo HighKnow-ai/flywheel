@@ -1,6 +1,6 @@
 ---
 phase: 01-the-board-is-the-store-of-record
-verified: 2026-09-09T17:55:00Z
+verified: 2026-09-09T23:10:00Z
 status: human_needed
 score: 17/17 must-haves verified
 covered_files:
@@ -27,9 +27,19 @@ covered_files:
   - ".planning/phases/01-the-board-is-the-store-of-record/01-10-SUMMARY.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-11-PLAN.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-11-SUMMARY.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-12-PLAN.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-12-SUMMARY.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-13-PLAN.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-13-SUMMARY.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-14-PLAN.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-14-SUMMARY.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-15-PLAN.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-15-SUMMARY.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-CONTEXT.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-RESEARCH.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-REVIEW-FIX.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-REVIEW.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-UAT.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-UI-SPEC.md"
   - "DESIGN.md"
   - "packages/core/Cargo.toml"
@@ -96,15 +106,19 @@ covered_files:
   - "packages/desktop/src/board/QuickAdd.tsx"
   - "packages/desktop/src/board/StatusBand.tsx"
   - "packages/desktop/src/board/__tests__/board-view.test.tsx"
+  - "packages/desktop/src/board/__tests__/epic-assign.test.tsx"
   - "packages/desktop/src/board/__tests__/filter.test.tsx"
   - "packages/desktop/src/board/__tests__/first-run.test.tsx"
+  - "packages/desktop/src/board/__tests__/issue-parent.test.tsx"
   - "packages/desktop/src/board/__tests__/keyboard-nav.test.tsx"
+  - "packages/desktop/src/board/__tests__/layer-guard.test.tsx"
   - "packages/desktop/src/board/__tests__/palette.test.tsx"
   - "packages/desktop/src/board/__tests__/reorder.test.tsx"
   - "packages/desktop/src/board/__tests__/workflow.test.tsx"
   - "packages/desktop/src/board/collapseStore.ts"
   - "packages/desktop/src/board/pickers/AssigneePicker.tsx"
   - "packages/desktop/src/board/pickers/EstimatePicker.tsx"
+  - "packages/desktop/src/board/pickers/ParentPicker.tsx"
   - "packages/desktop/src/board/pickers/PriorityPicker.tsx"
   - "packages/desktop/src/board/pickers/StatusPicker.tsx"
   - "packages/desktop/src/board/useBoardQuery.ts"
@@ -119,24 +133,32 @@ covered_files:
   - "packages/desktop/src/projects/ProjectUnreachable.tsx"
   - "packages/desktop/src/projects/RegisterProjectFlow.tsx"
   - "packages/desktop/src/projects/__tests__/project-rail.test.tsx"
+  - "packages/desktop/src/projects/__tests__/register-project-flow.test.tsx"
   - "packages/desktop/src/state/keyboard.ts"
   - "packages/desktop/src/state/uiStore.ts"
   - "packages/desktop/src/test/setup.ts"
-covered_digest: "v1:sha256:71bfe3f2e5692f9b32f7c79f30bc134b39c286fe295170325b7d1f7c5166073a"
+covered_digest: "v1:sha256:932815197029c560a95b0d8b17c3f39a1dac911cea0c18a492ef038012847a87"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: 15/17
+  previous_status: human_needed
+  previous_score: 17/17
   gaps_closed:
-    - "BOARD-01b — deleting an epic or task never fails, orphaning (not cascading) linked issues (CR-01)"
-    - "BOARD-10b — a rejected registration is surfaced to the user, not silently swallowed (CR-02)"
+    - "G-01-EPIC-ASSIGN — BOARD-01's fixed three-level hierarchy was structurally unreachable from the UI (found by live UAT after the previous verification pass): task epic assignment (task_set_epic + m keystroke + ParentPicker + palette Set Epic) and issue parenting (issue_set_parent + IssuesLane parent button + grouped ParentPicker + quick-add Tab nesting) are now both wired end to end, and both creation paths carry the parent id through instead of dropping it"
+    - "G-01-FOCUS — global keyboard shortcuts fired while the item detail panel held a trapped focus scope: a shared topLayer()/bindingAllowedInLayer() guard in state/keyboard.ts now gates every global binding and the board-list container's own key handler"
+    - "CR-01 (post-gap-closure code review) — create_issue could silently hold both epic_id and task_id at once, contradicting the single-parent invariant IssueParent documents; fixed by making the combination unrepresentable at the type level (IssueParent::from_ids)"
+    - "CR-02 (post-gap-closure code review) — IssuesLane's new parent-picker button opened a trapped FocusScope via a raw onClick, bypassing the very layer guard G-01-FOCUS built; fixed by gating the click handler behind the same topLayer()/bindingAllowedInLayer() computation the keyboard paths use"
+    - "WR-01 (post-gap-closure code review) — useRegistrationErrorNotice's error message never cleared after a successful retry; fixed by explicitly clearing the message when isError flips back to false"
+    - "WR-02 (post-gap-closure code review) — IssueParent::parse silently discarded a parent_id supplied without a parent_kind, treating it as a silent detach; fixed by rejecting the combination as a malformed request"
   gaps_remaining: []
   regressions: []
 human_verification:
-  - test: "Launch a real `tauri dev` build and drive the entire board — create/edit/delete items, reorder, filter, search a project seeded past 1,000 items, open the command palette, register 2-3 real local repositories and switch between them with ⌘1-⌘9 — with the mouse untouched from start to finish."
-    expected: "Every action from BOARD-01/02/04/05/06/07/09/10/10's plans is reachable and completes with no perceptible input lag or visual jank, matching 01-UI-SPEC.md's Performance Contract and each plan's own deferred <human-check> block."
-    why_human: "Every plan from 01-04 onward (01-04 through 01-11) explicitly deferred its own live tauri dev walkthrough — its SUMMARY records 'no confirmed GUI display / agent-spawning tool available to this executor' and defers the check to /gsd-verify-work. Only 01-01/01-02/01-03 captured real tauri dev screenshots. All server-side and component-level behavior is proven by 96 passing Rust tests and 57 passing Vitest tests (both re-run fresh in this session, up from 94/51 before the gap-closure commits), but 'no perceptible lag', full mouse-free operation end to end, and the actual visual read of the rack/legend/activity trail/epic pill have still not been confirmed against a running window. This item is unchanged from the initial verification — it was never one of the two closed gaps."
+  - test: "Launch a real `tauri dev` build and, with the mouse untouched, exercise the newly-built hierarchy UI specifically: select a task and press `m` to open the epic picker, assign and clear an epic; open an issue row's parent button (Tab-reachable, not click) and set/change/detach its parent through the grouped Epics/Tasks menu; open the item detail panel and confirm Cmd-N/Cmd-Shift-N/Cmd-F/bare `/`/Cmd-1..9/Cmd-Shift-O are all inert while it is open, and Cmd-K still opens the palette over it without stealing focus."
+    expected: "Every action completes with no perceptible lag or visual jank; the epic pill and issue parent button show real key/title values, not placeholders; no global shortcut ever lands typed input in the wrong surface while the detail panel is trapped; clicking a different issue's parent button while the detail panel is open does nothing (CR-02's fix) rather than opening a second trapped picker."
+    why_human: "This exact UI did not exist when the phase's one live UAT round ran (01-UAT.md, test 2's 'visual read' predates plans 01-12 through 01-15 and is what surfaced G-01-EPIC-ASSIGN/G-01-FOCUS in the first place) and no live tauri dev session has run since. All of it is proven by 114 passing Rust tests and 89 passing Vitest tests (including layer-guard.test.tsx's two new click-path regression tests for CR-02), independently re-run fresh in this session, plus direct reads of every changed line — but the felt, running-window experience of this specific new surface has never been observed."
+  - test: "With a project seeded past 1,000 items (no seed tooling exists yet per 01-UAT.md's own note), reorder, filter, search, and switch projects with the mouse untouched throughout."
+    expected: "No perceptible lag or visual jank at volume."
+    why_human: "Carried forward unchanged from the initial verification and from 01-UAT.md's test 1, which explicitly recorded this volume clause as not exercised ('Board held 1 project / 1 task / 1 issue'). Server-side latency at 1,000 items is proven by `perf_seed_1000.rs` (search under 50ms, composite index confirmed used), re-run fresh and passing in this session, but perceived UI lag at that volume has never been observed in a running window."
 ---
 
 # Phase 1: The Board Is The Store Of Record Verification Report
@@ -145,133 +167,160 @@ human_verification:
 individually checkable acceptance criteria, and a workflow he cannot bend — and it is still
 exactly there after a crash.
 
-**Verified:** 2026-09-09T17:55:00Z
+**Verified:** 2026-09-09T23:10:00Z
 **Status:** human_needed
-**Re-verification:** Yes — after gap closure
+**Re-verification:** Yes — after gap closure (G-01-EPIC-ASSIGN, G-01-FOCUS) and a subsequent
+post-gap-closure code review (CR-01, CR-02, WR-01, WR-02), all four review findings fixed.
 
 ## Goal Achievement
 
-Both Critical defects from the initial verification (CR-01, CR-02) are now closed. This was
-verified by reading the actual diff of all four `fix(01):` commits, not by trusting `SUMMARY.md`
-or the commit messages' own claims, and by re-running both test suites fresh in this session.
+This re-verification covers ground the prior `01-VERIFICATION.md` (dated earlier the same day)
+could not: after that pass, a live UAT round (`01-UAT.md`) drove a real `tauri dev` build and
+found the fixed three-level hierarchy structurally unreachable (`G-01-EPIC-ASSIGN`) and global
+keyboard shortcuts leaking through the item detail panel's trapped focus scope
+(`G-01-FOCUS`). Four gap-closure plans (01-12 through 01-15) closed both, a code review of that
+diff (`01-REVIEW.md`) found two further Critical defects and two Warnings that survived into the
+closure work itself, and a fix pass (`01-REVIEW-FIX.md`) closed all four. Every claim below was
+checked directly against the code and by independently re-running both test suites and both
+builds in this session — not accepted from `SUMMARY.md`, the review report, or the fix report's
+own narration.
 
-**CR-01 (delete cascade failure) — genuinely fixed.** `packages/core/src/domain/epic.rs::delete_epic`
-and `packages/core/src/domain/task.rs::delete_task` were read in full. Both now run
-`UPDATE issues SET epic_id = NULL ...` / `UPDATE issues SET task_id = NULL ...` **inside the
-existing transaction**, **before** `DELETE FROM epics` / `DELETE FROM tasks` — the exact ordering
-that makes the fix correct, since a `NO ACTION` foreign key with `foreign_keys=ON` is checked at
-the point of the `DELETE`, not at commit. `packages/core/tests/hierarchy_workflow.rs::deleting_an_epic_or_task_orphans_linked_issues_instead_of_failing`
-creates an issue linked to an epic and one linked to a task, deletes each parent, and asserts both
-the delete succeeds and the issue's `epic_id`/`task_id` reads back `NULL` afterward — this is a
-real regression test of the previously-reproduced failure, and it passes in this session's fresh
-`cargo test --workspace` run.
+**G-01-EPIC-ASSIGN — genuinely closed.** Read `packages/core/src/domain/task.rs::set_epic` and
+`packages/core/src/domain/issue.rs::set_parent`/`IssueParent` in full: both run inside a
+transaction, both call the shared `assert_parent_in_project` before writing, and `set_parent`
+derives `epic_id`/`task_id` from a single enum variant so a two-parent row cannot be
+constructed. `task_set_epic`/`issue_set_parent` are registered in `main.rs`'s
+`generate_handler!` with the exact snake_case parameter names Tauri auto-converts to the
+camelCase (`taskId`/`epicId`, `issueId`/`parentKind`/`parentId`) the frontend hooks
+(`useSetTaskEpic`, `useSetIssueParent` in `useBoardQuery.ts`) send — confirmed by reading both
+sides of the boundary, not by trusting a mocked `invoke`. `useCreateTask`/`useCreateIssue` now
+thread `epicId`/`epicId`+`taskId` through `task_create`/`issue_create` instead of dropping them
+(the first of G-01-EPIC-ASSIGN's three root causes). `m` opens `ParentPicker` for a selected task
+(`BoardView.tsx`); every issue row renders a Tab-reachable parent button (`IssuesLane.tsx`) that
+opens the same picker with grouped Epics/Tasks options. `REQUIREMENTS.md`'s BOARD-01 line is
+reticked with no gap parenthetical. `epic-assign.test.tsx` (7 tests) and `issue-parent.test.tsx`
+(10 tests) were both re-run individually in this session and pass.
 
-**CR-02 (silent registration failure) — genuinely fixed.** `RegisterProjectFlow.tsx` now exports
-`useRegistrationErrorNotice(isError, error)`, a shared hook turning a rejected mutation into an
-auto-clearing message. All three previously-silent entry points were read directly and confirmed
-wired: `App.tsx` (line 96-97, rendered at three JSX branches), `CommandPalette.tsx` (line 139-140,
-rendered via a `createPortal` in the `!open` early-return branch — necessary because `run()`
-closes the palette synchronously before the async mutation can reject, and this was verified by
-reading the surrounding code, not assumed), and `ProjectRail.tsx` (line 83-96, rendered at its
-existing notice slot, line 182-188). `FirstRun.tsx::deriveKeyPrefix` was also read directly:
-it now always emits a prefix that starts with an uppercase letter and is 2-10 characters
-(digit-leading names get a `P` prefix; empty/all-punctuation names fall back to `"PRJ"`), which
-was checked by hand against `core::domain::project::validate_key_prefix`'s exact rule (2-10
-uppercase letters/digits, starting with a letter) and confirmed to always satisfy it for every
-case the function's control flow can produce. `board/__tests__/first-run.test.tsx` is a genuine
-property-style test — it mirrors `validate_key_prefix`'s regex exactly and asserts it holds
-across 9 realistic directory names including digit-leading, single-character, and
-punctuation-only cases — and it passes.
+**G-01-FOCUS — genuinely closed.** `state/keyboard.ts` gained a pure `topLayer()`/
+`bindingAllowedInLayer()` model, consulted by `useGlobalBindings` (every global keystroke) and by
+`BoardView.tsx`'s board-list container handler — replacing five independently-guarded call sites
+with one shared decision. `ItemDetailPanel.tsx` takes an optional `trapped` prop so the palette
+can render over the panel without two trapped `FocusScope`s. `layer-guard.test.tsx` (10 tests)
+covers every named G-01-FOCUS instance via `fireEvent.keyDown` against a live DOM, re-run
+individually in this session and passing.
 
-**Two WR items bundled into the same commits were also verified as genuinely fixed, not merely
-claimed:** `BoardRow.tsx` (line 119-120) now looks up the epic via a `epicsById` map built in
-`BoardView.tsx` (line 237, passed at line 548) and renders `${epic.key} ${epic.title}`, falling
-back to the raw id only if the epic is outside the loaded window; `board-view.test.tsx` has a new
-test (`"shows the epic's human-readable key/title in the epic pill, not the raw epic_id ULID
-(WR-01)"`) asserting this directly, and it passes. `update_epic`/`update_task`/`update_issue` in
-`epic.rs`/`task.rs`/`issue.rs` were all confirmed to `SELECT ... key ...` and return the real value
-instead of a blank string; `hierarchy_workflow.rs::update_epic_task_and_issue_read_back_the_real_key_not_a_blank_one`
-asserts this for all three and passes.
+**CR-01 (create_issue's single-parent invariant) — genuinely closed.** `IssueParent::from_ids`
+(new) rejects `(Some(epic), Some(task))` before `create_issue` is ever called; `issue_create`
+(the Tauri command) calls it before locking the connection. Read `create_issue`'s signature
+directly: it now takes one `parent: IssueParent` argument, not two independent `Option`s — the
+invalid state is unrepresentable at the type level, not merely unchecked. The regression test
+`create_issue_rejects_both_an_epic_id_and_a_task_id_supplied_together` was run individually
+(`cargo test -p core --test hierarchy_workflow ... --exact`) and passes. **Deliberately not
+added:** a schema-level `CHECK (epic_id IS NULL OR task_id IS NULL)` — confirmed absent from
+`0002_board_schema.sql` by direct read. This is a reasonable, disclosed deferral: SQLite has no
+`ALTER TABLE ADD CONSTRAINT`, so adding it now would require a full table-recreate migration, and
+the type-level fix already closes the gap for every code-layer caller (core-layer callers and the
+one Tauri command can no longer construct the invalid state). Only a hand-crafted raw SQL insert
+bypassing the Rust layer entirely could still violate it — no such caller exists today. Agreed
+sufficient for this phase; worth revisiting as defence-in-depth if an out-of-process writer is
+ever added.
 
-**Both test suites were re-run fresh in this session** (not trusted from the commit
-message/SUMMARY counts): `cargo test --workspace` — 96 tests across 15 files, 0 failed (up from
-94, the +2 being the CR-01 delete-orphan and WR-02 key-readback regression tests).
-`npm --prefix packages/desktop run test -- --run` — 57 tests across 13 files, 0 failed (up from
-51, the +6 being `first-run.test.tsx`'s 5 tests plus `board-view.test.tsx`'s new WR-01 test). Both
-counts match what the fix commits claimed, and both are independently confirmed green in this
-session, not carried forward from the prior report.
+**CR-02 (IssuesLane's unguarded parent-picker click) — genuinely closed.** Read
+`BoardView.tsx`'s `onOpenParentPicker` callback directly: it now computes `topLayer(...)` from
+`paletteOpen`/`detailItemId`/`activePicker`/`deleteTarget`/`pendingDone`/`quickAddOpen` and
+returns early unless the layer is `"board"` or `"quick-add"` — the identical check
+`handleContainerKeyDown` already uses for every keyboard-driven picker. Two new tests in
+`layer-guard.test.tsx` — the negative case (detail panel open, click does nothing) and the
+positive case (nothing else open, click still works) — were run individually in this session and
+pass; this is the first test coverage in that file exercising a click path rather than
+`fireEvent.keyDown`, closing the exact blind spot the review found.
 
-No debt markers (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) were introduced in any of the
-files touched by the four gap-closure commits.
+**WR-01 (stale registration error notice) — genuinely closed.** Read
+`useRegistrationErrorNotice` directly: the effect's `if (!isError)` branch now explicitly calls
+`setMessage(null)` before returning, instead of returning without clearing. The new
+`register-project-flow.test.tsx` (3 tests, previously zero coverage for this hook) was run as
+part of the full suite and passes.
 
-**What is deliberately still open, and correctly not treated as a regression or a new gap** (per
-the executor's own scoping, independently confirmed by reading the code): `tauri.conf.json`'s
-`"csp": null` is unchanged (a real CSP needs design and verification against a running window,
-which this environment cannot confirm); `DoneWarning.tsx` still reads `"{checked}/{total} criteria
-unchecked"`, faithfully matching `01-UI-SPEC.md`'s own defective Copywriting Contract — the spec
-is the defect, not the code, and the block/never-block mechanism is unaffected; the epic-filter
-chip list is still derived from the loaded board window rather than a dedicated `epic_list`
-command (a genuine BOARD-06 partial requiring a new Tauri command, correctly deferred rather than
-opportunistically patched inside an unrelated gap-closure commit).
+**WR-02 (IssueParent::parse silently discarding a bare parent_id) — genuinely closed.** Read the
+`parse` match directly: `(None, Some(_))` is now `Err(...)`, not folded into the `(None, _) =>
+Ok(Self::None)` catch-all. `parse_rejects_parent_id_without_parent_kind` and five sibling tests
+(previously zero unit tests on `parse`) were run as part of the full suite and pass.
 
-**What remains unconfirmed is unchanged from the initial verification: the live, running-window
-experience.** Every plan from `01-04` through `01-11` still records that its own `<human-check>`
-walkthrough was never run against a real `tauri dev` window in this execution environment. This
-was never one of the two closed gaps and is carried forward honestly below, not rounded up to
-passed because the automated suites are green.
+**Both test suites were re-run fresh and independently in this session** (not carried forward
+from the fix report's own counts): `cargo test --workspace` — 114 tests across 17 binaries, 0
+failed. `npm --prefix packages/desktop run test -- --run` — 89 tests across 17 files, 0 failed,
+matching `01-REVIEW-FIX.md`'s claimed post-fix count exactly. `cargo build --workspace` and `npm
+--prefix packages/desktop run build` were also independently re-run and both succeeded with no
+new warnings beyond the pre-existing chunk-size notice.
+
+No debt markers (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) were found in any of the 27
+files touched between the gap-closure plan doc (`ab8326f`) and the fix-report commit (`cebfb4e`).
+
+**What remains deliberately open, correctly not treated as a regression or a new gap:**
+`tauri.conf.json`'s `"csp": null` is unchanged; `DoneWarning.tsx` still renders `"{checked}/
+{total} criteria unchecked"`, faithfully matching `01-UI-SPEC.md`'s own defective Copywriting
+Contract; the epic/task-filter and parent-option lists (`FilterBar.tsx`'s epic chips, the new
+`ParentPicker`/quick-add indent target) are all still derived from the loaded board window rather
+than a dedicated `epic_list`/`task_list` command — `01-15-SUMMARY.md` explicitly discloses this
+as sharing one root cause with the pre-existing `FilterBar.tsx` limitation. None of these were
+silently fixed or silently reintroduced; all were checked by direct read against their prior
+state.
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | DATA-01 — every mutation writes projection + event in one transaction | ✓ VERIFIED | Unchanged from initial verification — re-confirmed present in `epic.rs`/`task.rs` reads this session |
-| 2 | DATA-02 — every entity id is a client-generated ULID, never an auto-increment int | ✓ VERIFIED | Unchanged; `db_bootstrap.rs` still 5/5 in this session's fresh run |
+| 1 | DATA-01 — every mutation writes projection + event in one transaction | ✓ VERIFIED | Unchanged; re-confirmed present in `task::set_epic`/`issue::set_parent`/`create_issue` reads this session, all inside one `tx` |
+| 2 | DATA-02 — every entity id is a client-generated ULID, never an auto-increment int | ✓ VERIFIED | Unchanged; `db_bootstrap.rs` in this session's fresh 114-test run |
 | 3 | DATA-03 — humans and agents are distinct actors of one model, every mutation actor-attributed | ✓ VERIFIED | Unchanged |
-| 4 | DATA-05 — the event log is a gap-free, no-duplicate, resumable stream from a cursor | ✓ VERIFIED | Unchanged; `cursor_resume.rs` 5/5 in this session's fresh run |
-| 5 | DATA-07 — the database survives an unclean termination with no loss/corruption of committed work | ✓ VERIFIED | Unchanged; `crash_safety.rs` real `SIGKILL` test still passes |
-| 6 | DATA-08 — migrations run automatically on launch and are reversible within one version | ✓ VERIFIED | Unchanged; `migration_safety.rs` 5/5 in this session's fresh run |
-| 7 | BOARD-01a — user creates and edits epics/tasks/issues in a fixed, non-reconfigurable 3-level hierarchy | ✓ VERIFIED | Unchanged |
-| 8 | BOARD-01b — deleting an epic or task never fails, orphaning (not cascading) linked issues | ✓ **VERIFIED (gap closed)** | `delete_epic`/`delete_task` now `UPDATE issues SET epic_id/task_id = NULL` inside the transaction, before the `DELETE`; `hierarchy_workflow.rs::deleting_an_epic_or_task_orphans_linked_issues_instead_of_failing` is a real regression test and passes in this session's run |
-| 9 | BOARD-02 — discrete, individually checkable acceptance criteria (statement + verification hint), not free prose | ✓ VERIFIED | Unchanged |
-| 10 | BOARD-04 — fixed Backlog→Todo→In Progress→In Review→Done workflow, no reconfiguration path | ✓ VERIFIED | Unchanged |
-| 11 | BOARD-05 — reorder/reprioritize within an epic and within the backlog (fractional rank, priority tie-break) | ✓ VERIFIED | Unchanged |
-| 12 | BOARD-06 — filter/search by text, status, epic, assignee as indexed SQL, no second client-side filter path | ✓ VERIFIED | Unchanged; epic-filter-chip-window limitation still known/disclosed, not a regression |
-| 13 | BOARD-07 — every navigational and mutating action reachable entirely from the keyboard | ✓ VERIFIED (mechanism) | Unchanged; full live walkthrough not run — see Human Verification |
-| 14 | BOARD-08 — board interactions complete without perceptible lag at 1,000+ items | ✓ VERIFIED (server) | Unchanged; perceived UI lag not run — see Human Verification |
-| 15 | BOARD-09 — every item shows a chronological, actor-attributed activity trail | ✓ VERIFIED (mechanism) | Unchanged; live visual read not run — see Human Verification |
-| 16 | BOARD-10a — user registers several local git repos as projects and switches boards (⌘1-⌘9, palette, rail) | ✓ VERIFIED | Unchanged |
-| 17 | BOARD-10b — a rejected registration is surfaced to the user, not silently swallowed | ✓ **VERIFIED (gap closed)** | `useRegistrationErrorNotice` wired into and rendered by all three previously-silent entry points (`App.tsx`, `CommandPalette.tsx`, `ProjectRail.tsx`), confirmed by direct code read; `deriveKeyPrefix` hardened and property-tested against 9 realistic names in `first-run.test.tsx`, which passes |
+| 4 | DATA-05 — the event log is a gap-free, no-duplicate, resumable stream from a cursor | ✓ VERIFIED | Unchanged; `cursor_resume.rs` in this session's fresh run |
+| 5 | DATA-07 — the database survives an unclean termination with no loss/corruption of committed work | ✓ VERIFIED | Unchanged; `crash_safety.rs` real `SIGKILL` test still passes; UAT test 3 confirmed this live (pre-kill/post-relaunch snapshots identical) |
+| 6 | DATA-08 — migrations run automatically on launch and are reversible within one version | ✓ VERIFIED | Unchanged; `migration_safety.rs` in this session's fresh run |
+| 7 | BOARD-01a — user creates/edits epics, tasks, issues in a fixed, non-reconfigurable 3-level hierarchy | ✓ VERIFIED | Unchanged mechanism |
+| 8 | BOARD-01b — a task can be placed under an epic, and an issue under an epic or task, from the running UI | ✓ **VERIFIED (G-01-EPIC-ASSIGN closed)** | `task_set_epic`/`issue_set_parent` genuinely wired end to end (keystroke/button → mutation → command → domain), confirmed by direct code read on both sides of the Tauri boundary; 17 new tests across `epic-assign.test.tsx`/`issue-parent.test.tsx` run individually and pass |
+| 9 | BOARD-01c — an issue can never hold both an epic and a task parent at once, at creation or reparenting | ✓ **VERIFIED (CR-01 closed)** | `IssueParent::from_ids` rejects the combination before `create_issue` is called; `create_issue`'s signature makes the invalid state unrepresentable; regression test run individually and passes; schema-level `CHECK` deliberately deferred, agreed sufficient given the type-level fix |
+| 10 | BOARD-02 — discrete, individually checkable acceptance criteria (statement + verification hint), not free prose | ✓ VERIFIED | Unchanged |
+| 11 | BOARD-04 — fixed Backlog→Todo→In Progress→In Review→Done workflow, no reconfiguration path | ✓ VERIFIED | Unchanged |
+| 12 | BOARD-05 — reorder/reprioritize within an epic and within the backlog (fractional rank, priority tie-break) | ✓ VERIFIED | Unchanged |
+| 13 | BOARD-06 — filter/search by text, status, epic, assignee as indexed SQL, no second client-side filter path | ✓ VERIFIED | Unchanged; single-window epic/task-option limitation still known/disclosed, not a regression |
+| 14 | BOARD-07a — every navigational and mutating action reachable entirely from the keyboard | ✓ VERIFIED (mechanism) | Unchanged; full live walkthrough not run — see Human Verification |
+| 15 | BOARD-07b — global shortcuts are inert while the item detail panel or a row-level picker holds a trapped focus scope, including click-opened pickers | ✓ **VERIFIED (G-01-FOCUS + CR-02 closed)** | Shared `topLayer()`/`bindingAllowedInLayer()` guard read directly, consulted by every `useGlobalBindings` binding, the board-list container, and (after CR-02's fix) the new click-driven `IssuesLane` parent button; 12 regression tests (10 keyboard-path + 2 click-path) run individually and pass |
+| 16 | BOARD-08 — board interactions complete without perceptible lag at 1,000+ items | ✓ VERIFIED (server) | Unchanged; `perf_seed_1000.rs` re-run fresh, passing; perceived UI lag at volume not run live — see Human Verification |
+| 17 | BOARD-09 — every item shows a chronological, actor-attributed activity trail | ✓ VERIFIED (mechanism) | Unchanged; UAT test 2 confirmed the visual direction live (rack/legend/trail/pill) prior to this round's UI additions |
+| 18 | BOARD-10 — user registers several local git repos as projects and switches boards, with rejected registrations surfaced (not silently swallowed), including after a successful retry | ✓ **VERIFIED (WR-01 closed)** | `useRegistrationErrorNotice` wired into all three previously-fragile entry points; WR-01's stuck-notice-after-retry bug fixed and covered by 3 new tests, re-run and passing |
 
-**Score:** 17/17 truths verified (0 present-behavior-unverified)
+**Score:** 18/18 truths verified (0 present-behavior-unverified). One truth (#9) was newly split
+out of the prior round's BOARD-01 truth because CR-01 specifically concerns a correctness
+invariant the prior verification pass had no visibility into.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `packages/core/src/domain/epic.rs` (`delete_epic`) | Idempotent, orphans children, never fails | ✓ **VERIFIED** | Now orphans both child tasks and linked issues before `DELETE FROM epics`, in that order, inside one transaction |
-| `packages/core/src/domain/task.rs` (`delete_task`) | Idempotent, never fails | ✓ **VERIFIED** | Now orphans linked issues before `DELETE FROM tasks` |
-| `packages/desktop/src/projects/RegisterProjectFlow.tsx` | Shared registration flow, error state surfaced by every caller | ✓ **VERIFIED** | `useRegistrationErrorNotice` added; all 4 callers (including `FirstRun.tsx`'s pre-existing inline pattern) now render on failure |
-| `packages/desktop/src/board/BoardRow.tsx` | Epic reference rendered as human-readable key/title | ✓ **VERIFIED** | `epicsById` lookup wired in, tested |
-| `packages/core/src/domain/epic.rs`/`task.rs`/`issue.rs` `update_*` | Return DTO carries the real `key`, not a blank string | ✓ **VERIFIED** | All three `SELECT ... key ...` and return it; tested |
+| `packages/core/src/domain/task.rs` (`set_epic`) | Reparent/orphan a task's epic, no-op on redundant call, same-project check | ✓ **VERIFIED** | Read in full; transactional, calls `assert_parent_in_project`, no-ops correctly |
+| `packages/core/src/domain/issue.rs` (`IssueParent`, `set_parent`, `from_ids`, `parse`) | Single-parent-at-a-time reparenting; creation-path invariant unrepresentable; malformed pairs rejected | ✓ **VERIFIED** | Read in full; both CR-01 and WR-02 fixes present and match the review-fix report exactly |
+| `packages/desktop/src-tauri/src/commands/task.rs`/`issue.rs` (`task_set_epic`, `issue_set_parent`, `issue_create`) | Registered Tauri commands with argument names matching the frontend hooks | ✓ **VERIFIED** | Registered in `main.rs`'s `generate_handler!`; parameter names verified to camelCase-match `useSetTaskEpic`/`useSetIssueParent`/`useCreateIssue` |
+| `packages/desktop/src/board/pickers/ParentPicker.tsx` | Generic id/label/group option picker, reused for both epic and issue-parent kinds | ✓ **VERIFIED** | Exists, exports confirmed, used by both `BoardView.tsx` picker-render arms |
+| `packages/desktop/src/board/IssuesLane.tsx` | Focusable parent button per issue row | ✓ **VERIFIED** | Renders button with `aria-label`, calls `onOpenParentPicker`, layer-guarded at the call site (CR-02 fix) |
+| `packages/desktop/src/state/keyboard.ts` (`topLayer`, `bindingAllowedInLayer`) | Single shared fire/do-not-fire decision for every global binding and click-driven picker | ✓ **VERIFIED** | Consulted by `useGlobalBindings`, `BoardView`'s container handler, and (post-CR-02) the `IssuesLane` parent-button click handler |
+| `packages/desktop/src/projects/RegisterProjectFlow.tsx` (`useRegistrationErrorNotice`) | Clears its error message on a successful retry | ✓ **VERIFIED** | WR-01 fix present; explicit `setMessage(null)` on the `!isError` branch |
+| `packages/core/src/db/migrations/0002_board_schema.sql` | No `CHECK` constraint preventing both `epic_id` and `task_id` on `issues` | ℹ️ Disclosed deferral | Confirmed absent by direct read; type-level fix covers all code-layer callers, agreed sufficient |
 | `packages/core/src/db/mod.rs`, `db/backup.rs` | WAL pragmas, crash safety, backup/restore | ✓ VERIFIED | Unchanged |
 | `packages/core/src/domain/event.rs`, `query/events.rs` | Append-only log, cursor-resumable stream | ✓ VERIFIED | Unchanged |
-| `packages/core/src/domain/acceptance_criterion.rs` | Discrete criteria CRUD | ✓ VERIFIED | Unchanged |
 | `packages/core/src/ranking.rs` | Fractional-index reorder | ✓ VERIFIED | Unchanged |
 | `packages/core/src/query/search.rs`, `query/filter.rs` | FTS5 search, indexed filter | ✓ VERIFIED | Unchanged |
-| `packages/desktop/src/state/keyboard.ts`, `board/CommandPalette.tsx` | Single binding table, palette parity | ✓ VERIFIED | Unchanged |
-| `packages/core/src/marker.rs`, `domain/project.rs` | Marker-based project identity, reconciliation | ✓ VERIFIED | Unchanged |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|----|--------|---------|
+| `desktop/src/board/BoardView.tsx` (`m` keystroke) | `task_set_epic` | `useSetTaskEpic` mutation | ✓ **NOW WIRED** | Argument names confirmed to match on both sides |
+| `desktop/src/board/IssuesLane.tsx` (parent button) | `issue_set_parent` | `useSetIssueParent` mutation | ✓ **NOW WIRED** | Argument names confirmed to match on both sides |
+| `desktop/src/board/useBoardQuery.ts` (`useCreateTask`/`useCreateIssue`) | `task_create`/`issue_create` | `epicId`/`epicId`+`taskId` now threaded through, not dropped | ✓ **NOW WIRED** | Confirmed by direct read of both mutation functions |
+| `desktop/src/board/BoardView.tsx` (`onOpenParentPicker`) | `state/keyboard.ts::topLayer`/`bindingAllowedInLayer` | layer check before opening a trapped `FocusScope` via click | ✓ **NOW WIRED (CR-02 fix)** | Confirmed present at the exact call site the review flagged as missing it |
+| `packages/core/src/domain/issue.rs::create_issue` | `IssueParent::from_ids` | rejects a two-parent request before the connection is locked | ✓ **NOW WIRED (CR-01 fix)** | `issue_create` Tauri command calls `from_ids` and propagates its error |
 | `desktop/src-tauri/src/main.rs` | `core::db::open_and_migrate` | setup hook before any window shown | ✓ WIRED | Unchanged |
-| `desktop/src/App.tsx` | `desktop/src/adapters/tauri.ts` | every invoke/listen through one seam | ✓ WIRED | Unchanged |
-| `domain/task.rs` (create/delete/status) | `domain/event.rs::append_event` | same transaction | ✓ WIRED | Unchanged |
-| `desktop/src/board/useBoardQuery.ts` | `board:changed` (Rust `app.emit`) | push-invalidate, no client optimism | ✓ WIRED | Unchanged |
-| `desktop/src/board/BoardView.tsx` | `desktop/src/board/BoardRow.tsx` (epic display) | `epicsById` lookup mirroring `actorsById` | ✓ **NOW WIRED** | `epicsById` built in `BoardView.tsx` (line 237) and passed to `BoardRow` (line 548); `BoardRow.tsx` (line 119-120) reads it |
-| `desktop/src/projects/ProjectRail.tsx`/`App.tsx`/`CommandPalette.tsx` | `useRegisterProjectFlow`'s `isError`/`error` | render on failure | ✓ **NOW WIRED** | All three call `useRegistrationErrorNotice` and render its return value in JSX |
-| `domain/epic.rs::delete_epic` / `domain/task.rs::delete_task` | `issues.epic_id` / `issues.task_id` | orphan-before-delete, same transaction | ✓ **NOW WIRED** | `UPDATE issues SET epic_id/task_id = NULL` runs before the `DELETE FROM epics/tasks`, inside the same `tx` |
+| `domain/task.rs` (create/delete/status/set_epic) | `domain/event.rs::append_event` | same transaction | ✓ WIRED | Unchanged, and confirmed again for `set_epic` this session |
 
 ### Requirements Coverage
 
@@ -281,35 +330,38 @@ passed because the automated suites are green.
 | DATA-02 | 01-01, 01-03 | Client-generated ULIDs | ✓ SATISFIED | Truth #2 |
 | DATA-03 | 01-03, 01-04 | Distinct human/agent actor model | ✓ SATISFIED | Truth #3 |
 | DATA-05 | 01-10 | Cursor-resumable event stream | ✓ SATISFIED | Truth #4 |
-| DATA-07 | 01-05 | Crash-safe persistence | ✓ SATISFIED | Truth #5 |
+| DATA-07 | 01-05 | Crash-safe persistence | ✓ SATISFIED | Truth #5, UAT test 3 |
 | DATA-08 | 01-01, 01-05 | Automatic, reversible migrations | ✓ SATISFIED | Truth #6 |
-| BOARD-01 | 01-04 | CRUD in fixed 3-level hierarchy | ✓ **SATISFIED (gap closed)** | Truths #7 and #8 both verified |
-| BOARD-02 | 01-06 | Discrete checkable acceptance criteria | ✓ SATISFIED | Truth #9 |
-| BOARD-04 | 01-04 | Fixed, non-reconfigurable workflow | ✓ SATISFIED | Truth #10 |
-| BOARD-05 | 01-07 | Reorder/reprioritize | ✓ SATISFIED | Truth #11 |
-| BOARD-06 | 01-08 | Filter/search across items | ✓ SATISFIED | Truth #12 |
-| BOARD-07 | 01-02, 01-09 | Full keyboard operability | ? NEEDS HUMAN (mechanism satisfied) | Truth #13 |
-| BOARD-08 | 01-02, 01-08 | No perceptible lag at 1,000+ items | ? NEEDS HUMAN (server-side satisfied) | Truth #14 |
-| BOARD-09 | 01-10 | Chronological actor-attributed activity trail | ? NEEDS HUMAN (mechanism satisfied) | Truth #15 |
-| BOARD-10 | 01-11 | Register/switch multiple project boards | ✓ **SATISFIED (gap closed)** | Truths #16 and #17 both verified |
+| BOARD-01 | 01-04, 01-12, 01-14, 01-15 | CRUD in fixed 3-level hierarchy, reachable from the UI, single-parent invariant | ✓ **SATISFIED (gap + review findings closed)** | Truths #7, #8, #9 all verified |
+| BOARD-02 | 01-06 | Discrete checkable acceptance criteria | ✓ SATISFIED | Truth #10 |
+| BOARD-04 | 01-04 | Fixed, non-reconfigurable workflow | ✓ SATISFIED | Truth #11 |
+| BOARD-05 | 01-07 | Reorder/reprioritize | ✓ SATISFIED | Truth #12 |
+| BOARD-06 | 01-08 | Filter/search across items | ✓ SATISFIED | Truth #13 |
+| BOARD-07 | 01-02, 01-09, 01-13, 01-14 | Full keyboard operability, layer-gated global bindings | ? NEEDS HUMAN (mechanism satisfied) | Truths #14, #15 |
+| BOARD-08 | 01-02, 01-08 | No perceptible lag at 1,000+ items | ? NEEDS HUMAN (server-side satisfied) | Truth #16 |
+| BOARD-09 | 01-10 | Chronological actor-attributed activity trail | ? NEEDS HUMAN (mechanism satisfied; UAT test 2 confirmed visual direction pre-dating this round's UI additions) | Truth #17 |
+| BOARD-10 | 01-11, 01-15 (WR-01) | Register/switch multiple project boards, no silently swallowed errors | ✓ SATISFIED | Truth #18 |
 
-No orphaned requirements: unchanged from initial verification — the union of every plan's
-`requirements:` frontmatter still exactly matches the 15 IDs `REQUIREMENTS.md` assigns to Phase 1.
+No orphaned requirements: the union of every plan's `requirements:` frontmatter (01-01 through
+01-15) exactly matches the 15 IDs `REQUIREMENTS.md` assigns to Phase 1 (DATA-01, DATA-02,
+DATA-03, DATA-05, DATA-07, DATA-08, BOARD-01, BOARD-02, BOARD-04, BOARD-05, BOARD-06, BOARD-07,
+BOARD-08, BOARD-09, BOARD-10).
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Full Rust workspace test suite is green | `cargo test --workspace` (run fresh, this session) | 96 tests across 15 files, 0 failed | ✓ PASS |
-| Full frontend test suite is green | `npm --prefix packages/desktop run test -- --run` (run fresh, this session) | 57 tests across 13 files, 0 failed | ✓ PASS |
-| `delete_epic`/`delete_task` orphan linked issues, never fail (CR-01 fix) | Direct source read of both functions; confirmed `UPDATE issues ... WHERE epic_id/task_id = ?` runs before `DELETE FROM epics/tasks`, same transaction | Present in both functions, correct ordering | ✓ PASS (confirms CR-01 closed) |
-| `hierarchy_workflow.rs`'s CR-01 regression test passes | `cargo test --workspace` (included in the full run above) | `deleting_an_epic_or_task_orphans_linked_issues_instead_of_failing` — ok | ✓ PASS |
-| Registration failures render on all 4 entry points (CR-02 fix) | `grep -n "useRegistrationErrorNotice" App.tsx CommandPalette.tsx ProjectRail.tsx` + direct read of each render path | All three call the hook and render its return value in JSX (App.tsx 3 branches, CommandPalette.tsx portal in `!open` branch, ProjectRail.tsx existing notice slot) | ✓ PASS (confirms CR-02 closed) |
-| `deriveKeyPrefix` never emits an invalid prefix (CR-02 fix) | `first-run.test.tsx` (included in the full frontend run above) | 5/5 including the 9-name spread test | ✓ PASS |
-| WR-01 epic pill renders human-readable key/title | `board-view.test.tsx`'s new WR-01 test (included in the full frontend run above) | Passes | ✓ PASS |
-| WR-02 `update_*` returns the real key | `hierarchy_workflow.rs::update_epic_task_and_issue_read_back_the_real_key_not_a_blank_one` (included in the full run above) | Passes | ✓ PASS |
-| No debt markers introduced in the four gap-closure commits' files | `grep -n -E "TBD|FIXME|XXX|TODO|HACK|PLACEHOLDER"` on all 11 touched files | Zero hits | ✓ PASS |
-| Deliberately-open items unchanged, not silently fixed or regressed | Direct read of `tauri.conf.json` (`csp: null`), `DoneWarning.tsx` (still `"{checked}/{total} ... unchecked"`) | Both unchanged from initial verification, as declared | ✓ PASS |
+| Full Rust workspace test suite is green | `cargo test --workspace` (run fresh, this session) | 114 tests across 17 binaries, 0 failed | ✓ PASS |
+| Full frontend test suite is green | `npm --prefix packages/desktop run test -- --run` (run fresh, this session) | 89 tests across 17 files, 0 failed | ✓ PASS |
+| Full Rust workspace build is green | `cargo build --workspace` (run fresh, this session) | Finished, no errors | ✓ PASS |
+| Full frontend build is green | `npm --prefix packages/desktop run build` (run fresh, this session) | `tsc && vite build` succeeded, no type errors | ✓ PASS |
+| CR-01 regression test passes in isolation | `cargo test -p core --test hierarchy_workflow create_issue_rejects_both_an_epic_id_and_a_task_id_supplied_together -- --exact` | ok | ✓ PASS |
+| CR-02 regression tests pass in isolation | `npx vitest run -t "clicking_the_issue_lane_parent_button"` | 2 passed | ✓ PASS |
+| WR-01/epic-assign/issue-parent/layer-guard tests pass in isolation | `npx vitest run epic-assign issue-parent layer-guard` | 29 passed across 3 files | ✓ PASS |
+| `task_set_epic`/`issue_set_parent` are registered and argument-matched | Direct read of `main.rs`'s `generate_handler!` plus both command signatures plus both frontend hooks | camelCase argument names match on both sides of the Tauri boundary | ✓ PASS |
+| No schema `CHECK` constraint added for the single-parent invariant (disclosed deferral) | Direct read of `0002_board_schema.sql`'s `issues` table | Confirmed absent, as declared in `01-REVIEW-FIX.md` | ✓ PASS (deferral confirmed accurate) |
+| No debt markers introduced between the gap-closure plan and the fix-report commit | `grep -n -E "TBD\|FIXME\|XXX\|TODO\|HACK\|PLACEHOLDER"` on all 27 files touched in that range | Zero hits | ✓ PASS |
+| Deliberately-open items unchanged, not silently fixed or regressed | Direct read of `tauri.conf.json` (`csp: null`), `DoneWarning.tsx` (still `"{checked}/{total} ... unchecked"`) | Both unchanged, as declared | ✓ PASS |
 
 ### Probe Execution
 
@@ -319,59 +371,73 @@ Not applicable — no `scripts/*/tests/probe-*.sh` convention in this project.
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `packages/desktop/src-tauri/tauri.conf.json`:22-24 | 22-24 | `"csp": null` — no Content-Security-Policy | ⚠️ Warning | Deliberately open by decision (needs a running window to verify safely); no live XSS vector today (plain-text titles only) |
-| `packages/desktop/src/board/DoneWarning.tsx`:74 | 74 | Renders `"{checked}/{total} criteria unchecked"` — labels the CHECKED count as "unchecked" | ⚠️ Warning | Deliberately left untouched — the CONTRACT in `01-UI-SPEC.md` is the defect, not the code; block/never-block mechanism unaffected |
-| `packages/desktop/src/board/FilterBar.tsx` | ~254-268 | Epic filter chips derived from the loaded board window, not a dedicated `epic_list` command | ℹ️ Info | Genuine BOARD-06 partial, correctly deferred to planned gap-closure rather than patched opportunistically here |
+| `packages/desktop/src-tauri/tauri.conf.json`:23 | 23 | `"csp": null` — no Content-Security-Policy | ⚠️ Warning | Deliberately open by decision (needs a running window to verify safely); no live XSS vector today (plain-text titles only) |
+| `packages/desktop/src/board/DoneWarning.tsx`:74 | 74 | Renders `"{checked}/{total} criteria unchecked"` — labels the CHECKED count as "unchecked" | ⚠️ Warning | Deliberately left untouched — the CONTRACT in `01-UI-SPEC.md` is the defect, not the code |
+| `packages/core/src/db/migrations/0002_board_schema.sql` `issues` table | 79-92 | No `CHECK (epic_id IS NULL OR task_id IS NULL)` | ℹ️ Info | Deliberate, disclosed deferral (CR-01 fix report); type-level fix covers every code-layer caller today |
+| `packages/desktop/src/board/pickers/ParentPicker.tsx` / `IssuesLane.tsx` parent button / quick-add indent target | — | Options/targets derived from the loaded board window, not a dedicated `epic_list`/`task_list` command | ℹ️ Info | Known, disclosed limitation shared with the pre-existing `FilterBar.tsx` epic-filter-chip limitation; not new scope |
 
-No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` markers found in any of the files touched by
-the four gap-closure commits.
+No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` markers found in any of the 27 files touched
+between the gap-closure plan doc and the fix-report commit.
 
 ### Human Verification Required
 
-1. **Full live keyboard-only walkthrough, no live GUI confirmation since `01-03`** (unchanged from
-   initial verification — was never part of the two closed gaps)
-   **Test:** Launch a real `tauri dev` build; create/edit/delete epics, tasks, issues; add and
-   check acceptance criteria; move items through the full workflow; reorder within an epic and
-   the backlog; search and filter a 1,000+ item project; register 2-3 real repositories and
-   switch with ⌘1-⌘9 and the palette — mouse untouched throughout.
-   **Expected:** Every action completes with no perceptible lag or visual jank; nothing requires
-   the mouse; the rack, legend, detail panel and activity trail read correctly; a task's epic pill
-   shows a human-readable key/title (WR-01, now fixed in code — confirm visually); a registration
-   failure (e.g. registering the same repo twice, or a directory whose derived key already
-   collides) visibly surfaces a message on all four entry points (CR-02, now fixed in code —
-   confirm visually).
-   **Why human:** Every plan from `01-04` through `01-11` still records that "no confirmed GUI
-   display / agent-spawning tool available to this executor" and deferred its own `<human-check>`
-   block. Only `01-01`-`01-03` captured real `tauri dev` screenshots. Server-side latency,
-   component rendering and keyboard-binding logic are all proven by 96 passing Rust tests and 57
-   passing Vitest tests, but the actual felt experience in a running window has still not been
-   confirmed.
+1. **Live confirmation of the new hierarchy and layer-guard UI (never observed in a running
+   window)**
+   **Test:** Launch a real `tauri dev` build. Select a task, press `m`, assign and clear an
+   epic. Open an issue row's parent button (via Tab, not click) and set/change/detach its parent
+   through the grouped Epics/Tasks menu. Open the item detail panel and confirm every global
+   shortcut (Cmd-N, Cmd-Shift-N, Cmd-F, bare `/`, Cmd-1..9, Cmd-Shift-O) is inert while it is
+   open, that Cmd-K still opens the palette over it without stealing focus, and that clicking a
+   different issue's parent button while the panel is open does nothing.
+   **Expected:** Every action completes with no perceptible lag or jank; the epic pill and issue
+   parent button show real key/title values; no shortcut lands typed input in the wrong surface;
+   the CR-02 click-path guard actually holds in a real DOM, not just jsdom.
+   **Why human:** This UI did not exist when the phase's one live UAT round ran — `01-UAT.md`'s
+   test 2 is what surfaced G-01-EPIC-ASSIGN and G-01-FOCUS in the first place, before plans 01-12
+   through 01-15 and the code-review fixes existed. No live session has run since. 114 Rust tests
+   and 89 Vitest tests (independently re-run fresh this session) prove the mechanism; the felt
+   experience has not been observed.
+
+2. **1,000+ item volume — perceived lag, still unexercised live**
+   **Test:** With a project seeded past 1,000 items, reorder/filter/search/switch projects with
+   the mouse untouched.
+   **Expected:** No perceptible lag or jank at volume.
+   **Why human:** Carried forward unchanged — `01-UAT.md`'s test 1 explicitly recorded this
+   clause as not exercised (no seed tooling exists; the board held 1/1/1 items during that
+   round). `perf_seed_1000.rs` proves server-side latency (re-run fresh, passing) but not
+   perceived UI lag.
 
 ## Gaps Summary
 
-None. Both Critical defects identified in the initial verification (CR-01: delete-cascade FK
-failure; CR-02: silently swallowed registration errors) were independently re-verified against
-the actual code in this session — not accepted from the SUMMARY's or commit messages' own
-claims — and are genuinely closed:
+None. Every item this re-verification was asked to check — the two UAT-discovered gaps
+(G-01-EPIC-ASSIGN, G-01-FOCUS) and the four post-gap-closure code-review findings (CR-01, CR-02,
+WR-01, WR-02) — was independently re-verified against the actual code in this session, not
+accepted from any report's own narration:
 
-- **CR-01** is closed with the correct ordering (orphan-before-delete, inside the same
-  transaction) and a real regression test that creates the previously-failing scenario and
-  asserts it now succeeds.
-- **CR-02** is closed with a shared hook wired into and rendered by all three previously-silent
-  entry points, plus a hardened `deriveKeyPrefix` that a property-style test confirms can no
-  longer produce an invalid prefix.
+- **G-01-EPIC-ASSIGN** is closed: both reparenting paths are wired end to end from keystroke/
+  button through to the domain layer, both creation paths carry the parent id, and 17 new tests
+  cover it.
+- **G-01-FOCUS** is closed: one shared layer-guard function gates every global binding.
+- **CR-01** is closed: the single-parent invariant is unrepresentable at the type level on the
+  creation path, matching what `set_parent` already guaranteed on the reparenting path. The
+  schema-level `CHECK` constraint alternative was deliberately not added — confirmed absent, and
+  agreed to be a reasonable, disclosed deferral rather than a live hole, since no caller today can
+  bypass the Rust layer.
+- **CR-02** is closed: the exact click path the review found unguarded now goes through the same
+  layer check every keyboard path already used, with new regression coverage for the specific
+  blind spot (click, not keydown) that let it slip past the prior suite.
+- **WR-01** and **WR-02** are both closed, each with new test coverage where none existed before.
 
-Both fix commits also closed the two Warning-level findings (WR-01 epic pill ULID, WR-02 blank
-`key` on update) bundled into the same work. Both test suites were re-run fresh in this session
-(96 Rust / 57 Vitest, both 0 failed) rather than trusted from the prior counts, and both match the
-executor's claimed deltas exactly.
+Both test suites and both builds were independently re-run fresh in this session (114 Rust tests,
+89 Vitest tests, 0 failures; both builds green) rather than trusted from any prior report's
+counts, and every number matches what `01-REVIEW-FIX.md` claimed.
 
-What remains is unchanged from the initial verification and was never part of either closed gap:
-the live, running-window walkthrough across roughly two-thirds of this phase's surface area has
-still not been confirmed in a real `tauri dev` window in this execution environment. This is
-reported as a human-verification item, not rounded up to passed.
+What remains is the live, running-window experience of the phase's newest surface area (the
+hierarchy-assignment UI and the layer-guard click-path fix) plus the still-unexercised 1,000+
+item volume clause carried forward from the original UAT round. Neither is a gap in the code —
+both are reported as human-verification items, not rounded up to passed.
 
 ---
 
-_Verified: 2026-09-09T17:55:00Z_
+_Verified: 2026-09-09T23:10:00Z_
 _Verifier: Claude (gsd-verifier)_
