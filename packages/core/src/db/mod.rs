@@ -16,7 +16,10 @@ use self::backup::backup_database_file;
 /// The compiled, ordered set of schema migrations. Later migrations append to this vector —
 /// this is the *only* place a new migration file is registered.
 static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
-    Migrations::new(vec![M::up(include_str!("migrations/0001_actors.sql"))])
+    Migrations::new(vec![
+        M::up(include_str!("migrations/0001_actors.sql")),
+        M::up(include_str!("migrations/0002_board_schema.sql")),
+    ])
 });
 
 /// Apply the four pragmas every connection needs.

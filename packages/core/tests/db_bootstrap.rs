@@ -68,7 +68,7 @@ fn second_open_reapplies_connection_scoped_pragmas() {
 }
 
 #[test]
-fn open_and_migrate_on_fresh_path_advances_user_version_to_1() {
+fn open_and_migrate_on_fresh_path_advances_user_version_to_latest() {
     let dir = scratch_dir();
     let db_path = dir.path().join("flywheel.db");
     let backups_dir = dir.path().join("backups");
@@ -78,7 +78,9 @@ fn open_and_migrate_on_fresh_path_advances_user_version_to_1() {
     let user_version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(user_version, 1);
+    // Two migrations exist as of 01-03 (0001_actors.sql, 0002_board_schema.sql) — this asserts
+    // "the latest schema version," not a literal count that every future migration must edit.
+    assert_eq!(user_version, 2);
 }
 
 #[test]
@@ -95,7 +97,10 @@ fn open_and_migrate_is_idempotent_on_second_call() {
     let user_version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(user_version, 1, "user_version must stay at 1, not advance again");
+    assert_eq!(
+        user_version, 2,
+        "user_version must stay at the latest schema version, not advance again"
+    );
 }
 
 #[test]

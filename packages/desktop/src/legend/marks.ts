@@ -10,7 +10,7 @@
  * etc.) rather than inventing an undocumented mark.
  */
 
-export type MarkChannel = "row-state" | "focus";
+export type MarkChannel = "row-state" | "focus" | "status" | "priority";
 
 export interface Mark {
   /** Stable identifier — matches the CSS token role this mark represents, where one exists. */
@@ -68,4 +68,112 @@ export const MARKS: Mark[] = [
     label: "Focus ring",
     meaning: "The element currently reachable by keyboard Tab order.",
   },
+  // Status glyphs (01-UI-SPEC.md "Row Anatomy" — shape carries the meaning, colour is a
+  // redundant second channel). `id` matches the strip-stock CSS token for the same state, so
+  // Legend.tsx can render the actual tint as the swatch background.
+  {
+    id: "strip-backlog",
+    channel: "status",
+    glyph: "CircleDashed",
+    label: "Backlog",
+    meaning: "Not yet started — a dashed, empty circle.",
+  },
+  {
+    id: "strip-todo",
+    channel: "status",
+    glyph: "Circle",
+    label: "Todo",
+    meaning: "Queued to start — an empty circle.",
+  },
+  {
+    id: "strip-in-progress",
+    channel: "status",
+    glyph: "CircleDot",
+    label: "In Progress",
+    meaning: "Actively being worked — a half-filled circle.",
+  },
+  {
+    id: "strip-in-review",
+    channel: "status",
+    glyph: "CircleEllipsis",
+    label: "In Review",
+    meaning: "Awaiting review — a circle with an eye/dot mark.",
+  },
+  {
+    id: "strip-done",
+    channel: "status",
+    glyph: "CircleCheckBig",
+    label: "Done",
+    meaning: "Complete — a filled circle with a check mark.",
+  },
+  // Priority glyphs (01-UI-SPEC.md "Row Anatomy" — a stacked-bars icon whose filled-bar count
+  // increases with priority level). `No priority` is keyed `0` in the keyboard map but SORTS
+  // LAST in every board query (01-UI-SPEC.md Open Decisions #6) — the glyph and this legend
+  // entry describe the keymap/label, not the sort position.
+  {
+    id: "priority-no-priority",
+    channel: "priority",
+    glyph: "SignalZero",
+    label: "No priority",
+    meaning: "Unprioritised — keyed 0, but sorts last within its status band, not first.",
+  },
+  {
+    id: "priority-urgent",
+    channel: "priority",
+    glyph: "Signal",
+    label: "Urgent",
+    meaning: "Highest priority — keyed 1, all bars filled.",
+  },
+  {
+    id: "priority-high",
+    channel: "priority",
+    glyph: "SignalHigh",
+    label: "High",
+    meaning: "Keyed 2.",
+  },
+  {
+    id: "priority-medium",
+    channel: "priority",
+    glyph: "SignalMedium",
+    label: "Medium",
+    meaning: "Keyed 3.",
+  },
+  {
+    id: "priority-low",
+    channel: "priority",
+    glyph: "SignalLow",
+    label: "Low",
+    meaning: "Lowest declared priority — keyed 4, one bar filled.",
+  },
 ];
+
+/**
+ * `MARKS` indexed by id — the lookup `BoardRow.tsx` uses to resolve a status/priority value to
+ * its mark, so the row's glyph/label always comes from this one registry rather than a second,
+ * hand-maintained mapping ("no mark may exist that the legend does not define").
+ */
+export const MARKS_BY_ID: Record<string, Mark> = Object.fromEntries(
+  MARKS.map((mark) => [mark.id, mark]),
+);
+
+/** `tasks.status` value -> the matching status Mark's id (see migration `0002_board_schema.sql`). */
+export function statusMarkId(status: string): string {
+  return `strip-${status.replace(/_/g, "-")}`;
+}
+
+/**
+ * `tasks.priority` (0-4, keyed exactly as the keyboard map) -> the matching priority Mark's id.
+ * `0` ("No priority") sorts LAST in every board query (Open Decisions #6) — this lookup is only
+ * the keymap/label mapping, never the sort position.
+ */
+const PRIORITY_MARK_IDS = [
+  "priority-no-priority",
+  "priority-urgent",
+  "priority-high",
+  "priority-medium",
+  "priority-low",
+] as const;
+
+export function priorityMarkId(priority: number): string {
+  return PRIORITY_MARK_IDS[priority] ?? PRIORITY_MARK_IDS[0];
+}

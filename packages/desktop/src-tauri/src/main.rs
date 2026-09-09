@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod commands;
 mod state;
 
 use state::AppState;
@@ -9,6 +10,7 @@ use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Open (or create) the one fleet-wide database, backing it up before migrating and
             // applying pragmas, before any window is shown. A migration failure aborts startup
@@ -27,6 +29,12 @@ fn main() {
 
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            commands::project::project_register,
+            commands::project::project_list,
+            commands::task::task_create,
+            commands::board::board_list,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

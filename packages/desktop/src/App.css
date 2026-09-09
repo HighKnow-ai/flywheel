@@ -22,3 +22,52 @@ body,
   background: var(--surface-dominant);
   color: var(--text-primary-rack);
 }
+
+/*
+ * Browser surfaces theming (craft-floor.md "Verify" — the parts you did not draw still carry the
+ * design). Text selection and the caret take the accent hue rather than the OS default; tabular
+ * numerals are wired via .tabular-nums (styles/type.css, from plan 01-02).
+ */
+::selection {
+  background: var(--accent-nontext);
+  color: var(--text-primary-rack);
+}
+
+input {
+  caret-color: var(--focus-ring);
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/*
+ * Board row / quick-add hover (01-UI-SPEC.md Row Anatomy row states). Rows set their status tint
+ * via an inline `background` (dynamic per status), so the hover wash is an inset box-shadow
+ * overlay — the same `--row-surface-hover` token layered on top, rather than a second background
+ * declaration fighting the inline one.
+ */
+.board-row,
+.quick-add {
+  transition: box-shadow var(--duration-settle, 180ms) var(--ease, ease);
+}
+
+.board-row:hover {
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+button {
+  font-family: inherit;
+  transition: background-color var(--duration-settle, 180ms) var(--ease, ease);
+}
+
+button:hover:not(:disabled) {
+  background: var(--divider);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

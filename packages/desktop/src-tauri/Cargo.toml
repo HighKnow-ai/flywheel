@@ -23,6 +23,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 # — E0433 "cannot find `option` in `core`"). Aliasing the key sidesteps the collision while
 # the underlying package (and `cargo metadata`'s workspace member) is still named `core`.
 flywheel_core = { path = "../../core", package = "core" }
+tauri-plugin-dialog = "2.7.3"
 
 # [profile.release] lives at the workspace root (Cargo.toml) — Cargo ignores
 # per-member profile tables and warns when they're set here.

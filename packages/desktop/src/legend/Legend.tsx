@@ -5,6 +5,8 @@ import { MARKS, type Mark, type MarkChannel } from "./marks";
 const CHANNEL_LABELS: Record<MarkChannel, string> = {
   "row-state": "Row state",
   focus: "Focus",
+  status: "Status",
+  priority: "Priority",
 };
 
 const SWATCH_BASE: CSSProperties = {
@@ -23,26 +25,52 @@ const SWATCH_BASE: CSSProperties = {
  * focus mark has no background token of its own; it is rendered as a ring
  * instead, which is what it actually looks like in the product.
  */
-function swatchStyle(mark: Mark): CSSProperties {
-  const tokenByMarkId: Record<string, string> = {
-    "row-surface": "var(--row-surface)",
-    "row-surface-hover": "var(--row-surface-hover)",
-    "row-surface-selected": "var(--row-surface-selected)",
-    "row-surface-selected-unfocused": "var(--row-surface-selected-unfocused)",
-  };
+const TOKEN_BY_MARK_ID: Record<string, string> = {
+  "row-surface": "var(--row-surface)",
+  "row-surface-hover": "var(--row-surface-hover)",
+  "row-surface-selected": "var(--row-surface-selected)",
+  "row-surface-selected-unfocused": "var(--row-surface-selected-unfocused)",
+  "strip-backlog": "var(--strip-backlog)",
+  "strip-todo": "var(--strip-todo)",
+  "strip-in-progress": "var(--strip-in-progress)",
+  "strip-in-review": "var(--strip-in-review)",
+  "strip-done": "var(--strip-done)",
+};
 
-  const token = tokenByMarkId[mark.id];
+function swatchStyle(mark: Mark): CSSProperties {
+  const token = TOKEN_BY_MARK_ID[mark.id];
   if (token) {
     return { ...SWATCH_BASE, background: token, border: "1px solid var(--divider)" };
   }
 
-  // Focus channel: render as the ring itself, since a filled swatch would
-  // misrepresent what a focus indicator actually looks like.
+  if (mark.channel === "focus") {
+    // Focus channel: render as the ring itself, since a filled swatch would
+    // misrepresent what a focus indicator actually looks like.
+    return {
+      ...SWATCH_BASE,
+      background: "transparent",
+      boxShadow: "0 0 0 2px var(--focus-ring)",
+    };
+  }
+
+  // Marks with no dedicated background token (e.g. priority glyphs, which are ink drawn on the
+  // strip, not a distinct fill) — a neutral rack swatch so the glyph itself carries the meaning.
   return {
     ...SWATCH_BASE,
-    background: "transparent",
-    boxShadow: "0 0 0 2px var(--focus-ring)",
+    background: "var(--surface-secondary)",
+    border: "1px solid var(--divider)",
   };
+}
+
+/**
+ * Icon colour for a mark's swatch. Strip-tint swatches are light paper stock — the glyph must be
+ * drawn in strip ink (`--text-primary-strip`), not the rack's light text colour, or it disappears
+ * against the light background.
+ */
+function glyphColor(mark: Mark): string | undefined {
+  return mark.id in TOKEN_BY_MARK_ID && mark.id.startsWith("strip-")
+    ? "var(--text-primary-strip)"
+    : undefined;
 }
 
 /**
@@ -50,12 +78,12 @@ function swatchStyle(mark: Mark): CSSProperties {
  * decision — 01-UI-SPEC.md "Design System") to the real icon component.
  * Uniform 2px stroke, no fill — never a unicode/emoji stand-in.
  */
-type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
+type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; color?: string }>;
 
-function Glyph({ name }: { name: string }) {
+function Glyph({ name, color }: { name: string; color?: string }) {
   const Icon = (icons as unknown as Record<string, IconComponent>)[name];
   if (!Icon) return null;
-  return <Icon size={14} strokeWidth={2} />;
+  return <Icon size={14} strokeWidth={2} color={color} />;
 }
 
 /**
@@ -102,7 +130,7 @@ export function Legend() {
                 style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}
               >
                 <span aria-hidden="true" style={swatchStyle(mark)}>
-                  <Glyph name={mark.glyph} />
+                  <Glyph name={mark.glyph} color={glyphColor(mark)} />
                 </span>
                 <span className="type-body" style={{ minWidth: 160 }}>
                   {mark.label}

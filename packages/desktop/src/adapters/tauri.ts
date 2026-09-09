@@ -10,6 +10,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 
 /**
  * Invoke a Tauri command and return its typed result.
@@ -30,4 +31,16 @@ export async function subscribeBoardChanged(
   handler: () => void,
 ): Promise<UnlistenFn> {
   return listen("board:changed", () => handler());
+}
+
+/**
+ * Open the native folder picker for project registration (01-UI-SPEC.md "Board list", the
+ * "Register Project…" flow). Returns the chosen absolute path, or `null` if the user cancelled.
+ *
+ * This module is also the only place `@tauri-apps/plugin-dialog` is imported, extending the same
+ * single-seam rule `invokeCommand`/`subscribeBoardChanged` follow above.
+ */
+export async function openFolderDialog(): Promise<string | null> {
+  const result = await open({ directory: true, multiple: false });
+  return result ?? null;
 }

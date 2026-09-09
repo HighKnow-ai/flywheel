@@ -1,9 +1,9 @@
-# DESIGN.md — Phase 1, Plan 01-02
+# DESIGN.md — Phase 1
 
-**Status:** The Flight Progress Strips visual world is authored. This plan ships the theme
-foundation — token roles, type scale, motion contract, and the marks legend — that every board
-surface built from `01-03` onward consumes. It does not ship the board itself (rail, strips,
-detail panel, palette): those land starting `01-03`.
+**Status:** The Flight Progress Strips visual world is authored (`01-02`) and its first real
+surface is built (`01-03`): a working rack — registration, the five status bands, quick-add,
+persistence. The project rail, command palette, item detail panel and pickers land in later
+plans.
 
 ## Direction
 
@@ -156,3 +156,110 @@ using the two captured screenshots above and the accessibility tree from a live 
 - `legend/marks.ts` and `legend/Legend.tsx`, ready for `01-04`'s command palette to wire the Legend
   in as an always-reachable surface and for later plans to append status/priority/actor marks.
 - `lucide-react` as a project dependency, ready for Row Anatomy's status/priority glyphs.
+
+---
+
+# Phase 1, Plan 01-03 — The Tracer's Rack
+
+**Status:** The first real board surface is built and proven end to end: registration → the
+five fixed status bands → inline quick-add → persistence across a relaunch, all pushed through
+`board:changed` (D-04) rather than trusted as an optimistic write. This is a **tracer**, not a
+throwaway — the surface is production-quality, but it deliberately covers only what plan 01-03
+needs (create a task, see it on the rack). Selection, the project rail, the command palette, the
+item detail panel, and every picker are later plans' surfaces.
+
+## What was built
+
+- **`FirstRun.tsx`** — the zero-projects empty state (exact copy from `01-UI-SPEC.md`
+  "Copywriting Contract"), leading into a two-step registration flow: the native folder picker
+  (`adapters/tauri.ts`'s `openFolderDialog`, backed by `@tauri-apps/plugin-dialog` and the narrow
+  `dialog:allow-open` capability grant), then a confirmation step showing the project key prefix
+  **pre-filled from the repository directory name** (`deriveKeyPrefix`) and editable before the
+  first item exists (Open Decisions #11).
+- **`BoardView.tsx`** — the vertical rack: five fixed status bands in fixed order, stamped sticky
+  headers carrying live counts, virtualized with `@tanstack/react-virtual` using a single constant
+  `estimateSize` (no `measureElement`) and overscan 10. Band headers share the item rows' fixed
+  height so the whole rack is one uniform virtualized list, never horizontal columns.
+- **`BoardRow.tsx`** — one strip: status glyph (shape, not colour alone) resolved from the
+  `legend/marks.ts` registry, key in tabular figures, title truncated single-line with a native
+  tooltip, the "No epic" pill for orphan tasks (D-13), and the priority glyph (stacked-bars,
+  `SignalZero`/`Signal`/`SignalHigh`/`SignalMedium`/`SignalLow`).
+- **`QuickAdd.tsx`** — the inline creation path (D-09): Enter creates at the current position,
+  Escape cancels without creating.
+- **`legend/marks.ts`** — extended with the five status marks (`strip-*`, matching the strip-tint
+  CSS tokens so the Legend renders the real swatch) and the five priority marks
+  (`priority-*`), so every glyph this plan renders is defined in the one legend surface (the
+  Orienteering Map donation: "no mark may exist that the legend does not define").
+- **Rust core** — migration `0002_board_schema.sql` (projects/epics/tasks/issues/
+  acceptance_criteria/events/event_sequence_counters, FTS5 + triggers), `ranking.rs`
+  (`FractionalIndex` wrapper), `domain::{actor, event, project, task}`, `query::list_board`. See
+  `01-03-SUMMARY.md` for the full accounting.
+
+## Review against the direction contract
+
+The direction contract (`packages/desktop/index.html`, seed `59b0beb9`, authored in plan `01-02`)
+is the standing reference — this plan does not re-author it. Reviewed directly against
+`craft-floor.md`'s Verify/Refuse checklist, the same way plan `01-02` did: **this execution
+environment has no agent-spawning tool available to the executor**, so the shipped
+`impeccable-finish-reviewer` and `impeccable-documenter` subagents could not literally be
+invoked. This section is the self-conducted substitute, and this limitation is stated explicitly
+rather than silently claiming the named subagents ran.
+
+**Verified against the built surface (`.impeccable/review/01-03-first-run.png`,
+`.impeccable/review/01-03-populated-rack.png`, captured from a real `tauri dev` launch via `orca
+computer get-app-state`, plus a full process kill-and-relaunch to prove persistence):**
+
+- One vertical rack, five stacked bands, never horizontal columns — confirmed visually. **FINISH**
+  clause satisfied: "If a build produces horizontal status columns, the direction has been
+  misread" does not apply here.
+- Status is a printed word (the band name) plus a shape glyph on each strip, never colour alone —
+  the five strip tints are close in luminance by design (01-UI-SPEC.md), so the glyph and the band
+  position are load-bearing, and both are present.
+- No paper grain, no bevels, no drop shadows imitating physical strips — confirmed; the only
+  visual treatment on strip stock is the flat tint plus a hairline divider.
+- `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
+  --json packages/desktop/src/board packages/desktop/src/App.tsx` and the same against
+  `packages/desktop/src/legend packages/desktop/src/App.css` both returned `[]` — no findings.
+- Contrast: strip-ink and rack-ink pairings reuse the exact token values `01-02`'s runnable
+  contrast suite already proved (`theme/__tests__/contrast.test.ts`); no new colour was
+  introduced.
+- Motion: rows reposition via the virtualizer's `translateY` transform only; hover/focus/disabled
+  states added in `App.css` reuse the single `--ease`/`--duration-settle` pair from `01-02`, never
+  a second easing curve.
+- Browser-surface theming (craft-floor.md "the parts you did not draw still carry the design"):
+  `::selection`, `caret-color`, and `:focus-visible` rings are themed from the token palette in
+  `App.css`, not left as unstyled OS defaults.
+
+**Findings and fixes made during this review:**
+
+- The Legend's `swatchStyle` originally rendered every mark without a dedicated background token
+  (e.g. a priority glyph) as a focus ring — visually wrong for a non-focus mark. Fixed by adding a
+  neutral rack-toned fallback swatch, reserving the ring rendering for the `focus` channel only.
+- Strip-tint swatches (the five new status marks) render on a **light** background; the Legend's
+  icon inherited the rack's light text colour by default, which would be invisible against a
+  light swatch. Fixed by adding `glyphColor()`, which draws the icon in `--text-primary-strip` for
+  any mark whose id matches a strip-tint token.
+
+## Known deferred surfaces (not stubs — explicit scope boundaries)
+
+These are surfaces `01-UI-SPEC.md` and the direction contract describe but that this plan's file
+list (`01-03-PLAN.md` frontmatter `files_modified`) does not cover — later plans own them:
+
+- **Project rail** (multiple registered projects, ⌘1-⌘9 switching) — this plan renders the first
+  registered project directly; a rail lands with multi-project support.
+- **Row selection, "pulled proud of the rail"** — the keyboard model (D-02, `j`/`k`, `Enter`/`o`)
+  and its visual selection treatment are a later plan's surface.
+- **Command palette (⌘K)** — `01-04`.
+- **Item detail panel, pickers, acceptance criteria, activity trail** — `01-04`/`01-09` per
+  `01-UI-SPEC.md`'s "Design System" consequence (hand-wired Radix primitives).
+
+## What the next plan inherits
+
+- A real, tested `create_task`/`list_board`/`create_project` path in `packages/core`, and the four
+  Tauri commands wired end to end — every later board mutation follows the same transactional
+  outbox + push-invalidate shape.
+- `legend/marks.ts`'s status and priority marks, ready for the item detail panel's pickers to
+  reuse rather than re-declare.
+- `deriveKeyPrefix` (`board/FirstRun.tsx`) as the one place a key-prefix default is computed, for
+  any future "edit project" surface to reuse before it would hit
+  `packages/core::domain::project::update_key_prefix`'s immutability guard.

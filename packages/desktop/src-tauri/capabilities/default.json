@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default-deny capability for the main window — no fs:, no shell:, only core defaults and window management (T-01-02).",
+  "description": "Default-deny capability for the main window — no fs:, no shell:, only core defaults, window management, and the narrow dialog:allow-open grant for the project registration folder picker (T-01-02). Each new command this plan introduces is added explicitly below; no blanket grant is added.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:allow-open"]
 }
