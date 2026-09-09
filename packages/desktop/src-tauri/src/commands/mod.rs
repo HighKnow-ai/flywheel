@@ -4,6 +4,7 @@
 //! local human actor on the Rust side (T-01-04, never from a renderer-supplied claim), and, after
 //! a successful mutation, emits `board:changed` (D-04).
 
+pub mod actor;
 pub mod board;
 pub mod criterion;
 pub mod epic;

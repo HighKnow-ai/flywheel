@@ -14,7 +14,7 @@ use crate::domain::acceptance_criterion::delete_criteria_for_parent;
 use crate::domain::event::{append_event, next_sequence};
 use crate::domain::task::DEFAULT_PRIORITY;
 use crate::ids::new_id;
-use crate::ranking::rank_after;
+use crate::ranking::{rank_after, rank_before, rank_between, ReorderDirection};
 
 /// An epic row, as read back immediately after a mutation commits.
 #[derive(Debug, Clone, PartialEq)]
@@ -311,5 +311,280 @@ pub fn set_epic_status(
     )?;
 
     tx.commit().context("failed to commit set_epic_status transaction")?;
+    Ok(())
+}
+
+/// Move an epic up or down by one position within its `(project_id, status, priority)` band
+/// (D-11, BOARD-05) — mirrors `task.rs::reorder_task`'s shape exactly (same neighbour-lookup
+/// query shape, same one-`UPDATE`-per-move discipline), against `epics` instead of `tasks`.
+pub fn reorder_epic(
+    conn: &mut Connection,
+    actor_id: &str,
+    epic_id: &str,
+    direction: ReorderDirection,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, status, priority, rank): (String, String, i64, String) = tx
+        .query_row(
+            "SELECT project_id, status, priority, rank FROM epics WHERE id = ?1",
+            params![epic_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+
+    let new_rank = match direction {
+        ReorderDirection::Up => {
+            let mut stmt = tx.prepare(
+                "SELECT rank FROM epics
+                 WHERE project_id = ?1 AND status = ?2 AND priority = ?3
+                   AND (rank, id) < (?4, ?5)
+                 ORDER BY rank DESC, id DESC
+                 LIMIT 2",
+            )?;
+            let neighbours: Vec<String> = stmt
+                .query_map(params![project_id, status, priority, rank, epic_id], |row| {
+                    row.get(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()
+                .context("failed to read the preceding neighbours")?;
+            match neighbours.as_slice() {
+                [] => None,
+                [prev] => Some(rank_before(Some(prev.as_str()))?),
+                [prev, prev_prev, ..] => Some(rank_between(prev_prev, prev)?),
+            }
+        }
+        ReorderDirection::Down => {
+            let mut stmt = tx.prepare(
+                "SELECT rank FROM epics
+                 WHERE project_id = ?1 AND status = ?2 AND priority = ?3
+                   AND (rank, id) > (?4, ?5)
+                 ORDER BY rank ASC, id ASC
+                 LIMIT 2",
+            )?;
+            let neighbours: Vec<String> = stmt
+                .query_map(params![project_id, status, priority, rank, epic_id], |row| {
+                    row.get(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()
+                .context("failed to read the following neighbours")?;
+            match neighbours.as_slice() {
+                [] => None,
+                [next] => Some(rank_after(Some(next.as_str()))?),
+                [next, next_next, ..] => Some(rank_between(next, next_next)?),
+            }
+        }
+    };
+
+    let Some(new_rank) = new_rank else {
+        tx.commit()
+            .context("failed to commit no-op reorder_epic transaction")?;
+        return Ok(());
+    };
+
+    tx.execute(
+        "UPDATE epics SET rank = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_rank, now, epic_id],
+    )
+    .context("failed to reorder epic")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "rank",
+        "before": rank,
+        "after": new_rank,
+        "label": "Reordered",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "epic",
+        epic_id,
+        None,
+        Some(epic_id),
+        actor_id,
+        "epic.reordered",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit reorder_epic transaction")?;
+    Ok(())
+}
+
+/// Set an epic's priority — mirrors `task.rs::set_priority` exactly.
+pub fn set_priority(
+    conn: &mut Connection,
+    actor_id: &str,
+    epic_id: &str,
+    new_priority: i64,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, current_priority): (String, i64) = tx
+        .query_row(
+            "SELECT project_id, priority FROM epics WHERE id = ?1",
+            params![epic_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+
+    if current_priority == new_priority {
+        tx.commit()
+            .context("failed to commit no-op set_priority transaction")?;
+        return Ok(());
+    }
+
+    tx.execute(
+        "UPDATE epics SET priority = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_priority, now, epic_id],
+    )
+    .context("failed to set epic priority")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "priority",
+        "before": current_priority,
+        "after": new_priority,
+        "label": format!("Changed priority from {current_priority} to {new_priority}"),
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "epic",
+        epic_id,
+        None,
+        Some(epic_id),
+        actor_id,
+        "epic.priority_changed",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit set_priority transaction")?;
+    Ok(())
+}
+
+/// Set an epic's estimate — mirrors `task.rs::set_estimate` exactly (D-12: nullable, never
+/// aggregated).
+pub fn set_estimate(
+    conn: &mut Connection,
+    actor_id: &str,
+    epic_id: &str,
+    new_estimate: Option<i64>,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, current_estimate): (String, Option<i64>) = tx
+        .query_row(
+            "SELECT project_id, estimate FROM epics WHERE id = ?1",
+            params![epic_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+
+    if current_estimate == new_estimate {
+        tx.commit()
+            .context("failed to commit no-op set_estimate transaction")?;
+        return Ok(());
+    }
+
+    tx.execute(
+        "UPDATE epics SET estimate = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_estimate, now, epic_id],
+    )
+    .context("failed to set epic estimate")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "estimate",
+        "before": current_estimate,
+        "after": new_estimate,
+        "label": "Changed estimate",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "epic",
+        epic_id,
+        None,
+        Some(epic_id),
+        actor_id,
+        "epic.estimate_changed",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit set_estimate transaction")?;
+    Ok(())
+}
+
+/// Set an epic's assignee — mirrors `task.rs::set_assignee` exactly (T-01-21: an id naming no
+/// actor row is rejected by the `assignee_id` foreign key, not by an application-layer check).
+pub fn set_assignee(
+    conn: &mut Connection,
+    actor_id: &str,
+    epic_id: &str,
+    new_assignee_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, current_assignee_id): (String, Option<String>) = tx
+        .query_row(
+            "SELECT project_id, assignee_id FROM epics WHERE id = ?1",
+            params![epic_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+
+    if current_assignee_id.as_deref() == new_assignee_id {
+        tx.commit()
+            .context("failed to commit no-op set_assignee transaction")?;
+        return Ok(());
+    }
+
+    tx.execute(
+        "UPDATE epics SET assignee_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_assignee_id, now, epic_id],
+    )
+    .context("failed to set epic assignee — assignee_id must reference an existing actor")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "assignee_id",
+        "before": current_assignee_id,
+        "after": new_assignee_id,
+        "label": "Changed assignee",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "epic",
+        epic_id,
+        None,
+        Some(epic_id),
+        actor_id,
+        "epic.assignee_changed",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit set_assignee transaction")?;
     Ok(())
 }

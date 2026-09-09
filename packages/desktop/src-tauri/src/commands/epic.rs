@@ -147,3 +147,87 @@ pub fn epic_set_status(
         .ok();
     Ok(())
 }
+
+/// Move an epic up or down by one position within its priority band (`⌘↑`/`⌘↓`, D-11, BOARD-05).
+/// Mirrors `commands::task::task_reorder`'s shape exactly.
+#[tauri::command]
+pub fn epic_reorder(
+    state: State<AppState>,
+    app: AppHandle,
+    epic_id: String,
+    direction: String,
+) -> Result<(), String> {
+    let direction = flywheel_core::ranking::ReorderDirection::parse(&direction)
+        .map_err(|e| e.to_string())?;
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::epic::reorder_epic(&mut conn, &actor_id, &epic_id, direction)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
+        .ok();
+    Ok(())
+}
+
+/// Set an epic's priority — mirrors `commands::task::task_set_priority`'s shape exactly.
+#[tauri::command]
+pub fn epic_set_priority(
+    state: State<AppState>,
+    app: AppHandle,
+    epic_id: String,
+    priority: i64,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::epic::set_priority(&mut conn, &actor_id, &epic_id, priority)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
+        .ok();
+    Ok(())
+}
+
+/// Set an epic's estimate — mirrors `commands::task::task_set_estimate`'s shape exactly.
+#[tauri::command]
+pub fn epic_set_estimate(
+    state: State<AppState>,
+    app: AppHandle,
+    epic_id: String,
+    estimate: Option<i64>,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::epic::set_estimate(&mut conn, &actor_id, &epic_id, estimate)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
+        .ok();
+    Ok(())
+}
+
+/// Set an epic's assignee — mirrors `commands::task::task_set_assignee`'s shape exactly.
+#[tauri::command]
+pub fn epic_set_assignee(
+    state: State<AppState>,
+    app: AppHandle,
+    epic_id: String,
+    assignee_id: Option<String>,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::epic::set_assignee(&mut conn, &actor_id, &epic_id, assignee_id.as_deref())
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
+        .ok();
+    Ok(())
+}

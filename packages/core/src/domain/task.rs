@@ -9,7 +9,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::domain::acceptance_criterion::delete_criteria_for_parent;
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
-use crate::ranking::rank_after;
+use crate::ranking::{rank_after, rank_before, rank_between, ReorderDirection};
 
 /// The default priority for a newly created task: "No priority", keyed `0` in the keyboard map.
 /// It SORTS LAST in `query::list_board` despite being keyed `0` — see that module's sort-key
@@ -310,5 +310,309 @@ pub fn set_task_status(
     )?;
 
     tx.commit().context("failed to commit set_task_status transaction")?;
+    Ok(())
+}
+
+/// Move a task up or down by one position within its `(project_id, status, priority)` band
+/// (D-11, BOARD-05) — the manual-rank half of the tie-break rule ("priority sorts first, rank
+/// orders within a band"). Filtering the neighbour lookup by `priority`, not merely
+/// `(project_id, status)`, is what keeps `⌘↑`/`⌘↓` from computing a rank against a neighbour in a
+/// different priority band: `list_board`'s `priority ASC, rank ASC, id ASC` order groups by
+/// priority first, so the neighbour a keyboard reorder must actually displace is scoped by
+/// priority too.
+///
+/// One transaction: read the task's own `(project_id, status, priority, rank)`, look up its one
+/// or two nearest neighbours in the move direction with a single indexed query against
+/// `(project_id, status, rank)`, compute the new rank from [`rank_before`]/[`rank_between`]/
+/// [`rank_after`], write exactly one `UPDATE`, append one `task.reordered` event, and commit.
+/// A task with no neighbour in the move direction (already first for `Up`, already last for
+/// `Down`, or the only item in its band) is a no-op: `Ok` is returned and no row is written.
+pub fn reorder_task(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+    direction: ReorderDirection,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, epic_id, status, priority, rank): (
+        String,
+        Option<String>,
+        String,
+        i64,
+        String,
+    ) = tx
+        .query_row(
+            "SELECT project_id, epic_id, status, priority, rank FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    let new_rank = match direction {
+        ReorderDirection::Up => {
+            // Newest-first by (rank, id): LIMIT 2 gives [immediate predecessor, its own
+            // predecessor] in one indexed query against (project_id, status, rank).
+            let mut stmt = tx.prepare(
+                "SELECT rank FROM tasks
+                 WHERE project_id = ?1 AND status = ?2 AND priority = ?3
+                   AND (rank, id) < (?4, ?5)
+                 ORDER BY rank DESC, id DESC
+                 LIMIT 2",
+            )?;
+            let neighbours: Vec<String> = stmt
+                .query_map(params![project_id, status, priority, rank, task_id], |row| {
+                    row.get(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()
+                .context("failed to read the preceding neighbours")?;
+            match neighbours.as_slice() {
+                [] => None,
+                [prev] => Some(rank_before(Some(prev.as_str()))?),
+                [prev, prev_prev, ..] => Some(rank_between(prev_prev, prev)?),
+            }
+        }
+        ReorderDirection::Down => {
+            let mut stmt = tx.prepare(
+                "SELECT rank FROM tasks
+                 WHERE project_id = ?1 AND status = ?2 AND priority = ?3
+                   AND (rank, id) > (?4, ?5)
+                 ORDER BY rank ASC, id ASC
+                 LIMIT 2",
+            )?;
+            let neighbours: Vec<String> = stmt
+                .query_map(params![project_id, status, priority, rank, task_id], |row| {
+                    row.get(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()
+                .context("failed to read the following neighbours")?;
+            match neighbours.as_slice() {
+                [] => None,
+                [next] => Some(rank_after(Some(next.as_str()))?),
+                [next, next_next, ..] => Some(rank_between(next, next_next)?),
+            }
+        }
+    };
+
+    let Some(new_rank) = new_rank else {
+        tx.commit()
+            .context("failed to commit no-op reorder_task transaction")?;
+        return Ok(());
+    };
+
+    tx.execute(
+        "UPDATE tasks SET rank = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_rank, now, task_id],
+    )
+    .context("failed to reorder task")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "rank",
+        "before": rank,
+        "after": new_rank,
+        "label": "Reordered",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id.as_deref(),
+        actor_id,
+        "task.reordered",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit reorder_task transaction")?;
+    Ok(())
+}
+
+/// Set a task's priority (D-11, 5-level Linear convention, 0-4). A redundant change (new value
+/// equals the current value) is a no-op: `Ok` is returned, `updated_at` is left untouched, and no
+/// event is appended. A priority outside `0..=4` is rejected by the schema CHECK constraint in
+/// migration `0002_board_schema.sql` — this function performs no application-layer range check
+/// of its own, mirroring `set_task_status`'s deferral to the schema.
+pub fn set_priority(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+    new_priority: i64,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, epic_id, current_priority): (String, Option<String>, i64) = tx
+        .query_row(
+            "SELECT project_id, epic_id, priority FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    if current_priority == new_priority {
+        tx.commit()
+            .context("failed to commit no-op set_priority transaction")?;
+        return Ok(());
+    }
+
+    tx.execute(
+        "UPDATE tasks SET priority = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_priority, now, task_id],
+    )
+    .context("failed to set task priority")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "priority",
+        "before": current_priority,
+        "after": new_priority,
+        "label": format!("Changed priority from {current_priority} to {new_priority}"),
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id.as_deref(),
+        actor_id,
+        "task.priority_changed",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit set_priority transaction")?;
+    Ok(())
+}
+
+/// Set a task's estimate (D-12: nullable ordinal S/M/L, stored 1-3). `new_estimate = None` clears
+/// the field — the column carries no default. A redundant change is a no-op, mirroring
+/// `set_priority`. An out-of-range value is rejected by the schema CHECK constraint, not by this
+/// function. Nothing in this crate aggregates the estimate column (D-12) — this function only
+/// ever writes the single row it was called for.
+pub fn set_estimate(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+    new_estimate: Option<i64>,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, epic_id, current_estimate): (String, Option<String>, Option<i64>) = tx
+        .query_row(
+            "SELECT project_id, epic_id, estimate FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    if current_estimate == new_estimate {
+        tx.commit()
+            .context("failed to commit no-op set_estimate transaction")?;
+        return Ok(());
+    }
+
+    tx.execute(
+        "UPDATE tasks SET estimate = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_estimate, now, task_id],
+    )
+    .context("failed to set task estimate")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "estimate",
+        "before": current_estimate,
+        "after": new_estimate,
+        "label": "Changed estimate",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id.as_deref(),
+        actor_id,
+        "task.estimate_changed",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit set_estimate transaction")?;
+    Ok(())
+}
+
+/// Set a task's assignee to an actor id, or clear it with `None`. An id that names no row in
+/// `actors` is rejected by the `assignee_id` foreign key (T-01-21) — `foreign_keys = ON` is set
+/// on every connection (`db::open_and_migrate`), so this function performs no application-layer
+/// existence check of its own; the `UPDATE` itself fails with a SQLite foreign-key-constraint
+/// error. A redundant change is a no-op, mirroring `set_priority`/`set_estimate`.
+pub fn set_assignee(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+    new_assignee_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, epic_id, current_assignee_id): (String, Option<String>, Option<String>) = tx
+        .query_row(
+            "SELECT project_id, epic_id, assignee_id FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    if current_assignee_id.as_deref() == new_assignee_id {
+        tx.commit()
+            .context("failed to commit no-op set_assignee transaction")?;
+        return Ok(());
+    }
+
+    tx.execute(
+        "UPDATE tasks SET assignee_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_assignee_id, now, task_id],
+    )
+    .context("failed to set task assignee — assignee_id must reference an existing actor")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "assignee_id",
+        "before": current_assignee_id,
+        "after": new_assignee_id,
+        "label": "Changed assignee",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id.as_deref(),
+        actor_id,
+        "task.assignee_changed",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit set_assignee transaction")?;
     Ok(())
 }

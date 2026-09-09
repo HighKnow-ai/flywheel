@@ -160,3 +160,90 @@ pub fn task_set_status(
         .ok();
     Ok(())
 }
+
+/// Move a task up or down by one position within its priority band (`⌘↑`/`⌘↓`, D-11, BOARD-05).
+/// `direction` must be `"up"` or `"down"` — parsed by `ReorderDirection::parse`, rejected
+/// otherwise. `actor_id` is resolved server-side; emits `board:changed` after commit (D-04).
+#[tauri::command]
+pub fn task_reorder(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+    direction: String,
+) -> Result<(), String> {
+    let direction = flywheel_core::ranking::ReorderDirection::parse(&direction)
+        .map_err(|e| e.to_string())?;
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::task::reorder_task(&mut conn, &actor_id, &task_id, direction)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
+        .ok();
+    Ok(())
+}
+
+/// Set a task's priority (`p` then `0`-`4`, D-11). Rejected by the schema CHECK constraint if
+/// `priority` is outside `0..=4` — this handler performs no application-layer range check of its
+/// own. `actor_id` is resolved server-side; emits `board:changed` after commit (D-04).
+#[tauri::command]
+pub fn task_set_priority(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+    priority: i64,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::task::set_priority(&mut conn, &actor_id, &task_id, priority)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
+        .ok();
+    Ok(())
+}
+
+/// Set a task's estimate (`e`, D-12: nullable S/M/L). `estimate: None` clears the field.
+/// Rejected by the schema CHECK constraint if outside `{1,2,3}`. `actor_id` is resolved
+/// server-side; emits `board:changed` after commit (D-04).
+#[tauri::command]
+pub fn task_set_estimate(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+    estimate: Option<i64>,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::task::set_estimate(&mut conn, &actor_id, &task_id, estimate)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
+        .ok();
+    Ok(())
+}
+
+/// Set a task's assignee (`a`, BOARD-06). `assignee_id: None` clears the field ("Unassigned").
+/// An id naming no row in `actors` is rejected by the `assignee_id` foreign key (T-01-21).
+/// `actor_id` is resolved server-side; emits `board:changed` after commit (D-04).
+#[tauri::command]
+pub fn task_set_assignee(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+    assignee_id: Option<String>,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::task::set_assignee(&mut conn, &actor_id, &task_id, assignee_id.as_deref())
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
+        .ok();
+    Ok(())
+}

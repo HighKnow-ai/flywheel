@@ -12,7 +12,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
-use crate::ranking::rank_after;
+use crate::ranking::{rank_after, rank_before, rank_between, ReorderDirection};
 
 /// An issue row, as read back immediately after a mutation commits.
 #[derive(Debug, Clone, PartialEq)]
@@ -238,5 +238,107 @@ pub fn delete_issue(conn: &mut Connection, actor_id: &str, issue_id: &str) -> an
     )?;
 
     tx.commit().context("failed to commit delete_issue transaction")?;
+    Ok(())
+}
+
+/// Move an issue up or down by one position within the project's issues lane (D-07, D-11,
+/// BOARD-05). Issues carry `rank` but no `status` or `priority` column (D-07: they are
+/// proposals/notes, not units of work — this module contains no priority/estimate/assignee
+/// setter, matching `create_issue`'s own contract), so the neighbour lookup is scoped by
+/// `project_id` alone rather than `(project_id, status, priority)` the way
+/// `task.rs::reorder_task`/`epic.rs::reorder_epic` are. One transaction: read the issue's own
+/// `(project_id, rank)`, look up its one or two nearest neighbours in the move direction with a
+/// single indexed query, compute the new rank, write exactly one `UPDATE`, append one
+/// `issue.reordered` event, and commit. A group of zero or one item is a no-op.
+pub fn reorder_issue(
+    conn: &mut Connection,
+    actor_id: &str,
+    issue_id: &str,
+    direction: ReorderDirection,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, epic_id, task_id, rank): (String, Option<String>, Option<String>, String) =
+        tx.query_row(
+            "SELECT project_id, epic_id, task_id, rank FROM issues WHERE id = ?1",
+            params![issue_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .with_context(|| format!("issue {issue_id:?} not found"))?;
+
+    let new_rank = match direction {
+        ReorderDirection::Up => {
+            let mut stmt = tx.prepare(
+                "SELECT rank FROM issues
+                 WHERE project_id = ?1 AND (rank, id) < (?2, ?3)
+                 ORDER BY rank DESC, id DESC
+                 LIMIT 2",
+            )?;
+            let neighbours: Vec<String> = stmt
+                .query_map(params![project_id, rank, issue_id], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()
+                .context("failed to read the preceding neighbours")?;
+            match neighbours.as_slice() {
+                [] => None,
+                [prev] => Some(rank_before(Some(prev.as_str()))?),
+                [prev, prev_prev, ..] => Some(rank_between(prev_prev, prev)?),
+            }
+        }
+        ReorderDirection::Down => {
+            let mut stmt = tx.prepare(
+                "SELECT rank FROM issues
+                 WHERE project_id = ?1 AND (rank, id) > (?2, ?3)
+                 ORDER BY rank ASC, id ASC
+                 LIMIT 2",
+            )?;
+            let neighbours: Vec<String> = stmt
+                .query_map(params![project_id, rank, issue_id], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()
+                .context("failed to read the following neighbours")?;
+            match neighbours.as_slice() {
+                [] => None,
+                [next] => Some(rank_after(Some(next.as_str()))?),
+                [next, next_next, ..] => Some(rank_between(next, next_next)?),
+            }
+        }
+    };
+
+    let Some(new_rank) = new_rank else {
+        tx.commit()
+            .context("failed to commit no-op reorder_issue transaction")?;
+        return Ok(());
+    };
+
+    tx.execute(
+        "UPDATE issues SET rank = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_rank, now, issue_id],
+    )
+    .context("failed to reorder issue")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "rank",
+        "before": rank,
+        "after": new_rank,
+        "label": "Reordered",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "issue",
+        issue_id,
+        task_id.as_deref(),
+        epic_id.as_deref(),
+        actor_id,
+        "issue.reordered",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit reorder_issue transaction")?;
     Ok(())
 }

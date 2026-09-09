@@ -20,6 +20,8 @@ pub struct BoardItemDto {
     pub rank: String,
     pub priority: i64,
     pub epic_id: Option<String>,
+    pub estimate: Option<i64>,
+    pub assignee_id: Option<String>,
     pub criteria_checked: i64,
     pub criteria_total: i64,
 }
@@ -35,6 +37,8 @@ impl From<flywheel_core::query::BoardItem> for BoardItemDto {
             rank: item.rank,
             priority: item.priority,
             epic_id: item.epic_id,
+            estimate: item.estimate,
+            assignee_id: item.assignee_id,
             criteria_checked: item.criteria_checked,
             criteria_total: item.criteria_total,
         }

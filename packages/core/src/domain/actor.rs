@@ -4,6 +4,7 @@
 //! handler — never accepted as a claim from the renderer (T-01-04). This is what makes
 //! `events.actor_id`'s NOT NULL foreign key meaningful rather than merely trusted.
 
+use anyhow::Context;
 use rusqlite::Connection;
 
 /// One row of the `actors` table (DATA-03).
@@ -60,4 +61,23 @@ pub fn system_actor(conn: &Connection) -> anyhow::Result<Actor> {
         },
     )?;
     Ok(actor)
+}
+
+/// List every actor (human, agent and system), oldest-created first — the roster the assignee
+/// picker renders (BOARD-06). Read-only; Phase 1 seeds actors from migration `0001_actors.sql`
+/// only and exposes no create-actor command from the renderer.
+pub fn list_actors(conn: &Connection) -> anyhow::Result<Vec<Actor>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, type, display_name FROM actors ORDER BY created_at ASC",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(Actor {
+                id: row.get(0)?,
+                actor_type: row.get(1)?,
+                display_name: row.get(2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to list actors")
 }

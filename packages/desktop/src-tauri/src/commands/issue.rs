@@ -150,3 +150,27 @@ pub fn issue_delete(
         .ok();
     Ok(())
 }
+
+/// Move an issue up or down by one position within the project's issues lane (`⌘↑`/`⌘↓`, D-07,
+/// D-11, BOARD-05). Mirrors `commands::task::task_reorder`'s shape exactly.
+#[tauri::command]
+pub fn issue_reorder(
+    state: State<AppState>,
+    app: AppHandle,
+    issue_id: String,
+    direction: String,
+) -> Result<(), String> {
+    let direction = flywheel_core::ranking::ReorderDirection::parse(&direction)
+        .map_err(|e| e.to_string())?;
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::issue::reorder_issue(&mut conn, &actor_id, &issue_id, direction)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "issue", "id": issue_id }))
+        .ok();
+    Ok(())
+}

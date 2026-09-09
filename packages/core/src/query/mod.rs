@@ -30,6 +30,11 @@ pub struct BoardItem {
     pub rank: String,
     pub priority: i64,
     pub epic_id: Option<String>,
+    /// S/M/L stored as a nullable ordinal 1-3 (D-12) — rendered and filterable, aggregated
+    /// nowhere in this crate (no `sum(`/`avg(`/`total(` over this column, T-01-* prohibition).
+    pub estimate: Option<i64>,
+    /// Nullable FK to `actors(id)` (BOARD-06) — `None` renders as "Unassigned".
+    pub assignee_id: Option<String>,
     /// How many of this item's acceptance criteria are checked, out of its total (BOARD-02,
     /// D-08) — computed by a single grouped aggregate joined into this same query, never a
     /// per-row follow-up query (D-08's "visible wherever the item appears" would violate the
@@ -113,8 +118,10 @@ fn row_to_item(row: &Row) -> rusqlite::Result<BoardItem> {
         rank: row.get(5)?,
         priority: row.get(6)?,
         epic_id: row.get(7)?,
-        criteria_checked: row.get(8)?,
-        criteria_total: row.get(9)?,
+        estimate: row.get(8)?,
+        assignee_id: row.get(9)?,
+        criteria_checked: row.get(10)?,
+        criteria_total: row.get(11)?,
     })
 }
 
@@ -146,13 +153,16 @@ pub fn list_board(
         None => {
             let mut stmt = conn.prepare(
                 "SELECT b.id, b.kind, b.key, b.title, b.status, b.rank, b.priority, b.epic_id,
+                        b.estimate, b.assignee_id,
                         COALESCE(c.checked, 0) AS criteria_checked,
                         COALESCE(c.total, 0) AS criteria_total
                  FROM (
-                     SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id
+                     SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id,
+                            estimate, assignee_id
                      FROM epics WHERE project_id = ?1
                      UNION ALL
-                     SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id
+                     SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id,
+                            estimate, assignee_id
                      FROM tasks WHERE project_id = ?1
                  ) b
                  LEFT JOIN (
@@ -181,13 +191,16 @@ pub fn list_board(
         Some(c) => {
             let mut stmt = conn.prepare(
                 "SELECT b.id, b.kind, b.key, b.title, b.status, b.rank, b.priority, b.epic_id,
+                        b.estimate, b.assignee_id,
                         COALESCE(cr.checked, 0) AS criteria_checked,
                         COALESCE(cr.total, 0) AS criteria_total
                  FROM (
-                     SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id
+                     SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id,
+                            estimate, assignee_id
                      FROM epics WHERE project_id = ?1
                      UNION ALL
-                     SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id
+                     SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id,
+                            estimate, assignee_id
                      FROM tasks WHERE project_id = ?1
                  ) b
                  LEFT JOIN (
