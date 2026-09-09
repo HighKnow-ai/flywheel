@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-04-PLAN.md
-last_updated: "2026-09-09T03:31:57.828Z"
+stopped_at: Completed 01-05-PLAN.md
+last_updated: "2026-09-09T03:44:11.901Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: 051276754791d9ba319a056dd917fb5234267766
+state_head: e48dacf65b9f2278c8f5d2d3cde3bfac47f8a355
 progress:
   total_phases: 11
   completed_phases: 0
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 5 of 11
+Plan: 6 of 11
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P02 | 25min | 3 tasks | 20 files |
 | Phase 01 P03 | 34min | 3 tasks | 38 files |
 | Phase 01 P04 | 55min | 3 tasks | 30 files |
+| Phase 01 P05 | 35min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,8 @@ Recent decisions affecting current work:
 - [Phase 01]: [Phase 01-03]: No-priority-sorts-last is enforced entirely in query::list_board's SQL sort-key expression, never by relying on the raw stored/keymap value's ordering
 - [Phase 01]: Crash-recovery ground truth: Task 1 committed by first session (0f82626); second session reviewed and finished Task 2/3's inherited uncommitted work, finding it correct and complete
 - [Phase 01]: Pickers portal-render to document.body (not in-row) because @tanstack/react-virtual gives each row its own CSS stacking context
+- [Phase 01]: Exposed core::db::migration_sources() (the same ordered SQL list the MIGRATIONS static compiles from) so migration_safety.rs builds its N-1 and bad-migration fixtures from the real sources rather than a duplicated, driftable copy
+- [Phase 01]: Crash-safety and migration-safety suites both passed against Task 2's already-correct implementation on first write (migration_safety.rs) or after one genuine intentional RED (crash_safety.rs) — documented in the SUMMARY per the same task-sequencing pattern 01-03 established
 
 ### Pending Todos
 
@@ -108,6 +111,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T03:31:57.812Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-09-09T03:44:11.885Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None
