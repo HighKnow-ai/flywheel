@@ -78,6 +78,15 @@ pub fn issue_create(
             "kind must be one of {VALID_KINDS:?}, got {kind:?}"
         ));
     }
+    // CR-01: the wire format still sends an independent `(epic_id, task_id)` pair — converting
+    // it to `IssueParent` here, before the connection is locked (mirroring how `issue_set_parent`
+    // parses its own pair first), is what rejects "both supplied" instead of silently inserting
+    // an issue holding both.
+    let parent = flywheel_core::domain::issue::IssueParent::from_ids(
+        epic_id.as_deref(),
+        task_id.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
@@ -89,8 +98,7 @@ pub fn issue_create(
         title,
         None,
         &kind,
-        epic_id.as_deref(),
-        task_id.as_deref(),
+        parent,
     )
     .map_err(|e| e.to_string())?;
     drop(conn);

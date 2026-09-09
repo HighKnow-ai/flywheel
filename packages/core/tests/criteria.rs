@@ -22,7 +22,7 @@ use core::domain::acceptance_criterion::{
 };
 use core::domain::actor::local_human_actor_id;
 use core::domain::epic::create_epic;
-use core::domain::issue::create_issue;
+use core::domain::issue::{create_issue, IssueParent};
 use core::domain::project::{self, Project};
 use core::domain::task::{create_task, delete_task, set_task_status, update_task};
 use core::query::{list_board, BoardFilter};
@@ -259,8 +259,7 @@ fn issue_cannot_carry_criteria() {
         "Not a unit of work",
         None,
         "idea",
-        None,
-        None,
+        IssueParent::None,
     )
     .expect("create_issue should succeed");
 

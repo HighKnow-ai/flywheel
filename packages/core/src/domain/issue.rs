@@ -31,6 +31,13 @@ pub struct Issue {
 /// Create an issue. Takes no status parameter and writes no status column (D-07). `kind` must be
 /// one of `bug`/`idea`/`question`/`risk` — enforced by the schema CHECK constraint, not by an
 /// application-layer match arm.
+///
+/// `parent` is the same [`IssueParent`] enum [`set_parent`] uses, not two independent
+/// `Option<&str>` fields — an issue holding both an `epic_id` and a `task_id` at once is
+/// unrepresentable on the creation path too (CR-01, T-01-GC-05), the same discipline
+/// `set_parent` already applies. Callers that receive a wire-format `(epic_id, task_id)` pair
+/// (e.g. the Tauri command layer) must convert it with [`IssueParent::from_ids`] first, which is
+/// the one place that pair is rejected if both are supplied.
 pub fn create_issue(
     conn: &mut Connection,
     project_id: &str,
@@ -38,11 +45,18 @@ pub fn create_issue(
     title: &str,
     body: Option<&str>,
     kind: &str,
-    epic_id: Option<&str>,
-    task_id: Option<&str>,
+    parent: IssueParent,
 ) -> anyhow::Result<Issue> {
     let id = new_id();
     let now = Utc::now().to_rfc3339();
+
+    let (epic_id, task_id): (Option<String>, Option<String>) = match &parent {
+        IssueParent::None => (None, None),
+        IssueParent::Epic(id) => (Some(id.clone()), None),
+        IssueParent::Task(id) => (None, Some(id.clone())),
+    };
+    let epic_id = epic_id.as_deref();
+    let task_id = task_id.as_deref();
 
     let tx = conn.transaction()?;
 
@@ -353,8 +367,11 @@ pub fn reorder_issue(
     Ok(())
 }
 
-/// The single-parent-at-a-time target for [`set_parent`] — an issue holds at most one parent,
-/// `epic_id` or `task_id`, never both at once (T-01-GC-05, G-01-EPIC-ASSIGN).
+/// The single-parent-at-a-time target for both [`create_issue`] and [`set_parent`] — an issue
+/// holds at most one parent, `epic_id` or `task_id`, never both at once (T-01-GC-05,
+/// G-01-EPIC-ASSIGN, CR-01). Both mutators derive `epic_id`/`task_id` from one `IssueParent`
+/// variant rather than taking two independent `Option`s, so an issue holding both at once is
+/// unrepresentable, not merely unwritten, on either path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IssueParent {
     None,
@@ -365,12 +382,14 @@ pub enum IssueParent {
 impl IssueParent {
     /// Parse the Tauri command layer's `(parent_kind, parent_id)` argument pair, mirroring
     /// `ranking::ReorderDirection::parse`'s established shape for turning a renderer-supplied
-    /// string pair into a domain value. `kind: None` maps to `IssueParent::None` regardless of
-    /// `id`; `"epic"`/`"task"` require a non-`None` `id`; any other kind, or a kind supplied
-    /// without an id, is rejected.
+    /// string pair into a domain value. `kind: None` requires `id: None` too and maps to
+    /// `IssueParent::None`; `"epic"`/`"task"` require a non-`None` `id`; any other kind, a kind
+    /// supplied without an id, or an id supplied without a kind, is rejected (WR-02: a supplied
+    /// `parent_id` is never silently discarded).
     pub fn parse(kind: Option<&str>, id: Option<&str>) -> anyhow::Result<Self> {
         match (kind, id) {
-            (None, _) => Ok(Self::None),
+            (None, None) => Ok(Self::None),
+            (None, Some(_)) => Err(anyhow!("parent_id was supplied without a parent_kind")),
             (Some("epic"), Some(id)) => Ok(Self::Epic(id.to_string())),
             (Some("task"), Some(id)) => Ok(Self::Task(id.to_string())),
             (Some(other), Some(_)) => Err(anyhow!(
@@ -379,6 +398,23 @@ impl IssueParent {
             (Some(kind), None) => Err(anyhow!(
                 "issue parent kind {kind:?} requires a parent_id"
             )),
+        }
+    }
+
+    /// Build an [`IssueParent`] from the `create_issue` wire shape — an independent
+    /// `(epic_id, task_id)` pair, as received from `issue_create`'s JSON arguments — rather than
+    /// the `(parent_kind, parent_id)` pair [`parse`](Self::parse) handles. Supplying both is
+    /// rejected here (CR-01): this is the one place that combination is turned away before it
+    /// ever reaches [`create_issue`], which — like [`set_parent`] — has no way to represent it at
+    /// all once past this point.
+    pub fn from_ids(epic_id: Option<&str>, task_id: Option<&str>) -> anyhow::Result<Self> {
+        match (epic_id, task_id) {
+            (Some(_), Some(_)) => Err(anyhow!(
+                "an issue cannot be created with both an epic_id and a task_id"
+            )),
+            (Some(epic_id), None) => Ok(Self::Epic(epic_id.to_string())),
+            (None, Some(task_id)) => Ok(Self::Task(task_id.to_string())),
+            (None, None) => Ok(Self::None),
         }
     }
 }
@@ -458,4 +494,84 @@ pub fn set_parent(
     tx.commit()
         .context("failed to commit set_parent transaction")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- IssueParent::from_ids (CR-01: create_issue's wire-format guard) --------------------
+
+    #[test]
+    fn from_ids_rejects_both_epic_and_task_supplied_together() {
+        let result = IssueParent::from_ids(Some("epic-1"), Some("task-1"));
+        assert!(
+            result.is_err(),
+            "supplying both an epic_id and a task_id must be rejected, not silently accepted"
+        );
+    }
+
+    #[test]
+    fn from_ids_accepts_epic_only() {
+        assert_eq!(
+            IssueParent::from_ids(Some("epic-1"), None).unwrap(),
+            IssueParent::Epic("epic-1".to_string())
+        );
+    }
+
+    #[test]
+    fn from_ids_accepts_task_only() {
+        assert_eq!(
+            IssueParent::from_ids(None, Some("task-1")).unwrap(),
+            IssueParent::Task("task-1".to_string())
+        );
+    }
+
+    #[test]
+    fn from_ids_accepts_neither_as_none() {
+        assert_eq!(IssueParent::from_ids(None, None).unwrap(), IssueParent::None);
+    }
+
+    // -- IssueParent::parse (WR-02: a parent_id without a parent_kind must not be silently
+    //    discarded as a detach) --------------------------------------------------------------
+
+    #[test]
+    fn parse_rejects_parent_id_without_parent_kind() {
+        let result = IssueParent::parse(None, Some("issue-1"));
+        assert!(
+            result.is_err(),
+            "a supplied parent_id with no parent_kind must be a malformed request, not a silent detach"
+        );
+    }
+
+    #[test]
+    fn parse_accepts_neither_as_none() {
+        assert_eq!(IssueParent::parse(None, None).unwrap(), IssueParent::None);
+    }
+
+    #[test]
+    fn parse_accepts_epic_with_id() {
+        assert_eq!(
+            IssueParent::parse(Some("epic"), Some("epic-1")).unwrap(),
+            IssueParent::Epic("epic-1".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_accepts_task_with_id() {
+        assert_eq!(
+            IssueParent::parse(Some("task"), Some("task-1")).unwrap(),
+            IssueParent::Task("task-1".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_rejects_unknown_kind() {
+        assert!(IssueParent::parse(Some("bogus"), Some("id-1")).is_err());
+    }
+
+    #[test]
+    fn parse_rejects_kind_without_id() {
+        assert!(IssueParent::parse(Some("epic"), None).is_err());
+    }
 }

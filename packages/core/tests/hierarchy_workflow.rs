@@ -202,8 +202,7 @@ fn issue_has_no_workflow_status() {
         "Something worth noting",
         None,
         "idea",
-        None,
-        None,
+        IssueParent::None,
     )
     .expect("create_issue should succeed");
 
@@ -275,8 +274,7 @@ fn deleting_an_epic_or_task_orphans_linked_issues_instead_of_failing() {
         "Issue linked to an epic",
         None,
         "idea",
-        Some(&epic.id),
-        None,
+        IssueParent::Epic(epic.id.clone()),
     )
     .expect("create_issue should succeed");
 
@@ -305,8 +303,7 @@ fn deleting_an_epic_or_task_orphans_linked_issues_instead_of_failing() {
         "Issue linked to a task",
         None,
         "idea",
-        None,
-        Some(&task.id),
+        IssueParent::Task(task.id.clone()),
     )
     .expect("create_issue should succeed");
 
@@ -357,8 +354,7 @@ fn update_epic_task_and_issue_read_back_the_real_key_not_a_blank_one() {
         "Issue",
         None,
         "idea",
-        None,
-        None,
+        IssueParent::None,
     )
     .expect("create_issue should succeed");
     let updated_issue = update_issue(&mut conn, &actor_id, &issue.id, Some("Renamed issue"), None)
@@ -526,8 +522,7 @@ fn set_issue_parent_holds_exactly_one_parent_at_a_time() {
         "Issue",
         None,
         "idea",
-        None,
-        None,
+        IssueParent::None,
     )
     .expect("create_issue should succeed");
 
@@ -612,8 +607,7 @@ fn set_issue_parent_rejects_a_parent_in_another_project() {
         "Issue",
         None,
         "idea",
-        None,
-        None,
+        IssueParent::None,
     )
     .expect("create_issue should succeed");
 
@@ -678,8 +672,7 @@ fn create_task_and_create_issue_reject_a_parent_in_another_project() {
         "Issue with foreign epic",
         None,
         "idea",
-        Some(&other_epic.id),
-        None,
+        IssueParent::Epic(other_epic.id.clone()),
     );
     assert!(
         issue_epic_result.is_err(),
@@ -693,11 +686,40 @@ fn create_task_and_create_issue_reject_a_parent_in_another_project() {
         "Issue with foreign task",
         None,
         "idea",
-        None,
-        Some(&other_task.id),
+        IssueParent::Task(other_task.id.clone()),
     );
     assert!(
         issue_task_result.is_err(),
         "create_issue must reject a supplied task_id belonging to a different project"
+    );
+}
+
+#[test]
+fn create_issue_rejects_both_an_epic_id_and_a_task_id_supplied_together() {
+    // CR-01 regression: `create_issue`'s own doc comment (and `IssueParent`'s) claim an issue
+    // holding both an `epic_id` and a `task_id` at once is unrepresentable — this proves the
+    // creation path itself can no longer construct that state, not only `set_parent`.
+    let (mut conn, actor_id, project) = seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Epic", None)
+        .expect("create_epic should succeed");
+    let task = create_task(&mut conn, &project.id, &actor_id, "Task", None)
+        .expect("create_task should succeed");
+
+    let both_ids_result = IssueParent::from_ids(Some(&epic.id), Some(&task.id));
+    assert!(
+        both_ids_result.is_err(),
+        "IssueParent::from_ids must reject an epic_id and a task_id supplied together, the wire-\
+         format guard the Tauri `issue_create` command relies on before calling create_issue"
+    );
+
+    // No issue must have been created by the rejected attempt above — the count stays at zero.
+    let issue_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM issues WHERE project_id = ?1", params![project.id], |row| {
+            row.get(0)
+        })
+        .expect("should count issues");
+    assert_eq!(
+        issue_count, 0,
+        "a rejected both-parents create_issue attempt must leave no issue row behind"
     );
 }
