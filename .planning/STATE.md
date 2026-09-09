@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-08-PLAN.md
-last_updated: "2026-09-09T07:31:31.523Z"
+stopped_at: Completed 01-09-PLAN.md
+last_updated: "2026-09-09T08:16:05.251Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: 4cba8c50d7a0ecaf21f79581b6d6c3ebb1c40ebe
+state_head: fa804d32b3ed2214281625851395be168d7e1eec
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 9 of 11
+Plan: 10 of 11
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P06 | 35min | 3 tasks | 21 files |
 | Phase 01 P07 | 65min | 3 tasks | 26 files |
 | Phase 01 P08 | 140min | 3 tasks | 20 files |
+| Phase 01 P09 | 110min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,11 @@ Recent decisions affecting current work:
 - [Phase 01]: Filter dimensions bound as a single JSON-array-or-NULL named parameter (json_each) rather than a dynamic IN-list, keeping every query in packages/core/src/query a compile-time literal with zero format!/string-interpolation
 - [Phase 01]: search_items delegates byte-identically to list_board for an empty/whitespace-only term rather than a second unfiltered-window implementation
 - [Phase 01]: state/uiStore.ts does not absorb board/collapseStore.ts's collapsed-band state or BoardView.tsx's selectedId - both deliberately deferred, documented in DESIGN.md
+- [Phase 01]: [Phase 01-09]: state/keyboard.ts is the single module that maps a key to a board action — BoardRow.tsx's own competing onKeyDown handler (double-firing every board-list keystroke) and FilterBar.tsx's hand-rolled ⌘F//-listener were both removed in favor of it
+- [Phase 01]: [Phase 01-09]: Selection, the item detail panel's open item, and the pending delete target all live as ids in state/uiStore.ts, not BoardView-local state — CommandPalette.tsx (mounted outside BoardView's tree) drives all three the same way the keyboard path does
+- [Phase 01]: [Phase 01-09]: The Escape ladder is one capture-phase window listener that calls stopPropagation() once it commits to closing a layer, verified against Radix DismissableLayer's own isHighestLayer source — row-level pickers and DeleteConfirm are deliberately outside the four-layer ladder and keep their own Radix Escape handling
+- [Phase 01]: [Phase 01-09]: Quick-add changed from always-mounted to on-demand (c/⌘N opens it, or the project has zero items) so it can be a real closeable Escape-ladder layer
+- [Phase 01]: [Phase 01-09]: dispatchAction(id) synthesizes a real KeyboardEvent matching an action's global binding — the command palette and the native menu.rs bridge both re-enter the exact keyboard pipeline rather than a second implementation of each action's effect
 
 ### Pending Todos
 
@@ -123,6 +129,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T07:31:31.503Z
-Stopped at: Completed 01-08-PLAN.md
+Last session: 2026-09-09T08:16:05.233Z
+Stopped at: Completed 01-09-PLAN.md
 Resume file: None
