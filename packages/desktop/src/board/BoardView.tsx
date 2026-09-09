@@ -655,6 +655,18 @@ export function BoardView({
           onCreateIssue={(title) => createIssue.mutate({ title, kind: "idea" })}
           parentsById={parentsById}
           onOpenParentPicker={(issue, anchorEl) => {
+            // CR-02: this is a click path, not a keystroke, but it opens the same kind of
+            // trapped FocusScope (`ParentPicker`) a keyboard-driven picker does — it must stand
+            // down under the same layer guard `handleContainerKeyDown` above already applies, or
+            // it can mount a second trapped scope while e.g. the item detail panel's is still
+            // active (the exact G-01-FOCUS failure class this phase closed for keyboard paths).
+            const layer = topLayer({
+              paletteOpen,
+              detailOpen: detailItemId !== null,
+              pickerOpen: activePicker !== null || deleteTarget !== null || pendingDone !== null,
+              quickAddOpen,
+            });
+            if (layer !== "board" && layer !== "quick-add") return;
             const rect = anchorEl.getBoundingClientRect();
             setPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
             setActivePicker({ kind: "issue-parent", id: issue.id });

@@ -16,6 +16,11 @@
  *      row-level picker must still refuse it (a picker already owns a single keypress of its own)
  *   6. A region-changing palette command (`Create Task`) must not be silently dropped by the new
  *      guard — it returns to the board layer first
+ *   7. CR-01-review's CR-02 (01-REVIEW.md): `IssuesLane`'s parent-picker button is a POINTER path,
+ *      not a keystroke — it must stand down under the same guard too. Every instance above drives
+ *      the guard via `fireEvent.keyDown`; this one drives it via `fireEvent.click` to prove the
+ *      guard also covers a click-triggered trapped `FocusScope` (`ParentPicker`), the gap that let
+ *      a second trapped scope mount alongside the detail panel's.
  *
  * Reuses `keyboard-nav.test.tsx`'s `invokeCommand` mock shape and `QueryClientProvider` setup
  * rather than inventing a second harness. `BoardView`, `FilterBar` and `CommandPalette` are
@@ -25,7 +30,7 @@
  * itself — this is what proves the shared guard, not a per-consumer one.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { CommandPalette } from "../CommandPalette";
@@ -39,7 +44,7 @@ import {
   type UiLayer,
 } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import type { BandCounts, BoardItem, Project } from "../useBoardQuery";
+import type { BandCounts, BoardItem, IssueItem, Project } from "../useBoardQuery";
 
 const invokeCommandMock = vi.fn();
 const openFolderDialogMock = vi.fn(() => Promise.resolve<string | null>(null));
@@ -56,6 +61,15 @@ const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview:
 const ITEMS: BoardItem[] = [
   { id: "1", key: "FLY-1", title: "First task", status: "backlog", rank: "10", priority: 0, epicId: null },
   { id: "2", key: "FLY-2", title: "Second task", status: "backlog", rank: "20", priority: 0, epicId: null },
+];
+
+// CR-02 instance (see the file doc comment's item 7): an unparented issue whose "No parent"
+// button in `IssuesLane` renders in the same board pane as the item rack — not covered by the
+// item detail panel's 480px width — so it must be reachable-but-refused while the panel is open,
+// not silently unreachable (a click that does nothing would be indistinguishable from a bug that
+// swallows the click for the wrong reason).
+const ISSUES: IssueItem[] = [
+  { id: "issue-1", key: "FLY-3", title: "An unparented issue", kind: "idea", epicId: null, taskId: null },
 ];
 
 // Two projects so the ⌘1 assertion has something real to switch to.
@@ -114,7 +128,7 @@ function RegisterProjectProbe() {
   return null;
 }
 
-function renderHarness(items: BoardItem[] = ITEMS) {
+function renderHarness(items: BoardItem[] = ITEMS, issues: IssueItem[] = []) {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
@@ -122,6 +136,7 @@ function renderHarness(items: BoardItem[] = ITEMS) {
       <BoardView
         projectId="proj-1"
         items={items}
+        issues={issues}
         counts={{ ...EMPTY_COUNTS, backlog: items.length }}
         onCreateTask={() => {}}
       />
@@ -183,6 +198,37 @@ describe("layer-guard", () => {
 
     fireEvent.keyDown(window, { key: "o", metaKey: true, shiftKey: true });
     expect(openFolderDialogMock).not.toHaveBeenCalled();
+  });
+
+  it("clicking_the_issue_lane_parent_button_does_not_open_a_second_trapped_scope_over_the_detail_panel", () => {
+    // CR-02 regression (01-REVIEW.md): a POINTER path, not a keystroke — every other test in this
+    // file drives the guard via `fireEvent.keyDown`. `IssuesLane`'s "No parent" button used to
+    // reach `setActivePicker` through a raw `onClick` that never consulted `topLayer`/
+    // `bindingAllowedInLayer`, so it could mount `ParentPicker`'s trapped `FocusScope` while the
+    // detail panel's own trapped scope was still open — exactly the "two trapped scopes at once"
+    // class G-01-FOCUS closed for every keyboard path.
+    renderHarness(ITEMS, ISSUES);
+    openDetailPanel("1");
+
+    const issueRow = screen.getByRole("listitem", { name: /^FLY-3, / });
+    fireEvent.click(within(issueRow).getByRole("button", { name: /No parent/ }));
+
+    expect(useUiStore.getState().activePicker).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Set parent" })).not.toBeInTheDocument();
+    // The panel itself is undisturbed by the refused click.
+    expect(useUiStore.getState().detailItemId).toBe("1");
+  });
+
+  it("clicking_the_issue_lane_parent_button_still_opens_the_picker_with_nothing_else_open", async () => {
+    // The positive case, proving the guard refuses only when a higher layer is on top — not
+    // unconditionally, which would be indistinguishable from breaking the feature outright.
+    renderHarness(ITEMS, ISSUES);
+
+    const issueRow = screen.getByRole("listitem", { name: /^FLY-3, / });
+    fireEvent.click(within(issueRow).getByRole("button", { name: /No parent/ }));
+
+    expect(useUiStore.getState().activePicker).toEqual({ kind: "issue-parent", id: "issue-1" });
+    expect(await screen.findByRole("menu", { name: "Set parent" })).toBeInTheDocument();
   });
 
   it("cmd_k_still_opens_the_palette_over_the_detail_panel_with_focus_in_its_own_input", async () => {
