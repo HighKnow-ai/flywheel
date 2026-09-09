@@ -1,7 +1,9 @@
 /*
- * Minimal reset only — no color, no typeface, no radius, no component chrome.
- * The Flight Progress Strips visual world and every component surface are
- * authored starting in plan 01-02; this plan renders only the boot mount.
+ * Reset + the rack ground. The Flight Progress Strips world (01-UI-SPEC.md
+ * "Selected Direction") lands here: the boot window reads as the dark chrome
+ * frame described in "First viewport." Board surfaces (rail, strips, panel,
+ * palette) land starting in plan 01-03; this plan authors only the ground and
+ * the theme foundation every later surface consumes.
  */
 * {
   box-sizing: border-box;
@@ -13,4 +15,10 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
+}
+
+.rack-ground {
+  height: 100%;
+  background: var(--surface-dominant);
+  color: var(--text-primary-rack);
 }

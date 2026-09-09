@@ -1,0 +1,36 @@
+/**
+ * The single motion contract (01-UI-SPEC.md "Motion" — mechanical settle and
+ * single-row displacement, never a fade). Exactly one easing curve across the
+ * entire product (inherited house rule).
+ *
+ * `prefers-reduced-motion` removes the displacement and applies the state
+ * change instantly; it never removes the state change itself.
+ */
+
+:root {
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-settle: 180ms;
+  --duration-displace: 220ms;
+}
+
+.settle-transition {
+  transition:
+    background-color var(--duration-settle) var(--ease),
+    color var(--duration-settle) var(--ease);
+}
+
+.displace-transition {
+  transition: transform var(--duration-displace) var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-settle: 0s;
+    --duration-displace: 0s;
+  }
+
+  * {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
+}

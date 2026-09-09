@@ -1,0 +1,72 @@
+/**
+ * Flight Progress Strips — token roles (01-UI-SPEC.md § "Color & Token Roles",
+ * "Measured starting palette", "Selected Direction" § Type / Design System).
+ *
+ * This file is the ONE source of colour, radius and spacing values for the whole
+ * product. No component may declare a literal hex colour outside this file and
+ * theme/tokens.ts (which mirrors these values as typed TS constants for the
+ * contrast test in theme/__tests__/contrast.test.ts).
+ *
+ * The rack/strip material split (01-UI-SPEC.md "The world"):
+ *   - "rack" tokens are the dark chrome: window ground, project rail, sticky band
+ *     headers, detail-panel frame.
+ *   - "strip" tokens are the one light content plane: a contiguous band of
+ *     strip stock, tinted per workflow state.
+ */
+
+:root {
+  /* --- Rack (dark chrome) — 01-UI-SPEC.md "Measured starting palette" --- */
+  --surface-dominant: #171b22;
+  --surface-secondary: #1e232b;
+  --divider: #2c333e;
+  --text-primary-rack: #eef1f6;
+  --text-muted-rack: #9aa4b5;
+  --accent-text-rack: #7d99ff;
+  --accent-nontext: #3c64dd;
+
+  /* --- Strip stock — five workflow-state tints, one paper family --- */
+  --strip-backlog: #e6e1d6;
+  --strip-todo: #dfe4ea;
+  --strip-in-progress: #efe6c8;
+  --strip-in-review: #e6ddec;
+  --strip-done: #dde9dc;
+
+  /* --- Ink and accents on strip stock --- */
+  --text-primary-strip: #1e232b;
+  --text-muted-strip: #4a5261;
+  --accent-text-strip: #2d4fb8;
+  --focus-ring: #3c64dd;
+  --destructive-strip: #9c351c;
+
+  /*
+   * Board row states — overlays applied on top of a row's own strip-state tint,
+   * not replacements for it. The distinguishability obligation (01-UI-SPEC.md
+   * "Color & Token Roles" role table) is that all four are pairwise distinct —
+   * a selected-but-blurred row must never look identical to a focused-and-
+   * selected one. `row-surface` is fully transparent (the row shows its strip
+   * tint unmodified at rest); hover/selected/selected-unfocused layer
+   * increasingly assertive tints so the state reads independently of which
+   * status tint sits underneath.
+   */
+  --row-surface: rgba(23, 27, 34, 0);
+  --row-surface-hover: rgba(60, 100, 221, 0.06);
+  --row-surface-selected: rgba(60, 100, 221, 0.14);
+  --row-surface-selected-unfocused: rgba(74, 82, 97, 0.14);
+
+  /* --- Radius language (01-UI-SPEC.md "Design System" § Radius Language, LOCKED 2026-09-09) ---
+   * Strip stock reads as near-square printed stock; interactive chrome carries
+   * the mark's rounded-join character more openly. A focus ring follows the
+   * radius of whatever shape it wraps rather than declaring its own.
+   */
+  --radius-strip: 2px;
+  --radius-chrome: 6px;
+
+  /* --- Spacing scale (01-UI-SPEC.md "Spacing Scale" — structural, locked) --- */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+}
