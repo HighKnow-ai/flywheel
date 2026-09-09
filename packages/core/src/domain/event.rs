@@ -76,3 +76,55 @@ pub fn append_event(
     .context("failed to append event")?;
     Ok(event_id)
 }
+
+/// Build the one-line human sentence the activity trail shows for one event (BOARD-09, D-19).
+///
+/// Every domain mutation function in this crate already writes a `"label"` string into its
+/// `payload` at the moment the event is appended (e.g. `task.rs::set_task_status`'s
+/// `"label": format!("Changed status from {current_status} to {new_status}")`) — that label is
+/// itself built from the payload's own `"field"`/`"before"`/`"after"` values at write time, so
+/// reading it back here is what D-19 means by "event payloads must be designed for human
+/// rendering from day one": this function, not a second UI-side formatter, is the one place a
+/// future relay or mobile client would call to render the same sentence a desktop user sees.
+///
+/// Defined for every event type this phase emits, and never panics or returns an empty string
+/// even for a malformed/hand-inserted payload (a test fixture, or a future migration bug): falls
+/// back to a generic sentence built directly from `field`/`before`/`after` when `label` is
+/// absent, and to the bare, space-separated `event_type` when neither is present.
+pub fn render_description(event_type: &str, payload: &serde_json::Value) -> String {
+    if let Some(label) = payload.get("label").and_then(|v| v.as_str()) {
+        if !label.is_empty() {
+            return label.to_string();
+        }
+    }
+
+    let field = payload.get("field").and_then(|v| v.as_str());
+    let before = payload.get("before");
+    let after = payload.get("after");
+
+    match (field, before, after) {
+        (Some(field), Some(before), Some(after))
+            if !before.is_null() || !after.is_null() =>
+        {
+            format!(
+                "Changed {field} from {} to {}",
+                render_json_value(before),
+                render_json_value(after)
+            )
+        }
+        (Some(field), _, _) => format!("Changed {field}"),
+        _ => event_type.replace(['.', '_'], " "),
+    }
+}
+
+/// Render one `payload` field value (`before`/`after`) as plain text for
+/// [`render_description`]'s fallback sentence — `null` reads as "none," a JSON string is printed
+/// unquoted, and every other JSON scalar/shape falls back to its own `Display`/`to_string()`.
+fn render_json_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "none".to_string(),
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        other => other.to_string(),
+    }
+}

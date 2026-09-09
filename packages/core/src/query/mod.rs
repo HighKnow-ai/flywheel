@@ -22,6 +22,7 @@
 //! "filtered results come back in the same priority-then-rank-then-id order as the unfiltered
 //! board").
 
+pub mod events;
 pub mod filter;
 pub mod search;
 

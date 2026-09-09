@@ -75,6 +75,8 @@ fn main() {
             commands::criterion::criterion_reorder,
             commands::criterion::criterion_delete,
             commands::criterion::criterion_list,
+            commands::events::events_activity_trail,
+            commands::events::events_since_cursor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

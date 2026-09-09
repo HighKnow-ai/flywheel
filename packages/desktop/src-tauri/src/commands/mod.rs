@@ -8,6 +8,7 @@ pub mod actor;
 pub mod board;
 pub mod criterion;
 pub mod epic;
+pub mod events;
 pub mod issue;
 pub mod project;
 pub mod task;
