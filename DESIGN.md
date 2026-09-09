@@ -504,3 +504,137 @@ matching the precedent `01-04`'s coverage item D4 set.
 - `BoardView.tsx`'s `requestStatusChange` gate as the one place a future non-blocking-warning
   pattern (if one is ever needed for another destructive-adjacent transition) should be added,
   rather than a second ad hoc gate.
+
+# Phase 1, Plan 01-07 — Fractional Ranking, the Priority Tie-Break, and Size/Assignee
+
+**Status:** the board now answers "what is next" the same way every time. A fractional-index
+manual rank orders items within a priority band (D-11); priority sorts first via the existing
+`CASE WHEN priority = 0 THEN 5 ELSE priority END` sort-key expression (unchanged from `01-03`);
+`⌘↑`/`⌘↓` displaces exactly one row per move; and estimate (S/M/L, D-12) and assignee (BOARD-06)
+are first-class, keyboard-settable fields that nothing aggregates.
+
+## What was built
+
+- **Rust core** — `reorder_task`/`reorder_epic`/`reorder_issue`: one indexed neighbour-lookup
+  query (`(rank, id) < (?, ?)`/`> (?, ?)` against the `(project_id, status, rank)` composite
+  index, further filtered by `priority` for tasks/epics so a keyboard reorder never computes a
+  rank against a neighbour in a different priority band), one `UPDATE`, one attributed event per
+  move. A group of zero or one item, or an item already at the edge in the move direction, is a
+  no-op — no row written, no event appended. `set_priority`/`set_estimate`/`set_assignee` on
+  `task.rs`/`epic.rs`: no-op when the value already matches the current one, one event with
+  before/after otherwise; `set_assignee` rejects an id naming no actor via the pre-existing
+  `assignee_id` foreign key + `foreign_keys = ON` (T-01-21), not an application-layer check.
+  `issue.rs` gains only `reorder_issue` — D-07 holds: issues carry no priority, estimate or
+  assignee setter.
+- **`query::BoardItem`/`list_board`** — gained `estimate`/`assignee_id` columns in the existing
+  `UNION ALL` SELECT; the `priority ASC, rank ASC, id ASC` ORDER BY itself needed no change (it
+  was already correct from `01-03`/`01-06`).
+- **`domain::actor::list_actors` + a new `actor_list` Tauri command** — the roster
+  `AssigneePicker.tsx` renders. Not named in the plan's own `files_modified` list, but required
+  by Task 2's assignee picker (Rule 2 — missing critical functionality); `commands/board.rs`'s
+  `BoardItemDto` similarly gained `estimate`/`assignee_id` fields for the same reason.
+  Registered in `main.rs` and `capabilities/default.json`'s roster description alongside the
+  nine new task/epic/issue commands.
+- **`pickers/PriorityPicker.tsx`/`EstimatePicker.tsx`/`AssigneePicker.tsx`** — same Radix wiring
+  as `StatusPicker.tsx` (`FocusScope` + `DismissableLayer`, portalled to `document.body`, only a
+  selection issues a command, never opening). `PriorityPicker` reads `0`-`4` directly (matching
+  the schema's own keyed values, unlike `StatusPicker`'s 1-indexed digits); `EstimatePicker` adds
+  a literal "Clear" row for the field's nullability (`0`/`Backspace`); `AssigneePicker` has no
+  fixed digit shortcut (the actor roster is not a fixed-size set) and relies on the trapped `Tab`
+  order plus native button `Enter`/`Space` activation, listing an explicit "Unassigned" entry
+  first and a human/agent badge per actor (`legend/marks.ts`'s `actorTypeMarkId`).
+- **`BoardRow.tsx`** — gained the estimate badge (renders the S/M/L letter itself, never the
+  stored numeric ordinal — D-12's whole point) and the assignee avatar, in Row Anatomy's fixed
+  order (estimate badge between title and epic pill; assignee avatar between epic pill and
+  criteria checked/total). The priority glyph, already a bar-count icon (`Signal`/`SignalHigh`/
+  `SignalMedium`/`SignalLow`/`SignalZero` from `01-03`), gained a click affordance and an
+  explicit ARIA label mirroring the status glyph's own pattern. `App.css` gained
+  `container-type: inline-size` on `.board-row` plus three `@container` rules implementing the
+  progressive-disclosure ladder (epic pill drops first, then assignee avatar, then estimate badge
+  last) — responding to the row's own available width, not the document viewport, so the ladder
+  still functions when the item detail panel narrows the list without the OS window itself
+  resizing.
+- **`legend/marks.ts`** — two new channels (`estimate`, `assignee`) with six new marks
+  (`estimate-small/medium/large`, `assignee-human/agent/unassigned`), plus `PRIORITY_MARKS`/
+  `priorityValueFromMarkId`/`ESTIMATE_MARKS`/`estimateMarkId`/`estimateLetter`/`actorTypeMarkId` —
+  the same "one registry, no second hand-maintained mapping" discipline `STATUS_MARKS`/
+  `priorityMarkId` already established. `Legend.tsx`'s `CHANNEL_LABELS` extended (TypeScript
+  itself enforces this can't be forgotten, per `01-06`'s precedent).
+- **`BoardView.tsx`** — consolidated the single `statusPickerForId`/`statusPickerAnchor` state
+  pair into one `activePicker: { kind; id } | null` + `pickerAnchor` pair covering all four row
+  pickers (status/priority/estimate/assignee), since they share one open/anchor/close shape.
+  `⌘↑`/`⌘↓` checked ahead of the plain-arrow selection-move case in `handleContainerKeyDown`
+  (both share the same base key, disambiguated by `event.metaKey`). Each virtualized item row's
+  wrapper gained the `displace-transition` class (`motion.css`, pre-existing from `01-02`) so a
+  reorder's transform change animates; `prefers-reduced-motion` already zeroes
+  `--duration-displace` globally, so the state change still applies instantly rather than being
+  removed.
+
+## Review against the direction contract
+
+Same standing reference as `01-03`/`01-04`/`01-06` (`packages/desktop/index.html`, seed
+`59b0beb9`) — this plan does not re-author it. **This execution environment again has no
+agent-spawning tool available to this executor**, so the shipped `impeccable-finish-reviewer` and
+`impeccable-documenter` subagents named in Task 2's acceptance criteria could not be literally
+invoked; this section is the self-conducted substitute, stated explicitly rather than silently
+claimed, exactly as `01-02`/`01-03`/`01-04`/`01-06` documented for the same limitation. A live
+`tauri dev` capture was not attempted this session (no confirmed GUI display in this execution
+context); the review below is a structural/behavioral read of the built surface against
+`01-UI-SPEC.md` and `craft-floor.md`'s Verify/Refuse checklist — deferred to `/gsd-verify-work`
+for a live walkthrough, matching the precedent `01-04`'s coverage item D4 and `01-06`'s own
+deferral set.
+
+- **Detector:** `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
+  --json packages/desktop/src/board/pickers packages/desktop/src/board/BoardRow.tsx` returned
+  `[]` — no findings.
+- **No mark without a legend entry:** confirmed — all nine new marks (three priority-adjacent
+  helper exports plus six new estimate/assignee marks) are in `legend/marks.ts`'s `MARKS`
+  registry with non-empty glyph/label/meaning; `Legend.tsx` renders every channel generically from
+  the registry, so the new `estimate`/`assignee` channels needed only a `CHANNEL_LABELS` entry,
+  not a second rendering path.
+- **Contrast:** every new surface reuses `--surface-secondary`/`--text-primary-rack`/
+  `--text-muted-rack`/`--text-muted-strip`/`--divider`/`--focus-ring` — the same token values
+  `01-02`'s runnable contrast suite already proved; no new colour was introduced.
+- **Depth:** `PriorityPicker`/`EstimatePicker`/`AssigneePicker`'s floating menus reuse
+  `StatusPicker`'s exact shadow recipe (`0 8px 24px rgba(0,0,0,0.35)`) — not a second shadow
+  recipe, not a zero-offset colored halo.
+- **Type:** the estimate badge uses `type-micro`/`tabular-nums`, matching the project's
+  columnar-figure rule; the assignee badge label uses `type-micro`.
+- **Motion:** one authored moment (the single-row `displace-transition`), not scattered effects —
+  `prefers-reduced-motion` removes the displacement, never the state change itself, per
+  `motion.css`'s existing global media query (`01-02`).
+- **Icons:** `Ruler` (estimate), `User`/`Bot`/`UserRound` (assignee) — all `lucide-react`, no
+  unicode/emoji stand-in, matching `BoardRow.tsx`/`StatusPicker.tsx`'s existing `Icon` resolution
+  pattern.
+- **Browser surfaces:** the estimate badge and assignee avatar both carry a `title` attribute
+  (native tooltip) describing the full meaning, matching `criteria-count-badge`'s precedent for a
+  badge whose rendered text is terser than its full meaning.
+- **No aggregate over estimate anywhere:** `BoardRow.tsx` and `StatusBand.tsx` render the letter/
+  count directly from a single item's own field; no band header, panel or component sums,
+  averages or otherwise combines the `estimate` column across items — confirmed by grep (see the
+  plan's own automated `<verify>` for the exact command).
+
+## Known deferred surfaces (not stubs — explicit scope boundaries)
+
+- **Issue reordering has no UI affordance yet.** `reorder_issue` exists as a core function and a
+  Tauri command (proven by `packages/core/tests/ranking.rs`), but `IssuesLane.tsx` — not in this
+  plan's `files_modified` list — wires no keyboard selection model at all yet (issues aren't part
+  of `BoardView`'s roving-focus `selectableItems`), so there is nothing to attach `⌘↑`/`⌘↓` to
+  for an issue. A later plan can wire it once issues gain their own selection model.
+- **Live `tauri dev` walkthrough.** Task 2's `<human-check>` block (press `p`/`e`/`a` on a strip,
+  hold `⌘` and press `↓` three times, narrow to 900px, confirm no band header shows a total of
+  sizes) was not run live this session — see coverage note above, deferred to `/gsd-verify-work`.
+- **The activity trail** — `ItemDetailPanel.tsx`'s section boundary still reserves the space;
+  `01-10` owns it, unchanged by this plan.
+
+## What the next plan inherits
+
+- `ranking::ReorderDirection::parse` and the neighbour-lookup query shape
+  (`reorder_task`/`reorder_epic`/`reorder_issue`) as the one pattern any future reorderable list
+  in this product should follow, rather than a second hand-rolled variant.
+- `BoardView.tsx`'s consolidated `activePicker`/`pickerAnchor` state pair as the reference shape
+  for adding a fifth row-level picker later, rather than a fifth parallel `useState` triple.
+- `legend/marks.ts`'s `estimate`/`assignee` channels and their value<->mark-id helper functions,
+  ready for the item detail panel's own priority/estimate/assignee pickers (not wired by this
+  plan — only the row-level `p`/`e`/`a` keyboard path is) to reuse without re-deriving the
+  mapping.

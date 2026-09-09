@@ -10,7 +10,15 @@
  * etc.) rather than inventing an undocumented mark.
  */
 
-export type MarkChannel = "row-state" | "focus" | "status" | "priority" | "epic" | "criteria";
+export type MarkChannel =
+  | "row-state"
+  | "focus"
+  | "status"
+  | "priority"
+  | "epic"
+  | "criteria"
+  | "estimate"
+  | "assignee";
 
 export interface Mark {
   /** Stable identifier — matches the CSS token role this mark represents, where one exists. */
@@ -179,6 +187,56 @@ export const MARKS: Mark[] = [
     meaning:
       "How many of this item's acceptance criteria are checked, out of its total. Visible wherever the item appears (D-08); an item with none shows 0/0.",
   },
+  // Estimate marks (D-12: S/M/L, stored as a nullable ordinal INTEGER 1-3, rendered as the
+  // letters themselves — never as a number, and never aggregated anywhere in the UI or a query).
+  // Sharing one glyph across the three levels is deliberate, mirroring `criteria-count-badge`:
+  // the row renders the letter itself as the badge text, not the icon; the glyph exists for the
+  // Legend surface's own entry.
+  {
+    id: "estimate-small",
+    channel: "estimate",
+    glyph: "Ruler",
+    label: "Small",
+    meaning: "S — small estimated effort. Never summed, averaged or converted to a point value.",
+  },
+  {
+    id: "estimate-medium",
+    channel: "estimate",
+    glyph: "Ruler",
+    label: "Medium",
+    meaning: "M — medium estimated effort.",
+  },
+  {
+    id: "estimate-large",
+    channel: "estimate",
+    glyph: "Ruler",
+    label: "Large",
+    meaning: "L — large estimated effort.",
+  },
+  // Assignee marks (BOARD-06) — a human and an agent actor are peers in one actor model; the
+  // badge distinguishes which is which without relying on colour alone (01-UI-SPEC.md Activity
+  // trail: "a badge distinguishing human vs agent vs system, never colour alone").
+  {
+    id: "assignee-human",
+    channel: "assignee",
+    glyph: "User",
+    label: "Human",
+    meaning: "This item is assigned to a human actor.",
+  },
+  {
+    id: "assignee-agent",
+    channel: "assignee",
+    glyph: "Bot",
+    label: "Agent",
+    meaning: "This item is assigned to an agent actor.",
+  },
+  {
+    id: "assignee-unassigned",
+    channel: "assignee",
+    glyph: "UserRound",
+    label: "Unassigned",
+    meaning: "No assignee is set on this item.",
+  },
 ];
 
 /**
@@ -225,4 +283,49 @@ export const STATUS_MARKS: Mark[] = MARKS.filter((mark) => mark.channel === "sta
  * a second literal list of state names. */
 export function statusValueFromMarkId(markId: string): string {
   return markId.replace(/^strip-/, "").replace(/-/g, "_");
+}
+
+/**
+ * The five priority Marks, in `PRIORITY_MARK_IDS`' fixed declaration order (index === the
+ * schema's `priority` value, 0-4) — `PriorityPicker.tsx` builds its option list from this, never
+ * from a second, hand-typed array (mirrors `STATUS_MARKS`'s role for `StatusPicker.tsx`).
+ */
+export const PRIORITY_MARKS: Mark[] = PRIORITY_MARK_IDS.map((id) => MARKS_BY_ID[id]);
+
+/** A priority Mark's id -> the schema's `priority` value (0-4) — the exact inverse of
+ * `priorityMarkId`. */
+export function priorityValueFromMarkId(markId: string): number {
+  const index = PRIORITY_MARK_IDS.indexOf(markId as (typeof PRIORITY_MARK_IDS)[number]);
+  return index === -1 ? 0 : index;
+}
+
+/**
+ * D-12: S/M/L stored as a nullable ordinal 1-3. `null` (no estimate set) has no mark — the badge
+ * is simply not rendered for that item, never a placeholder.
+ */
+const ESTIMATE_MARK_IDS = ["estimate-small", "estimate-medium", "estimate-large"] as const;
+
+export function estimateMarkId(estimate: number | null | undefined): string | undefined {
+  if (estimate == null) return undefined;
+  return ESTIMATE_MARK_IDS[estimate - 1];
+}
+
+/** The rendered letter for an estimate value (D-12: the letters are the badge — never the
+ * numeric ordinal, which would invite the aggregate reading D-12 explicitly forbids). */
+const ESTIMATE_LETTERS = ["S", "M", "L"] as const;
+
+export function estimateLetter(estimate: number | null | undefined): string | undefined {
+  if (estimate == null) return undefined;
+  return ESTIMATE_LETTERS[estimate - 1];
+}
+
+/** The three estimate Marks, in `ESTIMATE_MARK_IDS`' fixed declaration order (index + 1 === the
+ * schema's `estimate` value, 1-3) — `EstimatePicker.tsx` builds its option list from this. */
+export const ESTIMATE_MARKS: Mark[] = ESTIMATE_MARK_IDS.map((id) => MARKS_BY_ID[id]);
+
+/** `actors.type` (`human`/`agent`/`system`) -> the matching assignee-badge Mark's id. `system`
+ * falls back to the `human` badge — Phase 1 never assigns an item to the system actor from the
+ * renderer, so this is a defensive default, not an expected path. */
+export function actorTypeMarkId(actorType: string): string {
+  return actorType === "agent" ? "assignee-agent" : "assignee-human";
 }

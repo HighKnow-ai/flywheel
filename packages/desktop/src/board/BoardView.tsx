@@ -20,10 +20,22 @@ import { IssuesLane } from "./IssuesLane";
 import { QuickAdd } from "./QuickAdd";
 import { DoneWarning } from "./DoneWarning";
 import { StatusPicker } from "./pickers/StatusPicker";
+import { PriorityPicker } from "./pickers/PriorityPicker";
+import { EstimatePicker } from "./pickers/EstimatePicker";
+import { AssigneePicker } from "./pickers/AssigneePicker";
 import { ItemDetailPanel, type DetailItem } from "../item-detail/ItemDetailPanel";
 import { useCollapseStore } from "./collapseStore";
-import { useCreateIssue, useSetStatus, useUpdateItem } from "./useBoardQuery";
-import type { BandCounts, BoardItem, BoardItemKind, IssueItem } from "./useBoardQuery";
+import {
+  useActors,
+  useCreateIssue,
+  useReorderItem,
+  useSetAssignee,
+  useSetEstimate,
+  useSetPriority,
+  useSetStatus,
+  useUpdateItem,
+} from "./useBoardQuery";
+import type { Actor, BandCounts, BoardItem, BoardItemKind, IssueItem } from "./useBoardQuery";
 
 const BAND_ORDER = ["backlog", "todo", "in_progress", "in_review", "done"] as const;
 type BandStatus = (typeof BAND_ORDER)[number];
@@ -51,6 +63,11 @@ type RackRow =
   | { kind: "quick-add" }
   | { kind: "item"; item: BoardItem };
 
+/** Which row-level picker is open, if any. One piece of state covers all four (status, priority,
+ * estimate, assignee) rather than four parallel `useState` triples — they share the same
+ * open/anchor/close shape. */
+type PickerKind = "status" | "priority" | "estimate" | "assignee";
+
 export interface BoardViewProps {
   projectId?: string;
   items: BoardItem[];
@@ -70,8 +87,8 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
   const rowElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [listFocused, setListFocused] = useState(false);
-  const [statusPickerForId, setStatusPickerForId] = useState<string | null>(null);
-  const [statusPickerAnchor, setStatusPickerAnchor] = useState<AnchorRect | null>(null);
+  const [activePicker, setActivePicker] = useState<{ kind: PickerKind; id: string } | null>(null);
+  const [pickerAnchor, setPickerAnchor] = useState<AnchorRect | null>(null);
   const [detailItemId, setDetailItemId] = useState<string | null>(null);
   // D-08: moving an item to Done with unchecked criteria warns but never blocks. The pending
   // change is held here rather than applied optimistically — `DoneWarning`'s Escape "reverts the
@@ -92,8 +109,22 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
   const toggleCollapsed = useCollapseStore((state) => state.toggle);
 
   const setStatus = useSetStatus(projectId);
+  const setPriority = useSetPriority(projectId);
+  const setEstimate = useSetEstimate(projectId);
+  const setAssignee = useSetAssignee(projectId);
+  const reorderItem = useReorderItem(projectId);
   const updateItem = useUpdateItem(projectId);
   const createIssue = useCreateIssue(projectId);
+
+  // The `AssigneePicker`'s roster (BOARD-06) and the id -> actor lookup `BoardRow` resolves its
+  // avatar/badge from — fetched once here, never by the row or the picker itself (opening a
+  // picker issues no command; see `AssigneePicker.tsx`'s own doc comment).
+  const actorsQuery = useActors();
+  const actors = actorsQuery.data ?? [];
+  const actorsById = useMemo<Record<string, Actor>>(
+    () => Object.fromEntries(actors.map((actor) => [actor.id, actor])),
+    [actors],
+  );
 
   const rows = useMemo<RackRow[]>(() => {
     const byStatus = new Map<BandStatus, BoardItem[]>();
@@ -146,13 +177,26 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
     setStatus.mutate({ kind, id, status });
   }
 
-  function openStatusPickerFor(id: string) {
+  /** Opens any of the four row-level pickers (status/priority/estimate/assignee) for `id`,
+   * anchored to that row's real screen coordinates (`StatusPicker.tsx`'s doc comment explains
+   * why a portal positioned from `getBoundingClientRect()` is required rather than CSS
+   * `position: absolute` inside the row). Opening issues no command — only a selection made
+   * inside the picker does. */
+  function openPickerFor(kind: PickerKind, id: string) {
     const el = rowElRefs.current.get(id);
     if (el) {
       const rect = el.getBoundingClientRect();
-      setStatusPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
+      setPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
     }
-    setStatusPickerForId(id);
+    setActivePicker({ kind, id });
+  }
+
+  /** `⌘↑`/`⌘↓` (01-UI-SPEC.md Keyboard Map, D-11, BOARD-05) — reorders the selected item within
+   * its priority band and leaves the selection on the moved item (the mutation changes `rank`,
+   * never `id`, so `selectedId` needs no update). */
+  function reorderSelected(direction: "up" | "down") {
+    if (!selectedId || !selectedItem) return;
+    reorderItem.mutate({ kind: selectedItem.kind ?? "task", id: selectedId, direction });
   }
 
   function moveSelection(delta: number) {
@@ -168,7 +212,18 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
   }
 
   function handleContainerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (statusPickerForId || detailItemId) return; // overlays own their own keyboard handling
+    if (activePicker || detailItemId) return; // overlays own their own keyboard handling
+
+    // ⌘↑ / ⌘↓ reorder (D-11, BOARD-05) — checked ahead of the plain-arrow selection-move case
+    // below, since both share the same base key.
+    if (event.metaKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      if (selectedId) {
+        event.preventDefault();
+        reorderSelected(event.key === "ArrowUp" ? "up" : "down");
+      }
+      return;
+    }
+
     switch (event.key) {
       case "j":
       case "ArrowDown":
@@ -198,7 +253,25 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
       case "s":
         if (selectedId) {
           event.preventDefault();
-          openStatusPickerFor(selectedId);
+          openPickerFor("status", selectedId);
+        }
+        break;
+      case "p":
+        if (selectedId) {
+          event.preventDefault();
+          openPickerFor("priority", selectedId);
+        }
+        break;
+      case "e":
+        if (selectedId) {
+          event.preventDefault();
+          openPickerFor("estimate", selectedId);
+        }
+        break;
+      case "a":
+        if (selectedId) {
+          event.preventDefault();
+          openPickerFor("assignee", selectedId);
         }
         break;
       case "Escape":
@@ -267,6 +340,13 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
             return (
               <div
                 key={virtualRow.key}
+                // `displace-transition` (motion.css) is the single-row-displacement animation
+                // (01-UI-SPEC.md "Motion", "Selected Direction — Signature interaction"): only
+                // the transform this row's own reorder changes is ever animated — the rest of
+                // the rack keeps its position, since a swap moves at most two adjacent rows.
+                // `prefers-reduced-motion` zeroes `--duration-displace` (motion.css), so the
+                // state change still applies instantly rather than being removed.
+                className="displace-transition"
                 style={positionStyle}
                 ref={(el) => {
                   if (el) rowElRefs.current.set(row.item.id, el);
@@ -277,6 +357,7 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
                   item={row.item}
                   selected={row.item.id === selectedId}
                   focused={row.item.id === selectedId && listFocused}
+                  actorsById={actorsById}
                   onSelect={() => setSelectedId(row.item.id)}
                   onOpenDetail={() => {
                     setSelectedId(row.item.id);
@@ -284,7 +365,19 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
                   }}
                   onOpenStatusPicker={() => {
                     setSelectedId(row.item.id);
-                    openStatusPickerFor(row.item.id);
+                    openPickerFor("status", row.item.id);
+                  }}
+                  onOpenPriorityPicker={() => {
+                    setSelectedId(row.item.id);
+                    openPickerFor("priority", row.item.id);
+                  }}
+                  onOpenEstimatePicker={() => {
+                    setSelectedId(row.item.id);
+                    openPickerFor("estimate", row.item.id);
+                  }}
+                  onOpenAssigneePicker={() => {
+                    setSelectedId(row.item.id);
+                    openPickerFor("assignee", row.item.id);
                   }}
                 />
               </div>
@@ -297,22 +390,67 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
         />
       </div>
 
-      {statusPickerForId &&
-        statusPickerAnchor &&
+      {activePicker &&
+        pickerAnchor &&
         (() => {
-          const pickedRow = selectableItems.find((r) => r.item.id === statusPickerForId)?.item;
+          const pickedRow = selectableItems.find((r) => r.item.id === activePicker.id)?.item;
           if (!pickedRow) return null;
-          return (
-            <StatusPicker
-              currentStatus={pickedRow.status}
-              anchorRect={statusPickerAnchor}
-              onSelect={(status) => {
-                requestStatusChange(pickedRow.kind ?? "task", pickedRow.id, status);
-                setStatusPickerForId(null);
-              }}
-              onClose={() => setStatusPickerForId(null)}
-            />
-          );
+          const kind = pickedRow.kind ?? "task";
+          const closePicker = () => setActivePicker(null);
+
+          switch (activePicker.kind) {
+            case "status":
+              return (
+                <StatusPicker
+                  currentStatus={pickedRow.status}
+                  anchorRect={pickerAnchor}
+                  onSelect={(status) => {
+                    requestStatusChange(kind, pickedRow.id, status);
+                    closePicker();
+                  }}
+                  onClose={closePicker}
+                />
+              );
+            case "priority":
+              return (
+                <PriorityPicker
+                  currentPriority={pickedRow.priority}
+                  anchorRect={pickerAnchor}
+                  onSelect={(priority) => {
+                    setPriority.mutate({ kind, id: pickedRow.id, priority });
+                    closePicker();
+                  }}
+                  onClose={closePicker}
+                />
+              );
+            case "estimate":
+              return (
+                <EstimatePicker
+                  currentEstimate={pickedRow.estimate ?? null}
+                  anchorRect={pickerAnchor}
+                  onSelect={(estimate) => {
+                    setEstimate.mutate({ kind, id: pickedRow.id, estimate });
+                    closePicker();
+                  }}
+                  onClose={closePicker}
+                />
+              );
+            case "assignee":
+              return (
+                <AssigneePicker
+                  currentAssigneeId={pickedRow.assigneeId ?? null}
+                  actors={actors}
+                  anchorRect={pickerAnchor}
+                  onSelect={(assigneeId) => {
+                    setAssignee.mutate({ kind, id: pickedRow.id, assigneeId });
+                    closePicker();
+                  }}
+                  onClose={closePicker}
+                />
+              );
+            default:
+              return null;
+          }
         })()}
 
       {detailItemId && selectedItem && (

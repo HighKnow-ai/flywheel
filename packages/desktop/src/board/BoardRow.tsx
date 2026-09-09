@@ -1,21 +1,38 @@
 /**
- * One strip (01-UI-SPEC.md "Row Anatomy"): fixed-height, single-line, truncate-not-wrap. The
- * status glyph, key, priority glyph and the criteria checked/total count are never dropped at
- * any supported window width. An epic renders as an ordinary strip in its own band (01-UI-SPEC.md
- * "Board list"); a task with no epic shows the muted "No epic" pill (`legend/marks.ts`'s
- * `epic-pill-none` mark) in the epic field slot, never a blank (D-13). The criteria checked/total
- * count (BOARD-02, D-08) is structurally exempt from the progressive-disclosure truncation
- * ladder — it renders `0/0` for an item with zero criteria, never a blank, for both tasks and
- * epics (D-07: never for issues, but issues never reach `BoardRow` — they render in
- * `IssuesLane.tsx`'s separate lane). Fields this plan does not yet implement (assignee avatar,
- * actor-of-last-change) are simply not rendered — not rendered as an empty placeholder — because
- * their underlying features do not exist yet in any plan through this one; see the SUMMARY's
- * "Known Stubs" section, matching the precedent plan 01-03/01-04 documented for these fields.
+ * One strip (01-UI-SPEC.md "Row Anatomy"): fixed-height, single-line, truncate-not-wrap, fields
+ * in fixed left-to-right order (status glyph → key → title → estimate badge → epic pill →
+ * assignee avatar → criteria checked/total → priority glyph → actor-of-last-change). The status
+ * glyph, key, title, priority glyph and criteria checked/total are never dropped at any
+ * supported window width (≥900px) — the `.field-estimate`/`.field-epic-pill`/`.field-assignee`
+ * container-query rules in `App.css` implement the progressive-disclosure ladder (estimate badge
+ * drops last, epic pill and assignee avatar drop earlier) as the row's own inline size narrows;
+ * `.board-row`'s `container-type: inline-size` is what makes those rules respond to the row
+ * itself rather than the viewport. An epic renders as an ordinary strip in its own band
+ * (01-UI-SPEC.md "Board list"); a task with no epic shows the muted "No epic" pill
+ * (`legend/marks.ts`'s `epic-pill-none` mark) in the epic field slot, never a blank (D-13). The
+ * criteria checked/total count (BOARD-02, D-08) is structurally exempt from the ladder — it
+ * renders `0/0` for an item with zero criteria, never a blank (D-07: never for issues, but
+ * issues never reach `BoardRow` — they render in `IssuesLane.tsx`'s separate lane).
+ *
+ * The estimate badge (D-12) renders the letter itself (S/M/L), never the stored numeric ordinal
+ * — the letters are the whole point of the "never aggregated" decision. It is simply absent (no
+ * badge, no placeholder) for an item with no estimate set, same discipline the epic pill already
+ * uses for `null`. The actor-of-last-change field (avatar + relative time) is not yet
+ * implemented — no activity trail exists until a later plan — and is simply not rendered, not
+ * rendered as an empty placeholder, matching the precedent 01-03/01-04 documented for the same
+ * reason; see this plan's SUMMARY "Known Stubs" section.
  */
 import type { CSSProperties, ComponentType, KeyboardEvent, MouseEvent } from "react";
 import * as icons from "lucide-react";
-import { MARKS_BY_ID, priorityMarkId, statusMarkId } from "../legend/marks";
-import type { BoardItem } from "./useBoardQuery";
+import {
+  actorTypeMarkId,
+  estimateLetter,
+  estimateMarkId,
+  MARKS_BY_ID,
+  priorityMarkId,
+  statusMarkId,
+} from "../legend/marks";
+import type { Actor, BoardItem } from "./useBoardQuery";
 
 /** The one constant row height every board row uses — see BoardView.tsx's virtualizer. */
 export const ROW_HEIGHT = 40;
@@ -40,23 +57,40 @@ export interface BoardRowProps {
   item: BoardItem;
   selected?: boolean;
   focused?: boolean;
+  /** Assignee id -> actor, so this row never issues its own read of the actor roster (D-04's
+   * "the renderer never trusts its own write" discipline extends to "never fetches its own
+   * dependency data mid-render" here — `BoardView` owns the one `useActors()` call). */
+  actorsById?: Record<string, Actor>;
   onSelect?: () => void;
   onOpenDetail?: () => void;
   onOpenStatusPicker?: () => void;
+  onOpenPriorityPicker?: () => void;
+  onOpenEstimatePicker?: () => void;
+  onOpenAssigneePicker?: () => void;
 }
 
 export function BoardRow({
   item,
   selected = false,
   focused = false,
+  actorsById,
   onSelect,
   onOpenDetail,
   onOpenStatusPicker,
+  onOpenPriorityPicker,
+  onOpenEstimatePicker,
+  onOpenAssigneePicker,
 }: BoardRowProps) {
   const statusMark = MARKS_BY_ID[statusMarkId(item.status)];
   const priorityMark = MARKS_BY_ID[priorityMarkId(item.priority)];
   const epicMark = MARKS_BY_ID["epic-pill-none"];
   const criteriaBadgeMark = MARKS_BY_ID["criteria-count-badge"];
+  const estimateId = estimateMarkId(item.estimate);
+  const estimateMark = estimateId ? MARKS_BY_ID[estimateId] : undefined;
+  const assignee = item.assigneeId ? actorsById?.[item.assigneeId] : undefined;
+  const assigneeBadgeMark = MARKS_BY_ID[
+    assignee ? actorTypeMarkId(assignee.actorType) : "assignee-unassigned"
+  ];
   const statusLabel = statusMark?.label ?? item.status;
   const priorityLabel = priorityMark?.label ?? "No priority";
   const isEpic = item.kind === "epic";
@@ -79,12 +113,36 @@ export function BoardRow({
     } else if (event.key === "s") {
       event.preventDefault();
       onOpenStatusPicker?.();
+    } else if (event.key === "p") {
+      event.preventDefault();
+      onOpenPriorityPicker?.();
+    } else if (event.key === "e") {
+      event.preventDefault();
+      onOpenEstimatePicker?.();
+    } else if (event.key === "a") {
+      event.preventDefault();
+      onOpenAssigneePicker?.();
     }
   }
 
   function handleStatusGlyphClick(event: MouseEvent<HTMLSpanElement>) {
     event.stopPropagation();
     onOpenStatusPicker?.();
+  }
+
+  function handlePriorityGlyphClick(event: MouseEvent<HTMLSpanElement>) {
+    event.stopPropagation();
+    onOpenPriorityPicker?.();
+  }
+
+  function handleEstimateBadgeClick(event: MouseEvent<HTMLSpanElement>) {
+    event.stopPropagation();
+    onOpenEstimatePicker?.();
+  }
+
+  function handleAssigneeAvatarClick(event: MouseEvent<HTMLSpanElement>) {
+    event.stopPropagation();
+    onOpenAssigneePicker?.();
   }
 
   // 01-UI-SPEC.md Accessibility: `row-surface-selected` vs. `row-surface-selected-unfocused`
@@ -151,9 +209,30 @@ export function BoardRow({
       >
         {item.title}
       </span>
+      {estimateMark && (
+        <span
+          role="button"
+          className="field-estimate type-micro tabular-nums"
+          aria-label={`Estimate: ${estimateMark.label}. Press to change.`}
+          title={estimateMark.meaning}
+          onClick={handleEstimateBadgeClick}
+          style={{
+            flexShrink: 0,
+            minWidth: 20,
+            textAlign: "center",
+            color: "var(--text-muted-strip)",
+            border: "1px solid var(--divider)",
+            borderRadius: "var(--radius-chrome)",
+            padding: "1px var(--space-xs)",
+            cursor: "pointer",
+          }}
+        >
+          {estimateLetter(item.estimate)}
+        </span>
+      )}
       {!isEpic && (
         <span
-          className="type-label"
+          className="field-epic-pill type-label"
           style={{ flexShrink: 0, color: "var(--text-muted-strip)" }}
           title={item.epicId ? undefined : epicMark?.meaning}
         >
@@ -161,13 +240,36 @@ export function BoardRow({
         </span>
       )}
       <span
+        role="button"
+        className="field-assignee type-label"
+        aria-label={`Assignee: ${assignee?.displayName ?? "Unassigned"}. Press to change.`}
+        title={assignee ? `${assignee.displayName} (${assigneeBadgeMark?.label})` : assigneeBadgeMark?.meaning}
+        onClick={handleAssigneeAvatarClick}
+        style={{
+          display: "inline-flex",
+          flexShrink: 0,
+          alignItems: "center",
+          gap: 2,
+          color: "var(--text-muted-strip)",
+          cursor: "pointer",
+        }}
+      >
+        <Icon name={assigneeBadgeMark?.glyph ?? "UserRound"} size={12} />
+      </span>
+      <span
         className="type-label tabular-nums"
         title={criteriaBadgeMark?.meaning}
         style={{ flexShrink: 0, color: "var(--text-muted-strip)" }}
       >
         {criteriaChecked}/{criteriaTotal}
       </span>
-      <span aria-hidden="true" title={priorityLabel} style={{ display: "inline-flex", flexShrink: 0 }}>
+      <span
+        role="button"
+        aria-label={`Priority: ${priorityLabel}. Press to change.`}
+        title={priorityLabel}
+        onClick={handlePriorityGlyphClick}
+        style={{ display: "inline-flex", flexShrink: 0, cursor: "pointer" }}
+      >
         <Icon name={priorityMark?.glyph ?? "SignalZero"} />
       </span>
     </div>

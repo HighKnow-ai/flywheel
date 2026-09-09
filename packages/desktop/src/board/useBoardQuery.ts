@@ -31,12 +31,24 @@ export interface BoardItem {
   rank: string;
   priority: number;
   epicId: string | null;
+  /** S/M/L stored as a nullable ordinal 1-3 (D-12) — `undefined`/`null` means "no estimate set",
+   * rendered as no badge at all, never aggregated anywhere in the UI or a query. */
+  estimate?: number | null;
+  /** Nullable FK to `actors.id` (BOARD-06) — `undefined`/`null` renders as "Unassigned". */
+  assigneeId?: string | null;
   /** How many of this item's acceptance criteria are checked, out of its total (BOARD-02, D-08).
    * Optional for the same backward-compatibility reason `kind` is: callers built before this
    * plan land supply neither field. `BoardRow.tsx` defaults both to 0 when absent, rendering
    * `0/0` — never a blank. */
   criteriaChecked?: number;
   criteriaTotal?: number;
+}
+
+/** One row of the `actors` table (DATA-03) — the roster `AssigneePicker.tsx` renders. */
+export interface Actor {
+  id: string;
+  actorType: "human" | "agent" | "system";
+  displayName: string;
 }
 
 /** One row of the workflow-less issues lane (D-07) — issues carry no `status` field. */
@@ -158,6 +170,71 @@ export function useSetStatus(projectId: string | undefined) {
       invokeCommand<void>(input.kind === "epic" ? "epic_set_status" : "task_set_status", {
         [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
         status: input.status,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/** Every actor (human, agent, system) — the `AssigneePicker`'s roster (BOARD-06). Actors are
+ * seeded at migration time and rarely change, so this query has no need to poll. */
+export function useActors() {
+  return useQuery({
+    queryKey: ["actors"],
+    queryFn: () => invokeCommand<Actor[]>("actor_list"),
+  });
+}
+
+/**
+ * Move a task or an epic up/down by one position within its priority band (`⌘↑`/`⌘↓`, D-11,
+ * BOARD-05). Mirrors `useSetStatus`'s kind-dispatch shape exactly.
+ */
+export function useReorderItem(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { kind: BoardItemKind; id: string; direction: "up" | "down" }) =>
+      invokeCommand<void>(input.kind === "epic" ? "epic_reorder" : "task_reorder", {
+        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
+        direction: input.direction,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/** Set a task's or an epic's priority (`p` then `0`-`4`, D-11). */
+export function useSetPriority(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { kind: BoardItemKind; id: string; priority: number }) =>
+      invokeCommand<void>(input.kind === "epic" ? "epic_set_priority" : "task_set_priority", {
+        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
+        priority: input.priority,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/** Set a task's or an epic's estimate (`e`, D-12: nullable S/M/L). `estimate: null` clears it. */
+export function useSetEstimate(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { kind: BoardItemKind; id: string; estimate: number | null }) =>
+      invokeCommand<void>(input.kind === "epic" ? "epic_set_estimate" : "task_set_estimate", {
+        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
+        estimate: input.estimate,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/** Set a task's or an epic's assignee (`a`, BOARD-06). `assigneeId: null` clears it
+ * ("Unassigned"). */
+export function useSetAssignee(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { kind: BoardItemKind; id: string; assigneeId: string | null }) =>
+      invokeCommand<void>(input.kind === "epic" ? "epic_set_assignee" : "task_set_assignee", {
+        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
+        assigneeId: input.assigneeId,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
   });
