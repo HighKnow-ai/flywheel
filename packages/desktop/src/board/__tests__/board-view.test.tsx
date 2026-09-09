@@ -61,4 +61,32 @@ describe("BoardView", () => {
 
     expect(screen.getByText("No epic")).toBeInTheDocument();
   });
+
+  it("shows the epic's human-readable key/title in the epic pill, not the raw epic_id ULID (WR-01)", () => {
+    const items: BoardItem[] = [
+      {
+        id: "epic-1",
+        key: "FLY-1",
+        title: "Parent epic",
+        status: "backlog",
+        rank: "80",
+        priority: 0,
+        epicId: null,
+        kind: "epic",
+      },
+      {
+        id: "2",
+        key: "FLY-2",
+        title: "Child task",
+        status: "backlog",
+        rank: "80",
+        priority: 0,
+        epicId: "epic-1",
+      },
+    ];
+    renderBoard(items, { ...EMPTY_COUNTS, backlog: 2 });
+
+    expect(screen.getByText("FLY-1 Parent epic")).toBeInTheDocument();
+    expect(screen.queryByText("epic-1")).not.toBeInTheDocument();
+  });
 });

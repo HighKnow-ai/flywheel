@@ -230,6 +230,18 @@ export function BoardView({
     [actors],
   );
 
+  // Epic id -> epic `BoardItem`, mirroring `actorsById` above and derived from the same loaded
+  // window (`items.filter(i => i.kind === "epic")`) `FilterBar.tsx`'s epic filter chips already
+  // use for the identical lookup, rather than a second fetch — lets `BoardRow` render a
+  // human-readable epic `key title` instead of the raw internal `epic_id` ULID (WR-01).
+  const epicsById = useMemo<Record<string, BoardItem>>(
+    () =>
+      Object.fromEntries(
+        items.filter((item) => item.kind === "epic").map((epic) => [epic.id, epic]),
+      ),
+    [items],
+  );
+
   // Quick-add is a layer of its own (Escape ladder step 3) — an empty project still shows it,
   // pre-focused, per the empty-board default (State Inventory), independent of whether the user
   // has explicitly opened it via `c`/`⌘N`.
@@ -533,6 +545,7 @@ export function BoardView({
                   selected={row.item.id === selectedId}
                   focused={row.item.id === selectedId && listFocused}
                   actorsById={actorsById}
+                  epicsById={epicsById}
                   posInSet={row.posInSet}
                   setSize={counts[BAND_COUNT_KEY[row.item.status as BandStatus]]}
                   onSelect={() => setSelectedId(row.item.id)}

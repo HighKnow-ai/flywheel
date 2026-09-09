@@ -75,6 +75,11 @@ export interface BoardRowProps {
    * "the renderer never trusts its own write" discipline extends to "never fetches its own
    * dependency data mid-render" here — `BoardView` owns the one `useActors()` call). */
   actorsById?: Record<string, Actor>;
+  /** Epic id -> epic `BoardItem`, mirroring `actorsById` above — derived by `BoardView` from the
+   * same loaded window's `items.filter(i => i.kind === "epic")` rather than a second fetch
+   * (same lookup `FilterBar.tsx`'s epic filter chips already use). Lets the epic pill render a
+   * human-readable `key title` instead of the raw internal `epic_id` ULID (WR-01). */
+  epicsById?: Record<string, BoardItem>;
   /** This item's true 1-indexed position within its status band's currently loaded window —
    * `aria-posinset`'s source (see the module doc comment). */
   posInSet?: number;
@@ -94,6 +99,7 @@ export function BoardRow({
   selected = false,
   focused = false,
   actorsById,
+  epicsById,
   posInSet,
   setSize,
   onSelect,
@@ -110,6 +116,8 @@ export function BoardRow({
   const estimateId = estimateMarkId(item.estimate);
   const estimateMark = estimateId ? MARKS_BY_ID[estimateId] : undefined;
   const assignee = item.assigneeId ? actorsById?.[item.assigneeId] : undefined;
+  const epic = item.epicId ? epicsById?.[item.epicId] : undefined;
+  const epicLabel = item.epicId ? (epic ? `${epic.key} ${epic.title}` : item.epicId) : (epicMark?.label ?? "No epic");
   const assigneeBadgeMark = MARKS_BY_ID[
     assignee ? actorTypeMarkId(assignee.actorType) : "assignee-unassigned"
   ];
@@ -240,7 +248,7 @@ export function BoardRow({
           style={{ flexShrink: 0, color: "var(--text-muted-strip)" }}
           title={item.epicId ? undefined : epicMark?.meaning}
         >
-          {item.epicId ?? epicMark?.label ?? "No epic"}
+          {epicLabel}
         </span>
       )}
       <span
