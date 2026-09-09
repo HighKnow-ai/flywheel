@@ -40,7 +40,9 @@ function Board({ projectId, projectName }: { projectId: string; projectName: str
       <div style={{ flex: 1, minHeight: 0 }}>
         {boardQuery.data ? (
           <BoardView
+            projectId={projectId}
             items={boardQuery.data.items}
+            issues={boardQuery.data.issues}
             counts={boardQuery.data.counts}
             onCreateTask={(title) => createTask.mutate(title)}
           />

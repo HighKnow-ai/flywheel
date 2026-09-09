@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
 
@@ -18,7 +19,12 @@ const EMPTY_COUNTS: BandCounts = {
 };
 
 function renderBoard(items: BoardItem[], counts: BandCounts) {
-  return render(<BoardView items={items} counts={counts} onCreateTask={() => {}} />);
+  const queryClient = new QueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <BoardView projectId="proj-1" items={items} counts={counts} onCreateTask={() => {}} />
+    </QueryClientProvider>,
+  );
 }
 
 describe("BoardView", () => {

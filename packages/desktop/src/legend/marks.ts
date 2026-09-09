@@ -10,7 +10,7 @@
  * etc.) rather than inventing an undocumented mark.
  */
 
-export type MarkChannel = "row-state" | "focus" | "status" | "priority";
+export type MarkChannel = "row-state" | "focus" | "status" | "priority" | "epic";
 
 export interface Mark {
   /** Stable identifier — matches the CSS token role this mark represents, where one exists. */
@@ -145,6 +145,15 @@ export const MARKS: Mark[] = [
     label: "Low",
     meaning: "Lowest declared priority — keyed 4, one bar filled.",
   },
+  // The orphan-task pill (D-13, 01-UI-SPEC.md "Board list") — a task with no epic shows this
+  // muted pill in the epic field slot, never a blank.
+  {
+    id: "epic-pill-none",
+    channel: "epic",
+    glyph: "CircleSlash",
+    label: "No epic",
+    meaning: "This task has no parent epic yet (D-13) — it may exist before its epic is known.",
+  },
 ];
 
 /**
@@ -176,4 +185,19 @@ const PRIORITY_MARK_IDS = [
 
 export function priorityMarkId(priority: number): string {
   return PRIORITY_MARK_IDS[priority] ?? PRIORITY_MARK_IDS[0];
+}
+
+/**
+ * The five status Marks, in the fixed declaration order above — the ONE place the renderer reads
+ * a status option list from. `StatusPicker.tsx` builds its option list from this, never from a
+ * second, hand-typed array of state names, so a sixth option cannot be added in the renderer
+ * alone (BOARD-04).
+ */
+export const STATUS_MARKS: Mark[] = MARKS.filter((mark) => mark.channel === "status");
+
+/** A status Mark's id (`strip-in-progress`) -> the schema's `tasks.status`/`epics.status` value
+ * (`in_progress`) — the exact inverse of `statusMarkId`, derived by string transform rather than
+ * a second literal list of state names. */
+export function statusValueFromMarkId(markId: string): string {
+  return markId.replace(/^strip-/, "").replace(/-/g, "_");
 }

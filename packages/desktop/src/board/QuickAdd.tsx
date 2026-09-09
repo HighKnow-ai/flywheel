@@ -8,9 +8,17 @@ import { ROW_HEIGHT } from "./BoardRow";
 
 export interface QuickAddProps {
   onCreate: (title: string) => void;
+  placeholder?: string;
+  ariaLabel?: string;
+  background?: string;
 }
 
-export function QuickAdd({ onCreate }: QuickAddProps) {
+export function QuickAdd({
+  onCreate,
+  placeholder = "Type a title, press Enter to create…",
+  ariaLabel = "Quick add a task",
+  background = "var(--strip-backlog)",
+}: QuickAddProps) {
   const [value, setValue] = useState("");
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -31,7 +39,7 @@ export function QuickAdd({ onCreate }: QuickAddProps) {
     alignItems: "center",
     height: "100%",
     padding: "0 var(--space-md)",
-    background: "var(--strip-backlog)",
+    background,
     borderBottom: "1px solid var(--divider)",
     borderRadius: "var(--radius-strip)",
   };
@@ -47,8 +55,8 @@ export function QuickAdd({ onCreate }: QuickAddProps) {
           background: "transparent",
           color: "var(--text-primary-strip)",
         }}
-        placeholder="Type a title, press Enter to create…"
-        aria-label="Quick add a task"
+        placeholder={placeholder}
+        aria-label={ariaLabel}
         value={value}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={handleKeyDown}

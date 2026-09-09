@@ -51,7 +51,9 @@ button:focus-visible {
  */
 .board-row,
 .quick-add {
-  transition: box-shadow var(--duration-settle, 180ms) var(--ease, ease);
+  transition:
+    box-shadow var(--duration-settle, 180ms) var(--ease, ease),
+    background var(--duration-settle, 180ms) var(--ease, ease);
 }
 
 .board-row:hover {

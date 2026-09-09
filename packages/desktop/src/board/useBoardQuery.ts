@@ -16,14 +16,31 @@ export interface Project {
   status: string;
 }
 
+/** `"epic" | "task"` — the fixed three-level hierarchy's two workable-item kinds (BOARD-01).
+ * Issues are the third level and never appear in `BoardItem`; see `IssueItem` below. */
+export type BoardItemKind = "epic" | "task";
+
 export interface BoardItem {
   id: string;
+  /** Optional for backward compatibility with callers built before the hierarchy widened past
+   * tasks (plan 01-03) — absent means "task" (the only kind that existed then). */
+  kind?: BoardItemKind;
   key: string;
   title: string;
   status: string;
   rank: string;
   priority: number;
   epicId: string | null;
+}
+
+/** One row of the workflow-less issues lane (D-07) — issues carry no `status` field. */
+export interface IssueItem {
+  id: string;
+  key: string;
+  title: string;
+  kind: string;
+  epicId: string | null;
+  taskId: string | null;
 }
 
 export interface BandCounts {
@@ -36,6 +53,7 @@ export interface BandCounts {
 
 export interface BoardWindow {
   items: BoardItem[];
+  issues: IssueItem[];
   counts: BandCounts;
 }
 
@@ -96,6 +114,77 @@ export function useCreateTask(projectId: string | undefined) {
       // every OTHER surface's freshness, and stays authoritative even if this call were removed.
       queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) });
     },
+  });
+}
+
+/** Create an epic at the top level (⌘⇧N / palette "Create Epic"). */
+export function useCreateEpic(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (title: string) => invokeCommand<BoardItem>("epic_create", { projectId, title }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/** Create an issue (proposals/notes — no status, D-07). */
+export function useCreateIssue(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { title: string; kind: string }) =>
+      invokeCommand<IssueItem>("issue_create", {
+        projectId,
+        title: input.title,
+        kind: input.kind,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/**
+ * Set a task's or an epic's workflow status by keystroke (`s` then `1`-`5`, StatusPicker). Which
+ * command to call depends on `kind` — the picker itself never re-derives the state list, only
+ * which entity-scoped command carries the change.
+ */
+export function useSetStatus(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { kind: BoardItemKind; id: string; status: string }) =>
+      invokeCommand<void>(input.kind === "epic" ? "epic_set_status" : "task_set_status", {
+        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
+        status: input.status,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/** Patch a task's or an epic's title/description from the item detail panel. */
+export function useUpdateItem(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      kind: BoardItemKind;
+      id: string;
+      title?: string;
+      description?: string;
+    }) =>
+      invokeCommand<BoardItem>(input.kind === "epic" ? "epic_update" : "task_update", {
+        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
+        title: input.title,
+        description: input.description,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/** Delete a task or an epic (⌘⌫, destructive confirmation owned by the caller). */
+export function useDeleteItem(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { kind: BoardItemKind; id: string }) =>
+      invokeCommand<void>(input.kind === "epic" ? "epic_delete" : "task_delete", {
+        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
   });
 }
 

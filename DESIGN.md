@@ -263,3 +263,127 @@ list (`01-03-PLAN.md` frontmatter `files_modified`) does not cover — later pla
 - `deriveKeyPrefix` (`board/FirstRun.tsx`) as the one place a key-prefix default is computed, for
   any future "edit project" surface to reuse before it would hit
   `packages/core::domain::project::update_key_prefix`'s immutability guard.
+
+---
+
+# Phase 1, Plan 01-04 — The Fixed Hierarchy and the Fixed Workflow
+
+**Status:** the whole three-level hierarchy — epics, tasks, issues — is now creatable, editable
+and deletable, and every task/epic moves through the five fixed states by keystroke, with the
+rigidity enforced by a database CHECK constraint and one shared `WORKFLOW_STATES` constant rather
+than by convention. This plan widens the `01-03` tracer's single-entity, single-path proof into
+the full hierarchy `BOARD-01` and `BOARD-04` require.
+
+**Execution note:** this plan was executed across two sessions after an infrastructure fault
+crashed the first mid-flight (see the SUMMARY's Deviations section for the full account). Task 1
+was implemented, tested and committed by the first session (`0f82626`). The second session
+inherited Task 2's and Task 3's work already written to disk but uncommitted — reviewed it line
+by line against this plan and `01-UI-SPEC.md` before building on it, found it correct and
+complete, and finished only the one genuine gap it found (the missing `workflow.test.tsx`
+component suite) plus one polish fix (see below) before committing.
+
+## What was built
+
+- **Rust core (`0f82626`, Task 1)** — `domain::WORKFLOW_STATES` (the one fixed five-state list),
+  `domain::actor::{local_human_actor, system_actor}`, `domain::epic::{create_epic, update_epic,
+  delete_epic, set_epic_status}`, `domain::issue::{create_issue, update_issue, delete_issue}`,
+  `domain::task::{update_task, delete_task, set_task_status}` — every mutation opens exactly one
+  `conn.transaction()` and is a redundant-transition no-op when the target status already holds.
+  `query::list_board` extended to return epics+tasks banded by status and issues in a separate
+  lane, with no bare inner join to `epics` (D-13's orphan-task guarantee preserved). Six new Tauri
+  commands (`epic_*`, `issue_*`, `task_update`/`task_delete`/`task_set_status`), each resolving
+  `actor_id` server-side and registered in both `main.rs`'s `generate_handler!` and
+  `capabilities/default.json`.
+- **`StatusBand.tsx`** — one sticky stamped band header per `WORKFLOW_STATES` entry, carrying the
+  state name and its live item count; the count stays visible when the band is collapsed
+  (BOARD-08's legibility-of-scale promise). Collapse state lives in `collapseStore.ts` (Zustand,
+  keyed per project) — never written to the database.
+- **`IssuesLane.tsx`** — the workflow-less issues region beneath the five bands: key, title, kind
+  only, no status glyph, no criteria badge (D-07).
+- **`pickers/StatusPicker.tsx`** — opens on `s`, accepts `1`-`5` directly, its option list built
+  from `legend/marks.ts`'s `STATUS_MARKS` (never a second hand-typed state array — the Task 2
+  grep gate over this exact file proves it), rendered through a `document.body` portal (virtualized
+  rows are each their own stacking context, so an in-row absolutely-positioned menu would paint
+  behind the next row) and focus-trapped/dismissable via hand-wired `@radix-ui/react-focus-scope`
+  and `@radix-ui/react-dismissable-layer` (no shadcn, no pre-styled component — the locked
+  `a-selfhost-radix` decision).
+- **`item-detail/ItemDetailPanel.tsx`** — the 480px side panel: key, inline-editable title, the
+  status picker (tasks/epics only, never rendered for an issue per D-07), and a deliberately empty,
+  placeholder-free section boundary where plan `01-06`'s acceptance-criteria list and plan
+  `01-10`'s activity trail land later.
+- **`BoardView.tsx`** — now owns roving-focus keyboard selection (`j`/`k`, Home/End, `Enter`/`o`,
+  `s`, Escape) over the virtualized rack, and renders the issues lane, the status picker overlay,
+  and the item detail panel for the current selection. `BoardRow.tsx` gained the
+  `row-surface-selected` / `row-surface-selected-unfocused` visual states (a selected-but-blurred
+  row must not look identical to a focused-and-selected row, per Accessibility) and a clickable
+  status glyph.
+- **`legend/marks.ts`** — one new `epic` channel and mark (`epic-pill-none`, the orphan-task "No
+  epic" pill) plus `STATUS_MARKS`/`statusValueFromMarkId`, so the picker's option list and the
+  schema's CHECK constraint both trace back to the same declaration.
+
+## Review against the direction contract
+
+Same standing reference as `01-03` (`packages/desktop/index.html`, seed `59b0beb9`) — this plan
+does not re-author it. **This execution environment again has no agent-spawning tool available**,
+so the shipped `impeccable-finish-reviewer` and `impeccable-documenter` subagents could not be
+literally invoked; this section is the self-conducted substitute, stated explicitly rather than
+silently claimed. A live `tauri dev` capture (the `01-03` precedent) was not attempted this
+session given the crash-recovery scope — the review below is a structural/behavioral read of the
+built surface against `01-UI-SPEC.md` and `craft-floor.md`'s Verify/Refuse checklist, which is
+exactly the fallback `01-UI-SPEC.md`'s own "Build Process Requirement" names for when no direction
+contract review can run live.
+
+- **Detector:** `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
+  --json packages/desktop/src/board packages/desktop/src/item-detail` returned `[]` — no findings.
+- **One vertical rack, never horizontal columns:** confirmed — `StatusBand` and `IssuesLane` both
+  render as stacked rows inside the same virtualized/flex column as the item rows; no component
+  in this plan applies a multi-column grid to the status groups.
+- **No mark without a legend entry:** confirmed — `epic-pill-none` and all five status marks are
+  in `legend/marks.ts`'s `MARKS` registry, each with a non-empty label and meaning.
+- **Contrast:** every new surface reuses `--surface-secondary`/`--surface-dominant`/
+  `--text-primary-rack`/`--text-muted-rack`/`--divider` — the exact token values `01-02`'s runnable
+  contrast suite already proved; no new colour was introduced.
+- **Depth:** `StatusPicker`'s portal-rendered menu carries a real offset+blur shadow
+  (`0 8px 24px rgba(0,0,0,0.35)`), not a zero-offset colored halo.
+- **Browser surfaces:** the status picker and detail panel reuse the app-wide `:focus-visible`
+  ring and `::selection` theming from `App.css` — no new unstyled OS default was introduced.
+- **Motion — one genuine gap found and fixed:** `BoardRow`'s new selection-highlight overlay is
+  applied via an inline `background` (a `linear-gradient` composited over the status tint), but
+  `App.css`'s `.board-row` transition list only covered `box-shadow` (the pre-existing hover
+  treatment), so a selection change snapped instantly instead of transitioning — a direct miss
+  against "the selection highlight transitions between rows" (01-UI-SPEC.md "Motion"). Fixed by
+  adding `background` to the same transition declaration, reusing the single
+  `--duration-settle`/`--ease` pair (no second easing curve introduced).
+- **Motion — one accepted, documented gap, not fixed this plan:** band collapse/expand does not
+  animate height; collapsing a band simply removes its rows from the virtualizer's row list for
+  the next render. `01-UI-SPEC.md`'s Motion section names an animated collapse as an intent, but
+  it is not one of this plan's own acceptance criteria, and doing it properly against
+  `@tanstack/react-virtual`'s fixed-size virtualization (rather than faking it with a CSS
+  max-height transition that fights the virtualizer's own positioning) is real design work, not a
+  one-line polish fix. Left for a later plan to pick up deliberately rather than rushed here.
+
+## Known deferred surfaces (not stubs — explicit scope boundaries)
+
+- **Priority, estimate and assignee pickers** — Row Anatomy names `p`/`e`/`a` keybindings; this
+  plan implements only the status picker (`s`). The other three fields already render on the row
+  and in `useBoardQuery`'s types; their pickers are a later plan's surface, matching the precedent
+  `01-03-SUMMARY.md` set for fields whose underlying feature does not exist yet.
+- **Acceptance criteria and the activity trail** — `ItemDetailPanel.tsx` reserves the section
+  boundary but renders neither; `01-06` and `01-10` own them.
+- **Command palette (⌘K)** — still not wired; the Legend surface it will eventually expose is
+  ready (`epic` channel already added), but the palette itself is a later plan.
+- **Quick-add for epics, and `Tab`/`Shift+Tab` nesting at creation time** — `IssuesLane`'s
+  quick-add creates issues of kind `idea` only (no kind picker yet); epic creation and inline
+  nesting are not wired in this plan's `BoardView`.
+
+## What the next plan inherits
+
+- The full epic/task/issue mutation surface in `packages/core::domain` and the matching Tauri
+  commands, all following the exact one-transaction-per-mutation outbox shape `01-03` established.
+- `StatusPicker.tsx`'s Radix focus-trap/portal pattern, ready to be reused verbatim for the
+  priority/estimate/assignee pickers a later plan adds — same anchor-rect API, same
+  `FocusScope`/`DismissableLayer` wiring.
+- `ItemDetailPanel.tsx`'s empty section boundary, exactly where `01-06`'s criteria list and
+  `01-10`'s activity trail are meant to be inserted.
+- `collapseStore.ts` as the one place any future per-project, non-database UI preference (e.g. a
+  "Group by" toggle, Open Decisions #9) should live, rather than a second ad hoc Zustand store.
