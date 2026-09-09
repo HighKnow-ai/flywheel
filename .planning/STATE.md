@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
-status: executing
-stopped_at: Completed 01-10-PLAN.md
-last_updated: "2026-09-09T08:34:16.079Z"
+status: verifying
+stopped_at: Completed 01-11-PLAN.md (final plan of Phase 1)
+last_updated: "2026-09-09T09:15:20.295Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: 8b43e59273dbcbf842cb8b824c31021251fed164
+state_head: 478d291fd11a728ea9ba27ac91cba2929016af93
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
 Plan: 11 of 11
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-09 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P08 | 140min | 3 tasks | 20 files |
 | Phase 01 P09 | 110min | 3 tasks | 16 files |
 | Phase 01-the-board-is-the-store-of-record P10 | 50min | 3 tasks | 14 files |
+| Phase 01 P11 | 30min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,8 @@ Recent decisions affecting current work:
 - [Phase 01]: [Phase 01-09]: dispatchAction(id) synthesizes a real KeyboardEvent matching an action's global binding — the command palette and the native menu.rs bridge both re-enter the exact keyboard pipeline rather than a second implementation of each action's effect
 - [Phase 01]: render_description reads the payload's already-present "label" (built from field/before/after at write time by every domain mutation function) rather than a second, independent formatter
 - [Phase 01]: ActivityTrail.tsx guarded by the same !isIssue condition as AcceptanceCriteriaList — core::query::events only accepts task/epic as parent_kind, matching the events table's denormalised task_id/epic_id columns
+- [Phase 01]: Marker path/format: .flywheel/project.json, JSON via serde_json, committed (owner decision, checkpoint:decision)
+- [Phase 01]: register_project (not create_project) is what the Tauri project_register command now calls
 
 ### Pending Todos
 
@@ -132,6 +135,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T08:34:16.058Z
-Stopped at: Completed 01-10-PLAN.md
+Last session: 2026-09-09T09:15:20.270Z
+Stopped at: Completed 01-11-PLAN.md (final plan of Phase 1)
 Resume file: None

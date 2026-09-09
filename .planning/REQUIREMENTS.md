@@ -29,7 +29,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **BOARD-07**: User can drive board navigation and the common item actions entirely from the keyboard
 - [x] **BOARD-08**: Board interactions complete without perceptible lag on a project containing at least 1,000 items
 - [x] **BOARD-09**: Every item shows a chronological activity trail of what changed, when, and which actor changed it
-- [ ] **BOARD-10**: User can register multiple local git repositories as projects and switch between their boards
+- [x] **BOARD-10**: User can register multiple local git repositories as projects and switch between their boards
 
 ### Worktree & Branch Management
 
@@ -236,7 +236,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BOARD-07 | Phase 1 | Complete |
 | BOARD-08 | Phase 1 | Complete |
 | BOARD-09 | Phase 1 | Complete |
-| BOARD-10 | Phase 1 | Pending |
+| BOARD-10 | Phase 1 | Complete |
 | WORK-01 | Phase 2 | Pending |
 | WORK-02 | Phase 2 | Pending |
 | WORK-03 | Phase 3 | Pending |
