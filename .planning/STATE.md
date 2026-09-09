@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-12-PLAN.md
-last_updated: "2026-09-09T13:30:43.284Z"
+stopped_at: Completed 01-13-PLAN.md
+last_updated: "2026-09-09T13:51:28.600Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: f936bc06227b64805a0d8a78c31199acfc7149ff
+state_head: 301fbee277c123485c1a545306e861703f181459
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 2 of 15
+Plan: 3 of 15
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -70,6 +70,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-the-board-is-the-store-of-record P10 | 50min | 3 tasks | 14 files |
 | Phase 01 P11 | 30min | 3 tasks | 15 files |
 | Phase 01 P12 | 15min | 3 tasks | 8 files |
+| Phase 01-13 P13 | 20min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -115,6 +116,8 @@ Recent decisions affecting current work:
 - [Phase 01]: register_project (not create_project) is what the Tauri project_register command now calls
 - [Phase 01]: 01-12: assert_parent_in_project lives in domain/mod.rs as one shared same-project integrity check, called by both reparenting paths (task::set_epic, issue::set_parent) and both creation paths (create_task, create_issue)
 - [Phase 01]: 01-12: BOARD-01 unticked in REQUIREMENTS.md pending plan 01-15 — reparenting commands (task_set_epic, issue_set_parent) now exist and are registered, but nothing in the running renderer calls them yet
+- [Phase 01]: state/keyboard.ts and state/uiStore.ts now own the whole layer stack; bindingAllowedInLayer/topLayer is the single fire/do-not-fire decision every useGlobalBindings consumer and the board-list container share (G-01-FOCUS).
+- [Phase 01]: PickerKind lives in state/uiStore.ts and LayerState is {paletteOpen, detailOpen, pickerOpen, quickAddOpen} - 01-14/01-15 extend these, they do not re-derive the layer model.
 
 ### Pending Todos
 
@@ -138,6 +141,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T13:30:43.251Z
-Stopped at: Completed 01-12-PLAN.md
+Last session: 2026-09-09T13:51:28.570Z
+Stopped at: Completed 01-13-PLAN.md
 Resume file: None
