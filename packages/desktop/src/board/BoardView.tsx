@@ -68,12 +68,28 @@ type RackRow =
  * open/anchor/close shape. */
 type PickerKind = "status" | "priority" | "estimate" | "assignee";
 
+/** The centered overlay shown when the (possibly filtered/searched) window holds no epics, tasks
+ * or issues at all (01-UI-SPEC.md "State Inventory" — the empty-project and empty-filter-result
+ * states, distinguished by the caller via `EmptyStateContent`'s copy, never by this component).
+ * `pointerEvents: "none"` on the wrapper (except the CTA button) keeps the band headers and
+ * quick-add row underneath still interactive — the empty-project state's quick-add row stays
+ * "already visible and focused" exactly as before this prop existed. */
+export interface EmptyStateContent {
+  heading: string;
+  body: string;
+  ctaLabel?: string;
+  onCta?: () => void;
+}
+
 export interface BoardViewProps {
   projectId?: string;
   items: BoardItem[];
   issues?: IssueItem[];
   counts: BandCounts;
   onCreateTask: (title: string) => void;
+  /** `undefined` preserves this component's pre-01-08 behavior exactly (headers + quick-add
+   * only, no overlay) — existing callers/tests that never pass this prop are unaffected. */
+  emptyState?: EmptyStateContent;
 }
 
 interface AnchorRect {
@@ -82,7 +98,14 @@ interface AnchorRect {
   bottom: number;
 }
 
-export function BoardView({ projectId, items, issues = [], counts, onCreateTask }: BoardViewProps) {
+export function BoardView({
+  projectId,
+  items,
+  issues = [],
+  counts,
+  onCreateTask,
+  emptyState,
+}: BoardViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -290,12 +313,15 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
     background: "var(--surface-dominant)",
   };
 
+  const isEmptyWindow = items.length === 0 && issues.length === 0;
+
   return (
     <div style={{ height: "100%", display: "flex" }}>
+      <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
       <div
         className="board-view"
         ref={parentRef}
-        style={{ ...containerStyle, flex: 1, minWidth: 0 }}
+        style={containerStyle}
         role="list"
         aria-label="Board"
         tabIndex={0}
@@ -388,6 +414,65 @@ export function BoardView({ projectId, items, issues = [], counts, onCreateTask 
           issues={issues}
           onCreateIssue={(title) => createIssue.mutate({ title, kind: "idea" })}
         />
+      </div>
+
+      {isEmptyWindow && emptyState && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            // The band headers and quick-add row underneath stay interactive (the
+            // empty-project state's quick-add row is "already visible and focused" exactly as
+            // before this overlay existed) — only the CTA button below opts back into pointer
+            // events.
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            className="empty-board-state"
+            style={{
+              pointerEvents: "auto",
+              textAlign: "center",
+              maxWidth: 420,
+              padding: "var(--space-lg)",
+              borderRadius: "var(--radius-chrome)",
+              background: "var(--surface-secondary)",
+              border: "1px solid var(--divider)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-sm)",
+              alignItems: "center",
+            }}
+          >
+            <h2 className="type-heading" style={{ margin: 0, color: "var(--text-primary-rack)" }}>
+              {emptyState.heading}
+            </h2>
+            <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+              {emptyState.body}
+            </p>
+            {emptyState.ctaLabel && emptyState.onCta && (
+              <button
+                type="button"
+                className="type-body"
+                onClick={emptyState.onCta}
+                style={{
+                  padding: "var(--space-xs) var(--space-md)",
+                  borderRadius: "var(--radius-chrome)",
+                  border: "1px solid var(--divider)",
+                  background: "var(--surface-dominant)",
+                  color: "var(--accent-text-rack)",
+                  cursor: "pointer",
+                }}
+              >
+                {emptyState.ctaLabel}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       </div>
 
       {activePicker &&

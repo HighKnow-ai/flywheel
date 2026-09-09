@@ -3,9 +3,10 @@
  * needs routes through `invokeCommand`, and the board query is invalidated by
  * `subscribeBoardChanged` (D-04): the renderer never trusts its own write as already resolved.
  */
-import { useEffect } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invokeCommand, subscribeBoardChanged } from "../adapters/tauri";
+import { EMPTY_FILTER_DRAFT, type BoardFilterDraft } from "../state/uiStore";
 
 export interface Project {
   id: string;
@@ -81,6 +82,66 @@ function boardQueryKey(projectId: string | undefined) {
   return ["board", projectId] as const;
 }
 
+/** 150ms keystroke-to-query debounce (01-UI-SPEC.md "Performance Contract", 01-RESEARCH.md Flag
+ * 6): the debounce belongs at the query boundary, not the virtualization layer, which must
+ * always render whatever window it currently has instantly. */
+export const SEARCH_DEBOUNCE_MS = 150;
+
+/** Delays reflecting `value` by `delayMs` — the mechanism behind `SEARCH_DEBOUNCE_MS` below.
+ * Exported so `FilterBar.tsx`'s own tests (and any future field needing the same debounce
+ * discipline) can reuse it rather than re-deriving a second debounce implementation. */
+export function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+/** The wire shape `board_list`/`board_search` accept (mirrors
+ * `commands::board::BoardFilterInput` on the Rust side). `undefined` fields — never present at
+ * all, not `null` and not an empty array — are what "this dimension is unfiltered" means to the
+ * core; `toFilterInput` is the only place that omission decision gets made. */
+export interface BoardFilterInput {
+  statuses?: string[];
+  epicIds?: (string | null)[];
+  assigneeIds?: (string | null)[];
+  priorities?: number[];
+  estimates?: number[];
+}
+
+/** Translate a `BoardFilterDraft` (uiStore's "empty array means unfiltered" convention) into the
+ * command payload's "field absent means unfiltered" convention. Returns `undefined` when no
+ * dimension is active at all, so a fully-cleared filter sends no `filter` argument rather than an
+ * object of empty arrays — the exact shape `board_list`'s own `filter: Option<BoardFilterInput>`
+ * treats as "the unfiltered board." */
+export function toFilterInput(filter: BoardFilterDraft): BoardFilterInput | undefined {
+  const input: BoardFilterInput = {};
+  let active = false;
+  if (filter.statuses.length > 0) {
+    input.statuses = filter.statuses;
+    active = true;
+  }
+  if (filter.epicIds.length > 0) {
+    input.epicIds = filter.epicIds;
+    active = true;
+  }
+  if (filter.assigneeIds.length > 0) {
+    input.assigneeIds = filter.assigneeIds;
+    active = true;
+  }
+  if (filter.priorities.length > 0) {
+    input.priorities = filter.priorities;
+    active = true;
+  }
+  if (filter.estimates.length > 0) {
+    input.estimates = filter.estimates;
+    active = true;
+  }
+  return active ? input : undefined;
+}
+
 /** Every registered project (01-UI-SPEC.md "Project switcher"). */
 export function useProjects() {
   return useQuery({
@@ -111,12 +172,43 @@ export function useRegisterProject() {
   });
 }
 
-/** The bounded board window for one project (D-03 — the core returns a page, never the whole board). */
-export function useBoardQuery(projectId: string | undefined) {
+/**
+ * The bounded board window for one project (D-03 — the core returns a page, never the whole
+ * board), optionally narrowed by `filter`/`searchTerm` (BOARD-06, plan 01-08). `searchTerm` is
+ * debounced here, at the query boundary — every other layer (the virtualization layer, the
+ * search field itself) always renders/reflects the immediate value instantly.
+ *
+ * Renders whichever core command actually applies: an empty/whitespace-only search term calls
+ * `board_list` (the plain, possibly-filtered window); a real term calls `board_search`. There is
+ * exactly one place that decision is made — never a client-side re-filter of a `board_list`
+ * result, which would be the second implementation D-03 forbids.
+ *
+ * `placeholderData: keepPreviousData` is what keeps the previously-rendered window on screen
+ * during a refetch (01-UI-SPEC.md "State Inventory": "the currently-visible window never
+ * re-skeletons on a refetch, only on true zero-to-first-paint") — callers distinguish the two
+ * with `isFetching` (a refetch in flight) vs. `data === undefined` (nothing to show yet).
+ */
+export function useBoardQuery(
+  projectId: string | undefined,
+  filter: BoardFilterDraft = EMPTY_FILTER_DRAFT,
+  searchTerm = "",
+) {
+  const debouncedTerm = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
+  const trimmedTerm = debouncedTerm.trim();
+  const filterInput = toFilterInput(filter);
+
   return useQuery({
-    queryKey: boardQueryKey(projectId),
-    queryFn: () => invokeCommand<BoardWindow>("board_list", { projectId }),
+    queryKey: [...boardQueryKey(projectId), filterInput ?? null, trimmedTerm],
+    queryFn: () =>
+      trimmedTerm.length > 0
+        ? invokeCommand<BoardWindow>("board_search", {
+            projectId,
+            term: trimmedTerm,
+            filter: filterInput,
+          })
+        : invokeCommand<BoardWindow>("board_list", { projectId, filter: filterInput }),
     enabled: Boolean(projectId),
+    placeholderData: keepPreviousData,
   });
 }
 

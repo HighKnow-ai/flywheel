@@ -638,3 +638,144 @@ deferral set.
   ready for the item detail panel's own priority/estimate/assignee pickers (not wired by this
   plan — only the row-level `p`/`e`/`a` keyboard path is) to reuse without re-deriving the
   mapping.
+
+# Phase 1, Plan 01-08 — Search, Filter, and the Board at 1,000+ Items
+
+**Status:** the rack answers instantly on a real project. Free-text search (titles, bodies and
+the human-readable key) and every filter dimension the row anatomy shows (status, epic including
+"No epic," assignee including "Unassigned," priority, estimate) run as indexed SQL in the Rust
+core; the renderer holds only the current window and applies no second filtering pass of its own.
+
+## What was built
+
+- **`query::filter::BoardFilter`/`apply_filter`** — a typed filter set translated into a single
+  `concat!`-built, named-parameter `FILTER_WHERE` fragment shared by `list_board` and
+  `search_items`. Every dimension is either unfiltered (bind SQL `NULL`) or restricted to a
+  JSON-array value set (`json_each(:x)`) — the WHERE text itself never changes shape based on how
+  many values a filter carries, so no query in `packages/core/src/query` is ever assembled with
+  the string-interpolation macro the plan's own grep gate checks for. "No epic"/"Unassigned" are
+  encoded as the empty string inside the same JSON array as a real id (`COALESCE(epic_id, '')`) —
+  a real ULID can never be empty, so this can't collide, and the filter needs no separate
+  "include the null bucket" flag.
+- **`query::search::search_items`** — matches `tasks_fts`/`epics_fts`/`issues_fts` as a literal,
+  double-quote-escaped FTS5 phrase with a trailing prefix modifier on the last token
+  (`"<term>"*`), OR'd with a case-insensitive `UPPER(key) = UPPER(:key_term)` equality so the
+  human-readable key (`FLY-142`) is searchable without a migration change (D-10). Quoting
+  disables every one of FTS5's own operators inside the quoted span — a title containing a colon,
+  an asterisk or a hyphen is matched as literal text, never re-interpreted as query syntax. An
+  empty/whitespace-only term delegates byte-identically to `list_board` (the same filter, no text
+  constraint) rather than a second "unfiltered window" implementation.
+- **`board_search` Tauri command** alongside `board_list`, both accepting the same
+  `BoardFilterInput`/`BoardCursorInput` DTOs and capping the requested limit before calling the
+  core (T-01-24). Registered in `main.rs` and named explicitly in `capabilities/default.json`.
+- **`state/uiStore.ts`** — the new Zustand store for the filter draft, the search term and the
+  selected item id, kept entirely separate from TanStack Query's server-state cache. Band-collapse
+  state is NOT duplicated here — it keeps its existing home in `board/collapseStore.ts` (01-04);
+  this plan did not consolidate the two into one store (a larger, separately-scoped refactor —
+  documented below under deferred surfaces rather than silently left undone).
+- **`useBoardQuery.ts`** — `useDebouncedValue` (150ms, `SEARCH_DEBOUNCE_MS`) sits at the query
+  boundary: the debounced, trimmed search term (not the raw keystroke) drives the TanStack Query
+  `queryKey`, so exactly one core call fires per settled input. `placeholderData: keepPreviousData`
+  keeps the previously-rendered window on screen during a refetch; callers distinguish "refetch in
+  flight" (`isFetching`) from "nothing to show yet" (`data === undefined`) rather than
+  re-skeletoning on every keystroke's round trip.
+- **`FilterBar.tsx`** — the always-visible top-bar search field (`⌘F`/`/` focus, ignored while
+  another text field already has focus) plus chip rows for status/priority/estimate/epic/
+  assignee, all reading from `legend/marks.ts`'s existing registries (`STATUS_MARKS`,
+  `PRIORITY_MARKS`, `ESTIMATE_MARKS`, `epic-pill-none`, `assignee-unassigned`) — no new marks were
+  needed, since every filter chip reuses a glyph/label the board's row anatomy already defines. A
+  small dot indicator (`aria-busy` on the input, a decorative `aria-hidden` dot) shows a refetch
+  in flight without touching the rendered rows. "Clear Filters" appears only once a filter or the
+  search term is active. The epic chip list is derived from the *currently loaded* window's own
+  epic rows rather than a dedicated "list every epic" query — see Known Stubs below.
+- **`BoardView.tsx`** — gained an optional `emptyState` prop (`EmptyStateContent`), rendered as a
+  centered, `pointerEvents: "none"` overlay (except its own CTA button) over the still-mounted,
+  still-interactive rack underneath. `undefined` (the default) preserves every pre-01-08 caller's
+  behavior exactly — the existing `board-view.test.tsx` suite needed no changes. `App.tsx`'s
+  `Board` component is the one place that decides which of the two empty-state copies to pass,
+  using its own filter/search UI state (`isFilterDraftActive`) — `BandCounts` alone can't make
+  that distinction, since a truly empty project and a filter matching nothing both report
+  all-zero counts.
+- **`adapters/tauri.ts`** — needed no change. The existing generic `invokeCommand<T>(command,
+  args)` seam already covers `board_search` identically to every other command; adding a
+  dedicated wrapper function would have been a second, narrower seam duplicating what the generic
+  one already does.
+
+## Review against the direction contract
+
+Same standing reference as `01-02`/`01-03`/`01-04`/`01-06`/`01-07`
+(`packages/desktop/index.html`, seed `59b0beb9`) — this plan does not re-author it. **This
+execution environment again has no agent-spawning tool and no confirmed GUI display available to
+this executor**, so the shipped `impeccable-finish-reviewer` and `impeccable-documenter`
+subagents named in Task 2's acceptance criteria could not be literally invoked, and no
+`.impeccable/review/` screenshots were captured this session — this section is the
+self-conducted substitute, stated explicitly rather than silently claimed, exactly as
+`01-02`/`01-03`/`01-04`/`01-06`/`01-07` documented for the same limitation. Deferred to
+`/gsd-verify-work` for a live walkthrough, matching every prior plan's own deferral.
+
+- **Detector:** `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
+  --json packages/desktop/src/board/FilterBar.tsx packages/desktop/src/board/BoardView.tsx`
+  returned `[]` — no findings.
+- **No mark without a legend entry:** confirmed — every filter chip renders a label already
+  defined in `legend/marks.ts`'s `MARKS` registry (status/priority/estimate marks, plus the
+  pre-existing `epic-pill-none`/`assignee-unassigned` marks); this plan introduced no new glyph,
+  so `legend/marks.ts` itself needed no edit despite being named in the plan's `files_modified`
+  list — a no-op, not an oversight (recorded here so it reads as a decision, not a gap).
+- **Contrast:** every new surface reuses `--surface-secondary`/`--surface-dominant`/
+  `--text-primary-rack`/`--text-muted-rack`/`--divider`/`--accent-text-rack` — the same token
+  values `01-02`'s runnable contrast suite already proved; no new colour was introduced.
+- **Depth:** the empty-state card reuses the same 1px `--divider` border + `--radius-chrome`
+  chrome every other chrome surface in this codebase uses (`FirstRun.tsx`'s button/input
+  precedent) — no new shadow recipe, no zero-offset colored halo.
+- **Type:** filter chips and the empty-state heading/body use `type-label`/`type-heading`/
+  `type-body` exactly as every other surface in this codebase does; no new type scale was
+  introduced.
+- **Motion:** none added — the search field's fetch indicator is a static dot, not an animation
+  (01-UI-SPEC.md Performance Contract's "what must never happen": no page-load choreography, no
+  decorative hover motion — a fetch-in-flight signal is neither).
+- **Icons:** `Search`/`X`, both `lucide-react`, no unicode/emoji stand-in — matching
+  `BoardRow.tsx`/`StatusBand.tsx`'s existing `Icon`/direct-import resolution pattern.
+- **No client-side filter/sort/search pass:** confirmed by the plan's own automated `<verify>`
+  grep gate (`grep -rEc '\.sort\(|localeCompare' packages/desktop/src/board` = 0) — `FilterBar`
+  and `BoardView` render exactly the window `useBoardQuery` returns, in the order returned.
+
+## Known Stubs
+
+- **The epic filter chip list is derived from the currently loaded window, not a dedicated "list
+  every epic" query.** Composing the epic filter with another active filter that hides every row
+  of a given epic will also hide that epic from the chip list itself (a mildly surprising but not
+  incorrect UX: the chip simply can't be selected until something makes that epic's rows visible
+  again). A future plan could add a lightweight `epic_list` command if this proves confusing in
+  practice; not added here to avoid a new command surface + capability entry for a chip-population
+  convenience the plan's acceptance criteria did not require.
+- **`selectedItemId` in `state/uiStore.ts` is not yet wired to `BoardView.tsx`'s own row
+  selection.** `BoardView` still owns `selectedId` as local `useState`, exactly as before this
+  plan — migrating it into the shared store (so, e.g., a future command-palette "jump to item"
+  action could set selection from outside `BoardView`) is a real, larger refactor touching every
+  keyboard handler in that file, deliberately deferred rather than rushed into this already-large
+  plan. The store's `selectedItemId`/`setSelectedItemId` exist and are exported, ready for that
+  future migration.
+
+## Known deferred surfaces (not stubs — explicit scope boundaries)
+
+- **Live `tauri dev` walkthrough.** Task 2's `<human-check>` block (type into the search field
+  against a seeded 1,000-item project, apply a status+assignee filter together, clear the search,
+  set a filter matching nothing, scroll the full list) was not run live this session — see
+  coverage note above, deferred to `/gsd-verify-work`, matching every prior plan's own deferral
+  for this exact no-GUI-display limitation.
+- **List-scroll 60fps and keystroke-to-paint-under-250ms** (01-UI-SPEC.md Performance Contract)
+  are UAT-only checks per that same document ("No automated e2e harness exists yet... treat as a
+  manual UAT check") — `search_at_1000_items_is_under_50ms` proves the server-side half of the
+  budget; the client-side half is unverified by automation in this environment, consistent with
+  the document's own stated scope.
+
+## What the next plan inherits
+
+- `query::filter::BoardFilter`/`apply_filter`/`FILTER_WHERE` as the one filter-translation pattern
+  any future query needing renderer-supplied narrowing should follow, rather than a second
+  hand-rolled WHERE-clause assembler.
+- `state/uiStore.ts` as the established home for future local UI state (e.g. a future command
+  palette's own open/closed state) — separate from TanStack Query's cache, matching the pattern
+  this plan established.
+- `useBoardQuery.ts`'s `useDebouncedValue`/`toFilterInput` as reusable building blocks for any
+  future debounced, filter-shaped query.
