@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-13-PLAN.md
-last_updated: "2026-09-09T13:51:28.600Z"
+stopped_at: Completed 01-14-PLAN.md
+last_updated: "2026-09-09T14:04:15.110Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: 301fbee277c123485c1a545306e861703f181459
+state_head: a4d702984eb2ab5e52001f36529c01d0810af0c9
 progress:
   total_phases: 11
   completed_phases: 0
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 3 of 15
+Plan: 4 of 15
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -71,6 +71,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P11 | 30min | 3 tasks | 15 files |
 | Phase 01 P12 | 15min | 3 tasks | 8 files |
 | Phase 01-13 P13 | 20min | 3 tasks | 12 files |
+| Phase 01 P14 | 12min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,9 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-12: BOARD-01 unticked in REQUIREMENTS.md pending plan 01-15 — reparenting commands (task_set_epic, issue_set_parent) now exist and are registered, but nothing in the running renderer calls them yet
 - [Phase 01]: state/keyboard.ts and state/uiStore.ts now own the whole layer stack; bindingAllowedInLayer/topLayer is the single fire/do-not-fire decision every useGlobalBindings consumer and the board-list container share (G-01-FOCUS).
 - [Phase 01]: PickerKind lives in state/uiStore.ts and LayerState is {paletteOpen, detailOpen, pickerOpen, quickAddOpen} - 01-14/01-15 extend these, they do not re-derive the layer model.
+- [Phase 01]: 01-14: ParentPicker (id/label/group options, portalled) is the generic sibling of the four fixed-option pickers, added now so 01-15 reuses it for issue parents instead of forking it
+- [Phase 01]: 01-14: epic picker bound to m ('move under') not a reflexive letter — s/p/e/a were already taken by status/priority/estimate/assignee
+- [Phase 01]: 01-14: useSetTaskEpic exists only for tasks (no epic-kind branch) — the fixed three-level hierarchy gives an epic no epic parent of its own
 
 ### Pending Todos
 
@@ -141,6 +145,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T13:51:28.570Z
-Stopped at: Completed 01-13-PLAN.md
+Last session: 2026-09-09T14:04:15.031Z
+Stopped at: Completed 01-14-PLAN.md
 Resume file: None

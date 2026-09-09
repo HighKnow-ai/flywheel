@@ -84,7 +84,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. User opens any item and sees a chronological trail of what changed, when, and which actor — human or agent — changed it.
   5. User force-quits the application mid-work and relaunches (including across a version upgrade that migrates the database) with no committed change lost or corrupted, and can replay the project's entire change history in order from any cursor position.
 
-**Plans**: 13/15 plans executed — 11/11 executed in 10 waves, plus 4 gap-closure plans (01-12 through 01-15) in 3 waves, opened by conversational UAT
+**Plans**: 14/15 plans executed — 11/11 executed in 10 waves, plus 4 gap-closure plans (01-12 through 01-15) in 3 waves, opened by conversational UAT
 **UI hint**: yes
 
 Plans:
@@ -136,7 +136,7 @@ Plans:
 
 **Gap closure — Wave 2** *(blocked on 01-12 and 01-13)*
 
-- [ ] 01-14-PLAN.md — G-01-EPIC-ASSIGN: the epic picker, the `m` binding, and a task's epic surviving creation
+- [x] 01-14-PLAN.md — G-01-EPIC-ASSIGN: the epic picker, the `m` binding, and a task's epic surviving creation
 
 **Gap closure — Wave 3** *(blocked on 01-14)*
 
@@ -420,7 +420,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. The Board Is The Store Of Record | 13/15 | In Progress|  |
+| 1. The Board Is The Store Of Record | 14/15 | In Progress|  |
 | 2. One Agent, One Worktree, Watched Live | 0/TBD | Not started | - |
 | 3. Nothing Lost, Nothing Left Running | 0/TBD | Not started | - |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
