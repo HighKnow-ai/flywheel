@@ -18,7 +18,8 @@ export type MarkChannel =
   | "epic"
   | "criteria"
   | "estimate"
-  | "assignee";
+  | "assignee"
+  | "project";
 
 export interface Mark {
   /** Stable identifier — matches the CSS token role this mark represents, where one exists. */
@@ -248,6 +249,34 @@ export const MARKS: Mark[] = [
     glyph: "Cog",
     label: "System",
     meaning: "This event or item is attributed to Flywheel itself, not a human or an agent.",
+  },
+  // Project switcher marks (01-UI-SPEC.md "Project switcher (left rail)", D-16, plan 01-11). The
+  // rail itself renders a project's key prefix as literal text (e.g. `FLY`), not these icons —
+  // these three marks exist for the Legend surface's own entries ("no mark may exist that the
+  // legend does not define"), mirroring `estimate-small`/`-medium`/`-large`'s role above: the
+  // real glyph is the printed text, this entry documents the channel.
+  {
+    id: "project-entry",
+    channel: "project",
+    glyph: "FolderGit2",
+    label: "Project",
+    meaning: "One registered repository's board — the rail shows its key prefix as the real glyph.",
+  },
+  {
+    id: "project-current",
+    channel: "project",
+    glyph: "Dot",
+    label: "Current project",
+    meaning:
+      "The project whose board is open — one of the few places the accent role marks the current position (01-UI-SPEC.md Color & Token Roles).",
+  },
+  {
+    id: "project-unreachable",
+    channel: "project",
+    glyph: "TriangleAlert",
+    label: "Unreachable",
+    meaning:
+      "This project's marker no longer matches its last known path (D-16) — paired with the literal word \"Unreachable,\" never a colour change alone.",
   },
 ];
 

@@ -14,6 +14,7 @@ const CHANNEL_LABELS: Record<MarkChannel, string> = {
   criteria: "Criteria",
   estimate: "Estimate",
   assignee: "Assignee",
+  project: "Project switcher",
 };
 
 const SWATCH_BASE: CSSProperties = {

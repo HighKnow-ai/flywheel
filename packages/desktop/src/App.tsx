@@ -1,19 +1,15 @@
 import { useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
-import { openFolderDialog, subscribeMenuAction } from "./adapters/tauri";
+import { subscribeMenuAction } from "./adapters/tauri";
 import { BoardView, type EmptyStateContent } from "./board/BoardView";
 import { CommandPalette } from "./board/CommandPalette";
-import { deriveKeyPrefix } from "./board/FirstRun";
 import { FilterBar } from "./board/FilterBar";
 import { FirstRun } from "./board/FirstRun";
-import {
-  useBoardChangedSubscription,
-  useBoardQuery,
-  useCreateTask,
-  useProjects,
-  useRegisterProject,
-} from "./board/useBoardQuery";
+import { useBoardChangedSubscription, useBoardQuery, useCreateTask, useProjects } from "./board/useBoardQuery";
+import { ProjectRail } from "./projects/ProjectRail";
+import { ProjectUnreachable } from "./projects/ProjectUnreachable";
+import { useRegisterProjectFlow } from "./projects/RegisterProjectFlow";
 import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
 import "./styles/tokens.css";
@@ -88,26 +84,14 @@ function Board({ projectId, projectName }: { projectId: string; projectName: str
   );
 }
 
-/**
- * `⌘⇧O`'s actual effect — the native folder picker plus registration, sharing `FirstRun.tsx`'s
- * own `deriveKeyPrefix` default so "Register Project…" behaves identically whether it is reached
- * from the first-run button, `⌘⇧O`, the command palette, or the native File menu.
- */
-function useRegisterProjectFlow() {
-  const registerProject = useRegisterProject();
-  return async function registerProjectFlow() {
-    const repoPath = await openFolderDialog();
-    if (!repoPath) return;
-    const name = repoPath.split(/[\\/]/).filter(Boolean).pop() ?? repoPath;
-    registerProject.mutate({ name, repoPath, keyPrefix: deriveKeyPrefix(name) });
-  };
-}
-
 function AppShell() {
   const projectsQuery = useProjects();
   const currentProjectId = useUiStore((state) => state.currentProjectId);
   const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
-  const registerProjectFlow = useRegisterProjectFlow();
+  // `⌘⇧O`'s actual effect — the SAME registration flow the rail's `+` button and the palette's
+  // "Register Project…" command use (`projects/RegisterProjectFlow.tsx`), never a re-derived
+  // copy (01-UI-SPEC.md "Project switcher").
+  const { registerProjectFlow } = useRegisterProjectFlow();
 
   // `⌘⇧O` and `⌘1`-`⌘9` (01-UI-SPEC.md Keyboard Map, Global) — held here because this is where
   // the registered-project list and the "which project is current" state both live.
@@ -166,8 +150,22 @@ function AppShell() {
     projectsQuery.data.find((candidate) => candidate.id === currentProjectId) ?? projectsQuery.data[0];
   return (
     <>
-      <div id="app-root" className="rack-ground">
-        <Board projectId={project.id} projectName={project.name} />
+      <div id="app-root" className="rack-ground" style={{ display: "flex", height: "100%" }}>
+        <ProjectRail
+          projects={projectsQuery.data}
+          currentProjectId={project.id}
+          onSelect={(selected) => setCurrentProjectId(selected.id)}
+        />
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {project.status === "unreachable" ? (
+            // D-16: an unreachable project's marker no longer matches its cached path — this
+            // surface replaces the board entirely and offers only explicit relocation, never a
+            // board rendered against a repository Flywheel can no longer verify.
+            <ProjectUnreachable project={project} />
+          ) : (
+            <Board projectId={project.id} projectName={project.name} />
+          )}
+        </div>
       </div>
       <CommandPalette />
     </>

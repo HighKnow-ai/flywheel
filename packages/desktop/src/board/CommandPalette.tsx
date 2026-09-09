@@ -21,9 +21,8 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
-import { openFolderDialog } from "../adapters/tauri";
-import { deriveKeyPrefix } from "./FirstRun";
 import { Legend } from "../legend/Legend";
+import { useRegisterProjectFlow } from "../projects/RegisterProjectFlow";
 import { StatusPicker } from "./pickers/StatusPicker";
 import { PriorityPicker } from "./pickers/PriorityPicker";
 import { EstimatePicker } from "./pickers/EstimatePicker";
@@ -43,7 +42,6 @@ import {
   useBoardQuery,
   useCreateIssue,
   useProjects,
-  useRegisterProject,
   useReorderItem,
   useSetAssignee,
   useSetEstimate,
@@ -129,7 +127,9 @@ export function CommandPalette() {
   const actors = actorsQuery.data ?? [];
   const selectedItem = items.find((item) => item.id === selectedItemId);
 
-  const registerProject = useRegisterProject();
+  // The SAME registration flow ⌘⇧O and the rail's `+` button use (`RegisterProjectFlow.tsx`) —
+  // never a re-derived copy.
+  const { registerProjectFlow } = useRegisterProjectFlow();
   const createIssue = useCreateIssue(effectiveProjectId);
   const setStatus = useSetStatus(effectiveProjectId);
   const setPriority = useSetPriority(effectiveProjectId);
@@ -152,13 +152,6 @@ export function CommandPalette() {
 
   function close() {
     setOpen(false);
-  }
-
-  async function registerProjectFlow() {
-    const repoPath = await openFolderDialog();
-    if (!repoPath) return;
-    const name = repoPath.split(/[\\/]/).filter(Boolean).pop() ?? repoPath;
-    registerProject.mutate({ name, repoPath, keyPrefix: deriveKeyPrefix(name) });
   }
 
   function runBoardListAction(id: ActionId) {

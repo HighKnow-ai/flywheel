@@ -1,9 +1,10 @@
 # DESIGN.md — Phase 1
 
-**Status:** The Flight Progress Strips visual world is authored (`01-02`) and its first real
-surface is built (`01-03`): a working rack — registration, the five status bands, quick-add,
-persistence. The project rail, command palette, item detail panel and pickers land in later
-plans.
+**Status:** The Flight Progress Strips visual world is authored (`01-02`) and every surface named
+in the original phase scope is now built: the rack (`01-03`), the hierarchy and detail panel
+(`01-04`), pickers (`01-07`), search/filter (`01-08`), the command palette and keyboard model
+(`01-09`), the activity trail (`01-10`), and — closing the phase's UI surface — the project
+switcher (rail, registration flow, unreachable state) in `01-11`, below.
 
 ## Direction
 
@@ -1103,3 +1104,146 @@ None that block this plan's own goal. Every entry the trail renders comes from a
   future paginated, `board:changed`-invalidated read inside the detail panel.
 - `legend/marks.ts`'s `assignee-system` mark and the now-complete `actorTypeMarkId` triad, ready
   for any future surface that needs to badge a system-attributed action.
+
+---
+
+# Plan 01-11 — Project switcher (rail, registration flow, unreachable state)
+
+## What was built
+
+- **`core::marker`** (new module) — `read_marker`/`write_marker`/`verify_marker` against
+  `.flywheel/project.json`, the owner-decided marker path/format (Task 1, `dot-dir-json`; recorded
+  in full in `01-11-SUMMARY.md` and `01-RESEARCH.md`'s Open Question 2). Every function takes an
+  explicit absolute path — nothing reads the process working directory, and marker content is
+  never used to construct a path to visit (T-01-03).
+- **`core::domain::project::{register_project, reconcile_projects, relocate_project}`** —
+  registration mints, reuses, or clone-adopts a marker id inside one transaction, writing the
+  marker file only after that transaction commits (T-01-30); reconciliation (run in `main.rs`'s
+  `setup` hook, before the window is shown) marks a project unreachable on a marker mismatch and
+  active again once it matches, never rewriting `repo_path`; relocation is the one other writer of
+  that column, and rejects a marker naming a different project (T-01-29).
+- **`projects/ProjectRail.tsx`** — the persistent left rail (01-UI-SPEC.md "Project switcher"):
+  rack chrome, present once ≥1 project is registered, each entry showing its key prefix as the
+  real glyph, the current project marked with the accent role (one of the few sanctioned uses —
+  never more than one "loudest" element per view), an unreachable entry showing a warning glyph
+  *plus* the literal word "Unreachable," never colour alone.
+- **`projects/RegisterProjectFlow.tsx`** — the ONE registration flow every entry point now shares
+  (`useRegisterProjectFlow`): the rail's `+`, `App.tsx`'s `⌘⇧O`, and `CommandPalette.tsx`'s
+  "Register Project…" all call this single hook. Before this plan each of the three had its own
+  copy of "open the picker, derive a default name/key, call `project_register`" — consolidated
+  here as this plan's own read of "the same flow as File → Register Project…".
+- **`projects/ProjectUnreachable.tsx`** — the full-surface reconciliation state
+  (01-UI-SPEC.md Copywriting Contract's exact heading/body/CTA), replacing the board for a project
+  whose marker failed verification. Exactly one action, "Locate Project…"; no retry, no automatic
+  disk search, no auto-repair.
+- **`App.tsx`** — renders `ProjectRail` alongside the board once ≥1 project exists, and routes an
+  unreachable current project to `ProjectUnreachable` instead of `Board`.
+- **`state/keyboard.ts` / `CommandPalette.tsx`** — `⌘1`-`⌘9` and per-project "Go to Project: {name}"
+  palette entries were already in place from `01-09`'s own forward-looking binding table; this
+  plan verified both against the rail's real project list rather than re-deriving them.
+- **`legend/marks.ts`** — three new marks (`project-entry`, `project-current`,
+  `project-unreachable`) and a new `"project"` channel, mirrored into `Legend.tsx`'s
+  `CHANNEL_LABELS` (a required, minimal consequential edit — the channel union and the label
+  record must stay exhaustive together).
+- **Tests** — `packages/core/tests/project_reconciliation.rs` (14 tests: marker round-trip,
+  malformed-marker rejection, exactly-two-fields, mint/reuse/clone-adopt registration, same-path
+  idempotency, a deterministic two-transaction race proving the database's own uniqueness
+  constraint resolves a raced registration rather than call ordering, path canonicalization,
+  reconciliation's mark/clear/idempotent-no-op behavior, relocation's accept/reject). Plus
+  `projects/__tests__/project-rail.test.tsx` (5 tests: rail absent/present, unreachable glyph +
+  literal word, `⌘3` switches to the third project via a real `fireEvent.keyDown` through the full
+  `App` tree, `ProjectUnreachable`'s exactly-one-action contract).
+
+## Craft floor review
+
+`craft-floor.md` was read before touching any UI file in this plan (Task 3's own read-first list).
+
+- **Detector:** `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
+  --json packages/desktop/src/projects packages/desktop/src/App.tsx` returned `[]` — no findings,
+  re-run clean after the fixes below.
+- **A real overflow bug found and fixed, not merely checked for:** the first render of an
+  unreachable rail entry (64px rail, 40×40 fixed-height button) let the "Unreachable" label
+  overflow past the button's own bounds and visually crowd the entry below it — exactly the class
+  of bug `craft-floor.md`'s "Type" check exists to catch ("run the real copy at every breakpoint
+  and fix what overflows"). Fixed by widening the rail to 72px (01-UI-SPEC.md's own stated upper
+  bound), letting the unreachable entry's height grow to fit its label instead of clipping, and
+  inserting a soft hyphen (`&shy;`) at the syllable boundary so the single 11-character word wraps
+  at a sensible point rather than an arbitrary character split (headless/CI Chromium does not
+  reliably apply CSS `hyphens: auto` without a locale dictionary, so a manual break point was the
+  more portable fix). Verified by re-screenshotting before and after — see below.
+- **Contrast:** reuses `--destructive-strip`/`--accent-nontext`/`--accent-text-rack`, already
+  measured in 01-UI-SPEC.md's palette table — no new colour pairing introduced.
+- **Motion:** none authored — a rail entry is a discrete state (reachable/unreachable/current),
+  not a transition the Motion contract calls for animating.
+- **Type:** `type-label`/`type-micro` reused from the established scale; `.tabular-nums` on the
+  key-prefix glyph per the standing columnar-field convention.
+- **Never colour alone:** the unreachable entry pairs the warning glyph with the literal printed
+  word "Unreachable," asserted by a test, not merely styled and hoped for.
+- **No mark without a legend entry:** `project-entry`/`project-current`/`project-unreachable` are
+  declared in `legend/marks.ts` before `ProjectRail.tsx` ever implies their existence.
+- **Icons:** `FolderGit2`/`Dot`/`TriangleAlert`/`Plus` (lucide-react) — outline-only, 2px stroke,
+  consistent with every icon already shipped.
+
+**Screenshots were captured this time** — the first plan in this phase able to, per its own
+Craft floor review sections above (`01-02` through `01-10` all documented "no confirmed GUI
+display in this execution context" and deferred to `/gsd-verify-work`). This plan's executor ran
+`npm run dev` (the Vite dev server alone, no Tauri shell) behind a headless Chromium
+(`playwright`), with `window.__TAURI_INTERNALS__.invoke` mocked via `page.addInitScript` to return
+canned `project_list`/`board_list`/`actor_list`/`project_register`/`project_relocate` responses —
+the same IPC bridge shape `@tauri-apps/api/mocks`' own `mockIPC` documents, hand-rolled here rather
+than imported so the mock could live in a throwaway Node script instead of the shipped bundle.
+Four screenshots are in `.impeccable/review/`: `01-11-first-run.png`, `01-11-rail-multiple-
+projects.png`, `01-11-rail-unreachable-entry.png`, `01-11-project-unreachable-surface.png`. No
+`impeccable-finish-reviewer`/`impeccable-documenter` subagent was spawned — no agent-spawning tool
+is available to this executor, matching every prior plan in this phase; this section (and the
+screenshots) are this plan's own substitute self-review, one level more evidenced than precedent
+because a real render was achievable this session.
+
+## Known Stubs
+
+None that block this plan's own goal. The rail, registration flow, and unreachable surface all
+read real `project_list`/`project_register`/`project_relocate` responses — nothing hardcoded or
+mocked in the shipped component (the mock IPC bridge above exists only in a throwaway screenshot
+script under `/tmp`, never committed to the repository).
+
+## Known deferred surfaces (not stubs — explicit scope boundaries)
+
+- **The "already registered" notice is a post-hoc comparison, not a pre-registration peek.**
+  01-UI-SPEC.md's own language ("when the chosen directory already carries a marker, say so
+  *before* completing") most literally implies checking before the mutation fires — but doing that
+  would need a new Tauri command outside Task 3's declared `<files>` (which lists no new Rust
+  source). `RegisterProjectFlow.tsx` instead compares the returned project's id against the
+  project list snapshotted immediately before the mutation, and `ProjectRail.tsx`'s `+` button
+  surfaces a transient notice from that comparison — a visible event, just after rather than
+  strictly before the round trip. `⌘⇧O` and the palette's "Register Project…" intentionally skip
+  the notice (a user who explicitly re-registers a known repository via keyboard/palette is less
+  likely to be surprised by it than one who just clicked `+`). Documented here as a judgment call
+  rather than left silent — a future plan adding a dedicated `project_peek_marker` command could
+  tighten this to a true pre-registration check.
+- **The rail's tooltip is the native `title` attribute**, not a custom tooltip component — reveals
+  the full project name on mouse hover in every browser; some browsers do not surface `title` on
+  keyboard focus alone. `01-UI-SPEC.md` calls for "hover or keyboard focus" to reveal it; a custom
+  focus-triggered tooltip was judged out of proportion to this plan's scope given `aria-label`
+  already carries the full name to assistive tech regardless of visual tooltip behavior.
+- **Live `tauri dev` walkthrough** (this plan's own `<human-check>` block: register three real
+  repositories, switch with `⌘1`-`⌘3`, inspect the marker file on disk, rename a directory and
+  relaunch to see it go unreachable, then relocate it) was not run against a real Tauri shell this
+  session — the headless-Chromium screenshots above prove the UI renders and responds correctly
+  against a mocked IPC bridge, but not against the real Rust core or a real filesystem move.
+  Deferred to `/gsd-verify-work`, same precedent as every prior plan's own `<human-check>` block.
+
+## What the next plan inherits
+
+- `projects/RegisterProjectFlow.tsx`'s `useRegisterProjectFlow` as the one registration flow any
+  future entry point (a fourth menu item, a fleet-wide view in a later phase) should call rather
+  than re-deriving the picker/register sequence a fourth time.
+- `core::marker` and `core::domain::project::{register_project, reconcile_projects,
+  relocate_project}` as the complete, tested marker/reconciliation surface Phase 3's worktree work
+  is told to mirror (D-16's own cross-reference: "this mirrors the rule Phase 3 applies to
+  worktrees").
+- `legend/marks.ts`'s `"project"` channel and its three marks, ready for any future surface that
+  needs to reference project-switcher iconography (a fleet view, a settings screen) without
+  inventing a fourth undeclared mark.
+- The hand-rolled `window.__TAURI_INTERNALS__` mock pattern (this plan's Craft floor review,
+  above) as a reusable technique for any future plan that wants real rendered screenshots without
+  a live Tauri shell — not committed as project tooling here, but documented as a proven approach.
