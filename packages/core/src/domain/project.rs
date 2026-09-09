@@ -6,9 +6,12 @@
 
 use anyhow::{anyhow, Context};
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use std::path::Path;
 
+use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
+use crate::marker::{self, ProjectMarker};
 
 const KEY_PREFIX_MIN_LEN: usize = 2;
 const KEY_PREFIX_MAX_LEN: usize = 10;
@@ -142,4 +145,312 @@ pub fn update_key_prefix(
     tx.commit()
         .context("failed to commit update_key_prefix transaction")?;
     Ok(())
+}
+
+/// Read one project back by id — the shared finisher [`register_project`] and
+/// [`relocate_project`] both call after their own transaction commits, so the `Project` they
+/// return always reflects the committed row rather than a value assembled by hand from arguments
+/// that may not match what a concurrent writer just committed underneath them.
+fn get_project(conn: &Connection, id: &str) -> anyhow::Result<Project> {
+    conn.query_row(
+        "SELECT id, key_prefix, name, repo_path, default_branch, status
+         FROM projects WHERE id = ?1",
+        params![id],
+        row_to_project,
+    )
+    .with_context(|| format!("project {id:?} not found after its own transaction committed"))
+}
+
+/// Insert one fresh `projects` row. The one INSERT statement shared by both of
+/// [`register_project`]'s insert branches (a brand-new repository, and the clone-onto-
+/// another-machine case reusing a marker's id) — never called by [`create_project`], which
+/// remains the tracer-era, marker-free fixture every existing test in this workspace already
+/// depends on.
+fn insert_project_row(
+    tx: &Transaction,
+    id: &str,
+    key_prefix: &str,
+    name: &str,
+    repo_path: &str,
+    actor_id: &str,
+    now: &str,
+) -> anyhow::Result<()> {
+    tx.execute(
+        "INSERT INTO projects (
+            id, key_prefix, name, repo_path, default_branch, key_counter, status, created_by, created_at
+        ) VALUES (?1, ?2, ?3, ?4, 'main', 0, 'active', ?5, ?6)",
+        params![id, key_prefix, name, repo_path, actor_id, now],
+    )
+    .context("failed to insert project")?;
+    Ok(())
+}
+
+/// The ONLY place `projects.repo_path` is ever written after a project's initial insert —
+/// [`register_project`] (reusing an existing marker id) and [`relocate_project`] (explicit user
+/// relocation) both call this one statement, so a grep gate can assert there is exactly one `SET
+/// repo_path` site in this file. [`reconcile_projects`] never calls it (D-16: reconciliation
+/// verifies, it never re-binds). Also clears `unreachable` back to `active` — reaching this
+/// function at all means a marker was just read and verified to match, so the project is
+/// reachable again by construction.
+fn set_repo_path(tx: &Transaction, project_id: &str, repo_path: &str) -> anyhow::Result<()> {
+    tx.execute(
+        "UPDATE projects SET repo_path = ?1, status = 'active' WHERE id = ?2",
+        params![repo_path, project_id],
+    )
+    .context("failed to update project repo_path")?;
+    Ok(())
+}
+
+/// Register a repository as a project (BOARD-10, D-15, D-16). Reads any existing marker at
+/// `repo_path` FIRST, as a plain filesystem read at an explicit path (`ARCHITECTURE.md`
+/// Anti-Pattern 3) — never inside the database transaction. Then, inside exactly one
+/// transaction, either:
+/// - mints a fresh project id when no marker exists there (a genuinely new repository);
+/// - reuses the existing row and updates its cached `repo_path` when the marker names a project
+///   this database already knows (re-registering the same or a moved-in-place repository); or
+/// - inserts a row reusing the marker's id when the marker names a project this database has
+///   never seen — the cloned-onto-another-machine case D-15 exists for.
+///
+/// The marker file write happens ONLY after the transaction commits (T-01-30): a failed database
+/// write never leaves a marker behind in the user's repository. Paths are canonicalized before
+/// storage and before every comparison, so a trailing slash, a symlinked parent, or a case
+/// difference on a case-insensitive filesystem all resolve to the same project.
+pub fn register_project(
+    conn: &mut Connection,
+    actor_id: &str,
+    repo_path: &Path,
+    name: &str,
+    key_prefix: &str,
+) -> anyhow::Result<Project> {
+    validate_key_prefix(key_prefix)?;
+
+    let canonical = repo_path
+        .canonicalize()
+        .with_context(|| format!("repository path {repo_path:?} could not be resolved"))?;
+    let canonical_str = canonical
+        .to_str()
+        .ok_or_else(|| anyhow!("repository path is not valid UTF-8"))?;
+
+    // A plain filesystem read at the explicit path the caller supplied — never inside the
+    // transaction below, and never a source of a second path to visit (T-01-03).
+    let existing_marker = marker::read_marker(&canonical)?;
+
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, marker_key) = match &existing_marker {
+        Some(existing) => {
+            let known_row: Option<String> = tx
+                .query_row(
+                    "SELECT id FROM projects WHERE id = ?1",
+                    params![existing.project_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to look up the marker's project id")?;
+
+            match known_row {
+                Some(id) => {
+                    // Already known — reuse the row. Idempotent for a repeated registration of
+                    // the same path; also the recovery path for re-registering a repository that
+                    // moved without going through explicit relocation.
+                    set_repo_path(&tx, &id, canonical_str)?;
+                    (id, existing.project_key.clone())
+                }
+                None => {
+                    // The clone-onto-another-machine case (D-15): the marker names a project id
+                    // this database has never seen. Insert reusing that id and key — never a
+                    // fresh one — which is what lets "the same project on two machines" hold.
+                    insert_project_row(
+                        &tx,
+                        &existing.project_id,
+                        &existing.project_key,
+                        name,
+                        canonical_str,
+                        actor_id,
+                        &now,
+                    )?;
+                    (existing.project_id.clone(), existing.project_key.clone())
+                }
+            }
+        }
+        None => {
+            // No marker at all: a genuinely new registration, using the caller-supplied prefix.
+            let id = new_id();
+            insert_project_row(&tx, &id, key_prefix, name, canonical_str, actor_id, &now)?;
+            (id, key_prefix.to_string())
+        }
+    };
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "status",
+        "before": null,
+        "after": "active",
+        "label": format!("Registered {name}"),
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "project",
+        &project_id,
+        None,
+        None,
+        actor_id,
+        "project.registered",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit register_project transaction")?;
+
+    // Written ONLY after the transaction above committed (T-01-30) — a failed database write
+    // above returns before this line is ever reached, so it never leaves a marker behind that
+    // the database disagrees with.
+    marker::write_marker(
+        &canonical,
+        &ProjectMarker {
+            project_id: project_id.clone(),
+            project_key: marker_key,
+        },
+    )?;
+
+    get_project(conn, &project_id)
+}
+
+/// Verify every known project's marker still matches its cached path (D-16, BOARD-10) — run at
+/// launch, after `open_and_migrate` and before the window is shown. Reads one marker per known
+/// project at its already-known `repo_path`; it never scans a directory tree looking for where a
+/// repository went (no call here enumerates the filesystem — `01-11-PLAN.md`'s own grep gate),
+/// so its cost is linear in registered projects and independent of any repository's size.
+///
+/// A mismatch or an absent marker sets `projects.status = 'unreachable'`; a marker that matches
+/// again clears it back to `'active'`. NEVER rewrites `repo_path` — that discipline is what
+/// `relocate_project`'s existence enforces; a moved repository is surfaced, never silently
+/// re-bound. Idempotent: a project whose status is already correct is skipped entirely, so
+/// running this twice with no filesystem change writes no row and appends no second event.
+pub fn reconcile_projects(conn: &mut Connection, actor_id: &str) -> anyhow::Result<()> {
+    let projects = list_projects(conn)?;
+    let now = Utc::now().to_rfc3339();
+
+    for project in projects {
+        // Any read failure (a malformed marker, a permissions error, a genuinely missing
+        // repository) reads as "not reachable" here — one bad project must never abort
+        // reconciliation for every other registered project.
+        let reachable =
+            marker::verify_marker(Path::new(&project.repo_path), &project.id).unwrap_or(false);
+        let new_status = if reachable { "active" } else { "unreachable" };
+        if new_status == project.status {
+            // No change: no row write, no event — this is what makes a second run over an
+            // unchanged filesystem a true no-op.
+            continue;
+        }
+
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE projects SET status = ?1 WHERE id = ?2",
+            params![new_status, project.id],
+        )
+        .context("failed to update project status during reconciliation")?;
+
+        let sequence = next_sequence(&tx, &project.id, "local")?;
+        let label = if reachable {
+            format!("{} is reachable again", project.name)
+        } else {
+            format!("{} is unreachable — its marker no longer matches", project.name)
+        };
+        let payload = serde_json::json!({
+            "field": "status",
+            "before": project.status,
+            "after": new_status,
+            "label": label,
+        });
+        append_event(
+            &tx,
+            &project.id,
+            "local",
+            sequence,
+            "project",
+            &project.id,
+            None,
+            None,
+            actor_id,
+            "project.reconciled",
+            &payload,
+            &now,
+        )?;
+        tx.commit()
+            .context("failed to commit reconcile_projects transaction")?;
+    }
+
+    Ok(())
+}
+
+/// Explicitly relocate a project to `new_repo_path` — the ONLY recovery action offered for an
+/// unreachable project (D-16, 01-UI-SPEC.md "Project unreachable"). Verifies the marker AT the
+/// new path names `project_id` and rejects a mismatch rather than adopting it (T-01-29): this
+/// function never re-binds a project to a repository whose marker claims a different identity,
+/// hand-edited or otherwise.
+pub fn relocate_project(
+    conn: &mut Connection,
+    actor_id: &str,
+    project_id: &str,
+    new_repo_path: &Path,
+) -> anyhow::Result<Project> {
+    let canonical = new_repo_path
+        .canonicalize()
+        .with_context(|| format!("repository path {new_repo_path:?} could not be resolved"))?;
+    let canonical_str = canonical
+        .to_str()
+        .ok_or_else(|| anyhow!("repository path is not valid UTF-8"))?;
+
+    let matches = marker::verify_marker(&canonical, project_id)?;
+    if !matches {
+        return Err(anyhow!(
+            "the marker at {canonical:?} does not name project {project_id:?} — refusing to relocate"
+        ));
+    }
+
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let before_path: String = tx
+        .query_row(
+            "SELECT repo_path FROM projects WHERE id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("project {project_id:?} not found"))?;
+
+    set_repo_path(&tx, project_id, canonical_str)?;
+
+    let sequence = next_sequence(&tx, project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "repo_path",
+        "before": before_path,
+        "after": canonical_str,
+        "label": format!("Relocated to {canonical_str}"),
+    });
+    append_event(
+        &tx,
+        project_id,
+        "local",
+        sequence,
+        "project",
+        project_id,
+        None,
+        None,
+        actor_id,
+        "project.relocated",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit relocate_project transaction")?;
+
+    get_project(conn, project_id)
 }

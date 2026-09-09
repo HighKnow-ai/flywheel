@@ -54,17 +54,6 @@ pub fn project_register(
     if repo_path.is_empty() || repo_path.len() > MAX_REPO_PATH_LEN {
         return Err("repository path is invalid".to_string());
     }
-    // T-01-13: the native folder picker returns an absolute path, but this handler is the trust
-    // boundary — canonicalize it here (resolving symlinks and `.`/`..` segments) before it is
-    // ever stored. `packages/core` never derives a path by concatenating stored content
-    // (ARCHITECTURE.md Anti-Pattern 3); canonicalizing at the one write point is what keeps that
-    // guarantee meaningful.
-    let canonical_repo_path = Path::new(repo_path)
-        .canonicalize()
-        .map_err(|e| format!("repository path could not be resolved: {e}"))?;
-    let canonical_repo_path = canonical_repo_path
-        .to_str()
-        .ok_or_else(|| "repository path is not valid UTF-8".to_string())?;
 
     let key_prefix = key_prefix.trim();
     if key_prefix.is_empty() || key_prefix.len() > MAX_KEY_PREFIX_LEN {
@@ -75,8 +64,21 @@ pub fn project_register(
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let project = flywheel_core::domain::project::create_project(
-        &mut conn, &actor_id, name, canonical_repo_path, key_prefix, "main",
+    // T-01-13: the native folder picker returns an absolute path, but this handler is the trust
+    // boundary — length/emptiness are validated above, and `register_project` (01-11-PLAN.md
+    // Task 2) is where canonicalization (resolving symlinks and `.`/`..` segments) now happens,
+    // since core-level callers (`packages/core/tests/project_reconciliation.rs`) must get the
+    // exact same guarantee without going through this command layer at all. `packages/core`
+    // still never derives a path by concatenating stored content (ARCHITECTURE.md Anti-Pattern
+    // 3) — canonicalizing at the read boundary is what keeps that guarantee meaningful; it reads
+    // a marker at an explicit path, never one built from marker content.
+    //
+    // If a marker already exists at this repository (D-15, a clone being re-adopted, or a
+    // re-registration), `register_project` reuses its id and key rather than minting new ones —
+    // that reuse is what `RegisterProjectFlow.tsx` surfaces to the user as "already registered"
+    // before completing (01-11-PLAN.md Task 3), a UI-layer courtesy, not a core precondition.
+    let project = flywheel_core::domain::project::register_project(
+        &mut conn, &actor_id, Path::new(repo_path), name, key_prefix,
     )
     .map_err(|e| e.to_string())?;
 
@@ -90,4 +92,53 @@ pub fn project_list(state: State<AppState>) -> Result<Vec<ProjectDto>, String> {
     let projects =
         flywheel_core::domain::project::list_projects(&conn).map_err(|e| e.to_string())?;
     Ok(projects.into_iter().map(ProjectDto::from).collect())
+}
+
+/// Verify every known project's marker still matches its cached path (D-16, BOARD-10) and
+/// return the resulting list. `main.rs`'s `setup` hook already runs this once at launch, before
+/// the window is shown — this command exists so a future surface (or a manual re-check) could
+/// trigger it again without relaunching, and so the reconciliation path itself is exercised by
+/// the same Tauri command-boundary tests every other handler in this module gets.
+#[tauri::command]
+pub fn project_reconcile(state: State<AppState>) -> Result<Vec<ProjectDto>, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::project::reconcile_projects(&mut conn, &actor_id)
+        .map_err(|e| e.to_string())?;
+    let projects =
+        flywheel_core::domain::project::list_projects(&conn).map_err(|e| e.to_string())?;
+    Ok(projects.into_iter().map(ProjectDto::from).collect())
+}
+
+/// Explicitly relocate a project whose marker no longer matches its cached path (D-16) — the
+/// ONLY recovery action `ProjectUnreachable.tsx` offers (never an auto-scan, never a silent
+/// rebind). Rejects a `new_repo_path` whose marker names a different project (T-01-29).
+#[tauri::command]
+pub fn project_relocate(
+    state: State<AppState>,
+    project_id: String,
+    new_repo_path: String,
+) -> Result<ProjectDto, String> {
+    let project_id = project_id.trim();
+    if project_id.is_empty() {
+        return Err("project id is required".to_string());
+    }
+    let new_repo_path = new_repo_path.trim();
+    if new_repo_path.is_empty() || new_repo_path.len() > MAX_REPO_PATH_LEN {
+        return Err("repository path is invalid".to_string());
+    }
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let project = flywheel_core::domain::project::relocate_project(
+        &mut conn,
+        &actor_id,
+        project_id,
+        Path::new(new_repo_path),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(project.into())
 }

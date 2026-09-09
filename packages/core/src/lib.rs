@@ -6,5 +6,6 @@
 pub mod db;
 pub mod domain;
 pub mod ids;
+pub mod marker;
 pub mod query;
 pub mod ranking;

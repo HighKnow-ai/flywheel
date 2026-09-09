@@ -34,8 +34,18 @@ fn main() {
                 .expect("failed to resolve the app-data database path");
             let backups_dir = flywheel_core::db::default_backups_dir()
                 .expect("failed to resolve the app-data backups directory");
-            let conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
+            let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
                 .expect("failed to open and migrate the database at startup");
+
+            // Launch-time reconciliation (D-16, BOARD-10): verify every known project's marker
+            // still matches its cached path BEFORE the window is shown, so a moved repository
+            // surfaces as unreachable immediately rather than only after the user tries to open
+            // it. Never scans the disk and never rewrites `repo_path` — a mismatch is surfaced,
+            // not silently repaired.
+            let reconcile_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+                .expect("failed to resolve the local human actor for launch-time reconciliation");
+            flywheel_core::domain::project::reconcile_projects(&mut conn, &reconcile_actor_id)
+                .expect("failed to reconcile registered projects at launch");
 
             app.manage(AppState {
                 db: Mutex::new(conn),
@@ -46,6 +56,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::project::project_register,
             commands::project::project_list,
+            commands::project::project_reconcile,
+            commands::project::project_relocate,
             commands::task::task_create,
             commands::task::task_update,
             commands::task::task_delete,
