@@ -8,7 +8,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CommandPalette } from "../CommandPalette";
 import { actionLabel, boardListActionIds } from "../../state/keyboard";
-import { EMPTY_FILTER_DRAFT, useUiStore } from "../../state/uiStore";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 
 const invokeCommandMock = vi.fn();
 
@@ -19,20 +19,8 @@ vi.mock("../../adapters/tauri", () => ({
   openFolderDialog: () => Promise.resolve(null),
 }));
 
-function resetUiStore() {
-  useUiStore.setState({
-    searchTerm: "",
-    filterDraft: EMPTY_FILTER_DRAFT,
-    selectedItemId: null,
-    paletteOpen: false,
-    currentProjectId: null,
-    detailItemId: null,
-    deleteTarget: null,
-  });
-}
-
 beforeEach(() => {
-  resetUiStore();
+  resetUiState();
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
@@ -49,7 +37,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  resetUiStore();
+  resetUiState();
 });
 
 function renderPalette() {

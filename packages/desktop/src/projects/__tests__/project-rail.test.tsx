@@ -15,7 +15,7 @@ import App from "../../App";
 import { ProjectRail } from "../ProjectRail";
 import { ProjectUnreachable } from "../ProjectUnreachable";
 import type { Project } from "../../board/useBoardQuery";
-import { EMPTY_FILTER_DRAFT, useUiStore } from "../../state/uiStore";
+import { resetUiState } from "../../state/uiStore";
 
 const invokeCommandMock = vi.fn();
 
@@ -43,25 +43,13 @@ function renderWithClient(node: React.ReactElement) {
   return render(<QueryClientProvider client={queryClient}>{node}</QueryClientProvider>);
 }
 
-function resetUiStore() {
-  useUiStore.setState({
-    searchTerm: "",
-    filterDraft: EMPTY_FILTER_DRAFT,
-    selectedItemId: null,
-    paletteOpen: false,
-    currentProjectId: null,
-    detailItemId: null,
-    deleteTarget: null,
-  });
-}
-
 beforeEach(() => {
-  resetUiStore();
+  resetUiState();
   invokeCommandMock.mockReset();
 });
 
 afterEach(() => {
-  resetUiStore();
+  resetUiState();
   cleanup();
 });
 

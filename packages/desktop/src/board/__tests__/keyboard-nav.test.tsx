@@ -13,7 +13,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { CommandPalette } from "../CommandPalette";
-import { EMPTY_FILTER_DRAFT, useUiStore } from "../../state/uiStore";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
 
 const invokeCommandMock = vi.fn();
@@ -33,20 +33,8 @@ const ITEMS: BoardItem[] = [
   { id: "3", key: "FLY-3", title: "Third task", status: "backlog", rank: "30", priority: 0, epicId: null },
 ];
 
-function resetUiStore() {
-  useUiStore.setState({
-    searchTerm: "",
-    filterDraft: EMPTY_FILTER_DRAFT,
-    selectedItemId: null,
-    paletteOpen: false,
-    currentProjectId: null,
-    detailItemId: null,
-    deleteTarget: null,
-  });
-}
-
 beforeEach(() => {
-  resetUiStore();
+  resetUiState();
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
@@ -56,7 +44,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  resetUiStore();
+  resetUiState();
 });
 
 function renderBoard(items: BoardItem[], counts: BandCounts = { ...EMPTY_COUNTS, backlog: items.length }) {

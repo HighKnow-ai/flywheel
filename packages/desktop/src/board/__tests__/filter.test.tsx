@@ -10,7 +10,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView, type EmptyStateContent } from "../BoardView";
 import { FilterBar } from "../FilterBar";
-import { EMPTY_FILTER_DRAFT, useUiStore } from "../../state/uiStore";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts } from "../useBoardQuery";
 
 const EMPTY_COUNTS: BandCounts = {
@@ -27,11 +27,7 @@ function renderWithQueryClient(ui: React.ReactElement) {
 }
 
 beforeEach(() => {
-  useUiStore.setState({
-    searchTerm: "",
-    filterDraft: EMPTY_FILTER_DRAFT,
-    selectedItemId: null,
-  });
+  resetUiState();
 });
 
 describe("empty-window state copy", () => {
