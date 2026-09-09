@@ -1,4 +1,7 @@
 import type { CSSProperties, ComponentType } from "react";
+import { createPortal } from "react-dom";
+import { FocusScope } from "@radix-ui/react-focus-scope";
+import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import * as icons from "lucide-react";
 import { MARKS, type Mark, type MarkChannel } from "./marks";
 
@@ -90,6 +93,17 @@ function Glyph({ name, color }: { name: string; color?: string }) {
   return <Icon size={14} strokeWidth={2} color={color} />;
 }
 
+export interface LegendProps {
+  /**
+   * Present only when `Legend` is opened as a dismissable overlay (01-09-PLAN.md Task 2 —
+   * `CommandPalette.tsx`'s "Open Legend" command, "the legend is one command away"). `undefined`
+   * (the default) renders the bare, embeddable `<section>` exactly as every prior plan left it —
+   * no other caller exists yet, but the optional-prop pattern established in `BoardView.tsx`'s
+   * `emptyState` (01-08) is the precedent: an additive prop never breaks a caller that omits it.
+   */
+  onClose?: () => void;
+}
+
 /**
  * The always-reachable legend surface (01-UI-SPEC.md "Selected Direction" —
  * "no mark may exist that the legend does not define"). Renders the MARKS
@@ -97,13 +111,14 @@ function Glyph({ name, color }: { name: string; color?: string }) {
  * rather than restating it, so a mark that is not in the registry cannot
  * appear here and a mark that is in the registry cannot be missing.
  */
-export function Legend() {
+export function Legend({ onClose }: LegendProps = {}) {
   const channels = Array.from(new Set(MARKS.map((m) => m.channel)));
 
-  return (
+  const content = (
     <section
       className="legend"
       aria-label="Legend"
+      role={onClose ? "dialog" : undefined}
       style={{
         background: "var(--surface-secondary)",
         color: "var(--text-primary-rack)",
@@ -111,8 +126,33 @@ export function Legend() {
         display: "flex",
         flexDirection: "column",
         gap: "var(--space-lg)",
+        ...(onClose
+          ? {
+              maxWidth: 640,
+              maxHeight: "80vh",
+              overflowY: "auto",
+              borderRadius: "var(--radius-chrome)",
+              border: "1px solid var(--divider)",
+              boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+            }
+          : {}),
       }}
     >
+      {onClose && (
+        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h1 className="type-heading" style={{ margin: 0 }}>
+            Legend
+          </h1>
+          <button
+            type="button"
+            aria-label="Close legend"
+            onClick={onClose}
+            style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
+          >
+            Close
+          </button>
+        </header>
+      )}
       {channels.map((channel) => (
         <div key={channel} style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
           <h2 className="type-heading" style={{ margin: 0 }}>
@@ -148,6 +188,40 @@ export function Legend() {
         </div>
       ))}
     </section>
+  );
+
+  if (!onClose) {
+    return content;
+  }
+
+  // Overlay mode — trapped/dismissable exactly like every other overlay in this codebase
+  // (`pickers/StatusPicker.tsx`'s pattern; `component_strategy: a-selfhost-radix`).
+  return createPortal(
+    <FocusScope trapped loop asChild>
+      <DismissableLayer
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          onClose();
+        }}
+        onPointerDownOutside={onClose}
+        asChild
+      >
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1150,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.45)",
+          }}
+        >
+          {content}
+        </div>
+      </DismissableLayer>
+    </FocusScope>,
+    document.body,
   );
 }
 

@@ -2,15 +2,29 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod menu;
 mod state;
 
 use state::AppState;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+
+/// `menu.rs`'s custom item ids — the only ones this handler forwards to the frontend as
+/// `menu:action` (01-09-PLAN.md Task 2, threat T-01-02). Every other menu event (predefined
+/// items — Quit, Close Window, Cut/Copy/Paste/Undo/Redo, Minimize/Maximize/Bring All to Front,
+/// About) is already handled natively by Tauri/the OS and needs no forwarding here.
+const FORWARDED_MENU_ACTIONS: &[&str] = &["register-project", "create-task", "create-epic", "open-palette"];
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .menu(|app| menu::build_menu(app))
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            if FORWARDED_MENU_ACTIONS.contains(&id) {
+                let _ = app.emit("menu:action", id);
+            }
+        })
         .setup(|app| {
             // Open (or create) the one fleet-wide database, backing it up before migrating and
             // applying pragmas, before any window is shown. A migration failure aborts startup

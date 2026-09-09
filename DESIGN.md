@@ -779,3 +779,202 @@ self-conducted substitute, stated explicitly rather than silently claimed, exact
   this plan established.
 - `useBoardQuery.ts`'s `useDebouncedValue`/`toFilterInput` as reusable building blocks for any
   future debounced, filter-shaped query.
+
+# Phase 1, Plan 01-09 — Full Keyboard Operability, the Escape Ladder, and the Command Palette
+
+**Status:** the whole board is drivable from the keyboard through one declarative binding table.
+Selection tracks an item id (never a row index) through a reorder or a filter-driven shrink; a
+fixed-order Escape ladder closes exactly one layer per press; and a generated `⌘K` command palette
+makes every board-list action, plus project navigation, creation, filtering and the legend,
+reachable without a memorised letter.
+
+## What was built
+
+- **`state/keyboard.ts`** — the single `BINDINGS` table (`Binding[]`), `FocusRegion` enum, and
+  `resolveBinding(event, region)`. `resolveBinding` is the ONLY place a raw `KeyboardEvent` is
+  matched against a key combination anywhere in the renderer; `BoardView.tsx`'s container handler
+  and every `useGlobalBindings` caller (`CommandPalette.tsx`, `FilterBar.tsx`, `App.tsx`,
+  `BoardView.tsx`) supply only a map of action id -> callback, never their own `event.key === …`
+  switch. The ambiguity guard (`isTypingTarget`) suppresses every bare, unmodified key while the
+  real event target is a text field — proven by `letters_do_not_fire_while_typing` — while
+  modifier-bearing bindings (`⌘K`, `⌘N`, …) still fire regardless of where focus currently sits.
+- **The Escape ladder** — `nextEscapeLayer(state)` is a pure function over four booleans
+  (`paletteOpen`, `detailOpen`, `quickAddOpen`, `hasSelection`, plus a `pickerOpen` early-out for
+  row-level pickers and `DeleteConfirm`, which already own their own Radix `DismissableLayer`
+  Escape handling and are deliberately left alone). `BoardView.tsx` runs it from a single
+  **capture-phase `window` listener** — capture-phase because it must run *before* any mounted
+  overlay's own `document`-level Radix listener, and it calls `stopPropagation()` once it commits
+  to closing a layer, which is what guarantees exactly one layer closes per press rather than two
+  listeners racing the same keystroke. Proven end-to-end by `escape_closes_one_layer_per_press`
+  (palette → detail panel → quick-add → clear selection, then a fifth press asserted as a no-op).
+- **Selection as an id, not an index (`state/uiStore.ts`)** — `selectedItemId`/`detailItemId`/
+  `deleteTarget` all moved into the shared store (completing the migration 01-08 deliberately
+  deferred), so `CommandPalette.tsx` — mounted at the app-shell level, outside `BoardView`'s own
+  tree — can read and drive selection, open the detail panel, and request a delete, using the
+  identical state the keyboard path uses. Reordering needs no code at all (the id is untouched by
+  a rank change); the harder half — the selected id being *removed* from the window — is a new
+  `useEffect` in `BoardView.tsx` comparing against a `prevItemsRef` snapshot and falling to the
+  next-nearest surviving id in the *previous* order, never resetting to the top. Proven by
+  `selection_follows_the_item_across_a_reorder` and
+  `selection_falls_to_the_nearest_survivor_when_filtered_out`.
+- **`BoardRow.tsx`** — lost its own `handleRowKeyDown` entirely (it was quietly double-firing
+  every board-list keystroke alongside `BoardView.tsx`'s container handler — exactly the "two
+  key-handling systems fighting" failure mode this plan exists to remove). Gained `aria-setsize`/
+  `aria-posinset`, sourced from the band's true per-status count (`counts`, filter-aware since
+  01-08) and the item's true 1-indexed position within its band's currently loaded window — not
+  the virtualizer's mounted window. Proven by `rows_announce_their_true_position` using a band
+  count (40) deliberately larger than the rendered window (3) to rule out an implementation that
+  reads the mounted count instead.
+- **Quick-add is on demand** — `BoardView.tsx` now renders it only when explicitly opened (`c` /
+  `⌘N` / `⌘⇧N`) or when the project has zero items (State Inventory's "already visible and
+  focused" default, computed via `effectiveQuickAddOpen = quickAddOpen || items.length === 0`).
+  `QuickAdd.tsx` gained two small, additive, opt-in props (`autoFocus`, `onEscape`) — its own
+  Enter/Escape composing logic is untouched. A new `quickAddKind` switch lets the same row create
+  either a task or an epic, reusing `useCreateEpic` (already existed, previously uncalled from any
+  UI) rather than adding a second component.
+- **`DeleteConfirm.tsx`** (new — Rule 2, not in the plan's own `files_modified` list) — `⌘⌫`'s
+  destructive confirmation (threat T-01-25). `useDeleteItem` (from 01-04/01-07) had no caller
+  anywhere in the codebase before this plan; nothing could actually delete an item until this
+  component and its `BoardView.tsx`/`CommandPalette.tsx` wiring existed. Escape defaults to
+  Cancel (never `autoFocus`ed on the destructive button) and the whole dialog is trapped/
+  dismissable via the same `FocusScope`+`DismissableLayer` pattern every other overlay in this
+  codebase uses.
+- **`CommandPalette.tsx`** (new) — generates its ENTIRE command list from `state/keyboard.ts`'s
+  `allActionIds()`/`actionLabel()` (the fixed part) plus two runtime lists computed each render:
+  one "Go to Project: {name}" entry per registered project, and the hot actions on whichever item
+  `selectedItemId` currently names. Contains no hand-written array of command labels — Task 2's
+  own acceptance criterion, proven by `palette_covers_every_binding` iterating
+  `boardListActionIds()` rather than asserting a fixed snapshot. `register-project`/`create-task`/
+  `create-epic`/`open-palette` all re-enter the SAME pipeline a real keystroke would via the new
+  `dispatchAction(id)` helper (`state/keyboard.ts`) — it synthesizes and dispatches a real
+  `KeyboardEvent` matching that action's `"global"` binding, so `BoardView.tsx`'s own
+  `useGlobalBindings` registration is what actually performs the effect, never a second,
+  independently-maintained implementation. `open-legend` renders `Legend.tsx` in its new overlay
+  mode; `filter-status`/`filter-epic`/`filter-assignee`/`filter-priority` focus the matching chip
+  group in `FilterBar.tsx` (see the honest simplification noted below) rather than duplicating its
+  toggle logic. Status/priority/estimate/assignee hot actions render the SAME picker components
+  `BoardView.tsx` uses, anchored to the palette panel's own bounding rect rather than a row (since
+  there is no triggering row when the command comes from the palette).
+- **`Legend.tsx`** — gained an optional `onClose` prop. `undefined` (the default) renders exactly
+  the bare, embeddable `<section>` every prior plan left it as; supplying `onClose` wraps the same
+  content in a trapped, dismissable overlay for `CommandPalette.tsx`'s "Open Legend" command — the
+  donation from the declined Orienteering Map direction ("no mark may exist that the legend does
+  not define") is now reachable, not just present in source.
+- **`src-tauri/src/menu.rs`** (new) — `build_menu`, wired via `Builder::menu`/`on_menu_event` in
+  `main.rs`. Every custom item's id is a literal `state/keyboard.ts` `ActionId` string
+  (`register-project`, `create-task`, `create-epic`, `open-palette`); `on_menu_event` forwards only
+  those four ids as the `menu:action` event, and the frontend's `dispatchAction` re-enters the
+  identical keyboard pipeline — menu items invoke the same registered actions as the UI, never a
+  broader capability (threat T-01-02). No Help item, no "Toggle Group By" item — both would have
+  no real destination/behavior to invoke (Open Decisions #8/#9), and a menu entry that goes
+  nowhere is worse than its absence. The Window submenu uses Tauri's own `WINDOW_SUBMENU_ID` so
+  macOS auto-populates it with the running window list, matching what "the standard macOS Window
+  menu" implies rather than a plain titled submenu that only looks the part.
+
+## A real bug this plan's own craft-floor review caught and fixed
+
+`DeleteConfirm.tsx`'s destructive "Delete" button was first written with
+`color: var(--text-primary-strip)` (dark ink, the token meant for strip PAPER stock) on
+`background: var(--destructive-strip)` — measured at **2.2:1**, well under AA. Swapped to
+`var(--text-primary-rack)` (the light rack text token), measured at **6.3:1**. Neither value was
+in the plan's own token table for this exact pairing (the destructive token's only measured pairing
+in 01-UI-SPEC.md is destructive text ON strip stock, not white-on-destructive-background) — this is
+exactly the kind of pairing the Contrast check in `craft-floor.md` exists to catch before it ships,
+not after.
+
+## Review against the direction contract
+
+Same standing reference as every prior plan in this phase (`packages/desktop/index.html`, seed
+`59b0beb9`) — this plan does not re-author it, and the direction's own `FINISH:` line states it
+governs every board surface through plan 01-11, so this plan's four new overlays (palette, delete
+confirmation, the legend's overlay mode) are held to it, not treated as exempt "chrome."
+
+- **Detector:** `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
+  --json packages/desktop/src/board packages/desktop/src/state packages/desktop/src/legend`
+  returned `[]` — no findings, re-run after the contrast fix above.
+- **Contrast:** every new surface reuses the measured, already-verified token pairs
+  (`--surface-secondary`/`--surface-dominant` + `--text-primary-rack`/`--text-muted-rack`) except
+  the one destructive-button pairing documented above, which is now measured and fixed rather than
+  assumed.
+- **Radius:** the command palette, delete confirmation, and legend overlay all use
+  `--radius-chrome` (interactive chrome, per Design System) — never `--radius-strip` (reserved for
+  strip-stock rows) and never a hard-coded pixel value.
+- **Depth:** all three new overlays use the same offset-plus-blur shadow recipe
+  (`0 Npx Mpx rgba(0,0,0,…)`) already established by `pickers/StatusPicker.tsx` — no zero-offset
+  colored halo, no new shadow language introduced.
+- **Focus trapping:** the command palette and the delete confirmation both use
+  `FocusScope trapped loop` + `DismissableLayer`, matching `pickers/StatusPicker.tsx`'s established
+  pattern exactly (`component_strategy: a-selfhost-radix` — no shadcn, no pre-styled component).
+- **Icons:** no new icon was introduced in this plan's new surfaces; the command palette renders
+  plain text rows rather than per-command glyphs — an honest simplification (see below), not an
+  icon-system violation, since Lucide remains the only icon source used anywhere.
+- **Motion:** none added to the three new overlays (no fade authored, consistent with the
+  direction's "never a fade" rule) — they appear/disappear with the mount/unmount, exactly like
+  `pickers/StatusPicker.tsx` already does.
+- **No mark without a legend entry:** unaffected — this plan introduces no new status/priority/
+  estimate/assignee glyph; `legend/marks.ts` needed no edit.
+
+### A real focus-restore bug found and fixed via a Radix internals investigation, not guesswork
+
+The command palette's search `<input>` was first written with a plain `autoFocus` attribute.
+`palette_restores_focus_on_close` failed: focus landed on `<body>`, not the triggering element.
+Root cause, confirmed by reading `@radix-ui/react-focus-scope`'s source and reproducing it in
+isolation before touching the fix: React's native `autoFocus` handling runs during the commit
+phase, which is *before* `FocusScope`'s own mount effect (a passive effect) captures
+`document.activeElement` as "what to restore focus to" on unmount. The `autoFocus` input stole
+focus first, so `FocusScope` captured *its own input* as the restore target — and since that input
+is what gets unmounted, the restore silently no-ops. Deleting the `autoFocus` attribute and
+relying on `FocusScope`'s own default mount-autofocus behavior (which runs `focusFirst` over the
+container's tabbable candidates *after* correctly capturing the real trigger) fixed it outright.
+Documented in the component's own doc comment so it is never reintroduced by a future plan copying
+the "just add `autoFocus`" pattern other components in this codebase use safely (because none of
+them are wrapped in a `FocusScope` that needs to remember what was focused before).
+
+## Known Stubs
+
+None that block this plan's own goal.
+
+## Known deferred surfaces (not stubs — explicit scope boundaries)
+
+- **"Filter by Status/Epic/Assignee/Priority" palette commands focus the matching `FilterBar.tsx`
+  chip group rather than opening a nested value-picking submenu.** The spec names four commands,
+  not a per-value command per filter dimension; a true submenu (Raycast/Linear-style nested command
+  list) is real, additional UI machinery this plan did not build. The chips themselves are already
+  fully keyboard-reachable (native `<button>` elements, `Tab`-navigable) once focus lands in the
+  group, so nothing is undiscoverable — the simplification is in *how many keystrokes* reach a
+  specific value, not in *whether* it's reachable at all.
+- **"Create Issue" (palette) does not focus `IssuesLane.tsx`'s own always-visible quick-add.** That
+  quick-add (01-04) has no `ref` plumbed out of `IssuesLane.tsx`, and it is already unconditionally
+  visible/reachable, so the discoverability problem BOARD-07 names does not apply to it the way it
+  applies to the on-demand task/epic quick-add. The palette command exists (satisfying "the palette
+  must include ... Create Issue") but currently creates a placeholder-titled issue directly rather
+  than opening the lane's own composer for the user to type a title.
+- **Item detail panel's own keyboard map (Tab/Shift+Tab between fields, `⌘Enter`, `n`/Space/`j`/`k`
+  on the criteria list, `⌘⌫` to delete from inside the panel) is out of scope for this plan.**
+  01-UI-SPEC.md's Keyboard Map names these, but Task 1's own action text scopes this plan's binding
+  work to the global and board-list regions plus the Escape ladder — `ItemDetailPanel.tsx` is not
+  in `files_modified`, and several of these bindings (a description field, in particular) have no
+  underlying feature yet to bind to. `⌘⌫` deletion IS wired, but only from the board-list region
+  (the selected row), not from inside an open detail panel.
+- **Live `tauri dev` walkthrough** (Task 3's own `<human-check>` block — a full mouse-untouched
+  session creating every item type, setting every field, reordering, searching, filtering, opening
+  the legend from `⌘K`, and deleting an item) was not run live this session, matching every prior
+  plan's own deferral to `/gsd-verify-work` for the same no-confirmed-GUI-display limitation.
+- **Project-rail UI does not exist yet** (a later plan's surface per 01-UI-SPEC.md's own Surface
+  Inventory). `⌘1`-`⌘9` and "Go to Project" are fully wired against `state/uiStore.ts`'s new
+  `currentProjectId`, and `AppShell` in `App.tsx` now resolves the active project from it — but
+  there is no visible rail to click yet. Switching still works purely by keyboard/palette.
+
+## What the next plan inherits
+
+- `state/keyboard.ts`'s `BINDINGS`/`resolveBinding`/`useGlobalBindings`/`dispatchAction` as the
+  established pattern for adding any future keyboard-triggered action — extend the table, never
+  add a second `event.key === …` switch anywhere in the renderer.
+- `state/uiStore.ts` now owns the full cross-tree UI-navigation state a future project rail or
+  breadcrumb surface needs (`currentProjectId`, `selectedItemId`, `detailItemId`, `deleteTarget`,
+  `paletteOpen`) — a rail component can read/drive all of it without touching `BoardView.tsx`.
+- The `dispatchAction(id)` pattern (synthesize the real keystroke rather than reimplementing the
+  effect) as the reusable bridge for any future non-keyboard trigger (a tray icon, a deep link)
+  that needs to invoke an existing keyboard-bound action.
+- `Legend.tsx`'s optional `onClose` overlay mode, ready for any future surface that wants to show
+  the legend inline instead of through the palette.

@@ -44,3 +44,14 @@ export async function openFolderDialog(): Promise<string | null> {
   const result = await open({ directory: true, multiple: false });
   return result ?? null;
 }
+
+/**
+ * Subscribe to `menu:action`, the event `src-tauri/src/menu.rs`'s `on_menu_event` handler emits
+ * when the user clicks a native menu item (01-09-PLAN.md Task 2). The payload is the exact
+ * `state/keyboard.ts` `ActionId` string the corresponding keystroke would resolve to — menu items
+ * invoke the same registered action ids as the keyboard/palette, never a broader capability
+ * (threat T-01-02: "no menu item is given a broader capability").
+ */
+export async function subscribeMenuAction(handler: (actionId: string) => void): Promise<UnlistenFn> {
+  return listen<string>("menu:action", (event) => handler(event.payload));
+}

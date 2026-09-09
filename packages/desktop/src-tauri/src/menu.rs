@@ -1,0 +1,84 @@
+//! The native macOS menu bar (01-UI-SPEC.md "App shell & window chrome" — "minimal, native, real
+//! destinations only — no placeholder items"; 01-09-PLAN.md Task 2).
+//!
+//! Every custom item's id is a literal `state/keyboard.ts` `ActionId` string — `main.rs`'s
+//! `on_menu_event` handler emits it verbatim as the `menu:action` event payload, and the
+//! frontend's `state/keyboard.ts::dispatchAction` re-enters the exact same `resolveBinding`/
+//! `useGlobalBindings` path a real keystroke would (threat T-01-02: "menu items invoke the same
+//! registered commands as the UI; no menu item is given a broader capability"). This module never
+//! calls a Tauri command or mutates state directly — it only ever emits the id.
+//!
+//! No Help item exists (01-UI-SPEC.md Open Decisions #8): it has no real destination to point to
+//! yet, and a menu entry that goes nowhere is worse than its absence — enforced here by simply
+//! never building one, not by a runtime check.
+//!
+//! No "Toggle Group By" item exists either (Open Decisions #9): the secondary "Group by" lens was
+//! cut from this phase's scope (a delegated enhancement the planner may drop without violating
+//! any locked decision), so a menu entry for it would have no behavior to invoke — the same
+//! "no no-op item" discipline the Help omission follows.
+
+use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder, WINDOW_SUBMENU_ID};
+use tauri::{AppHandle, Runtime};
+
+/// Builds the whole menu bar. Called once from `main.rs`'s `Builder::menu` during setup.
+pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let app_menu = SubmenuBuilder::new(app, "Flywheel")
+        .about(None)
+        .separator()
+        .quit()
+        .build()?;
+
+    let register_project = MenuItemBuilder::with_id("register-project", "Register Project…")
+        .accelerator("CmdOrCtrl+Shift+O")
+        .build(app)?;
+    let new_task = MenuItemBuilder::with_id("create-task", "New Task")
+        .accelerator("CmdOrCtrl+N")
+        .build(app)?;
+    let new_epic = MenuItemBuilder::with_id("create-epic", "New Epic")
+        .accelerator("CmdOrCtrl+Shift+N")
+        .build(app)?;
+
+    let file_menu = SubmenuBuilder::new(app, "File")
+        .item(&register_project)
+        .item(&new_task)
+        .item(&new_epic)
+        .separator()
+        .close_window()
+        .build()?;
+
+    // Standard macOS defaults only — native text-field Cut/Copy/Paste/Undo/Redo behavior, no
+    // custom items (01-UI-SPEC.md "App shell & window chrome").
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let toggle_palette = MenuItemBuilder::with_id("open-palette", "Toggle Command Palette")
+        .accelerator("CmdOrCtrl+K")
+        .build(app)?;
+    let view_menu = SubmenuBuilder::new(app, "View").item(&toggle_palette).build()?;
+
+    // `WINDOW_SUBMENU_ID` is what tells macOS to auto-populate this submenu with the running
+    // window list (the same id Tauri's own `Menu::default` uses) — a plain `SubmenuBuilder::new`
+    // titled "Window" would render the items below but never gain that native window-list
+    // behavior "the standard macOS Window menu" implies.
+    let window_menu = SubmenuBuilder::with_id(app, WINDOW_SUBMENU_ID, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .bring_all_to_front()
+        .build()?;
+
+    MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&file_menu)
+        .item(&edit_menu)
+        .item(&view_menu)
+        .item(&window_menu)
+        .build()
+}

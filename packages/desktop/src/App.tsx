@@ -1,6 +1,10 @@
+import { useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
+import { openFolderDialog, subscribeMenuAction } from "./adapters/tauri";
 import { BoardView, type EmptyStateContent } from "./board/BoardView";
+import { CommandPalette } from "./board/CommandPalette";
+import { deriveKeyPrefix } from "./board/FirstRun";
 import { FilterBar } from "./board/FilterBar";
 import { FirstRun } from "./board/FirstRun";
 import {
@@ -8,7 +12,9 @@ import {
   useBoardQuery,
   useCreateTask,
   useProjects,
+  useRegisterProject,
 } from "./board/useBoardQuery";
+import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
 import "./styles/tokens.css";
 import "./styles/type.css";
@@ -82,28 +88,89 @@ function Board({ projectId, projectName }: { projectId: string; projectName: str
   );
 }
 
+/**
+ * `⌘⇧O`'s actual effect — the native folder picker plus registration, sharing `FirstRun.tsx`'s
+ * own `deriveKeyPrefix` default so "Register Project…" behaves identically whether it is reached
+ * from the first-run button, `⌘⇧O`, the command palette, or the native File menu.
+ */
+function useRegisterProjectFlow() {
+  const registerProject = useRegisterProject();
+  return async function registerProjectFlow() {
+    const repoPath = await openFolderDialog();
+    if (!repoPath) return;
+    const name = repoPath.split(/[\\/]/).filter(Boolean).pop() ?? repoPath;
+    registerProject.mutate({ name, repoPath, keyPrefix: deriveKeyPrefix(name) });
+  };
+}
+
 function AppShell() {
   const projectsQuery = useProjects();
+  const currentProjectId = useUiStore((state) => state.currentProjectId);
+  const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
+  const registerProjectFlow = useRegisterProjectFlow();
+
+  // `⌘⇧O` and `⌘1`-`⌘9` (01-UI-SPEC.md Keyboard Map, Global) — held here because this is where
+  // the registered-project list and the "which project is current" state both live.
+  useGlobalBindings({
+    "register-project": () => {
+      void registerProjectFlow();
+    },
+    "switch-project": (binding) => {
+      const project = (projectsQuery.data ?? [])[binding.projectIndex ?? -1];
+      if (project) setCurrentProjectId(project.id);
+    },
+  });
+
+  // Bridges a native menu click (`src-tauri/src/menu.rs`'s `on_menu_event`) into the SAME
+  // keyboard-action pipeline a real keystroke uses (`dispatchAction`, `state/keyboard.ts`) —
+  // menu items never call a mutation/command directly, only ever the identical action id a
+  // keystroke would resolve to (threat T-01-02).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeMenuAction((actionId) => {
+      dispatchAction(actionId as ActionId);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Loading: no copy, no spinner mid-content (01-UI-SPEC.md State Inventory) — the rack ground
   // alone is the boot state until the first project list resolves.
   if (!projectsQuery.data) {
-    return <div id="app-root" className="rack-ground" />;
+    return (
+      <>
+        <div id="app-root" className="rack-ground" />
+        <CommandPalette />
+      </>
+    );
   }
 
   if (projectsQuery.data.length === 0) {
     return (
-      <div id="app-root" className="rack-ground">
-        <FirstRun />
-      </div>
+      <>
+        <div id="app-root" className="rack-ground">
+          <FirstRun />
+        </div>
+        <CommandPalette />
+      </>
     );
   }
 
-  const project = projectsQuery.data[0];
+  const project =
+    projectsQuery.data.find((candidate) => candidate.id === currentProjectId) ?? projectsQuery.data[0];
   return (
-    <div id="app-root" className="rack-ground">
-      <Board projectId={project.id} projectName={project.name} />
-    </div>
+    <>
+      <div id="app-root" className="rack-ground">
+        <Board projectId={project.id} projectName={project.name} />
+      </div>
+      <CommandPalette />
+    </>
   );
 }
 
