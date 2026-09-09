@@ -417,14 +417,12 @@ circle with a check mark. Shape carries the meaning; colour is a redundant secon
 by the direction contract.
 
 **Priority glyph:** a stacked-bars icon whose filled-bar count increases with priority level
-(Linear-style), rendered in the priority-channel token role — assumed 5 levels (No priority / Urgent
-/ High / Medium / Low); the exact label set is open (Open Decisions #6).
+(Linear-style), rendered in the priority-channel token role — **RESOLVED, Open Decisions #6:** 5
+levels, No priority / Urgent / High / Medium / Low, keyed `0`–`4`; `No priority` sorts last despite
+being keyed `0` (see Open Decisions #6 for the load-bearing ordering detail).
 
-**`[ASSUMED — RESEARCH.md Open Question A3]`** The assignee field (avatar, filter, `a` keybinding)
-assumes a nullable `assignee_id` exists on tasks/epics, because BOARD-06 literally requires
-filtering by assignee and CONTEXT.md's locked decisions do not mention this field. If the planner
-rejects that assumption, every assignee-related affordance named in this document (badge, filter,
-`a` picker) must be removed from Phase 1's scope explicitly, not left half-wired.
+**RESOLVED, Open Decisions #4.** The assignee field (avatar, filter, `a` keybinding) is in scope: a
+nullable `assignee_id` exists on tasks/epics, per BOARD-06's assignee-filtering requirement.
 
 ---
 
@@ -473,7 +471,7 @@ refetches:
 | `s` | Open status picker for the selected item; while open, `1`–`5` select Backlog/Todo/In Progress/In Review/Done directly |
 | `p` | Open priority picker for the selected item; while open, `0`–`4` select levels directly |
 | `e` | Open estimate picker for the selected item |
-| `a` | Open assignee picker for the selected item `[ASSUMED — see Row Anatomy flag]` |
+| `a` | Open assignee picker for the selected item |
 | ⌘↑ / ⌘↓ | Reorder the selected item up/down within its priority band (manual rank, D-11) |
 | ⌘⌫ | Delete selected item (destructive confirmation, see Copywriting Contract) |
 | Escape | Clear selection |
@@ -797,20 +795,49 @@ Applicable state considerations resolved: 10 covered, 2 backstop, 0 unresolved.
    Design System above for the full rationale and its consequence for plans `01-04`/`01-09`.
 3. **Icon library — RESOLVED 2026-09-09.** Lucide (`lucide-react`, ISC). Uniform 2px stroke, round
    linecaps/linejoins, outline-only.
-4. **Assignee field existence (RESEARCH.md Open Question A3)** — this spec assumes a nullable
-   `assignee_id` on tasks/epics because BOARD-06 literally requires assignee filtering and
-   CONTEXT.md's locked decisions never mention this field. If the planner rejects that assumption,
-   every assignee affordance named here (badge, filter, `a` keybinding) must be explicitly removed
-   from scope, not left half-wired.
-5. **Whether Epics and Tasks share the on-board five-state workflow while Issues are workflow-less**
-   — this spec's reading of the tension between D-07 ("issues are proposals and notes") and
-   BOARD-01/BOARD-04's generic "items" wording. Flagged for planner/user confirmation before this
-   locks in as implemented behavior — see the return-message note on this same tension.
-6. **Priority scale cardinality and labels** — assumed 5 levels (No priority / Urgent / High /
-   Medium / Low, Linear convention) for the sake of a concrete keyboard map (`0`–`4`); D-11 fixes the
-   tie-break rule, not the label set.
-7. **Estimate scale (S/M/L vs. Fibonacci)** — explicitly left open by CONTEXT.md/RESEARCH.md; this
-   spec is agnostic since row anatomy only needs "a small badge," not a specific value set.
+4. **Assignee field existence (RESEARCH.md Open Question A3) — RESOLVED 2026-09-09, owner decision,
+   plan `01-03` Task 1.** **ACCEPTED.** A nullable `assignee_id TEXT REFERENCES actors(id)` exists on
+   both `tasks` and `epics` (migration `0002_board_schema.sql`). BOARD-06 requires filtering by
+   assignee and the `actors` table already exists from migration `0001_actors.sql`. Every assignee
+   affordance named in this document — badge, filter, `a` keybinding — stays in scope; none was
+   removed.
+5. **Whether Epics and Tasks share the on-board five-state workflow while Issues are workflow-less
+   — RESOLVED 2026-09-09, owner decision, plan `01-03` Task 1.** Option `uispec-reading` taken: this
+   spec's reading stands as implemented behavior. `epics` and `tasks` share ONE `status` CHECK
+   (`backlog|todo|in_progress|in_review|done`, BOARD-04) and one band-rendering path. `issues` carry
+   no `status` column and keep their own separate, workflow-less lane in Phase 1 — the triage
+   lifecycle (`proposed/triaged/accepted/rejected/merged_into_task`) is Phase 6's addition per
+   `ARCHITECTURE.md` §2, out of scope here. Rationale: D-07 gives epics their own success criteria
+   and therefore their own notion of done, so epics are units of work and belong in the five bands
+   the Flight Progress Strips direction is built on.
+
+   **This does not discard `ARCHITECTURE.md` §2's epic lifecycle language — it re-homes it.** The
+   sketched `draft|active|integrating|done|archived` enum maps onto the five-state workflow plus two
+   orthogonal columns, both added in migration `0002_board_schema.sql` now so Phase 8 needs no
+   further schema change:
+   - `integrating` → status `In Review` **plus** a nullable `epics.integration_branch TEXT` column.
+   - `archived` → a nullable `epics.archived_at` timestamp, orthogonal to workflow — an archived epic
+     retains whatever status it had.
+   - `draft` / `active` → `Backlog` / `In Progress` respectively (no schema consequence — same status
+     column, same values already listed above).
+6. **Priority scale cardinality and labels — RESOLVED 2026-09-09, owner decision, plan `01-03` Task
+   1.** 5-level Linear convention: **No priority / Urgent / High / Medium / Low**, keyed `0`–`4`
+   exactly as this document's keyboard map already specifies. D-11 fixes the tie-break rule (priority
+   sorts first, manual rank orders within a band); the label set above is what fixes the cardinality
+   this item left open.
+
+   **Load-bearing ordering detail:** `No priority` is `0` in the keymap but **sorts last**, not
+   first — sorting unprioritised items first would hijack the top of every rack, which D-11's
+   "priority sorts first" intent never meant. `packages/core::query::list_board`'s `ORDER BY`
+   maps `priority = 0` to the bottom of the priority ordering explicitly (not by relying on the
+   keymap's numeric value), and an explicit test in `packages/core/tests/outbox.rs` asserts a `No
+   priority` item sorts below a `Low` item.
+7. **Estimate scale (S/M/L vs. Fibonacci) — RESOLVED 2026-09-09, owner decision, plan `01-03` Task
+   1.** **S / M / L**, stored as a nullable ordinal `INTEGER` 1–3 (`S=1, M=2, L=3`) — displayed as the
+   letters, never as the number, so it sorts and filters natively without a lookup table. Per D-12 it
+   is rendered and filterable and **aggregated nowhere** — no velocity, no burndown, no capacity, no
+   sum or average anywhere in the UI or in any query. The letters were chosen over numeric points
+   specifically because points invite the aggregate reading D-12 bans.
 8. **Help menu destination** — the menu bar's Help item has no real destination to point to yet; not
    invented here.
 9. **Whether the "Group by" secondary lens ships in Phase 1 at all** — included as a delegated
@@ -818,6 +845,15 @@ Applicable state considerations resolved: 10 covered, 2 backstop, 0 unresolved.
    violating any locked decision, since status grouping alone already satisfies D-01.
 10. **Project-rail behavior beyond nine registered projects** — ⌘1–⌘9 covers the first nine; overflow
     handling (scroll vs. menu) is unresolved (see UI Considerations backstop row).
+11. **Project key prefix origin (CONTEXT.md "Claude's Discretion") — RESOLVED 2026-09-09, owner
+    decision, plan `01-03` Task 1.** User-typed with a derived default: at project registration, the
+    registration flow pre-fills a suggested prefix derived from the repository directory name, and
+    the user may type over it before confirming. The prefix is validated as short, uppercase,
+    typeable and greppable (per D-10). **Once the first item in that project has been allocated a
+    key, the prefix becomes immutable** — enforced in `packages/core::domain::project`, not merely
+    documented, because `D-10` makes the key one-way once branches and commit trailers in real git
+    history carry it. Keys are `PREFIX-N` with a monotonic per-project counter allocated in the same
+    transaction as the insert (D-10), so there are no gaps and no races.
 
 ---
 
