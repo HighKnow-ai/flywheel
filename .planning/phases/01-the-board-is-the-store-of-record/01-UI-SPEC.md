@@ -4,6 +4,12 @@ slug: "the-board-is-the-store-of-record"
 status: draft
 shadcn_initialized: false
 preset: none
+component_strategy: a-selfhost-radix
+component_strategy_decided: "2026-09-09"
+typeface: "Archivo (variable, wdth+wght axes) — OFL, Omnibus-Type"
+icon_library: lucide-react
+radius_strip: "2px"
+radius_chrome: "6px"
 created: "2026-09-09"
 ---
 
@@ -123,13 +129,16 @@ removes the displacement and applies the state change instantly; it never remove
 
 ### Type
 
-Not yet selected, and deliberately so — but constrained, not open. The build must choose a
-**self-hosted** (house rule: reproducibility, so an approval on one machine renders identically on
-another), **OFL-or-licensed workhorse grotesque with true tabular figures**, since the rack's fields
-are columnar data that must align down the whole list. A condensed companion cut may carry the
-stamped key and band headers. Impeccable's named training-data defaults are out unless a reason no
-other face satisfies is written down: Inter-as-display, Space Grotesk, Space Mono, IBM Plex, DM Sans,
-Plus Jakarta Sans, Outfit, Instrument Sans.
+**Status: LOCKED by the owner, 2026-09-09.** **Archivo** (OFL, Omnibus-Type) — self-hosted, workhorse
+grotesque with true tabular figures (`tnum`/`lnum` GSUB features verified present in the shipped
+variable font; see `01-02-SUMMARY.md`). Not one of Impeccable's banned training-data defaults.
+
+Google Fonts merged Archivo's condensed/expanded static cuts into the single variable font's `wdth`
+axis (62–125, default 100) some time after this constraint was written — there is no longer a
+separately-published "Archivo Condensed" family to fetch. The condensed companion cut for the
+stamped key and band headers is produced from the **same** variable file at a lower `wdth` value
+rather than as a second font file, which is a better outcome for the "prefer variable font files to
+keep the bundle small" preference than the two-file design implied when this constraint was written.
 
 ### Honest risk
 
@@ -165,23 +174,39 @@ the finish reviewer audits those in behaviour.
 
 ## Design System
 
+**Status: LOCKED by the owner, 2026-09-09** (Open Decisions #1/#2/#3 checkpoint, plan `01-02` Task
+1). Binding for plans `01-03` through `01-11`.
+
 | Property | Value |
 |----------|-------|
-| Tool | none — deferred pending brand assets + an Impeccable direction round (Open Decision #1/#2) |
-| Preset | not applicable |
-| Component library | undecided — likely Radix primitives via shadcn once the direction lands; do not substitute a different library to fill this gap now |
-| Icon library | undecided — Lucide recommended as a pairing default, not locked |
-| Font | undecided — family is blocked on brand assets; the numeric type scale below is not blocked and is binding now |
+| Tool | none — `shadcn` is deliberately NOT initialized (`shadcn_initialized: false`, decided, not deferred) |
+| Preset | not applicable — no shadcn preset exists to derive |
+| Component library | **self-hosted, hand-rolled Radix primitives** (option `a-selfhost-radix`). No preset to fight the two-material palette (dark rack `#171b22` vs warm paper strip stock `#ddd6c6`); deriving a shadcn preset by hand from the measured palette would have cancelled most of shadcn's benefit anyway. Radix still supplies the accessibility machinery the spec mandates (focus trapping, dismissable layers, roving tabindex) for the command palette and every picker. **Consequence:** pickers, the palette overlay and focus trapping are hand-wired in plans `01-04` and `01-09`, not generated. |
+| Icon library | **Lucide** (`lucide-react`, ISC licence). Uniform 2px stroke, round linecaps/linejoins, outline-only — structurally satisfies "no filled glyphs mixed with outline ones." |
+| Font | **Archivo** (OFL, Omnibus-Type) — a single self-hosted variable font (`wght` 100–900, `wdth` 62–125) covering both the workhorse grotesque cut (wdth 100, "Archivo") and the condensed companion cut for the stamped key and band headers (wdth ~75, "Archivo Condensed"). See `01-02-SUMMARY.md` for the tabular-figures verification and the note on why this ships as one variable file rather than two static families. |
 
 ### Component Inventory
 
-Omitted — `Tool: none`. Design-system adoption is deferred (Open Decisions #1/#2); no package
-exists yet to enumerate, and no enumeration command applies. When shadcn is initialized post-Gate-B,
-re-run the enumeration gate (`npx shadcn info`) and populate this section before it binds any plan.
+Still omitted — `Tool: none` is now a **decision**, not a deferral. There is no shadcn registry to
+enumerate under option `a-selfhost-radix`; the components this phase needs (pickers, command
+palette, dialogs) are hand-authored against Radix primitives directly in the plans that need them
+(`01-04`, `01-09`). `npx shadcn info` does not apply and will not be run.
 
 ### Registry Safety
 
-Not applicable — no registry in use (`Tool: none`).
+Not applicable — no registry in use (`Tool: none`, decided).
+
+### Radius Language — LOCKED 2026-09-09
+
+Two radius tokens, never a hard-coded value:
+
+| Token | Value | Usage | Rationale |
+|-------|-------|-------|-----------|
+| `--radius-strip` | `2px` | Strip stock rows — just enough softening to avoid a hard digital corner | Strips must read as near-square printed stock, authentic to the source material |
+| `--radius-chrome` | `6px` | Interactive chrome — buttons, pickers, the command palette overlay | Chrome carries the mark's rounded-join character more openly, so app furniture stays visually distinct from the paper strip and the rack-vs-strip material split holds |
+
+The focus ring follows the radius of whatever shape it wraps (strip radius on a strip, chrome
+radius on a button/picker) rather than declaring its own.
 
 ---
 
@@ -758,21 +783,20 @@ Applicable state considerations resolved: 10 covered, 2 backstop, 0 unresolved.
    owner supplied the pinned brand colour `#3c64dd` and the HighKnow mark (`logo.svg`). Gate B: an
    Impeccable direction round (seed `59b0beb9`) returned **Flight Progress Strips**, chosen by the
    owner over the assigned roll. See **Selected Direction** above and the measured palette in Color
-   & Token Roles. What remains genuinely open inside the chosen world:
-   - **The typeface** — constrained but not selected; see Selected Direction § Type for the binding
-     constraints and the banned defaults.
-   - **The radius and stroke language** — derive from the mark, whose character is uniform-weight
-     line art with rounded joins.
-   - **Whether Flywheel carries the HighKnow lightbulb-brain mark or earns its own under it** — an
-     owner decision, recorded as open in `PRODUCT.md`. It does not block Phase 1: no surface in this
-     spec renders a logo except the app icon and the About item.
-   The planner should still gate the **first visual-identity-bearing task** behind a decision
-   checkpoint so the direction contract is authored deliberately rather than drifted into.
-2. **shadcn / component-library adoption, and its preset** — still deferred, but now decidable: a
-   shadcn preset (base colour, radius) must be derived from the measured palette above rather than
-   from a stock preset. Treat "Tool: none" as unresolved, not as a decision to avoid shadcn.
-3. **Icon library** — Lucide recommended, not locked. Whatever is chosen must match the mark's
-   character: uniform stroke weight, rounded joins, no filled glyphs mixed with outline ones.
+   & Token Roles. The three items that remained open inside the chosen world were closed by the
+   owner on 2026-09-09 at plan `01-02` Task 1's decision checkpoint:
+   - **The typeface — RESOLVED.** Archivo (OFL, self-hosted, variable). See Selected Direction § Type.
+   - **The radius and stroke language — RESOLVED.** `--radius-strip: 2px`, `--radius-chrome: 6px`.
+     See Design System § "Radius Language."
+   - **Whether Flywheel carries the HighKnow lightbulb-brain mark or earns its own under it** —
+     still an owner decision, recorded as open in `PRODUCT.md`. It does not block Phase 1: no
+     surface in this spec renders a logo except the app icon and the About item.
+2. **shadcn / component-library adoption, and its preset — RESOLVED 2026-09-09.** Option
+   `a-selfhost-radix`: no shadcn preset is derived; `shadcn` is not initialized at all. Self-hosted
+   type plus hand-rolled unstyled Radix primitives supply the accessibility machinery instead. See
+   Design System above for the full rationale and its consequence for plans `01-04`/`01-09`.
+3. **Icon library — RESOLVED 2026-09-09.** Lucide (`lucide-react`, ISC). Uniform 2px stroke, round
+   linecaps/linejoins, outline-only.
 4. **Assignee field existence (RESEARCH.md Open Question A3)** — this spec assumes a nullable
    `assignee_id` on tasks/epics because BOARD-06 literally requires assignee filtering and
    CONTEXT.md's locked decisions never mention this field. If the planner rejects that assumption,
