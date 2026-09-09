@@ -251,6 +251,22 @@ npm install @tanstack/react-query @tanstack/react-virtual zustand
 **Packages removed due to `[SLOP]` verdict:** none.
 **Packages flagged as suspicious `[SUS]`:** `@tanstack/react-virtual`, `@tanstack/react-query`, `zustand` — see note above; no genuine slopsquat risk identified, checkpoint retained per protocol.
 
+### Human Verification — Task 1 Gate Cleared (2026-09-09)
+
+The `gate="blocking-human"` checkpoint in `01-01-PLAN.md` Task 1 was cleared by the human ("approved"),
+supported by registry evidence gathered before approval:
+
+| Package | First published | Repository | Versions | Maintainers |
+|---|---|---|---|---|
+| `@tanstack/react-query` | 2022-07-19 | `git+https://github.com/TanStack/query.git` | 532 | tannerlinsley, alemtuzlak, kevinvandy |
+| `@tanstack/react-virtual` | 2022-02-07 | `git+https://github.com/TanStack/virtual.git` | 136 | tannerlinsley, alemtuzlak, kevinvandy |
+| `zustand` | 2019-04-09 | `git+https://github.com/pmndrs/zustand.git` | 158 | daishi, jeremyrh, drcmda |
+
+**Conclusion:** all three show multi-year publish histories, repositories matching the expected
+upstream projects, and expected maintainer accounts. The `SUS (too-new)` heuristic keyed on
+latest-release date rather than registry inception — confirmed false positive, no slopsquat signal.
+Installation authorized.
+
 ## Architecture Patterns
 
 ### System Architecture Diagram
