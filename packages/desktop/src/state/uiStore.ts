@@ -61,6 +61,27 @@ function toggleValue<T>(list: T[], value: T): T[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
 
+/** Which row-level picker is open, if any (moved from `board/BoardView.tsx` — this plan's Task 1
+ * folds the whole layer stack into this module so one place can answer "what layer is on top,"
+ * per `state/keyboard.ts`'s layer model). One piece of state covers all four (status, priority,
+ * estimate, assignee) rather than four parallel fields — they share the same
+ * open/anchor/close shape. */
+export type PickerKind = "status" | "priority" | "estimate" | "assignee";
+
+/** The in-flight Done-transition warning (D-08): moving an item to Done with unchecked criteria
+ * warns but never blocks. The pending change is held here rather than applied optimistically —
+ * `DoneWarning`'s Escape "reverts the status change" by the mutation simply never having been
+ * sent (01-UI-SPEC.md State Inventory). Moved from `board/BoardView.tsx`'s inline `useState`
+ * generic for the same cross-tree reasoning `PickerKind` moved for: `state/keyboard.ts`'s layer
+ * model needs to see it from outside `BoardView`'s own tree. */
+export interface PendingDone {
+  kind: BoardItemKind;
+  id: string;
+  status: string;
+  checked: number;
+  total: number;
+}
+
 interface UiState {
   searchTerm: string;
   filterDraft: BoardFilterDraft;
@@ -84,6 +105,20 @@ interface UiState {
   /** The pending destructive-delete target, if any (⌘⌫, threat T-01-25) — same cross-tree
    * reasoning as `detailItemId`: `CommandPalette.tsx`'s "Delete" hot action sets this too. */
   deleteTarget: { kind: BoardItemKind; id: string; key: string; title: string } | null;
+  /** The currently open row-level picker, if any (moved from `BoardView`-local state — this
+   * plan's Task 1). Lives here for the same cross-tree reasoning as `detailItemId` above, and so
+   * `state/keyboard.ts`'s layer model can read it without an import cycle back into
+   * `board/BoardView.tsx`. */
+  activePicker: { kind: PickerKind; id: string } | null;
+  /** Whether quick-add is open (moved from `BoardView`-local state — 01-UI-SPEC.md "Quick-add"
+   * is on-demand: `c`/`⌘N` opens it, or the project has zero items). */
+  quickAddOpen: boolean;
+  /** Which kind quick-add is currently composing (moved from `BoardView`-local state). `⌘N`
+   * opens it for a task, `⌘⇧N` for an epic; both funnel through `openQuickAdd` below so this pair
+   * keeps a single writer. */
+  quickAddKind: BoardItemKind;
+  /** The in-flight Done-transition warning, if any (D-08; moved from `BoardView`-local state). */
+  pendingDone: PendingDone | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -96,6 +131,14 @@ interface UiState {
   setCurrentProjectId: (id: string | null) => void;
   setDetailItemId: (id: string | null) => void;
   setDeleteTarget: (target: UiState["deleteTarget"]) => void;
+  setActivePicker: (picker: UiState["activePicker"]) => void;
+  setQuickAddOpen: (open: boolean) => void;
+  setQuickAddKind: (kind: BoardItemKind) => void;
+  /** Sets `quickAddKind` and `quickAddOpen` together in one `set` call — `BoardView.tsx`'s own
+   * `openQuickAdd` helper becomes a call to this so "which kind am I creating" keeps a single
+   * writer even now that two fields are involved. */
+  openQuickAdd: (kind: BoardItemKind) => void;
+  setPendingDone: (pending: PendingDone | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -106,6 +149,10 @@ export const useUiStore = create<UiState>((set) => ({
   currentProjectId: null,
   detailItemId: null,
   deleteTarget: null,
+  activePicker: null,
+  quickAddOpen: false,
+  quickAddKind: "task",
+  pendingDone: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -153,4 +200,31 @@ export const useUiStore = create<UiState>((set) => ({
   setCurrentProjectId: (id) => set({ currentProjectId: id }),
   setDetailItemId: (id) => set({ detailItemId: id }),
   setDeleteTarget: (target) => set({ deleteTarget: target }),
+  setActivePicker: (picker) => set({ activePicker: picker }),
+  setQuickAddOpen: (open) => set({ quickAddOpen: open }),
+  setQuickAddKind: (kind) => set({ quickAddKind: kind }),
+  openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true }),
+  setPendingDone: (pending) => set({ pendingDone: pending }),
 }));
+
+/** Resets every UI field back to its initial value — the shared reset four test suites
+ * (`board/__tests__/keyboard-nav.test.tsx`, `board/__tests__/palette.test.tsx`,
+ * `board/__tests__/filter.test.tsx`, `projects/__tests__/project-rail.test.tsx`) previously
+ * hand-wrote their own copy of. Zustand's `set`/`setState` merges rather than replaces, so any
+ * field a hand-written reset forgot silently leaked between tests — exporting the reset here
+ * removes that whole class of drift (this plan's Task 1/Task 3). */
+export function resetUiState() {
+  useUiStore.setState({
+    searchTerm: "",
+    filterDraft: EMPTY_FILTER_DRAFT,
+    selectedItemId: null,
+    paletteOpen: false,
+    currentProjectId: null,
+    detailItemId: null,
+    deleteTarget: null,
+    activePicker: null,
+    quickAddOpen: false,
+    quickAddKind: "task",
+    pendingDone: null,
+  });
+}

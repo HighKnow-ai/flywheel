@@ -11,6 +11,7 @@
  * stays one decision made in one place regardless of which region currently owns focus.
  */
 import { useEffect } from "react";
+import { useUiStore } from "./uiStore";
 
 /** Exactly one focus owner at a time (01-UI-SPEC.md "Focus & selection model"). Not every region
  * below has an entry in `BINDINGS` yet — quick-add, item detail and search already own small,
@@ -223,22 +224,86 @@ export function actionLabel(id: ActionId): string {
 }
 
 // -------------------------------------------------------------------------------------------
-// The Escape ladder (01-UI-SPEC.md "Focus & selection model", this plan's Task 1): exactly one
+// The layer model (01-UI-SPEC.md "Focus & selection model", G-01-FOCUS): which overlay is
+// topmost, and whether a given action id may fire under it. `useGlobalBindings` below and the
+// board-list container's own key handler (`board/BoardView.tsx`) both read this, so "may this
+// keystroke fire" is decided in exactly one place instead of once per consumer — G-01-FOCUS
+// diagnosed five separate misfocus symptoms as five copies of a guard that never existed here.
+// -------------------------------------------------------------------------------------------
+
+/** The five layers a keystroke can be "under" — `"picker"` covers every surface that either
+ * traps focus or arms a one-keypress decision that isn't itself a Radix focus trap: a row-level
+ * picker, the delete confirmation, and the Done warning (`DoneWarning.tsx` self-focuses and owns
+ * its own Enter/Escape; a global shortcut moving focus away would silently disarm it — the same
+ * reasoning that already exempts a real picker from the Escape ladder below). */
+export type UiLayer = "board" | "quick-add" | "detail" | "picker" | "palette";
+
+/** The four booleans every layer decision is made from. `EscapeLadderState` below extends this
+ * with only `hasSelection` — the two are the same subject read two ways (which layer to CLOSE on
+ * Escape vs. which layer is on TOP for every other binding). */
+export interface LayerState {
+  paletteOpen: boolean;
+  detailOpen: boolean;
+  pickerOpen: boolean;
+  quickAddOpen: boolean;
+}
+
+/** The single topmost layer, in a fixed order — the same order the Escape ladder below already
+ * closes in, since the palette renders over the detail panel, which renders over quick-add. */
+export function topLayer(state: LayerState): UiLayer {
+  if (state.paletteOpen) return "palette";
+  if (state.pickerOpen) return "picker";
+  if (state.detailOpen) return "detail";
+  if (state.quickAddOpen) return "quick-add";
+  return "board";
+}
+
+/** Whether `id` may fire while `layer` is on top. Exactly two rules. Rule one: `open-palette` is
+ * the discoverability guarantee BOARD-07 rests on, so a trapped detail panel must never be able
+ * to strand the user without it — allowed in every layer except `"picker"` (a real
+ * picker/`DeleteConfirm`/`DoneWarning` already owns a single keypress of its own) and
+ * `"palette"` itself. Rule two: every OTHER action id — global or board-list — is allowed only in
+ * `"board"` and `"quick-add"`, the two layers that own no focus trap. Quick-add is permissive
+ * here because it is an inline input inside the list, not a trapped scope — a bare letter typed
+ * into it is separately suppressed by `resolveBinding`'s `isTypingTarget` check, which this
+ * function does not touch. */
+export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
+  if (id === "open-palette") return layer !== "picker" && layer !== "palette";
+  return layer === "board" || layer === "quick-add";
+}
+
+/** The one place this module touches the store — maps its fields to a `LayerState`. `pickerOpen`
+ * is true while ANY of the row-level pickers, the delete confirmation, or the Done warning is
+ * open (see `UiLayer`'s doc comment on `"picker"`). No import cycle: `uiStore.ts` imports only a
+ * type from `board/useBoardQuery`, and nothing imports this module from either. */
+function currentLayerState(): LayerState {
+  const state = useUiStore.getState();
+  return {
+    paletteOpen: state.paletteOpen,
+    detailOpen: state.detailItemId !== null,
+    pickerOpen: state.activePicker !== null || state.deleteTarget !== null || state.pendingDone !== null,
+    quickAddOpen: state.quickAddOpen,
+  };
+}
+
+/** The move a region-changing action makes before it runs: closes the palette and the detail
+ * panel so the surface it is about to open is the only focus owner (01-UI-SPEC.md "exactly one
+ * focus owner at a time"). `board/CommandPalette.tsx`'s region-changing commands and `App.tsx`'s
+ * native-menu bridge both call this before dispatching. */
+export function returnToBoardLayer(): void {
+  useUiStore.getState().setPaletteOpen(false);
+  useUiStore.getState().setDetailItemId(null);
+}
+
+// -------------------------------------------------------------------------------------------
+// The Escape ladder (01-UI-SPEC.md "Focus & selection model", 01-09-PLAN.md Task 1): exactly one
 // layer closes per press, in a fixed order — command palette, then item detail panel, then
 // quick-add, then clear selection. A press with nothing open and nothing selected is a no-op.
 // -------------------------------------------------------------------------------------------
 
 export type EscapeLayer = "palette" | "detail" | "quick-add" | "selection";
 
-export interface EscapeLadderState {
-  paletteOpen: boolean;
-  detailOpen: boolean;
-  quickAddOpen: boolean;
-  /** A row-level picker (status/priority/estimate/assignee) is not one of the four named layers
-   * — it already owns its own Escape via its Radix `DismissableLayer` (`pickers/StatusPicker.tsx`
-   * and its siblings), so the ladder steps aside entirely (`null`) while one is open rather than
-   * racing it for the same keystroke. */
-  pickerOpen: boolean;
+export interface EscapeLadderState extends LayerState {
   hasSelection: boolean;
 }
 
@@ -318,9 +383,12 @@ export function dispatchAction(id: ActionId, opts?: { projectIndex?: number }): 
 
 // -------------------------------------------------------------------------------------------
 // Global bindings hook — any component supplies handlers keyed by action id; this hook owns the
-// actual `keydown` listener and the key-matching decision (`resolveBinding`), so no caller ever
-// writes its own `event.key === '...'` check (Task 1's own acceptance criterion, extended here to
-// every consumer of a `"global"`-region binding, not only the board-list container).
+// actual `keydown` listener, the key-matching decision (`resolveBinding`), AND the layer-gate
+// decision (`bindingAllowedInLayer`/`topLayer`, above) — so no caller ever writes its own
+// `event.key === '...'` check OR its own detail-panel guard (Task 1's own acceptance criterion,
+// extended here to every consumer of a `"global"`-region binding, not only the board-list
+// container). This is the single place "may this fire" is decided; G-01-FOCUS's five separate
+// misfocus symptoms were five copies of a guard that never existed here.
 // -------------------------------------------------------------------------------------------
 
 export function useGlobalBindings(handlers: Partial<Record<ActionId, (binding: Binding) => void>>) {
@@ -328,6 +396,10 @@ export function useGlobalBindings(handlers: Partial<Record<ActionId, (binding: B
     function onKeyDown(event: KeyboardEvent) {
       const binding = resolveGlobalBinding(event);
       if (!binding) return;
+      // Read the layer state at keystroke time, never from this effect's closure — a `window`
+      // listener registered once must see the layer stack as it is NOW, not as it was when the
+      // effect last ran.
+      if (!bindingAllowedInLayer(binding.id, topLayer(currentLayerState()))) return;
       const handler = handlers[binding.id];
       if (!handler) return;
       event.preventDefault();
