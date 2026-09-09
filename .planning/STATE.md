@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-09-09T01:28:46.818Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-09-09T01:59:42.175Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: a7c85b39a15844c7dfa6d543b72391d4b1ac3e2b
+state_head: 8fe965195164f4ebb6294bd37f152770e9e60a22
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 11
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 2 of 11
+Plan: 3 of 11
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 30min | 3 tasks | 59 files |
+| Phase 01 P02 | 25min | 3 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,9 @@ Recent decisions affecting current work:
 - [Roadmap]: The thinnest vertical slice (one task, two sequential sessions, second reconstituted from the board) completes at Phase 4 — the earliest the dependency graph allows.
 - [Phase 01]: Aliased packages/desktop's dependency on packages/core to flywheel_core (package = "core") to avoid a core-named dependency shadowing the sysroot core crate in tauri::generate_context!()'s expansion
 - [Phase 01]: Fixed rusqlite's nonexistent 'serde' feature to 'serde_json' — 01-RESEARCH.md's install command named the wrong feature
+- [Phase 01]: Locked all four open visual-world decisions at once (component strategy a-selfhost-radix, typeface Archivo, icon library Lucide, radius 2px/6px) into 01-UI-SPEC.md, binding for plans 01-03 through 01-11
+- [Phase 01]: Archivo's condensed companion cut ships from the same variable font's wdth axis (font-stretch), not a second file — Google Fonts merged Archivo Condensed into Archivo's wdth axis after the typeface constraint was written
+- [Phase 01]: Legend mark glyphs are lucide-react icon names, not unicode glyphs — corrected during this plan's own craft-floor review
 
 ### Pending Todos
 
@@ -97,6 +101,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T01:28:46.802Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-09-09T01:59:42.161Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
