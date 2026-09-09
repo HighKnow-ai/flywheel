@@ -12,13 +12,26 @@
 //! - Creating an issue and reading it back shows no status field.
 //! - Deleting an epic leaves its child tasks present with `epic_id` NULL, and they still appear
 //!   in the board query.
+//!
+//! Behavior under test (01-12-PLAN.md Task 1/3 — G-01-EPIC-ASSIGN, the reparenting paths):
+//! - `task::set_epic` sets a task's epic within the same project, appending exactly one
+//!   `task.epic_changed` event.
+//! - A second `set_epic` call naming the same epic is a no-op: no event is appended.
+//! - `task::set_epic(None)` clears a task's epic (orphans it) and appends one event whose
+//!   `after` is null.
+//! - `task::set_epic` naming an epic in another project is rejected and leaves `epic_id`
+//!   unchanged.
+//! - `issue::set_parent` holds exactly one parent at a time — setting a task parent clears any
+//!   epic parent in the same statement, and vice versa.
+//! - `issue::set_parent` naming a parent in another project is rejected and changes nothing.
+//! - `create_task` and `create_issue` reject a supplied parent id belonging to another project.
 
 use core::db::open_and_migrate;
 use core::domain::actor::local_human_actor_id;
 use core::domain::epic::{create_epic, delete_epic, update_epic};
-use core::domain::issue::{create_issue, update_issue};
+use core::domain::issue::{create_issue, set_parent, update_issue, IssueParent};
 use core::domain::project::{self, Project};
-use core::domain::task::{create_task, delete_task, set_task_status, update_task};
+use core::domain::task::{create_task, delete_task, set_epic, set_task_status, update_task};
 use core::domain::WORKFLOW_STATES;
 use core::query::{list_board, BoardFilter};
 use rusqlite::{params, Connection};
@@ -46,6 +59,13 @@ fn seeded_project() -> (Connection, String, Project) {
 fn count_rows(conn: &Connection, sql: &str, params: &[&dyn rusqlite::ToSql]) -> i64 {
     conn.query_row(sql, params, |row| row.get(0))
         .expect("count query should succeed")
+}
+
+/// Register a second project against the same connection as an already-seeded one — the
+/// cross-project fixture the reparenting-rejection tests need (01-12-PLAN.md Task 3).
+fn second_project(conn: &mut Connection, actor_id: &str) -> Project {
+    project::create_project(conn, actor_id, "Other Project", "/other-repo", "OTH", "main")
+        .expect("create_project should succeed for the second project")
 }
 
 #[test]
@@ -348,4 +368,336 @@ fn update_epic_task_and_issue_read_back_the_real_key_not_a_blank_one() {
         "update_issue must read back the real key, not String::new() (WR-02)"
     );
     assert!(!updated_issue.key.is_empty());
+}
+
+#[test]
+fn set_epic_parents_a_task_and_a_second_call_with_the_same_epic_is_a_no_op() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Epic", None)
+        .expect("create_epic should succeed");
+    let task = create_task(&mut conn, &project.id, &actor_id, "Task", None)
+        .expect("create_task should succeed");
+
+    set_epic(&mut conn, &actor_id, &task.id, Some(&epic.id)).expect("set_epic should succeed");
+
+    let epic_id: Option<String> = conn
+        .query_row(
+            "SELECT epic_id FROM tasks WHERE id = ?1",
+            params![task.id],
+            |row| row.get(0),
+        )
+        .expect("should read epic_id");
+    assert_eq!(epic_id.as_deref(), Some(epic.id.as_str()));
+
+    let events_after_first = count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM events WHERE event_type = 'task.epic_changed'",
+        &[],
+    );
+    assert_eq!(events_after_first, 1, "set_epic must append exactly one event");
+
+    let updated_at_before: String = conn
+        .query_row(
+            "SELECT updated_at FROM tasks WHERE id = ?1",
+            params![task.id],
+            |row| row.get(0),
+        )
+        .expect("should read updated_at");
+
+    // Redundant call: same epic again must be a no-op.
+    set_epic(&mut conn, &actor_id, &task.id, Some(&epic.id))
+        .expect("redundant set_epic should still succeed");
+
+    let updated_at_after: String = conn
+        .query_row(
+            "SELECT updated_at FROM tasks WHERE id = ?1",
+            params![task.id],
+            |row| row.get(0),
+        )
+        .expect("should read updated_at");
+    assert_eq!(
+        updated_at_before, updated_at_after,
+        "a redundant set_epic call must leave updated_at unchanged"
+    );
+
+    let events_after_second = count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM events WHERE event_type = 'task.epic_changed'",
+        &[],
+    );
+    assert_eq!(
+        events_after_second, 1,
+        "a redundant set_epic call must append no additional event"
+    );
+}
+
+#[test]
+fn set_epic_none_orphans_the_task() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Epic", None)
+        .expect("create_epic should succeed");
+    let task = create_task(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Task",
+        Some(&epic.id),
+    )
+    .expect("create_task should succeed");
+
+    set_epic(&mut conn, &actor_id, &task.id, None).expect("set_epic(None) should succeed");
+
+    let epic_id: Option<String> = conn
+        .query_row(
+            "SELECT epic_id FROM tasks WHERE id = ?1",
+            params![task.id],
+            |row| row.get(0),
+        )
+        .expect("should read epic_id");
+    assert_eq!(epic_id, None, "set_epic(None) must clear the task's epic_id");
+
+    let payload: String = conn
+        .query_row(
+            "SELECT payload FROM events WHERE event_type = 'task.epic_changed' ORDER BY sequence DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("should read the latest task.epic_changed event payload");
+    let payload: serde_json::Value =
+        serde_json::from_str(&payload).expect("payload should be valid JSON");
+    assert!(
+        payload["after"].is_null(),
+        "clearing a task's epic must record a null 'after' in the event payload"
+    );
+}
+
+#[test]
+fn set_epic_rejects_an_epic_in_another_project() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let other_project = second_project(&mut conn, &actor_id);
+    let other_epic = create_epic(&mut conn, &other_project.id, &actor_id, "Other epic", None)
+        .expect("create_epic should succeed");
+    let task = create_task(&mut conn, &project.id, &actor_id, "Task", None)
+        .expect("create_task should succeed");
+
+    let result = set_epic(&mut conn, &actor_id, &task.id, Some(&other_epic.id));
+    assert!(
+        result.is_err(),
+        "set_epic must reject an epic belonging to a different project"
+    );
+
+    let epic_id: Option<String> = conn
+        .query_row(
+            "SELECT epic_id FROM tasks WHERE id = ?1",
+            params![task.id],
+            |row| row.get(0),
+        )
+        .expect("should read epic_id");
+    assert_eq!(
+        epic_id, None,
+        "a rejected cross-project set_epic must leave epic_id unchanged"
+    );
+}
+
+#[test]
+fn set_epic_rejects_a_non_existent_epic() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Task", None)
+        .expect("create_task should succeed");
+
+    let result = set_epic(&mut conn, &actor_id, &task.id, Some("01ARZ3NDEKTSV4RRFFQ69G5FAV"));
+    assert!(
+        result.is_err(),
+        "set_epic must reject an epic id naming no row"
+    );
+}
+
+#[test]
+fn set_issue_parent_holds_exactly_one_parent_at_a_time() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Epic", None)
+        .expect("create_epic should succeed");
+    let task = create_task(&mut conn, &project.id, &actor_id, "Task", None)
+        .expect("create_task should succeed");
+    let issue = create_issue(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Issue",
+        None,
+        "idea",
+        None,
+        None,
+    )
+    .expect("create_issue should succeed");
+
+    set_parent(&mut conn, &actor_id, &issue.id, IssueParent::Epic(epic.id.clone()))
+        .expect("set_parent(Epic) should succeed");
+
+    let (epic_id, task_id): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT epic_id, task_id FROM issues WHERE id = ?1",
+            params![issue.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("should read epic_id/task_id");
+    assert_eq!(epic_id.as_deref(), Some(epic.id.as_str()));
+    assert_eq!(task_id, None);
+
+    set_parent(&mut conn, &actor_id, &issue.id, IssueParent::Task(task.id.clone()))
+        .expect("set_parent(Task) should succeed");
+
+    let (epic_id, task_id): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT epic_id, task_id FROM issues WHERE id = ?1",
+            params![issue.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("should read epic_id/task_id");
+    assert_eq!(
+        epic_id, None,
+        "setting a task parent must clear any epic parent in the same statement"
+    );
+    assert_eq!(task_id.as_deref(), Some(task.id.as_str()));
+
+    set_parent(&mut conn, &actor_id, &issue.id, IssueParent::None)
+        .expect("set_parent(None) should succeed");
+
+    let (epic_id, task_id): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT epic_id, task_id FROM issues WHERE id = ?1",
+            params![issue.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("should read epic_id/task_id");
+    assert_eq!(epic_id, None);
+    assert_eq!(task_id, None);
+
+    let parent_events = count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type = 'issue.parent_changed'",
+        &[&issue.id],
+    );
+    assert_eq!(
+        parent_events, 3,
+        "three accepted parent changes must append exactly three events"
+    );
+
+    // A redundant call (already detached) must append no fourth event.
+    set_parent(&mut conn, &actor_id, &issue.id, IssueParent::None)
+        .expect("redundant set_parent(None) should still succeed");
+    let parent_events_after_redundant = count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type = 'issue.parent_changed'",
+        &[&issue.id],
+    );
+    assert_eq!(
+        parent_events_after_redundant, 3,
+        "a redundant set_parent call must append no additional event"
+    );
+}
+
+#[test]
+fn set_issue_parent_rejects_a_parent_in_another_project() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let other_project = second_project(&mut conn, &actor_id);
+    let other_epic = create_epic(&mut conn, &other_project.id, &actor_id, "Other epic", None)
+        .expect("create_epic should succeed");
+    let other_task = create_task(&mut conn, &other_project.id, &actor_id, "Other task", None)
+        .expect("create_task should succeed");
+    let issue = create_issue(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Issue",
+        None,
+        "idea",
+        None,
+        None,
+    )
+    .expect("create_issue should succeed");
+
+    let epic_result = set_parent(
+        &mut conn,
+        &actor_id,
+        &issue.id,
+        IssueParent::Epic(other_epic.id.clone()),
+    );
+    assert!(
+        epic_result.is_err(),
+        "set_parent must reject an epic belonging to a different project"
+    );
+
+    let task_result = set_parent(
+        &mut conn,
+        &actor_id,
+        &issue.id,
+        IssueParent::Task(other_task.id.clone()),
+    );
+    assert!(
+        task_result.is_err(),
+        "set_parent must reject a task belonging to a different project"
+    );
+
+    let (epic_id, task_id): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT epic_id, task_id FROM issues WHERE id = ?1",
+            params![issue.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("should read epic_id/task_id");
+    assert_eq!(epic_id, None, "a rejected cross-project reparent must change nothing");
+    assert_eq!(task_id, None, "a rejected cross-project reparent must change nothing");
+}
+
+#[test]
+fn create_task_and_create_issue_reject_a_parent_in_another_project() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let other_project = second_project(&mut conn, &actor_id);
+    let other_epic = create_epic(&mut conn, &other_project.id, &actor_id, "Other epic", None)
+        .expect("create_epic should succeed");
+    let other_task = create_task(&mut conn, &other_project.id, &actor_id, "Other task", None)
+        .expect("create_task should succeed");
+
+    let task_result = create_task(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Task with foreign epic",
+        Some(&other_epic.id),
+    );
+    assert!(
+        task_result.is_err(),
+        "create_task must reject a supplied epic_id belonging to a different project"
+    );
+
+    let issue_epic_result = create_issue(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Issue with foreign epic",
+        None,
+        "idea",
+        Some(&other_epic.id),
+        None,
+    );
+    assert!(
+        issue_epic_result.is_err(),
+        "create_issue must reject a supplied epic_id belonging to a different project"
+    );
+
+    let issue_task_result = create_issue(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Issue with foreign task",
+        None,
+        "idea",
+        None,
+        Some(&other_task.id),
+    );
+    assert!(
+        issue_task_result.is_err(),
+        "create_issue must reject a supplied task_id belonging to a different project"
+    );
 }

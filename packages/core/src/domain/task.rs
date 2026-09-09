@@ -8,6 +8,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::domain::acceptance_criterion::delete_criteria_for_parent;
 use crate::domain::event::{append_event, next_sequence};
+use crate::domain::{assert_parent_in_project, ParentTable};
 use crate::ids::new_id;
 use crate::ranking::{rank_after, rank_before, rank_between, ReorderDirection};
 
@@ -47,6 +48,10 @@ pub fn create_task(
     let now = Utc::now().to_rfc3339();
 
     let tx = conn.transaction()?;
+
+    if let Some(epic_id) = epic_id {
+        assert_parent_in_project(&tx, project_id, ParentTable::Epics, epic_id)?;
+    }
 
     let last_rank: Option<String> = tx
         .query_row(
@@ -629,5 +634,74 @@ pub fn set_assignee(
 
     tx.commit()
         .context("failed to commit set_assignee transaction")?;
+    Ok(())
+}
+
+/// Reparent a task under an epic, or clear its epic with `None` (G-01-EPIC-ASSIGN). A parent id
+/// in another project is rejected by [`assert_parent_in_project`] (T-01-GC-01); a redundant call
+/// naming the epic the task already has is a no-op — `Ok` is returned, `updated_at` is left
+/// untouched, and no event is appended, mirroring `set_priority`/`set_estimate`/`set_assignee`.
+///
+/// Appends exactly one `task.epic_changed` event whose denormalised `epic_id` column is the NEW
+/// parent, not the task's own `epic_id` at the time of the call — so the arrival shows on the
+/// receiving epic's activity trail (D-19); the task's own trail, queried by `task_id`, is
+/// unaffected by this choice.
+pub fn set_epic(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+    new_epic_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, current_epic_id): (String, Option<String>) = tx
+        .query_row(
+            "SELECT project_id, epic_id FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    if current_epic_id.as_deref() == new_epic_id {
+        tx.commit()
+            .context("failed to commit no-op set_epic transaction")?;
+        return Ok(());
+    }
+
+    if let Some(epic_id) = new_epic_id {
+        assert_parent_in_project(&tx, &project_id, ParentTable::Epics, epic_id)?;
+    }
+
+    tx.execute(
+        "UPDATE tasks SET epic_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![new_epic_id, now, task_id],
+    )
+    .context("failed to set task epic")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "epic_id",
+        "before": current_epic_id,
+        "after": new_epic_id,
+        "label": "Changed epic",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        new_epic_id,
+        actor_id,
+        "task.epic_changed",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit set_epic transaction")?;
     Ok(())
 }

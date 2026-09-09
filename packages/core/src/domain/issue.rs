@@ -6,11 +6,12 @@
 //! on. This module contains no `status` identifier and no reference to `WORKFLOW_STATES` — a
 //! grep gate in `hierarchy_workflow.rs` asserts exactly that.
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::domain::event::{append_event, next_sequence};
+use crate::domain::{assert_parent_in_project, ParentTable};
 use crate::ids::new_id;
 use crate::ranking::{rank_after, rank_before, rank_between, ReorderDirection};
 
@@ -44,6 +45,13 @@ pub fn create_issue(
     let now = Utc::now().to_rfc3339();
 
     let tx = conn.transaction()?;
+
+    if let Some(epic_id) = epic_id {
+        assert_parent_in_project(&tx, project_id, ParentTable::Epics, epic_id)?;
+    }
+    if let Some(task_id) = task_id {
+        assert_parent_in_project(&tx, project_id, ParentTable::Tasks, task_id)?;
+    }
 
     let last_rank: Option<String> = tx
         .query_row(
@@ -342,5 +350,112 @@ pub fn reorder_issue(
 
     tx.commit()
         .context("failed to commit reorder_issue transaction")?;
+    Ok(())
+}
+
+/// The single-parent-at-a-time target for [`set_parent`] — an issue holds at most one parent,
+/// `epic_id` or `task_id`, never both at once (T-01-GC-05, G-01-EPIC-ASSIGN).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueParent {
+    None,
+    Epic(String),
+    Task(String),
+}
+
+impl IssueParent {
+    /// Parse the Tauri command layer's `(parent_kind, parent_id)` argument pair, mirroring
+    /// `ranking::ReorderDirection::parse`'s established shape for turning a renderer-supplied
+    /// string pair into a domain value. `kind: None` maps to `IssueParent::None` regardless of
+    /// `id`; `"epic"`/`"task"` require a non-`None` `id`; any other kind, or a kind supplied
+    /// without an id, is rejected.
+    pub fn parse(kind: Option<&str>, id: Option<&str>) -> anyhow::Result<Self> {
+        match (kind, id) {
+            (None, _) => Ok(Self::None),
+            (Some("epic"), Some(id)) => Ok(Self::Epic(id.to_string())),
+            (Some("task"), Some(id)) => Ok(Self::Task(id.to_string())),
+            (Some(other), Some(_)) => Err(anyhow!(
+                "unknown issue parent kind {other:?} — expected \"epic\" or \"task\""
+            )),
+            (Some(kind), None) => Err(anyhow!(
+                "issue parent kind {kind:?} requires a parent_id"
+            )),
+        }
+    }
+}
+
+/// Reparent an issue to an epic, to a task, or detach it entirely (G-01-EPIC-ASSIGN). Writes
+/// `issues.epic_id` and `issues.task_id` together in one `UPDATE` derived from a single
+/// `IssueParent` variant, so an issue holding both at once is unrepresentable, not merely
+/// unwritten (T-01-GC-05). A parent id in another project is rejected by
+/// [`assert_parent_in_project`]; a redundant call naming the parent the issue already has is a
+/// no-op — `Ok` is returned, `updated_at` is left untouched, and no event is appended.
+///
+/// Appends exactly one `issue.parent_changed` event per accepted change, whose denormalised
+/// `task_id`/`epic_id` columns are the NEW parent.
+pub fn set_parent(
+    conn: &mut Connection,
+    actor_id: &str,
+    issue_id: &str,
+    parent: IssueParent,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let (project_id, current_epic_id, current_task_id): (String, Option<String>, Option<String>) =
+        tx.query_row(
+            "SELECT project_id, epic_id, task_id FROM issues WHERE id = ?1",
+            params![issue_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .with_context(|| format!("issue {issue_id:?} not found"))?;
+
+    let (new_epic_id, new_task_id): (Option<String>, Option<String>) = match &parent {
+        IssueParent::None => (None, None),
+        IssueParent::Epic(id) => (Some(id.clone()), None),
+        IssueParent::Task(id) => (None, Some(id.clone())),
+    };
+
+    if current_epic_id == new_epic_id && current_task_id == new_task_id {
+        tx.commit()
+            .context("failed to commit no-op set_parent transaction")?;
+        return Ok(());
+    }
+
+    match &parent {
+        IssueParent::Epic(id) => assert_parent_in_project(&tx, &project_id, ParentTable::Epics, id)?,
+        IssueParent::Task(id) => assert_parent_in_project(&tx, &project_id, ParentTable::Tasks, id)?,
+        IssueParent::None => {}
+    }
+
+    tx.execute(
+        "UPDATE issues SET epic_id = ?1, task_id = ?2, updated_at = ?3 WHERE id = ?4",
+        params![new_epic_id, new_task_id, now, issue_id],
+    )
+    .context("failed to set issue parent")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "parent",
+        "before": { "epicId": current_epic_id, "taskId": current_task_id },
+        "after": { "epicId": new_epic_id, "taskId": new_task_id },
+        "label": "Changed parent",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "issue",
+        issue_id,
+        new_task_id.as_deref(),
+        new_epic_id.as_deref(),
+        actor_id,
+        "issue.parent_changed",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit set_parent transaction")?;
     Ok(())
 }
