@@ -298,6 +298,10 @@ feature, and no affordance exists to reconfigure either (BOARD-01, BOARD-04).
   sorted by rank/recency, each row showing key + title + kind (`bug`/`idea`/`question`/`risk`).
   **This is a judgment call, not a re-litigation of D-01/D-07/BOARD-04** (which is worded generically
   as "items"), and it is flagged in Open Decisions for planner/user confirmation before it locks in.
+  Each issue row also carries a focusable **parent affordance** (plan `01-15`, G-01-EPIC-ASSIGN):
+  it shows the epic or task key the issue currently sits under, or "No parent," and opens a picker
+  (grouped Epics/Tasks options, reusing the same `ParentPicker` a task's own epic assignment uses)
+  to reparent or detach it — a documented part of this surface, not an undiscoverable button.
 - **Grouping affordances (delegated):** status grouping is the fixed, ever-on primary lens (D-01).
   A secondary **"Group by"** control (Status [default] / Epic / Assignee / Priority) is offered as a
   view-only lens over the same flat data — it changes clustering, never the underlying hierarchy or
@@ -482,9 +486,15 @@ refetches:
 | Key | Action |
 |-----|--------|
 | Enter | Create item at current position; open a new blank quick-add row below for rapid entry |
-| Tab | Indent — nest as a task under the nearest epic row above, in the same group |
-| Shift+Tab | Outdent — remove nesting |
+| Tab | Nest the new task under the epic the current selection implies — the selected epic, or the selected task's epic; does nothing while quick-add is composing an epic |
+| Shift+Tab | Remove the nesting |
 | Escape | Cancel without creating; close the row |
+
+Corrected in plan `01-15` (G-01-EPIC-ASSIGN): the original wording ("nest under the nearest epic
+row above") named a row that can never exist, because quick-add is pinned to the top of the
+Backlog band (see "Quick-add lives at the top of Backlog" in `BoardView.tsx`'s `rows` memo) — there
+is never a row above it to be "nearest" to. The shipped behavior nests under whatever the current
+selection implies instead, which is reachable from any selection state.
 
 ### Item detail panel (focus inside the panel)
 

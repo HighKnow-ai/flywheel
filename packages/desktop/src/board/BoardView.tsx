@@ -173,6 +173,10 @@ export function BoardView({
   const setQuickAddOpen = useUiStore((state) => state.setQuickAddOpen);
   const quickAddKind = useUiStore((state) => state.quickAddKind);
   const storeOpenQuickAdd = useUiStore((state) => state.openQuickAdd);
+  // Whether the Backlog-top quick-add row is currently nested under `quickAddIndentTarget`
+  // (G-01-EPIC-ASSIGN, plan 01-15). Genuinely local — not layer state — so it stays as a plain
+  // `useState`, not a `uiStore` field.
+  const [quickAddIndented, setQuickAddIndented] = useState(false);
   // D-08: moving an item to Done with unchecked criteria warns but never blocks. The pending
   // change is held here rather than applied optimistically — `DoneWarning`'s Escape "reverts the
   // status change" by the mutation simply never having been sent (01-UI-SPEC.md State Inventory).
@@ -449,6 +453,25 @@ export function BoardView({
 
   const selectedItem = selectableItems.find((r) => r.item.id === selectedId)?.item;
 
+  // The epic Tab would nest a new task under — the selected epic itself, or the selected task's
+  // own epic resolved through `epicsById` (the same lookup `BoardRow`'s epic pill already uses).
+  // `null` while quick-add is composing an epic (an epic has no epic parent, the same rule the
+  // `m` keystroke applies — G-01-EPIC-ASSIGN, plan 01-15).
+  const quickAddIndentTarget = useMemo(() => {
+    if (quickAddKind === "epic" || !selectedItem) return null;
+    if ((selectedItem.kind ?? "task") === "epic") {
+      return { id: selectedItem.id, key: selectedItem.key, title: selectedItem.title };
+    }
+    const epic = selectedItem.epicId ? epicsById[selectedItem.epicId] : undefined;
+    return epic ? { id: epic.id, key: epic.key, title: epic.title } : null;
+  }, [quickAddKind, selectedItem, epicsById]);
+
+  // Reset the nesting choice whenever quick-add closes or switches kind — a stale "indented"
+  // flag must never survive into the next quick-add composition.
+  useEffect(() => {
+    setQuickAddIndented(false);
+  }, [quickAddOpen, quickAddKind]);
+
   // `⌘N`/`⌘⇧N` must open quick-add regardless of which region currently owns focus — the
   // board-list container's own `resolveBinding` call above only fires while the list itself is
   // focused, so this project's board also registers the same two global action ids directly.
@@ -559,8 +582,8 @@ export function BoardView({
                 <div key={virtualRow.key} style={positionStyle}>
                   <QuickAdd
                     autoFocus
-                    onCreate={(title) =>
-                      quickAddKind === "epic" ? createEpic.mutate(title) : onCreateTask(title, null)
+                    onCreate={(title, epicId) =>
+                      quickAddKind === "epic" ? createEpic.mutate(title) : onCreateTask(title, epicId)
                     }
                     onEscape={() => setQuickAddOpen(false)}
                     placeholder={
@@ -569,6 +592,9 @@ export function BoardView({
                         : undefined
                     }
                     ariaLabel={quickAddKind === "epic" ? "Quick add an epic" : undefined}
+                    indentTarget={quickAddIndentTarget}
+                    indented={quickAddIndented}
+                    onIndentChange={setQuickAddIndented}
                   />
                 </div>
               );
