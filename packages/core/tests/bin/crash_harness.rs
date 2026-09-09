@@ -48,9 +48,7 @@ fn main() {
             )
             .expect("create_project should succeed");
 
-            // Intentional bug for the RED phase (01-05 Task 1): skips index 0, so only n-1 tasks
-            // are ever created and committed. Fixed to `0..n` in the GREEN commit.
-            for i in 1..n {
+            for i in 0..n {
                 task::create_task(&mut conn, &proj.id, &actor_id, &format!("Task {i}"), None)
                     .expect("create_task should succeed");
             }
