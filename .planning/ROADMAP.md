@@ -80,8 +80,21 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User searches, filters and reorders a project holding at least 1,000 items, and drives navigation and the common item actions entirely from the keyboard, with no perceptible lag.
   4. User opens any item and sees a chronological trail of what changed, when, and which actor — human or agent — changed it.
   5. User force-quits the application mid-work and relaunches (including across a version upgrade that migrates the database) with no committed change lost or corrupted, and can replay the project's entire change history in order from any cursor position.
-**Plans**: TBD
+**Plans**: 11 plans in 10 waves
 **UI hint**: yes
+
+Plans:
+- [ ] 01-01-PLAN.md — Monorepo, Tauri shell, both test harnesses, and the migrating database entry point
+- [ ] 01-02-PLAN.md — The Flight Progress Strips visual foundation: direction contract, token roles, self-hosted type, marks legend, contrast assertion
+- [ ] 01-03-PLAN.md — Tracer: register a repository, create a task from the quick-add, see it on the rack, survive a relaunch
+- [ ] 01-04-PLAN.md — The fixed three-level hierarchy and the fixed five-state workflow, enforced by the schema
+- [ ] 01-05-PLAN.md — Durability: force-quit crash safety and backup-first migration safety
+- [ ] 01-06-PLAN.md — Acceptance criteria as discrete, individually checkable rows on tasks and epics
+- [ ] 01-07-PLAN.md — Reorder, prioritise, size and assign, with a total and reproducible board order
+- [ ] 01-08-PLAN.md — FTS5 search, indexed filters, and no perceptible lag at 1,000+ items
+- [ ] 01-09-PLAN.md — Full keyboard operability, the ⌘K command palette, and the native menu bar
+- [ ] 01-10-PLAN.md — Activity trail from the event log, and the cursor-resumable event stream
+- [ ] 01-11-PLAN.md — Many local repositories as projects, bound by a committed identity marker
 
 **Notes**: This is where the three structural seams land that would otherwise be retrofit
 nightmares: the append-only event log written in the same transaction as the mutable projection
