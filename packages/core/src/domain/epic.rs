@@ -195,8 +195,9 @@ pub fn update_epic(
 
 /// Delete an epic. Idempotent: deleting an id that no longer exists returns `Ok` and appends no
 /// event. Children are **orphaned, never cascade-deleted** (D-13, T-01-16): `tasks.epic_id` is
-/// set to NULL for every task under this epic before the epic row itself is removed, so an epic
-/// deletion never destroys a user's unrecoverable task work.
+/// set to NULL for every task under this epic, and `issues.epic_id` is set to NULL for every
+/// issue linked to this epic, both before the epic row itself is removed, so an epic deletion
+/// never destroys a user's unrecoverable task work and never fails with a foreign-key error.
 pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
@@ -221,6 +222,17 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
         params![now, epic_id],
     )
     .context("failed to orphan child tasks")?;
+
+    // Issues referencing this epic must also be orphaned, not left dangling — `issues.epic_id`
+    // is a `NO ACTION` FK to `epics(id)` with `foreign_keys = ON`, so the `DELETE FROM epics`
+    // below would otherwise fail with a raw SQLite FK constraint error the moment any issue is
+    // linked to this epic (CR-01). Mirrors the child-task orphaning above: a plain UPDATE, no
+    // event appended for the orphaning itself, consistent with how child tasks are orphaned.
+    tx.execute(
+        "UPDATE issues SET epic_id = NULL, updated_at = ?1 WHERE epic_id = ?2",
+        params![now, epic_id],
+    )
+    .context("failed to orphan issues referencing this epic")?;
 
     // The epic's own criteria are deleted with it (unlike its child tasks, which are orphaned,
     // not cascaded) — one `criterion.deleted` event per row, inside this same transaction.

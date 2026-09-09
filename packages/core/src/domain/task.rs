@@ -201,7 +201,9 @@ pub fn update_task(
 }
 
 /// Delete a task. Idempotent: deleting an id that no longer exists returns `Ok` and appends no
-/// second event.
+/// second event. Issues linked to this task are **orphaned, never cascade-deleted**: `issues.task_id`
+/// is set to NULL before the task row itself is removed, so a task deletion never fails with a
+/// foreign-key error when an issue references it (CR-01).
 pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
@@ -219,6 +221,17 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
         tx.commit().context("failed to commit no-op delete_task transaction")?;
         return Ok(());
     };
+
+    // Issues referencing this task must also be orphaned, not left dangling — `issues.task_id`
+    // is a `NO ACTION` FK to `tasks(id)` with `foreign_keys = ON`, so the `DELETE FROM tasks`
+    // below would otherwise fail with a raw SQLite FK constraint error the moment any issue is
+    // linked to this task (CR-01). Mirrors `delete_epic`'s issue-orphaning: a plain UPDATE, no
+    // event appended for the orphaning itself.
+    tx.execute(
+        "UPDATE issues SET task_id = NULL, updated_at = ?1 WHERE task_id = ?2",
+        params![now, task_id],
+    )
+    .context("failed to orphan issues referencing this task")?;
 
     // Criteria belong exclusively to their parent (unlike a task's epic, which is orphaned, not
     // cascaded) — deleting the parent deletes its criteria, one `criterion.deleted` event per

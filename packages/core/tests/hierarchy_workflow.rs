@@ -239,3 +239,69 @@ fn deleting_an_epic_orphans_its_tasks() {
         "the deleted epic must no longer appear in the board query"
     );
 }
+
+#[test]
+fn deleting_an_epic_or_task_orphans_linked_issues_instead_of_failing() {
+    let (mut conn, actor_id, project) = seeded_project();
+
+    // Epic side: an issue linked to an epic must survive the epic's deletion with epic_id NULL,
+    // and the delete itself must succeed rather than raising a raw FK constraint error.
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Parent epic", None)
+        .expect("create_epic should succeed");
+    let epic_issue = create_issue(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Issue linked to an epic",
+        None,
+        "idea",
+        Some(&epic.id),
+        None,
+    )
+    .expect("create_issue should succeed");
+
+    delete_epic(&mut conn, &actor_id, &epic.id)
+        .expect("delete_epic must succeed even when an issue references it (CR-01)");
+
+    let remaining_issue_epic_id: Option<String> = conn
+        .query_row(
+            "SELECT epic_id FROM issues WHERE id = ?1",
+            params![epic_issue.id],
+            |row| row.get(0),
+        )
+        .expect("the linked issue must still exist after its epic is deleted");
+    assert_eq!(
+        remaining_issue_epic_id, None,
+        "a deleted epic's linked issue must have epic_id set to NULL, not be deleted itself"
+    );
+
+    // Task side: same contract, via task_id.
+    let task = create_task(&mut conn, &project.id, &actor_id, "Parent task", None)
+        .expect("create_task should succeed");
+    let task_issue = create_issue(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Issue linked to a task",
+        None,
+        "idea",
+        None,
+        Some(&task.id),
+    )
+    .expect("create_issue should succeed");
+
+    delete_task(&mut conn, &actor_id, &task.id)
+        .expect("delete_task must succeed even when an issue references it (CR-01)");
+
+    let remaining_issue_task_id: Option<String> = conn
+        .query_row(
+            "SELECT task_id FROM issues WHERE id = ?1",
+            params![task_issue.id],
+            |row| row.get(0),
+        )
+        .expect("the linked issue must still exist after its task is deleted");
+    assert_eq!(
+        remaining_issue_task_id, None,
+        "a deleted task's linked issue must have task_id set to NULL, not be deleted itself"
+    );
+}
