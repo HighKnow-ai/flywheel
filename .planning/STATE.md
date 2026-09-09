@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
-status: verifying
-stopped_at: Completed 01-11-PLAN.md (final plan of Phase 1)
-last_updated: "2026-09-09T09:15:20.295Z"
+status: executing
+stopped_at: Completed 01-12-PLAN.md
+last_updated: "2026-09-09T13:30:43.284Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: 478d291fd11a728ea9ba27ac91cba2929016af93
+state_head: f936bc06227b64805a0d8a78c31199acfc7149ff
 progress:
   total_phases: 11
   completed_phases: 0
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 15
+  completed_plans: 12
   percent: 0
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 11 of 11
-Status: Phase complete — ready for verification
+Plan: 2 of 15
+Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P09 | 110min | 3 tasks | 16 files |
 | Phase 01-the-board-is-the-store-of-record P10 | 50min | 3 tasks | 14 files |
 | Phase 01 P11 | 30min | 3 tasks | 15 files |
+| Phase 01 P12 | 15min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,8 @@ Recent decisions affecting current work:
 - [Phase 01]: ActivityTrail.tsx guarded by the same !isIssue condition as AcceptanceCriteriaList — core::query::events only accepts task/epic as parent_kind, matching the events table's denormalised task_id/epic_id columns
 - [Phase 01]: Marker path/format: .flywheel/project.json, JSON via serde_json, committed (owner decision, checkpoint:decision)
 - [Phase 01]: register_project (not create_project) is what the Tauri project_register command now calls
+- [Phase 01]: 01-12: assert_parent_in_project lives in domain/mod.rs as one shared same-project integrity check, called by both reparenting paths (task::set_epic, issue::set_parent) and both creation paths (create_task, create_issue)
+- [Phase 01]: 01-12: BOARD-01 unticked in REQUIREMENTS.md pending plan 01-15 — reparenting commands (task_set_epic, issue_set_parent) now exist and are registered, but nothing in the running renderer calls them yet
 
 ### Pending Todos
 
@@ -135,6 +138,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T09:15:20.270Z
-Stopped at: Completed 01-11-PLAN.md (final plan of Phase 1)
+Last session: 2026-09-09T13:30:43.251Z
+Stopped at: Completed 01-12-PLAN.md
 Resume file: None
