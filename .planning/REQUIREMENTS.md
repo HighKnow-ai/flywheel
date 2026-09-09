@@ -9,9 +9,9 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Data Model & Persistence
 
-- [ ] **DATA-01**: Every board mutation is written to an append-only event log in the same transaction as the mutable projection it updates, so audit trail and current state can never diverge
+- [x] **DATA-01**: Every board mutation is written to an append-only event log in the same transaction as the mutable projection it updates, so audit trail and current state can never diverge
 - [x] **DATA-02**: Every entity uses a client-generated globally unique identifier (ULID), never an auto-incrementing integer, so records created offline or on another device never collide
-- [ ] **DATA-03**: Every mutation records the actor that made it, with humans and agents represented as distinct actors in the same actor model
+- [x] **DATA-03**: Every mutation records the actor that made it, with humans and agents represented as distinct actors in the same actor model
 - [ ] **DATA-04**: Agent work is started through a generic trigger record whose source is one of a known set, with `user_action` implemented and `schedule`/`webhook` accepted by the schema but unimplemented
 - [ ] **DATA-05**: The event log is readable as an ordered, resumable stream from any point via a cursor, so a future relay can subscribe and replay without a schema change
 - [ ] **DATA-06**: Worktrees, agent runs, sessions, session summaries and artifacts are first-class records with their own identity, not JSON blobs attached to a task
@@ -219,9 +219,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | Phase 1 | Pending |
+| DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
-| DATA-03 | Phase 1 | Pending |
+| DATA-03 | Phase 1 | Complete |
 | DATA-04 | Phase 2 | Pending |
 | DATA-05 | Phase 1 | Pending |
 | DATA-06 | Phase 2 | Pending |
