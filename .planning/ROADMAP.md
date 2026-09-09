@@ -50,6 +50,7 @@ first starts agent work.
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
@@ -70,30 +71,62 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: The Board Is The Store Of Record
+
 **Goal**: Cyril runs his real project structure on Flywheel's board — epics, tasks with individually checkable acceptance criteria, and a workflow he cannot bend — and it is still exactly there after a crash.
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: DATA-01, DATA-02, DATA-03, DATA-05, DATA-07, DATA-08, BOARD-01, BOARD-02, BOARD-04, BOARD-05, BOARD-06, BOARD-07, BOARD-08, BOARD-09, BOARD-10
 **Success Criteria** (what must be TRUE):
+
   1. User registers several of his own local git repositories as projects and switches between their boards.
   2. User creates epics, tasks and issues in the fixed three-level hierarchy, attaches discrete individually checkable acceptance criteria to a task, and moves items through the fixed Backlog → Todo → In Progress → In Review → Done workflow, with no way to reconfigure either.
   3. User searches, filters and reorders a project holding at least 1,000 items, and drives navigation and the common item actions entirely from the keyboard, with no perceptible lag.
   4. User opens any item and sees a chronological trail of what changed, when, and which actor — human or agent — changed it.
   5. User force-quits the application mid-work and relaunches (including across a version upgrade that migrates the database) with no committed change lost or corrupted, and can replay the project's entire change history in order from any cursor position.
+
 **Plans**: 11 plans in 10 waves
 **UI hint**: yes
 
 Plans:
+**Wave 1**
+
 - [ ] 01-01-PLAN.md — Monorepo, Tauri shell, both test harnesses, and the migrating database entry point
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 01-02-PLAN.md — The Flight Progress Strips visual foundation: direction contract, token roles, self-hosted type, marks legend, contrast assertion
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 01-03-PLAN.md — Tracer: register a repository, create a task from the quick-add, see it on the rack, survive a relaunch
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 01-04-PLAN.md — The fixed three-level hierarchy and the fixed five-state workflow, enforced by the schema
 - [ ] 01-05-PLAN.md — Durability: force-quit crash safety and backup-first migration safety
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 01-06-PLAN.md — Acceptance criteria as discrete, individually checkable rows on tasks and epics
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 01-07-PLAN.md — Reorder, prioritise, size and assign, with a total and reproducible board order
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 01-08-PLAN.md — FTS5 search, indexed filters, and no perceptible lag at 1,000+ items
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
 - [ ] 01-09-PLAN.md — Full keyboard operability, the ⌘K command palette, and the native menu bar
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
 - [ ] 01-10-PLAN.md — Activity trail from the event log, and the cursor-resumable event stream
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
 - [ ] 01-11-PLAN.md — Many local repositories as projects, bound by a committed identity marker
 
 **Notes**: This is where the three structural seams land that would otherwise be retrofit
@@ -106,16 +139,19 @@ Research flag: verify during planning that a relay could genuinely subscribe and
 actor identity extends to multi-remote without migration.
 
 ### Phase 2: One Agent, One Worktree, Watched Live
+
 **Goal**: Cyril presses Start Work on a board task and watches a Claude Code session do that task inside a git worktree that belongs to the task rather than to the session.
 **Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: DATA-04, DATA-06, WORK-01, WORK-02, WORK-08, LINK-01, PROC-01, PROC-02, PROC-06, PROC-07, AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-06
 **Success Criteria** (what must be TRUE):
+
   1. User presses Start Work on a task and a dedicated git worktree appears on a branch whose name derives from the task identifier, chained to that task's epic integration branch — recognisable from a bare terminal without Flywheel.
   2. User watches the agent's output stream live for a long-running session, with the application's memory staying flat rather than growing with the transcript.
   3. The agent pauses on a permission request, the user answers it from the board, and the agent resumes.
   4. User stops a running session and finds the worktree intact and inspectable, then starts a second session on that same worktree — the worktree outlives the session.
   5. User sees the worktree, the agent run and the session as distinct linked records on the task, each started through a trigger record, and can point Flywheel at either his existing local Claude Code credentials or an explicit API key with nothing else in the product behaving differently.
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -128,16 +164,19 @@ API-key path is first-class from day one because research rates the credential-p
 as an existential external dependency.
 
 ### Phase 3: Nothing Lost, Nothing Left Running
+
 **Goal**: Cyril can quit, crash or interrupt Flywheel at any moment and know that no uncommitted work was destroyed and no agent is still spending his money.
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: WORK-03, WORK-04, WORK-05, WORK-06, PROC-03, PROC-04, PROC-05, AGNT-07
 **Success Criteria** (what must be TRUE):
+
   1. User tries to remove a worktree holding uncommitted changes; Flywheel refuses, shows exactly what would have been lost, and leaves the worktree alone.
   2. User quits the application while a session is running and no agent process survives — confirmed in the OS process table — including when the supervisor is killed rather than closed cleanly.
   3. User relaunches after a crash and is shown every orphaned process, every in-flight run and every worktree that disagrees with the database, and decides what happens to each; nothing is silently resumed and nothing is silently repaired.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -150,16 +189,19 @@ data loss. Research flag: expand the lock-contention evidence base and test agai
 versions during planning.
 
 ### Phase 4: `/clear` Is Free
+
 **Goal**: Cyril throws away an agent's entire context in the middle of a task and the next session picks up exactly where the last one left off, reconstituted from the board alone.
 **Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: CTX-01, CTX-02, CTX-03, CTX-04, CTX-05, CTX-06, CTX-07, CTX-08, BOARD-03
 **Success Criteria** (what must be TRUE):
+
   1. Every session ends by writing a structured summary to the board — what changed, what remains, what the next session must know — and no existing summary is ever overwritten or rewritten in place.
   2. User discards a session's context in a single action and starts a fresh session on the same worktree; the new session is primed automatically from the task, its epic context, its immutable acceptance criteria, prior summaries and the diff so far, with no chat transcript involved, and the same board state always produces the same context packet.
   3. User sees which summaries are being carried verbatim and exactly where compaction begins.
   4. When a new session states an understanding that contradicts a decision already recorded on the board, the user is told rather than left to discover it in the diff.
   5. An automated test runs one task through at least five session cycles and proves its acceptance criteria are unchanged; a user editing criteria after work has started creates a new revision instead of overwriting the original.
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -172,15 +214,18 @@ context-quality metrics *before* shipping this phase — do not ship without evi
 holds.
 
 ### Phase 5: Socratic Epic Authoring
+
 **Goal**: Cyril shapes a new epic by being challenged rather than interviewed, and walks away with structured board items instead of a document.
 **Mode:** mvp
 **Depends on**: Phase 4
 **Requirements**: SHAPE-01, SHAPE-02, SHAPE-03, SHAPE-04, SHAPE-05
 **Success Criteria** (what must be TRUE):
+
   1. User starts a conversational session to shape a new epic and the agent challenges his assumptions and asks clarifying questions before any work is planned.
   2. The session's outcome lands directly on the board as a structured epic with child tasks and drafted acceptance criteria for each task — not as a markdown file or a chat log.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -192,16 +237,19 @@ Spike the flow during planning to confirm epic authoring here really is faster a
 prompting in a terminal, before building the full surface.
 
 ### Phase 6: Agents File Their Own Backlog
+
 **Goal**: Agents surface what they learn as proposed board items, and nothing an agent proposes becomes real work without Cyril saying so.
 **Mode:** mvp
 **Depends on**: Phase 5
 **Requirements**: PROP-01, PROP-02, PROP-03, PROP-04, PROP-05, PROP-06, PROP-07
 **Success Criteria** (what must be TRUE):
+
   1. A running agent proposes a new task, issue or epic mid-session through a board tool, and it lands in a distinct proposed state — never appearing as accepted work, with no code path that promotes it except explicit human triage.
   2. User triages the proposal queue in a dedicated view: accept, reject, merge into an existing item, or defer.
   3. Each proposal shows which agent run produced it and what prompted it.
   4. A proposal that duplicates an existing item is flagged as a duplicate before the user sees it.
   5. A chatty agent hits a per-run proposal limit and the user is told the limit was hit, rather than proposals being silently dropped.
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -210,16 +258,19 @@ backlog spam and auto-promotion are how trust in an agent-authored backlog colla
 should be verified by proving no promotion path exists, not just that the happy path asks first.
 
 ### Phase 7: The Board Tells The Git Truth
+
 **Goal**: Cyril can answer "where does this task actually stand in git and on the forge?" from the board, without opening a terminal.
 **Mode:** mvp
 **Depends on**: Phase 4
 **Requirements**: LINK-02, LINK-03, LINK-04, LINK-05, LINK-06, LINK-07, LINK-08, LINK-09, LINK-10, LINK-11
 **Success Criteria** (what must be TRUE):
+
   1. Every board item shows its branch, its commits, how far ahead or behind its integration target it is, and any uncommitted changes sitting in its worktree.
   2. User pastes a commit hash or a branch name and lands on the board item that produced it; conversely `git log` alone reveals the task identifier for any agent-produced commit, via a commit-message trailer.
   3. Opening a pull request moves the task to In Review and merging it moves the task to Done, with the request's state and its CI result visible on the item.
   4. User commits by hand from his own terminal on a task's branch and Flywheel detects it and reflects it on the board item, never silently overwriting it.
   5. Flywheel works against a GitHub project and a GitLab project and degrades cleanly to local-only git when no forge is configured; from any task the user opens its worktree in his own editor or terminal in one action.
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -229,15 +280,18 @@ exactly the v1 failure condition. Depends on Phase 4 rather than Phase 6, so it 
 parallel with the Phase 5-6 moat work if capacity allows.
 
 ### Phase 8: Review And Merge Inside Flywheel
+
 **Goal**: Cyril reviews an agent's work against the acceptance criteria that were agreed before it started, and lands it, without dropping back to a terminal.
 **Mode:** mvp
 **Depends on**: Phase 7
 **Requirements**: REVW-01, REVW-02, REVW-03, REVW-04, REVW-05
 **Success Criteria** (what must be TRUE):
+
   1. User reads a task's full diff with syntax highlighting inside the application, and reads the accumulated diff of its epic's integration branch.
   2. User checks off each of the task's acceptance criteria against the diff while reviewing it.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -247,16 +301,19 @@ blob. With this phase complete the full loop is closable in-app: shape → plan 
 → review → merge.
 
 ### Phase 9: Planned Fan-Out That Does Not Collide
+
 **Goal**: Cyril turns one epic into several agents working at once, with parallelism bounded by real file-set disjointness rather than optimism.
 **Mode:** mvp
 **Depends on**: Phase 3, Phase 6
 **Requirements**: PLAN-01, PLAN-02, PLAN-03, PLAN-04, PLAN-05, PLAN-06, PLAN-07, AGNT-05
 **Success Criteria** (what must be TRUE):
+
   1. User asks the planner to decompose an epic and gets tasks that each declare the set of files they expect to modify, grouped into waves for dispatch.
   2. When two candidate tasks declare overlapping files, only that pair drops to sequential execution while the rest of the wave still runs in parallel — and the user can ask why any two tasks were sequenced and get an answer.
   3. An agent that tries to write a file outside its task's declared file-set is stopped at the tool level, and the attempt appears to the user as a scope event rather than a silent block.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -267,16 +324,19 @@ tool-level enforcement, falling to ~4% with it. Criterion 5 exists partly for co
 visible backoff is what keeps Flywheel from looking like abuse to the backend.
 
 ### Phase 10: Fleet Supervision Across Every Project
+
 **Goal**: Cyril answers "what is every agent, everywhere, doing — and what needs me?" in one glance, across every registered project.
 **Mode:** mvp
 **Depends on**: Phase 9
 **Requirements**: FLEET-01, FLEET-02, FLEET-03, FLEET-04, FLEET-05, WORK-07, AGNT-08
 **Success Criteria** (what must be TRUE):
+
   1. One view lists every agent running across every registered project and what each one is doing, distinguishing running, blocked, finished-awaiting-review and failed at a glance.
   2. A dedicated queue shows every agent currently blocked and waiting on a human, across all projects at once.
   3. User jumps from any fleet entry straight to that agent's live output and to its board item.
   4. User receives an operating-system notification when an agent becomes blocked or completes, without watching the window.
   5. User sees every worktree across all projects with its disk usage and reclaims stale ones, and sees token usage and cost for each session.
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -285,15 +345,18 @@ that multi-project aggregation only makes sense once single-project supervision 
 Criterion 2 is the one that decides whether fleet supervision beats tab-cycling through terminals.
 
 ### Phase 11: Ship It
+
 **Goal**: Cyril installs Flywheel like any other Mac application and it keeps itself current, and another developer can clone the repository and build it.
 **Mode:** mvp
 **Depends on**: Phase 10
 **Requirements**: DIST-01, DIST-02, DIST-03, DIST-04
 **Success Criteria** (what must be TRUE):
+
   1. User installs a signed, notarized macOS build and opens it with no Gatekeeper warning.
   2. User is offered a new release from inside the application and updates without a manual reinstall.
   3. A developer clones the repository and builds a working desktop application by following the documented steps.
   4. The installed open-source application is fully functional standalone — no account, no network service, and no feature gated behind either.
+
 **Plans**: TBD
 **UI hint**: no
 

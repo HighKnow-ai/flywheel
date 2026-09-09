@@ -1,17 +1,17 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 1
+current_phase: 01
 current_phase_name: The Board Is The Store Of Record
-status: planning
+status: executing
 stopped_at: Phase 1 context gathered
-last_updated: "2026-09-08T23:28:19.431Z"
+last_updated: "2026-09-09T00:53:59.426Z"
 last_activity: 2026-09-08
 last_activity_desc: Roadmap created; 93/93 v1 requirements mapped across 11 vertical MVP phases
-state_head: 10d5b3354dda0d41e58d25e32863f9b6ac218f01
+state_head: 837008f960ad01b559f4132c892c1e56a812abca
 progress:
   total_phases: 11
   completed_phases: 0
-  total_plans: 0
+  total_plans: 11
   completed_plans: 0
   percent: 0
 ---
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 
 ## Current Position
 
-Phase: 1 of 11 (The Board Is The Store Of Record)
+Phase: 01 (The Board Is The Store Of Record) — READY TO EXECUTE
 Plan: 0 of TBD in current phase
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-09-08 — Roadmap created; 93/93 v1 requirements mapped across 11 vertical MVP phases
 
 Progress: [░░░░░░░░░░] 0%
@@ -86,7 +86,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 | Category | Item | Status | Deferred At | Milestone |
 |----------|------|--------|-------------|-----------|
-| *(none)* | | | | |
+| Requirements correction | **D-21 — `RLAY-01` is wrong as written.** It encodes laptop-as-master relay topology, which the user rejected as a single point of failure for a team sharing a repository. Rewrite it to the relay-as-hub model settled in D-20. Not Phase 1 work; action for the next milestone or requirements pass. | Open | 2026-09-09 (Phase 1 planning) | v1 |
 
 ## Session Continuity
 

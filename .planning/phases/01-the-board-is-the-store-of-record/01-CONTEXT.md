@@ -149,11 +149,14 @@ Phase 4 — Phase 1 only lays the table down so that change is additive.
   an offline-capable replica that reconciles on reconnect. Solo mode is the degenerate case: no relay
   configured, the local database is the only copy, and DIST-04 still holds because the desktop app is
   fully functional with the server entirely absent.
-- **D-21:** **`RLAY-01` is wrong as written** and must be corrected at the milestone boundary, not
+- **D-21 [informational]:** **`RLAY-01` is wrong as written** and must be corrected at the milestone boundary, not
   silently here. It currently reads "A hosted relay syncs board state *from a developer's machine* to
   the cloud", which encodes the laptop-as-master topology the user rejected as a single point of
   failure for a team sharing a repository. **Action for whoever runs the next milestone or
   requirements pass — not for this phase's planner.**
+  Tagged `[informational]` during Phase 1 planning: it is not a Phase 1 implementation decision, so
+  no Phase 1 plan covers it and the decision-coverage gate correctly stops tracking it. Recorded in
+  `STATE.md` § Deferred Items so the milestone pass picks it up.
 - **D-22:** Nothing in Phase 1 depends on the relay existing. The properties that make a hub possible
   are already locked and land in this phase regardless: ULIDs so two machines never collide on keys
   (DATA-02), an append-only event log with actor attribution so merging is "apply their events"
