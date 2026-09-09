@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-09-09T02:53:11.892Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-09-09T03:31:57.828Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: 076fdf22a7ec7ad1caf7b29783757025ef7d3bc8
+state_head: 051276754791d9ba319a056dd917fb5234267766
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 11
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 4 of 11
+Plan: 5 of 11
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01 | 30min | 3 tasks | 59 files |
 | Phase 01 P02 | 25min | 3 tasks | 20 files |
 | Phase 01 P03 | 34min | 3 tasks | 38 files |
+| Phase 01 P04 | 55min | 3 tasks | 30 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase 01]: [Phase 01-03]: Owner closed the schema-shape checkpoint — epics/tasks share one five-state status CHECK, issues workflow-less; nullable assignee_id; priority 0-4 with No priority sorting last; estimate S/M/L as ordinal 1-3, never aggregated; project key prefix user-typed with a derived default, immutable once the first item exists
 - [Phase 01]: [Phase 01-03]: ARCHITECTURE.md's epic lifecycle enum (integrating/archived) is re-homed onto the five-state status plus epics.integration_branch and epics.archived_at columns, added now so Phase 8 needs no schema change
 - [Phase 01]: [Phase 01-03]: No-priority-sorts-last is enforced entirely in query::list_board's SQL sort-key expression, never by relying on the raw stored/keymap value's ordering
+- [Phase 01]: Crash-recovery ground truth: Task 1 committed by first session (0f82626); second session reviewed and finished Task 2/3's inherited uncommitted work, finding it correct and complete
+- [Phase 01]: Pickers portal-render to document.body (not in-row) because @tanstack/react-virtual gives each row its own CSS stacking context
 
 ### Pending Todos
 
@@ -105,6 +108,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T02:53:11.877Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-09-09T03:31:57.812Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None

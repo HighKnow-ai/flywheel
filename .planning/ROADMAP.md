@@ -84,7 +84,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. User opens any item and sees a chronological trail of what changed, when, and which actor — human or agent — changed it.
   5. User force-quits the application mid-work and relaunches (including across a version upgrade that migrates the database) with no committed change lost or corrupted, and can replay the project's entire change history in order from any cursor position.
 
-**Plans**: 3/11 plans executed in 10 waves
+**Plans**: 4/11 plans executed in 10 waves
 **UI hint**: yes
 
 Plans:
@@ -102,7 +102,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-04-PLAN.md — The fixed three-level hierarchy and the fixed five-state workflow, enforced by the schema
+- [x] 01-04-PLAN.md — The fixed three-level hierarchy and the fixed five-state workflow, enforced by the schema
 - [ ] 01-05-PLAN.md — Durability: force-quit crash safety and backup-first migration safety
 
 **Wave 5** *(blocked on Wave 4 completion)*
@@ -407,7 +407,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. The Board Is The Store Of Record | 3/11 | In Progress|  |
+| 1. The Board Is The Store Of Record | 4/11 | In Progress|  |
 | 2. One Agent, One Worktree, Watched Live | 0/TBD | Not started | - |
 | 3. Nothing Lost, Nothing Left Running | 0/TBD | Not started | - |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
