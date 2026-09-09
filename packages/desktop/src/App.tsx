@@ -75,7 +75,7 @@ function Board({ projectId, projectName }: { projectId: string; projectName: str
             items={boardQuery.data.items}
             issues={boardQuery.data.issues}
             counts={boardQuery.data.counts}
-            onCreateTask={(title) => createTask.mutate(title)}
+            onCreateTask={(title, epicId) => createTask.mutate({ title, epicId })}
             emptyState={emptyState}
           />
         ) : null}

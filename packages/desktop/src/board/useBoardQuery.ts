@@ -212,12 +212,21 @@ export function useBoardQuery(
   });
 }
 
-/** Create a task at the current position (D-09 quick-add). */
+/**
+ * Create a task at the current position (D-09 quick-add), optionally under an epic. `task_create`
+ * has accepted `epic_id: Option<String>` since plan 01-04 — this hook silently dropping it was
+ * the first of G-01-EPIC-ASSIGN's three causes: a task created under a selected epic (plan
+ * 01-15's nested quick-add) would still land parentless because nothing ever sent the id.
+ */
 export function useCreateTask(projectId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (title: string) =>
-      invokeCommand<BoardItem>("task_create", { projectId, title }),
+    mutationFn: (input: { title: string; epicId?: string | null }) =>
+      invokeCommand<BoardItem>("task_create", {
+        projectId,
+        title: input.title,
+        epicId: input.epicId,
+      }),
     onSuccess: () => {
       // The core also emits `board:changed` (D-04) — this is a courtesy immediate refetch for
       // the tab that made the mutation; `useBoardChangedSubscription` is the source of truth for
@@ -328,6 +337,21 @@ export function useSetAssignee(projectId: string | undefined) {
         [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
         assigneeId: input.assigneeId,
       }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
+}
+
+/**
+ * Reparent a task under an epic, or orphan it with `epicId: null` (`m`, `ParentPicker`,
+ * G-01-EPIC-ASSIGN). Unlike `useSetStatus`/`useSetPriority`/`useSetEstimate`/`useSetAssignee`,
+ * there is no epic-kind branch here — this action exists only for tasks, because the hierarchy is
+ * fixed at three levels and an epic has no epic parent of its own.
+ */
+export function useSetTaskEpic(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { taskId: string; epicId: string | null }) =>
+      invokeCommand<void>("task_set_epic", { taskId: input.taskId, epicId: input.epicId }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
   });
 }

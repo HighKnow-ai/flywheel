@@ -39,6 +39,7 @@ import { StatusPicker } from "./pickers/StatusPicker";
 import { PriorityPicker } from "./pickers/PriorityPicker";
 import { EstimatePicker } from "./pickers/EstimatePicker";
 import { AssigneePicker } from "./pickers/AssigneePicker";
+import { ParentPicker, type ParentOption } from "./pickers/ParentPicker";
 import { ItemDetailPanel, type DetailItem } from "../item-detail/ItemDetailPanel";
 import { useCollapseStore } from "./collapseStore";
 import {
@@ -61,6 +62,7 @@ import {
   useSetEstimate,
   useSetPriority,
   useSetStatus,
+  useSetTaskEpic,
   useUpdateItem,
 } from "./useBoardQuery";
 import type { Actor, BandCounts, BoardItem, BoardItemKind, IssueItem } from "./useBoardQuery";
@@ -115,7 +117,9 @@ export interface BoardViewProps {
   items: BoardItem[];
   issues?: IssueItem[];
   counts: BandCounts;
-  onCreateTask: (title: string) => void;
+  /** `epicId` is `null` for every call site in this plan — plan 01-15's nested quick-add is what
+   * ever supplies a non-null value, from the epic under which a task is created inline. */
+  onCreateTask: (title: string, epicId: string | null) => void;
   /** `undefined` preserves this component's pre-01-08 behavior exactly (headers + quick-add
    * only, no overlay) — existing callers/tests that never pass this prop are unaffected. */
   emptyState?: EmptyStateContent;
@@ -185,6 +189,7 @@ export function BoardView({
   const setPriority = useSetPriority(projectId);
   const setEstimate = useSetEstimate(projectId);
   const setAssignee = useSetAssignee(projectId);
+  const setTaskEpic = useSetTaskEpic(projectId);
   const reorderItem = useReorderItem(projectId);
   const updateItem = useUpdateItem(projectId);
   const createIssue = useCreateIssue(projectId);
@@ -405,6 +410,13 @@ export function BoardView({
       case "open-assignee-picker":
         if (selectedId) openPickerFor("assignee", selectedId);
         break;
+      case "open-epic-picker":
+        // Refused on an epic row — a no-op, not an error toast — because the fixed three-level
+        // hierarchy gives an epic no epic parent of its own (G-01-EPIC-ASSIGN).
+        if (selectedId && selectedItem && (selectedItem.kind ?? "task") === "task") {
+          openPickerFor("epic", selectedId);
+        }
+        break;
       case "reorder-up":
         if (selectedId) reorderSelected("up");
         break;
@@ -532,7 +544,7 @@ export function BoardView({
                   <QuickAdd
                     autoFocus
                     onCreate={(title) =>
-                      quickAddKind === "epic" ? createEpic.mutate(title) : onCreateTask(title)
+                      quickAddKind === "epic" ? createEpic.mutate(title) : onCreateTask(title, null)
                     }
                     onEscape={() => setQuickAddOpen(false)}
                     placeholder={
@@ -719,6 +731,28 @@ export function BoardView({
                   onClose={closePicker}
                 />
               );
+            case "epic": {
+              // Every epic in the loaded window except the picked row itself — the same
+              // derivation `epicsById` and `FilterBar`'s epic chips already use, so a task can
+              // never be offered as its own epic.
+              const epicOptions: ParentOption[] = items
+                .filter((item) => item.kind === "epic" && item.id !== pickedRow.id)
+                .map((epic) => ({ id: epic.id, label: `${epic.key} ${epic.title}` }));
+              return (
+                <ParentPicker
+                  ariaLabel="Set epic"
+                  emptyLabel="No epic"
+                  currentId={pickedRow.epicId}
+                  options={epicOptions}
+                  anchorRect={pickerAnchor}
+                  onSelect={(epicId) => {
+                    setTaskEpic.mutate({ taskId: pickedRow.id, epicId });
+                    closePicker();
+                  }}
+                  onClose={closePicker}
+                />
+              );
+            }
             default:
               return null;
           }

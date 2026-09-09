@@ -27,6 +27,7 @@ import { StatusPicker } from "./pickers/StatusPicker";
 import { PriorityPicker } from "./pickers/PriorityPicker";
 import { EstimatePicker } from "./pickers/EstimatePicker";
 import { AssigneePicker } from "./pickers/AssigneePicker";
+import { ParentPicker, type ParentOption } from "./pickers/ParentPicker";
 import {
   allActionIds,
   actionLabel,
@@ -48,6 +49,7 @@ import {
   useSetEstimate,
   useSetPriority,
   useSetStatus,
+  useSetTaskEpic,
 } from "./useBoardQuery";
 
 /** Board-list action ids whose palette command opens its OWN overlay (a picker, or the delete
@@ -58,6 +60,7 @@ const OVERLAY_ACTION_IDS = new Set<ActionId>([
   "open-priority-picker",
   "open-estimate-picker",
   "open-assignee-picker",
+  "open-epic-picker",
   "delete-item",
 ]);
 
@@ -70,6 +73,11 @@ const SELECTION_INDEPENDENT_ACTION_IDS = new Set<ActionId>([
   "select-first",
   "select-last",
 ]);
+
+/** Board-list action ids that only apply to a task, never an epic — the fixed three-level
+ * hierarchy gives an epic no epic parent of its own (G-01-EPIC-ASSIGN). The palette disables
+ * these when an epic is selected, in addition to the no-selection case above. */
+const TASK_ONLY_ACTION_IDS = new Set<ActionId>(["open-epic-picker"]);
 
 interface Command {
   id: string;
@@ -98,7 +106,7 @@ function focusFirstChildButton(id: string) {
   document.getElementById(id)?.querySelector("button")?.focus();
 }
 
-type PaletteOverlay = "status" | "priority" | "estimate" | "assignee" | "legend" | null;
+type PaletteOverlay = "status" | "priority" | "estimate" | "assignee" | "epic" | "legend" | null;
 
 export function CommandPalette() {
   const open = useUiStore((state) => state.paletteOpen);
@@ -144,6 +152,7 @@ export function CommandPalette() {
   const setPriority = useSetPriority(effectiveProjectId);
   const setEstimate = useSetEstimate(effectiveProjectId);
   const setAssignee = useSetAssignee(effectiveProjectId);
+  const setTaskEpic = useSetTaskEpic(effectiveProjectId);
   const reorderItem = useReorderItem(effectiveProjectId);
 
   // `⌘K` — the one binding this component owns directly, since it is the surface it opens.
@@ -202,6 +211,9 @@ export function CommandPalette() {
         break;
       case "open-assignee-picker":
         if (selectedItem) setOverlay("assignee");
+        break;
+      case "open-epic-picker":
+        if (selectedItem && (selectedItem.kind ?? "task") === "task") setOverlay("epic");
         break;
       case "reorder-up":
         if (selectedItem) reorderItem.mutate({ kind: selectedItem.kind ?? "task", id: selectedItem.id, direction: "up" });
@@ -328,7 +340,9 @@ export function CommandPalette() {
         id,
         label,
         group: "Selected item",
-        disabled: !selectedItemId && !SELECTION_INDEPENDENT_ACTION_IDS.has(id),
+        disabled:
+          (!selectedItemId && !SELECTION_INDEPENDENT_ACTION_IDS.has(id)) ||
+          (TASK_ONLY_ACTION_IDS.has(id) && (selectedItem?.kind ?? "task") === "epic"),
         run: () => {
           runBoardListAction(id);
           if (!OVERLAY_ACTION_IDS.has(id)) close();
@@ -458,6 +472,26 @@ export function CommandPalette() {
             onClose={closeOverlay}
           />
         );
+      case "epic": {
+        const epicOptions: ParentOption[] = items
+          .filter((item) => item.kind === "epic" && item.id !== selectedItem.id)
+          .map((epic) => ({ id: epic.id, label: `${epic.key} ${epic.title}` }));
+        return (
+          <ParentPicker
+            ariaLabel="Set epic"
+            emptyLabel="No epic"
+            currentId={selectedItem.epicId}
+            options={epicOptions}
+            anchorRect={rect}
+            onSelect={(epicId) => {
+              setTaskEpic.mutate({ taskId: selectedItem.id, epicId });
+              closeOverlay();
+              close();
+            }}
+            onClose={closeOverlay}
+          />
+        );
+      }
       default:
         return null;
     }
