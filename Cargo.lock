@@ -365,6 +365,7 @@ name = "core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "fractional_index",
  "once_cell",
  "rusqlite",
@@ -617,6 +618,7 @@ name = "desktop"
 version = "0.1.0"
 dependencies = [
  "core",
+ "rusqlite",
  "serde",
  "serde_json",
  "tauri",
