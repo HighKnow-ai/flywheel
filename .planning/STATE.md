@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-14-PLAN.md
-last_updated: "2026-09-09T14:04:15.110Z"
+stopped_at: Completed 01-15-PLAN.md
+last_updated: "2026-09-09T14:25:40.293Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: a4d702984eb2ab5e52001f36529c01d0810af0c9
+state_head: e0e6533a95c250598f571ebf34bf38fb157189f2
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 15
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 4 of 15
+Plan: 5 of 15
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -72,6 +72,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P12 | 15min | 3 tasks | 8 files |
 | Phase 01-13 P13 | 20min | 3 tasks | 12 files |
 | Phase 01 P14 | 12min | 3 tasks | 9 files |
+| Phase 01-the-board-is-the-store-of-record P15 | 15min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,8 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-14: ParentPicker (id/label/group options, portalled) is the generic sibling of the four fixed-option pickers, added now so 01-15 reuses it for issue parents instead of forking it
 - [Phase 01]: 01-14: epic picker bound to m ('move under') not a reflexive letter — s/p/e/a were already taken by status/priority/estimate/assignee
 - [Phase 01]: 01-14: useSetTaskEpic exists only for tasks (no epic-kind branch) — the fixed three-level hierarchy gives an epic no epic parent of its own
+- [Phase 01]: 01-15: parentsById (BoardView) is one item-id -> {key,title,kind} lookup covering both epics and tasks, keyed exactly like epicsById's single-window derivation — IssuesLane needs no second tasksById map to resolve an issue's parent
+- [Phase 01]: 01-15: BOARD-01 reticked in REQUIREMENTS.md, restored to its pre-01-12 wording — G-01-EPIC-ASSIGN is fully closed (issue parenting, quick-add nesting, and both creation paths now carry the ids they were dropping)
 
 ### Pending Todos
 
@@ -145,6 +148,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T14:04:15.031Z
-Stopped at: Completed 01-14-PLAN.md
+Last session: 2026-09-09T14:25:40.266Z
+Stopped at: Completed 01-15-PLAN.md
 Resume file: None

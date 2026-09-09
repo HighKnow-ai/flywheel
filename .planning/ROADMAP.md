@@ -140,7 +140,7 @@ Plans:
 
 **Gap closure — Wave 3** *(blocked on 01-14)*
 
-- [ ] 01-15-PLAN.md — G-01-EPIC-ASSIGN: issues under an epic or a task, quick-add nesting, and BOARD-01 made true again
+- [x] 01-15-PLAN.md — G-01-EPIC-ASSIGN: issues under an epic or a task, quick-add nesting, and BOARD-01 made true again
 
 **Notes**: This is where the three structural seams land that would otherwise be retrofit
 nightmares: the append-only event log written in the same transaction as the mutable projection
