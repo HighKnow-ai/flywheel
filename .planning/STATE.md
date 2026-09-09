@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-09-PLAN.md
-last_updated: "2026-09-09T08:16:05.251Z"
+stopped_at: Completed 01-10-PLAN.md
+last_updated: "2026-09-09T08:34:16.079Z"
 last_activity: 2026-09-09
 last_activity_desc: Phase 01 execution started
-state_head: fa804d32b3ed2214281625851395be168d7e1eec
+state_head: 8b43e59273dbcbf842cb8b824c31021251fed164
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 10 of 11
+Plan: 11 of 11
 Status: Ready to execute
 Last activity: 2026-09-09 — Phase 01 execution started
 
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P07 | 65min | 3 tasks | 26 files |
 | Phase 01 P08 | 140min | 3 tasks | 20 files |
 | Phase 01 P09 | 110min | 3 tasks | 16 files |
+| Phase 01-the-board-is-the-store-of-record P10 | 50min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,8 @@ Recent decisions affecting current work:
 - [Phase 01]: [Phase 01-09]: The Escape ladder is one capture-phase window listener that calls stopPropagation() once it commits to closing a layer, verified against Radix DismissableLayer's own isHighestLayer source — row-level pickers and DeleteConfirm are deliberately outside the four-layer ladder and keep their own Radix Escape handling
 - [Phase 01]: [Phase 01-09]: Quick-add changed from always-mounted to on-demand (c/⌘N opens it, or the project has zero items) so it can be a real closeable Escape-ladder layer
 - [Phase 01]: [Phase 01-09]: dispatchAction(id) synthesizes a real KeyboardEvent matching an action's global binding — the command palette and the native menu.rs bridge both re-enter the exact keyboard pipeline rather than a second implementation of each action's effect
+- [Phase 01]: render_description reads the payload's already-present "label" (built from field/before/after at write time by every domain mutation function) rather than a second, independent formatter
+- [Phase 01]: ActivityTrail.tsx guarded by the same !isIssue condition as AcceptanceCriteriaList — core::query::events only accepts task/epic as parent_kind, matching the events table's denormalised task_id/epic_id columns
 
 ### Pending Todos
 
@@ -129,6 +132,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-09T08:16:05.233Z
-Stopped at: Completed 01-09-PLAN.md
+Last session: 2026-09-09T08:34:16.058Z
+Stopped at: Completed 01-10-PLAN.md
 Resume file: None
