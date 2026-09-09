@@ -19,6 +19,13 @@
  * model"). The Escape ladder (palette → detail panel → quick-add → clear selection,
  * `nextEscapeLayer`) is coordinated from the `useEffect` below, since it must be able to see
  * `state/uiStore.ts`'s `paletteOpen` even though `CommandPalette.tsx` mounts outside this tree.
+ *
+ * The whole layer stack — `activePicker`, `quickAddOpen`, `quickAddKind`, `pendingDone`, plus
+ * `paletteOpen`/`detailItemId`/`deleteTarget` above — lives in `state/uiStore.ts`, not local
+ * `useState`, so `state/keyboard.ts`'s layer model (`bindingAllowedInLayer`/`topLayer`) can see
+ * the whole stack from outside this tree too (01-13-PLAN.md, G-01-FOCUS). This container's own
+ * key handler (`handleContainerKeyDown` below) reads the same layer decision every global
+ * binding does — no hand-rolled guard of its own.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -35,13 +42,15 @@ import { AssigneePicker } from "./pickers/AssigneePicker";
 import { ItemDetailPanel, type DetailItem } from "../item-detail/ItemDetailPanel";
 import { useCollapseStore } from "./collapseStore";
 import {
+  bindingAllowedInLayer,
   boundarySelectionId,
   nextEscapeLayer,
   nextSelectionId,
   resolveBinding,
+  topLayer,
   useGlobalBindings,
 } from "../state/keyboard";
-import { useUiStore } from "../state/uiStore";
+import { useUiStore, type PickerKind } from "../state/uiStore";
 import {
   useActors,
   useCreateEpic,
@@ -87,11 +96,6 @@ type RackRow =
 function itemTypeLabel(kind: BoardItemKind): "Epic" | "Task" {
   return kind === "epic" ? "Epic" : "Task";
 }
-
-/** Which row-level picker is open, if any. One piece of state covers all four (status, priority,
- * estimate, assignee) rather than four parallel `useState` triples — they share the same
- * open/anchor/close shape. */
-type PickerKind = "status" | "priority" | "estimate" | "assignee";
 
 /** The centered overlay shown when the (possibly filtered/searched) window holds no epics, tasks
  * or issues at all (01-UI-SPEC.md "State Inventory" — the empty-project and empty-filter-result
@@ -145,24 +149,30 @@ export function BoardView({
   const setDetailItemId = useUiStore((state) => state.setDetailItemId);
   const deleteTarget = useUiStore((state) => state.deleteTarget);
   const setDeleteTarget = useUiStore((state) => state.setDeleteTarget);
+  // The command palette (`CommandPalette.tsx`, mounted outside this tree) is the one other
+  // surface that can open over the item detail panel — subscribed here (not just read via
+  // `getState()`) so `<ItemDetailPanel trapped={!paletteOpen}>` below re-renders the moment the
+  // palette opens or closes (01-13-PLAN.md, G-01-FOCUS instance 5).
+  const paletteOpen = useUiStore((state) => state.paletteOpen);
   const [listFocused, setListFocused] = useState(false);
-  const [activePicker, setActivePicker] = useState<{ kind: PickerKind; id: string } | null>(null);
+  // The rest of the layer stack lives in `state/uiStore.ts` too (01-13-PLAN.md Task 1) — not
+  // local `useState` — so `state/keyboard.ts`'s layer model can see it from outside this tree.
+  // `pickerAnchor` stays local: it is screen geometry the picker's portal needs, not layer state.
+  const activePicker = useUiStore((state) => state.activePicker);
+  const setActivePicker = useUiStore((state) => state.setActivePicker);
   const [pickerAnchor, setPickerAnchor] = useState<AnchorRect | null>(null);
   // Quick-add is on demand (`c`/`⌘N` opens it; 01-UI-SPEC.md "Quick-add", "Surface Inventory") —
   // `effectiveQuickAddOpen` below additionally forces it open for a project with zero items, per
   // the empty-board default ("quick-add is already visible and focused," State Inventory).
-  const [quickAddOpen, setQuickAddOpen] = useState(false);
-  const [quickAddKind, setQuickAddKind] = useState<BoardItemKind>("task");
+  const quickAddOpen = useUiStore((state) => state.quickAddOpen);
+  const setQuickAddOpen = useUiStore((state) => state.setQuickAddOpen);
+  const quickAddKind = useUiStore((state) => state.quickAddKind);
+  const storeOpenQuickAdd = useUiStore((state) => state.openQuickAdd);
   // D-08: moving an item to Done with unchecked criteria warns but never blocks. The pending
   // change is held here rather than applied optimistically — `DoneWarning`'s Escape "reverts the
   // status change" by the mutation simply never having been sent (01-UI-SPEC.md State Inventory).
-  const [pendingDone, setPendingDone] = useState<{
-    kind: BoardItemKind;
-    id: string;
-    status: string;
-    checked: number;
-    total: number;
-  } | null>(null);
+  const pendingDone = useUiStore((state) => state.pendingDone);
+  const setPendingDone = useUiStore((state) => state.setPendingDone);
 
   // A stable module-level empty object — returning a fresh `{}` literal from the selector would
   // give Zustand's default reference-equality check a new value on every call, causing an
@@ -331,8 +341,7 @@ export function BoardView({
    * `useGlobalBindings` below) opens it for an epic. Both funnel through this one setter pair so
    * quick-add's own "which kind am I creating" state has a single writer. */
   function openQuickAdd(kind: BoardItemKind) {
-    setQuickAddKind(kind);
-    setQuickAddOpen(true);
+    storeOpenQuickAdd(kind);
   }
 
   /** ⌘⌫ (threat T-01-25) — always opens the named confirmation; the mutation itself is only
@@ -350,10 +359,19 @@ export function BoardView({
   }
 
   function handleContainerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (activePicker || detailItemId || deleteTarget) return; // overlays own their own keyboard handling
-
     const binding = resolveBinding(event, "board-list");
     if (!binding) return;
+    // The same layer decision `useGlobalBindings` makes for every global binding
+    // (`state/keyboard.ts`'s `bindingAllowedInLayer`/`topLayer`) — a superset of the old
+    // three-field check this replaces: board-list keys now also stand down under the Done
+    // warning and under an open palette, both of which the old check missed.
+    const layer = topLayer({
+      paletteOpen,
+      detailOpen: detailItemId !== null,
+      pickerOpen: activePicker !== null || deleteTarget !== null || pendingDone !== null,
+      quickAddOpen,
+    });
+    if (!bindingAllowedInLayer(binding.id, layer)) return;
     event.preventDefault();
 
     switch (binding.id) {
@@ -423,38 +441,42 @@ export function BoardView({
     // DOM event, not React's.
     function onKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key !== "Escape") return;
+      // Read the whole layer stack from the store at keystroke time (01-13-PLAN.md Task 2) —
+      // this listener is registered once (empty deps below), so it must never see a stale
+      // closure over `detailItemId`/`quickAddOpen`/etc.
+      const state = useUiStore.getState();
       const layer = nextEscapeLayer({
-        paletteOpen: useUiStore.getState().paletteOpen,
-        detailOpen: detailItemId !== null,
-        quickAddOpen,
-        // A row-level picker AND `DeleteConfirm` both already own their own Escape (Radix
-        // `DismissableLayer`) — the ladder steps aside for either, exactly as it does for a
-        // picker (see `nextEscapeLayer`'s doc comment).
-        pickerOpen: activePicker !== null || deleteTarget !== null,
-        hasSelection: selectedId !== null,
+        paletteOpen: state.paletteOpen,
+        detailOpen: state.detailItemId !== null,
+        quickAddOpen: state.quickAddOpen,
+        // A row-level picker, `DeleteConfirm`, and `DoneWarning` all already own their own
+        // Escape (Radix `DismissableLayer`, or — for `DoneWarning` — its own self-focused
+        // Enter/Escape handling) — the ladder steps aside for any of them, exactly as it does
+        // for a picker (see `nextEscapeLayer`'s doc comment).
+        pickerOpen: state.activePicker !== null || state.deleteTarget !== null || state.pendingDone !== null,
+        hasSelection: state.selectedItemId !== null,
       });
       if (!layer) return;
       event.preventDefault();
       event.stopPropagation();
       switch (layer) {
         case "palette":
-          useUiStore.getState().setPaletteOpen(false);
+          state.setPaletteOpen(false);
           break;
         case "detail":
-          setDetailItemId(null);
+          state.setDetailItemId(null);
           break;
         case "quick-add":
-          setQuickAddOpen(false);
+          state.setQuickAddOpen(false);
           break;
         case "selection":
-          setSelectedId(null);
+          state.setSelectedItemId(null);
           break;
       }
     }
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailItemId, quickAddOpen, activePicker, deleteTarget, selectedId]);
+  }, []);
 
   const containerStyle: CSSProperties = {
     height: "100%",
@@ -719,6 +741,10 @@ export function BoardView({
             updateItem.mutate({ kind: selectedItem.kind ?? "task", id: selectedItem.id, title })
           }
           onSetStatus={(status) => requestStatusChange(selectedItem.kind ?? "task", selectedItem.id, status)}
+          // The palette renders over this panel by design (the Escape ladder's fixed order) —
+          // release the trap while the palette owns focus so the panel stays open instead of
+          // fighting Radix's `FocusScope` for it (01-13-PLAN.md, G-01-FOCUS instance 5).
+          trapped={!paletteOpen}
         />
       )}
 

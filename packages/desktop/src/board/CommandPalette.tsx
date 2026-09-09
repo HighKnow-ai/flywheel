@@ -33,6 +33,7 @@ import {
   boundarySelectionId,
   dispatchAction,
   nextSelectionId,
+  returnToBoardLayer,
   useGlobalBindings,
   type ActionId,
 } from "../state/keyboard";
@@ -162,6 +163,17 @@ export function CommandPalette() {
     setOpen(false);
   }
 
+  /** For every command whose effect moves focus to a different region (a project switch,
+   * `focus-search`, `register-project`, `create-task`/`create-epic`, the `filter-*` ids): closes
+   * the palette AND the item detail panel first (`returnToBoardLayer`, `state/keyboard.ts`), so
+   * the surface the command is about to open is the only focus owner rather than being silently
+   * dropped by the new layer guard (01-13-PLAN.md, G-01-FOCUS). The "Selected item" board-list
+   * commands, `create-issue` and `open-legend` keep plain `close()` — they mutate or open in
+   * place and move no focus out. */
+  function closeToBoard() {
+    returnToBoardLayer();
+  }
+
   function runBoardListAction(id: ActionId) {
     switch (id) {
       case "move-down":
@@ -223,7 +235,7 @@ export function CommandPalette() {
         group: "Navigation",
         run: () => {
           setCurrentProjectId(project.id);
-          close();
+          closeToBoard();
         },
       });
     }
@@ -240,13 +252,21 @@ export function CommandPalette() {
             label,
             group: "Navigation",
             run: () => {
+              closeToBoard();
               (document.querySelector('input[aria-label="Search items"]') as HTMLInputElement | null)?.focus();
-              close();
             },
           });
           continue;
         case "register-project":
-          out.push({ id, label, group: "Project", run: () => { void registerProjectFlow(); close(); } });
+          out.push({
+            id,
+            label,
+            group: "Project",
+            run: () => {
+              closeToBoard();
+              void registerProjectFlow();
+            },
+          });
           continue;
         case "create-task":
         case "create-epic":
@@ -256,10 +276,14 @@ export function CommandPalette() {
             group: "Create",
             // Re-enters the exact same path a real `⌘N`/`⌘⇧N` keystroke takes
             // (`dispatchAction`'s doc comment in `state/keyboard.ts`) — `BoardView.tsx`'s own
-            // `useGlobalBindings` registration is what actually opens quick-add.
+            // `useGlobalBindings` registration is what actually opens quick-add. `closeToBoard()`
+            // MUST run before `dispatchAction` — Zustand's `set` is synchronous, so by the time
+            // the synthesized keydown reaches the window listener the layer is already "board"
+            // and the new guard (`bindingAllowedInLayer`) admits it. Dispatching first would have
+            // the palette drop its own command (this ordering is not incidental).
             run: () => {
+              closeToBoard();
               dispatchAction(id);
-              close();
             },
           });
           continue;
@@ -289,7 +313,7 @@ export function CommandPalette() {
             label,
             group: "Filter",
             run: () => {
-              close();
+              closeToBoard();
               focusFirstChildButton(id);
             },
           });

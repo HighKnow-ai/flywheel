@@ -77,16 +77,21 @@ export function ActivityTrail({ parentType, parentId }: ActivityTrailProps) {
 
   const trailQuery = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) =>
-      invokeCommand<ActivityEventDto[]>("events_activity_trail", {
+    queryFn: async ({ pageParam }) =>
+      // `?? []`: an IPC response that resolves to `undefined` (a malformed/empty reply, or — in
+      // tests — an unmocked command) must not crash the whole detail panel rendering the trail;
+      // it is treated as an empty page instead. `getNextPageParam` below stays defensive too
+      // (`lastPage?.length`) so a caller reaching this hook directly (bypassing `queryFn`, e.g. a
+      // pre-populated `queryClient` cache) is equally safe.
+      (await invokeCommand<ActivityEventDto[]>("events_activity_trail", {
         parentKind: parentType,
         parentId,
         limit: PAGE_SIZE,
         offset: pageParam,
-      }),
+      })) ?? [],
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === PAGE_SIZE ? allPages.length * PAGE_SIZE : undefined,
+      (lastPage?.length ?? 0) === PAGE_SIZE ? allPages.length * PAGE_SIZE : undefined,
   });
 
   const actorsQuery = useActors();

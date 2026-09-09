@@ -41,9 +41,23 @@ export interface ItemDetailPanelProps {
   onClose: () => void;
   onUpdateTitle: (title: string) => void;
   onSetStatus?: (status: string) => void;
+  /** Whether this panel's `FocusScope` traps Tab movement. Defaults to `true`. The command
+   * palette (`board/CommandPalette.tsx`) renders OVER this panel by design (the Escape ladder's
+   * fixed order, `state/keyboard.ts`) — the caller passes `false` while the palette is open, so
+   * two trapped `FocusScope`s are never mounted at once. That "two trapped scopes at once"
+   * condition is exactly what G-01-FOCUS's fifth instance describes: releasing the trap here is
+   * how the panel stays open without fighting the palette for focus. This component stays free
+   * of any store import — the caller decides. */
+  trapped?: boolean;
 }
 
-export function ItemDetailPanel({ item, onClose, onUpdateTitle, onSetStatus }: ItemDetailPanelProps) {
+export function ItemDetailPanel({
+  item,
+  onClose,
+  onUpdateTitle,
+  onSetStatus,
+  trapped = true,
+}: ItemDetailPanelProps) {
   const [titleDraft, setTitleDraft] = useState(item.title);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
   const [statusPickerAnchor, setStatusPickerAnchor] = useState<{ top: number; left: number; bottom: number } | null>(
@@ -76,7 +90,7 @@ export function ItemDetailPanel({ item, onClose, onUpdateTitle, onSetStatus }: I
   }
 
   return (
-    <FocusScope trapped asChild>
+    <FocusScope trapped={trapped} asChild>
       <DismissableLayer
         onEscapeKeyDown={(event) => {
           if (statusPickerOpen) {

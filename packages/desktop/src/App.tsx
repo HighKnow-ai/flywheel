@@ -10,7 +10,7 @@ import { useBoardChangedSubscription, useBoardQuery, useCreateTask, useProjects 
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
-import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
+import { dispatchAction, returnToBoardLayer, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
 import "./styles/tokens.css";
 import "./styles/type.css";
@@ -141,6 +141,12 @@ function AppShell() {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     subscribeMenuAction((actionId) => {
+      // A native menu click is an unambiguous request from outside the keyboard — it returns
+      // the app to the board layer before dispatching (`returnToBoardLayer`,
+      // `state/keyboard.ts`) rather than being silently dropped by the layer guard, for every
+      // forwarded id except `open-palette`, which is the one action that is legitimate over an
+      // open panel (01-13-PLAN.md Task 2).
+      if (actionId !== "open-palette") returnToBoardLayer();
       dispatchAction(actionId as ActionId);
     }).then((fn) => {
       if (cancelled) fn();
