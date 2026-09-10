@@ -11,6 +11,14 @@
  * `subscribeMenuAction` to a no-op (`() => Promise.resolve(() => {})`), which is exactly why this
  * bug shipped green. The mock below captures the handler `AppShell`'s effect passes in so this
  * file can invoke it directly, the way `on_menu_event` → `menu:action` would in a real build.
+ *
+ * G-01-1 proved the forwarded path needed its own coverage because a synthesized keydown is not
+ * the path macOS takes. G-01-4 (01-19-PLAN.md, 01-20-PLAN.md) proved that coverage also needs to
+ * run at a volume where the target row is not mounted, because both defects hid behind fixtures
+ * small enough to keep every row on screen. The "at volume" describe block below drives every
+ * one of its assertions through the same captured `menu:action` handler as every other case in
+ * this file — never a synthesized keydown — against the shared `./volume.ts` fixture instead of
+ * the single-row `ITEMS` below.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -18,6 +26,7 @@ import App from "../../App";
 import { BINDINGS, MENU_ACTION_IDS } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts, BoardItem, Project } from "../useBoardQuery";
+import { buildVolumeItems, DEEP_SCROLL_OFFSET, scrollBoardTo, VOLUME_ROW_COUNT } from "./volume";
 
 const invokeCommandMock = vi.fn();
 const openFolderDialogMock = vi.fn(() => Promise.resolve<string | null>(null));
@@ -48,6 +57,43 @@ const PROJECTS: Project[] = [
 const ITEMS: BoardItem[] = [
   { id: "1", key: "FLY-1", title: "First task", status: "backlog", rank: "10", priority: 0, epicId: null },
 ];
+
+// Built once, module-scope, from the shared `./volume.ts` fixture (Task 1) — the "at volume"
+// describe block below is the only consumer.
+const VOLUME_ITEMS: BoardItem[] = buildVolumeItems();
+
+/** Installs an alternate `board_list` response returning the volume fixture instead of the
+ * single-row `ITEMS`, otherwise identical to the shared `beforeEach` mock below. Call it before
+ * `renderApp()` inside each "at volume" case rather than changing the shared `beforeEach`, so
+ * none of the file's other 17 pre-existing cases changes size or behavior. */
+function installVolumeBoardMock() {
+  invokeCommandMock.mockImplementation((command: string) => {
+    if (command === "actor_list") return Promise.resolve([]);
+    if (command === "project_list") return Promise.resolve(PROJECTS);
+    if (command === "board_list") {
+      return Promise.resolve({
+        items: VOLUME_ITEMS,
+        issues: [],
+        counts: { ...EMPTY_COUNTS, backlog: VOLUME_ROW_COUNT },
+      });
+    }
+    if (command === "criterion_list") return Promise.resolve([]);
+    if (command === "events_activity_trail") return Promise.resolve([]);
+    return Promise.resolve(undefined);
+  });
+}
+
+/** The scroll container by its `role="list"` / accessible name "Board"
+ * (`BoardView.tsx`'s `aria-label="Board"`), scrolled to `DEEP_SCROLL_OFFSET` through the shared
+ * `scrollBoardTo` (`./volume.ts`) — the same helper `quick-add-focus.test.tsx` uses — wrapped in
+ * `act` so React flushes the resulting state update before the next assertion. */
+function scrollBoardToDeepOffset() {
+  const container = screen.getByRole("list", { name: "Board" });
+  act(() => {
+    scrollBoardTo(container, DEEP_SCROLL_OFFSET);
+  });
+  return container;
+}
 
 beforeEach(() => {
   resetUiState();
@@ -201,6 +247,91 @@ describe("menu-bridge (G-01-1)", () => {
       expect(binding, `expected a global binding for menu action "${id}"`).toBeDefined();
       expect(binding?.key, `expected a key for menu action "${id}"`).toBeTruthy();
     }
+  });
+});
+
+/**
+ * G-01-4 at volume (01-20-PLAN.md Task 2): the owner's exact reported scenario — pressing the
+ * real accelerator on a board large enough that the quick-add row is not mounted — driven over
+ * the real forwarded `menu:action` path this file exists to exercise, rather than a synthesized
+ * keydown. Every case below installs `installVolumeBoardMock()` before `renderApp()`, so the
+ * shared `beforeEach` mock (and all 17 pre-existing cases above and below) is untouched.
+ */
+describe("menu-bridge at volume (G-01-4)", () => {
+  it("create_task_at_volume_lands_the_cursor_in_quick_add", async () => {
+    installVolumeBoardMock();
+    await renderApp();
+    scrollBoardToDeepOffset();
+
+    expect(
+      screen.queryByPlaceholderText("Type a title, press Enter to create…"),
+    ).not.toBeInTheDocument();
+
+    emitMenuAction("create-task");
+
+    await waitFor(() => {
+      expect(
+        screen.getByPlaceholderText("Type a title, press Enter to create…"),
+      ).toBeInTheDocument();
+    });
+    const input = screen.getByPlaceholderText("Type a title, press Enter to create…");
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("create_epic_at_volume_lands_the_cursor_in_the_epic_quick_add", async () => {
+    installVolumeBoardMock();
+    await renderApp();
+    scrollBoardToDeepOffset();
+
+    expect(
+      screen.queryByPlaceholderText("Type an epic title, press Enter to create…"),
+    ).not.toBeInTheDocument();
+
+    emitMenuAction("create-epic");
+
+    await waitFor(() => {
+      expect(
+        screen.getByPlaceholderText("Type an epic title, press Enter to create…"),
+      ).toBeInTheDocument();
+    });
+    const input = screen.getByPlaceholderText("Type an epic title, press Enter to create…");
+    expect(document.activeElement).toBe(input);
+    expect(useUiStore.getState().quickAddKind).toBe("epic");
+  });
+
+  it("create_task_at_volume_over_the_detail_panel_still_does_nothing_at_all", async () => {
+    installVolumeBoardMock();
+    await renderApp();
+    openDetailPanel(VOLUME_ITEMS[0].id);
+    const container = scrollBoardToDeepOffset();
+    const activeBefore = document.activeElement;
+    const scrollTopBefore = container.scrollTop;
+
+    emitMenuAction("create-task");
+    emitMenuAction("create-epic");
+
+    expect(useUiStore.getState().detailItemId).toBe(VOLUME_ITEMS[0].id);
+    expect(useUiStore.getState().quickAddOpen).toBe(false);
+    expect(container.scrollTop).toBe(scrollTopBefore);
+    expect(document.activeElement).toBe(activeBefore);
+  });
+
+  it("a_second_create_task_at_volume_returns_the_cursor_to_the_input", async () => {
+    installVolumeBoardMock();
+    await renderApp();
+    scrollBoardToDeepOffset();
+
+    emitMenuAction("create-task");
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    act(() => {
+      input.blur();
+    });
+    expect(document.activeElement).not.toBe(input);
+
+    emitMenuAction("create-task");
+    await waitFor(() => expect(document.activeElement).toBe(input));
   });
 });
 
