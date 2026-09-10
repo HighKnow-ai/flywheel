@@ -203,6 +203,7 @@ export function BoardView({
   const collapsedByStatus =
     useCollapseStore((state) => state.collapsedByProject[projectId ?? ""]) ?? EMPTY_COLLAPSE;
   const toggleCollapsed = useCollapseStore((state) => state.toggle);
+  const expandBand = useCollapseStore((state) => state.expand);
 
   const setStatus = useSetStatus(projectId);
   const setPriority = useSetPriority(projectId);
@@ -355,6 +356,24 @@ export function BoardView({
     if (!quickAddFocusPending || quickAddRowIndex < 0) return;
     virtualizer.scrollToIndex(quickAddRowIndex, { align: "auto" });
   }, [quickAddFocusPending, quickAddRowIndex, virtualizer]);
+
+  // G-01-4's second, independent failure path: the `rows` memo above skips the quick-add
+  // insertion entirely while Backlog is collapsed (`if (collapsedByStatus[status]) continue;`),
+  // so no amount of scrolling can produce a focusable input — `quickAddRowIndex` stays `-1` and
+  // the scroll effect's guard never releases. Keyed on `effectiveQuickAddOpen` rather than on the
+  // focus-request flag, deliberately: a quick-add opened by ANY route (⌘N, `c`, the command
+  // palette, the native menu bridge, or the empty-board default) needs a band it can actually
+  // appear in — the layer guard upstream already refuses the keystroke for a trapped layer, so a
+  // refused ⌘N never sets `quickAddOpen` and therefore never reaches this effect either.
+  // Expanding is the honest outcome rather than rendering the row under a collapsed header,
+  // because the item the user is about to create lands in Backlog and must be visible once
+  // created. `if (collapsedByStatus[status]) continue;` in the `rows` memo is left untouched —
+  // it is correct for every other band, and this fix belongs at the state layer, not the row
+  // projection.
+  useEffect(() => {
+    if (!effectiveQuickAddOpen || !collapsedByStatus.backlog) return;
+    expandBand(projectId ?? "", "backlog");
+  }, [effectiveQuickAddOpen, collapsedByStatus, projectId, expandBand]);
 
   /**
    * The single point every status change funnels through, whether it originated from the
