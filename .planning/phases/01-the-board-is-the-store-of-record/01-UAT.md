@@ -1,42 +1,31 @@
 ---
-status: testing
+status: complete
 phase: 01-the-board-is-the-store-of-record
 source: [01-VERIFICATION.md, 01-19-SUMMARY.md, 01-20-SUMMARY.md, 01-21-SUMMARY.md]
 started: 2026-09-10T08:02:21Z
-updated: 2026-09-10T08:02:21Z
+updated: 2026-09-10T08:07:41Z
 ---
 
 ## Current Test
 
-number: 1
-name: Live `tauri dev` walkthrough of the G-01-4 focus pipeline and the CR-01 collapse property
-expected: |
-  On the real seeded 1,067-item / 13-epic THRE board: scroll deep, then ⌘N lands the cursor in
-  the quick-add input with no extra click and no Tab. ⌘⇧N does the same for an epic. A re-press
-  returns focus after clicking elsewhere. A collapsed Backlog band expands and takes focus. The
-  detail panel refuses all three bindings without scrolling. No visual jank during any of it.
-
-  Then, the CR-01 property this round closed: with quick-add open, click the Backlog band header.
-  It collapses and STAYS collapsed — it must not spring back open on the next render, nor when you
-  interact with another band, scroll, or switch to another project and return.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. Live walkthrough of the G-01-4 focus pipeline and the CR-01 collapse property
 expected: Every step completes exactly as the automated suite proves it does under jsdom — no perceptible lag, no visual jank, cursor lands in the input without an extra click or Tab, and a manual Backlog collapse click sticks (including across a project round-trip).
-result: [pending]
+result: pass
 
 ### 2. Perceived responsiveness at 1,000+ items, after three rounds of render-path change
 expected: Reorder, filter, search, and switch projects with the mouse untouched, on the real seeded board, including with quick-add open. No perceptible lag or visual jank at volume. The expected direction is strictly better than the pre-01-21 code, since CR-01's fix removes a self-sustaining render-path write rather than merely retiming it.
-result: [pending]
+result: pass
 
 ## Summary
 
 total: 2
-passed: 0
+passed: 2
 issues: 0
-pending: 2
+pending: 0
 skipped: 0
 blocked: 0
 
