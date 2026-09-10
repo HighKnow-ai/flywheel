@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-09-10T12:42:13.838Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-09-10T13:24:54.426Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 02 execution started
-state_head: e137ad392195aadad97464e5094f4d274d2fb7ac
+state_head: 0a5ebaf9e819c9d2aa70eb6b91a523ca2d00431f
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 31
-  completed_plans: 22
+  completed_plans: 23
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 2 of 10
+Plan: 3 of 10
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 02 execution started
 
@@ -80,6 +80,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P20 | 25min | 3 tasks | 4 files |
 | Phase 01 P21 | 11min | 3 tasks | 4 files |
 | Phase 02 P01 | 55min | 3 tasks | 43 files |
+| Phase 02 P02 | 55min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ Recent decisions affecting current work:
 
 - [Phase 02]: slugify treats only ASCII separators as word boundaries so dropped non-ASCII chars never fragment a word — Matches the plan's own worked LINK-01 example (naïve -> nave, not na-ve); a literal per-character-drop-collapses-to-hyphen reading of the LINK-01 prose produced the wrong output
 - [Phase 02]: Node sidecar packaging (pkg/nexe) deferred; a dev-time bash-script stub bridges tauri-plugin-shell's externalBin requirement to packages/sidecar/dist/index.js — No plan in this phase runs the actual packaging step yet, but cargo build --workspace hard-fails without a real externalBin artifact present
+- [Phase 02]: session_closed carries a synthesized non-empty raw field instead of an empty string, preserving the AgentEventBase 'raw never empty' invariant for every event type. — Avoids a special-cased exception in event consumers and keeps the pre-existing adapter.test.mjs invariant test meaningful for the new terminal event too.
+- [Phase 02]: SidecarHandle::interrupt_run uses std::sync::mpsc rather than tokio::sync::oneshot, keeping agent_run_stop a plain synchronous Tauri command like every other handler. — Avoids introducing the first async command in this codebase just for one ack-await; a 30s ceiling comfortably covers the sidecar's own 5s STOP_GRACE_MS.
 
 ### Pending Todos
 
@@ -134,6 +137,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T12:42:07.791Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-09-10T13:24:54.377Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
