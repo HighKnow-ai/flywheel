@@ -326,7 +326,10 @@ id is admitted or refused identically whether it arrived as a keystroke or a cli
 - **Filters:** status (multi-select), epic (multi-select, including "No epic"), assignee
   (multi-select, including "Unassigned" — see the assignee-field flag below), priority, estimate,
   and free-text search — all executed as debounced indexed SQL in the Rust core (D-03); the renderer
-  holds only the current result window, never a full copy to filter client-side.
+  holds only the current result window, never a full copy to filter client-side. The epic filter's
+  chip list covers every epic in the project, not only the epics present in the currently loaded
+  window — corrected in plan `01-18` (G-01-2), which also removed the `FilterBar` prop that made
+  the windowed derivation possible.
 
 ### Item detail — side panel (delegated decision)
 
@@ -401,6 +404,12 @@ Linear-reference-point's own pattern (D-01's explicit model).
 **Fields, in fixed left-to-right order:** status glyph → key → title → estimate badge → epic pill →
 assignee avatar → criteria checked/total → priority glyph → actor-of-last-change (avatar + relative
 time).
+
+**Corrected in plan `01-18` (G-01-2):** the epic pill's label is resolved from the project's full
+epic roster (`useEpics`/`epic_list_all`) rather than from the currently loaded board window, so an
+epic that sorts outside the loaded page still resolves. The pill has exactly three outcomes — `KEY
+Title`, `No epic` (D-13's orphan-task bucket), and `Unknown epic` (see Copywriting Contract) — and
+a long epic title follows the same truncate-never-wrap rule as the row's own title.
 
 **Row layout decision:** rows are **fixed-height, single-line, truncate-not-wrap.** Titles never
 wrap; they truncate with an ellipsis and expose the full text via native tooltip on hover/focus. This
@@ -766,6 +775,7 @@ reserved for exactly one thing — the current position.
 | Empty state body (empty project) | "Start typing below to create your first task or epic. Press Enter to save it." |
 | Empty state heading (empty filter result) | "No items match these filters" |
 | Empty state body (empty filter result) | "Try removing a filter or clearing the search." — CTA: "Clear Filters" |
+| Epic pill, epic not resolvable | "Unknown epic" — distinct from the orphan-task "No epic" copy above; an internal identifier is never rendered in its place. Corrected in plan `01-18` (G-01-2). |
 | Loading state | No copy — skeleton rows only, matching row anatomy's shape. |
 | Error state (mutation/query failure) | "Couldn't {action} — {reason}. [Retry]" e.g. "Couldn't save this task — the database is unavailable. [Retry]" |
 | Error state (search failure) | "Search failed — {reason}. Showing the last known results. [Retry]" |
