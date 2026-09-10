@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-09-10T13:39:24.002Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-09-10T14:10:56.262Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 02 execution started
-state_head: 2f5c84755aeb4d2d892a3f39148faa6d1cd7df99
+state_head: 9936f3c3ade45a24eea15c2290f05008b2615b49
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 31
-  completed_plans: 24
+  completed_plans: 25
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 4 of 10
+Plan: 5 of 10
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 02 execution started
 
@@ -82,6 +82,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P01 | 55min | 3 tasks | 43 files |
 | Phase 02 P02 | 55min | 3 tasks | 17 files |
 | Phase 02 P03 | 45min | 3 tasks | 10 files |
+| Phase 02 P04 | 70min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,8 @@ Recent decisions affecting current work:
 - [Phase 02]: session_closed carries a synthesized non-empty raw field instead of an empty string, preserving the AgentEventBase 'raw never empty' invariant for every event type. — Avoids a special-cased exception in event consumers and keeps the pre-existing adapter.test.mjs invariant test meaningful for the new terminal event too.
 - [Phase 02]: SidecarHandle::interrupt_run uses std::sync::mpsc rather than tokio::sync::oneshot, keeping agent_run_stop a plain synchronous Tauri command like every other handler. — Avoids introducing the first async command in this codebase just for one ack-await; a 30s ceiling comfortably covers the sidecar's own 5s STOP_GRACE_MS.
 - [Phase 02]: Agent signal vocabulary shipped once (colour/legend/keyboard) so no later Phase 2 surface invents a parallel list — Colour roles, legend marks and keyboard bindings are consumed directly by the surfaces that render them, not re-derived
+- [Phase 02]: assemble_context_packet re-derives the hypothetical epic-integration-branch name read-only instead of calling base_ref_for_task, which would cut a real git branch as a side effect — A preview (opening the launch sheet) must never mutate the database or git history — matches D-28's determinism contract and the plan's own 'nothing happens until Start Work fires' invariant
+- [Phase 02]: state/uiStore.ts gained launchSheetTaskId and board/BoardView.tsx gained a start-work switch case, both outside plan 02-04's declared files_modified — ItemDetailPanel.tsx deliberately avoids importing the store directly; the launch sheet is mounted once at App.tsx level, so a cross-tree trigger field (mirroring activeAgentRunId) and its bridging call site were necessary to wire the sheet at all
 
 ### Pending Todos
 
@@ -139,6 +142,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T13:39:18.998Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-09-10T14:10:56.210Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
