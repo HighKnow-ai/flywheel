@@ -110,6 +110,7 @@ fn main() {
             commands::menu::menu_set_action_enabled,
             commands::agent_run::agent_run_start,
             commands::agent_run::agent_run_log_window,
+            commands::agent_run::agent_run_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -11,10 +11,20 @@ use std::process::Command;
 use core::domain::agent_run::{interrupt_agent_run, start_agent_run};
 use core::domain::task::create_task;
 
+/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary. `cargo test` runs the
+/// `#[test]` functions within one integration-test binary concurrently on a thread pool by
+/// default — `FLYWHEEL_WORKTREE_ROOT` is process-global mutable state, so two tests racing here
+/// would let one test's `worktree_add` fall through to the real default (`~/Flywheel/...`)
+/// between the other test's `set_var`/`remove_var` pair. Observed directly while writing this
+/// file: `cargo test -p core --test stop_lifecycle` (both tests, no lock) created a real
+/// `~/Flywheel/FLY/FLY-1` directory on the machine running the test.
+static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: tests in this crate run single-threaded per binary and this helper always clears
-    // the var before returning.
+    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads
+    // or mutates this var while it's set, and this helper always clears it before returning.
     unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
     let result = f();
     unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };

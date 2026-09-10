@@ -256,3 +256,76 @@ pub fn close_agent_run(
     tx.commit().context("failed to commit close_agent_run transaction")?;
     Ok(())
 }
+
+/// Move a `running`/`blocked` run to `interrupted` and set `ended_at` (D-35, PROC-06 — the
+/// database half of "stop means interrupt, then force"). A run already in a terminal state
+/// (`completed`/`failed`/`interrupted`) is a no-op — idempotent, matching the sidecar adapter's
+/// own idempotent `interruptSession`/`killSession` (`packages/sidecar/src/claude-code-adapter.ts`)
+/// — and never writes a second terminal event. An unknown `agent_run_id` is also a harmless no-op:
+/// the caller (`agent_run_stop`) already sent the sidecar its interrupt request by the time this
+/// runs, and a run whose row somehow doesn't exist has nothing left to reconcile.
+///
+/// Never touches `tasks.status`: D-29 states nothing ever moves a task out of `in_progress` in
+/// this phase, and D-35 states an interrupted run is a normal user-initiated outcome, not an
+/// error. Performs NO git operation of any kind, directly or via `crate::git` — the worktree is
+/// left exactly as the agent left it (PROC-06's "nothing committed on the user's behalf").
+pub fn interrupt_agent_run(conn: &mut Connection, agent_run_id: &str, actor_id: &str) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let existing: Option<(String, String, String)> = tx
+        .query_row(
+            "SELECT project_id, task_id, status FROM agent_runs WHERE id = ?1",
+            params![agent_run_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .context("failed to read agent_runs row before interrupt")?;
+
+    let Some((project_id, task_id, current_status)) = existing else {
+        tx.commit().context("failed to commit no-op interrupt_agent_run transaction (run not found)")?;
+        return Ok(());
+    };
+
+    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted") {
+        // Already terminal — idempotent no-op, no second terminal event (D-35).
+        tx.commit()
+            .context("failed to commit no-op interrupt_agent_run transaction (already terminal)")?;
+        return Ok(());
+    }
+
+    tx.execute(
+        "UPDATE agent_runs SET status = 'interrupted', ended_at = ?1 WHERE id = ?2",
+        params![now, agent_run_id],
+    )
+    .context("failed to interrupt agent run")?;
+
+    let task_key: String = tx
+        .query_row("SELECT key FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
+        .context("failed to read task key for the interrupt event's label")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "agent_run",
+        "before": current_status,
+        "after": "interrupted",
+        "label": format!("Stopped agent run on {task_key}"),
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "agent_run",
+        agent_run_id,
+        Some(&task_id),
+        None,
+        actor_id,
+        "agent_run.interrupted",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit().context("failed to commit interrupt_agent_run transaction")?;
+    Ok(())
+}

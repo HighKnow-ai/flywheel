@@ -113,6 +113,35 @@ pub fn agent_run_start(
     })
 }
 
+/// Stop a running agent run (D-35: interrupt, then force). Sends the sidecar's `interrupt`
+/// request FIRST, over `SidecarHandle::interrupt_run`, and blocks until it acknowledges — so the
+/// process has already finished the whole interrupt-then-force sequence by the time the domain
+/// write below lands — then calls `domain::agent_run::interrupt_agent_run` (idempotent: a no-op
+/// on a run that is already terminal). `actor_id` is resolved server-side (T-01-04, T-02-13) —
+/// never accepted from the renderer. Drops the connection lock before emitting `board:changed`
+/// with an `{ entity: "agent_run", id }` payload, the same shape `task_create` uses (D-04).
+#[tauri::command]
+pub fn agent_run_stop(state: State<AppState>, app: AppHandle, agent_run_id: String) -> Result<(), String> {
+    if let Some(sidecar) = state.sidecar.as_ref() {
+        sidecar.interrupt_run(&agent_run_id).map_err(|e| e.to_string())?;
+    }
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let human_actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::agent_run::interrupt_agent_run(&mut conn, &agent_run_id, &human_actor_id)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
+    )
+    .ok();
+
+    Ok(())
+}
+
 fn resolve_log_window_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(LOG_WINDOW_DEFAULT_LIMIT).clamp(1, LOG_WINDOW_MAX_LIMIT)
 }

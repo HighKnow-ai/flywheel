@@ -28,18 +28,26 @@ use flywheel_core::session_log::SessionLogWriter;
 /// and dropped — it can never crash the reader task.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-#[allow(dead_code)] // the Ack fields are part of the wire protocol; not yet consumed by this reader
 enum SidecarStdoutLine {
     Event { event: serde_json::Value },
     Ack { id: String, ok: bool, error: Option<String> },
 }
 
 /// The live sidecar process handle: its child (for kill-on-app-exit), its stdin request sender,
-/// and the map of open per-run session-log writers the reader task appends through.
+/// the map of open per-run session-log writers the reader task appends through, and every
+/// still-outstanding request awaiting its ack, keyed by the request `id` (D-35 — `interrupt_run`
+/// blocks on this until the sidecar's `interrupt` ack line arrives).
 pub struct SidecarHandle {
     child: Mutex<Option<CommandChild>>,
     writers: Mutex<HashMap<String, SessionLogWriter>>,
+    pending_acks: Mutex<HashMap<String, std::sync::mpsc::Sender<Result<(), String>>>>,
 }
+
+/// How long `interrupt_run` waits for the sidecar's ack before giving up — generous enough to
+/// cover the sidecar's own `STOP_GRACE_MS` (5s, `packages/sidecar/src/claude-code-adapter.ts`)
+/// plus the force step and normal IPC overhead, so a legitimate interrupt-then-force sequence
+/// never times out under this ceiling; only a genuinely wedged or crashed sidecar does.
+const INTERRUPT_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl SidecarHandle {
     /// Send one newline-delimited JSON request to the sidecar's stdin (a `spawn`/`interrupt`/
@@ -53,6 +61,46 @@ impl SidecarHandle {
             .write(line.as_bytes())
             .context("failed to write request to the sidecar's stdin")?;
         Ok(())
+    }
+
+    /// Send an `interrupt` request for `run_id` over the sidecar's stdin and block until its
+    /// acknowledgement arrives (D-35) — `agent_run_stop` calls this BEFORE writing the run's
+    /// terminal status, so the process has already started (and, by the time this returns,
+    /// finished) shutting down before the domain write lands. The request `id` is `run_id`
+    /// itself, matching `agent_run_start`'s own convention (`commands/agent_run.rs`).
+    pub fn interrupt_run(&self, run_id: &str) -> anyhow::Result<()> {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        {
+            let mut pending = self
+                .pending_acks
+                .lock()
+                .map_err(|_| anyhow::anyhow!("sidecar pending-acks mutex poisoned"))?;
+            pending.insert(run_id.to_string(), tx);
+        }
+
+        let request = serde_json::json!({ "id": run_id, "op": "interrupt", "runId": run_id });
+        if let Err(err) = self.send_request(&request.to_string()) {
+            if let Ok(mut pending) = self.pending_acks.lock() {
+                pending.remove(run_id);
+            }
+            return Err(err);
+        }
+
+        match rx.recv_timeout(INTERRUPT_ACK_TIMEOUT) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => Err(anyhow::anyhow!("sidecar interrupt request failed: {err}")),
+            Err(_) => {
+                // Timed out (or the sender was dropped without ever sending) — clean up the stale
+                // pending-ack entry so a late ack can never resurrect it and silently satisfy a
+                // future call for the same run_id.
+                if let Ok(mut pending) = self.pending_acks.lock() {
+                    pending.remove(run_id);
+                }
+                Err(anyhow::anyhow!(
+                    "sidecar did not acknowledge the interrupt request for run {run_id:?} within {INTERRUPT_ACK_TIMEOUT:?}"
+                ))
+            }
+        }
     }
 
     /// Kill the sidecar's own process (and, by extension, every child session it was driving) —
@@ -81,6 +129,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
     let handle = SidecarHandle {
         child: Mutex::new(Some(child)),
         writers: Mutex::new(HashMap::new()),
+        pending_acks: Mutex::new(HashMap::new()),
     };
 
     let app_for_reader = app.clone();
@@ -89,31 +138,52 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
             if let CommandEvent::Stdout(line_bytes) = event {
                 let line = String::from_utf8_lossy(&line_bytes).into_owned();
                 let parsed: Result<SidecarStdoutLine, _> = serde_json::from_str(line.trim());
-                let Ok(SidecarStdoutLine::Event { event }) = parsed else {
-                    continue;
-                };
 
-                let run_id = event.get("runId").and_then(|v| v.as_str()).map(str::to_string);
-                let event_line = event.to_string();
+                match parsed {
+                    Ok(SidecarStdoutLine::Event { event }) => {
+                        let run_id = event.get("runId").and_then(|v| v.as_str()).map(str::to_string);
+                        let event_line = event.to_string();
 
-                if let Some(run_id) = run_id {
-                    if let Some(state) = app_for_reader.try_state::<crate::state::AppState>() {
-                        if let Some(sidecar) = state.sidecar.as_ref() {
-                            // The persistent write happens FIRST, unconditionally — the emit
-                            // below is a best-effort live view, never the source of truth
-                            // (PITFALLS.md pitfall 10).
-                            if let Ok(mut writers) = sidecar.writers.lock() {
-                                let writer = writers.entry(run_id.clone()).or_insert_with(|| {
-                                    SessionLogWriter::open(&run_id)
-                                        .expect("failed to open session log writer for run")
-                                });
-                                let _ = writer.append_event_line(&event_line);
+                        if let Some(run_id) = run_id {
+                            if let Some(state) = app_for_reader.try_state::<crate::state::AppState>() {
+                                if let Some(sidecar) = state.sidecar.as_ref() {
+                                    // The persistent write happens FIRST, unconditionally — the
+                                    // emit below is a best-effort live view, never the source of
+                                    // truth (PITFALLS.md pitfall 10).
+                                    if let Ok(mut writers) = sidecar.writers.lock() {
+                                        let writer = writers.entry(run_id.clone()).or_insert_with(|| {
+                                            SessionLogWriter::open(&run_id)
+                                                .expect("failed to open session log writer for run")
+                                        });
+                                        let _ = writer.append_event_line(&event_line);
+                                    }
+                                }
+                            }
+                        }
+
+                        let _ = app_for_reader.emit("agent:event", &event);
+                    }
+                    Ok(SidecarStdoutLine::Ack { id, ok, error }) => {
+                        if let Some(state) = app_for_reader.try_state::<crate::state::AppState>() {
+                            if let Some(sidecar) = state.sidecar.as_ref() {
+                                if let Ok(mut pending) = sidecar.pending_acks.lock() {
+                                    if let Some(sender) = pending.remove(&id) {
+                                        let result = if ok {
+                                            Ok(())
+                                        } else {
+                                            Err(error.unwrap_or_else(|| "sidecar request failed".to_string()))
+                                        };
+                                        let _ = sender.send(result);
+                                    }
+                                }
                             }
                         }
                     }
+                    Err(_) => {
+                        // A malformed line — logged nowhere yet, dropped, never crashes the
+                        // reader task (this module's own doc comment above).
+                    }
                 }
-
-                let _ = app_for_reader.emit("agent:event", &event);
             }
         }
     });
