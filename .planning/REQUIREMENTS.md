@@ -63,7 +63,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [ ] **PROC-03**: Agent processes are managed as process groups so that termination reliably kills the whole tree, not just the parent
 - [ ] **PROC-04**: No agent process survives application quit; a worker self-terminates if its supervisor disappears
 - [ ] **PROC-05**: On launch, orphaned agent processes and in-flight runs from a previous session are detected and surfaced to the user for a decision rather than silently resumed
-- [ ] **PROC-06**: User can interrupt or stop a running agent session at any time and the worktree is left in a consistent, inspectable state
+- [x] **PROC-06**: User can interrupt or stop a running agent session at any time and the worktree is left in a consistent, inspectable state
 - [ ] **PROC-07**: Agent output is streamed to the user live without unbounded memory growth on a long-running session
 
 ### Agent Integration
@@ -261,7 +261,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PROC-03 | Phase 3 | Pending |
 | PROC-04 | Phase 3 | Pending |
 | PROC-05 | Phase 3 | Pending |
-| PROC-06 | Phase 2 | Pending |
+| PROC-06 | Phase 2 | Complete |
 | PROC-07 | Phase 2 | Pending |
 | AGNT-01 | Phase 2 | Pending |
 | AGNT-02 | Phase 2 | Pending |

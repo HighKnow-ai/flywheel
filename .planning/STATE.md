@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-09-10T13:24:54.426Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-09-10T13:39:24.002Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 02 execution started
-state_head: 0a5ebaf9e819c9d2aa70eb6b91a523ca2d00431f
+state_head: 2f5c84755aeb4d2d892a3f39148faa6d1cd7df99
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 31
-  completed_plans: 23
+  completed_plans: 24
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 3 of 10
+Plan: 4 of 10
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 02 execution started
 
@@ -81,6 +81,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P21 | 11min | 3 tasks | 4 files |
 | Phase 02 P01 | 55min | 3 tasks | 43 files |
 | Phase 02 P02 | 55min | 3 tasks | 17 files |
+| Phase 02 P03 | 45min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,7 @@ Recent decisions affecting current work:
 - [Phase 02]: Node sidecar packaging (pkg/nexe) deferred; a dev-time bash-script stub bridges tauri-plugin-shell's externalBin requirement to packages/sidecar/dist/index.js — No plan in this phase runs the actual packaging step yet, but cargo build --workspace hard-fails without a real externalBin artifact present
 - [Phase 02]: session_closed carries a synthesized non-empty raw field instead of an empty string, preserving the AgentEventBase 'raw never empty' invariant for every event type. — Avoids a special-cased exception in event consumers and keeps the pre-existing adapter.test.mjs invariant test meaningful for the new terminal event too.
 - [Phase 02]: SidecarHandle::interrupt_run uses std::sync::mpsc rather than tokio::sync::oneshot, keeping agent_run_stop a plain synchronous Tauri command like every other handler. — Avoids introducing the first async command in this codebase just for one ack-await; a 30s ceiling comfortably covers the sidecar's own 5s STOP_GRACE_MS.
+- [Phase 02]: Agent signal vocabulary shipped once (colour/legend/keyboard) so no later Phase 2 surface invents a parallel list — Colour roles, legend marks and keyboard bindings are consumed directly by the surfaces that render them, not re-derived
 
 ### Pending Todos
 
@@ -137,6 +139,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T13:24:54.377Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-09-10T13:39:18.998Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None

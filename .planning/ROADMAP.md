@@ -190,7 +190,7 @@ actor identity extends to multi-remote without migration.
   4. User stops a running session and finds the worktree intact and inspectable, then starts a second session on that same worktree — the worktree outlives the session.
   5. User sees the worktree, the agent run and the session as distinct linked records on the task, each started through a trigger record, and can point Flywheel at either his existing local Claude Code credentials or an explicit API key with nothing else in the product behaving differently.
 
-**Plans**: 2/10 plans executed in 8 waves
+**Plans**: 3/10 plans executed in 8 waves
 **UI hint**: yes
 
 Plans:
@@ -201,7 +201,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 02-02-PLAN.md — Stop means interrupt, then force: the whole process group, and a worktree left exactly as the agent left it
-- [ ] 02-03-PLAN.md — The agent design vocabulary: four contrast-proven colour roles, six legend marks, eight keyboard actions
+- [x] 02-03-PLAN.md — The agent design vocabulary: four contrast-proven colour roles, six legend marks, eight keyboard actions
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -548,7 +548,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
-| 2. One Agent, One Worktree, Watched Live | 2/10 | In Progress|  |
+| 2. One Agent, One Worktree, Watched Live | 3/10 | In Progress|  |
 | 3. Nothing Lost, Nothing Left Running | 0/TBD | Not started | - |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
