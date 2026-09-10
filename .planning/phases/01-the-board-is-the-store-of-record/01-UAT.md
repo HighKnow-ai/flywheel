@@ -3,7 +3,7 @@ status: diagnosed
 phase: 01-the-board-is-the-store-of-record
 source: [01-VERIFICATION.md]
 started: 2026-09-09T23:15:00Z
-updated: 2026-09-10T00:45:00Z
+updated: 2026-09-10T01:05:00Z
 ---
 
 ## Current Test
@@ -28,10 +28,15 @@ result: [pending]
 
 total: 2
 passed: 1
-issues: 1
+issues: 2
 pending: 0
 skipped: 0
 blocked: 0
+
+note: |
+  G-01-2 was found by owner inspection AFTER test 2 was recorded as passed. Test 2's own
+  criterion (responsiveness) genuinely passed and is not retracted; the volume it required is
+  simply what made a separate, pre-existing correctness defect visible for the first time.
 
 ## Gaps
 
@@ -80,6 +85,54 @@ blocked: 0
     - "Make the menu bridge obey the layer guard rather than pre-empting it: either stop calling returnToBoardLayer() and let bindingAllowedInLayer decide for all forwarded ids, or carry the event origin (accelerator vs click) so only a real click returns to the board layer."
     - "Cover all four forwarded ids, not just create-task: create-epic (Cmd-Shift-N) and register-project (Cmd-Shift-O) travel the identical path and are expected to show the same panel-closing symptom even though this session's walkthrough read them as inert. Re-test all three during fix verification."
     - "Add a regression test that exercises the menu:action bridge with a real detail layer open, instead of stubbing subscribeMenuAction to a no-op."
+
+- gap_id: G-01-2
+  truth: "Every task's epic pill shows a human-readable `KEY Title`, never a raw internal ULID, and the epic filter chip list covers every epic in the project."
+  status: failed
+  reason: |
+    Found by owner inspection of a seeded 1,067-item board on 2026-09-10, immediately after
+    test 2 passed on responsiveness. Rows THRE-33, THRE-38, THRE-43, THRE-48, THRE-53 and
+    THRE-58 render raw ULIDs (e.g. `01M24BE37SW6X6EHZJ9J4MVY9X`) in the epic pill, and the
+    FilterBar offers only 4 epic chips out of the project's 13.
+  severity: major
+  test: 2
+  root_cause: |
+    The epic lookup is derived from the currently loaded board window, not from the project's
+    epics. `BoardView.tsx:258-262` builds `epicsById` as
+    `items.filter(i => i.kind === "epic")` over whatever the last `board_list` page returned,
+    and `commands/board.rs:12` caps that page at `DEFAULT_LIMIT = 200` rows (`MAX_LIMIT = 500`).
+    The core is windowed by design — `query/mod.rs:3`: "The core never returns the whole board:
+    every call is LIMIT-bounded and cursor-resumable."
+
+    So any task whose epic sorts outside the loaded 200-row window finds no entry in
+    `epicsById`, and `BoardRow.tsx:120` falls back to rendering `item.epicId` — the raw ULID —
+    as the pill's label. `FilterBar.tsx:81-84` and `ParentPicker`'s parent options
+    (01-15-SUMMARY.md) read from the identical single-window derivation and degrade the same way.
+
+    This was a KNOWN simplification, but its recorded limitation was the wrong one.
+    01-08-SUMMARY.md's "Known Stubs" anticipates only the filter-composition case ("composing
+    the epic filter with another active filter can hide an epic from its own chip"). Nobody
+    anticipated the volume case, because at the time the board held 1 project / 1 task /
+    1 issue — every epic trivially fitted in the first window. The assumption "the loaded window
+    contains every epic a visible task references" is invisible at 1 epic and false at 13.
+  artifacts:
+    - path: "packages/desktop/src/board/BoardView.tsx"
+      line: 258
+      issue: "epicsById derived from the loaded window's epic rows only, so epics outside the page are unresolvable."
+    - path: "packages/desktop/src/board/BoardRow.tsx"
+      line: 120
+      issue: "Fallback renders the raw epic_id ULID when the lookup misses, leaking an internal identifier onto the primary board surface."
+    - path: "packages/desktop/src-tauri/src/commands/board.rs"
+      line: 12
+      issue: "DEFAULT_LIMIT = 200 bounds the window the epic lookup is built from."
+    - path: "packages/desktop/src/board/FilterBar.tsx"
+      line: 81
+      issue: "Epic chip options read from the same single-window derivation; showed 4 of 13 epics."
+  missing:
+    - "Resolve epic labels from the project's epics rather than the loaded page — either a dedicated list-epics command (epics are a bounded, small set, unlike tasks) or have board_list return the referenced epics alongside the page."
+    - "Replace BoardRow's raw-ULID fallback with something that can never leak an internal id, even if the lookup misses."
+    - "Apply the same fix to FilterBar's chip list and ParentPicker's parent options, which share the derivation."
+    - "Add a test at a volume that exceeds DEFAULT_LIMIT — every existing test runs against a handful of rows, where this defect is unreachable."
 
 ## Prior Round
 
