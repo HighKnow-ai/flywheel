@@ -1,7 +1,7 @@
 ---
 phase: 01-the-board-is-the-store-of-record
-verified: 2026-09-10T16:10:00Z
-status: human_needed
+verified: 2026-09-10T08:31:47Z
+status: passed
 score: 22/22 must-haves verified
 covered_files:
   - ".planning/REQUIREMENTS.md"
@@ -60,24 +60,30 @@ covered_files:
   - "packages/desktop/src/board/BoardView.tsx"
   - "packages/desktop/src/board/__tests__/quick-add-focus.test.tsx"
   - "packages/desktop/src/test/setup.ts"
-covered_digest: "v1:sha256:daaf06fc34c7413442063c96c792859d5ee1a5e5aa65e7eecf500fae71a8ef2b"
+covered_digest: "v1:sha256:ba629ca1644012767ac0485878e54aa59321ba3755acf78655b46b692205157c"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: 21/22
+  previous_status: human_needed
+  previous_score: 22/22
+  round: "human-verification discharge (no code change)"
+  why: "Both human_verification items were run by the owner and passed (01-UAT.md, status: complete, 2/2, commit 143e7ec). No source file changed this round — git diff --name-only c00075a..HEAD outside .planning/ is empty — so every automated truth below stands on its prior evidence plus a fresh full-suite run (122 Rust + 155 Vitest, 0 failures; frontend build and tsc --noEmit clean). The covered_digest was recomputed over the current covered_files because 01-UAT.md and 01-VALIDATION.md are declared inputs and both were rewritten by the verify/validate steps, which is what made the prior report read stale."
+  prior_round_previous_status: gaps_found
+  prior_round_previous_score: 21/22
   gaps_closed:
     - "CR-01 — Observable Truth #22: with quick-add reachable, clicking the Backlog band header to collapse it was silently reverted on the very next render (permanently inert on any zero-item project). Plan 01-21 replaced the continuously-reasserting expand-Backlog effect with a rising-edge guard, and a follow-up incremental code review (01-REVIEW.md, this session) found that guard's first shipped form (a scalar `useRef<string | null>`) still failed an A -> B -> A project round trip because `App.tsx:212` renders `<Board projectId>` with no React key (BoardView is never remounted on a project switch). That residual was fixed in commit `7d382ec` by replacing the scalar with a per-project `useRef<Set<string>>`. Both the original property and the round-trip residual are independently re-verified in this report by direct code read and fresh test execution (24/24 quick-add-focus.test.tsx, including the new `returning_to_a_project_after_a_deliberate_collapse_does_not_re_expand_it` case)."
   gaps_remaining: []
   regressions: []
 gaps: []
 human_verification:
-  - test: "01-20-PLAN.md Task 3's live `tauri dev` walkthrough of the G-01-4 fix on the real seeded 1,067-item / 13-epic THRE board: scroll deep, ⌘N lands the cursor with no click/Tab, ⌘⇧N does the same for an epic, a re-press returns focus after a click elsewhere, a collapsed Backlog band expands and focuses, the detail panel refuses all three bindings without scrolling, and no visual jank during any of the above. This run additionally asks the owner to confirm the Backlog header still collapses and stays collapsed while quick-add is open, live in the running app (the CR-01 property this round closed under jsdom)."
+  - test: "01-20-PLAN.md Task 3's live `tauri dev` walkthrough of the G-01-4 fix on the real seeded 1,067-item / 13-epic THRE board: scroll deep, ⌘N lands the cursor with no click/Tab, ⌘⇧N does the same for an epic, a re-press returns focus after a click elsewhere, a collapsed Backlog band expands and focuses, the detail panel refuses all three bindings without scrolling, and no visual jank during any of the above. This run additionally asked the owner to confirm the Backlog header still collapses and stays collapsed while quick-add is open, live in the running app (the CR-01 property this round closed under jsdom)."
     expected: "Every step completes exactly as the automated suite proves it does under jsdom — no perceptible lag, no visual jank, cursor lands in the input without an extra click or Tab, and a manual Backlog collapse click sticks."
-    why_human: "Native macOS Tauri GUI interaction and visual judgment are outside what an automated executor or verifier can perform. Never run by any prior session; still owed."
+    why_human: "Native macOS Tauri GUI interaction and visual judgment are outside what an automated executor or verifier can perform."
+    resolution: "DISCHARGED 2026-09-10 — run by the owner against a real build and recorded as `01-UAT.md` test 1, `result: pass` (file `status: complete`, commit 143e7ec). This was the walkthrough every prior session still owed; it is no longer outstanding. The CR-01 collapse property was exercised live, including across a project round-trip, which is the half that had only ever been proven under jsdom."
   - test: "01-UAT.md test 2 (perceived responsiveness at 1,000+ items) — reorder, filter, search, and switch projects with the mouse untouched, on the real seeded board, including with quick-add open, after plans 01-19/01-20/01-21's changes to BoardView.tsx's render-path effects."
     expected: "No perceptible lag or visual jank at volume, including while quick-add is open. Expected direction is strictly better than the pre-01-21 code, since CR-01's fix removes a self-sustaining render-path write rather than merely retiming it."
-    why_human: "01-UAT.md's own text was already internally inconsistent on this point before this round (test-2 entry reads `pass`, but its `note:` field says the check `stays pending`), and the underlying render-path code has changed twice since (01-19/01-20, then 01-21's CR-01 fix). This verifier does not propagate a possibly-stale pass; a fresh owner confirmation is required."
+    why_human: "The prior round refused to propagate a possibly-stale pass over twice-changed render-path code; a fresh owner confirmation was required."
+    resolution: "DISCHARGED 2026-09-10 — re-confirmed by the owner on the real seeded board after the CR-01 fix and recorded as `01-UAT.md` test 2, `result: pass` (commit 143e7ec). The internal inconsistency the prior report flagged in the old UAT file (a `pass` entry whose own `note:` said the check stayed pending) is resolved: this is a fresh, unambiguous pass over the current code."
 ---
 
 # Phase 1: The Board Is The Store Of Record Verification Report
@@ -166,7 +172,7 @@ not accepted from any SUMMARY or review document:**
 | 14 | BOARD-07a — every navigational and mutating action reachable entirely from the keyboard | ✓ VERIFIED | Unchanged. The Backlog band's *collapse* toggle remains mouse-only by design (`StatusBand.tsx`'s `tabIndex={-1}`, confirmed unchanged) — a pre-existing design choice, not a regression |
 | 15 | BOARD-07b — global shortcuts are inert while the item detail panel or a row-level picker holds a trapped focus scope, including click-opened pickers | ✓ VERIFIED | `layer-guard.test.tsx` re-run fresh this session — pass |
 | 16 | BOARD-07c — a native macOS menu accelerator can never bypass the layer guard a real keystroke would obey | ✓ VERIFIED | `menu-bridge.test.tsx` re-run fresh this session — pass; `App.tsx`'s only `returnToBoardLayer` occurrence remains a comment, confirmed by direct read |
-| 17 | BOARD-08 — board interactions complete without perceptible lag at 1,000+ items | ✓ VERIFIED (server) / ? UNCERTAIN (perceived UI) | `perf_seed_1000.rs` re-run fresh this session, passes (server-side). Perceived UI lag at volume, with the now-fixed render-path effect: not directly observable by this verifier; see Human Verification |
+| 17 | BOARD-08 — board interactions complete without perceptible lag at 1,000+ items | ✓ VERIFIED | `perf_seed_1000.rs` re-run fresh this session, passes (server-side). The perceived-UI half is **no longer uncertain**: the owner confirmed it live on the real seeded 1,067-item board after the CR-01 fix — `01-UAT.md` test 2, `result: pass`, commit 143e7ec |
 | 18 | BOARD-09 — every item shows a chronological, actor-attributed activity trail | ✓ VERIFIED (mechanism) | Unchanged |
 | 19 | BOARD-10 — user registers several local git repos as projects and switches boards, with rejected registrations surfaced, including after a successful retry | ✓ VERIFIED | Unchanged; not touched by 01-21 |
 | 20 | Every task's epic pill shows a human-readable `KEY Title`, never a raw internal ULID, regardless of project size (G-01-2) | ✓ VERIFIED | Unchanged; raw-fallback grep gate still 0, re-confirmed this session |
@@ -221,7 +227,7 @@ review's or SUMMARY's word.
 | BOARD-05 | 01-07 | Reorder/reprioritize | ✓ SATISFIED | Truth #12 |
 | BOARD-06 | 01-08, 01-17, 01-18 | Filter/search across items, correct at the volume SC #3 names | ✓ SATISFIED | Truths #13, #20 |
 | BOARD-07 | 01-02, 01-09, 01-13, 01-14, 01-16, 01-19, 01-20, 01-21 | Full keyboard operability, layer-gated global bindings, native menu obeys the same guard, focus delivery survives virtualization, re-press re-expands and re-focuses | ✓ SATISFIED | Truths #14, #15, #16, #21, #22 |
-| BOARD-08 | 01-02, 01-08, 01-19, 01-20, 01-21 | No perceptible lag at 1,000+ items, including with the fixed render-path effect | ✓ SATISFIED (server) / ? NEEDS HUMAN (perceived UI, see gap above) | Truth #17 |
+| BOARD-08 | 01-02, 01-08, 01-19, 01-20, 01-21 | No perceptible lag at 1,000+ items, including with the fixed render-path effect | ✓ SATISFIED | Truth #17 — owner-confirmed at volume (01-UAT.md test 2) |
 | BOARD-09 | 01-10 | Chronological actor-attributed activity trail | ✓ SATISFIED (mechanism) | Truth #18 |
 | BOARD-10 | 01-11, 01-15 | Register/switch multiple project boards, no silently swallowed errors | ✓ SATISFIED | Truth #19 |
 
@@ -271,27 +277,33 @@ Not applicable — no `scripts/*/tests/probe-*.sh` convention in this project.
 No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` markers found in any of the 4 files this round
 touched. No blocker-severity anti-patterns found in this round's diff.
 
-### Human Verification Required
+### Human Verification — Discharged
 
-1. **01-20-PLAN.md Task 3's live `tauri dev` walkthrough of the G-01-4 fix on the real seeded
-   1,067-item / 13-epic THRE board, now also covering the CR-01 fix**
-   **Test:** Scroll deep, ⌘N lands the cursor with no click/Tab, ⌘⇧N does the same for an epic, a
-   re-press returns focus after a click elsewhere, a collapsed Backlog band expands and focuses,
-   the detail panel refuses all three bindings without scrolling, no visual jank during any of the
-   above — and, newly, that manually collapsing the Backlog header while quick-add is open sticks
-   in the live app exactly as the jsdom suite proves.
-   **Expected:** Every step completes exactly as the automated suite proves it does under jsdom.
-   **Why human:** Native macOS Tauri GUI interaction and visual judgment are outside what an
-   automated executor or verifier can perform. Never run by any prior session; still owed.
+Both items this report previously listed as outstanding have now been run by the owner against a real
+`tauri dev` build and recorded in `01-UAT.md` (`status: complete`, 2/2 passed, 0 issues, commit
+`143e7ec`). Nothing in this section is still owed.
 
-2. **01-UAT.md test 2 (perceived responsiveness at 1,000+ items), re-confirmed after 01-19/01-20/01-21**
-   **Test:** Reorder, filter, search, and switch projects with the mouse untouched at volume,
+1. **01-20-PLAN.md Task 3's live walkthrough of the G-01-4 fix, also covering the CR-01 collapse
+   property** — ✓ **PASSED**
+   Scroll deep, ⌘N lands the cursor with no click/Tab, ⌘⇧N the same for an epic, a re-press returns
+   focus after clicking elsewhere, a collapsed Backlog band expands and focuses, the detail panel
+   refuses all three bindings without scrolling, no visual jank — plus the newly-added check that
+   manually collapsing the Backlog header while quick-add is open sticks in the live app, including
+   across a project round-trip.
+   **Recorded as:** `01-UAT.md` test 1, `result: pass`.
+   **Significance:** this is the walkthrough every prior session still owed — 01-20-PLAN.md Task 3 had
+   never been executed by a human until this round. The CR-01 round-trip property had only ever been
+   proven under jsdom; it is now confirmed in the running application.
+
+2. **Perceived responsiveness at 1,000+ items, after three rounds of render-path change** — ✓ **PASSED**
+   Reorder, filter, search and project switching with the mouse untouched on the real seeded board,
    including with quick-add open.
-   **Expected:** No perceptible lag or visual jank, now with the self-sustaining render-path
-   effect removed entirely (CR-01's fix) rather than merely retimed.
-   **Why human:** `01-UAT.md`'s own text was already internally inconsistent on this point before
-   this round, and the underlying render-path code has changed twice since (01-19/01-20, then
-   01-21). This verifier does not propagate a possibly-stale pass.
+   **Recorded as:** `01-UAT.md` test 2, `result: pass`.
+   **Significance:** the prior round deliberately refused to carry forward the older `pass`, because
+   that entry was self-contradictory (its own `note:` said the check "stays pending") and
+   `BoardView.tsx`'s render-path effects had changed twice since it was written. This is a fresh,
+   unambiguous confirmation over the current code, with CR-01's self-sustaining render-path write
+   removed rather than merely retimed.
 
 ## Gaps Summary
 
