@@ -7,26 +7,25 @@
  *
  * `packages/sidecar/test/adapter.test.mjs` points `ClaudeCodeAdapter` at this script via
  * `FLYWHEEL_CLAUDE_BIN`.
+ *
+ * **Stubborn mode** (`FLYWHEEL_FAKE_STUBBORN=1`, plan 02-02's D-35 stop-path tests): deliberately
+ * ignores SIGINT, forks a long-lived grandchild process and prints its pid as its own JSON line,
+ * and only exits on SIGTERM. This is what makes the "the force step reaches the whole process
+ * GROUP, not just the direct child" claim falsifiable — `killSession`'s negative-pid SIGTERM
+ * reaches the grandchild through POSIX process-group inheritance (the grandchild is spawned here
+ * WITHOUT its own `detached` flag, so it stays in this process's group), not through any signal
+ * forwarding this script writes itself. See `packages/sidecar/test/stop.test.mjs`.
  */
+import { spawn } from "node:child_process";
 
 const SESSION_ID = "fake-session-0001";
+const STUBBORN = process.env.FLYWHEEL_FAKE_STUBBORN === "1";
 
 function printLine(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
 }
 
 let interrupted = false;
-
-process.on("SIGINT", () => {
-  interrupted = true;
-  printLine({
-    type: "result",
-    subtype: "success",
-    total_cost_usd: 0.0021,
-    session_id: SESSION_ID,
-  });
-  process.exit(0);
-});
 
 printLine({
   type: "system",
@@ -42,15 +41,43 @@ printLine({
   },
 });
 
-// Give SIGINT a moment to land in interrupt-focused tests before the process would otherwise
-// finish on its own.
-setTimeout(() => {
-  if (interrupted) return;
-  printLine({
-    type: "result",
-    subtype: "success",
-    total_cost_usd: 0.0021,
-    session_id: SESSION_ID,
+if (STUBBORN) {
+  // A plain (non-detached) spawn from here inherits THIS process's process group — exactly the
+  // group the adapter's negative-pid signal targets, so the grandchild dies from the OS group
+  // delivery itself, never from a signal this script relays.
+  const grandchild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    stdio: ["ignore", "ignore", "ignore"],
   });
-  process.exit(0);
-}, 50);
+  printLine({ type: "grandchild_pid", pid: grandchild.pid });
+
+  // Deliberately ignored — the adapter's interrupt step alone must not be enough to end this
+  // session; only the group SIGTERM (the force step) does.
+  process.on("SIGINT", () => {});
+  process.on("SIGTERM", () => {
+    process.exit(0);
+  });
+} else {
+  process.on("SIGINT", () => {
+    interrupted = true;
+    printLine({
+      type: "result",
+      subtype: "success",
+      total_cost_usd: 0.0021,
+      session_id: SESSION_ID,
+    });
+    process.exit(0);
+  });
+
+  // Give SIGINT a moment to land in interrupt-focused tests before the process would otherwise
+  // finish on its own.
+  setTimeout(() => {
+    if (interrupted) return;
+    printLine({
+      type: "result",
+      subtype: "success",
+      total_cost_usd: 0.0021,
+      session_id: SESSION_ID,
+    });
+    process.exit(0);
+  }, 50);
+}
