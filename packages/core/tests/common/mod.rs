@@ -104,3 +104,53 @@ pub fn seed_project(conn: &mut Connection, n: usize) -> anyhow::Result<String> {
 
     Ok(proj.id)
 }
+
+/// Seed `n` epics into an already-registered project, returning the ids created. Follows
+/// `seed_project`'s discipline exactly: one `conn.transaction()`, one literal `INSERT INTO epics
+/// (...) VALUES (...)` per row through the same base-table path `create_epic` uses so any schema
+/// trigger fires normally, ids from `core::ids::new_id()`, keys of the form the project's
+/// `key_prefix` produces, titles varied through the `WORDS` bank, statuses cycling `STATUSES`,
+/// priorities cycling `0..5`, and a zero-padded monotonic `rank`. Bumps `projects.key_counter` by
+/// `n` at the end, as `seed_project` does.
+#[allow(dead_code)]
+pub fn seed_epics(conn: &mut Connection, project_id: &str, n: usize) -> anyhow::Result<Vec<String>> {
+    let human_id = local_human_actor_id(conn)?;
+    let key_prefix: String = conn.query_row(
+        "SELECT key_prefix FROM projects WHERE id = ?1",
+        params![project_id],
+        |row| row.get(0),
+    )?;
+    let key_counter_before: i64 = conn.query_row(
+        "SELECT key_counter FROM projects WHERE id = ?1",
+        params![project_id],
+        |row| row.get(0),
+    )?;
+
+    let now = "2026-01-01T00:00:00.000Z";
+    let mut ids = Vec::with_capacity(n);
+    let tx = conn.transaction()?;
+    for i in 0..n {
+        let id = new_id();
+        let status = STATUSES[i % STATUSES.len()];
+        let key = format!("{key_prefix}-{}", key_counter_before + i as i64 + 1);
+        let title = format!("{} epic {i:04}", WORDS[i % WORDS.len()]);
+        let rank = format!("{i:08}");
+        let priority = (i % 5) as i64;
+
+        tx.execute(
+            "INSERT INTO epics (
+                id, project_id, key, title, description, status, rank, priority,
+                created_by, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9, ?9)",
+            params![id, project_id, key, title, status, rank, priority, human_id, now],
+        )?;
+        ids.push(id);
+    }
+    tx.execute(
+        "UPDATE projects SET key_counter = key_counter + ?1 WHERE id = ?2",
+        params![n as i64, project_id],
+    )?;
+    tx.commit()?;
+
+    Ok(ids)
+}

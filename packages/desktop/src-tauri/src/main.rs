@@ -80,6 +80,7 @@ fn main() {
             commands::epic::epic_set_priority,
             commands::epic::epic_set_estimate,
             commands::epic::epic_set_assignee,
+            commands::epic::epic_list_all,
             commands::issue::issue_create,
             commands::issue::issue_update,
             commands::issue::issue_delete,

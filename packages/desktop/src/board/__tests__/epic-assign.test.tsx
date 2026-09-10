@@ -91,6 +91,15 @@ beforeEach(() => {
         counts: { ...EMPTY_COUNTS, backlog: FIXTURE.length },
       });
     }
+    // The row pill now resolves an epic's key/title from the roster (G-01-2, 01-17-PLAN.md),
+    // never from `items` — this suite's epic-pill assertion needs the same two epics `board_list`
+    // already returns to also be resolvable through `epic_list_all`.
+    if (command === "epic_list_all") {
+      return Promise.resolve([
+        { id: EPIC_1.id, key: EPIC_1.key, title: EPIC_1.title },
+        { id: EPIC_2.id, key: EPIC_2.key, title: EPIC_2.title },
+      ]);
+    }
     return Promise.resolve(undefined);
   });
 });
@@ -207,11 +216,13 @@ describe("epic-assign", () => {
     expect(screen.queryByRole("menu", { name: "Set epic" })).not.toBeInTheDocument();
   });
 
-  it("a_task_carrying_an_epic_id_renders_that_epics_key_and_title_in_the_row_pill", () => {
+  it("a_task_carrying_an_epic_id_renders_that_epics_key_and_title_in_the_row_pill", async () => {
     const items: BoardItem[] = [EPIC_1, { ...TASK_1, epicId: "epic-1" }];
     renderBoard(items);
 
-    expect(screen.getByText("FLY-1 First Epic")).toBeInTheDocument();
+    // The pill now resolves from the `useEpics()` roster query (G-01-2), which settles
+    // asynchronously — `findByText` waits for it rather than asserting on the pre-fetch render.
+    expect(await screen.findByText("FLY-1 First Epic")).toBeInTheDocument();
     expect(screen.queryByText("No epic")).not.toBeInTheDocument();
   });
 

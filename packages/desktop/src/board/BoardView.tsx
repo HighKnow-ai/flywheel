@@ -57,6 +57,7 @@ import {
   useCreateEpic,
   useCreateIssue,
   useDeleteItem,
+  useEpics,
   useReorderItem,
   useSetAssignee,
   useSetEstimate,
@@ -66,7 +67,7 @@ import {
   useSetTaskEpic,
   useUpdateItem,
 } from "./useBoardQuery";
-import type { Actor, BandCounts, BoardItem, BoardItemKind, IssueItem } from "./useBoardQuery";
+import type { Actor, BandCounts, BoardItem, BoardItemKind, EpicSummary, IssueItem } from "./useBoardQuery";
 
 const BAND_ORDER = ["backlog", "todo", "in_progress", "in_review", "done"] as const;
 type BandStatus = (typeof BAND_ORDER)[number];
@@ -251,16 +252,17 @@ export function BoardView({
     [actors],
   );
 
-  // Epic id -> epic `BoardItem`, mirroring `actorsById` above and derived from the same loaded
-  // window (`items.filter(i => i.kind === "epic")`) `FilterBar.tsx`'s epic filter chips already
-  // use for the identical lookup, rather than a second fetch — lets `BoardRow` render a
-  // human-readable epic `key title` instead of the raw internal `epic_id` ULID (WR-01).
-  const epicsById = useMemo<Record<string, BoardItem>>(
-    () =>
-      Object.fromEntries(
-        items.filter((item) => item.kind === "epic").map((epic) => [epic.id, epic]),
-      ),
-    [items],
+  // Epic id -> epic summary, the project's full roster (BOARD-06, G-01-2) — fetched once here
+  // via `useEpics`, never derived from the currently loaded window. The prior derivation
+  // (`items.filter(i => i.kind === "epic")`) was UAT gap G-01-2 itself: any epic sorting outside
+  // `board_list`'s 200-row page had no entry, so `BoardRow`'s pill fell back to the raw internal
+  // `epic_id` ULID. `BoardRow`'s pill and (from plan 01-18) `FilterBar`'s chips and both
+  // `ParentPicker` option lists all resolve against this same roster.
+  const epicsQuery = useEpics(projectId);
+  const epics = epicsQuery.data ?? [];
+  const epicsById = useMemo<Record<string, EpicSummary>>(
+    () => Object.fromEntries(epics.map((epic) => [epic.id, epic])),
+    [epics],
   );
 
   // Item id -> {key, title, kind} for EVERY item in the loaded window (epics and tasks alike) —

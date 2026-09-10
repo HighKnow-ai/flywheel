@@ -187,7 +187,12 @@ const CRITERIA_JOIN: &str = concat!(
 /// The `ORDER BY` every window query (plain or searched, cursored or not) uses — status band,
 /// then priority ("No priority" sorting last), then manual rank, then id (BOARD-05's total order,
 /// unchanged by filtering or searching per this plan's own success criteria).
-const ORDER_BY: &str = concat!(
+///
+/// `pub(crate)` (G-01-2, 01-17-PLAN.md): `domain::epic::list_epics` composes this same constant
+/// so BOARD-05's total order has exactly one definition in the crate. Widening the visibility is
+/// the alternative to restating the ordering expression in a second module — the shape a plain
+/// private `const` cannot reach outside `query/` and its descendants.
+pub(crate) const ORDER_BY: &str = concat!(
     "ORDER BY",
     " CASE b.status WHEN 'backlog' THEN 0 WHEN 'todo' THEN 1 WHEN 'in_progress' THEN 2",
     "   WHEN 'in_review' THEN 3 WHEN 'done' THEN 4 END ASC,",

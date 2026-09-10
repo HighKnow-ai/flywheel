@@ -38,6 +38,38 @@ impl From<flywheel_core::domain::epic::Epic> for EpicDto {
     }
 }
 
+/// The three fields the epic pill, the filter chips and the `ParentPicker` option lists consume
+/// (G-01-2) — the narrow DTO `epic_list_all` returns, deliberately not the full `EpicDto`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicSummaryDto {
+    pub id: String,
+    pub key: String,
+    pub title: String,
+}
+
+impl From<flywheel_core::domain::epic::EpicSummary> for EpicSummaryDto {
+    fn from(summary: flywheel_core::domain::epic::EpicSummary) -> Self {
+        Self {
+            id: summary.id,
+            key: summary.key,
+            title: summary.title,
+        }
+    }
+}
+
+/// List every epic in `project_id` (BOARD-06, G-01-2) — the one read in this workspace deliberately
+/// exempt from D-03's windowing contract (T-01-17-03): it carries no `limit`/`cursor` argument at
+/// all, because epics are a small roster authored one at a time by a human, and windowing the
+/// roster is exactly the defect this command exists to fix. Unlike every other handler in this
+/// file, it takes no `AppHandle` and emits nothing — it is a pure read.
+#[tauri::command]
+pub fn epic_list_all(state: State<AppState>, project_id: String) -> Result<Vec<EpicSummaryDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let epics = flywheel_core::domain::epic::list_epics(&conn, &project_id).map_err(|e| e.to_string())?;
+    Ok(epics.into_iter().map(EpicSummaryDto::from).collect())
+}
+
 fn validate_title(title: &str) -> Result<(), String> {
     if title.is_empty() || title.len() > MAX_TITLE_LEN {
         return Err(format!(

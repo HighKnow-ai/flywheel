@@ -29,6 +29,51 @@ pub struct Epic {
     pub priority: i64,
 }
 
+/// The project's full epic roster (BOARD-06, G-01-2): `id`, `key` and `title` only — the three
+/// fields the epic pill, the filter chips and the picker options consume.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EpicSummary {
+    pub id: String,
+    pub key: String,
+    pub title: String,
+}
+
+/// List every epic in `project_id` — unwindowed, unlike every other board read (D-03). Epics are
+/// a small roster authored one at a time by a human, and resolving a label against a 200-row
+/// `list_board` page is UAT gap G-01-2: any epic sorting outside that window has no entry, so
+/// `BoardRow.tsx` fell back to rendering the epic's raw internal ULID. Placed here rather than in
+/// `query/mod.rs` because that module is framed specifically around the bounded, cursor-resumable
+/// board window, exactly as `list_actors` sits in `domain/actor.rs` rather than in `query/`.
+///
+/// Orders by `crate::query::ORDER_BY` — the same status-band/priority/rank/id total order
+/// `list_board` uses (BOARD-05) — so this roster's own iteration order, where it happens to
+/// matter (e.g. a picker's option list), never drifts from the board's. `ORDER_BY` is itself a
+/// `const` built with `concat!` from literals, but `concat!` accepts only literal tokens, not a
+/// path to another `const` (`crate::query::ORDER_BY` cannot be spliced into a second `concat!`
+/// call) — so the two compile-time-literal fragments are joined with the `[&str]::concat`
+/// **slice method** (not the `concat!` macro), exactly the discipline `query/mod.rs`'s own
+/// `format_sql` helper uses for the identical reason. Every fragment is a literal; the only
+/// runtime value is `project_id`, bound through `params![]`, never interpolated into the string
+/// (T-01-01/T-01-23) — this function contains no `format!`.
+pub fn list_epics(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<EpicSummary>> {
+    let sql: String = [
+        "SELECT b.id, b.key, b.title FROM epics b WHERE b.project_id = ?1 ",
+        crate::query::ORDER_BY,
+    ]
+    .concat();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(params![project_id], |row| {
+            Ok(EpicSummary {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                title: row.get(2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to list the project's epics")
+}
+
 /// Create an epic: one transaction allocates the tail rank for the backlog band, allocates the
 /// next project key (shared with `tasks`, D-10), inserts the `epics` row, and appends an
 /// `epic.created` event — then commits once.

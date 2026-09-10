@@ -52,6 +52,16 @@ export interface Actor {
   displayName: string;
 }
 
+/** One row of the project's full epic roster (BOARD-06, G-01-2) — `id`, `key` and `title` only,
+ * the three fields the epic pill, the filter chips and the `ParentPicker` option lists consume.
+ * Deliberately not a `BoardItem`: the roster is unwindowed (see `useEpics` below), so it can
+ * never carry `status`/`rank`/`priority`, which only make sense for the currently loaded page. */
+export interface EpicSummary {
+  id: string;
+  key: string;
+  title: string;
+}
+
 /** One row of the workflow-less issues lane (D-07) — issues carry no `status` field. */
 export interface IssueItem {
   id: string;
@@ -80,6 +90,12 @@ const PROJECTS_QUERY_KEY = ["projects"] as const;
 
 function boardQueryKey(projectId: string | undefined) {
   return ["board", projectId] as const;
+}
+
+/** Mirrors the private `boardQueryKey` above but exported — `FilterBar.tsx` needs it too
+ * (plan 01-18) to invalidate/read the same roster cache `useEpics` populates. */
+export function epicsQueryKey(projectId: string | undefined) {
+  return ["epics", projectId] as const;
 }
 
 /** 150ms keystroke-to-query debounce (01-UI-SPEC.md "Performance Contract", 01-RESEARCH.md Flag
@@ -290,6 +306,24 @@ export function useActors() {
   return useQuery({
     queryKey: ["actors"],
     queryFn: () => invokeCommand<Actor[]>("actor_list"),
+  });
+}
+
+/**
+ * The project's full epic roster (BOARD-06, G-01-2) — explicitly not the currently-loaded board
+ * window `useBoardQuery` returns. `BoardRow`'s epic pill, `FilterBar`'s chip list and both
+ * `ParentPicker` option lists (plan 01-18) resolve every epic id against this, never against
+ * `items`: an epic that sorts outside `board_list`'s `DEFAULT_LIMIT`/200-row page still has an
+ * entry here, which is what closes the defect a windowed lookup could not.
+ *
+ * `enabled: Boolean(projectId)` mirrors `useBoardQuery`'s own gating — no project selected issues
+ * no `epic_list_all` call.
+ */
+export function useEpics(projectId: string | undefined) {
+  return useQuery({
+    queryKey: epicsQueryKey(projectId),
+    queryFn: () => invokeCommand<EpicSummary[]>("epic_list_all", { projectId }),
+    enabled: Boolean(projectId),
   });
 }
 
