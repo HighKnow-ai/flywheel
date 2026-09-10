@@ -41,6 +41,20 @@ export const STRIP = {
   referenceStock: "#ddd6c6",
 } as const;
 
+/**
+ * Agent signal vocabulary (02-UI-SPEC.md "Color Additions") — the four new colour roles Phase 2
+ * introduces for the run-status/blocked signals. Only `blockedTextRack`/`blockedTextStrip` is a
+ * pair; `successTextRack`/`destructiveTextRack` render on rack surfaces only in this phase. Kept
+ * byte-identical to `styles/tokens.css`'s matching custom properties — asserted by
+ * `theme/__tests__/contrast.test.ts`, not merely by convention.
+ */
+export const AGENT = {
+  successTextRack: "#5fbf8e",
+  destructiveTextRack: "#d9776c",
+  blockedTextRack: "#dda845",
+  blockedTextStrip: "#7a4e19",
+} as const;
+
 /** Ink and accents on strip stock. */
 export const INK = {
   textPrimary: "#1e232b",

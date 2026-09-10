@@ -38,6 +38,18 @@
   --focus-ring: #3c64dd;
   --destructive-strip: #9c351c;
 
+  /* --- Agent signal vocabulary (02-UI-SPEC.md "Color Additions") ---
+   * Four roles for the five new run-status/blocked signals this phase introduces. Only `blocked`
+   * gets a rack/strip pair: it is the one new signal that renders on BOTH material families (board
+   * row = strip stock, session surface and item detail = rack), whereas run status (success/
+   * destructive) only ever renders on rack surfaces in this phase. Running reuses the existing
+   * `accent-text-rack`; interrupted reuses the existing `text-muted-rack` — no new role for either.
+   */
+  --success-text-rack: #5fbf8e;
+  --destructive-text-rack: #d9776c;
+  --blocked-text-rack: #dda845;
+  --blocked-text-strip: #7a4e19;
+
   /*
    * Board row states — overlays applied on top of a row's own strip-state tint,
    * not replacements for it. The distinguishability obligation (01-UI-SPEC.md
