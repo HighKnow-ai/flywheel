@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 2
+current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Phase 2 UI-SPEC approved
-last_updated: "2026-09-10T11:44:52.897Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-09-10T12:42:13.838Z"
 last_activity: 2026-09-10
-last_activity_desc: Phase 01 complete, transitioned to Phase 2
-state_head: 614cff75b17c0453172d9f5d80a94f6dd10c2e9f
+last_activity_desc: Phase 02 execution started
+state_head: e137ad392195aadad97464e5094f4d274d2fb7ac
 progress:
   total_phases: 12
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 31
-  completed_plans: 21
-  percent: 8
+  completed_plans: 22
+  percent: 0
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-10)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 2 — One Agent, One Worktree, Watched Live
+**Current focus:** Phase 02 — One Agent, One Worktree, Watched Live
 
 ## Current Position
 
-Phase: 2 (One Agent, One Worktree, Watched Live) — READY TO EXECUTE
-Plan: Not started
+Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
+Plan: 2 of 10
 Status: Ready to execute
-Last activity: 2026-09-10 — Phase 01 complete, transitioned to Phase 2
+Last activity: 2026-09-10 — Phase 02 execution started
 
-Progress: [█░░░░░░░░░] 8%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -79,6 +79,7 @@ Progress: [█░░░░░░░░░] 8%
 | Phase 01 P19 | 35min | 3 tasks | 6 files |
 | Phase 01 P20 | 25min | 3 tasks | 4 files |
 | Phase 01 P21 | 11min | 3 tasks | 4 files |
+| Phase 02 P01 | 55min | 3 tasks | 43 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,9 @@ Recent decisions affecting current work:
 - [Phase 01]: **`state/keyboard.ts` is the single key→action map**, and `dispatchAction(id)` synthesizes a real KeyboardEvent so the command palette and the native menu bridge re-enter the same keyboard pipeline rather than reimplementing each action. Competing per-row and per-field handlers were removed.
 
 *(Phase 01 logged 48 decisions in total; the five above are the ones that bind later phases. The full set is in the phase's SUMMARY files and PROJECT.md's Key Decisions table.)*
+
+- [Phase 02]: slugify treats only ASCII separators as word boundaries so dropped non-ASCII chars never fragment a word — Matches the plan's own worked LINK-01 example (naïve -> nave, not na-ve); a literal per-character-drop-collapses-to-hyphen reading of the LINK-01 prose produced the wrong output
+- [Phase 02]: Node sidecar packaging (pkg/nexe) deferred; a dev-time bash-script stub bridges tauri-plugin-shell's externalBin requirement to packages/sidecar/dist/index.js — No plan in this phase runs the actual packaging step yet, but cargo build --workspace hard-fails without a real externalBin artifact present
 
 ### Pending Todos
 
@@ -130,6 +134,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T10:51:41.699Z
-Stopped at: Phase 2 UI-SPEC approved
-Resume file: .planning/phases/02-one-agent-one-worktree-watched-live/02-UI-SPEC.md
+Last session: 2026-09-10T12:42:07.791Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None

@@ -34,7 +34,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 ### Worktree & Branch Management
 
 - [ ] **WORK-01**: Starting work on a task creates a dedicated git worktree for that task
-- [ ] **WORK-02**: Branches follow the fixed topology: a task branch merges into its epic integration branch, which merges into the trunk
+- [x] **WORK-02**: Branches follow the fixed topology: a task branch merges into its epic integration branch, which merges into the trunk
 - [ ] **WORK-03**: A worktree is never destroyed without first checking for uncommitted changes; if any exist, destruction is refused and surfaced to the user
 - [ ] **WORK-04**: Concurrent git operations against the same repository retry with exponential backoff and jitter on index-lock contention rather than failing the task
 - [ ] **WORK-05**: Agent spawn timing is desynchronised so that parallel starts do not collide on the same repository index
@@ -58,8 +58,8 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Process Supervision
 
-- [ ] **PROC-01**: Each agent session runs as a separate operating-system process in its own worktree directory
-- [ ] **PROC-02**: The supervisor never reads its own current working directory; every filesystem and git operation is issued against an explicit absolute path
+- [x] **PROC-01**: Each agent session runs as a separate operating-system process in its own worktree directory
+- [x] **PROC-02**: The supervisor never reads its own current working directory; every filesystem and git operation is issued against an explicit absolute path
 - [ ] **PROC-03**: Agent processes are managed as process groups so that termination reliably kills the whole tree, not just the parent
 - [ ] **PROC-04**: No agent process survives application quit; a worker self-terminates if its supervisor disappears
 - [ ] **PROC-05**: On launch, orphaned agent processes and in-flight runs from a previous session are detected and surfaced to the user for a decision rather than silently resumed
@@ -238,7 +238,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BOARD-09 | Phase 1 | Complete |
 | BOARD-10 | Phase 1 | Complete |
 | WORK-01 | Phase 2 | Pending |
-| WORK-02 | Phase 2 | Pending |
+| WORK-02 | Phase 2 | Complete |
 | WORK-03 | Phase 3 | Pending |
 | WORK-04 | Phase 3 | Pending |
 | WORK-05 | Phase 3 | Pending |
@@ -256,8 +256,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | LINK-09 | Phase 7 | Pending |
 | LINK-10 | Phase 7 | Pending |
 | LINK-11 | Phase 7 | Pending |
-| PROC-01 | Phase 2 | Pending |
-| PROC-02 | Phase 2 | Pending |
+| PROC-01 | Phase 2 | Complete |
+| PROC-02 | Phase 2 | Complete |
 | PROC-03 | Phase 3 | Pending |
 | PROC-04 | Phase 3 | Pending |
 | PROC-05 | Phase 3 | Pending |
