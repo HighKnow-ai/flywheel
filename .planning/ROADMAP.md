@@ -190,8 +190,43 @@ actor identity extends to multi-remote without migration.
   4. User stops a running session and finds the worktree intact and inspectable, then starts a second session on that same worktree — the worktree outlives the session.
   5. User sees the worktree, the agent run and the session as distinct linked records on the task, each started through a trigger record, and can point Flywheel at either his existing local Claude Code credentials or an explicit API key with nothing else in the product behaving differently.
 
-**Plans**: TBD
+**Plans**: 10 plans in 8 waves
 **UI hint**: yes
+
+Plans:
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Tracer: Start Work spawns a real agent in a task-owned worktree and one event reaches the screen; plus the fixed branch topology and the PROC-02 structural gate
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Stop means interrupt, then force: the whole process group, and a worktree left exactly as the agent left it
+- [ ] 02-03-PLAN.md — The agent design vocabulary: four contrast-proven colour roles, six legend marks, eight keyboard actions
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-04-PLAN.md — The launch sheet and the deterministic context packet: see the briefing before tokens are spent
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 02-05-PLAN.md — The permission gate: an MCP tool call that does not resolve until a human answers, and project-scoped allow-always rules
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 02-06-PLAN.md — Answering from the board: one card in two mount points, the blocked row pill, the project-rail count
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 02-07-PLAN.md — The live feed for real: a bounded windowed read, structured rows, the raw escape hatch, the cost strip
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 02-08-PLAN.md — The records on the task: the worktree summary and the runs list, with one way into the session surface
+- [ ] 02-09-PLAN.md — The credential boundary: Keychain-backed API key, per-project override, resolved once per spawn, proven parity
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 02-10-PLAN.md — The first Settings surface: credential path, per-project overrides, and revocable permission rules
 
 **Notes**: Two more structural seams land here: the generic trigger record with `user_action`
 implemented and `schedule`/`webhook` accepted-but-unimplemented (DATA-04), and the single agent
