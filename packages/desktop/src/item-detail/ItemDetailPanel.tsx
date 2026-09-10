@@ -18,6 +18,7 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
+import { startAgentRun } from "../adapters/tauri";
 import { StatusPicker } from "../board/pickers/StatusPicker";
 import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
@@ -49,6 +50,11 @@ export interface ItemDetailPanelProps {
    * how the panel stays open without fighting the palette for focus. This component stays free
    * of any store import — the caller decides. */
   trapped?: boolean;
+  /** Called with the new run's id once `startAgentRun` resolves (D-31, plan 02-01) — the caller
+   * decides what "routes to the session surface" means (this component stays free of any store
+   * import, per this prop's own precedent above). Only rendered for a task (D-37: an epic/issue
+   * has no worktree of its own to run an agent in). */
+  onSessionStarted?: (agentRunId: string) => void;
 }
 
 export function ItemDetailPanel({
@@ -57,9 +63,18 @@ export function ItemDetailPanel({
   onUpdateTitle,
   onSetStatus,
   trapped = true,
+  onSessionStarted,
 }: ItemDetailPanelProps) {
   const [titleDraft, setTitleDraft] = useState(item.title);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
+  const [startingWork, setStartingWork] = useState(false);
+
+  function handleStartWork() {
+    setStartingWork(true);
+    startAgentRun(item.id, "acceptEdits")
+      .then((run) => onSessionStarted?.(run.id))
+      .finally(() => setStartingWork(false));
+  }
   const [statusPickerAnchor, setStatusPickerAnchor] = useState<{ top: number; left: number; bottom: number } | null>(
     null,
   );
@@ -188,6 +203,26 @@ export function ItemDetailPanel({
                 />
               )}
             </div>
+          )}
+
+          {item.kind === "task" && (
+            <button
+              type="button"
+              onClick={handleStartWork}
+              disabled={startingWork}
+              className="type-body"
+              style={{
+                alignSelf: "flex-start",
+                background: "var(--accent-nontext)",
+                border: "none",
+                borderRadius: "var(--radius-chrome)",
+                color: "#ffffff",
+                padding: "var(--space-xs) var(--space-md)",
+                cursor: startingWork ? "default" : "pointer",
+              }}
+            >
+              {startingWork ? "Starting…" : "Start Work"}
+            </button>
           )}
 
           {!isIssue && (

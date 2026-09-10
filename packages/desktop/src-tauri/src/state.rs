@@ -2,11 +2,19 @@ use rusqlite::Connection;
 use std::sync::Mutex;
 use tauri::menu::MenuItem;
 
+use crate::sidecar::SidecarHandle;
+
 /// Tauri-managed application state: the single SQLite connection every command handler locks
 /// before touching the database. `packages/core` owns the schema and every mutation function;
 /// this struct only carries the connection through Tauri's state-management seam.
+///
+/// `sidecar` is `None` only in a context where the sidecar was never spawned (e.g. a future unit
+/// test harness) — `main.rs`'s `.setup()` closure always populates it via its own
+/// expect-or-crash-loudly idiom before any window is shown, so every real Tauri command handler
+/// can treat a `None` here as "the sidecar failed to start," not a valid steady state.
 pub struct AppState {
     pub db: Mutex<Connection>,
+    pub sidecar: Option<SidecarHandle>,
 }
 
 /// Native menu handles for the four forwarded custom items — `main.rs`'s

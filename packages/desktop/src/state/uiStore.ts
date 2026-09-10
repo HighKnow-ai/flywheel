@@ -130,6 +130,12 @@ interface UiState {
    * consumer clears it per raise, so the request is honoured once and never twice.
    */
   quickAddFocusPending: boolean;
+  /** The agent run id currently occupying the session surface (D-31, plan 02-01), or `null` when
+   * the board is showing. Lives here — not as `App.tsx`-local state — for the same cross-tree
+   * reasoning `detailItemId` documents: `ItemDetailPanel.tsx`'s "Start Work" affordance is mounted
+   * deep inside `BoardView`'s tree, but the session surface it routes to replaces the whole
+   * board/detail layout at the `AppShell` level. */
+  activeAgentRunId: string | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -154,6 +160,7 @@ interface UiState {
    * that actually moved the cursor (`board/QuickAdd.tsx`'s focus effect) — so a request is
    * honoured once and never twice (G-01-4). */
   clearQuickAddFocusPending: () => void;
+  setActiveAgentRunId: (agentRunId: string | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -169,6 +176,7 @@ export const useUiStore = create<UiState>((set) => ({
   quickAddKind: "task",
   pendingDone: null,
   quickAddFocusPending: false,
+  activeAgentRunId: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -229,6 +237,7 @@ export const useUiStore = create<UiState>((set) => ({
   openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true, quickAddFocusPending: true }),
   setPendingDone: (pending) => set({ pendingDone: pending }),
   clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
+  setActiveAgentRunId: (agentRunId) => set({ activeAgentRunId: agentRunId }),
 }));
 
 /** Resets every UI field back to its initial value — the shared reset four test suites
@@ -251,5 +260,6 @@ export function resetUiState() {
     quickAddKind: "task",
     pendingDone: null,
     quickAddFocusPending: false,
+    activeAgentRunId: null,
   });
 }

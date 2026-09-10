@@ -5,6 +5,7 @@
 //! a successful mutation, emits `board:changed` (D-04).
 
 pub mod actor;
+pub mod agent_run;
 pub mod board;
 pub mod criterion;
 pub mod epic;

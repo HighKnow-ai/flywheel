@@ -55,3 +55,46 @@ export async function openFolderDialog(): Promise<string | null> {
 export async function subscribeMenuAction(handler: (actionId: string) => void): Promise<UnlistenFn> {
   return listen<string>("menu:action", (event) => handler(event.payload));
 }
+
+/**
+ * Start a fresh agent run against `taskId` (D-30, plan 02-01). Thin typed wrapper over
+ * `agent_run_start`, following `invokeCommand`'s own single-seam rule.
+ */
+export interface AgentRunDto {
+  id: string;
+  taskId: string;
+  status: string;
+  permissionMode: string;
+}
+
+export async function startAgentRun(taskId: string, permissionMode: string): Promise<AgentRunDto> {
+  return invokeCommand<AgentRunDto>("agent_run_start", { taskId, permissionMode });
+}
+
+/**
+ * A bounded page of an agent run's durable session log (D-33, D-34) — the same
+ * `LIMIT`/`OFFSET` windowed-read shape `events_activity_trail` already uses, server-capped at
+ * 100 rows regardless of what is requested (T-02-06).
+ */
+export async function agentRunLogWindow(
+  agentRunId: string,
+  offset: number,
+  limit: number,
+): Promise<Record<string, unknown>[]> {
+  return invokeCommand<Record<string, unknown>[]>("agent_run_log_window", {
+    agentRunId,
+    offset,
+    limit,
+  });
+}
+
+/**
+ * Subscribe to `agent:event`, the Rust core's live push of one normalised agent event at a time
+ * (D-32) — the session surface invalidates its windowed read on this, never trusting a streamed
+ * event as already-persisted (mirrors `subscribeBoardChanged`'s own D-04 discipline).
+ */
+export async function subscribeAgentEvent(
+  handler: (event: Record<string, unknown>) => void,
+): Promise<UnlistenFn> {
+  return listen<Record<string, unknown>>("agent:event", (event) => handler(event.payload));
+}

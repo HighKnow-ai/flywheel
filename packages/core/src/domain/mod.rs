@@ -8,11 +8,14 @@ use rusqlite::{params, OptionalExtension, Transaction};
 
 pub mod acceptance_criterion;
 pub mod actor;
+pub mod agent_run;
 pub mod epic;
 pub mod event;
 pub mod issue;
 pub mod project;
 pub mod task;
+pub mod trigger;
+pub mod worktree;
 
 /// The one fixed five-state workflow (BOARD-04) that epics and tasks share. This is the ONLY
 /// list of workflow states anywhere in this workspace — the schema CHECK constraint in migration

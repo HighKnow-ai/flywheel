@@ -15,6 +15,7 @@ use core::domain::actor::{local_human_actor_id, system_actor};
 use core::domain::project::{self, Project};
 use core::ids::new_id;
 use rusqlite::{params, Connection};
+use std::process::Command;
 
 #[allow(dead_code)]
 pub fn scratch_dir() -> tempfile::TempDir {
@@ -36,6 +37,54 @@ pub fn seeded_project() -> (Connection, String, Project) {
     let proj = project::create_project(&mut conn, &actor_id, "Threadfin", "/repo", "FLY", "main")
         .expect("create_project should succeed");
     (conn, actor_id, proj)
+}
+
+/// Open a fresh migrated database, `git init` a real repository in its own (leaked, per
+/// `seeded_project`'s own discipline) `TempDir`, make one commit on `main`, and register it as a
+/// Flywheel project pointing at that real repository (plan 02-01 Task 1's `agent_tracer.rs`
+/// fixture — worktree creation needs a real repository, not a bare row with an arbitrary
+/// `repo_path`). Returns `(conn, actor_id, project, repo_dir)`; the caller keeps `repo_dir` alive
+/// for the test's duration.
+#[allow(dead_code)]
+pub fn seeded_git_project() -> (Connection, String, Project, tempfile::TempDir) {
+    let repo_dir = tempfile::tempdir().expect("failed to create scratch repo dir");
+    let repo_path = repo_dir.path();
+
+    let run = |args: &[&str]| {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .args(args)
+            .status()
+            .unwrap_or_else(|e| panic!("failed to spawn git {args:?}: {e}"));
+        assert!(status.success(), "git {args:?} failed");
+    };
+
+    run(&["init", "--initial-branch=main"]);
+    run(&["config", "user.email", "fixture@flywheel.test"]);
+    run(&["config", "user.name", "Fixture"]);
+    std::fs::write(repo_path.join("README.md"), "fixture repo\n").expect("failed to write README");
+    run(&["add", "README.md"]);
+    run(&["commit", "-m", "initial commit"]);
+
+    let dir = scratch_dir();
+    let db_path = dir.path().join("flywheel.db");
+    let backups_dir = dir.path().join("backups");
+    std::mem::forget(dir);
+
+    let mut conn =
+        open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed");
+    let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
+    let proj = project::create_project(
+        &mut conn,
+        &actor_id,
+        "Threadfin",
+        &repo_path.to_string_lossy(),
+        "FLY",
+        "main",
+    )
+    .expect("create_project should succeed");
+    (conn, actor_id, proj, repo_dir)
 }
 
 const STATUSES: [&str; 5] = ["backlog", "todo", "in_progress", "in_review", "done"];

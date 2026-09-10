@@ -10,6 +10,7 @@ import { useBoardChangedSubscription, useBoardQuery, useCreateTask, useProjects 
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
+import { SessionSurface } from "./session/SessionSurface";
 import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
@@ -89,6 +90,10 @@ function AppShell() {
   const projectsQuery = useProjects();
   const currentProjectId = useUiStore((state) => state.currentProjectId);
   const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
+  // D-31: the live session surface, pushed into from a task and popped back out of — the board
+  // stays the board (this state is `null` whenever no session is being watched).
+  const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
+  const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
   // `⌘⇧O`'s actual effect — the SAME registration flow the rail's `+` button and the palette's
   // "Register Project…" command use (`projects/RegisterProjectFlow.tsx`), never a re-derived
   // copy (01-UI-SPEC.md "Project switcher"). `isError`/`error` are surfaced below (CR-02) —
@@ -203,7 +208,11 @@ function AppShell() {
           onSelect={(selected) => setCurrentProjectId(selected.id)}
         />
         <div style={{ flex: 1, minHeight: 0 }}>
-          {project.status === "unreachable" ? (
+          {activeAgentRunId ? (
+            // D-31: pushed into from a task, popped back out of on "← Board" — the board itself
+            // (and its own state — filters, selection, scroll) is untouched underneath this.
+            <SessionSurface agentRunId={activeAgentRunId} onBack={() => setActiveAgentRunId(null)} />
+          ) : project.status === "unreachable" ? (
             // D-16: an unreachable project's marker no longer matches its cached path — this
             // surface replaces the board entirely and offers only explicit relocation, never a
             // board rendered against a repository Flywheel can no longer verify.

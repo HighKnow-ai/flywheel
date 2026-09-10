@@ -211,6 +211,7 @@ export function BoardView({
   // status change" by the mutation simply never having been sent (01-UI-SPEC.md State Inventory).
   const pendingDone = useUiStore((state) => state.pendingDone);
   const setPendingDone = useUiStore((state) => state.setPendingDone);
+  const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
 
   // A stable module-level empty object — returning a fresh `{}` literal from the selector would
   // give Zustand's default reference-equality check a new value on every call, causing an
@@ -1004,6 +1005,7 @@ export function BoardView({
             updateItem.mutate({ kind: selectedItem.kind ?? "task", id: selectedItem.id, title })
           }
           onSetStatus={(status) => requestStatusChange(selectedItem.kind ?? "task", selectedItem.id, status)}
+          onSessionStarted={(agentRunId) => setActiveAgentRunId(agentRunId)}
           // The palette renders over this panel by design (the Escape ladder's fixed order) —
           // release the trap while the palette owns focus so the panel stays open instead of
           // fighting Radix's `FocusScope` for it (01-13-PLAN.md, G-01-FOCUS instance 5).

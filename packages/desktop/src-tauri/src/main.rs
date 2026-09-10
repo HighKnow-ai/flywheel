@@ -3,6 +3,7 @@
 
 mod commands;
 mod menu;
+mod sidecar;
 mod state;
 
 use state::AppState;
@@ -23,6 +24,7 @@ const FORWARDED_MENU_ACTIONS: &[&str] = &["register-project", "create-task", "cr
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .menu(|app| menu::build_menu(app))
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
@@ -52,8 +54,16 @@ fn main() {
             flywheel_core::domain::project::reconcile_projects(&mut conn, &reconcile_actor_id)
                 .expect("failed to reconcile registered projects at launch");
 
+            // Spawn the sidecar supervisor before any window is shown, with the same
+            // expect-or-crash-loudly idiom the migration step above already uses — a sidecar
+            // that fails to start means no agent run can ever be driven, so this never proceeds
+            // silently (PROC-01, PROC-02).
+            let sidecar_handle = sidecar::spawn_sidecar(app.handle())
+                .expect("failed to spawn the flywheel-sidecar process at startup");
+
             app.manage(AppState {
                 db: Mutex::new(conn),
+                sidecar: Some(sidecar_handle),
             });
 
             Ok(())
@@ -98,7 +108,21 @@ fn main() {
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
             commands::menu::menu_set_action_enabled,
+            commands::agent_run::agent_run_start,
+            commands::agent_run::agent_run_log_window,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Kill the sidecar's own process (and, transitively, every session it was driving)
+            // on app exit — never leave an orphaned sidecar or agent process behind
+            // (RESEARCH.md Pitfall 3, applied at the supervisor-exit level).
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    if let Some(sidecar) = state.sidecar.as_ref() {
+                        sidecar.kill();
+                    }
+                }
+            }
+        });
 }

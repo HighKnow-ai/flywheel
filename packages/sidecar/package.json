@@ -1,0 +1,15 @@
+{
+  "name": "flywheel-sidecar",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The Node process that drives one Claude Code session per agent run (AGNT-01, AGNT-02) — a thin process driver with no decision authority of its own, supervised by the Rust core over stdio.",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.10.0"
+  }
+}

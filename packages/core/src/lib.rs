@@ -3,9 +3,12 @@
 //! Owns the SQLite connection exclusively (no other crate in this workspace opens the
 //! database file directly, per `ARCHITECTURE.md` Anti-Pattern 3 and D-03).
 
+pub mod branch;
 pub mod db;
 pub mod domain;
+pub mod git;
 pub mod ids;
 pub mod marker;
 pub mod query;
 pub mod ranking;
+pub mod session_log;
