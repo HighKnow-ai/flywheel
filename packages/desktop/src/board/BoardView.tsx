@@ -26,6 +26,12 @@
  * the whole stack from outside this tree too (01-13-PLAN.md, G-01-FOCUS). This container's own
  * key handler (`handleContainerKeyDown` below) reads the same layer decision every global
  * binding does — no hand-rolled guard of its own.
+ *
+ * Quick-add's focus is delivered by a consume-once request (`quickAddFocusPending`,
+ * `state/uiStore.ts`), not by mount-time `autoFocus`, because the row is virtualized and at
+ * volume it is not mounted when the keystroke arrives (G-01-4, 01-19-PLAN.md). The scroll that
+ * brings it into view is `virtualizer.scrollToIndex` — this file's first and only programmatic
+ * scroll.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -174,6 +180,13 @@ export function BoardView({
   const setQuickAddOpen = useUiStore((state) => state.setQuickAddOpen);
   const quickAddKind = useUiStore((state) => state.quickAddKind);
   const storeOpenQuickAdd = useUiStore((state) => state.openQuickAdd);
+  // The one-shot focus request (G-01-4, 01-19-PLAN.md) — consumed by the scroll effect below (to
+  // release its negative-index guard) and by `QuickAdd.tsx`'s own focus effect (to move the
+  // cursor). Guarding on this flag rather than on `quickAddOpen` is what keeps a refused ⌘N from
+  // scrolling the board or moving focus (the layer guard never sets this flag for a refused
+  // keystroke — see `openQuickAdd` below).
+  const quickAddFocusPending = useUiStore((state) => state.quickAddFocusPending);
+  const clearQuickAddFocusPending = useUiStore((state) => state.clearQuickAddFocusPending);
   // Whether the Backlog-top quick-add row is currently nested under `quickAddIndentTarget`
   // (G-01-EPIC-ASSIGN, plan 01-15). Genuinely local — not layer state — so it stays as a plain
   // `useState`, not a `uiStore` field.
@@ -322,6 +335,26 @@ export function BoardView({
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
   });
+
+  // The quick-add row's index within `rows`, or `-1` when there is none (G-01-4). Derived rather
+  // than hard-coded to `1`: the index is only `1` while Backlog is first in `BAND_ORDER` and
+  // expanded — a collapsed Backlog (the expand-Backlog effect further below) changes exactly one
+  // of those conditions.
+  const quickAddRowIndex = useMemo(() => rows.findIndex((row) => row.kind === "quick-add"), [rows]);
+
+  // Scrolls the quick-add row into view by the minimum distance (G-01-4, 01-19-PLAN.md Task 1).
+  // Guarded on the PENDING FLAG, not on `quickAddOpen` — a refused ⌘N never sets
+  // `quickAddFocusPending` (see `openQuickAdd`/`useGlobalBindings` below), so this effect never
+  // scrolls the board out from under a trapped layer. The negative-index guard is what makes this
+  // effect compose with the expand-Backlog effect below: the first pass (Backlog still
+  // collapsed) finds no row and returns early; the expansion re-runs this effect with a real
+  // index on the following render. `align: "auto"` is the minimum-distance alignment
+  // 01-UI-SPEC.md's "Focus & selection model" asks for ("the viewport scrolls the minimum amount
+  // needed to keep it visible — it never resets to the top of the list").
+  useEffect(() => {
+    if (!quickAddFocusPending || quickAddRowIndex < 0) return;
+    virtualizer.scrollToIndex(quickAddRowIndex, { align: "auto" });
+  }, [quickAddFocusPending, quickAddRowIndex, virtualizer]);
 
   /**
    * The single point every status change funnels through, whether it originated from the
@@ -588,7 +621,12 @@ export function BoardView({
               return (
                 <div key={virtualRow.key} style={positionStyle}>
                   <QuickAdd
-                    autoFocus
+                    // Mount-time focus is now the empty-board default only (G-01-4) — every
+                    // on-demand open goes through `focusPending` below instead, since the row is
+                    // virtualized and at volume is not mounted when the keystroke arrives.
+                    autoFocus={items.length === 0}
+                    focusPending={quickAddFocusPending}
+                    onFocusHandled={clearQuickAddFocusPending}
                     onCreate={(title, epicId) =>
                       quickAddKind === "epic" ? createEpic.mutate(title) : onCreateTask(title, epicId)
                     }

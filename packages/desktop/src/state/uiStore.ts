@@ -119,6 +119,17 @@ interface UiState {
   quickAddKind: BoardItemKind;
   /** The in-flight Done-transition warning, if any (D-08; moved from `BoardView`-local state). */
   pendingDone: PendingDone | null;
+  /**
+   * A one-shot request that quick-add's own focus effect (`board/QuickAdd.tsx`) consumes
+   * (G-01-4, 01-19-PLAN.md Task 1). This is what lets a row the virtualizer mounts *late* —
+   * because the board was scrolled past it, or its band was collapsed — still receive the
+   * cursor, and what makes pressing ⌘N a second time re-deliver focus even though `quickAddOpen`
+   * is already `true` (an effect keyed only on `quickAddOpen` would not re-fire on that second
+   * press, since there is no state change to re-run it). Set by `openQuickAdd` below, cleared by
+   * `setQuickAddOpen(false)` and by whichever component actually moves the cursor — exactly one
+   * consumer clears it per raise, so the request is honoured once and never twice.
+   */
+  quickAddFocusPending: boolean;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -139,6 +150,10 @@ interface UiState {
    * writer even now that two fields are involved. */
   openQuickAdd: (kind: BoardItemKind) => void;
   setPendingDone: (pending: PendingDone | null) => void;
+  /** Clears `quickAddFocusPending`. Exactly one consumer calls this per raise — the component
+   * that actually moved the cursor (`board/QuickAdd.tsx`'s focus effect) — so a request is
+   * honoured once and never twice (G-01-4). */
+  clearQuickAddFocusPending: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -153,6 +168,7 @@ export const useUiStore = create<UiState>((set) => ({
   quickAddOpen: false,
   quickAddKind: "task",
   pendingDone: null,
+  quickAddFocusPending: false,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -201,10 +217,18 @@ export const useUiStore = create<UiState>((set) => ({
   setDetailItemId: (id) => set({ detailItemId: id }),
   setDeleteTarget: (target) => set({ deleteTarget: target }),
   setActivePicker: (picker) => set({ activePicker: picker }),
-  setQuickAddOpen: (open) => set({ quickAddOpen: open }),
+  // Closing quick-add also clears any outstanding focus request (G-01-4) — an Escape that closes
+  // the row while a request is still unconsumed must not leave a stale request that a later,
+  // unrelated mount would pick up.
+  setQuickAddOpen: (open) =>
+    set(open ? { quickAddOpen: open } : { quickAddOpen: open, quickAddFocusPending: false }),
   setQuickAddKind: (kind) => set({ quickAddKind: kind }),
-  openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true }),
+  // Sets `quickAddKind`, `quickAddOpen` AND `quickAddFocusPending` together in one `set` call —
+  // preserves this function's existing single-writer property now that a third field is
+  // involved (G-01-4, 01-19-PLAN.md Task 1).
+  openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true, quickAddFocusPending: true }),
   setPendingDone: (pending) => set({ pendingDone: pending }),
+  clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
 }));
 
 /** Resets every UI field back to its initial value — the shared reset four test suites
@@ -226,5 +250,6 @@ export function resetUiState() {
     quickAddOpen: false,
     quickAddKind: "task",
     pendingDone: null,
+    quickAddFocusPending: false,
   });
 }

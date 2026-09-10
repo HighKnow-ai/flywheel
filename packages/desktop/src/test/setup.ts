@@ -40,3 +40,28 @@ Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
   configurable: true,
   value: 1200,
 });
+
+/**
+ * `@tanstack/virtual-core`'s `elementScroll` (the function `scrollToIndex` ultimately calls)
+ * invokes `instance.scrollElement?.scrollTo?.({ top, behavior })` — an *optional* call. jsdom
+ * 30.0.1 implements `Element.prototype.scrollTop` as a stored, settable property, but implements
+ * NO `Element.prototype.scrollTo` at all (verified: `typeof el.scrollTo === "undefined"`). Without
+ * this stub, `scrollToIndex` is a silent no-op in every test — it throws nothing and moves
+ * nothing — so a scroll-into-view regression test (G-01-4, 01-19-PLAN.md Task 1) would pass for
+ * the wrong reason if this were missing. Accepts either a plain number (the legacy one-arg form)
+ * or an options object; writes the vertical target onto the element's own `scrollTop`, clamped at
+ * a floor of zero, then dispatches a `scroll` event so any listener (the virtualizer included)
+ * re-reads the new offset — mirroring a real browser's async-but-eventually-consistent scroll.
+ */
+if (typeof Element.prototype.scrollTo === "undefined") {
+  Object.defineProperty(Element.prototype, "scrollTo", {
+    configurable: true,
+    value: function scrollTo(this: Element, arg?: number | ScrollToOptions) {
+      const top = typeof arg === "number" ? arg : arg?.top;
+      if (typeof top === "number") {
+        this.scrollTop = Math.max(0, top);
+      }
+      this.dispatchEvent(new Event("scroll"));
+    },
+  });
+}

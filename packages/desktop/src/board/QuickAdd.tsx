@@ -8,7 +8,7 @@
  * quick-add supplies none of them and keeps native Tab moving focus out of the region exactly as
  * it always has — this row never nests an issue under anything at creation time.
  */
-import { useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { ROW_HEIGHT } from "./BoardRow";
 
 /** The epic (or, for a future nesting target, any item) a nested quick-add row would create
@@ -26,11 +26,21 @@ export interface QuickAddProps {
   placeholder?: string;
   ariaLabel?: string;
   background?: string;
-  /** Focuses the input on mount (01-09-PLAN.md: `c`/`⌘N` opening quick-add on demand must land
-   * the cursor in it immediately, matching "quick-add is already visible and focused" for the
-   * empty-board default). Left `false` by default so `IssuesLane.tsx`'s always-mounted quick-add
-   * (01-04) does not steal focus on every app load. */
+  /** Mount-time default, now used only for the empty-board state (01-UI-SPEC.md's "Quick-add is
+   * pre-focused") — every on-demand open (⌘N/⌘⇧N/`c`/the command palette/the native menu bridge)
+   * goes through `focusPending` below instead (G-01-4, 01-19-PLAN.md Task 1), because the row is
+   * virtualized and at volume it is not mounted at the moment the keystroke arrives. Left `false`
+   * by default so `IssuesLane.tsx`'s always-mounted quick-add (01-04) does not steal focus on
+   * every app load — it supplies neither this prop nor `focusPending`. */
   autoFocus?: boolean;
+  /** A one-shot request (G-01-4): when `true`, this component focuses its input and immediately
+   * calls `onFocusHandled` so the request is consumed exactly once. This is what makes focus
+   * survive a virtualized row mounting *after* the keystroke that asked for it — `autoFocus`
+   * above only fires on mount, which is too early when the row was not mounted yet. */
+  focusPending?: boolean;
+  /** Called once, from the same effect that consumes `focusPending`, so the caller (which owns
+   * the request flag in `state/uiStore.ts`) can clear it. */
+  onFocusHandled?: () => void;
   /** Fires in addition to the existing clear-and-blur behavior when Escape cancels the row — lets
    * a caller that renders this row conditionally (`BoardView.tsx`'s on-demand quick-add) also
    * unmount it, completing the Escape ladder's "quick-add" layer (01-09-PLAN.md Task 1). */
@@ -54,12 +64,25 @@ export function QuickAdd({
   ariaLabel = "Quick add a task",
   background = "var(--strip-backlog)",
   autoFocus = false,
+  focusPending = false,
+  onFocusHandled,
   onEscape,
   indentTarget = null,
   indented = false,
   onIndentChange,
 }: QuickAddProps) {
   const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Consumes `focusPending` (G-01-4) — guarded so this effect is a no-op on every render except
+  // the one where the caller actually raised the request. An inline arrow passed as
+  // `onFocusHandled` re-running this effect on every parent render is harmless: the flag is
+  // already `false` by then, and the guard below returns before touching focus again.
+  useEffect(() => {
+    if (!focusPending) return;
+    inputRef.current?.focus();
+    onFocusHandled?.();
+  }, [focusPending, onFocusHandled]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Tab" && onIndentChange) {
@@ -130,6 +153,7 @@ export function QuickAdd({
         placeholder={placeholder}
         aria-label={ariaLabel}
         value={value}
+        ref={inputRef}
         // eslint-disable-next-line jsx-a11y/no-autofocus -- opt-in only; see the prop doc comment.
         autoFocus={autoFocus}
         onChange={(event) => setValue(event.target.value)}
