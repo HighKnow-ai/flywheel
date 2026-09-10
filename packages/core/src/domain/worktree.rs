@@ -14,6 +14,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::branch::task_branch_name;
+use crate::domain::epic::ensure_epic_integration_branch;
 use crate::domain::event::{append_event, next_sequence};
 use crate::git;
 use crate::ids::new_id;
@@ -60,13 +61,46 @@ pub fn worktree_root() -> PathBuf {
     git::worktree_root_from_env()
 }
 
+/// Resolve the base ref a task's worktree should branch from (D-25, D-26, WORK-02). Exactly two
+/// shapes, selected purely by `task.epic_id` — no configuration input, no caller-supplied
+/// override, no planner or agent choice:
+/// - `task.epic_id` is `Some` → `domain::epic::ensure_epic_integration_branch`'s resolved value
+///   (lazily cutting the integration branch from the project's trunk tip on first use, D-25).
+/// - `task.epic_id` is `None` → the project's own `default_branch` (D-26).
+///
+/// This is the ONE call site in this crate that resolves a base ref for worktree creation —
+/// `ensure_worktree` calls this and nothing else.
+pub fn base_ref_for_task(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<String> {
+    let (project_id, epic_id): (String, Option<String>) = conn
+        .query_row(
+            "SELECT project_id, epic_id FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    match epic_id {
+        Some(epic_id) => ensure_epic_integration_branch(conn, &epic_id, actor_id),
+        None => {
+            let default_branch: String = conn
+                .query_row(
+                    "SELECT default_branch FROM projects WHERE id = ?1",
+                    params![project_id],
+                    |row| row.get(0),
+                )
+                .with_context(|| format!("project {project_id:?} not found"))?;
+            Ok(default_branch)
+        }
+    }
+}
+
 /// Create-or-reuse a task's worktree (D-30). Performs the existence SELECT before opening any
 /// transaction; when a row already exists, returns it untouched and issues no second
 /// `git worktree add`. Otherwise: derives the branch name (`branch::task_branch_name`), resolves
-/// the base ref as the project's `default_branch` (plan 02-01 Task 2 replaces this with
-/// `base_ref_for_task`'s two-shape resolution), computes the worktree path as
-/// `worktree_root()/{project.key_prefix}/{task.key}/`, calls `git::worktree_add`, then opens one
-/// transaction that inserts the `worktrees` row and appends a `worktree.created` event.
+/// the base ref via [`base_ref_for_task`]'s two-shape resolution (D-25/D-26), computes the
+/// worktree path as `worktree_root()/{project.key_prefix}/{task.key}/`, calls
+/// `git::worktree_add`, then opens one transaction that inserts the `worktrees` row and appends a
+/// `worktree.created` event.
 pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<Worktree> {
     if let Some(existing) = worktree_for_task(conn, task_id)? {
         return Ok(existing);
@@ -80,16 +114,16 @@ pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> 
         )
         .with_context(|| format!("task {task_id:?} not found"))?;
 
-    let (repo_path, default_branch, key_prefix): (String, String, String) = conn
+    let (repo_path, key_prefix): (String, String) = conn
         .query_row(
-            "SELECT repo_path, default_branch, key_prefix FROM projects WHERE id = ?1",
+            "SELECT repo_path, key_prefix FROM projects WHERE id = ?1",
             params![project_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .with_context(|| format!("project {project_id:?} not found"))?;
 
     let branch = task_branch_name(&task_key, &task_title);
-    let base_branch = default_branch;
+    let base_branch = base_ref_for_task(conn, task_id, actor_id)?;
 
     let worktree_path = worktree_root().join(&key_prefix).join(&task_key);
 

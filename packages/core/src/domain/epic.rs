@@ -647,3 +647,83 @@ pub fn set_assignee(
         .context("failed to commit set_assignee transaction")?;
     Ok(())
 }
+
+/// Lazily cut an epic's integration branch (D-25): if `epics.integration_branch` is already set,
+/// return it unchanged and cut nothing. Otherwise derive the name (`branch::epic_integration_branch_name`),
+/// verify the ref does not already exist, cut it from the project's `default_branch` tip, and — in
+/// ONE transaction — write `epics.integration_branch` and append an
+/// `epic.integration_branch_created` event. An epic that never runs an agent never leaves a branch
+/// behind — this is the only writer of `epics.integration_branch` in this crate.
+pub fn ensure_epic_integration_branch(
+    conn: &mut Connection,
+    epic_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<String> {
+    let (project_id, epic_key, epic_title, existing_branch): (String, String, String, Option<String>) = conn
+        .query_row(
+            "SELECT project_id, key, title, integration_branch FROM epics WHERE id = ?1",
+            params![epic_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+
+    if let Some(branch) = existing_branch {
+        return Ok(branch);
+    }
+
+    let (repo_path, default_branch): (String, String) = conn
+        .query_row(
+            "SELECT repo_path, default_branch FROM projects WHERE id = ?1",
+            params![project_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("project {project_id:?} not found"))?;
+
+    let branch_name = crate::branch::epic_integration_branch_name(&epic_key, &epic_title);
+    let repo_path = std::path::Path::new(&repo_path);
+
+    if crate::git::rev_parse_verify(repo_path, &branch_name)? {
+        anyhow::bail!(
+            "ensure_epic_integration_branch refused: branch {branch_name:?} already exists in {repo_path:?}"
+        );
+    }
+
+    crate::git::git_at(repo_path, &["branch", &branch_name, &default_branch]).with_context(|| {
+        format!("failed to cut integration branch {branch_name:?} for epic {epic_id:?}")
+    })?;
+
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute(
+        "UPDATE epics SET integration_branch = ?1, updated_at = ?2 WHERE id = ?3",
+        params![branch_name, now, epic_id],
+    )
+    .context("failed to write epics.integration_branch")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "integration_branch",
+        "before": null,
+        "after": branch_name,
+        "label": format!("Cut integration branch {branch_name}"),
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "epic",
+        epic_id,
+        None,
+        Some(epic_id),
+        actor_id,
+        "epic.integration_branch_created",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit ensure_epic_integration_branch transaction")?;
+
+    Ok(branch_name)
+}
