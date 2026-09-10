@@ -20,6 +20,13 @@
  * them — the two properties an earlier gap in this same phase already closed: G-01-1's layer
  * guard (a refused ⌘N must move nothing) and G-01-2's no-raw-identifier property (no rendered
  * text may ever be a raw internal id).
+ *
+ * CR-01/WR-01 (01-21-PLAN.md): this suite also owns the INVERSE direction of the collapse
+ * interaction above — a user collapsing the Backlog band AFTER quick-add is already open, which
+ * must stick rather than being silently reverted on the next render. The absence of exactly that
+ * direction is what let CR-01 ship green through 147 passing tests: every case above proves
+ * quick-add can expand a collapsed band, and none of them proved the reverse could not then undo
+ * a user's own click.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -67,13 +74,17 @@ afterEach(() => {
   useCollapseStore.setState({ collapsedByProject: {} });
 });
 
-/** Renders `BoardView` at volume with a 60-row backlog fixture. */
-function renderVolumeBoard(items: BoardItem[] = SIXTY_ROWS, issues: IssueItem[] = []) {
+/** Renders `BoardView` at volume with a 60-row backlog fixture. `projectId` defaults to
+ * "proj-1" so every existing call site is unaffected; the project-switch case below is the
+ * only caller that passes a different one. The returned `RenderResult` already carries
+ * `rerender` (Testing Library's own `render` return shape) — no signature change was needed
+ * to expose it. */
+function renderVolumeBoard(items: BoardItem[] = SIXTY_ROWS, issues: IssueItem[] = [], projectId = "proj-1") {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
       <BoardView
-        projectId="proj-1"
+        projectId={projectId}
         items={items}
         issues={issues}
         counts={{ ...EMPTY_COUNTS, backlog: items.length }}
@@ -293,6 +304,125 @@ describe("a band the user collapses while quick-add is open stays collapsed (CR-
     const container = boardContainer();
     scrollTo(container, 0);
     expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(true);
+  });
+
+  // The four cases below close WR-01's coverage hole: the properties the fix claims that
+  // nothing above actually checks (Task 2).
+
+  it("collapsing_backlog_hides_the_quick_add_row_without_reverting_the_collapse", async () => {
+    renderVolumeBoard();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    fireEvent.click(bandHeader("Backlog"));
+
+    // Both halves at once: the row legitimately vanishes with its collapsed band (the `rows`
+    // memo's `if (collapsedByStatus[status]) continue;`), and that disappearance must never be
+    // mistaken for — or accompanied by — the preference being silently reverted.
+    expect(
+      screen.queryByPlaceholderText("Type a title, press Enter to create…"),
+    ).not.toBeInTheDocument();
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(true);
+  });
+
+  it("re_pressing_cmd_n_after_a_deliberate_collapse_expands_and_focuses_again", async () => {
+    renderVolumeBoard();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    fireEvent.click(bandHeader("Backlog"));
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(true);
+    expect(
+      screen.queryByPlaceholderText("Type a title, press Enter to create…"),
+    ).not.toBeInTheDocument();
+
+    // An explicit new open request is a fresh rising edge — without it, ⌘N would be a silent
+    // no-op that also strands a raised `quickAddFocusPending` with nowhere to land.
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+
+    await waitFor(() => {
+      expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(false);
+    });
+    const reopened = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(reopened));
+  });
+
+  it("switching_to_a_project_with_a_collapsed_backlog_still_expands_it", async () => {
+    act(() => {
+      useCollapseStore.getState().toggle("proj-1", "backlog");
+      useCollapseStore.getState().toggle("proj-2", "backlog");
+    });
+
+    // Empty items on both projects, so quick-add is reachable without any keystroke —
+    // `effectiveQuickAddOpen` alone drives the expansion here.
+    const { rerender } = renderVolumeBoard([], [], "proj-1");
+    await waitFor(() => {
+      expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(false);
+    });
+
+    // Rerender the SAME tree with a new `projectId` — no unmount, no new `render` call —
+    // mirroring App.tsx's un-keyed `<Board projectId={project.id} …/>` (App.tsx:212). A bare
+    // boolean rising-edge guard passes every other case in this file and fails only this one:
+    // it would carry "already handled" across the switch because `BoardView` is never
+    // remounted here.
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <BoardView
+          projectId="proj-2"
+          items={[]}
+          issues={[]}
+          counts={EMPTY_COUNTS}
+          onCreateTask={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(useCollapseStore.getState().collapsedByProject["proj-2"]?.backlog).toBe(false);
+    });
+  });
+
+  it("the_expand_effect_performs_no_store_write_on_later_renders", async () => {
+    act(() => {
+      useCollapseStore.getState().toggle("proj-1", "backlog");
+    });
+    const { unmount } = renderVolumeBoard();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => {
+      expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(false);
+    });
+
+    // Both `toggle` and `expand` (collapseStore.ts) rebuild `collapsedByProject` on every call —
+    // an unchanged reference after further renders is therefore proof the effect wrote nothing.
+    const afterVolumeExpand = useCollapseStore.getState().collapsedByProject;
+    const container = boardContainer();
+    scrollTo(container, DEEP_SCROLL_OFFSET);
+    scrollTo(container, 0);
+    expect(Object.is(useCollapseStore.getState().collapsedByProject, afterVolumeExpand)).toBe(true);
+    unmount();
+
+    // The degenerate zero-item case — where the old, unguarded effect fired on every render for
+    // the project's entire lifetime.
+    useCollapseStore.setState({ collapsedByProject: {} });
+    act(() => {
+      useCollapseStore.getState().toggle("proj-1", "backlog");
+    });
+    renderVolumeBoard([]);
+    await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => {
+      expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(false);
+    });
+    const afterEmptyExpand = useCollapseStore.getState().collapsedByProject;
+    const emptyContainer = boardContainer();
+    scrollTo(emptyContainer, 0);
+    scrollTo(emptyContainer, 0);
+    expect(Object.is(useCollapseStore.getState().collapsedByProject, afterEmptyExpand)).toBe(true);
   });
 });
 
