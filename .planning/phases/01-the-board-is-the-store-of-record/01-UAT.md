@@ -1,29 +1,23 @@
 ---
-status: testing
+status: complete
 phase: 01-the-board-is-the-store-of-record
 source: [01-VERIFICATION.md]
 started: 2026-09-09T23:15:00Z
-updated: 2026-09-09T23:15:00Z
+updated: 2026-09-10T00:35:00Z
 ---
 
 ## Current Test
 
-number: 1
-name: Live walkthrough of the new hierarchy UI and the layer guard
-expected: |
-  Every action completes with no perceptible lag or visual jank; the epic pill and issue
-  parent button show real key/title values, not placeholders; no global shortcut ever lands
-  typed input in the wrong surface while the detail panel is trapped; clicking a different
-  issue's parent button while the detail panel is open does nothing (CR-02's fix) rather
-  than opening a second trapped picker.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. Live walkthrough of the new hierarchy UI and the layer guard
 
 expected: Launch a real `tauri dev` build and, with the mouse untouched, exercise the newly-built hierarchy UI specifically: select a task and press `m` to open the epic picker, assign and clear an epic; open an issue row's parent button (Tab-reachable, not click) and set/change/detach its parent through the grouped Epics/Tasks menu; open the item detail panel and confirm Cmd-N / Cmd-Shift-N / Cmd-F / bare `/` / Cmd-1..9 / Cmd-Shift-O are all inert while it is open, and Cmd-K still opens the palette over it without stealing focus. Every action completes with no perceptible lag or visual jank; the epic pill and issue parent button show real key/title values, not placeholders; clicking a different issue's parent button while the detail panel is open does nothing rather than opening a second trapped picker.
-result: [pending]
+result: issue
+reported: "item detail panel Cmd-N is actually closing the panel and doing the command"
+severity: major
 
 ### 2. Perceived responsiveness at 1,000+ items
 
@@ -33,13 +27,22 @@ result: [pending]
 ## Summary
 
 total: 2
-passed: 0
-issues: 0
-pending: 2
+passed: 1
+issues: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
+
+- gap_id: G-01-1
+  truth: "While the item detail panel is open, the global Cmd-N shortcut is inert — it neither dismisses the panel nor runs the new-item command."
+  status: failed
+  reason: "User reported: item detail panel Cmd-N is actually closing the panel and doing the command"
+  severity: major
+  test: 1
+  artifacts: []  # Filled by diagnosis
+  missing: []    # Filled by diagnosis
 
 ## Prior Round
 
