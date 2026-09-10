@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { useCollapseStore } from "../collapseStore";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
 
@@ -45,6 +46,7 @@ const SIXTY_ROWS: BoardItem[] = Array.from({ length: 60 }, (_, i) => ({
 
 beforeEach(() => {
   resetUiState();
+  useCollapseStore.setState({ collapsedByProject: {} });
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
@@ -55,6 +57,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetUiState();
+  useCollapseStore.setState({ collapsedByProject: {} });
 });
 
 /** Renders `BoardView` at volume with a 60-row backlog fixture. */
@@ -118,5 +121,71 @@ describe("cmd_n_focuses_quick_add_when_the_row_is_scrolled_out_of_the_mounted_wi
     await waitFor(() => {
       expect(useUiStore.getState().quickAddFocusPending).toBe(false);
     });
+  });
+});
+
+describe("a collapsed Backlog band can no longer swallow the quick-add row (Task 2)", () => {
+  it("cmd_n_expands_a_collapsed_backlog_band_and_focuses_the_row", async () => {
+    act(() => {
+      useCollapseStore.getState().toggle("proj-1", "backlog");
+    });
+    renderVolumeBoard();
+    const container = boardContainer();
+    scrollTo(container, 1600);
+
+    expect(
+      screen.queryByPlaceholderText("Type a title, press Enter to create…"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(input);
+    });
+  });
+
+  it("expanding_backlog_for_quick_add_leaves_every_other_band_alone", async () => {
+    act(() => {
+      useCollapseStore.getState().toggle("proj-1", "backlog");
+      useCollapseStore.getState().toggle("proj-1", "done");
+    });
+    renderVolumeBoard();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+
+    await waitFor(() => {
+      expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(false);
+    });
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.done).toBe(true);
+    expect(useCollapseStore.getState().collapsedByProject["proj-2"]).toBeUndefined();
+  });
+
+  it("a_collapsed_backlog_band_at_the_top_of_the_board_still_focuses", async () => {
+    act(() => {
+      useCollapseStore.getState().toggle("proj-1", "backlog");
+    });
+    renderVolumeBoard();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(input);
+    });
+  });
+
+  it("expand_is_idempotent_and_does_not_toggle_an_already_expanded_band", async () => {
+    renderVolumeBoard();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    act(() => {
+      useUiStore.getState().setQuickAddOpen(false);
+    });
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+
+    await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).not.toBe(true);
   });
 });
