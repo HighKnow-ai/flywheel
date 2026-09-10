@@ -369,6 +369,12 @@ Linear-reference-point's own pattern (D-01's explicit model).
   expanded first, because the row lives at the top of Backlog and a collapsed band would
   otherwise leave the keystroke with nothing focusable. Scoped to Backlog only, and to the
   current project only — no other band's collapse state is touched.
+- **Corrected in plan `01-21` (CR-01):** that guarantee is a **one-time action** — taken when
+  quick-add becomes reachable for a project (a fresh open, or the empty-board default) and on
+  each explicit new open request — never a standing invariant re-asserted on every render. Band
+  collapse is a local UI preference the user owns (see "Board list" above): a band the user
+  collapses afterward stays collapsed until the user says otherwise, and pressing the new-task
+  accelerator again is what re-expands it.
 
 ### Command palette (⌘K, D-02)
 
@@ -821,10 +827,11 @@ State coverage resolved against this phase's shape (empty / loading / error / po
 overflow / long-text). Empty- and error-state **copy** live in Copywriting Contract above; this
 section covers coverage status and references those rows rather than restating them.
 
-Applicable state considerations resolved: 11 covered, 2 backstop, 0 unresolved.
+Applicable state considerations resolved: 12 covered, 2 backstop, 0 unresolved.
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
+| zero-one-many | status band collapse toggle, quick-add open | ✅ covered | **Attributed to plan `01-21` (CR-01).** Collapse is user-owned (see "Board list" above); the automatic expansion fires on the rising edge of quick-add becoming reachable only, never on every render. The zero-item project is the case where the prior behavior was permanently inert: `effectiveQuickAddOpen` is always true there, so an unguarded re-assertion never went false. |
 | empty | board list, zero items | ✅ covered | Quick-add is pre-focused; see Copywriting Contract "empty project" rows. |
 | empty | board list, zero filter matches | ✅ covered | Distinct copy from zero-items empty state; "Clear Filters" CTA. |
 | empty | first-run, zero projects | ✅ covered | Full-window state, no rail shown; see Copywriting Contract "first run" rows. |
