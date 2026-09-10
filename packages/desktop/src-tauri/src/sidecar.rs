@@ -41,6 +41,14 @@ pub struct SidecarHandle {
     child: Mutex<Option<CommandChild>>,
     writers: Mutex<HashMap<String, SessionLogWriter>>,
     pending_acks: Mutex<HashMap<String, std::sync::mpsc::Sender<Result<(), String>>>>,
+    /// Maps a `permission_requests.id` (the DATABASE row id — the only id the board/renderer
+    /// ever sees or names) to the `(run_id, mcp_request_id)` pair `agent_run_answer_permission`
+    /// needs to relay a decision back to the SPECIFIC held MCP tool call the sidecar's
+    /// permission server is holding open. The two ids are deliberately distinct
+    /// (`permission_request.rs`'s own doc comment on the sidecar side) — this map is their only
+    /// correlation point. Populated when `create_pending_request` succeeds (inbound, the
+    /// no-matching-rule path), consumed and removed by `relay_permission_answer` (outbound).
+    pending_permission_requests: Mutex<HashMap<String, (String, String)>>,
 }
 
 /// How long `interrupt_run` waits for the sidecar's ack before giving up — generous enough to
@@ -103,6 +111,48 @@ impl SidecarHandle {
         }
     }
 
+    /// Remember the correlation between a freshly-created `permission_requests.id` and the
+    /// sidecar's own `(run_id, mcp_request_id)` for that held call (AGNT-06 inbound path) — the
+    /// ONLY place this mapping is written.
+    pub fn register_pending_permission_request(&self, db_request_id: &str, run_id: &str, mcp_request_id: &str) {
+        if let Ok(mut map) = self.pending_permission_requests.lock() {
+            map.insert(db_request_id.to_string(), (run_id.to_string(), mcp_request_id.to_string()));
+        }
+    }
+
+    /// Relay a decision for `db_request_id` to the sidecar's held call, resolving the id via the
+    /// map `register_pending_permission_request` populated. If nothing is tracked for this id
+    /// (already relayed, or a row this handle never learned about), this is a harmless no-op —
+    /// never an error the caller must handle specially, mirroring the sidecar's own
+    /// `resolvePermission`'s "no held call — ignore" contract for its `requestId`.
+    pub fn relay_permission_answer(&self, db_request_id: &str, decision: &str) -> anyhow::Result<()> {
+        let entry = {
+            let mut map = self
+                .pending_permission_requests
+                .lock()
+                .map_err(|_| anyhow::anyhow!("pending permission requests mutex poisoned"))?;
+            map.remove(db_request_id)
+        };
+        let Some((run_id, mcp_request_id)) = entry else {
+            return Ok(());
+        };
+        self.relay_permission_answer_direct(&run_id, &mcp_request_id, decision)
+    }
+
+    /// Relay a decision directly by `(run_id, mcp_request_id)` — used by the rule-short-circuit
+    /// inbound path (T-02-24), which never creates a `permission_requests` row and so has
+    /// nothing to look up in [`Self::pending_permission_requests`].
+    pub fn relay_permission_answer_direct(&self, run_id: &str, mcp_request_id: &str, decision: &str) -> anyhow::Result<()> {
+        let request = serde_json::json!({
+            "id": format!("permission-answer-{mcp_request_id}"),
+            "op": "permission_answer",
+            "runId": run_id,
+            "requestId": mcp_request_id,
+            "decision": decision,
+        });
+        self.send_request(&request.to_string())
+    }
+
     /// Kill the sidecar's own process (and, by extension, every child session it was driving) —
     /// called on app exit so no orphaned sidecar or session process survives Flywheel closing.
     pub fn kill(&self) {
@@ -130,6 +180,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
         child: Mutex::new(Some(child)),
         writers: Mutex::new(HashMap::new()),
         pending_acks: Mutex::new(HashMap::new()),
+        pending_permission_requests: Mutex::new(HashMap::new()),
     };
 
     let app_for_reader = app.clone();
@@ -162,6 +213,14 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                         }
 
                         let _ = app_for_reader.emit("agent:event", &event);
+
+                        // AGNT-06 inbound half: a permission_request event on this SAME reader
+                        // loop, handled BEFORE any pending row exists — the rule short-circuit
+                        // (T-02-24) checks first, so a matching allow-always rule never creates a
+                        // board-visible pending request or blocks the run.
+                        if event.get("type").and_then(|v| v.as_str()) == Some("permission_request") {
+                            crate::commands::agent_run::handle_inbound_permission_request(&app_for_reader, &event);
+                        }
                     }
                     Ok(SidecarStdoutLine::Ack { id, ok, error }) => {
                         if let Some(state) = app_for_reader.try_state::<crate::state::AppState>() {

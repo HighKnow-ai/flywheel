@@ -112,6 +112,9 @@ fn main() {
             commands::agent_run::agent_run_start,
             commands::agent_run::agent_run_log_window,
             commands::agent_run::agent_run_stop,
+            commands::agent_run::agent_run_answer_permission,
+            commands::agent_run::permission_rules_list,
+            commands::agent_run::permission_rule_revoke,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

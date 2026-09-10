@@ -153,3 +153,42 @@ export async function subscribeAgentEvent(
 export async function stopAgentRun(agentRunId: string): Promise<void> {
   await invokeCommand<void>("agent_run_stop", { agentRunId });
 }
+
+/**
+ * Answer a pending permission request from the board (AGNT-06, D-38, plan 02-05). `decision` is
+ * exactly `"allow"`, `"deny"` or `"allow_always"` — validated server-side before any database
+ * call, so an unrecognised value never reaches `packages/core`. Thin typed wrapper over
+ * `agent_run_answer_permission`, following `invokeCommand`'s single-seam rule.
+ */
+export async function answerPermissionRequest(
+  requestId: string,
+  decision: "allow" | "deny" | "allow_always",
+): Promise<void> {
+  await invokeCommand<void>("agent_run_answer_permission", { requestId, decision });
+}
+
+/**
+ * One project-scoped allow-always rule (D-38) — mirrors `commands/agent_run.rs`'s
+ * `PermissionRuleDto` field-for-field.
+ */
+export interface PermissionRuleDto {
+  id: string;
+  projectId: string;
+  toolName: string;
+  decision: string;
+  createdAt: string;
+}
+
+/**
+ * List `projectId`'s allow-always rules (D-38, plan 02-10's Settings surface). Read-only.
+ */
+export async function listPermissionRules(projectId: string): Promise<PermissionRuleDto[]> {
+  return invokeCommand<PermissionRuleDto[]>("permission_rules_list", { projectId });
+}
+
+/**
+ * Revoke an allow-always rule (D-38, plan 02-10's Settings surface).
+ */
+export async function revokePermissionRule(ruleId: string): Promise<void> {
+  await invokeCommand<void>("permission_rule_revoke", { ruleId });
+}

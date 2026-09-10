@@ -11,13 +11,21 @@
 //! durable JSONL log D-34 names, windowed with the same `LIMIT`/`OFFSET` shape
 //! `query::events::activity_trail` already uses (D-33), capped server-side at 100 rows (T-02-06)
 //! regardless of what the caller requests.
+//!
+//! `handle_inbound_permission_request`/`process_inbound_permission_request` and
+//! `agent_run_answer_permission`/`answer_permission_request` (AGNT-06, D-38) are the answer
+//! round trip's two halves — inbound (a `permission_request` event arriving on
+//! `sidecar.rs`'s reader loop) and outbound (a board decision reaching the held call). Both split
+//! their DB-only logic into a plain, Tauri-free function (`process_inbound_permission_request`/
+//! `answer_permission_request`) so the decision logic is unit-testable without a real spawned
+//! sidecar process, mirroring `build_preview_dto`'s own reasoning.
 
 use std::io::{BufRead, BufReader};
 
 use flywheel_core::context_packet::{assemble_context_packet, render_prompt, ContextPacket};
 use rusqlite::Connection;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::AppState;
 
@@ -249,6 +257,290 @@ pub fn agent_run_stop(state: State<AppState>, app: AppHandle, agent_run_id: Stri
     Ok(())
 }
 
+/// What happened when [`process_inbound_permission_request`] handled one `permission_request`
+/// event — kept as a plain enum return value (rather than performing the IPC relay/emit inline)
+/// so the rule-check-vs-pending-row decision is unit-testable against a bare `Connection`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PermissionRequestOutcome {
+    /// A matching `permission_rules` row resolved the call automatically — no
+    /// `permission_requests` row was created and the run's status is untouched. `decision` is
+    /// `"allow"` or `"deny"`, the MCP layer's own vocabulary (T-02-24).
+    AutoResolved { decision: String },
+    /// No rule matched — a `pending` row now exists and the run is `blocked`. `db_request_id` is
+    /// `permission_requests.id`, the id the board/renderer names from here on.
+    Pending { db_request_id: String },
+    /// `run_id` names no `agent_runs` row this core knows about — nothing sane to do; logged
+    /// nowhere yet, dropped, matching this module's "never crashes the reader task" discipline.
+    UnknownRun,
+}
+
+/// The DB-only half of the inbound permission round trip (AGNT-06, D-38, T-02-24, T-02-27):
+/// check `permission_rule::matching_rule` FIRST, before ever creating a pending row. A match
+/// auto-resolves and still appends an event recording the automatic decision (T-02-27 — a
+/// decision the board never shows as an event is exactly RESEARCH.md pitfall 4's failure mode),
+/// even though no `permission_requests` row exists to hang that event off. No match falls
+/// through to `permission_request::create_pending_request`, which blocks the run in the SAME
+/// transaction as the row's own insert (Task 1's own contract).
+pub fn process_inbound_permission_request(
+    conn: &mut Connection,
+    run_id: &str,
+    tool_name: &str,
+    input_payload: Option<&str>,
+) -> Result<PermissionRequestOutcome, String> {
+    let lookup: Result<(String, String), rusqlite::Error> = conn.query_row(
+        "SELECT project_id, task_id FROM agent_runs WHERE id = ?1",
+        rusqlite::params![run_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    );
+    let (project_id, task_id) = match lookup {
+        Ok(v) => v,
+        Err(_) => return Ok(PermissionRequestOutcome::UnknownRun),
+    };
+
+    let agent_id =
+        flywheel_core::domain::agent_run::agent_actor_id(conn).map_err(|e| e.to_string())?;
+
+    let rule = flywheel_core::domain::permission_rule::matching_rule(conn, &project_id, tool_name)
+        .map_err(|e| e.to_string())?;
+
+    if let Some(rule) = rule {
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let sequence = flywheel_core::domain::event::next_sequence(&tx, &project_id, "local")
+            .map_err(|e| e.to_string())?;
+        let label = if rule.decision == "allow" {
+            format!("Auto-allowed {tool_name} (project rule)")
+        } else {
+            format!("Auto-denied {tool_name} (project rule)")
+        };
+        let payload = serde_json::json!({
+            "field": "permission_request",
+            "before": null,
+            "after": rule.decision,
+            "tool_name": tool_name,
+            "label": label,
+        });
+        flywheel_core::domain::event::append_event(
+            &tx,
+            &project_id,
+            "local",
+            sequence,
+            "permission_request",
+            &flywheel_core::ids::new_id(),
+            Some(&task_id),
+            None,
+            &agent_id,
+            "permission_request.auto_resolved",
+            &payload,
+            &now,
+        )
+        .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        return Ok(PermissionRequestOutcome::AutoResolved { decision: rule.decision });
+    }
+
+    let request = flywheel_core::domain::permission_request::create_pending_request(
+        conn,
+        run_id,
+        tool_name,
+        input_payload,
+        &agent_id,
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(PermissionRequestOutcome::Pending { db_request_id: request.id })
+}
+
+/// The Tauri-facing half of the inbound path — called from `sidecar.rs`'s reader loop for every
+/// `permission_request` event. Extracts the event's fields, locks the DB, calls
+/// [`process_inbound_permission_request`], and performs the IPC relay/`board:changed` emit the
+/// outcome implies. Never panics on a malformed event — a missing field or lock failure is a
+/// silent no-op, matching `sidecar.rs`'s own "a malformed line never crashes the reader task"
+/// discipline.
+pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Value) {
+    let (Some(run_id), Some(request_id), Some(tool_name)) = (
+        event.get("runId").and_then(|v| v.as_str()),
+        event.get("requestId").and_then(|v| v.as_str()),
+        event.get("toolName").and_then(|v| v.as_str()),
+    ) else {
+        return;
+    };
+    let input = event.get("input").cloned().unwrap_or(serde_json::Value::Null);
+    let input_payload = input.to_string();
+
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let Some(sidecar) = state.sidecar.as_ref() else { return };
+    let Ok(mut conn) = state.db.lock() else { return };
+
+    let outcome =
+        match process_inbound_permission_request(&mut conn, run_id, tool_name, Some(&input_payload)) {
+            Ok(outcome) => outcome,
+            Err(_) => return,
+        };
+    drop(conn);
+
+    match outcome {
+        PermissionRequestOutcome::AutoResolved { decision } => {
+            let _ = sidecar.relay_permission_answer_direct(run_id, request_id, &decision);
+        }
+        PermissionRequestOutcome::Pending { db_request_id } => {
+            sidecar.register_pending_permission_request(&db_request_id, run_id, request_id);
+            let _ = app.emit(
+                "board:changed",
+                serde_json::json!({ "entity": "agent_run", "id": run_id }),
+            );
+        }
+        PermissionRequestOutcome::UnknownRun => {}
+    }
+}
+
+/// Rejects a `decision` outside `allow`/`deny`/`allow_always` before any DB call happens
+/// (mirrors [`validate_permission_mode`]'s own reasoning) and maps it to the value
+/// `permission_request::answer_request` accepts — the schema's own CHECK-constrained
+/// vocabulary (`allowed`/`denied`/`allowed_always`), a plain past-tense spelling of this
+/// command's own present-tense one.
+fn db_decision_for(decision: &str) -> Result<&'static str, String> {
+    match decision {
+        "allow" => Ok("allowed"),
+        "deny" => Ok("denied"),
+        "allow_always" => Ok("allowed_always"),
+        other => Err(format!(
+            "decision must be one of \"allow\", \"deny\", \"allow_always\", got {other:?}"
+        )),
+    }
+}
+
+/// What `agent_run_answer_permission` relays to the sidecar after a successful DB answer — kept
+/// as a return value (never performed here) so the outbound path's decision logic is
+/// unit-testable without a real spawned sidecar process.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PermissionRelayInstruction {
+    pub run_id: String,
+    /// `"allow"` or `"deny"` — the MCP layer's own binary vocabulary; `allow_always`'s "always"
+    /// half is a `permission_rules` concept only, irrelevant to resolving THIS held call.
+    pub decision: &'static str,
+}
+
+/// The DB-only half of the outbound answer round trip (AGNT-06, D-38): validate `decision`
+/// BEFORE touching the database, call `permission_request::answer_request` (the once-only
+/// guarded transition), and — for `allow_always` — also grant the project-scoped rule via
+/// `permission_rule::upsert_rule`. Returns the relay instruction the caller sends to the
+/// sidecar; on the already-answered error, returns that error and the caller relays nothing.
+pub fn answer_permission_request(
+    conn: &mut Connection,
+    request_id: &str,
+    decision: &str,
+    actor_id: &str,
+) -> Result<PermissionRelayInstruction, String> {
+    let db_decision = db_decision_for(decision)?;
+
+    let answered =
+        flywheel_core::domain::permission_request::answer_request(conn, request_id, db_decision, actor_id)
+            .map_err(|e| e.to_string())?;
+
+    if decision == "allow_always" {
+        flywheel_core::domain::permission_rule::upsert_rule(
+            conn,
+            &answered.project_id,
+            &answered.tool_name,
+            "allow",
+            actor_id,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    let relay_decision: &'static str = if decision == "deny" { "deny" } else { "allow" };
+    Ok(PermissionRelayInstruction { run_id: answered.agent_run_id, decision: relay_decision })
+}
+
+/// Answer a pending permission request from the board (AGNT-06, D-38). `actor_id` is resolved
+/// server-side (T-01-04) — never accepted from the renderer. If `answer_permission_request`
+/// returns the already-answered error, that error is returned to the renderer and NOTHING is
+/// relayed to the sidecar — the held call was already settled by whichever answer won.
+#[tauri::command]
+pub fn agent_run_answer_permission(
+    state: State<AppState>,
+    app: AppHandle,
+    request_id: String,
+    decision: String,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let instruction = answer_permission_request(&mut conn, &request_id, &decision, &actor_id)?;
+    drop(conn);
+
+    if let Some(sidecar) = state.sidecar.as_ref() {
+        sidecar
+            .relay_permission_answer(&request_id, instruction.decision)
+            .map_err(|e| e.to_string())?;
+    }
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "agent_run", "id": instruction.run_id }),
+    )
+    .ok();
+
+    Ok(())
+}
+
+/// One `permission_rules` row, projected for the wire (camelCase) — plan 02-10's Settings
+/// surface read/revoke path (D-38).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionRuleDto {
+    pub id: String,
+    pub project_id: String,
+    pub tool_name: String,
+    pub decision: String,
+    pub created_at: String,
+}
+
+impl From<flywheel_core::domain::permission_rule::PermissionRule> for PermissionRuleDto {
+    fn from(rule: flywheel_core::domain::permission_rule::PermissionRule) -> Self {
+        Self {
+            id: rule.id,
+            project_id: rule.project_id,
+            tool_name: rule.tool_name,
+            decision: rule.decision,
+            created_at: rule.created_at,
+        }
+    }
+}
+
+/// List `project_id`'s allow-always rules (D-38) — read-only.
+#[tauri::command]
+pub fn permission_rules_list(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<Vec<PermissionRuleDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let rules = flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id)
+        .map_err(|e| e.to_string())?;
+    Ok(rules.into_iter().map(Into::into).collect())
+}
+
+/// Revoke an allow-always rule (D-38) — `actor_id` resolved server-side (T-01-04).
+#[tauri::command]
+pub fn permission_rule_revoke(state: State<AppState>, app: AppHandle, rule_id: String) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::permission_rule::revoke_rule(&mut conn, &rule_id, &actor_id)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "permission_rule", "id": rule_id }),
+    )
+    .ok();
+
+    Ok(())
+}
+
 fn resolve_log_window_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(LOG_WINDOW_DEFAULT_LIMIT).clamp(1, LOG_WINDOW_MAX_LIMIT)
 }
@@ -455,5 +747,225 @@ mod tests {
         let err = validate_instruction(Some(&over_limit)).expect_err("an over-limit instruction should be rejected");
         assert!(err.contains("4000"), "the error must name the limit, got: {err}");
         assert!(err.contains("4001"), "the error must name the actual length, got: {err}");
+    }
+
+    /// A fresh migrated database with one project, one task and one `running` `agent_runs` row —
+    /// inserted directly via literal SQL rather than `start_agent_run` (which requires a real git
+    /// repository for `ensure_worktree`) since `process_inbound_permission_request`/
+    /// `answer_permission_request` only ever read `agent_runs.project_id`/`task_id` and update
+    /// its `status` column; they never touch a worktree or trigger row beyond what the schema's
+    /// foreign keys require. `worktree_id` stays `NULL` (nullable per migration `0003`).
+    fn seeded_conn_with_running_agent_run() -> (Connection, String, String, String) {
+        let (conn, task_id) = seeded_conn_with_task(false);
+        let project_id: String = conn
+            .query_row("SELECT project_id FROM tasks WHERE id = ?1", rusqlite::params![task_id], |row| {
+                row.get(0)
+            })
+            .expect("task's project_id should be readable");
+        let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .expect("seeded human actor should exist");
+        let agent_actor_id = flywheel_core::domain::agent_run::agent_actor_id(&conn)
+            .expect("seeded agent actor should exist");
+
+        let now = "2026-01-01T00:00:00.000Z";
+        let trigger_id = flywheel_core::ids::new_id();
+        let run_id = flywheel_core::ids::new_id();
+        conn.execute(
+            "INSERT INTO triggers (
+                id, project_id, target_task_id, source, config, enabled, last_fired_at,
+                created_by, created_at
+            ) VALUES (?1, ?2, ?3, 'user_action', NULL, 1, NULL, ?4, ?5)",
+            rusqlite::params![trigger_id, project_id, task_id, human_actor_id, now],
+        )
+        .expect("failed to insert fixture trigger row");
+        conn.execute(
+            "INSERT INTO agent_runs (
+                id, worktree_id, task_id, project_id, trigger_id, adapter, actor_id, status,
+                external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path,
+                started_at, ended_at
+            ) VALUES (?1, NULL, ?2, ?3, ?4, 'claude_code', ?5, 'running', NULL, 'acceptEdits', \
+                NULL, NULL, NULL, '/tmp/does-not-need-to-exist-for-this-test.jsonl', ?6, NULL)",
+            rusqlite::params![run_id, task_id, project_id, trigger_id, agent_actor_id, now],
+        )
+        .expect("failed to insert fixture agent_runs row");
+
+        (conn, run_id, task_id, project_id)
+    }
+
+    #[test]
+    fn a_matching_allow_rule_auto_resolves_with_no_pending_row_and_the_run_stays_running() {
+        let (mut conn, run_id, _task_id, project_id) = seeded_conn_with_running_agent_run();
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .expect("seeded human actor should exist");
+        flywheel_core::domain::permission_rule::upsert_rule(&mut conn, &project_id, "Bash", "allow", &actor_id)
+            .expect("upsert_rule should succeed");
+
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+            .expect("process_inbound_permission_request should succeed");
+        assert_eq!(outcome, PermissionRequestOutcome::AutoResolved { decision: "allow".to_string() });
+
+        let pending_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM permission_requests", [], |row| row.get(0))
+            .expect("count query should succeed");
+        assert_eq!(pending_count, 0, "a rule match must create no permission_requests row");
+
+        let run_status: String = conn
+            .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |row| {
+                row.get(0)
+            })
+            .expect("agent_runs row should exist");
+        assert_eq!(run_status, "running", "a rule match must never block the run");
+
+        let event_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE event_type = 'permission_request.auto_resolved'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(event_count, 1, "the automatic decision must still appear in the activity trail (T-02-27)");
+    }
+
+    #[test]
+    fn no_matching_rule_produces_a_pending_row_and_blocks_the_run() {
+        let (mut conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+            .expect("process_inbound_permission_request should succeed");
+        let db_request_id = match outcome {
+            PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
+            other => panic!("expected Pending, got {other:?}"),
+        };
+
+        let pending_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM permission_requests WHERE id = ?1 AND status = 'pending'",
+                rusqlite::params![db_request_id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(pending_count, 1);
+
+        let run_status: String = conn
+            .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |row| {
+                row.get(0)
+            })
+            .expect("agent_runs row should exist");
+        assert_eq!(run_status, "blocked");
+    }
+
+    #[test]
+    fn an_unknown_run_id_is_a_harmless_no_op() {
+        let (mut conn, _run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        let outcome = process_inbound_permission_request(&mut conn, "not-a-real-run-id", "Bash", None)
+            .expect("an unknown run_id must not error");
+        assert_eq!(outcome, PermissionRequestOutcome::UnknownRun);
+    }
+
+    #[test]
+    fn db_decision_for_accepts_exactly_the_three_named_values_and_rejects_others() {
+        assert_eq!(db_decision_for("allow"), Ok("allowed"));
+        assert_eq!(db_decision_for("deny"), Ok("denied"));
+        assert_eq!(db_decision_for("allow_always"), Ok("allowed_always"));
+        let err = db_decision_for("yolo").expect_err("an unrecognised decision should be rejected");
+        assert!(err.contains("yolo"), "the error must name the rejected value, got: {err}");
+    }
+
+    #[test]
+    fn answer_permission_request_rejects_an_invalid_decision_before_touching_the_database() {
+        let (mut conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+            .expect("should succeed");
+        let db_request_id = match outcome {
+            PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
+            other => panic!("expected Pending, got {other:?}"),
+        };
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .expect("seeded human actor should exist");
+
+        let events_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+            .expect("count query should succeed");
+
+        let err = answer_permission_request(&mut conn, &db_request_id, "yolo", &actor_id)
+            .expect_err("an out-of-set decision must be rejected");
+        assert!(err.contains("yolo"), "the error must name the rejected value, got: {err}");
+
+        let events_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+            .expect("count query should succeed");
+        assert_eq!(events_before, events_after, "an invalid decision must write nothing to the database");
+    }
+
+    #[test]
+    fn answering_allow_always_writes_the_answered_row_and_exactly_one_permission_rule() {
+        let (mut conn, run_id, _task_id, project_id) = seeded_conn_with_running_agent_run();
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+            .expect("should succeed");
+        let db_request_id = match outcome {
+            PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
+            other => panic!("expected Pending, got {other:?}"),
+        };
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .expect("seeded human actor should exist");
+
+        let instruction = answer_permission_request(&mut conn, &db_request_id, "allow_always", &actor_id)
+            .expect("answer_permission_request should succeed");
+        assert_eq!(instruction, PermissionRelayInstruction { run_id: run_id.clone(), decision: "allow" });
+
+        let answered_status: String = conn
+            .query_row(
+                "SELECT status FROM permission_requests WHERE id = ?1",
+                rusqlite::params![db_request_id],
+                |row| row.get(0),
+            )
+            .expect("permission_requests row should exist");
+        assert_eq!(answered_status, "allowed_always");
+
+        let rule_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM permission_rules WHERE project_id = ?1 AND tool_name = 'Bash'",
+                rusqlite::params![project_id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(rule_count, 1, "allow_always must write exactly one permission_rules row");
+    }
+
+    #[test]
+    fn answering_an_already_answered_request_returns_the_already_answered_error_with_nothing_left_to_relay() {
+        let (mut conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+            .expect("should succeed");
+        let db_request_id = match outcome {
+            PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
+            other => panic!("expected Pending, got {other:?}"),
+        };
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .expect("seeded human actor should exist");
+
+        // First answer: succeeds and produces exactly one relay instruction — the caller
+        // (`agent_run_answer_permission`) would call `sidecar.relay_permission_answer` exactly
+        // once for this Ok result.
+        let first = answer_permission_request(&mut conn, &db_request_id, "allow", &actor_id);
+        assert!(first.is_ok(), "the first answer must succeed and produce one relay instruction");
+
+        // Second answer to the SAME request id: must be an Err, meaning the caller's own
+        // `if let Some(sidecar) = ...` relay branch is never reached a second time — this IS the
+        // "relays nothing" property this acceptance criterion names, since the command's
+        // structure only ever calls `relay_permission_answer` after an `Ok` result (see
+        // `agent_run_answer_permission`'s own body, which returns via `?` before reaching the
+        // relay on an `Err`).
+        let second = answer_permission_request(&mut conn, &db_request_id, "deny", &actor_id);
+        assert!(second.is_err(), "answering an already-answered request must be refused");
+
+        let answered_status: String = conn
+            .query_row(
+                "SELECT status FROM permission_requests WHERE id = ?1",
+                rusqlite::params![db_request_id],
+                |row| row.get(0),
+            )
+            .expect("permission_requests row should exist");
+        assert_eq!(answered_status, "allowed", "the second (denying) answer must never overwrite the first");
     }
 }

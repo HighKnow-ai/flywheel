@@ -18,6 +18,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 tokio = { version = "1", features = ["process", "signal", "rt-multi-thread", "macros"] }
 tauri-plugin-shell = "2"
 anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 # Dependency-key renamed to `flywheel_core` (not `core`): the `core` package name is kept
 # for `cargo metadata`/workspace-member identity, but a dependency literally named `core`
