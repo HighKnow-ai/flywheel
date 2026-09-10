@@ -194,3 +194,7 @@ None - no external service configuration required.
 - UAT gap G-01-1 is closed for its actual reported symptom (the native `⌘N` accelerator bypassing the layer guard) — verified both by a real regression test suite and a live macOS build.
 - The affordance half (native menu items visually greying under a trapped layer) is implemented and unit-tested exhaustively, but its VISUAL confirmation on the real menu bar needs a human with mouse access to the menu bar — flagged as coverage item D3 for `/gsd-verify-work`.
 - `tauri dev` is left running (fresh, reflecting this plan's final code) so `/gsd-verify-work` can pick up directly from Task 3's `<human-check>` steps 2 and 3 without a rebuild.
+
+## Self-Check: PASSED
+
+All 13 listed key-files found on disk; all 6 commits (`c7a0a93`, `2350e72`, `c722112`, `40f07a2`, `fb7f8a3`, `8261676`) found in git history.

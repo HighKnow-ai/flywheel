@@ -66,6 +66,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 8: Review And Merge Inside Flywheel** - Review an agent's diff against its acceptance criteria and land it in-app
 - [ ] **Phase 9: Planned Fan-Out That Does Not Collide** - Turn one epic into several agents at once, bounded by real file-set disjointness
 - [ ] **Phase 10: Fleet Supervision Across Every Project** - Answer "what is every agent everywhere doing, and what needs me?" in one glance
+- [ ] **Phase 10.1: Visual polish: brand assets and confirmed motion** (INSERTED) - A bolder, more modern direction; Flywheel wears its own mark and moves the way its contract says it moves
 - [ ] **Phase 11: Ship It** - Install Flywheel like any Mac app; another developer builds it from source
 
 ## Phase Details
@@ -84,7 +85,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. User opens any item and sees a chronological trail of what changed, when, and which actor — human or agent — changed it.
   5. User force-quits the application mid-work and relaunches (including across a version upgrade that migrates the database) with no committed change lost or corrupted, and can replay the project's entire change history in order from any cursor position.
 
-**Plans**: 15/16 plans executed — 11/11 executed in 10 waves, plus 5 gap-closure plans (01-12 through 01-16) in 4 waves, opened by conversational UAT
+**Plans**: 16/16 plans executed — 11/11 executed in 10 waves, plus 5 gap-closure plans (01-12 through 01-16) in 4 waves, opened by conversational UAT
 **UI hint**: yes
 
 Plans:
@@ -144,7 +145,7 @@ Plans:
 
 **Gap closure — Wave 4** *(from the second 01-UAT.md round; independent of 01-12 through 01-15)*
 
-- [ ] 01-16-PLAN.md — G-01-1: make the native macOS menu obey the layer guard instead of bypassing it
+- [x] 01-16-PLAN.md — G-01-1: make the native macOS menu obey the layer guard instead of bypassing it
 
 **Notes**: This is where the three structural seams land that would otherwise be retrofit
 nightmares: the append-only event log written in the same transaction as the mutable projection
@@ -361,6 +362,73 @@ visible backoff is what keeps Flywheel from looking like abuse to the backend.
 that multi-project aggregation only makes sense once single-project supervision is solid.
 Criterion 2 is the one that decides whether fleet supervision beats tab-cycling through terminals.
 
+### Phase 10.1: Visual polish: brand assets and confirmed motion (INSERTED)
+
+**Goal**: Flywheel looks like a product built in 2026 — a bolder, more modern visual direction the
+owner actually wants to look at all day — wearing its own mark and moving the way its design
+contract says it moves.
+**Requirements**: TBD
+**Depends on:** Phase 10
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 10.1 to break down)
+
+**Success Criteria** (what must be TRUE):
+
+  0. The owner looks at the board with real data on it and judges it bold and modern — not, in
+     his words on 2026-09-10, "a very old app." This is the criterion the phase exists for; the
+     rest are the mechanics under it.
+  1. The installed application's icon is HighKnow's/Flywheel's own mark, not the
+     `create-tauri-app` scaffold default, on every artifact `tauri.conf.json` lists.
+  2. The brand asset exists in the repository and any surface entitled to render it does so.
+  3. Opening the item detail panel slides it in from the trailing edge; collapsing or expanding a
+     status group animates its height; opening the command palette fades/scales it in — each
+     collapsing to an instant state change under `prefers-reduced-motion`.
+  4. The motion durations in `styles/motion.css` are the ones a direction round actually
+     confirmed, not an unreviewed assertion.
+
+**Notes**: Inserted after phase 01's second UAT round surfaced the gap between what
+`01-UI-SPEC.md` specifies and what shipped. The colors were NOT part of that gap — the pinned
+brand `#3c64dd` and its two contrast-lifted variants are correctly wired in `styles/tokens.css`
+and deliberately restrained per the spec's "brand lives in precise details" rule. What was missing
+is the mark and the motion.
+
+**The direction itself is in scope, and this is the hard part.** On 2026-09-10, shown the board
+rendering ~1,000 real items, the owner said it "feels like a very old app" and asked for something
+"a bit more bold / modern." That is not a defect report — the surface he was looking at is the
+*faithful* output of the locked contract. `01-UI-SPEC.md` selected **"Flight Progress Strips"**
+(Impeccable direction round, seed `59b0beb9`): cream `#ddd6c6` strip stock on a dark navy rack,
+`--radius-strip: 2px`, no elevation, hard dividers, brand rationed to small accents. Every one of
+those is working as specified. So this phase cannot be scoped as component polish — it must
+re-open the direction decision and **amend sections `01-UI-SPEC.md` marks LOCKED**, which no other
+phase in this roadmap is permitted to do.
+
+Two consequences to plan for:
+
+  - **The measured palette must be re-derived, not recolored.** The AA contrast ratios in
+    `01-UI-SPEC.md` § "Pinned brand, and the lifts it requires" (`#7d99ff` at 5.92:1 on the rack,
+    `#2d4fb8` at 4.97:1 on the strip) were computed against the cream-strip/dark-rack pairing
+    specifically. Change the ground and every one of those numbers is void — the owner's own
+    recorded rule is that "a brand that cannot be read on its own product surface has not been
+    applied."
+  - **Re-run a direction round rather than freehanding it.** The current world was chosen by the
+    owner from an Impeccable round; replacing it by taste-in-the-moment would discard the one
+    process that produced an owner-endorsed answer last time.
+
+Sequenced immediately before **Phase 11: Ship It** on purpose: the app icon is a distribution
+artifact, so it must be right *before* signing and notarization rather than after.
+
+Sequenced immediately before **Phase 11: Ship It** on purpose: the app icon is a distribution
+artifact, so it must be right *before* signing and notarization rather than after. This phase is
+blocked on one owner decision already recorded as open in `PRODUCT.md` and carried forward in
+`01-UI-SPEC.md` Open Decisions #1 — whether Flywheel carries the HighKnow lightbulb-brain mark or
+earns its own under it. There is no point drawing an icon before deciding whose mark it is.
+
+The individual gaps are also filed on the board as issues THRE-1068 through THRE-1074, so this
+phase is the roadmap view of work the board already tracks item-by-item.
+
 ### Phase 11: Ship It
 
 **Goal**: Cyril installs Flywheel like any other Mac application and it keeps itself current, and another developer can clone the repository and build it.
@@ -420,11 +488,11 @@ with reason):
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 10.1 → 11
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. The Board Is The Store Of Record | 14/15 | In Progress|  |
+| 1. The Board Is The Store Of Record | 16/16 | In Progress|  |
 | 2. One Agent, One Worktree, Watched Live | 0/TBD | Not started | - |
 | 3. Nothing Lost, Nothing Left Running | 0/TBD | Not started | - |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
@@ -434,8 +502,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
+| 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 
 ---
 *Roadmap created: 2026-09-08*
-*Granularity: fine · Structure: vertical MVP · 11 phases · 93/93 v1 requirements mapped*
+*Granularity: fine · Structure: vertical MVP · 11 phases + 1 inserted (10.1) · 93/93 v1 requirements mapped*
