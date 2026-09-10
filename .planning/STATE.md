@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-16-PLAN.md (gap closure G-01-1)
-last_updated: "2026-09-10T02:44:22.818Z"
+stopped_at: Completed 01-17-PLAN.md (gap closure G-01-2)
+last_updated: "2026-09-10T04:29:41.981Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 01 execution started
-state_head: 9c62a713f6c819b9e70b42543b5890138d8a8ca2
+state_head: 55cc843b730953525c1b522e765fb8036f93ddfb
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
   percent: 0
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 
 ## Current Position
 
-Phase: 01 (The Board Is The Store Of Record) — READY TO EXECUTE
-Plan: 2 of 16
+Phase: 01 (The Board Is The Store Of Record) — EXECUTING
+Plan: 2 of 18
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 01 execution started
 
@@ -74,6 +74,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P14 | 12min | 3 tasks | 9 files |
 | Phase 01-the-board-is-the-store-of-record P15 | 15min | 3 tasks | 9 files |
 | Phase 01 P16 | 35min | 3 tasks | 12 files |
+| Phase 01 P17 | 25min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,7 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-15: parentsById (BoardView) is one item-id -> {key,title,kind} lookup covering both epics and tasks, keyed exactly like epicsById's single-window derivation — IssuesLane needs no second tasksById map to resolve an issue's parent
 - [Phase 01]: 01-15: BOARD-01 reticked in REQUIREMENTS.md, restored to its pre-01-12 wording — G-01-EPIC-ASSIGN is fully closed (issue parenting, quick-add nesting, and both creation paths now carry the ids they were dropping)
 - [Phase 01]: G-01-1 closed: App.tsx's menu:action bridge no longer pre-empts the layer guard; native menu bar now mirrors bindingAllowedInLayer's verdict via menu_set_action_enabled (MenuHandles<R> generic in state.rs, concrete Wry at the command boundary)
+- [Phase 01]: [Phase 01] G-01-2 closed: epic roster (list_epics/epic_list_all/useEpics) mirrors the actor-roster triad, replacing BoardView's windowed epicsById derivation; epic-pill-unresolved is a registered Legend mark so the pill can never leak a raw internal id
 
 ### Pending Todos
 
@@ -154,6 +156,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T01:41:10.742Z
-Stopped at: Completed 01-16-PLAN.md (gap closure G-01-1)
+Last session: 2026-09-10T04:29:41.944Z
+Stopped at: Completed 01-17-PLAN.md (gap closure G-01-2)
 Resume file: None
