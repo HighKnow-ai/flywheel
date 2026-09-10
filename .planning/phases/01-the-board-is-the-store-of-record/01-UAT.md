@@ -1,14 +1,21 @@
 ---
-status: diagnosed
+status: testing
 phase: 01-the-board-is-the-store-of-record
 source: [01-VERIFICATION.md]
 started: 2026-09-09T23:15:00Z
-updated: 2026-09-10T01:05:00Z
+updated: 2026-09-10T13:20:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 3
+name: Menu-bar visual greying affordance (carried from G-01-1 Task 3)
+expected: |
+  Toggle Command Palette appears greyed while the palette is open and re-enables when it
+  closes; File items (Register Project.../New Task/New Epic) are greyed on the first opening
+  of the File menu with the detail panel open, or at worst the second, per plan 01-16's
+  accepted one-frame-window design decision — never permanently enabled-and-dead.
+awaiting: user response
 
 ## Tests
 
@@ -24,12 +31,18 @@ severity: major
 expected: With a project seeded past 1,000 items (no seed tooling exists yet — see the note carried from the previous round), reorder, filter, search, and switch projects with the mouse untouched throughout. No perceptible lag or visual jank at volume.
 result: [pending]
 
+### 3. Menu-bar visual greying affordance (carried from G-01-1 Task 3)
+
+expected: Launch a real `tauri dev` build. With the item detail panel open, open the View menu with the mouse while the command palette is also open, and confirm Toggle Command Palette reads visually greyed (not merely refused-but-enabled); reopen the same detail panel and go straight to the File menu to observe whether Register Project.../New Task/New Epic are greyed on the first opening or only the second (the plan's accepted, bounded one-frame window). Toggle Command Palette must re-enable when the palette closes; no menu item may sit permanently enabled-and-dead.
+result: [pending]
+why_human: orca's computer-use provider on this host cannot click the real native menu bar or read a MenuItem's visual enabled/disabled state (surfaces.menubar:false / surfaces.dialogs:false), so no automated tool can settle it.
+
 ## Summary
 
-total: 2
+total: 3
 passed: 1
-issues: 2
-pending: 0
+issues: 1
+pending: 2
 skipped: 0
 blocked: 0
 
@@ -38,11 +51,20 @@ note: |
   criterion (responsiveness) genuinely passed and is not retracted; the volume it required is
   simply what made a separate, pre-existing correctness defect visible for the first time.
 
+  Updated 2026-09-10 after the G-01-2 gap-closure round (plans 01-17, 01-18): both gaps below
+  are now closed in code and independently re-verified in 01-VERIFICATION.md (20/20 must-haves,
+  status human_needed). Test 1's reported issue is closed by plans 01-14 through 01-16; only its
+  visual-affordance half remains, recorded above as new test 3. Test 2 stays pending — the
+  1,000+ item perceived-lag check was deliberately NOT re-run during 01-18, so it is still the
+  owner's to exercise.
+
 ## Gaps
 
 - gap_id: G-01-1
   truth: "While the item detail panel is open, the global Cmd-N shortcut is inert — it neither dismisses the panel nor runs the new-item command."
-  status: failed
+  status: closed
+  closed_by: "Plans 01-14 through 01-16 (code); the visual greying affordance remains open as UAT test 3"
+
   reason: "User reported: item detail panel Cmd-N is actually closing the panel and doing the command"
   severity: major
   test: 1
@@ -88,7 +110,9 @@ note: |
 
 - gap_id: G-01-2
   truth: "Every task's epic pill shows a human-readable `KEY Title`, never a raw internal ULID, and the epic filter chip list covers every epic in the project."
-  status: failed
+  status: closed
+  closed_by: "Plans 01-17 and 01-18 — unwindowed epic roster (list_epics/epic_list_all/useEpics); re-verified 2026-09-10 in 01-VERIFICATION.md"
+
   reason: |
     Found by owner inspection of a seeded 1,067-item board on 2026-09-10, immediately after
     test 2 passed on responsiveness. Rows THRE-33, THRE-38, THRE-43, THRE-48, THRE-53 and
