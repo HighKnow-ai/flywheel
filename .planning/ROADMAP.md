@@ -56,7 +56,7 @@ first starts agent work.
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: The Board Is The Store Of Record** - Run real project structure on a fixed, fast, durable board with checkable acceptance criteria
+- [x] **Phase 1: The Board Is The Store Of Record** - Run real project structure on a fixed, fast, durable board with checkable acceptance criteria (completed 2026-09-10)
 - [ ] **Phase 2: One Agent, One Worktree, Watched Live** - Start work on a task and watch a Claude Code session do it in a worktree the task owns
 - [ ] **Phase 3: Nothing Lost, Nothing Left Running** - Quit, crash or interrupt at any moment without destroying work or leaking agents
 - [ ] **Phase 4: `/clear` Is Free** - Discard an agent's whole context and have the next session pick up from the board alone
@@ -512,7 +512,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. The Board Is The Store Of Record | 21/21 | In Progress|  |
+| 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 0/TBD | Not started | - |
 | 3. Nothing Lost, Nothing Left Running | 0/TBD | Not started | - |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
