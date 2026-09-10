@@ -84,7 +84,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. User opens any item and sees a chronological trail of what changed, when, and which actor — human or agent — changed it.
   5. User force-quits the application mid-work and relaunches (including across a version upgrade that migrates the database) with no committed change lost or corrupted, and can replay the project's entire change history in order from any cursor position.
 
-**Plans**: 14/15 plans executed — 11/11 executed in 10 waves, plus 4 gap-closure plans (01-12 through 01-15) in 3 waves, opened by conversational UAT
+**Plans**: 15/16 plans executed — 11/11 executed in 10 waves, plus 5 gap-closure plans (01-12 through 01-16) in 4 waves, opened by conversational UAT
 **UI hint**: yes
 
 Plans:
@@ -141,6 +141,10 @@ Plans:
 **Gap closure — Wave 3** *(blocked on 01-14)*
 
 - [x] 01-15-PLAN.md — G-01-EPIC-ASSIGN: issues under an epic or a task, quick-add nesting, and BOARD-01 made true again
+
+**Gap closure — Wave 4** *(from the second 01-UAT.md round; independent of 01-12 through 01-15)*
+
+- [ ] 01-16-PLAN.md — G-01-1: make the native macOS menu obey the layer guard instead of bypassing it
 
 **Notes**: This is where the three structural seams land that would otherwise be retrofit
 nightmares: the append-only event log written in the same transaction as the mutable projection
