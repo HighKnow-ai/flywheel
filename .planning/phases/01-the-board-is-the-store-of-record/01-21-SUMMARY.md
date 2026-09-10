@@ -254,6 +254,82 @@ None — no external service configuration required.
 - Full desktop suite: 154/154 passing (floor 147). `npm run build`: clean. `cargo test --workspace`: 20/20 "test result: ok", 0 FAILED.
 - `quick-add-focus.test.tsx`: 23/23 passing (plan target: 23).
 
+## Post-Review Addendum (CR-01 residual)
+
+An incremental code review of this plan's own commits (`fb961dc`/`71ca01d`, `01-REVIEW.md`,
+2026-09-10T07:47:25Z) found that the CR-01 fix above, while correct for a single-project session
+and for a one-way project switch, could not survive a **round trip** between two projects.
+
+**The residual defect.** `backlogAutoExpandedForRef` was a scalar (`useRef<string | null>`)
+holding only the *most-recently-seen* project id as "already handled." Traced against a
+project-switch sequence longer than the one existing test (`switching_to_a_project_with_a_
+collapsed_backlog_still_expands_it`) covered:
+
+1. Project A open, quick-add reachable → ref becomes `"A"`. (correct)
+2. User clicks the Backlog header to collapse it → ref already equals `"A"` → guard returns early
+   → the collapse sticks. (correct — this is CR-01's original fix working)
+3. User switches to project B (still without unmounting `BoardView`, matching `App.tsx:212`'s
+   un-keyed `<Board projectId={project.id}>` render) → ref becomes `"B"`. (correct — this is the
+   one case the existing test proved)
+4. User switches **back** to A → the ref is `"B"`, not `"A"`, so the guard treats this as a
+   brand-new episode: it sets `ref.current = "A"` and, seeing A's Backlog is still collapsed (the
+   user's own click from step 2 — collapse state is per-project and survives the detour), calls
+   `expandBand("A", "backlog")` — **silently reverting the user's deliberate collapse**, with no
+   click and no accelerator press to justify it.
+
+This directly contradicted 01-UI-SPEC.md's own stated guarantee for this fix ("a band the user
+collapses afterward stays collapsed until the user says otherwise"), and was invisible to all 154
+tests passing at the time because no case in the suite exercised the third leg (A → B → A) of the
+round trip.
+
+**The fix.** Replaced the scalar with a per-project `Set<string>` (`backlogAutoExpandedRef`):
+
+```tsx
+const backlogAutoExpandedRef = useRef<Set<string>>(new Set());
+
+useEffect(() => {
+  const key = projectId ?? "";
+  if (!effectiveQuickAddOpen) {
+    backlogAutoExpandedRef.current.clear();
+    return;
+  }
+  if (backlogAutoExpandedRef.current.has(key)) return;
+  backlogAutoExpandedRef.current.add(key);
+  if (collapsedByStatus.backlog) expandBand(key, "backlog");
+}, [effectiveQuickAddOpen, collapsedByStatus, projectId, expandBand]);
+```
+
+The set remembers every project the current reachability episode has already seeded, independent
+of visit order, so a round trip through any number of intermediate projects no longer clears a
+project's own "already handled" memory. Clearing the *whole* set when quick-add stops being
+reachable is unchanged in intent from the original fix: that transition ends the episode, so the
+next open is a fresh episode for every project. `openQuickAdd`'s explicit-request expansion
+(re-pressing ⌘N after a deliberate collapse) was left exactly as it was — an explicit accelerator
+press is still a legitimate new rising edge, orthogonal to this passive-episode guard.
+
+**New regression test.** `returning_to_a_project_after_a_deliberate_collapse_does_not_re_expand_it`
+(`quick-add-focus.test.tsx`) exercises the full A → B → A cycle without unmounting `BoardView`
+(mirroring `App.tsx:212`'s un-keyed render): populated project A, quick-add opened via ⌘N,
+Backlog collapsed by clicking the band header, rerender to project B (empty, quick-add reachable
+via the empty-board default), rerender back to project A, and assert
+`useCollapseStore.getState().collapsedByProject['proj-a'].backlog` is still `true`. Confirmed RED
+against the pre-fix scalar ref (the assertion observed `false` — re-expanded) before the fix was
+applied.
+
+**Final verification (post-fix):**
+- `npm --prefix packages/desktop run test -- --run src/board/__tests__/quick-add-focus.test.tsx`
+  → 24/24 passing (23 pre-existing + 1 new).
+- `npm --prefix packages/desktop run test -- --run` (full desktop suite) → 20 files, 155/155
+  passing (floor was 154).
+- `npm --prefix packages/desktop run build` → clean, no `error TS`.
+- `cargo test --workspace` → all suites report "test result: ok", 0 failed.
+
+**Commits:**
+- `2dca0f3` — `test(01-21): add failing test for Backlog collapse surviving a project round-trip
+  (CR-01 residual)`
+- `7d382ec` — `fix(01-21): key the Backlog auto-expand guard per project, not per episode (CR-01
+  residual)`
+
 ---
 *Phase: 01-the-board-is-the-store-of-record*
 *Completed: 2026-09-10*
