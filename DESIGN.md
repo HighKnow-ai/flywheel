@@ -1247,3 +1247,108 @@ script under `/tmp`, never committed to the repository).
 - The hand-rolled `window.__TAURI_INTERNALS__` mock pattern (this plan's Craft floor review,
   above) as a reusable technique for any future plan that wants real rendered screenshots without
   a live Tauri shell — not committed as project tooling here, but documented as a proven approach.
+
+# Phase 2, Plan 02-04 — The Launch Sheet and `assemble_context_packet`
+
+## What was built
+
+- **`core::context_packet`** (new module, D-28) — `assemble_context_packet(conn, task_id)`, a
+  pure `&Connection` read (no `&mut`, no `.transaction()`) that assembles the epic/task/criteria/
+  worktree facts a run will use, and `render_prompt(packet, instruction)`, the one place prose is
+  produced. Deliberately does NOT reuse `domain::worktree::base_ref_for_task` for a task with no
+  worktree yet — that function cuts a real git branch as a side effect via
+  `ensure_epic_integration_branch`, which a preview must never do (T-02-21). Instead re-derives the
+  identical hypothetical value read-only.
+- **`agent_run_preview`** (`commands/agent_run.rs`) — the launch sheet's one read: locks
+  `AppState.db`, calls `assemble_context_packet`, projects into `ContextPacketDto` (camelCase,
+  mirrors the `TaskDto`/`From` pattern). No insert/update/delete, no event — proven by a row-count
+  test. `agent_run_start` now renders its sidecar prompt through the SAME `render_prompt` call
+  (one renderer, two call sites, T-02-21), replacing plan 02-01's title+description placeholder,
+  and validates a new `instruction: Option<String>` argument (trim, ≤4000 chars).
+- **`launch-sheet/LaunchSheet.tsx`** (new, D-27) — a 640px/80vh centred overlay reusing
+  `CommandPalette.tsx`'s scrim/`FocusScope`/`DismissableLayer`/portal mechanics rather than a new
+  overlay pattern. Renders the preview's structured fields read-only (epic, task, criteria,
+  branch/worktree facts in the Mono font stack), a pinned free-text instruction field and a
+  permission-mode segmented control (`Accept Edits` default, D-36, one-to-one onto the adapter's
+  four values). Enter submits from the body; Enter inserts a newline in the field, `⌘Enter`
+  submits from inside it; Escape/Cancel call no start command — nothing is spawned until Start
+  Work's own click fires.
+- **`state/uiStore.ts`** — `launchSheetTaskId`, a new cross-tree field mirroring `activeAgentRunId`'s
+  own precedent, so the sheet (mounted once in `App.tsx`, a peer of `CommandPalette`) can be
+  triggered from `ItemDetailPanel.tsx`'s "Start Work" button and the board-list `start-work`
+  action id (`w`, `board/BoardView.tsx`) without either importing the sheet component.
+  `ItemDetailPanel.tsx`'s button now calls an `onStartWork` callback instead of `startAgentRun`
+  directly — the sheet owns the actual start now.
+
+## Review against the direction contract
+
+- **Never a second implementation of the prompt.** `agent_run_preview` and `agent_run_start` both
+  call `assemble_context_packet` + `render_prompt`; a unit test
+  (`the_previewed_prompt_and_the_started_runs_prompt_come_from_the_same_renderer`) asserts this
+  structurally rather than by inspection alone.
+- **Mono utility applied inline** (branch name, base ref, worktree path) — this plan's files list
+  does not include `styles/type.css`, so the `ui-monospace, "SF Mono", Menlo, Consolas, monospace`
+  stack (02-UI-SPEC.md Typography Additions) is applied as a local `fontFamily` override on the
+  specific spans that need it, rather than adding a shared `.type-mono` utility class this plan
+  did not scope.
+- **Never colour alone / 60-30-10:** no new colour token was introduced; the sheet reuses
+  `--accent-nontext` for its primary action and selected mode (Phase 1's existing "primary
+  interactive emphasis" reservation), `--divider`/`--surface-secondary`/`--text-muted-rack` for
+  everything else, and `--destructive-text-rack` (02-03's own token) for the two error backstop
+  states. **Fixed a pre-existing hex literal** (`color: "#ffffff"` on the Start Work button,
+  02-01's own tracer) while touching this exact line for the callback-prop change — replaced with
+  `var(--text-primary-rack)`, closing this plan's own hex-literal verify gate rather than leaving
+  it as a second out-of-scope deferral (02-03-SUMMARY.md already logged the same line once).
+- **No new mark introduced** — the sheet has no status glyph of its own, so `legend/marks.ts` is
+  untouched by this plan (unlike 02-03, which was required to touch it).
+- **Loading state:** no dedicated skeleton-row component exists yet anywhere in this codebase
+  (02-UI-SPEC.md's own language, "the board's skeleton-row treatment," is aspirational — nothing
+  in `board/BoardView.tsx` implements one today). `PreviewSkeleton` inside `LaunchSheet.tsx` is a
+  minimal, self-contained equivalent (muted bars, never an empty dialog, never a spinner) scoped to
+  this plan's own files rather than retrofitting a shared component this plan did not declare.
+
+## Craft floor review
+
+No live Tauri shell or headless-Chromium screenshot pass was run this session (this executor had
+no GUI display available, matching most Phase 1 plans' own precedent, e.g. `01-02` through
+`01-10`). `npm --prefix packages/desktop run test`/`run build` and `cargo test -p core`/`-p
+desktop` are this plan's actual evidence; the plan's own `<verification>` block's manual step
+(press Start Work, read the briefing, cancel, confirm nothing was created) is deferred to
+`/gsd-verify-work` per `workflow.human_verify_mode: end-of-phase`, the same pattern 02-01/02-02/
+02-03 used for their own manual steps.
+
+## Known Stubs
+
+None that block this plan's own goal. `ContextPacketDto.renderedPrompt` is carried over the wire
+but not rendered verbatim in the sheet's body — the UI-SPEC calls for structured sections (epic/
+task/criteria/worktree), not a raw prompt dump; the field exists so the Rust-side "one renderer"
+invariant is provable end-to-end, and a future plan is free to add a raw-prompt toggle without any
+Rust-side change.
+
+## Known deferred surfaces (not stubs — explicit scope boundaries)
+
+- **The board-list `w` keystroke's full reachability** was wired in this plan (`BoardView.tsx`'s
+  `start-work` switch case), even though `board/BoardView.tsx` is not in this plan's declared
+  `files_modified` — a necessary deviation (Rule 3): without it, `ItemDetailPanel.tsx`'s own
+  `onStartWork` callback prop had no caller to supply it, since that component deliberately avoids
+  importing `state/uiStore.ts` directly (an established precedent this plan preserved, not
+  introduced).
+- **`open-live-session` (`l`)** remains unwired, as it was before this plan — 02-08's own stated
+  scope, not this plan's.
+- **DESIGN.md itself** went unmaintained for plans `01-12` through `01-21` and `02-01` through
+  `02-03` despite `01-UI-SPEC.md`'s binding requirement — a pre-existing, cross-plan gap this
+  executor did not backfill (out of this plan's own scope), but did not repeat here.
+
+## What the next plan inherits
+
+- `core::context_packet::{ContextPacket, assemble_context_packet, render_prompt}` — Phase 4's
+  `ContextAssembler` extends this signature (more inputs: prior summaries, diff-so-far) rather than
+  replacing it, per D-28's own "costly reversibility" note.
+- `commands/agent_run.rs`'s `ContextPacketDto`/`CriterionDto` — the wire shape any future Settings
+  or fleet-view surface reading a task's briefing should reuse rather than re-deriving.
+- `state/uiStore.ts`'s `launchSheetTaskId` — the established pattern (mirrors `activeAgentRunId`)
+  for any future surface that needs to open an App.tsx-level overlay from deep inside the board
+  tree without a store import in the deep component itself.
+- `launch-sheet/LaunchSheet.tsx`'s `PreviewSkeleton` as a stopgap until a shared skeleton-row
+  component exists — a future plan building one for the board proper should consider migrating
+  this local copy to it rather than leaving two independent implementations.
