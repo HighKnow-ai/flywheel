@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 01
-current_phase_name: the-board-is-the-store-of-record
+current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-20-PLAN.md (gap closure G-01-4 hardening)
-last_updated: "2026-09-10T07:15:24.927Z"
+stopped_at: Completed 01-21-PLAN.md (gap closure CR-01/WR-01/IN-01)
+last_updated: "2026-09-10T07:40:09.469Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 01 execution started
-state_head: 6dae05fdc3b066a7533f628d50cd95d30818c32c
+state_head: c7d5ed3cf7c100c26de96f78108c138451f43eea
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
   percent: 0
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 
 ## Current Position
 
-Phase: 01 (the-board-is-the-store-of-record) — READY TO EXECUTE
-Plan: 3 of 20
+Phase: 01 (The Board Is The Store Of Record) — EXECUTING
+Plan: 2 of 21
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 01 execution started
 
@@ -78,6 +78,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P18 | 30min | 3 tasks | 10 files |
 | Phase 01 P19 | 35min | 3 tasks | 6 files |
 | Phase 01 P20 | 25min | 3 tasks | 4 files |
+| Phase 01 P21 | 11min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -137,6 +138,8 @@ Recent decisions affecting current work:
 - [Phase 01]: collapseStore gained a distinct idempotent expand(projectId, status) action rather than reusing toggle, so a second consecutive quick-add open cannot re-close an already-open Backlog band
 - [Phase 01]: [Phase 01-20]: MOUNTABLE_ROW_ESTIMATE is computed from three named local constants inside volume.ts (jsdom viewport height, ROW_HEIGHT, overscan) rather than imports, so a fixture-adequacy self-check catches drift without adding a production-code dependency to the test-helper module. — Matches the plan's literal instruction and keeps volume.ts's only production dependency to the BoardItem type; the self-check case fails the suite if VOLUME_ROW_COUNT's margin over the estimate erodes.
 - [Phase 01]: [Phase 01-20]: buildVolumeItems assigns each row a 26-character Crockford base32 id (ULID-shaped) instead of short ids, so plan 01-19's raw-identifier leak scan (G-01-2) is a real assertion against the shared volume fixture rather than a vacuous one. — A fixture built from short ids like "1"/"2" could never match the 26-character pattern the leak scan looks for, regardless of whether production code actually leaked one.
+- [Phase 01]: CR-01 closed: backlogAutoExpandedForRef (project-keyed useRef) makes the Backlog auto-expansion a rising-edge action instead of a per-render standing invariant — App.tsx renders <Board projectId> with no React key, so BoardView is never remounted on a project switch — a bare boolean guard would carry its verdict across the switch
+- [Phase 01]: IN-01 closed: the scrollTo test stub's ceiling clamp is guarded on a positive scrollHeight, never applied unconditionally — jsdom reports scrollHeight === 0 for every element; an unguarded clamp would silently zero DEEP_SCROLL_OFFSET and disable the volume suite's deep-scroll precondition
 
 ### Pending Todos
 
@@ -164,6 +167,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T06:28:34.088Z
-Stopped at: Completed 01-20-PLAN.md (gap closure G-01-4 hardening)
+Last session: 2026-09-10T07:39:57.970Z
+Stopped at: Completed 01-21-PLAN.md (gap closure CR-01/WR-01/IN-01)
 Resume file: None
