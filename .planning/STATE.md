@@ -20,10 +20,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-08)
+See: .planning/PROJECT.md (updated 2026-09-10)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 01 — The Board Is The Store Of Record
+**Current focus:** Phase 2 — One Agent, One Worktree, Watched Live
 
 ## Current Position
 
@@ -92,54 +92,13 @@ Recent decisions affecting current work:
 - [Roadmap]: Vertical MVP structure, not the research's horizontal build order. Each phase ships a runnable capability.
 - [Roadmap]: Moat before commodity — context reconstitution (Phase 4), Socratic authoring (Phase 5) and agent-authored backlog (Phase 6) sequenced ahead of git/forge surfaces (Phases 7-8), because Nimbalyst can copy the board-plus-worktree combination in weeks.
 - [Roadmap]: The thinnest vertical slice (one task, two sequential sessions, second reconstituted from the board) completes at Phase 4 — the earliest the dependency graph allows.
-- [Phase 01]: Aliased packages/desktop's dependency on packages/core to flywheel_core (package = "core") to avoid a core-named dependency shadowing the sysroot core crate in tauri::generate_context!()'s expansion
-- [Phase 01]: Fixed rusqlite's nonexistent 'serde' feature to 'serde_json' — 01-RESEARCH.md's install command named the wrong feature
-- [Phase 01]: Locked all four open visual-world decisions at once (component strategy a-selfhost-radix, typeface Archivo, icon library Lucide, radius 2px/6px) into 01-UI-SPEC.md, binding for plans 01-03 through 01-11
-- [Phase 01]: Archivo's condensed companion cut ships from the same variable font's wdth axis (font-stretch), not a second file — Google Fonts merged Archivo Condensed into Archivo's wdth axis after the typeface constraint was written
-- [Phase 01]: Legend mark glyphs are lucide-react icon names, not unicode glyphs — corrected during this plan's own craft-floor review
-- [Phase 01]: [Phase 01-03]: Owner closed the schema-shape checkpoint — epics/tasks share one five-state status CHECK, issues workflow-less; nullable assignee_id; priority 0-4 with No priority sorting last; estimate S/M/L as ordinal 1-3, never aggregated; project key prefix user-typed with a derived default, immutable once the first item exists
-- [Phase 01]: [Phase 01-03]: ARCHITECTURE.md's epic lifecycle enum (integrating/archived) is re-homed onto the five-state status plus epics.integration_branch and epics.archived_at columns, added now so Phase 8 needs no schema change
-- [Phase 01]: [Phase 01-03]: No-priority-sorts-last is enforced entirely in query::list_board's SQL sort-key expression, never by relying on the raw stored/keymap value's ordering
-- [Phase 01]: Crash-recovery ground truth: Task 1 committed by first session (0f82626); second session reviewed and finished Task 2/3's inherited uncommitted work, finding it correct and complete
-- [Phase 01]: Pickers portal-render to document.body (not in-row) because @tanstack/react-virtual gives each row its own CSS stacking context
-- [Phase 01]: Exposed core::db::migration_sources() (the same ordered SQL list the MIGRATIONS static compiles from) so migration_safety.rs builds its N-1 and bad-migration fixtures from the real sources rather than a duplicated, driftable copy
-- [Phase 01]: Crash-safety and migration-safety suites both passed against Task 2's already-correct implementation on first write (migration_safety.rs) or after one genuine intentional RED (crash_safety.rs) — documented in the SUMMARY per the same task-sequencing pattern 01-03 established
-- [Phase 01]: delete_task/delete_epic now cascade-delete their criteria (one criterion.deleted event per row) inside their existing transaction — required by Task 3's own named test, auto-added per deviation Rule 2.
-- [Phase 01]: DoneWarning gates the status mutation BEFORE it is sent rather than applying it optimistically and compensating on cancel — Escape 'reverts' by the mutation never having been sent.
-- [Phase 01]: reorder_criterion supports 'between two neighbours' and 'append after prev' but not inserting before the very front of an existing list — no rank_before helper exists and ranking.rs is not extended by this plan.
-- [Phase 01]: 01-07: filtered the reorder neighbour lookup by priority (not just project_id/status) so a keyboard reorder never displaces a neighbour in a different priority band
-- [Phase 01]: 01-07: priority change does not rewrite rank — an item's position within its new priority band falls wherever its existing rank naturally compares
-- [Phase 01]: 01-07: estimate letters (S/M/L) are rendered from a lookup table, never derived from the stored 1-3 integer via display formatting
-- [Phase 01]: Filter dimensions bound as a single JSON-array-or-NULL named parameter (json_each) rather than a dynamic IN-list, keeping every query in packages/core/src/query a compile-time literal with zero format!/string-interpolation
-- [Phase 01]: search_items delegates byte-identically to list_board for an empty/whitespace-only term rather than a second unfiltered-window implementation
-- [Phase 01]: state/uiStore.ts does not absorb board/collapseStore.ts's collapsed-band state or BoardView.tsx's selectedId - both deliberately deferred, documented in DESIGN.md
-- [Phase 01]: [Phase 01-09]: state/keyboard.ts is the single module that maps a key to a board action — BoardRow.tsx's own competing onKeyDown handler (double-firing every board-list keystroke) and FilterBar.tsx's hand-rolled ⌘F//-listener were both removed in favor of it
-- [Phase 01]: [Phase 01-09]: Selection, the item detail panel's open item, and the pending delete target all live as ids in state/uiStore.ts, not BoardView-local state — CommandPalette.tsx (mounted outside BoardView's tree) drives all three the same way the keyboard path does
-- [Phase 01]: [Phase 01-09]: The Escape ladder is one capture-phase window listener that calls stopPropagation() once it commits to closing a layer, verified against Radix DismissableLayer's own isHighestLayer source — row-level pickers and DeleteConfirm are deliberately outside the four-layer ladder and keep their own Radix Escape handling
-- [Phase 01]: [Phase 01-09]: Quick-add changed from always-mounted to on-demand (c/⌘N opens it, or the project has zero items) so it can be a real closeable Escape-ladder layer
-- [Phase 01]: [Phase 01-09]: dispatchAction(id) synthesizes a real KeyboardEvent matching an action's global binding — the command palette and the native menu.rs bridge both re-enter the exact keyboard pipeline rather than a second implementation of each action's effect
-- [Phase 01]: render_description reads the payload's already-present "label" (built from field/before/after at write time by every domain mutation function) rather than a second, independent formatter
-- [Phase 01]: ActivityTrail.tsx guarded by the same !isIssue condition as AcceptanceCriteriaList — core::query::events only accepts task/epic as parent_kind, matching the events table's denormalised task_id/epic_id columns
-- [Phase 01]: Marker path/format: .flywheel/project.json, JSON via serde_json, committed (owner decision, checkpoint:decision)
-- [Phase 01]: register_project (not create_project) is what the Tauri project_register command now calls
-- [Phase 01]: 01-12: assert_parent_in_project lives in domain/mod.rs as one shared same-project integrity check, called by both reparenting paths (task::set_epic, issue::set_parent) and both creation paths (create_task, create_issue)
-- [Phase 01]: 01-12: BOARD-01 unticked in REQUIREMENTS.md pending plan 01-15 — reparenting commands (task_set_epic, issue_set_parent) now exist and are registered, but nothing in the running renderer calls them yet
-- [Phase 01]: state/keyboard.ts and state/uiStore.ts now own the whole layer stack; bindingAllowedInLayer/topLayer is the single fire/do-not-fire decision every useGlobalBindings consumer and the board-list container share (G-01-FOCUS).
-- [Phase 01]: PickerKind lives in state/uiStore.ts and LayerState is {paletteOpen, detailOpen, pickerOpen, quickAddOpen} - 01-14/01-15 extend these, they do not re-derive the layer model.
-- [Phase 01]: 01-14: ParentPicker (id/label/group options, portalled) is the generic sibling of the four fixed-option pickers, added now so 01-15 reuses it for issue parents instead of forking it
-- [Phase 01]: 01-14: epic picker bound to m ('move under') not a reflexive letter — s/p/e/a were already taken by status/priority/estimate/assignee
-- [Phase 01]: 01-14: useSetTaskEpic exists only for tasks (no epic-kind branch) — the fixed three-level hierarchy gives an epic no epic parent of its own
-- [Phase 01]: 01-15: parentsById (BoardView) is one item-id -> {key,title,kind} lookup covering both epics and tasks, keyed exactly like epicsById's single-window derivation — IssuesLane needs no second tasksById map to resolve an issue's parent
-- [Phase 01]: 01-15: BOARD-01 reticked in REQUIREMENTS.md, restored to its pre-01-12 wording — G-01-EPIC-ASSIGN is fully closed (issue parenting, quick-add nesting, and both creation paths now carry the ids they were dropping)
-- [Phase 01]: G-01-1 closed: App.tsx's menu:action bridge no longer pre-empts the layer guard; native menu bar now mirrors bindingAllowedInLayer's verdict via menu_set_action_enabled (MenuHandles<R> generic in state.rs, concrete Wry at the command boundary)
-- [Phase 01]: [Phase 01] G-01-2 closed: epic roster (list_epics/epic_list_all/useEpics) mirrors the actor-roster triad, replacing BoardView's windowed epicsById derivation; epic-pill-unresolved is a registered Legend mark so the pill can never leak a raw internal id
-- [Phase 01]: G-01-2 closed: FilterBar's chip row and both parent pickers now resolve epics from the project-wide roster (useEpics), never the loaded board window — the epic filter/pickers are the second half of the fix 01-17 started for the pill
-- [Phase 01]: G-01-4 closed: quick-add focus uses a consume-once request flag (quickAddFocusPending) plus virtualizer.scrollToIndex, not autoFocus or a ref, so focus survives both late-mounting and re-application — A ref handle can't focus an unmounted row; a quickAddOpen-keyed effect can't re-fire on a second press with no state change
-- [Phase 01]: collapseStore gained a distinct idempotent expand(projectId, status) action rather than reusing toggle, so a second consecutive quick-add open cannot re-close an already-open Backlog band
-- [Phase 01]: [Phase 01-20]: MOUNTABLE_ROW_ESTIMATE is computed from three named local constants inside volume.ts (jsdom viewport height, ROW_HEIGHT, overscan) rather than imports, so a fixture-adequacy self-check catches drift without adding a production-code dependency to the test-helper module. — Matches the plan's literal instruction and keeps volume.ts's only production dependency to the BoardItem type; the self-check case fails the suite if VOLUME_ROW_COUNT's margin over the estimate erodes.
-- [Phase 01]: [Phase 01-20]: buildVolumeItems assigns each row a 26-character Crockford base32 id (ULID-shaped) instead of short ids, so plan 01-19's raw-identifier leak scan (G-01-2) is a real assertion against the shared volume fixture rather than a vacuous one. — A fixture built from short ids like "1"/"2" could never match the 26-character pattern the leak scan looks for, regardless of whether production code actually leaked one.
-- [Phase 01]: CR-01 closed: backlogAutoExpandedForRef (project-keyed useRef) makes the Backlog auto-expansion a rising-edge action instead of a per-render standing invariant — App.tsx renders <Board projectId> with no React key, so BoardView is never remounted on a project switch — a bare boolean guard would carry its verdict across the switch
-- [Phase 01]: IN-01 closed: the scrollTo test stub's ceiling clamp is guarded on a positive scrollHeight, never applied unconditionally — jsdom reports scrollHeight === 0 for every element; an unguarded clamp would silently zero DEEP_SCROLL_OFFSET and disable the volume suite's deep-scroll precondition
+- [Phase 01]: **Build, not integrate** — the PM core is a Rust/`rusqlite` board owning its own schema, migrations and append-only event log. The research round's open build-vs-integrate fork is now closed by having shipped it.
+- [Phase 01]: **The schema, not app code, is the authority** for the fixed five-state workflow and the three-level hierarchy — CHECK constraints reject an invalid status, so no app-layer guard can be bypassed. Epics/tasks share one status CHECK; issues are workflow-less.
+- [Phase 01]: **Every query in `packages/core/src/query` is a compile-time literal** with bound named parameters (filter dimensions ride a single JSON-array-or-NULL via `json_each`). Zero `format!`/string-interpolated SQL anywhere in core — verified by grep in `01-SECURITY.md`.
+- [Phase 01]: **`actor_id` is resolved server-side in every command handler**, never accepted from the renderer; `events.actor_id` is NOT NULL with a live foreign key. This is what makes the activity trail non-repudiable when agents become actors.
+- [Phase 01]: **`state/keyboard.ts` is the single key→action map**, and `dispatchAction(id)` synthesizes a real KeyboardEvent so the command palette and the native menu bridge re-enter the same keyboard pipeline rather than reimplementing each action. Competing per-row and per-field handlers were removed.
+
+*(Phase 01 logged 48 decisions in total; the five above are the ones that bind later phases. The full set is in the phase's SUMMARY files and PROJECT.md's Key Decisions table.)*
 
 ### Pending Todos
 
@@ -152,6 +111,10 @@ None yet.
 - **Phase 4 needs evidence, not vibes.** Do not ship context reconstitution without the synthetic multi-cycle test suite and explicit context-quality metrics built during planning.
 - **Phase 5 rests on an unvalidated assumption** that Socratic epic authoring beats prompting in a terminal. Spike it during planning before building the full surface.
 - **Phase 11 has a hard prerequisite** outside the codebase: an Apple Developer account ($99/yr) for signing and notarization.
+- ⚠️ **[Phase 01] The generic trigger abstraction was never built.** It is one of the three named extension-ready foundations (PROJECT.md), and the other two shipped — but no scheduler crate is vendored and no trigger type is stubbed, so schedule-as-trigger-source is still a structural retrofit, which is exactly what the architecture constraint forbids. Close it before the automations milestone, not at it.
+- ⚠️ **[Phase 01] `epic_roster` is unbounded by design.** It returns every epic in a project, deliberately exempt from the `DEFAULT_LIMIT`/`MAX_LIMIT` cap (`01-SECURITY.md` AR-01-04). Safe only while one human creates epics one at a time; it becomes an unbounded response the moment an agent gets that path in Phase 6.
+- ⚠️ **[Phase 01] The chosen visual direction has not yet been seen as designed.** `01-UI-REVIEW.md` (18/24) found two of Flight Progress Strips' own signature moves absent: sticky band headers (specified, asserted by three code comments, implemented nowhere) and the selected strip "breaking the plane" (tint overlay only). Tracked in Phase 10.1. Relevant because the owner's judgement that the direction "reads as dated" is currently a judgement on an incomplete execution of it.
+- ⚠️ **[Phase 01] Process defect, will recur every phase needing human verification.** The verifier's `human_needed` branch writes `{phase}-UAT.md`, but `UAT.md` is also declared in `covered_files` and hashed into `covered_digest` — so a verification that asks for human testing invalidates its own fingerprint and reads `stale` forever after. `/gsd-verify-work` then routes to itself, which cannot clear it. Broken this round by regenerating verification with `status: passed` after UAT passed; the durable fix is to stop fingerprinting verify-step *outputs* as verification *inputs*.
 
 ### Roadmap Evolution
 
@@ -167,6 +130,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T07:39:57.970Z
+Last session: 2026-09-10T08:32:31Z
 Stopped at: Phase 01 complete, ready to plan Phase 2
 Resume file: None
