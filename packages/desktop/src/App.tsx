@@ -11,6 +11,7 @@ import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
 import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
+import { useMenuLayerSync } from "./state/menuSync";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
 import "./styles/tokens.css";
 import "./styles/type.css";
@@ -162,6 +163,10 @@ function AppShell() {
       unlisten?.();
     };
   }, []);
+
+  // Pushes the layer guard's verdict onto the native menu bar (`state/menuSync.ts`) — mounted
+  // alongside the bridge effect above since both own the same menu seam (01-16-PLAN.md Task 3).
+  useMenuLayerSync();
 
   // Loading: no copy, no spinner mid-content (01-UI-SPEC.md State Inventory) — the rack ground
   // alone is the boot state until the first project list resolves.

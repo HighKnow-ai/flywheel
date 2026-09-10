@@ -291,18 +291,58 @@ export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   return layer === "board" || layer === "quick-add";
 }
 
-/** The one place this module touches the store — maps its fields to a `LayerState`. `pickerOpen`
- * is true while ANY of the row-level pickers, the delete confirmation, or the Done warning is
- * open (see `UiLayer`'s doc comment on `"picker"`). No import cycle: `uiStore.ts` imports only a
- * type from `board/useBoardQuery`, and nothing imports this module from either. */
-function currentLayerState(): LayerState {
-  const state = useUiStore.getState();
+/** The six raw store fields the layer stack is built from — `layerStateFromStoreFields` below is
+ * the one place this shape is mapped into a `LayerState`, shared by `currentLayerState` (a
+ * one-shot `getState()` read, no subscription) and `useTopLayer` (a live-subscribing hook,
+ * 01-16-PLAN.md Task 3) so the field list exists exactly once. */
+interface RawLayerFields {
+  paletteOpen: boolean;
+  detailItemId: string | null;
+  activePicker: unknown;
+  deleteTarget: unknown;
+  pendingDone: unknown;
+  quickAddOpen: boolean;
+}
+
+/** Maps the store's raw fields to a `LayerState`. `pickerOpen` is true while ANY of the row-level
+ * pickers, the delete confirmation, or the Done warning is open (see `UiLayer`'s doc comment on
+ * `"picker"`). */
+function layerStateFromStoreFields(fields: RawLayerFields): LayerState {
   return {
-    paletteOpen: state.paletteOpen,
-    detailOpen: state.detailItemId !== null,
-    pickerOpen: state.activePicker !== null || state.deleteTarget !== null || state.pendingDone !== null,
-    quickAddOpen: state.quickAddOpen,
+    paletteOpen: fields.paletteOpen,
+    detailOpen: fields.detailItemId !== null,
+    pickerOpen: fields.activePicker !== null || fields.deleteTarget !== null || fields.pendingDone !== null,
+    quickAddOpen: fields.quickAddOpen,
   };
+}
+
+/** The one place this module touches the store via a one-shot read — used by `useGlobalBindings`,
+ * which reads the layer stack fresh at keystroke time rather than from a subscribed value. No
+ * import cycle: `uiStore.ts` imports only a type from `board/useBoardQuery`, and nothing imports
+ * this module from either. */
+function currentLayerState(): LayerState {
+  return layerStateFromStoreFields(useUiStore.getState());
+}
+
+/** Live-subscribing counterpart of `currentLayerState` — `state/menuSync.ts`'s
+ * `useMenuLayerSync` (01-16-PLAN.md Task 3) reads this to drive the native menu bar's enable/
+ * disable state. Subscribes to the same six store fields and returns `topLayer(...)` of them as
+ * a single `UiLayer` string: returning a primitive keeps the selector's result referentially
+ * stable across renders that do not change the top layer, so it does not re-fire consumers on
+ * every unrelated store write (e.g. a filter or search-term change). */
+export function useTopLayer(): UiLayer {
+  return useUiStore((state) =>
+    topLayer(
+      layerStateFromStoreFields({
+        paletteOpen: state.paletteOpen,
+        detailItemId: state.detailItemId,
+        activePicker: state.activePicker,
+        deleteTarget: state.deleteTarget,
+        pendingDone: state.pendingDone,
+        quickAddOpen: state.quickAddOpen,
+      }),
+    ),
+  );
 }
 
 /** The move a region-changing action makes before it runs: closes the palette and the detail

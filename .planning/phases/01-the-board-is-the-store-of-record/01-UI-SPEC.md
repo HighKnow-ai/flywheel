@@ -255,6 +255,22 @@ feature, and no affordance exists to reconfigure either (BOARD-01, BOARD-04).
   - **Window:** standard macOS Window menu (Minimize, Zoom, Bring All to Front)
   - **Help:** deferred — no destination exists yet to point it at; flagged in Open Decisions rather
     than invented
+  - The four custom File and View items above keep their printed shortcuts always — none is ever
+    removed — but the app disables whichever ones the renderer's layer model would refuse
+    whenever the item detail panel, a row-level picker, or the command palette is on top, so an
+    item is never enabled-but-inert while a trapped layer is up (a disabled `MenuItem` also stops
+    firing its key equivalent, which is what keeps a native accelerator like `⌘N` from reaching
+    `on_menu_event` in the first place while the panel traps focus). Toggle Command Palette is the
+    one exception that stays enabled over the detail panel (BOARD-07's discoverability
+    guarantee) — it is disabled only under a row-level picker or the palette itself.
+
+Corrected in plan `01-16` (G-01-1): the menu bar item list above is unchanged, but each custom
+item's enabled state is now driven from `state/keyboard.ts`'s `bindingAllowedInLayer` via
+`state/menuSync.ts`'s `useMenuLayerSync` and `src-tauri/src/commands/menu.rs`'s
+`menu_set_action_enabled` — the affordance half of closing UAT gap G-01-1 (the native menu
+accelerator bypassing the layer guard). The guard itself, and the fix's enforcement half, are
+unchanged: `App.tsx`'s `menu:action` bridge now does nothing but `dispatchAction`, so a forwarded
+id is admitted or refused identically whether it arrived as a keystroke or a click.
 
 ### Project switcher (left rail)
 
