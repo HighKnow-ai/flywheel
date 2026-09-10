@@ -98,3 +98,15 @@ export async function subscribeAgentEvent(
 ): Promise<UnlistenFn> {
   return listen<Record<string, unknown>>("agent:event", (event) => handler(event.payload));
 }
+
+/**
+ * Stop a running agent run (D-35: interrupt, then force; plan 02-02). Thin typed wrapper over
+ * `agent_run_stop`, following `invokeCommand`'s single-seam rule. This call's own resolution is
+ * NOT the run's terminal status — the sidecar's interrupt-then-force sequence has already
+ * finished by the time the Rust command returns, but the session surface reads the actual
+ * terminal state back through the pushed `agent:event`'s `session_closed` reason, never from this
+ * promise's return value (mirrors `subscribeBoardChanged`'s own "never trust your own write" rule).
+ */
+export async function stopAgentRun(agentRunId: string): Promise<void> {
+  await invokeCommand<void>("agent_run_stop", { agentRunId });
+}

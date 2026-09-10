@@ -7,16 +7,44 @@
  * status strip. This component proves the read path reaches the screen: it reads pages with
  * `useInfiniteQuery` against `agentRunLogWindow` (D-33's bounded window) and invalidates on
  * `subscribeAgentEvent` (D-32's live push) — one plain row per event, oldest first.
+ *
+ * Plan 02-02 Task 3 adds the Stop affordance and the run-status word. Status is rendered as plain
+ * words only — `Running` / `Blocked` / `Completed` / `Failed` / `Interrupted` — with no glyph and
+ * no new colour token in this plan; plan 02-03 introduces the `agent` mark channel and the new
+ * colour roles, and plan 02-07 binds the glyphs. No keydown listener is registered here either:
+ * `⌘.` belongs to `state/keyboard.ts`'s single key→action map, owned by plan 02-03 this wave.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { agentRunLogWindow, subscribeAgentEvent } from "../adapters/tauri";
+import { agentRunLogWindow, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
 
 const PAGE_SIZE = 50;
+
+/** The five values `agent_runs.status` can hold (migration `0003_agent_runtime.sql`). */
+export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted";
+
+const RUN_STATUS_LABELS: Record<RunStatus, string> = {
+  running: "Running",
+  blocked: "Blocked",
+  completed: "Completed",
+  failed: "Failed",
+  interrupted: "Interrupted",
+};
+
+const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "interrupted"];
+
+function isRunStatus(value: unknown): value is RunStatus {
+  return typeof value === "string" && value in RUN_STATUS_LABELS;
+}
 
 export interface SessionSurfaceProps {
   agentRunId: string;
   onBack: () => void;
+  /** The run's status when this surface first mounts. Defaults to `"running"` — in this phase
+   * the surface is only ever pushed into right after Start Work; a later plan that adds a "View"
+   * affordance for an already-terminal run should pass its real starting status here instead of
+   * relying on this default. */
+  initialStatus?: RunStatus;
 }
 
 function sessionLogQueryKey(agentRunId: string) {
@@ -57,9 +85,11 @@ function EventRow({ event, index }: { event: Record<string, unknown>; index: num
   );
 }
 
-export function SessionSurface({ agentRunId, onBack }: SessionSurfaceProps) {
+export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }: SessionSurfaceProps) {
   const queryClient = useQueryClient();
   const queryKey = sessionLogQueryKey(agentRunId);
+  const [status, setStatus] = useState<RunStatus>(initialStatus);
+  const [stopping, setStopping] = useState(false);
 
   const logQuery = useInfiniteQuery({
     queryKey,
@@ -72,15 +102,33 @@ export function SessionSurface({ agentRunId, onBack }: SessionSurfaceProps) {
 
   // A live `agent:event` push invalidates the windowed read (D-32/D-04) — the stream itself is
   // never treated as the source of truth, only the persisted log read back through the command.
+  // The terminal status word ALSO arrives through this same pushed delta (a `session_closed`
+  // event's `reason`, plan 02-02 D-35) — never from `stopAgentRun`'s own resolved promise, which
+  // is why the Stop control below never assumes its own write landed.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    subscribeAgentEvent(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
+    subscribeAgentEvent((event) => {
+      queryClient.invalidateQueries({ queryKey });
+      if (event.type === "session_closed" && isRunStatus(event.reason)) {
+        setStatus(event.reason);
+      }
+    }).then((fn) => {
       unlisten = fn;
     });
     return () => unlisten?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentRunId]);
 
+  function handleStop() {
+    setStopping(true);
+    stopAgentRun(agentRunId).catch(() => {
+      // The terminal status still arrives through the pushed delta if the stop actually landed
+      // server-side — a failed invoke here just re-enables the control so the user can retry.
+      setStopping(false);
+    });
+  }
+
+  const showStop = !TERMINAL_STATUSES.includes(status);
   const events = logQuery.data?.pages.flat() ?? [];
 
   return (
@@ -110,6 +158,29 @@ export function SessionSurface({ agentRunId, onBack }: SessionSurfaceProps) {
           ← Board
         </button>
         <span className="type-heading">Session</span>
+        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          {RUN_STATUS_LABELS[status]}
+        </span>
+
+        {showStop && (
+          <button
+            type="button"
+            onClick={handleStop}
+            disabled={stopping}
+            className="type-label"
+            style={{
+              marginLeft: "auto",
+              background: "transparent",
+              border: "1px solid var(--divider)",
+              borderRadius: "var(--radius-chrome)",
+              color: "var(--text-primary-rack)",
+              padding: "var(--space-xs) var(--space-md)",
+              cursor: stopping ? "default" : "pointer",
+            }}
+          >
+            {stopping ? "Stopping…" : "Stop"}
+          </button>
+        )}
       </header>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}>
