@@ -157,6 +157,33 @@ describe("the shared volume fixture's own adequacy (Task 1)", () => {
       screen.queryByPlaceholderText("Type a title, press Enter to create…"),
     ).not.toBeInTheDocument();
   });
+
+  it("the_scroll_stub_clamps_to_a_real_scrollable_range_only_when_one_exists", () => {
+    // A detached element that reports a real scrollable range: 1000 against the shared
+    // `offsetHeight` stub's 800 (`test/setup.ts`) — a 200px scrollable ceiling.
+    const withRange = document.createElement("div");
+    Object.defineProperty(withRange, "scrollHeight", { configurable: true, value: 1000 });
+    document.body.appendChild(withRange);
+
+    withRange.scrollTo({ top: 5000 });
+    expect(withRange.scrollTop).toBe(200);
+
+    withRange.scrollTo({ top: -50 });
+    expect(withRange.scrollTop).toBe(0);
+
+    document.body.removeChild(withRange);
+
+    // A plain element with no defined `scrollHeight` — jsdom reports 0 for every element, which
+    // is the state every OTHER test in this repo already runs in. The stub must leave the target
+    // completely unclamped here: this is what stops a future "tidy-up" of the guard from
+    // silently disabling `DEEP_SCROLL_OFFSET` and the entire volume suite's deep-scroll
+    // precondition (IN-01).
+    const noRange = document.createElement("div");
+    document.body.appendChild(noRange);
+    noRange.scrollTo({ top: DEEP_SCROLL_OFFSET });
+    expect(noRange.scrollTop).toBe(DEEP_SCROLL_OFFSET);
+    document.body.removeChild(noRange);
+  });
 });
 
 describe("cmd_n_focuses_quick_add_when_the_row_is_scrolled_out_of_the_mounted_window", () => {
