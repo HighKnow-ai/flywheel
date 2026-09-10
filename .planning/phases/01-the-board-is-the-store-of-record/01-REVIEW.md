@@ -1,171 +1,179 @@
 ---
 phase: 01-the-board-is-the-store-of-record
-reviewed: 2026-09-10T06:37:39Z
+reviewed: 2026-09-10T07:47:25Z
 depth: standard
-files_reviewed: 9
+files_reviewed: 4
 files_reviewed_list:
-  - packages/desktop/src/state/uiStore.ts
-  - packages/desktop/src/board/QuickAdd.tsx
   - packages/desktop/src/board/BoardView.tsx
-  - packages/desktop/src/board/collapseStore.ts
-  - packages/desktop/src/test/setup.ts
   - packages/desktop/src/board/__tests__/quick-add-focus.test.tsx
-  - packages/desktop/src/board/__tests__/menu-bridge.test.tsx
-  - packages/desktop/src/board/__tests__/volume.ts
+  - packages/desktop/src/test/setup.ts
   - .planning/phases/01-the-board-is-the-store-of-record/01-UI-SPEC.md
 findings:
   critical: 1
-  warning: 1
+  warning: 0
   info: 1
-  total: 3
+  total: 2
 status: issues_found
 ---
 
-# Phase 1: Code Review Report
+# Phase 01: Code Review Report (Incremental #3661 — CR-01 gap closure)
 
-**Reviewed:** 2026-09-10T06:37:39Z
+**Reviewed:** 2026-09-10T07:47:25Z
 **Depth:** standard
-**Files Reviewed:** 9
+**Files Reviewed:** 4
 **Status:** issues_found
 
 ## Summary
 
-This is an incremental review of the G-01-4 gap-closure work (plans 01-19/01-20): quick-add's
-consume-once focus request (`quickAddFocusPending`) and the "expand a collapsed Backlog band on
-open" effect. This review supersedes the prior 01-01..01-18 review at this same path.
+This incremental review covers commit `fb961dc` ("rising-edge guard for Backlog auto-expansion")
+and `71ca01d` (scrollTo clamp), the two commits that make up plan `01-21`'s CR-01/WR-01/IN-01
+gap closure, plus the accompanying test additions.
 
-The consume-once focus mechanism (`state/uiStore.ts`'s `quickAddFocusPending`,
-`board/QuickAdd.tsx`'s guarded focus effect, `board/BoardView.tsx`'s `quickAddRowIndex` +
-scroll-into-view effect) is sound: I traced the two-render choreography (scroll effect fires
-first with the negative-index guard, the expand effect fires on a separate render when Backlog is
-collapsed, and the row's own focus effect fires once it finally mounts) and it converges correctly
-for every case the test suite exercises, including the volume fixture and the real forwarded
-`menu:action` path.
+The fix correctly solves the bug it targets: a single project, opened once, whose Backlog is
+manually collapsed while quick-add is reachable, now stays collapsed (verified by tracing the
+`backlogAutoExpandedForRef` guard against every test case in `quick-add-focus.test.tsx`, including
+the zero-item/permanently-reachable case that was the worst instance of the original defect).
 
-However, the second half of the fix — forcing a collapsed Backlog band open whenever quick-add is
-reachable (`BoardView.tsx` lines 373-376) — is implemented as a continuously-reasserted invariant
-rather than a one-time action on open. I traced this to a real, reproducible regression: **the
-Backlog band's collapse toggle stops working for as long as quick-add is open** (see CR-01 below),
-proven with a throwaway repro test against the actual component tree, not just static reading. The
-existing 147-test suite (including the new volume/menu-bridge suites) does not catch this because
-no test exercises the collapse toggle while quick-add is open — see CR-01's fix section for the
-missing coverage this also flags.
+However, the guard's chosen representation — a single scalar `useRef<string | null>` holding only
+the *most recently seen* project id — cannot represent "already handled" for more than one project
+at a time. Tracing the effect against a project-switch sequence longer than the one the new test
+covers (A → B → **A again**, without unmounting `BoardView`, exactly the scenario the ref's own doc
+comment says it exists to handle) reproduces the original CR-01 symptom: a project the user
+deliberately re-collapsed has its Backlog silently re-expanded the next time it is revisited,
+because the ref no longer remembers that project's episode was already seeded. Given the product's
+own stated purpose — supervising many projects at once — switching between projects is not an edge
+case, so this is classified Critical rather than Warning. See CR-01 below.
+
+The `setup.ts` scrollTo clamp (IN-01 closure) is sound: the `scrollHeight > 0` guard is correctly
+derived from a verified fact about this repo's jsdom version (every element reports `scrollHeight
+0`), is proven by its own test case, and does not regress any other test's use of the unclamped
+stub. One minor documentation point is noted under IN-01 below, not a functional defect.
 
 ## Critical Issues
 
-### CR-01: Opening quick-add permanently pins the Backlog band open — the user cannot collapse it back while quick-add is up
+### CR-01: The rising-edge guard only remembers one project, so revisiting a project re-triggers the auto-expand and silently undoes the user's own Backlog collapse
 
-**File:** `packages/desktop/src/board/BoardView.tsx:373-376` (the effect), interacting with
-`packages/desktop/src/board/BoardView.tsx:633` (the header's unguarded click handler) and
-`packages/desktop/src/board/collapseStore.ts:34-43` (`expand`)
+**File:** `packages/desktop/src/board/BoardView.tsx:159` (declaration), `:396-407` (effect),
+`:467-472` (`openQuickAdd`'s direct expand)
 
-**Issue:** The "expand a collapsed Backlog band" effect added in this round is:
-
-```tsx
-useEffect(() => {
-  if (!effectiveQuickAddOpen || !collapsedByStatus.backlog) return;
-  expandBand(projectId ?? "", "backlog");
-}, [effectiveQuickAddOpen, collapsedByStatus, projectId, expandBand]);
-```
-
-Its dependency array includes `collapsedByStatus` (the whole per-project collapse map), so it
-re-runs and re-calls `expandBand` **every time `collapsedByStatus.backlog` becomes truthy while
-`effectiveQuickAddOpen` is still true** — not just once, at the moment quick-add opens. Meanwhile
-`StatusBand`'s click handler (`onToggleCollapsed={() => toggleCollapsed(projectId ?? "", row.status)}`,
-line 633) is wired with no layer/state guard at all — it is always clickable, including while
-quick-add is open.
-
-Net effect: if the user opens quick-add (⌘N, `c`, the palette, or the empty-board default) and
-then clicks the Backlog band header to collapse it — a fully supported, always-visible affordance —
-the click is immediately reverted by this effect on the very next render. The band snaps back
-open. This is not a corner case: `effectiveQuickAddOpen` is `quickAddOpen || items.length === 0`,
-so for **any empty project**, this condition is permanently true and the Backlog band's collapse
-toggle is completely inert for that project — every click is undone.
-
-This directly contradicts `01-UI-SPEC.md`'s framing of band-collapse as "a local UI preference"
-the user controls, and contradicts this very gap-closure's own UI-SPEC addition ("opening quick-add
-guarantees the Backlog band is expanded **first**" — "first" implies a one-time action on open, not
-a standing invariant that fights the user's own subsequent input).
-
-**Reproduction (verified against the real component tree, not just read):** I wrote a throwaway
-test (not committed) that renders `BoardView` with one item, presses ⌘N, then fires a click on the
-"Backlog" header exactly as `StatusBand`'s `onClick` does. Result:
-
-```
-collapsed state after click: { backlog: false }
-AssertionError: expected false to be true
-```
-
-i.e. the store's `collapsedByProject["proj-1"].backlog` is `false` immediately after the user's
-own collapse click — the click never sticks. All 147 existing tests still pass, because none of
-them exercises "toggle collapse while quick-add is open."
-
-**Fix:** Scope the forced expansion to fire once per "quick-add became reachable" transition
-instead of continuously re-asserting it, e.g. with a ref that tracks the rising edge of
-`effectiveQuickAddOpen`:
+**Issue:** `backlogAutoExpandedForRef` is `useRef<string | null>`, i.e. it can hold the identity of
+*at most one* "already seeded" episode at a time:
 
 ```tsx
-const backlogAutoExpandedRef = useRef(false);
+const backlogAutoExpandedForRef = useRef<string | null>(null);
+...
 useEffect(() => {
+  const episodeKey = projectId ?? "";
   if (!effectiveQuickAddOpen) {
-    backlogAutoExpandedRef.current = false;
+    backlogAutoExpandedForRef.current = null;
     return;
   }
-  if (backlogAutoExpandedRef.current) return;
-  backlogAutoExpandedRef.current = true;
+  if (backlogAutoExpandedForRef.current === episodeKey) return;
+  backlogAutoExpandedForRef.current = episodeKey;
   if (collapsedByStatus.backlog) {
-    expandBand(projectId ?? "", "backlog");
+    expandBand(episodeKey, "backlog");
   }
 }, [effectiveQuickAddOpen, collapsedByStatus, projectId, expandBand]);
 ```
 
-This still auto-expands on the moment quick-add becomes reachable (covers both the ⌘N/`c`/palette
-open and the empty-board default on mount), but stops fighting a user-initiated collapse taken
-afterward, while `effectiveQuickAddOpen` is still true. Also add a regression test asserting that
-clicking the Backlog header while quick-add is open results in `collapsedByProject[...].backlog ===
-true` and stays there (the exact scenario this finding reproduces) — the current suite has no such
-case despite otherwise being thorough about this gap's other failure paths.
+`App.tsx:212` renders `<Board projectId={project.id} …>` with no React `key`, so `BoardView` is
+never remounted on a project switch — this is exactly the fact the ref's own doc comment (lines
+152-158) cites as the reason to key on project id at all. But keying a *single* scalar on project
+id only distinguishes "the episode I most recently handled" from "everything else"; it cannot
+distinguish "project A, already handled" from "project A, not yet handled in this session" once a
+*different* project's episode has been recorded in between.
 
-## Warnings
+Concrete repro, traced directly against the code (both projects use `collapseStore`'s
+per-project-keyed state, confirmed in `packages/desktop/src/board/collapseStore.ts`):
 
-### WR-01: No test coverage for the collapse-toggle-vs-quick-add-open interaction introduced by this round
+1. Project A is open, quick-add reachable (e.g. via `⌘N`, or the empty-board default).
+   `backlogAutoExpandedForRef.current` becomes `"A"`.
+2. User clicks the Backlog header to collapse it. `collapsedByStatus.backlog` (for A) becomes
+   `true`. The guard fires (`ref.current === "A" === episodeKey`) and returns early — the fix works
+   here, matching `collapsing_backlog_while_quick_add_is_open_sticks`.
+3. User switches to project B (still without unmounting `BoardView` — the un-keyed render path).
+   `episodeKey` becomes `"B"`, which does not match the ref's `"A"`, so this is correctly treated
+   as a fresh episode: `ref.current` becomes `"B"`. This matches the one test that exists for this
+   path, `switching_to_a_project_with_a_collapsed_backlog_still_expands_it`.
+4. User switches **back** to project A. `episodeKey` is `"A"` again, but `ref.current` is now
+   `"B"` — the ref has no memory that A was already handled in step 1. The guard's
+   `ref.current === episodeKey` check fails, so this is (incorrectly) treated as a brand-new
+   episode: the effect sets `ref.current = "A"` and, seeing `collapsedByStatus.backlog` for A is
+   still `true` (the user's own collapse from step 2 — collapse state is per-project and does not
+   reset on switch), calls `expandBand("A", "backlog")` — **silently reverting the user's
+   deliberate collapse from step 2**, with no click and no accelerator press from the user to
+   justify it.
 
-**File:** `packages/desktop/src/board/__tests__/quick-add-focus.test.tsx` (describe block "a
-collapsed Backlog band can no longer swallow the quick-add row (Task 2)")
+This directly contradicts the guarantee `01-UI-SPEC.md` states for this very fix (Quick-add
+section, "Corrected in plan `01-21` (CR-01)"): *"a band the user collapses afterward stays
+collapsed until the user says otherwise, and pressing the new-task accelerator again is what
+re-expands it."* Switching away to another project and back is neither "the user saying otherwise"
+nor "pressing the accelerator" — yet it silently re-expands. It also contradicts the
+`UI Considerations` table's `✅ covered` row for "status band collapse toggle, quick-add open",
+which is only true for the single-project-session case, not the multi-project one the product is
+built around.
 
-**Issue:** This suite thoroughly covers the "band starts collapsed, quick-add expands it" direction
-(4 cases) and the "expand doesn't touch other bands/other projects" direction, but never exercises
-the inverse interaction this round's own effect introduces: the user collapsing the band *after*
-quick-add is already open. That gap is exactly what let CR-01 ship green through 147 passing tests.
+The same root cause (a single scalar standing in for "already handled," instead of a per-project
+record) also means any full `BoardView` unmount/remount (not just an un-keyed prop change) resets
+the memory to a blank slate, which happens to produce the same wrong outcome if quick-add is still
+reachable and the band is still collapsed at remount time.
 
-**Fix:** Add a case alongside the existing "Task 2" describe block: open quick-add, click/toggle
-Backlog closed, and assert it stays closed (and, separately, that quick-add itself is unaffected —
-the row may legitimately disappear from the rendered list once its band is collapsed, per the
-`rows` memo's existing `if (collapsedByStatus[status]) continue;` skip, but the collapse state
-itself must not be silently reverted).
+No existing test in `quick-add-focus.test.tsx` covers the third leg of the round trip (A → B →
+**A**) — the closest test, `switching_to_a_project_with_a_collapsed_backlog_still_expands_it`
+(lines 381-414), only exercises A → B once.
+
+**Fix:** Track "already seeded" per project, not as a single last-seen value — e.g. a `Set<string>`
+(or `Record<string, true>`) that only removes a project's entry when that specific project's
+reachability episode actually ends, not merely because a different project was viewed in between:
+
+```tsx
+const backlogAutoExpandedForRef = useRef<Set<string>>(new Set());
+...
+useEffect(() => {
+  const episodeKey = projectId ?? "";
+  if (!effectiveQuickAddOpen) {
+    backlogAutoExpandedForRef.current.delete(episodeKey);
+    return;
+  }
+  if (backlogAutoExpandedForRef.current.has(episodeKey)) return;
+  backlogAutoExpandedForRef.current.add(episodeKey);
+  if (collapsedByStatus.backlog) {
+    expandBand(episodeKey, "backlog");
+  }
+}, [effectiveQuickAddOpen, collapsedByStatus, projectId, expandBand]);
+```
+
+Add a regression test extending `switching_to_a_project_with_a_collapsed_backlog_still_expands_it`
+(or a new case) that performs the full A → B → A round trip within one mount (using `rerender`
+twice, as the existing test already does once) and asserts project A's Backlog is **still
+collapsed** after returning to it, proving the fix distinguishes "already seeded" per project
+rather than per "most recently viewed" project.
 
 ## Info
 
-### IN-01: `Element.prototype.scrollTo` test stub does not clamp to the container's scrollable range
+### IN-01: `setup.ts`'s scroll-clamp guard depends on a caller explicitly setting `scrollHeight`, which no production code path does
 
-**File:** `packages/desktop/src/test/setup.ts:56-67`
+**File:** `packages/desktop/src/test/setup.ts:69-86`
 
-**Issue:** The new stub added for this round sets `this.scrollTop = Math.max(0, top)` — it clamps
-the floor at zero but never clamps the ceiling to `scrollHeight - clientHeight` the way a real
-browser's `Element.scrollTo` does. Today this is harmless because `volume.ts`'s `DEEP_SCROLL_OFFSET`
-is itself derived and clamped against the fixture's estimated total height before it ever reaches
-this stub, but the stub itself provides no such protection for any future caller. A future
-`scrollToIndex` call with a miscalculated or unclamped target could silently produce a
-jsdom-only scroll position a real browser would never reach, masking a regression under test that
-would behave differently in production.
+**Issue:** Not a functional defect — the implementation and its own test
+(`the_scroll_stub_clamps_to_a_real_scrollable_range_only_when_one_exists`, in
+`quick-add-focus.test.tsx:161-186`) are internally consistent and the reasoning in the comment
+(jsdom reports `scrollHeight === 0` for every element by default) is verifiable and correct.
+Flagging only for future maintainers: because the ceiling clamp is gated on `scrollHeight > 0`, and
+no test in this repo's suite currently gives a `BoardView` rack container a non-zero
+`scrollHeight`, the ceiling branch is exercised only by the one purpose-built unit test for the
+stub itself — it is not (and cannot yet be) exercised by any test that goes through `BoardView`'s
+own scroll container. This is fine as-is (the guard's job is specifically to stay inert for every
+current caller), but a future test that starts giving the board container a real `scrollHeight`
+(e.g. to more faithfully simulate a browser) should re-check this clamp's arithmetic against that
+new caller rather than assuming the existing unit test alone still proves it correct in context.
 
-**Fix:** Optionally clamp `top` to `[0, this.scrollHeight - this.offsetHeight]` (or the
-element's effective client height) inside the stub, mirroring real `scrollTo` semantics more
-closely, so a future out-of-range scroll target fails loudly under test instead of being silently
-absorbed.
+**Fix:** No change required now. Consider a code comment cross-reference (already partially present)
+noting that the ceiling branch has no `BoardView`-level test coverage yet, so a future PR that
+gives the rack container a real `scrollHeight` should add one.
 
 ---
 
-_Reviewed: 2026-09-10T06:37:39Z_
+_Reviewed: 2026-09-10T07:47:25Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
