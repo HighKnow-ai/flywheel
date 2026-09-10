@@ -203,3 +203,132 @@ describe("menu-bridge (G-01-1)", () => {
     }
   });
 });
+
+/**
+ * `useMenuLayerSync` (01-16-PLAN.md Task 3): pushes the layer guard's verdict onto the native
+ * menu bar via `menu_set_action_enabled`, so a trapped layer greys the forwarded items instead of
+ * leaving them enabled-but-dead. This is the affordance half of G-01-1's fix — the enforcement
+ * half (Task 1, above) is unchanged. Every assertion here reads `menuSyncCalls()`, which filters
+ * `invokeCommandMock`'s calls down to just the `menu_set_action_enabled` invocations, since the
+ * same mock also serves `project_list`/`board_list`/`criterion_list`/etc.
+ */
+describe("useMenuLayerSync (G-01-1, Task 3)", () => {
+  function menuSyncCalls(): Array<{ actionId: string; enabled: boolean }> {
+    return invokeCommandMock.mock.calls
+      .filter(([command]) => command === "menu_set_action_enabled")
+      .map(([, args]) => args as { actionId: string; enabled: boolean });
+  }
+
+  it("pushes enabled: true for all four MENU_ACTION_IDS ids on mount with nothing open", async () => {
+    await renderApp();
+
+    const calls = menuSyncCalls();
+    for (const id of MENU_ACTION_IDS) {
+      expect(calls).toContainEqual({ actionId: id, enabled: true });
+    }
+  });
+
+  it("opening the item detail panel disables register-project/create-task/create-epic but not open-palette", async () => {
+    await renderApp();
+    invokeCommandMock.mockClear();
+
+    openDetailPanel("1");
+    await waitFor(() => expect(menuSyncCalls().length).toBeGreaterThan(0));
+
+    const calls = menuSyncCalls();
+    expect(calls).toContainEqual({ actionId: "register-project", enabled: false });
+    expect(calls).toContainEqual({ actionId: "create-task", enabled: false });
+    expect(calls).toContainEqual({ actionId: "create-epic", enabled: false });
+    // The palette must stay reachable over a trapped panel (BOARD-07) — its verdict is
+    // unchanged from the board layer, so no call is issued for it at all (delta-only).
+    expect(calls.find((c) => c.actionId === "open-palette")).toBeUndefined();
+  });
+
+  it("opening a row-level picker disables open-palette too, matching bindingAllowedInLayer under \"picker\"", async () => {
+    await renderApp();
+    invokeCommandMock.mockClear();
+
+    act(() => {
+      useUiStore.getState().setActivePicker({ kind: "status", id: "1" });
+    });
+    await waitFor(() => expect(menuSyncCalls().length).toBeGreaterThan(0));
+
+    expect(menuSyncCalls()).toContainEqual({ actionId: "open-palette", enabled: false });
+  });
+
+  it("opening the command palette disables open-palette (Toggle Command Palette greys while the palette is up); closing it re-enables", async () => {
+    await renderApp();
+    invokeCommandMock.mockClear();
+
+    act(() => {
+      useUiStore.getState().setPaletteOpen(true);
+    });
+    await waitFor(() => expect(menuSyncCalls().length).toBeGreaterThan(0));
+    expect(menuSyncCalls()).toContainEqual({ actionId: "open-palette", enabled: false });
+
+    invokeCommandMock.mockClear();
+    act(() => {
+      useUiStore.getState().setPaletteOpen(false);
+    });
+    await waitFor(() => expect(menuSyncCalls().length).toBeGreaterThan(0));
+    expect(menuSyncCalls()).toContainEqual({ actionId: "open-palette", enabled: true });
+  });
+
+  it("closing everything re-enables register-project/create-task/create-epic", async () => {
+    await renderApp();
+    openDetailPanel("1");
+    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("1"));
+    invokeCommandMock.mockClear();
+
+    act(() => {
+      useUiStore.getState().setDetailItemId(null);
+      useUiStore.getState().setSelectedItemId(null);
+    });
+    await waitFor(() => expect(menuSyncCalls().length).toBeGreaterThan(0));
+
+    const calls = menuSyncCalls();
+    expect(calls).toContainEqual({ actionId: "register-project", enabled: true });
+    expect(calls).toContainEqual({ actionId: "create-task", enabled: true });
+    expect(calls).toContainEqual({ actionId: "create-epic", enabled: true });
+  });
+
+  it("a layer change that does not alter any verdict issues no further calls (delta-only, not one round trip per store write)", async () => {
+    await renderApp();
+    invokeCommandMock.mockClear();
+
+    // Quick-add from the board layer: both "board" and "quick-add" permit the identical set, so
+    // no id's verdict actually changes.
+    act(() => {
+      useUiStore.getState().openQuickAdd("task");
+    });
+    // Give any (incorrectly) queued microtask a chance to land before asserting silence.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(menuSyncCalls()).toEqual([]);
+  });
+
+  it("a rejected menu_set_action_enabled call does not throw out of the hook and does not break the rendered tree", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "menu_set_action_enabled") return Promise.reject(new Error("no native menu attached"));
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "project_list") return Promise.resolve(PROJECTS);
+      if (command === "board_list") {
+        return Promise.resolve({ items: ITEMS, issues: [], counts: { ...EMPTY_COUNTS, backlog: ITEMS.length } });
+      }
+      if (command === "criterion_list") return Promise.resolve([]);
+      if (command === "events_activity_trail") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    await renderApp();
+    await act(async () => {
+      openDetailPanel("1");
+      await Promise.resolve();
+    });
+
+    // Still mounted, still interactive — the rejected push degraded silently rather than
+    // crashing the tree (a renderer with no native menu attached must still work).
+    expect(screen.getByText("Flywheel")).toBeInTheDocument();
+    expect(useUiStore.getState().detailItemId).toBe("1");
+  });
+});
