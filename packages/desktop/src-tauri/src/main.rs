@@ -108,6 +108,7 @@ fn main() {
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
             commands::menu::menu_set_action_enabled,
+            commands::agent_run::agent_run_preview,
             commands::agent_run::agent_run_start,
             commands::agent_run::agent_run_log_window,
             commands::agent_run::agent_run_stop,

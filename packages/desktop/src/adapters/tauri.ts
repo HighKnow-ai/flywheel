@@ -57,8 +57,9 @@ export async function subscribeMenuAction(handler: (actionId: string) => void): 
 }
 
 /**
- * Start a fresh agent run against `taskId` (D-30, plan 02-01). Thin typed wrapper over
- * `agent_run_start`, following `invokeCommand`'s own single-seam rule.
+ * Start a fresh agent run against `taskId` (D-30, plan 02-01; `instruction`/D-27 added plan
+ * 02-04). Thin typed wrapper over `agent_run_start`, following `invokeCommand`'s own single-seam
+ * rule.
  */
 export interface AgentRunDto {
   id: string;
@@ -67,8 +68,50 @@ export interface AgentRunDto {
   permissionMode: string;
 }
 
-export async function startAgentRun(taskId: string, permissionMode: string): Promise<AgentRunDto> {
-  return invokeCommand<AgentRunDto>("agent_run_start", { taskId, permissionMode });
+export async function startAgentRun(
+  taskId: string,
+  permissionMode: string,
+  instruction?: string,
+): Promise<AgentRunDto> {
+  return invokeCommand<AgentRunDto>("agent_run_start", { taskId, permissionMode, instruction });
+}
+
+/**
+ * One acceptance criterion in the launch sheet's briefing (D-05/D-28) — mirrors
+ * `commands/agent_run.rs`'s `CriterionDto` field-for-field.
+ */
+export interface CriterionDto {
+  statement: string;
+  verificationHint: string | null;
+}
+
+/**
+ * The launch sheet's read-only briefing (D-27/D-28, plan 02-04): the assembled context packet's
+ * structured fields plus the exact prompt string `agent_run_start` would send for an empty
+ * instruction — one Rust-side renderer, so the sheet never shows a briefing that differs from
+ * what the agent is actually told (T-02-21).
+ */
+export interface ContextPacketDto {
+  taskKey: string;
+  taskTitle: string;
+  taskDescription: string | null;
+  epicTitle: string | null;
+  epicDescription: string | null;
+  criteria: CriterionDto[];
+  branch: string;
+  baseRef: string;
+  worktreePath: string;
+  renderedPrompt: string;
+}
+
+/**
+ * Preview the briefing a Start Work run against `taskId` would send (D-27/D-28). Read-only:
+ * mutates nothing, creates no worktree, writes no trigger row and emits no event — the launch
+ * sheet's own defining property. Thin typed wrapper over `agent_run_preview`, and the only
+ * renderer module permitted to name that command string.
+ */
+export async function previewContextPacket(taskId: string): Promise<ContextPacketDto> {
+  return invokeCommand<ContextPacketDto>("agent_run_preview", { taskId });
 }
 
 /**
