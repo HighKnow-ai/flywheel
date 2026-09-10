@@ -149,6 +149,14 @@ export function BoardView({
 }: BoardViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // The project id whose Backlog band the CURRENT quick-add-reachability episode has already
+  // auto-expanded for (CR-01, 01-VERIFICATION.md truth #22) — not a bare boolean. A boolean would
+  // carry its "already handled" verdict across a project switch, because `App.tsx` renders
+  // `<Board projectId={project.id} …>` with no React key (App.tsx:212), so this component is not
+  // remounted when `projectId` changes; only the prop updates. Keying on the project id instead
+  // makes a project switch a fresh episode, so the switched-to project's collapsed Backlog is
+  // still expanded once. See the expand-Backlog effect below for how this ref is used.
+  const backlogAutoExpandedForRef = useRef<string | null>(null);
   // Selection is an item id, held in the shared store (01-09-PLAN.md Task 1) — never a row index
   // — so it survives a pushed delta reordering the window, and so `CommandPalette.tsx` (mounted
   // outside this tree) can read/drive it too.
@@ -370,9 +378,32 @@ export function BoardView({
   // created. `if (collapsedByStatus[status]) continue;` in the `rows` memo is left untouched —
   // it is correct for every other band, and this fix belongs at the state layer, not the row
   // projection.
+  //
+  // CR-01 (01-VERIFICATION.md truth #22): this effect used to re-assert the expansion on EVERY
+  // render where `effectiveQuickAddOpen && collapsedByStatus.backlog` both held, which is not
+  // "expand when quick-add opens" but "quick-add being reachable implies Backlog is expanded,
+  // forever" — the user's own collapse click was undone on the very next render, and because
+  // `effectiveQuickAddOpen` is permanently true on a zero-item project, the toggle was inert for
+  // that project's entire lifetime. Band collapse is a user-owned preference (01-UI-SPEC.md
+  // "Board list") this effect may SEED once per reachability episode but must never re-assert.
+  // `backlogAutoExpandedForRef` makes that one-time: the ref holds the project id this episode
+  // has already expanded Backlog for, so every subsequent render of the same episode returns
+  // without writing. Resetting the ref to `null` when quick-add stops being reachable is what
+  // makes the NEXT open a fresh episode. The `collapsedByStatus.backlog` check stays — it is what
+  // makes the write conditional at all, because `collapseStore.expand` builds a fresh
+  // `collapsedByProject` object even when the value it writes is unchanged, and an unconditional
+  // call would re-render this component and re-run this effect forever.
   useEffect(() => {
-    if (!effectiveQuickAddOpen || !collapsedByStatus.backlog) return;
-    expandBand(projectId ?? "", "backlog");
+    const episodeKey = projectId ?? "";
+    if (!effectiveQuickAddOpen) {
+      backlogAutoExpandedForRef.current = null;
+      return;
+    }
+    if (backlogAutoExpandedForRef.current === episodeKey) return;
+    backlogAutoExpandedForRef.current = episodeKey;
+    if (collapsedByStatus.backlog) {
+      expandBand(episodeKey, "backlog");
+    }
   }, [effectiveQuickAddOpen, collapsedByStatus, projectId, expandBand]);
 
   /**
@@ -423,8 +454,20 @@ export function BoardView({
 
   /** `c` (board-list) / `⌘N` (global) — opens quick-add for a task; `⌘⇧N` (global, via
    * `useGlobalBindings` below) opens it for an epic. Both funnel through this one setter pair so
-   * quick-add's own "which kind am I creating" state has a single writer. */
+   * quick-add's own "which kind am I creating" state has a single writer.
+   *
+   * This is also the ONLY writer of `quickAddOpen: true` in the renderer — every route in
+   * (`c`, ⌘N, ⌘⇧N, the command palette, the forwarded native `menu:action`) reaches this
+   * function, and a keystroke refused by the layer guard (`bindingAllowedInLayer`) never calls
+   * it, so a refused press still writes nothing here either. An explicit new open request is a
+   * fresh rising edge (CR-01) distinct from the passive "quick-add became reachable" episode the
+   * effect above seeds: a user who deliberately collapsed Backlog and then pressed the
+   * accelerator again gets a focusable row, not a silent no-op that strands a raised
+   * `quickAddFocusPending` with nowhere to land. */
   function openQuickAdd(kind: BoardItemKind) {
+    if (collapsedByStatus.backlog) {
+      expandBand(projectId ?? "", "backlog");
+    }
     storeOpenQuickAdd(kind);
   }
 
