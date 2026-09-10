@@ -1,8 +1,8 @@
 ---
 phase: 01-the-board-is-the-store-of-record
-verified: 2026-09-10T13:10:00Z
-status: human_needed
-score: 20/20 must-haves verified
+verified: 2026-09-10T15:20:00Z
+status: gaps_found
+score: 21/22 must-haves verified
 covered_files:
   - ".planning/REQUIREMENTS.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-01-PLAN.md"
@@ -41,6 +41,10 @@ covered_files:
   - ".planning/phases/01-the-board-is-the-store-of-record/01-17-SUMMARY.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-18-PLAN.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-18-SUMMARY.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-19-PLAN.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-19-SUMMARY.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-20-PLAN.md"
+  - ".planning/phases/01-the-board-is-the-store-of-record/01-20-SUMMARY.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-CONTEXT.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-DISCUSSION-LOG.md"
   - ".planning/phases/01-the-board-is-the-store-of-record/01-PATTERNS.md"
@@ -126,7 +130,9 @@ covered_files:
   - "packages/desktop/src/board/__tests__/layer-guard.test.tsx"
   - "packages/desktop/src/board/__tests__/menu-bridge.test.tsx"
   - "packages/desktop/src/board/__tests__/palette.test.tsx"
+  - "packages/desktop/src/board/__tests__/quick-add-focus.test.tsx"
   - "packages/desktop/src/board/__tests__/reorder.test.tsx"
+  - "packages/desktop/src/board/__tests__/volume.ts"
   - "packages/desktop/src/board/__tests__/workflow.test.tsx"
   - "packages/desktop/src/board/collapseStore.ts"
   - "packages/desktop/src/board/pickers/AssigneePicker.tsx"
@@ -151,24 +157,34 @@ covered_files:
   - "packages/desktop/src/state/menuSync.ts"
   - "packages/desktop/src/state/uiStore.ts"
   - "packages/desktop/src/test/setup.ts"
-covered_digest: "v1:sha256:81e0601cb1bda5b781371d23455e233d62978eea201590183c5ed1bfab7f1b6c"
+covered_digest: "v1:sha256:994507de5ad99c2b9c7d06d1a02912e5a08b191e08cf980dfe89ce0e1562c4bb"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: 18/20
+  previous_status: human_needed
+  previous_score: 20/20
   gaps_closed:
-    - "G-01-2 — the epic lookup every board label read from (BoardRow's pill, FilterBar's chip row, the Set epic picker, the Set parent picker's Epics group) was derived from the currently loaded board_list page, DEFAULT_LIMIT=200; a task/epic outside that window resolved to nothing and BoardRow rendered the raw internal ULID, and FilterBar's chip list was missing every epic outside the window. Plans 01-17 and 01-18 gave the epic roster its own unwindowed read path (list_epics/epic_list_all/useEpics, mirroring the actor roster's shipped triad) and re-pointed every epic-label consumer at it, removing the windowed derivation from all four sites rather than adding a parallel one."
+    - "G-01-4 — quick-add's cursor-focus promise (⌘N/⌘⇧N) failed to land at volume because mount-time `autoFocus` never fires on a virtualized row scrolled out of the mounted window, and a collapsed Backlog band silently swallowed the quick-add row's insertion entirely. Plans 01-19/01-20 replaced mount-time `autoFocus` with a consume-once focus request (`quickAddFocusPending`) plus a `virtualizer.scrollToIndex` effect, added an idempotent `collapseStore.expand`, and proved the fix on both a synthesized keydown and the real forwarded `menu:action` path at a volume (60 rows) that exceeds the virtualizer's mounted window — independently re-run this session (16/16 `quick-add-focus.test.tsx`, 21/21 `menu-bridge.test.tsx`, both fresh)."
   gaps_remaining: []
-  regressions: []
-gaps: []
+  regressions:
+    - "CR-01 — plan 01-19's own Backlog auto-expand effect (`BoardView.tsx:373-376`) re-asserts continuously (its dependency array includes the whole `collapsedByStatus` map) rather than firing once per quick-add-became-reachable transition, and `StatusBand`'s click handler (`BoardView.tsx:633`) has no guard against it. Net effect: while quick-add is reachable — which is *permanently true for any project with zero items*, since `effectiveQuickAddOpen = quickAddOpen || items.length === 0` — clicking the always-visible Backlog header to collapse it is silently reverted on the very next render. Found by `01-REVIEW.md` (this session, status `issues_found`, committed `6af0ba3`) and independently reproduced by this verifier with a fresh throwaway RTL test against the real `BoardView` component tree (not committed, deleted after use): `collapsed state after click: false` — the click never sticks. Unfixed as of the latest commit; no `01-REVIEW-FIX.md` entry exists for this round's review."
+gaps:
+  - truth: "Collapsing a status band via its always-visible header click works and the collapse persists — band collapse is documented (01-UI-SPEC.md) as a user-controlled local UI preference, not a state the application overrides."
+    status: failed
+    reason: "The Backlog auto-expand effect plan 01-19 added to guarantee quick-add's row is visible (BoardView.tsx:373-376) re-fires on every render where `effectiveQuickAddOpen && collapsedByStatus.backlog` are both true, instead of firing once at the moment quick-add becomes reachable. `StatusBand`'s `onToggleCollapsed` (BoardView.tsx:633) has no layer/state guard, so the user's own collapse click is reverted on the immediately following render. Because `effectiveQuickAddOpen` is unconditionally true for any project with zero items, the Backlog band's collapse toggle is completely inert — every click undone — for the entire lifetime of an empty project, and for any non-empty project any time quick-add is open."
+    artifacts:
+      - path: "packages/desktop/src/board/BoardView.tsx"
+        issue: "Lines 373-376: the expand-Backlog effect's dependency array includes the whole `collapsedByStatus` map, so it re-asserts continuously rather than once; line 633's `onToggleCollapsed` click handler has no guard against being immediately reverted by that effect."
+    missing:
+      - "Scope the forced expansion to fire once per rising edge of `effectiveQuickAddOpen` (e.g. a ref that tracks whether this transition has already been handled), per 01-REVIEW.md CR-01's suggested fix — this still guarantees the row is visible the moment quick-add opens, but stops fighting a user-initiated collapse taken afterward."
+      - "Add a regression test asserting that clicking the Backlog header while quick-add is open collapses it and it stays collapsed (01-REVIEW.md WR-01's named gap in coverage — the existing 147-test suite has no case exercising this interaction)."
 human_verification:
-  - test: "Launch a real `tauri dev` build. With the item detail panel open, open the View menu with the mouse while the command palette is also open, and confirm Toggle Command Palette reads visually greyed (not merely refused-but-enabled); reopen the same detail panel and go straight to the File menu to observe whether Register Project.../New Task/New Epic are greyed on the first opening or only the second (the plan's accepted, bounded one-frame window)."
-    expected: "Toggle Command Palette appears greyed while the palette is open and re-enables when it closes; File items are greyed on the first opening, or at worst the second, per plan 01-16's accepted-window design decision — never permanently enabled-and-dead."
-    why_human: "Carried forward unresolved from the prior verification round (G-01-1's Task 3 visual-affordance check). Neither 01-17 nor 01-18 touched the menu bridge, menu.rs, or menuSync.ts, so this item's status is unchanged. orca's computer-use provider on this host still cannot click the real native menu bar or read a MenuItem's visual enabled/disabled state (surfaces.menubar:false / surfaces.dialogs:false), so no automated tool can settle it."
-  - test: "With a project seeded past 1,000 items, reorder, filter, search, and switch projects with the mouse untouched throughout."
-    expected: "No perceptible lag or visual jank at volume."
-    why_human: "01-UAT.md's test 2 is still `result: [pending]`. 01-18-SUMMARY.md explicitly records that it was NOT re-run this session (\"per the plan's own instruction — it remains a separate, still-pending item to be exercised by the owner\"), even though the same session's Task 3 human-check drove several minutes of live interaction against a real 917-task/13-epic project via a `tauri dev` build without reporting jank. That interaction was not a deliberate lag assessment and does not substitute for the UAT test. Server-side latency at 1,000 items remains proven by `perf_seed_1000.rs` (unaffected by this round's changes)."
+  - test: "01-20-PLAN.md Task 3's live `tauri dev` walkthrough of the G-01-4 fix on the real seeded 1,067-item / 13-epic THRE board: scroll deep, ⌘N lands the cursor with no click/Tab, ⌘⇧N does the same for an epic, a re-press returns focus after a click elsewhere, a collapsed Backlog band expands and focuses, the detail panel refuses all three bindings without scrolling, and no visual jank during any of the above."
+    expected: "Every step completes exactly as the automated suite proves it does under jsdom — no perceptible lag, no visual jank, cursor lands in the input without an extra click or Tab."
+    why_human: "01-20-SUMMARY.md records explicitly that this walkthrough was not run by the executor (native macOS Tauri GUI interaction and visual judgment, outside automated capability) — it is still the owner's to perform. This is a fresh, GUI-specific confirmation distinct from the jsdom test suite; the seeded database was confirmed present but the walkthrough itself was not exercised."
+  - test: "01-UAT.md test 2 (perceived responsiveness at 1,000+ items) — reorder, filter, search, and switch projects with the mouse untouched, on the real seeded board, after plans 01-19/01-20's changes to BoardView.tsx's render-path effects."
+    expected: "No perceptible lag or visual jank at volume, including while quick-add is open (the state CR-01 shows is now re-running an effect continuously)."
+    why_human: "01-UAT.md is internally inconsistent on this point: the test-2 entry itself reads `result: pass` with a detailed live walkthrough recorded, but the file's own `note:` field says 'Test 2 stays pending — the 1,000+ item perceived-lag check was deliberately NOT re-run during 01-18, so it is still the owner's to exercise,' and that walkthrough's timestamp predates plans 01-19/01-20 (which changed BoardView.tsx's render-path effects, including the one CR-01 shows re-fires continuously while quick-add is open at volume). Given the contradiction and that the code changed after whichever walkthrough produced the recorded 'pass,' this verifier does not accept it as current evidence and flags it for a fresh owner confirmation rather than propagating a possibly-stale pass."
 ---
 
 # Phase 1: The Board Is The Store Of Record Verification Report
@@ -177,137 +193,130 @@ human_verification:
 individually checkable acceptance criteria, and a workflow he cannot bend — and it is still
 exactly there after a crash.
 
-**Verified:** 2026-09-10T13:10:00Z
-**Status:** human_needed
-**Re-verification:** Yes — this run independently verifies plans 01-17 and 01-18
-(`gap_closure: true`, `gap_ids: [G-01-2]`), executed after the prior `01-VERIFICATION.md`
-(2026-09-10T02:00:54Z, status `gaps_found`) recorded G-01-2 as the sole blocking gap.
+**Verified:** 2026-09-10T15:20:00Z
+**Status:** gaps_found
+**Re-verification:** Yes — this run independently verifies plans 01-19 and 01-20 (gap closure for
+UAT gap `G-01-4`), executed after the prior `01-VERIFICATION.md` (2026-09-10T13:10:00Z, status
+`human_needed`, 20/20 must-haves) which itself independently re-verified plans 01-17/01-18
+(`G-01-2` closure).
 
 ## Goal Achievement
 
-**G-01-2 is confirmed closed, independently, by direct code read and fresh test execution — not
-accepted from either SUMMARY's own narration.** The prior verification's exact failure evidence
-was: "FilterBar's epic chip list showed 4 of 13 epics on a real 1,067-item/13-epic board," rooted
-in `BoardView.tsx`'s `epicsById`, `BoardRow.tsx`'s raw-ULID fallback, and `FilterBar.tsx`'s
-`epicOptions` all deriving from the currently loaded `board_list` page (`commands/board.rs`'s
-`DEFAULT_LIMIT = 200`). This session:
+**G-01-4 is confirmed closed, independently, by fresh test execution — not accepted from either
+SUMMARY's own narration.** But this session's own code review (`01-REVIEW.md`, committed
+`6af0ba3`, status `issues_found`) found a Critical regression introduced by the same fix
+(`CR-01`), and it is **still unfixed** as of the latest commit — there is no `01-REVIEW-FIX.md`
+entry for this round. This verifier does not take the review's severity on faith: it independently
+reproduced CR-01 with a fresh, throwaway React Testing Library test against the real `BoardView`
+component tree (not committed — written, run, and deleted for this verification only):
 
-- **Re-ran the grep gates the prior verification used to prove the defect, and they now return
-  the opposite result.** `grep -vE '^\s*(//|\*|/\*)' BoardRow.tsx | grep -c ': item\.epicId'` = `0`
-  (was the leak site). `grep -c 'items.filter((item) => item.kind === "epic")' BoardView.tsx` = `0`
-  (was the windowed derivation). `grep -rn '<FilterBar' packages/desktop/src | grep -c 'items='` =
-  `0` (was `4` — every call site that used to hand `FilterBar` the loaded window now passes
-  `projectId` instead; `FilterBarProps.items` no longer exists in the type at all, so `tsc` — not
-  discipline — enforces this).
-- **Read the new roster path end to end.** `packages/core/src/domain/epic.rs` defines `pub struct
-  EpicSummary` and `pub fn list_epics(conn, project_id)`, composing `packages/core/src/query/mod.rs`'s
-  `ORDER_BY` (widened from private to `pub(crate)`, confirmed by direct read — BOARD-05's total
-  order still has exactly one definition in the crate). `packages/desktop/src-tauri/src/commands/epic.rs`
-  exposes it as `epic_list_all`, registered exactly once in `main.rs`'s `invoke_handler`
-  (`grep -c` = `1`). `packages/desktop/src/board/useBoardQuery.ts` exports `useEpics`/`epicsQueryKey`,
-  and `useBoardChangedSubscription` now invalidates the bare `["epics"]` prefix alongside `["board"]`.
-  `packages/desktop/src/legend/marks.ts` registers `epic-pill-unresolved` (`Unknown epic`), and
-  `BoardRow.tsx` consumes it — confirmed by direct read of both files.
-- **Ran the tests myself, not the executor's narration of them.** `cargo test -p core --test
-  epic_roster -- --nocapture` — 8/8 pass, fresh, this session (roster completeness past
-  `DEFAULT_LIMIT`, project scoping, latency budget, total-order, tie-break, idempotency, empty
-  project, non-ASCII round-trip). `npm --prefix packages/desktop run test -- --run
-  src/board/__tests__/epic-roster.test.tsx` — 21/21 pass. A targeted re-run of
-  `layer-guard.test.tsx`, `menu-bridge.test.tsx`, `epic-assign.test.tsx`, `issue-parent.test.tsx`
-  and `filter.test.tsx` together — 51/51 pass, confirming the roster-adoption changes to
-  `BoardView.tsx`/`App.tsx` did not regress the layer guard or the G-01-1 menu-bridge fix.
-  `cargo build --workspace` — succeeds.
-- **Confirmed no regression in App.tsx's menu bridge**, which 01-17/01-18 touched only to change
-  the `FilterBar` prop: `grep -n 'returnToBoardLayer' App.tsx` shows exactly one hit, and it is a
-  comment recording the historical G-01-1 fix, not executable code.
-- **A live `tauri dev` human-check was independently performed by the executor** (not by this
-  verifier — computer-use tooling was not re-invoked this session since 01-18-SUMMARY.md already
-  documents a fresh, specific, falsifiable walkthrough against the owner's real 917-task/13-epic
-  dogfooding project on 2026-09-10, naming exact row keys and counts for all five steps: all six
-  previously-broken rows (THRE-33/38/43/48/53/58) read real `KEY Title` pills; the filter bar shows
-  13 epic chips + `No epic`; a composed filter that empties the window keeps the epic's chip
-  present; the `Set epic` picker on an out-of-window-epic task offers all 13 epics; a live
-  quick-added epic appears in both the chip row and picker without a reload, then was deleted and
-  confirmed removed by direct `SELECT COUNT(*)`. This is corroborating, not sole, evidence — the
-  automated test and grep evidence above stands independently of it.
-- **A fresh code review of the exact G-01-2 change set (18 files, `01-REVIEW.md`, this session)
-  found 0 critical findings** on the specific risks that matter for this gap: SQL injection/binding
-  (parameterized, no interpolation), project scoping (asserted by
-  `roster_is_scoped_to_one_project`), read-only-ness (asserted by
-  `roster_repeats_exactly_and_writes_nothing`), and raw-ULID leakage (every consumer falls back to
-  a static label, never to `item.epicId`, and a dedicated test checks every DOM attribute, not just
-  text). It found 3 warnings and 1 info finding in the surrounding plumbing — none reopen G-01-2's
-  reported symptom, but WR-01 in particular is a related, narrower, previously-untested edge case
-  and is carried forward below as an anti-pattern rather than a gap (see "Anti-Patterns Found").
+```
+collapsed state after click: false
+AssertionError: expected false to be true
+```
 
-**No new gaps were found this session.** The phase's remaining blocker to `passed` is not a code
-defect: it is two human-verification items carried forward unresolved from the prior round, neither
-of which G-01-2's closure touches (the menu-bar visual-greying affordance from G-01-1's Task 3, and
-`01-UAT.md` test 2's still-`[pending]` 1,000+ item perceived-lag check).
+Rendering `BoardView` with one item, pressing ⌘N, then firing a real click on the "Backlog"
+header exactly as `StatusBand`'s `onClick` does, shows the store's
+`collapsedByProject["proj-1"].backlog` snapping back to `false` immediately after the user's own
+collapse click. The click never sticks. Root cause, confirmed by direct read: the "expand a
+collapsed Backlog band" effect plan 01-19 added
+(`packages/desktop/src/board/BoardView.tsx:373-376`) has the entire `collapsedByStatus` map in its
+dependency array, so it re-fires and re-calls `expandBand` on every render where
+`effectiveQuickAddOpen && collapsedByStatus.backlog` are both true — not once, at the moment
+quick-add opens, but continuously for as long as that condition holds. `StatusBand`'s click
+handler (line 633) has no guard against this. Because `effectiveQuickAddOpen = quickAddOpen ||
+items.length === 0`, this condition is **permanently true for any project with zero items** — so
+the Backlog band's collapse toggle is completely inert, every click undone, for the entire
+lifetime of an empty project.
+
+This directly contradicts 01-UI-SPEC.md's own framing of band-collapse as "a local UI preference"
+held by the user, and this very gap-closure round's own UI-SPEC addition ("opening quick-add
+guarantees the Backlog band is expanded **first**" — "first" implies a one-time action on open,
+not a standing invariant that fights the user's subsequent input). Per the verification decision
+tree, a confirmed, reproducible regression in code this phase's own gap-closure round modified is
+a blocker: **status is `gaps_found`, not `human_needed`**, regardless of the otherwise-clean
+147/147 test suite (which does not catch this — no existing test exercises "toggle collapse while
+quick-add is open," per `01-REVIEW.md`'s own WR-01 finding).
+
+**Everything else in this round checks out.** The following was independently verified this
+session, not accepted from any SUMMARY:
+
+- **`npm --prefix packages/desktop run test`** — 20 files / 147 tests, fresh full run, all pass.
+- **`npm --prefix packages/desktop run build`** (`tsc && vite build`) — clean, no type errors, no
+  new warnings beyond the pre-existing chunk-size notice.
+- **`cargo test --workspace`** — fresh full run, 20 test binaries, every `test result:` line reads
+  `ok`, zero `FAILED` occurrences anywhere in the output.
+- **Grep gates from both plans' own `<verification>` blocks, re-run fresh:** `scrollToIndex` present
+  in `BoardView.tsx` (2 hits); `quickAddFocusPending` wired through `uiStore.ts` (8 hits);
+  `returnToBoardLayer` = 0 executable occurrences in `App.tsx` (the sole hit is a comment); the
+  raw-`item.epicId` fallback remains gone from `BoardRow.tsx` (0 hits, G-01-2 still closed).
+- **No debt markers** (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) in any of the 8 files
+  01-19/01-20 touched.
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | DATA-01 — every mutation writes projection + event in one transaction | ✓ VERIFIED | Unchanged; not touched by 01-17/01-18 |
-| 2 | DATA-02 — every entity id is a client-generated ULID, never an auto-increment int | ✓ VERIFIED | Unchanged; `list_epics`/`epic_list_all` introduce no new id scheme, confirmed by direct read of `EpicSummary` |
-| 3 | DATA-03 — humans and agents are distinct actors of one model, every mutation actor-attributed | ✓ VERIFIED | Unchanged; `epic_list_all` is a pure read with no actor attribution needed (confirmed no `AppHandle`/`emit` in its signature) |
-| 4 | DATA-05 — the event log is a gap-free, no-duplicate, resumable stream from a cursor | ✓ VERIFIED | Unchanged; `roster_repeats_exactly_and_writes_nothing` (fresh this session) independently confirms the new roster read appends zero events |
-| 5 | DATA-07 — the database survives an unclean termination with no loss/corruption of committed work | ✓ VERIFIED | Unchanged; not touched by 01-17/01-18 |
-| 6 | DATA-08 — migrations run automatically on launch and are reversible within one version | ✓ VERIFIED | Unchanged; no migration in this gap closure — `list_epics` reads the existing `epics` table via its existing index |
+| 1 | DATA-01 — every mutation writes projection + event in one transaction | ✓ VERIFIED | Unchanged; not touched by 01-19/01-20 |
+| 2 | DATA-02 — every entity id is a client-generated ULID, never an auto-increment int | ✓ VERIFIED | Unchanged; `buildVolumeItems`'s new 26-char Crockford-base32 fixture ids match the existing ULID shape, confirmed by direct read of `volume.ts` |
+| 3 | DATA-03 — humans and agents are distinct actors of one model, every mutation actor-attributed | ✓ VERIFIED | Unchanged; not touched by 01-19/01-20 |
+| 4 | DATA-05 — the event log is a gap-free, no-duplicate, resumable stream from a cursor | ✓ VERIFIED | Unchanged; not touched by 01-19/01-20 (pure frontend focus/UI fix) |
+| 5 | DATA-07 — the database survives an unclean termination with no loss/corruption of committed work | ✓ VERIFIED | Unchanged; `crash_safety.rs` re-run fresh this session (part of `cargo test --workspace`), passes |
+| 6 | DATA-08 — migrations run automatically on launch and are reversible within one version | ✓ VERIFIED | Unchanged; `migration_safety.rs` re-run fresh this session, passes |
 | 7 | BOARD-01a — user creates/edits epics, tasks, issues in a fixed, non-reconfigurable 3-level hierarchy | ✓ VERIFIED | Unchanged mechanism |
-| 8 | BOARD-01b — a task can be placed under an epic, and an issue under an epic or task, from the running UI | ✓ VERIFIED | `epic-assign.test.tsx`/`issue-parent.test.tsx` re-run fresh this session (part of the 51/51 targeted run) — pass, now sourcing labels from the roster |
-| 9 | BOARD-01c — an issue can never hold both an epic and a task parent at once | ✓ VERIFIED | Unchanged; not touched by 01-17/01-18 |
+| 8 | BOARD-01b — a task can be placed under an epic, and an issue under an epic or task, from the running UI | ✓ VERIFIED | `epic-assign.test.tsx`/`issue-parent.test.tsx` re-run fresh this session (part of the 147-test full run) — pass |
+| 9 | BOARD-01c — an issue can never hold both an epic and a task parent at once | ✓ VERIFIED | Unchanged; not touched by 01-19/01-20 |
 | 10 | BOARD-02 — discrete, individually checkable acceptance criteria | ✓ VERIFIED | Unchanged |
-| 11 | BOARD-04 — fixed Backlog→Todo→In Progress→In Review→Done workflow, no reconfiguration path | ✓ VERIFIED | Unchanged |
-| 12 | BOARD-05 — reorder/reprioritize within an epic and within the backlog | ✓ VERIFIED | Unchanged; `ORDER_BY`'s widened visibility (`private` → `pub(crate)`) was re-verified to still define BOARD-05's total order exactly once, now composed by `list_epics` too |
-| 13 | BOARD-06 — filter/search by text, status, epic, assignee, indexed SQL, correct at project volume named in SC #3 | ✓ **VERIFIED (G-01-2 closed)** | `FilterBar`'s chip row now sources from `useEpics(projectId)`, structurally cannot read the window (`items` prop removed, `tsc`-enforced); `epic-roster.test.tsx`'s 13-chip case and the live human-check (13 chips + `No epic` on the real board) both confirm; server-side filtering (`search_filter.rs`) unaffected |
-| 14 | BOARD-07a — every navigational and mutating action reachable entirely from the keyboard | ✓ VERIFIED (mechanism) | Unchanged |
-| 15 | BOARD-07b — global shortcuts are inert while the item detail panel or a row-level picker holds a trapped focus scope, including click-opened pickers | ✓ VERIFIED | `layer-guard.test.tsx` re-run fresh this session (part of the 51/51 targeted run) — pass, unaffected by the `FilterBar` prop change |
-| 16 | BOARD-07c — a native macOS menu accelerator can never bypass the layer guard a real keystroke would obey | ✓ VERIFIED | Unchanged since G-01-1's closure; `menu-bridge.test.tsx` re-run fresh this session — 17/17 pass; `App.tsx`'s only `returnToBoardLayer` occurrence is a comment, confirmed by direct read |
-| 17 | BOARD-08 — board interactions complete without perceptible lag at 1,000+ items | ✓ VERIFIED (server) | Unchanged; `perf_seed_1000.rs` untouched by this gap closure. Perceived UI lag at volume is still not formally exercised — see Human Verification |
+| 11 | BOARD-04 — fixed Backlog→Todo→In Progress→In Review→Done workflow, no reconfiguration path | ✓ VERIFIED | Unchanged; the five bands themselves remain fixed and non-reorderable — only the *collapse affordance* on one band is broken (see truth #22) |
+| 12 | BOARD-05 — reorder/reprioritize within an epic and within the backlog | ✓ VERIFIED | Unchanged; not touched by 01-19/01-20 |
+| 13 | BOARD-06 — filter/search by text, status, epic, assignee, indexed SQL, correct at project volume named in SC #3 | ✓ VERIFIED | Unchanged since G-01-2's closure; `filter.test.tsx`/`epic-roster.test.tsx` re-run fresh this session, pass |
+| 14 | BOARD-07a — every navigational and mutating action reachable entirely from the keyboard | ✓ VERIFIED (mechanism) | Unchanged. Note: the Backlog band's *collapse* toggle is mouse-only by design (`StatusBand.tsx`'s `tabIndex={-1}`) and is the surface CR-01 breaks — this is an existing, pre-CR-01 design choice, not a new keyboard-operability regression |
+| 15 | BOARD-07b — global shortcuts are inert while the item detail panel or a row-level picker holds a trapped focus scope, including click-opened pickers | ✓ VERIFIED | `layer-guard.test.tsx` re-run fresh this session (33/33 per 01-20's own self-check, confirmed inside the 147-test full run) — pass, and re-asserted at the G-01-4 volume by `quick-add-focus.test.tsx`'s refusal cases |
+| 16 | BOARD-07c — a native macOS menu accelerator can never bypass the layer guard a real keystroke would obey | ✓ VERIFIED | `menu-bridge.test.tsx` re-run fresh this session — 21/21 pass (17 pre-existing + 4 new at-volume cases from 01-20); `App.tsx`'s only `returnToBoardLayer` occurrence is a comment, confirmed by direct read |
+| 17 | BOARD-08 — board interactions complete without perceptible lag at 1,000+ items | ✓ VERIFIED (server) / ? UNCERTAIN (perceived UI) | `perf_seed_1000.rs` re-run fresh this session, passes (server-side). Perceived UI lag: `01-UAT.md`'s own text is self-contradictory (its test-2 entry reads `pass` but its `note:` field says the check "stays pending"), and whichever walkthrough produced the `pass` predates 01-19/01-20's changes to `BoardView.tsx`'s render-path effects — including the one CR-01 shows re-fires continuously at volume while quick-add is open. Not accepted as current evidence; see Human Verification |
 | 18 | BOARD-09 — every item shows a chronological, actor-attributed activity trail | ✓ VERIFIED (mechanism) | Unchanged |
-| 19 | BOARD-10 — user registers several local git repos as projects and switches boards, with rejected registrations surfaced, including after a successful retry | ✓ VERIFIED | Unchanged; not touched by 01-17/01-18. Note: a fresh code review this session (WR-01, see Anti-Patterns) flagged that `useEpics` lacks `keepPreviousData`, so a project switch can transiently show `Unknown epic` for a valid epic while the roster refetches — a narrower, untested edge case distinct from BOARD-10's own registration/switch-affordance contract, not a regression of this truth as verified (registration/switch itself still works) |
-| 20 | Every task's epic pill shows a human-readable `KEY Title`, never a raw internal ULID, regardless of project size | ✓ **VERIFIED (G-01-2 closed)** | `BoardRow.tsx`'s raw-`item.epicId` fallback branch is gone (grep gate = 0, confirmed by direct read); the pill's three outcomes (`No epic`/`KEY Title`/`Unknown epic`) are structurally exhaustive; a dedicated test asserts a 26-character ULID appears in neither document text nor any DOM attribute; live human-check confirms all six previously-broken rows now read real labels |
+| 19 | BOARD-10 — user registers several local git repos as projects and switches boards, with rejected registrations surfaced, including after a successful retry | ✓ VERIFIED | Unchanged; not touched by 01-19/01-20 |
+| 20 | Every task's epic pill shows a human-readable `KEY Title`, never a raw internal ULID, regardless of project size (G-01-2) | ✓ VERIFIED | Re-asserted at the G-01-4 volume: `quick-add-focus.test.tsx#no_row_renders_a_raw_internal_identifier_at_volume` and `menu-bridge.test.tsx`'s volume cases both pass, fresh this session; raw-fallback grep gate still 0 |
+| 21 | Opening quick-add (⌘N/⌘⇧N, any route) lands the cursor in its input from any scroll position and any Backlog-collapse state, including on the real forwarded `menu:action` path (G-01-4) | ✓ VERIFIED | `quick-add-focus.test.tsx` 16/16 fresh this session; `menu-bridge.test.tsx`'s four new at-volume cases fresh this session; both exercise a 60-row fixture that exceeds the virtualizer's mounted window (previous largest fixture was 13 rows) |
+| 22 | A status band's collapse state is a user-controlled local UI preference (01-UI-SPEC.md) that persists once toggled, including while quick-add is open | ✗ **FAILED (CR-01)** | Confirmed by direct read of `BoardView.tsx:373-376`/`:633` and independently reproduced with a fresh throwaway RTL test this session: clicking the Backlog header while quick-add is open (permanently true for any empty project) is silently reverted on the next render. Unfixed as of commit `6af0ba3` |
 
-**Score:** 20/20 truths verified (0 present-behavior-unverified). Both previously-failing truths
-(#13, #20) now verified by the same evidence chain: a project-scoped, unwindowed epic roster
-(`list_epics`/`epic_list_all`/`useEpics`) that every epic-label surface in the renderer now reads
-from, structurally rather than by discipline.
+**Score:** 21/22 truths verified (0 present-behavior-unverified, 1 failed). Truth #22 is a genuine
+regression introduced by this round's own gap-closure work (plan 01-19), found by this session's
+code review and independently reproduced by this verifier — it is the sole reason status is
+`gaps_found` rather than `human_needed`.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `packages/core/src/domain/epic.rs` (`EpicSummary`, `list_epics`) | Small, unwindowed, project-scoped epic roster | ✓ **VERIFIED** | Confirmed by direct read; composes `crate::query::ORDER_BY`; 8 Rust tests pass |
-| `packages/desktop/src-tauri/src/commands/epic.rs` (`epic_list_all`) | Read-only Tauri command exposing the roster, no `AppHandle`/`emit` | ✓ **VERIFIED** | Confirmed by direct read; registered exactly once in `main.rs` |
-| `packages/desktop/src/board/useBoardQuery.ts` (`useEpics`, `epicsQueryKey`) | Frontend roster hook every consumer reads | ✓ **VERIFIED** | Confirmed exported and consumed by `BoardView.tsx` and `FilterBar.tsx`; `useBoardChangedSubscription` invalidates `["epics"]` |
-| `packages/desktop/src/legend/marks.ts` (`epic-pill-unresolved`) | Registered Legend mark backing the unresolved pill state | ✓ **VERIFIED** | Confirmed present; `Legend.tsx` derives its surface from `MARKS` automatically, no second registration needed |
-| `packages/desktop/src/board/BoardView.tsx` (`epicsById`) | Resolves every epic a visible task/issue references, not just the loaded window | ✓ **VERIFIED (was STUB)** | `items.filter(i => i.kind === "epic")` derivation confirmed gone (grep gate = 0); now built from `useEpics(projectId)` |
-| `packages/desktop/src/board/BoardRow.tsx` (`epicLabel`) | Never renders a raw internal id | ✓ **VERIFIED (was STUB)** | Raw-fallback branch confirmed gone (grep gate = 0); three-outcome expression confirmed by direct read |
-| `packages/desktop/src/board/FilterBar.tsx` (`epicOptions`) | Covers every epic in the project | ✓ **VERIFIED (was STUB)** | `items` prop confirmed removed from `FilterBarProps` (structural, `tsc`-enforced); chips sourced from `useEpics` |
-| `packages/core/tests/epic_roster.rs` | First test in the repo exercising epic resolution above `DEFAULT_LIMIT`, plus ordering/tie-break/idempotency/empty/encoding contract | ✓ **VERIFIED** | 8 tests, re-run fresh this session, all pass |
-| `packages/desktop/src/board/__tests__/epic-roster.test.tsx` | Frontend regression suite for the roster path | ✓ **VERIFIED** | 21 tests, re-run fresh this session, all pass |
+| `packages/desktop/src/state/uiStore.ts` (`quickAddFocusPending`) | Consume-once focus-request flag surviving late mounting | ✓ **VERIFIED** | 8 executable occurrences confirmed; `quick-add-focus.test.tsx`'s consume-once cases pass |
+| `packages/desktop/src/board/QuickAdd.tsx` (`focusPending`/`onFocusHandled`) | Focus effect keyed on the request flag, not mount time | ✓ **VERIFIED** | Confirmed by direct read; `autoFocus` narrowed to the empty-board default only |
+| `packages/desktop/src/board/BoardView.tsx` (`quickAddRowIndex`, scroll effect) | Scrolls the quick-add row into view before focus is expected | ✓ **VERIFIED** | `scrollToIndex` present (2 hits); tests pass at volume |
+| `packages/desktop/src/board/BoardView.tsx` (expand-Backlog effect) | Guarantees the Backlog band is expanded when quick-add opens, **once** | ⚠️ **PRESENT BUT DEFECTIVE (CR-01)** | Present and does expand Backlog on open, but also continuously re-fires and blocks the user's own subsequent collapse — see truth #22, gap below |
+| `packages/desktop/src/board/collapseStore.ts` (`expand`) | Idempotent counterpart of `toggle`, sets collapsed=false unconditionally | ✓ **VERIFIED** | Confirmed by direct read; idempotency case passes |
+| `packages/desktop/src/board/__tests__/volume.ts` | Shared, self-checking fixture exceeding the virtualizer's mounted window | ✓ **VERIFIED** | Self-check cases (`the_volume_fixture_exceeds_what_the_harness_can_mount`, `the_quick_add_row_is_genuinely_unmounted_at_the_deep_scroll_offset`) pass fresh this session |
+| `packages/desktop/src/board/__tests__/quick-add-focus.test.tsx` | Regression suite for the G-01-4 fix at volume | ✓ **VERIFIED** | 16 tests, re-run fresh this session, all pass |
+| `packages/desktop/src/board/__tests__/menu-bridge.test.tsx` | Proves the fix on the real forwarded `menu:action` path, at volume | ✓ **VERIFIED** | 21 tests, re-run fresh this session, all pass |
+| `01-UI-SPEC.md` (Focus & selection model, Quick-add (D-09), Performance Contract, UI Considerations) | Documents the focus-delivery contract as a promise future refactors must keep | ✓ **VERIFIED** | Confirmed present by direct read; attributed to plan 01-20 |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|----|--------|---------|
-| `domain::epic::list_epics` | `commands::epic::epic_list_all` | direct call, mapped through `EpicSummaryDto::from` | ✓ WIRED | Confirmed by direct read |
-| `commands::epic::epic_list_all` | `main.rs` `invoke_handler` | `generate_handler!` registration | ✓ WIRED | `grep -c` = 1, confirmed |
-| `adapters/tauri.ts::invokeCommand` | `useBoardQuery.ts::useEpics` | `invokeCommand<EpicSummary[]>("epic_list_all", { projectId })` | ✓ WIRED | Confirmed by direct read |
-| `useBoardQuery.ts::useEpics` | `BoardView.tsx::epicsById` / `FilterBar.tsx::epicOptions` | `useEpics(projectId)` call, `.data ?? []` | ✓ WIRED | Confirmed by direct read in both files; grep gates confirm the windowed alternative is gone |
-| `BoardView.tsx::epicsById` | `BoardRow.tsx` epic pill | prop, `Record<string, EpicSummary>` | ✓ WIRED | Confirmed by direct read; three-outcome label expression, no raw-id branch |
-| `subscribeBoardChanged` | `useBoardChangedSubscription` | `queryClient.invalidateQueries({ queryKey: ["epics"] })` alongside `["board"]` | ✓ WIRED | Confirmed by direct read; `epic-roster.test.tsx`'s three `board:changed` liveness cases pass |
-| `FilterBar.tsx` chip selection | `packages/core/src/query/filter.rs::EpicSelector` | `filterDraft.epicIds` → `useBoardQuery` → `board_list`/`board_search` `BoardFilter` | ✓ WIRED, no renderer-side filtering | Confirmed by direct read: `FilterBar` renders no row elements and performs no client-side row matching; selection still narrows through the core, per this plan's own prohibition |
+| `state/uiStore.ts::openQuickAdd` | `state/uiStore.ts::quickAddFocusPending` | sets the flag `true` on open | ✓ WIRED | Confirmed by direct read |
+| `BoardView.tsx`'s scroll effect | `@tanstack/react-virtual`'s `virtualizer.scrollToIndex` | guarded on `quickAddFocusPending && quickAddRowIndex >= 0` | ✓ WIRED | Confirmed by direct read; `quick-add-focus.test.tsx` proves the row mounts and scrolls into view |
+| `QuickAdd.tsx`'s focus effect | the rendered `<input>` | `useRef`-backed, consumes `focusPending` via `onFocusHandled` | ✓ WIRED | Confirmed by direct read; consume-once cases pass |
+| `BoardView.tsx`'s expand-Backlog effect | `collapseStore.ts::expand` | `expandBand(projectId, "backlog")` | ⚠️ WIRED BUT OVER-FIRING | Correctly expands on open; incorrectly re-fires on every subsequent render while the guard condition holds, fighting `StatusBand`'s own click handler (truth #22) |
+| `StatusBand.tsx`'s `onClick` | `collapseStore.ts::toggle` | `onToggleCollapsed={() => toggleCollapsed(projectId, row.status)}` | ✗ **EFFECTIVELY NOT WIRED while quick-add is open** | The toggle call does execute and does flip the store value, but the expand-Backlog effect above immediately reverts it on the next render — confirmed by this verifier's own reproduction |
+| main.rs `on_menu_event` | `App.tsx`'s `emitMenuAction`/`subscribeMenuAction` bridge | `menu:action` payload, forwarded ids `create-task`/`create-epic`/`register-project`/`open-palette` | ✓ WIRED | `menu-bridge.test.tsx`'s at-volume cases (new this round) prove the forwarded path reaches the same focus-delivery fix as the synthesized keydown |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|---------------------|--------|
-| `BoardRow.tsx` | epic pill label | `epicsById[item.epicId]` → `BoardView.tsx`'s `useEpics(projectId)` → `epic_list_all` → `domain::epic::list_epics` (unwindowed, project-scoped) | For every epic in the project, regardless of board window | ✓ **FLOWING (was HOLLOW beyond the window)** |
-| `FilterBar.tsx` | `epicOptions` chip pairs | `useEpics(projectId)` → `epic_list_all` | For every epic in the project | ✓ **FLOWING (was HOLLOW beyond the window)** |
-| `BoardView.tsx` | `Set epic` / `Set parent` Epics-group options | `useEpics(projectId)` (same query instance `epicsById` uses) | For every epic in the project, excluding the picked row | ✓ **FLOWING** |
+| `BoardView.tsx` | `quickAddRowIndex` | derived from the `rows` memo, which includes the quick-add row only when its band is not collapsed | Real, recomputed per render | ✓ FLOWING |
+| `BoardView.tsx` | `collapsedByStatus.backlog` | `useCollapseStore`'s per-project map | Real, but overwritten by the effect under CR-01 rather than by user intent alone | ⚠️ FLOWING BUT OVERRIDDEN (see truth #22) |
+| `BoardRow.tsx` | epic pill label | `epicsById[item.epicId]` → `useEpics(projectId)` (G-01-2's roster path, unchanged) | For every epic in the project, regardless of board window, re-asserted at the new 60-row/26-char-id volume fixture | ✓ FLOWING |
 
 ### Requirements Coverage
 
@@ -321,32 +330,34 @@ from, structurally rather than by discipline.
 | DATA-08 | 01-01, 01-05 | Automatic, reversible migrations | ✓ SATISFIED | Truth #6 |
 | BOARD-01 | 01-04, 01-12, 01-14, 01-15, 01-17, 01-18 | CRUD in fixed 3-level hierarchy, reachable from the UI, single-parent invariant, every label surface roster-backed | ✓ SATISFIED | Truths #7, #8, #9, #20 |
 | BOARD-02 | 01-06 | Discrete checkable acceptance criteria | ✓ SATISFIED | Truth #10 |
-| BOARD-04 | 01-04 | Fixed, non-reconfigurable workflow | ✓ SATISFIED | Truth #11 |
+| BOARD-04 | 01-04, 01-19 | Fixed, non-reconfigurable workflow | ⚠️ **SATISFIED WITH A KNOWN DEFECT** | Truth #11 (the five bands are fixed and correctly ordered); truth #22 (the collapse *affordance* on one band is broken — a UX regression, not a workflow-reconfiguration hole) |
 | BOARD-05 | 01-07 | Reorder/reprioritize | ✓ SATISFIED | Truth #12 |
-| BOARD-06 | 01-08, 01-17, 01-18 | Filter/search across items, correct at the volume SC #3 names | ✓ **SATISFIED (G-01-2 closed)** | Truths #13, #20 |
-| BOARD-07 | 01-02, 01-09, 01-13, 01-14, 01-16 | Full keyboard operability, layer-gated global bindings, native menu obeys the same guard | ✓ SATISFIED (mechanism) | Truths #14, #15, #16 |
-| BOARD-08 | 01-02, 01-08 | No perceptible lag at 1,000+ items | ? NEEDS HUMAN (server-side satisfied) | Truth #17 |
+| BOARD-06 | 01-08, 01-17, 01-18 | Filter/search across items, correct at the volume SC #3 names | ✓ SATISFIED | Truths #13, #20 |
+| BOARD-07 | 01-02, 01-09, 01-13, 01-14, 01-16, 01-19, 01-20 | Full keyboard operability, layer-gated global bindings, native menu obeys the same guard, focus delivery survives virtualization | ✓ SATISFIED | Truths #14, #15, #16, #21 |
+| BOARD-08 | 01-02, 01-08, 01-19, 01-20 | No perceptible lag at 1,000+ items | ✓ SATISFIED (server) / ? NEEDS HUMAN (perceived UI, see gap above) | Truth #17 |
 | BOARD-09 | 01-10 | Chronological actor-attributed activity trail | ✓ SATISFIED (mechanism) | Truth #18 |
 | BOARD-10 | 01-11, 01-15 | Register/switch multiple project boards, no silently swallowed errors | ✓ SATISFIED | Truth #19 |
 
-No orphaned requirements. `REQUIREMENTS.md` marks both `BOARD-01` and `BOARD-06` `[x] Complete` —
-this verification confirms that mark is now accurate (the prior verification's finding that it was
-inaccurate is resolved by this round's gap closure).
+No orphaned requirements — all 15 IDs this phase's plans declare (`DATA-01/02/03/05/07/08`,
+`BOARD-01/02/04/05/06/07/08/09/10`) match exactly the 15 IDs `REQUIREMENTS.md`'s traceability table
+assigns to Phase 1. `REQUIREMENTS.md`'s own per-requirement status column still literally reads
+"Gaps Found" for most of these IDs — that table is not auto-synced by this verification and is
+left untouched here, consistent with the prior round's handling; this report is the authoritative
+per-requirement disposition for this phase as of this run.
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Epic roster suite is green, fresh this session | `cargo test -p core --test epic_roster -- --nocapture` | 8/8 passed | ✓ PASS |
-| Frontend epic-roster suite is green, fresh this session | `npm --prefix packages/desktop run test -- --run src/board/__tests__/epic-roster.test.tsx` | 21/21 passed | ✓ PASS |
-| Layer guard, menu bridge, epic-assign, issue-parent, filter suites unaffected by the roster change | `npm --prefix packages/desktop run test -- --run` (targeted, 5 files) | 51/51 passed | ✓ PASS |
-| Rust workspace still builds | `cargo build --workspace` | Finished, no errors | ✓ PASS |
-| Raw-ULID fallback branch is gone from `BoardRow.tsx` | `grep -vE '^\s*(//\|\*\|/\*)' BoardRow.tsx \| grep -c ': item\.epicId'` | `0` | ✓ PASS |
-| Windowed epic derivation is gone from `BoardView.tsx` | `grep -c 'items.filter((item) => item.kind === "epic")' BoardView.tsx` | `0` | ✓ PASS |
-| No `<FilterBar>` call site can pass the window | `grep -rn '<FilterBar' packages/desktop/src \| grep -c 'items='` | `0` (was 4) | ✓ PASS |
-| `epic_list_all` registered exactly once | `grep -c 'commands::epic::epic_list_all' main.rs` | `1` | ✓ PASS |
-| G-01-1's menu bridge fix has not regressed | `grep -n 'returnToBoardLayer' App.tsx` | 1 hit, a comment, not executable code | ✓ PASS |
-| No debt markers in any of the 147 `covered_files` | `grep -nE "TBD\|FIXME\|XXX\|TODO\|HACK\|PLACEHOLDER"` | Zero hits | ✓ PASS |
+| Frontend suite is green, fresh this session | `npm --prefix packages/desktop run test` | 20 files / 147 tests passed | ✓ PASS |
+| Frontend build is clean, fresh this session | `npm --prefix packages/desktop run build` | `tsc && vite build` succeeded, no `error TS` | ✓ PASS |
+| Rust workspace tests are green, fresh this session | `cargo test --workspace` | 20 binaries, every `test result:` reads `ok`, 0 `FAILED` | ✓ PASS |
+| CR-01 is real and reproducible, fresh this session (throwaway, not committed) | RTL test: render `BoardView` (1 item), ⌘N, click "Backlog" header, read `collapsedByProject["proj-1"].backlog` | `false` (expected `true`) — click reverted | ✗ **FAIL (confirms CR-01)** |
+| `scrollToIndex` present in `BoardView.tsx` | `grep -c "scrollToIndex" BoardView.tsx` | `2` | ✓ PASS |
+| `quickAddFocusPending` wired through `uiStore.ts` | `grep -c "quickAddFocusPending" uiStore.ts` | `8` | ✓ PASS |
+| `returnToBoardLayer` has zero executable occurrences in `App.tsx` (G-01-1 still closed) | `grep -n "returnToBoardLayer" App.tsx` | 1 hit, a comment | ✓ PASS |
+| Raw-ULID fallback branch is still gone from `BoardRow.tsx` (G-01-2 still closed) | `grep -vE '^\s*(//\|\*\|/\*)' BoardRow.tsx \| grep -c ': item\.epicId'` | `0` | ✓ PASS |
+| No debt markers in the 8 files 01-19/01-20 touched | `grep -nE "TBD\|FIXME\|XXX\|TODO\|HACK\|PLACEHOLDER"` per file | Zero hits, all 8 files | ✓ PASS |
 
 ### Probe Execution
 
@@ -356,76 +367,71 @@ Not applicable — no `scripts/*/tests/probe-*.sh` convention in this project.
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `packages/desktop/src/board/useBoardQuery.ts` | 322-328 | `useEpics` lacks `placeholderData: keepPreviousData` (unlike `useBoardQuery`, which has it) | ⚠️ Warning (WR-01, fresh code review this session) | On a project switch, `epicsById` can transiently collapse to `{}` while the board window's own `keepPreviousData` still shows the outgoing project's rows, so valid epics on those rows briefly render `Unknown epic`. Narrower and self-correcting, unlike G-01-2's persistent raw-ULID leak; not exercised by any test in the suite (no test renders a project switch) |
-| `packages/desktop/src/board/useBoardQuery.ts`, `FilterBar.tsx`, `BoardView.tsx` | 322-328, 91-95, 261-266 | No consumer of `useEpics` reads `.isError`/`.error` | ⚠️ Warning (WR-02, fresh code review this session) | A genuinely failed roster fetch (not just "zero epics") is indistinguishable from an empty project — every pill/chip/picker silently degrades with no error signal, unlike `App.tsx`'s `registerNotice` pattern for `useRegisterProjectFlow` |
-| `packages/desktop/src/board/useBoardQuery.ts` | 255-262 (and epic-affecting mutation hooks) | Epic-mutating hooks invalidate only `boardQueryKey`, never `epicsQueryKey` directly | ⚠️ Warning (WR-03, fresh code review this session) | The roster refreshes only via the `board:changed` push (wrapped in `.ok()`, silently dropping emit errors); unlike `useCreateTask`, no direct-invalidation fallback exists if that push is ever dropped |
-| `packages/desktop/src/board/useBoardQuery.ts` | 95-99 | `epicsQueryKey` exported and doc-commented as a `FilterBar` dependency, but `FilterBar` never imports or calls it | ℹ️ Info (IN-01, fresh code review this session) | Dead, doc-inaccurate export; either un-export it or add the described usage |
+| `packages/desktop/src/board/BoardView.tsx` | 373-376, 633 | Expand-Backlog effect re-asserts continuously instead of once; click handler has no guard | 🛑 **Blocker (CR-01, this session's `01-REVIEW.md`, unfixed, independently reproduced by this verifier)** | The Backlog band's collapse toggle is completely inert for any empty project, and inert while quick-add is open on any project — see gap above |
+| `packages/desktop/src/board/__tests__/quick-add-focus.test.tsx` | describe block "a collapsed Backlog band can no longer swallow the quick-add row (Task 2)" | No case exercises collapsing the band *after* quick-add is already open | ⚠️ Warning (WR-01, this session's `01-REVIEW.md`) | This is exactly the coverage gap that let CR-01 ship green through 147 passing tests |
+| `packages/desktop/src/test/setup.ts` | 56-67 | `Element.prototype.scrollTo` stub clamps the floor at zero but never clamps the ceiling to the scrollable range | ℹ️ Info (IN-01, this session's `01-REVIEW.md`) | Harmless today (callers clamp before reaching it), but provides no protection for a future miscalculated scroll target |
+| `packages/desktop/src/board/useBoardQuery.ts` | 322-328 | `useEpics` lacks `placeholderData: keepPreviousData` | ⚠️ Warning (WR-01 of the prior round's review, carried forward, unchanged) | Transient `Unknown epic` flash on project switch; not touched by 01-19/01-20 |
+| `packages/desktop/src/board/useBoardQuery.ts`, `FilterBar.tsx`, `BoardView.tsx` | various | No consumer of `useEpics` reads `.isError`/`.error` | ⚠️ Warning (WR-02 of the prior round's review, carried forward, unchanged) | Not touched by 01-19/01-20 |
+| `packages/desktop/src/board/useBoardQuery.ts` | 255-262 | Epic-mutating hooks invalidate only `boardQueryKey`, never `epicsQueryKey` directly | ⚠️ Warning (WR-03 of the prior round's review, carried forward, unchanged) | Not touched by 01-19/01-20 |
 | `packages/desktop/src-tauri/tauri.conf.json` | 23 | `"csp": null` | ⚠️ Warning (carried forward, unchanged) | Deliberately open by decision |
 | `packages/desktop/src/board/DoneWarning.tsx` | 74 | Renders `"{checked}/{total} criteria unchecked"` | ⚠️ Warning (carried forward, unchanged) | 01-UI-SPEC.md contract is the defect, not the code |
-| `packages/desktop/src/board/BoardView.tsx` | 393-398, 663-668 | Six-field layer object constructed twice independently | ⚠️ Warning (WR-03 of the prior code review round, carried forward, unchanged) | Not touched by 01-17/01-18 |
-| `packages/desktop/src-tauri/src/main.rs`, `menu.rs`, `state.rs` | various | Forwarded-menu-action id list hand-synced across 4 sites, no Rust-side test | ⚠️ Warning (WR-04 of the prior code review round, carried forward, unchanged) | Not touched by 01-17/01-18 |
-| `packages/desktop/src-tauri/src/commands/issue.rs` | 42-62 | Byte-vs-character length validation | ⚠️ Warning (WR-01 of the prior code review round, carried forward, unchanged) | Not touched by 01-17/01-18 |
-| `packages/desktop/src/projects/RegisterProjectFlow.tsx` | 104 | `(error as Error).message` on a plain-string rejection | ⚠️ Warning (WR-02 of the prior code review round, carried forward, unchanged) | Not touched by 01-17/01-18 |
+| `packages/desktop/src-tauri/src/main.rs`, `menu.rs`, `state.rs` | various | Forwarded-menu-action id list hand-synced across 4 sites, no Rust-side test | ⚠️ Warning (carried forward, unchanged) | Not touched by 01-19/01-20 |
+| `packages/desktop/src-tauri/src/commands/issue.rs` | 42-62 | Byte-vs-character length validation | ⚠️ Warning (carried forward, unchanged) | Not touched by 01-19/01-20 |
+| `packages/desktop/src/projects/RegisterProjectFlow.tsx` | 104 | `(error as Error).message` on a plain-string rejection | ⚠️ Warning (carried forward, unchanged) | Not touched by 01-19/01-20 |
 
-None of the anti-patterns found this session (WR-01/WR-02/WR-03/IN-01) reopen G-01-2's reported
-symptom (a persistent raw ULID or a persistently incomplete chip list). All are recorded as
-carried-forward technical debt with no fix plan, consistent with how the prior verification round
-handled its own carried-forward warnings. No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`
-markers found in any of the 147 `covered_files` this verification's fingerprint covers.
+No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` markers found in any of the files 01-19/01-20
+touched.
 
 ### Human Verification Required
 
-1. **Visual confirmation of the menu-bar greying affordance (carried forward from G-01-1's Task 3,
-   unresolved)**
-   **Test:** With a real `tauri dev` build, open the View menu while the command palette is open
-   and confirm Toggle Command Palette reads visually greyed; reopen the item detail panel and go
-   straight to the File menu to see whether the three custom items are greyed on the first opening
-   or the second.
-   **Expected:** Greyed while refused, per 01-16's design decision (immediate greying preferred,
-   greying on the second opening is the accepted bounded window — permanently enabled-and-dead is
-   a failure).
-   **Why human:** Neither 01-17 nor 01-18 touched the menu bridge, `menu.rs`, or `menuSync.ts`.
-   `orca computer-use`'s macOS provider still reports `surfaces.menubar:false`/`surfaces.dialogs:false`
-   on this host, so no available tool can click the real menu bar or read a native `MenuItem`'s
-   visual state.
+1. **01-20-PLAN.md Task 3's live `tauri dev` walkthrough of the G-01-4 fix on the real seeded
+   1,067-item / 13-epic THRE board**
+   **Test:** Scroll deep, ⌘N lands the cursor with no click/Tab, ⌘⇧N does the same for an epic, a
+   re-press returns focus after a click elsewhere, a collapsed Backlog band expands and focuses,
+   the detail panel refuses all three bindings without scrolling, and no visual jank during any of
+   the above.
+   **Expected:** Every step completes exactly as the automated suite proves it does under jsdom.
+   **Why human:** 01-20-SUMMARY.md records explicitly that this walkthrough was not run by the
+   executor — native macOS Tauri GUI interaction and visual judgment are outside what an automated
+   executor can perform.
 
-2. **1,000+ item volume — perceived lag, still unexercised as a deliberate check**
-   **Test:** With a project seeded past 1,000 items, reorder/filter/search/switch projects with the
-   mouse untouched.
-   **Expected:** No perceptible lag or jank at volume.
-   **Why human:** `01-UAT.md`'s test 2 is still `result: [pending]`, and `01-18-SUMMARY.md` records
-   explicitly that it was not re-run this session. `perf_seed_1000.rs` proves server-side latency
-   (unaffected by this gap closure) but not perceived UI lag. The entanglement the prior
-   verification flagged (avoid conflating "lag" with "epic pills showing wrong data") no longer
-   applies — G-01-2 is closed — so this check can now be run cleanly whenever the owner next opens
-   a 1,000+ item board.
+2. **01-UAT.md test 2 (perceived responsiveness at 1,000+ items), re-confirmed after 01-19/01-20**
+   **Test:** Reorder, filter, search, and switch projects with the mouse untouched at volume,
+   including with quick-add open.
+   **Expected:** No perceptible lag or visual jank, including while the now-continuously-re-firing
+   expand-Backlog effect (CR-01) is active.
+   **Why human:** `01-UAT.md` is internally inconsistent on this point (its test-2 entry reads
+   `pass`, its own `note:` field says the check "stays pending"), and whichever walkthrough
+   produced the `pass` predates 01-19/01-20's changes to `BoardView.tsx`'s render-path effects.
+   This verifier does not propagate a possibly-stale pass.
 
 ## Gaps Summary
 
-**No gaps remain.** G-01-2, the sole blocker the prior verification recorded, is closed:
-independently re-confirmed by grep gates that now return the opposite of what they returned last
-round, direct reads of every artifact in the roster's data-flow chain, 8/8 fresh Rust tests, 21/21
-fresh frontend tests, a 51/51 targeted regression run proving no collateral damage to the layer
-guard or the G-01-1 menu-bridge fix, a fresh 18-file code review finding 0 critical issues on the
-change set's specific risk surface, and a live `tauri dev` walkthrough against the owner's real
-917-task/13-epic project (documented in `01-18-SUMMARY.md` with named row keys and counts).
+**One confirmed blocker: CR-01.** The Backlog band's collapse toggle — a documented,
+always-visible, user-controlled affordance (01-UI-SPEC.md) — is silently reverted by plan 01-19's
+own expand-Backlog effect for as long as quick-add is reachable, which is *permanently* true for
+any project with zero items. This was found by this session's own code review
+(`01-REVIEW.md`, committed `6af0ba3`, status `issues_found`) and independently reproduced by this
+verifier with a fresh, throwaway test against the real component tree — not accepted on the
+review's word alone. It is unfixed as of the latest commit; no `01-REVIEW-FIX.md` exists for this
+round.
 
-**Two human-verification items remain, carried forward from the prior round, unrelated to G-01-2:**
-the menu-bar visual-greying affordance (blocked on this host's computer-use tooling not being able
-to read native menu-bar state) and `01-UAT.md` test 2's still-pending 1,000+ item perceived-lag
-check (now unblocked to run cleanly, since the entanglement with G-01-2 that previously justified
-deferring it no longer applies). Per the status decision tree, a phase with zero gaps but a
-non-empty human-verification list is `human_needed`, not `passed` — recorded here rather than
-silently upgraded.
+This does not reopen G-01-4 (quick-add's own focus-delivery promise is intact and re-proven at
+volume, on both the synthesized-keydown and real forwarded-menu-action paths) and does not reopen
+G-01-1 or G-01-2 (both re-asserted fresh this session). It is a new regression, introduced by the
+very effect that fixed G-01-4's second failure path (the collapsed-Backlog short-circuit), and its
+fix is narrow and already specified by the code review: scope the forced expansion to a one-time
+action on the rising edge of `effectiveQuickAddOpen` instead of a continuously-reasserted
+invariant.
 
-**One narrow, untested regression risk was surfaced by this session's own code review (WR-01)** —
-`useEpics` lacking `keepPreviousData` can transiently show `Unknown epic` for a valid epic during a
-project switch. It does not reopen G-01-2 (no raw id leaks, and the effect is transient/self-correcting
-rather than persistent), is not covered by any of this phase's roadmap Success Criteria, and is
-recorded as carried-forward debt rather than a gap, consistent with the review's own disposition
-(warning, not critical).
+**Two human-verification items remain**, both distinct from CR-01 and from each other: the
+G-01-4 fix's live-app walkthrough (never run by any executor) and a fresh confirmation of
+perceived responsiveness at volume (the existing UAT record is internally contradictory and
+predates the render-path changes this round made). Per the status decision tree, a phase with an
+open gap is `gaps_found` regardless of any human-verification items also outstanding — both are
+recorded here so neither is lost once CR-01 is closed.
 
 ---
 
-_Verified: 2026-09-10T13:10:00Z_
+_Verified: 2026-09-10T15:20:00Z_
 _Verifier: Claude (gsd-verifier)_
