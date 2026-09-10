@@ -87,13 +87,24 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       return;
     }
     case "interrupt": {
-      await adapter.interruptSession(request.runId);
-      emitAck(request.id, true);
+      try {
+        await adapter.interruptSession(request.runId);
+        emitAck(request.id, true);
+      } catch (err: unknown) {
+        // An unknown runId (or any other interrupt failure) is a typed rejection, not a crash —
+        // acknowledge it as a failure so the Rust core's waiting caller gets a clear answer
+        // instead of the sidecar process going down (D-35, T-02-11).
+        emitAck(request.id, false, String(err));
+      }
       return;
     }
     case "kill": {
-      await adapter.killSession(request.runId);
-      emitAck(request.id, true);
+      try {
+        await adapter.killSession(request.runId);
+        emitAck(request.id, true);
+      } catch (err: unknown) {
+        emitAck(request.id, false, String(err));
+      }
       return;
     }
     default: {

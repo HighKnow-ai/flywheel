@@ -18,6 +18,7 @@ import {
   CapabilityUnsupportedError,
   defaultResumeSession,
   type StartSessionOptions,
+  UnknownRunError,
 } from "./adapter.js";
 
 /** The binary name/path this adapter spawns — overridable via `FLYWHEEL_CLAUDE_BIN` so tests can
@@ -125,11 +126,86 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsCostReporting: true,
 };
 
-/** Tracks the live child process per run id, so `interruptSession`/`killSession` can find it. */
-const liveProcesses = new Map<string, ReturnType<typeof spawn>>();
+/**
+ * The grace window between SIGINT and the process-group SIGTERM (D-35, RESEARCH.md Pitfall 3).
+ * One value, one place — not a per-run parameter and not read from configuration — referenced by
+ * {@link ClaudeCodeAdapter.interruptSession} only; `killSession` is the force step on its own and
+ * has no grace window of its own to wait out.
+ */
+export const STOP_GRACE_MS = 5_000;
 
-/** The grace window between SIGINT and the process-group SIGTERM (D-35, RESEARCH.md Pitfall 3). */
-const FORCE_GRACE_WINDOW_MS = 5_000;
+/** One session's live process-tracking state, keyed by `runId` in {@link liveSessions} — enough
+ * for `interruptSession`/`killSession` to find the right child, know whether it already closed
+ * (idempotency, D-35), and classify why it closed once it does. */
+interface LiveSession {
+  child: ReturnType<typeof spawn>;
+  /** Resolves once the terminal `session_closed` event has actually been emitted for this run —
+   * not merely once the OS process has exited, so a caller awaiting this can trust the event is
+   * already visible to `onEvent` by the time the await returns. */
+  closed: Promise<void>;
+  /** Set the moment `session_closed` has been emitted — guards every path against emitting a
+   * second terminal event for the same run (D-35 idempotency). */
+  closedEventEmitted: boolean;
+  /** Set by `interruptSession`/`killSession` before signalling, so the eventual close is
+   * classified as `"interrupted"` rather than `"completed"`/`"failed"` even when the child's own
+   * exit code looks like a normal exit (D-35: a stopped run is a normal outcome, not an error). */
+  interruptionRequested: boolean;
+  /** The last `result` stream-json line's normalised fields, if any arrived before the process
+   * closed — carried on the terminal `session_closed` event when present. */
+  lastResult: { subtype: string; totalCostUsd?: number; sessionId?: string } | undefined;
+  onEvent: (event: AgentEvent) => void;
+  nextSeq: number;
+}
+
+/** Tracks every session this sidecar has ever started, for the lifetime of this process —
+ * `interruptSession`/`killSession` look a run up here, and an entry's `closedEventEmitted` flag
+ * is what lets a call against an already-finished run resolve as a safe no-op instead of throwing
+ * (D-35), as distinct from a `runId` this sidecar never spawned at all ({@link UnknownRunError}). */
+const liveSessions = new Map<string, LiveSession>();
+
+/** Emit the terminal `session_closed` event for `runId` exactly once — a second call for a
+ * session whose event has already been emitted is a silent no-op (D-35 idempotency). */
+function emitSessionClosed(
+  runId: string,
+  session: LiveSession,
+  reason: "interrupted" | "completed" | "failed",
+): void {
+  if (session.closedEventEmitted) return;
+  session.closedEventEmitted = true;
+  session.onEvent({
+    runId,
+    seq: session.nextSeq++,
+    at: new Date().toISOString(),
+    // Synthesized, not derived from a source line (AgentEventBase's own documented allowance) —
+    // never empty, so "every event carries a non-empty raw field" stays a class invariant callers
+    // can rely on for every AgentEvent, not just the ones parsed from the backend's own output.
+    raw: `session_closed: ${reason}`,
+    type: "session_closed",
+    reason,
+    result: session.lastResult,
+  });
+}
+
+/** Resolve `true` once `session.closed` settles, or `false` if `timeoutMs` elapses first —
+ * `interruptSession`'s own way of deciding whether the grace window ran out. */
+function raceClosed(session: LiveSession, timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(false);
+      }
+    }, timeoutMs);
+    session.closed.then(() => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(true);
+      }
+    });
+  });
+}
 
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly capabilities = CAPABILITIES;
@@ -145,65 +221,101 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       // one PID (RESEARCH.md Pitfall 3).
       detached: true,
     });
-    liveProcesses.set(options.runId, child);
 
-    let seq = 0;
+    let resolveClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      resolveClosed = resolve;
+    });
+
+    const session: LiveSession = {
+      child,
+      closed,
+      closedEventEmitted: false,
+      interruptionRequested: false,
+      lastResult: undefined,
+      onEvent: options.onEvent,
+      nextSeq: 0,
+    };
+    liveSessions.set(options.runId, session);
+
     const rl = createInterface({ input: child.stdout });
 
     await new Promise<void>((resolve, reject) => {
       rl.on("line", (line: string) => {
         const at = new Date().toISOString();
+        const seq = session.nextSeq++;
         let parsed: ClaudeStreamEvent | undefined;
         try {
           parsed = JSON.parse(line) as ClaudeStreamEvent;
         } catch {
           // A line that does not parse as JSON becomes a system_notice carrying the raw text —
           // nothing is silently dropped (AGNT-02's flagged assumption).
-          options.onEvent({
-            runId: options.runId,
-            seq: seq++,
-            at,
-            raw: line,
-            type: "system_notice",
-            text: line,
-          });
+          options.onEvent({ runId: options.runId, seq, at, raw: line, type: "system_notice", text: line });
           return;
         }
-        options.onEvent(normaliseStreamEvent(parsed, line, options.runId, seq++, at));
+        const normalised = normaliseStreamEvent(parsed, line, options.runId, seq, at);
+        if (normalised.type === "result") {
+          session.lastResult = {
+            subtype: normalised.subtype,
+            totalCostUsd: normalised.totalCostUsd,
+            sessionId: normalised.sessionId,
+          };
+        }
+        options.onEvent(normalised);
       });
 
       child.on("error", (err) => {
-        liveProcesses.delete(options.runId);
+        emitSessionClosed(options.runId, session, "failed");
+        resolveClosed();
         reject(err);
       });
 
-      child.on("close", () => {
-        liveProcesses.delete(options.runId);
+      child.on("close", (code) => {
+        const reason = session.interruptionRequested ? "interrupted" : code === 0 ? "completed" : "failed";
+        emitSessionClosed(options.runId, session, reason);
+        resolveClosed();
         resolve();
       });
     });
   }
 
   async interruptSession(runId: string): Promise<void> {
-    const child = liveProcesses.get(runId);
-    if (!child || child.pid === undefined) return;
-    child.kill("SIGINT");
+    const session = liveSessions.get(runId);
+    if (!session) throw new UnknownRunError(runId);
+    if (session.closedEventEmitted || session.child.pid === undefined) return; // already exited — safe no-op (D-35)
+
+    session.interruptionRequested = true;
+    const pid = session.child.pid;
+    // Negative pid: signal the whole process group, never just this one PID (RESEARCH.md Pitfall 3).
+    process.kill(-pid, "SIGINT");
+
+    const exitedInTime = await raceClosed(session, STOP_GRACE_MS);
+    if (exitedInTime) return;
+
+    if (!session.closedEventEmitted && session.child.pid !== undefined) {
+      try {
+        process.kill(-session.child.pid, "SIGTERM");
+      } catch {
+        // Exited in the gap between the grace window elapsing and this signal — nothing to do.
+      }
+    }
+    await session.closed;
   }
 
   async killSession(runId: string): Promise<void> {
-    const child = liveProcesses.get(runId);
-    if (!child || child.pid === undefined) return;
-    // D-35 "force": interrupt first, then signal the whole process group (negative pid) after a
-    // grace window — never just the direct child PID (RESEARCH.md Pitfall 3).
-    child.kill("SIGINT");
-    await new Promise((resolve) => setTimeout(resolve, FORCE_GRACE_WINDOW_MS));
-    if (liveProcesses.has(runId) && child.pid !== undefined) {
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch {
-        // Process already exited between the grace window and this signal — nothing to do.
-      }
+    const session = liveSessions.get(runId);
+    if (!session) throw new UnknownRunError(runId);
+    if (session.closedEventEmitted || session.child.pid === undefined) return; // already exited — safe no-op (D-35)
+
+    session.interruptionRequested = true;
+    try {
+      // Force step on its own, no grace window — negative pid signals the whole group
+      // (RESEARCH.md Pitfall 3), never just this one PID.
+      process.kill(-session.child.pid, "SIGTERM");
+    } catch {
+      // Exited in the gap between the lookup above and this signal — nothing to do.
     }
+    await session.closed;
   }
 
   async resumeSession(): Promise<void> {

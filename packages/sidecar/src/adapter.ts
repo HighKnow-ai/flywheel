@@ -74,6 +74,19 @@ export interface UnknownEvent extends AgentEventBase {
 }
 
 /**
+ * D-35: the terminal event every session ends with, exactly once, regardless of why it ended —
+ * a natural completion, an interrupt, or the force step. `reason` is what the session surface
+ * (plan 02-02 Task 3) reads to flip its own status word without ever re-querying the database.
+ */
+export interface SessionClosedEvent extends AgentEventBase {
+  type: "session_closed";
+  reason: "interrupted" | "completed" | "failed";
+  /** The final `result` stream-json line's normalised fields, when the backend produced one
+   * before exiting — absent for a forced stop that never got to emit its own result. */
+  result?: { subtype: string; totalCostUsd?: number; sessionId?: string };
+}
+
+/**
  * The normalised event union every adapter emits, in exactly the order the backend process
  * produced them (AGNT-01 ordering) — no reordering, no batching, no coalescing.
  */
@@ -86,7 +99,8 @@ export type AgentEvent =
   | CostUpdateEvent
   | SystemNoticeEvent
   | ResultEvent
-  | UnknownEvent;
+  | UnknownEvent
+  | SessionClosedEvent;
 
 /** What an adapter declares it can do — gates which `AgentAdapter` methods are safe to call. */
 export interface AdapterCapabilities {
@@ -103,6 +117,18 @@ export class CapabilityUnsupportedError extends Error {
   constructor(public readonly capability: keyof AdapterCapabilities) {
     super(`capability not supported: ${capability}`);
     this.name = "CapabilityUnsupportedError";
+  }
+}
+
+/**
+ * Thrown by `interruptSession`/`killSession` when `runId` names no session this sidecar spawned
+ * (D-35) — rejects BEFORE any signal is sent, so a renderer-supplied id can never be turned into
+ * an arbitrary process-group signal (T-02-11).
+ */
+export class UnknownRunError extends Error {
+  constructor(public readonly runId: string) {
+    super(`unknown runId: ${runId}`);
+    this.name = "UnknownRunError";
   }
 }
 
@@ -130,11 +156,17 @@ export interface AgentAdapter {
    * `options.onEvent` as they arrive, in source order. Resolves once the child process exits. */
   startSession(options: StartSessionOptions): Promise<void>;
 
-  /** D-35 "interrupt": end the current turn without killing the process (SIGINT). */
+  /** D-35 "interrupt, then force": SIGINT the session's process group; if it has not exited by
+   * the end of the grace window, escalate to SIGTERM on that same group (RESEARCH.md Pitfall 3 —
+   * never signal only the direct child PID). Resolves once the session has actually closed.
+   * Idempotent and safe on an already-exited session (resolves, does not throw, emits no second
+   * terminal event). Rejects with {@link UnknownRunError} for a `runId` this sidecar never
+   * spawned — before any signal is sent. */
   interruptSession(runId: string): Promise<void>;
 
-  /** D-35 "force": terminate the whole process group after a grace window (RESEARCH.md
-   * Pitfall 3 — never signal only the direct child PID). */
+  /** D-35 "force" on its own, for the app-exit path: SIGTERM to the process group immediately,
+   * no grace window (RESEARCH.md Pitfall 3 — never signal only the direct child PID). Same
+   * idempotency and unknown-`runId` contract as {@link interruptSession}. */
   killSession(runId: string): Promise<void>;
 
   /** D-30: deliberately unimplemented on every adapter that does not override it — rejects with

@@ -46,7 +46,9 @@ test("normalised events for the fake CLI's stream arrive in source order with co
     onEvent: (event) => events.push(event),
   });
 
-  assert.ok(events.length >= 3, `expected at least 3 events, got ${events.length}`);
+  // At least init, assistant_text, result, and — plan 02-02's D-35 addition — the terminal
+  // session_closed event every session now ends with exactly once, regardless of why it ended.
+  assert.ok(events.length >= 4, `expected at least 4 events, got ${events.length}`);
   assert.deepEqual(
     events.map((e) => e.seq),
     events.map((_, i) => i),
@@ -57,7 +59,9 @@ test("normalised events for the fake CLI's stream arrive in source order with co
   }
   assert.equal(events[0].type, "init");
   assert.equal(events[1].type, "assistant_text");
-  assert.equal(events[events.length - 1].type, "result");
+  assert.equal(events[events.length - 2].type, "result");
+  assert.equal(events[events.length - 1].type, "session_closed");
+  assert.equal(events[events.length - 1].reason, "completed");
 
   delete process.env.FLYWHEEL_CLAUDE_BIN;
 });
