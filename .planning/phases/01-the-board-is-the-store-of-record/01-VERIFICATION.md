@@ -60,7 +60,7 @@ covered_files:
   - "packages/desktop/src/board/BoardView.tsx"
   - "packages/desktop/src/board/__tests__/quick-add-focus.test.tsx"
   - "packages/desktop/src/test/setup.ts"
-covered_digest: "v1:sha256:ba629ca1644012767ac0485878e54aa59321ba3755acf78655b46b692205157c"
+covered_digest: "v1:sha256:fa782cb213bf60da2423efba19d8e1b59dc46fca1040b35645646b084041f672"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -68,6 +68,7 @@ re_verification:
   previous_score: 22/22
   round: "human-verification discharge (no code change)"
   why: "Both human_verification items were run by the owner and passed (01-UAT.md, status: complete, 2/2, commit 143e7ec). No source file changed this round — git diff --name-only c00075a..HEAD outside .planning/ is empty — so every automated truth below stands on its prior evidence plus a fresh full-suite run (122 Rust + 155 Vitest, 0 failures; frontend build and tsc --noEmit clean). The covered_digest was recomputed over the current covered_files because 01-UAT.md and 01-VALIDATION.md are declared inputs and both were rewritten by the verify/validate steps, which is what made the prior report read stale."
+  fingerprint_note: "The covered_digest was recomputed AFTER `gsd_run query phase.complete` ran, because `.planning/REQUIREMENTS.md` is covered file #1 and phase.complete rewrites its traceability table (checking off the 15 requirement IDs this report verified). Marking the phase complete therefore invalidated the fingerprint of the very verification that authorized it — the same structural defect as the UAT one, recorded in STATE.md Blockers. The digest here is computed over the final, post-transition state of all 56 covered files, so it is stable."
   prior_round_previous_status: gaps_found
   prior_round_previous_score: 21/22
   gaps_closed:
