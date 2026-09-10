@@ -19,7 +19,8 @@ export type MarkChannel =
   | "criteria"
   | "estimate"
   | "assignee"
-  | "project";
+  | "project"
+  | "agent";
 
 export interface Mark {
   /** Stable identifier — matches the CSS token role this mark represents, where one exists. */
@@ -289,6 +290,54 @@ export const MARKS: Mark[] = [
     label: "Unreachable",
     meaning:
       "This project's marker no longer matches its last known path (D-16) — paired with the literal word \"Unreachable,\" never a colour change alone.",
+  },
+  // Agent run-status marks (02-UI-SPEC.md "Run Status", AGNT-06) — the five run states plus the
+  // orthogonal blocked indicator that layers onto a task's existing five-state status glyph rather
+  // than replacing it. Published here before any surface renders them (02-04 through 02-08 own the
+  // rendering); this task only defines the vocabulary.
+  {
+    id: "run-running",
+    channel: "agent",
+    glyph: "Loader",
+    label: "Running",
+    meaning: "This run is a live process right now.",
+  },
+  {
+    id: "run-blocked",
+    channel: "agent",
+    glyph: "ShieldAlert",
+    label: "Blocked",
+    meaning: "This run is waiting on a permission answer from the user.",
+  },
+  {
+    id: "run-completed",
+    channel: "agent",
+    glyph: "CircleCheckBig",
+    label: "Completed",
+    meaning: "This run ended on its own.",
+  },
+  {
+    id: "run-failed",
+    channel: "agent",
+    glyph: "CircleX",
+    label: "Failed",
+    meaning: "This run ended in an error.",
+  },
+  {
+    id: "run-interrupted",
+    channel: "agent",
+    glyph: "CircleSlash",
+    label: "Interrupted",
+    meaning:
+      "This run was stopped by the user — a normal, deliberate outcome, not an error (D-35).",
+  },
+  {
+    id: "blocked-indicator",
+    channel: "agent",
+    glyph: "ShieldAlert",
+    label: "Blocked",
+    meaning:
+      "An orthogonal signal layered on the row's existing five-state status glyph — a blocked task is still visibly at its real workflow status, not a sixth state.",
   },
 ];
 
