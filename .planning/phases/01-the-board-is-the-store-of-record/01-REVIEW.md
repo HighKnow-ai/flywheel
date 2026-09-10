@@ -2,230 +2,228 @@
 phase: 01-the-board-is-the-store-of-record
 reviewed: 2026-09-10T00:00:00Z
 depth: standard
-files_reviewed: 17
+files_reviewed: 18
 files_reviewed_list:
-  - packages/core/src/domain/issue.rs
-  - packages/core/tests/criteria.rs
-  - packages/core/tests/hierarchy_workflow.rs
-  - packages/desktop/src-tauri/src/commands/issue.rs
-  - packages/desktop/src-tauri/src/commands/menu.rs
-  - packages/desktop/src-tauri/src/commands/mod.rs
+  - packages/core/src/domain/epic.rs
+  - packages/core/src/query/mod.rs
+  - packages/core/tests/common/mod.rs
+  - packages/core/tests/epic_roster.rs
+  - packages/desktop/src-tauri/src/commands/epic.rs
   - packages/desktop/src-tauri/src/main.rs
-  - packages/desktop/src-tauri/src/menu.rs
-  - packages/desktop/src-tauri/src/state.rs
   - packages/desktop/src/App.tsx
+  - packages/desktop/src/board/BoardRow.tsx
   - packages/desktop/src/board/BoardView.tsx
+  - packages/desktop/src/board/FilterBar.tsx
+  - packages/desktop/src/board/useBoardQuery.ts
+  - packages/desktop/src/board/__tests__/board-view.test.tsx
+  - packages/desktop/src/board/__tests__/epic-assign.test.tsx
+  - packages/desktop/src/board/__tests__/epic-roster.test.tsx
+  - packages/desktop/src/board/__tests__/filter.test.tsx
+  - packages/desktop/src/board/__tests__/issue-parent.test.tsx
   - packages/desktop/src/board/__tests__/layer-guard.test.tsx
-  - packages/desktop/src/board/__tests__/menu-bridge.test.tsx
-  - packages/desktop/src/projects/RegisterProjectFlow.tsx
-  - packages/desktop/src/projects/__tests__/register-project-flow.test.tsx
-  - packages/desktop/src/state/keyboard.ts
-  - packages/desktop/src/state/menuSync.ts
+  - packages/desktop/src/legend/marks.ts
 findings:
   critical: 0
-  warning: 4
-  info: 2
-  total: 6
+  warning: 3
+  info: 1
+  total: 4
 status: issues_found
 ---
 
 # Phase 01: Code Review Report
 
-**Reviewed:** 2026-09-10
+**Reviewed:** 2026-09-10T00:00:00Z
 **Depth:** standard
-**Files Reviewed:** 17
+**Files Reviewed:** 18
 **Status:** issues_found
 
 ## Summary
 
-This review covered the issue-domain mutation surface (`core::domain::issue`), the Tauri command
-layer wrapping it, and the full G-01-1 gap-closure surface (native macOS menu accelerators bypassing
-the keyboard layer guard) across the Rust menu builder/state and the renderer's
-`keyboard.ts`/`menuSync.ts`/`App.tsx` bridge, plus `RegisterProjectFlow.tsx` and the four associated
-test files.
+Reviewed the G-01-2 gap-closure change set: `domain::epic::list_epics` (Rust core), the `epic_list_all`
+Tauri command, and the `useEpics` React Query hook plus its three consumers (`BoardRow`'s epic pill,
+`FilterBar`'s epic chips, and both `ParentPicker` option lists).
 
-**The specific security boundary called out for scrutiny checks out.** `menu_set_action_enabled`
-(`commands/menu.rs`) resolves `action_id` through `MenuHandles::get`'s exhaustive four-arm `match`
-(`state.rs`) — anything outside `register-project`/`create-task`/`create-epic`/`open-palette` is
-rejected with an explicit error, never silently ignored, and this command never touches menu text,
-accelerator or structure — only `set_enabled`. On the renderer side, `App.tsx`'s `menu:action`
-listener re-enters `dispatchAction` → the same `resolveGlobalBinding`/`bindingAllowedInLayer` guard
-every real keystroke goes through (`state/keyboard.ts`), and `dispatchAction` only ever looks up
-`region === "global"` bindings, so a forwarded menu id can dispatch nothing broader than what a real
-`⌘`-keystroke could already do. `useMenuLayerSync`'s async push to the native menu is correctly
-documented and tested as affordance-only — a keystroke that beats the round trip is still refused by
-the JS-side guard. No bypass of the fixed G-01-1 gap was found.
+On the specific risk axes called out for this review, the implementation holds up:
 
-No critical/blocker issues were found: no injection vectors (all SQL is parameterized), no hardcoded
-secrets, no dangerous JS sinks (`eval`/`innerHTML`/etc.), no empty catch blocks, and no unregistered
-or dangling Tauri commands. The issues below are correctness and maintainability gaps that should
-still be fixed — several sit directly adjacent to the exact "layer guard duplicated and drifts"
-failure class this phase was created to close.
+- **SQL injection / parameter binding:** `list_epics` binds `project_id` exclusively through
+  `params![project_id]`; the only string concatenation performed (`[&str]::concat`, not `format!` or
+  the crate's grep-gated interpolation macro) joins two compile-time literals (`ORDER_BY` and the
+  base `SELECT`), never a runtime value. No injection surface.
+- **Project scoping:** `list_epics`'s `WHERE b.project_id = ?1` is exercised directly by
+  `roster_is_scoped_to_one_project` in `epic_roster.rs`, which asserts a second project's epic ids
+  are never present in the first project's roster. Confirmed correct by reading, not just by the
+  test's existence.
+- **Genuinely read-only:** `epic_list_all` takes no `AppHandle`, emits no `board:changed`, opens no
+  transaction, and calls only `list_epics(&conn, ...)` against a non-`mut` `Connection` borrow. The
+  Rust-side idempotency test (`roster_repeats_exactly_and_writes_nothing`) independently confirms no
+  event row and no `updated_at` mutation.
+- **Raw ULID leakage:** Every path that resolves an epic id against the roster (`BoardRow`'s pill,
+  `FilterBar`'s chips, both `ParentPicker` option lists, `IssuesLane`'s parent button via
+  `parentsById`) falls back to a static "Unknown epic"/"No epic" label — never to `item.epicId`
+  itself — and `epic-roster.test.tsx`'s dedicated leak test additionally checks every DOM attribute,
+  not just text content, for the raw id.
+
+The issues found below are in the surrounding plumbing: two gaps in how the new `useEpics` query
+interacts with React Query's caching/invalidation model (a project-switch flash and an invisible
+error state), an asymmetric cache-invalidation pattern versus the rest of the mutation hooks, and one
+dead export with an inaccurate doc comment.
 
 ## Warnings
 
-### WR-01: Title/body length validation counts bytes, not characters
+### WR-01: The epic roster can flash "Unknown epic" for valid epics during a project switch
 
-**File:** `packages/desktop/src-tauri/src/commands/issue.rs:42-62`
-**Issue:** `validate_title` and `validate_body` use `str::len()`, which in Rust returns the UTF-8
-byte length, not the character count the error message claims to measure:
-
-```rust
-fn validate_title(title: &str) -> Result<(), String> {
-    if title.is_empty() || title.len() > MAX_TITLE_LEN {
-        return Err(format!(
-            "title must be 1-{MAX_TITLE_LEN} characters, got {} characters",
-            title.len()
-        ));
-    }
-    Ok(())
-}
-```
-
-Any multi-byte UTF-8 content (CJK, Cyrillic, emoji, accented Latin, etc.) is penalized: a title of
-200 Chinese characters is 600 bytes and gets rejected as "over 500 characters" even though it is
-visually 200 characters, and the reported count in the error text ("got 600 characters") is itself
-wrong. Since byte length is always `>=` character count for multi-byte content, this can only
-*reject* strings that should be accepted — no oversized string can sneak through — but it is a real,
-user-visible correctness bug for any non-ASCII title/body, which is a realistic input for this app.
-**Fix:**
-```rust
-fn validate_title(title: &str) -> Result<(), String> {
-    let len = title.chars().count();
-    if title.is_empty() || len > MAX_TITLE_LEN {
-        return Err(format!(
-            "title must be 1-{MAX_TITLE_LEN} characters, got {len} characters"
-        ));
-    }
-    Ok(())
-}
-```
-Apply the same `chars().count()` fix to `validate_body`.
-
-### WR-02: `useRegistrationErrorNotice` assumes a JS `Error`, but Tauri commands reject with a plain string
-
-**File:** `packages/desktop/src/projects/RegisterProjectFlow.tsx:104`
+**File:** `packages/desktop/src/board/useBoardQuery.ts:322-328`
 **Issue:**
+`useBoardQuery` (line 207) explicitly sets `placeholderData: keepPreviousData` so the previously
+loaded board window stays on screen while a new project's `board_list` call is in flight (the
+"never re-skeletons on a refetch" contract, per its own doc comment). `useEpics` has no such option:
+
 ```ts
-setMessage(`Couldn't register this project — ${(error as Error).message}`);
+export function useEpics(projectId: string | undefined) {
+  return useQuery({
+    queryKey: epicsQueryKey(projectId),
+    queryFn: () => invokeCommand<EpicSummary[]>("epic_list_all", { projectId }),
+    enabled: Boolean(projectId),
+  });
+}
 ```
-Every Tauri command in this codebase returns `Result<T, String>` (see `commands/issue.rs`,
-`commands/project.rs`, etc. — every handler ends `.map_err(|e| e.to_string())?`). Tauri's
-`invoke()` (`@tauri-apps/api/core`) rejects the JS promise with the raw `Err` payload as returned by
-the backend — i.e. a plain `string`, not a JS `Error` instance. `useRegisterProject()`'s mutation
-therefore surfaces `registerProject.error` as that string. `(error as Error).message` on a string
-value is `undefined`, so a real registration failure (e.g. "project already registered at a
-different path", a disk error, an invalid key prefix) renders as:
 
-> Couldn't register this project — undefined
+When `currentProjectId` changes in `App.tsx`, `useBoardQuery`'s query key changes but its `data`
+stays pinned to the outgoing project's window until the new `board_list` resolves. `useEpics`'s query
+key also changes, but — lacking `keepPreviousData` — its `data` immediately becomes `undefined`
+(assuming the new project's roster was never cached before), so `epicsById` in `BoardView.tsx`
+(line 263) collapses to `{}` for one or more render cycles. Every task belonging to the *outgoing*
+project that is still on screen (because of `useBoardQuery`'s own `keepPreviousData`) and that
+carries a real, previously-resolved `epicId` will render `BoardRow`'s "Unknown epic" fallback
+(`BoardRow.tsx:132`) for that window, even though the epic is entirely valid — this is exactly the
+class of defect G-01-2 exists to close, reintroduced transiently at every project switch. Before this
+plan, the roster was derived from the same `items` array the row itself came from, so the two never
+went out of sync this way; decoupling them without matching the caching strategy created this new
+seam.
 
-The unit test for this hook (`register-project-flow.test.tsx`) only ever passes `new Error(...)`
-values, so it cannot catch this — it tests a shape the real IPC boundary never actually produces.
-This is a pre-existing pattern in `FirstRun.tsx:101` and `ProjectUnreachable.tsx:93`, but this phase
-newly centralizes it into `useRegistrationErrorNotice`, the shared hook all four registration entry
-points (rail `+`, `⌘⇧O`, palette, and — via `RegisterProjectProbe`-style reuse — future callers) now
-render through, so the bug's blast radius just grew from one call site to the single shared one.
-**Fix:** Normalize the error before formatting, and cover it with a test that mimics the real IPC
-rejection shape (a plain string), not just an `Error`:
+No test in the reviewed suite exercises a project switch (every test in `epic-roster.test.tsx` and
+`epic-assign.test.tsx` renders a single, static `projectId`), so this regression has no test coverage
+either way.
+
+**Fix:**
 ```ts
-function messageFor(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "unknown error";
+export function useEpics(projectId: string | undefined) {
+  return useQuery({
+    queryKey: epicsQueryKey(projectId),
+    queryFn: () => invokeCommand<EpicSummary[]>("epic_list_all", { projectId }),
+    enabled: Boolean(projectId),
+    placeholderData: keepPreviousData,
+  });
 }
-setMessage(`Couldn't register this project — ${messageFor(error)}`);
+```
+(`keepPreviousData` is already imported into this file for `useBoardQuery`.) Add a test that renders
+`BoardView` with project A's roster resolved, switches `projectId` to B before B's `epic_list_all`
+mock resolves, and asserts A's previously-resolved epic pill is not replaced by "Unknown epic" in the
+interim.
+
+### WR-02: A failed epic-roster fetch is indistinguishable from "this epic doesn't exist"
+
+**File:** `packages/desktop/src/board/useBoardQuery.ts:322-328`, `packages/desktop/src/board/FilterBar.tsx:91-95`, `packages/desktop/src/board/BoardView.tsx:261-266`
+**Issue:**
+None of `useEpics`'s three consumers read `epicsQuery.isError`/`epicsQuery.error`. `FilterBar`
+(line 92: `epicsQuery.data ?? []`) and `BoardView` (line 262: `epicsQuery.data ?? []`) both treat "no
+data" identically whether the query is still pending, has genuinely resolved to an empty roster, or
+has exhausted React Query's default retries (3, with backoff) and settled into an error state. In
+practice this means: if `epic_list_all` starts failing (a locked/corrupted database, a
+serialization bug in a future change to `EpicSummaryDto`, etc.), the user sees every epic pill
+silently degrade to "Unknown epic," the epic filter chips silently disappear, and both `ParentPicker`
+epic groups silently go empty — with no error banner, no console-visible-to-the-user signal, nothing
+that distinguishes this from a project that legitimately has zero epics. This is a materially
+different failure mode than the one `App.tsx` already established a pattern for: `registerNotice`
+(App.tsx:97-123) explicitly surfaces `useRegisterProjectFlow`'s `isError`/`error` via a fixed-position
+toast, specifically because (per that code's own comment) a previous version "discarded them entirely,
+leaving the ... picker closing with zero feedback." `useEpics` reintroduces the same class of silent
+failure this codebase has already had to fix once elsewhere.
+
+**Fix:** Surface `epicsQuery.isError` somewhere reachable regardless of which component happens to be
+mounted — e.g. a small persistent indicator in `FilterBar` (which is always visible whenever a board
+is open) — rather than letting every one of `useEpics`'s consumers independently ignore it:
+```ts
+const epicsQuery = useEpics(projectId);
+// ...
+{epicsQuery.isError && (
+  <span role="status" className="type-label" style={{ color: "var(--destructive-strip)" }}>
+    Epic list unavailable — some labels may show "Unknown epic".
+  </span>
+)}
 ```
 
-### WR-03: The six-field layer object is constructed twice, independently, inside `BoardView`
+### WR-03: Epic-mutating hooks never directly invalidate the epics roster cache — they depend entirely on the `board:changed` event round-trip
 
-**File:** `packages/desktop/src/board/BoardView.tsx:393-398` and `:663-668`
-**Issue:** The exact same `topLayer({ paletteOpen, detailOpen: detailItemId !== null, pickerOpen:
-activePicker !== null || deleteTarget !== null || pendingDone !== null, quickAddOpen })` literal is
-built twice in this file: once in `handleContainerKeyDown` (the keyboard path) and again in
-`IssuesLane`'s `onOpenParentPicker` callback (the CR-02 click path). Both derive "what layer is on
-top right now" from the same six store fields, but as two independent literals rather than one
-shared value.
-
-This is the same failure shape this phase exists to close (G-01-1: a guard duplicated across two
-entry points that can silently drift apart — there, keyboard vs. native-menu; here, keyboard vs.
-pointer). If a future layer field is added to the store (another modal, another trapped scope) and
-one of these two literals is updated while the other is not, the click path and the keyboard path
-will disagree about the current layer, silently reopening exactly the "two trapped scopes at once"
-class of bug `layer-guard.test.tsx`'s CR-02 regression test was written to catch — but only for
-whichever call site was missed, so the existing test suite would not necessarily catch a *new*
-field being added.
-**Fix:** Compute the layer once per render and pass it to both call sites:
-```tsx
-const currentLayer = topLayer({
-  paletteOpen,
-  detailOpen: detailItemId !== null,
-  pickerOpen: activePicker !== null || deleteTarget !== null || pendingDone !== null,
-  quickAddOpen,
-});
-// ...
-function handleContainerKeyDown(event) {
-  // ...
-  if (!bindingAllowedInLayer(binding.id, currentLayer)) return;
-  // ...
+**File:** `packages/desktop/src/board/useBoardQuery.ts:255-262` (and the epic branches of `useSetStatus`, `useSetPriority`, `useSetEstimate`, `useSetAssignee`, `useUpdateItem`, `useDeleteItem`, `useReorderItem`)
+**Issue:**
+`useCreateEpic`'s `onSuccess` invalidates only `boardQueryKey(projectId)`:
+```ts
+export function useCreateEpic(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (title: string) => invokeCommand<BoardItem>("epic_create", { projectId, title }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
+  });
 }
-// ...
-onOpenParentPicker={(issue, anchorEl) => {
-  if (currentLayer !== "board" && currentLayer !== "quick-add") return;
-  // ...
-}}
 ```
+No mutation hook in this file ever invalidates `epicsQueryKey(projectId)` directly. The epics roster
+is refreshed exclusively through `useBoardChangedSubscription`'s handler reacting to the Rust core's
+pushed `board:changed` event (`commands/epic.rs:113-114`: `app.emit("board:changed", ...).ok()`).
+Every `board:changed` emission on the Rust side is wrapped in `.ok()`, silently discarding any `Err`
+the emit call returns. This is an existing, codebase-wide pattern (D-04's "courtesy immediate
+refetch" is explicitly documented as a *supplement* to the event, not a replacement, for the board
+window itself) — but for the epics roster specifically, there is no supplement at all: if the emit is
+ever dropped, a newly created/renamed/deleted epic will not appear in the same tab's `FilterBar`
+chips, `BoardRow` pills, or either `ParentPicker` until some unrelated mutation happens to fire
+another `board:changed`. `useCreateTask`'s hook, by contrast, keeps its own direct invalidation as a
+documented fallback specifically so a dropped/delayed event doesn't leave that tab stale
+("`useBoardChangedSubscription` is the source of truth for every OTHER surface's freshness, and stays
+authoritative even if this call were removed" — i.e. removing the local invalidation is safe *because*
+a fallback already exists elsewhere; no equivalent fallback exists for `epicsQueryKey`).
 
-### WR-04: No test (Rust or cross-language) guards `FORWARDED_MENU_ACTIONS` / `build_menu`'s item ids / `MenuHandles::get` against drifting apart
-
-**File:** `packages/desktop/src-tauri/src/main.rs:21`, `packages/desktop/src-tauri/src/menu.rs:41-52`, `packages/desktop/src-tauri/src/state.rs:39-47`
-**Issue:** The set of four forwarded menu-action ids is hand-maintained in at least three places on
-the Rust side alone: `main.rs`'s `FORWARDED_MENU_ACTIONS` const, the literal ids passed to
-`MenuItemBuilder::with_id` in `menu.rs::build_menu`, and the match arms in
-`MenuHandles::get` (`state.rs`) — plus a fourth hand-kept mirror on the TypeScript side,
-`state/keyboard.ts`'s `MENU_ACTION_IDS`, which the file's own doc comments already flag as
-"kept in sync by hand across the IPC seam since a Rust const and a TypeScript array cannot share a
-single source." `menu-bridge.test.tsx` has a test asserting every `MENU_ACTION_IDS` entry resolves
-to a global `BINDINGS` entry, which protects the TS side. There is no equivalent Rust `#[cfg(test)]`
-assertion (none exists in `main.rs`, `menu.rs`, or `state.rs`) that `FORWARDED_MENU_ACTIONS`, the ids
-built in `build_menu`, and `MenuHandles::get`'s recognized set are the same four strings.
-
-Impact today is low (a mismatch degrades the affordance or silently drops a menu-item's forwarding,
-rather than bypassing the guard — the JS-side guard is independent and unaffected), but it is exactly
-the class of hand-synced-invariant this phase's own commentary identifies as fragile, and it is
-currently unprotected on the Rust side.
-**Fix:** Add a unit test in `state.rs` (or a new `menu.rs` `#[cfg(test)]` module) asserting
-`FORWARDED_MENU_ACTIONS.iter().all(|id| MenuHandles::<MockRuntime>::get(...).is_some())` — or, more
-directly, derive `FORWARDED_MENU_ACTIONS` from a single array shared with `MenuHandles::get`'s match
-arms so there is one Rust-side source instead of three.
+**Fix:** Add the epics invalidation alongside the existing board invalidation in every epic-affecting
+mutation hook, mirroring the belt-and-suspenders pattern already used for the board window:
+```ts
+export function useCreateEpic(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (title: string) => invokeCommand<BoardItem>("epic_create", { projectId, title }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) });
+      queryClient.invalidateQueries({ queryKey: epicsQueryKey(projectId) });
+    },
+  });
+}
+```
 
 ## Info
 
-### IN-01: `register-project-flow.test.tsx` covers only half of `RegisterProjectFlow.tsx`
+### IN-01: `epicsQueryKey` is exported and documented as a FilterBar dependency, but is dead code
 
-**File:** `packages/desktop/src/projects/__tests__/register-project-flow.test.tsx`
-**Issue:** Every test in this file exercises `useRegistrationErrorNotice` only. `useRegisterProjectFlow`
-itself — the folder-dialog call, the `knownIds` "already registered" dedup snapshot, the
-`onRegistered` callback, and the swallowed-error `catch` — has no direct test in this file (or,
-apparently, anywhere in the reviewed file set). Given the file name and the module's stated role as
-"the ONE registration flow every entry point shares," a reader would reasonably expect this file to
-cover the flow itself, not only its error-notice helper.
-**Fix:** Add coverage for `useRegisterProjectFlow` directly: a successful registration calling
-`onRegistered` with `alreadyRegistered: false`/`true` in each case, and a rejected `mutateAsync` call
-leaving `isError`/`error` set without throwing out of `registerProjectFlow()`.
+**File:** `packages/desktop/src/board/useBoardQuery.ts:95-99`
+**Issue:** The doc comment reads:
+```ts
+/** Mirrors the private `boardQueryKey` above but exported — `FilterBar.tsx` needs it too
+ * (plan 01-18) to invalidate/read the same roster cache `useEpics` populates. */
+export function epicsQueryKey(projectId: string | undefined) {
+  return ["epics", projectId] as const;
+}
+```
+`grep -rn "epicsQueryKey" packages/desktop/src/` shows it is defined and consumed exactly once —
+internally, inside `useEpics` itself (line 324) — and is never imported by `FilterBar.tsx` or any
+other file. `FilterBar.tsx` only calls `useEpics(projectId)`; it never reads or invalidates the query
+cache by key directly. The export (and its justification) is currently unused; either the intended
+`FilterBar`-side usage was dropped during implementation without updating the comment, or the export
+should be un-exported (made a private `function` like `boardQueryKey`) since nothing outside this
+module needs it today.
 
-### IN-02: Title is trimmed before validation/storage; body is not
-
-**File:** `packages/desktop/src-tauri/src/commands/issue.rs:74, 120-123`
-**Issue:** `issue_create`/`issue_update` trim `title` before validating and storing it
-(`title.trim()`, `title.as_deref().map(str::trim)`), but `body` is validated and stored exactly as
-received, with no trim. This may be intentional (bodies are markdown-ish free text where leading/
-trailing whitespace could matter), but the asymmetry is not documented anywhere in this file, unlike
-most other behavioral choices in this module which get an explicit rationale comment.
-**Fix:** Either add a one-line comment stating this is deliberate, or trim `body` too for
-consistency with `title`.
+**Fix:** Either remove the `export` keyword and correct the comment (if no external consumer is
+actually needed), or, if the intent was for `FilterBar` to invalidate/read this cache directly for
+some reason, add that usage. Do not leave an exported, doc-commented API surface that nothing calls.
 
 ---
 
-_Reviewed: 2026-09-10_
+_Reviewed: 2026-09-10T00:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
