@@ -11,6 +11,15 @@
  * that holds at small N and is false at volume. Every fixture in this repo other than this one is
  * small enough to hide both. A change to `BoardView.tsx`'s virtualization, to `ROW_HEIGHT`, to
  * `overscan`, or to `BAND_ORDER` should be re-checked here first.
+ *
+ * The lesson this suite exists to institutionalise: "the symptom stopped" is not "the contract
+ * holds." Beyond the tracer case and the collapse cases (which prove the fix), this file also
+ * pins the owner's exact re-press wording, proves ⌘⇧N travels the identical funnel rather than a
+ * second implementation, proves the focus request is consumed exactly once (never twice, never
+ * stolen by an incidental re-mount), and re-asserts — at the volume that exposed each of
+ * them — the two properties an earlier gap in this same phase already closed: G-01-1's layer
+ * guard (a refused ⌘N must move nothing) and G-01-2's no-raw-identifier property (no rendered
+ * text may ever be a raw internal id).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -18,7 +27,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { useCollapseStore } from "../collapseStore";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import type { BandCounts, BoardItem } from "../useBoardQuery";
+import type { BandCounts, BoardItem, IssueItem } from "../useBoardQuery";
 
 const invokeCommandMock = vi.fn();
 
@@ -61,18 +70,30 @@ afterEach(() => {
 });
 
 /** Renders `BoardView` at volume with a 60-row backlog fixture. */
-function renderVolumeBoard(items: BoardItem[] = SIXTY_ROWS) {
+function renderVolumeBoard(items: BoardItem[] = SIXTY_ROWS, issues: IssueItem[] = []) {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
       <BoardView
         projectId="proj-1"
         items={items}
+        issues={issues}
         counts={{ ...EMPTY_COUNTS, backlog: items.length }}
         onCreateTask={() => {}}
       />
     </QueryClientProvider>,
   );
+}
+
+/** Opens the item detail panel by writing the store fields directly (exactly
+ * `layer-guard.test.tsx`'s `openDetailPanel`) — this file is about what happens once a layer is
+ * already on top, not about how it got there. Sets both `selectedItemId` and `detailItemId`
+ * because `BoardView`'s panel renders off the SELECTED item, not off `detailItemId` alone. */
+function openDetailPanel(id: string) {
+  act(() => {
+    useUiStore.getState().setSelectedItemId(id);
+    useUiStore.getState().setDetailItemId(id);
+  });
 }
 
 /** The scroll container by its `role="list"` / accessible name "Board" (`BoardView.tsx`'s
@@ -187,5 +208,166 @@ describe("a collapsed Backlog band can no longer swallow the quick-add row (Task
 
     await screen.findByPlaceholderText("Type a title, press Enter to create…");
     expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).not.toBe(true);
+  });
+});
+
+// The cases below separate "the symptom stopped" from "the contract holds" — the owner's exact
+// re-press wording, the epic path travelling the same funnel, the consume-once guarantee, both
+// of this plan's prohibitions (G-01-1's layer guard and G-01-2's no-raw-identifier property), and
+// the two preserved defaults (empty board, issues lane). Task 3 edits no production file — a
+// failure here belongs in Task 1's or Task 2's files.
+
+describe("the re-press case — the owner's literal words", () => {
+  it("cmd_n_refocuses_quick_add_when_it_is_already_open_but_focus_moved_away", async () => {
+    renderVolumeBoard();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    act(() => {
+      input.blur();
+    });
+    expect(document.activeElement).not.toBe(input);
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    await waitFor(() => expect(document.activeElement).toBe(input));
+  });
+});
+
+describe("the epic keystroke — the same path, not a second implementation", () => {
+  it("cmd_shift_n_focuses_quick_add_for_an_epic_at_volume", async () => {
+    renderVolumeBoard();
+    const container = boardContainer();
+    scrollTo(container, 1600);
+
+    expect(
+      screen.queryByPlaceholderText("Type an epic title, press Enter to create…"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true, shiftKey: true });
+
+    const input = await screen.findByPlaceholderText("Type an epic title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(useUiStore.getState().quickAddKind).toBe("epic");
+  });
+});
+
+describe("the consume-once case", () => {
+  it("scrolling_the_row_back_into_view_does_not_steal_focus_a_second_time", async () => {
+    renderVolumeBoard();
+    const container = boardContainer();
+    scrollTo(container, 1600);
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    act(() => {
+      input.blur();
+    });
+    expect(document.activeElement).not.toBe(input);
+
+    // Scroll far down (the row unmounts), then back to the top (it re-mounts).
+    scrollTo(container, 1600);
+    await waitFor(() => {
+      expect(
+        screen.queryByPlaceholderText("Type a title, press Enter to create…"),
+      ).not.toBeInTheDocument();
+    });
+    scrollTo(container, 0);
+
+    const remounted = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    expect(document.activeElement).not.toBe(remounted);
+    expect(useUiStore.getState().quickAddFocusPending).toBe(false);
+  });
+
+  it("escaping_quick_add_clears_an_unconsumed_focus_request", async () => {
+    renderVolumeBoard();
+    const container = boardContainer();
+    scrollTo(container, 1600);
+
+    // Open quick-add through the store, then close it again in the same batch, before React
+    // ever commits a render with the request outstanding — the row never gets the chance to
+    // mount and consume it. A stale request must not survive to be picked up by an unrelated
+    // later mount.
+    act(() => {
+      useUiStore.getState().openQuickAdd("task");
+      useUiStore.getState().setQuickAddOpen(false);
+    });
+
+    expect(useUiStore.getState().quickAddOpen).toBe(false);
+    expect(useUiStore.getState().quickAddFocusPending).toBe(false);
+  });
+});
+
+describe("prohibition 1 — G-01-1's layer guard, asserted at volume", () => {
+  it("cmd_n_over_the_detail_panel_scrolls_nothing_and_moves_no_focus", () => {
+    renderVolumeBoard();
+    openDetailPanel("task-0");
+    const container = boardContainer();
+    scrollTo(container, 1600);
+    const activeBefore = document.activeElement;
+    const scrollTopBefore = container.scrollTop;
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    fireEvent.keyDown(window, { key: "n", metaKey: true, shiftKey: true });
+
+    expect(useUiStore.getState().quickAddOpen).toBe(false);
+    expect(useUiStore.getState().quickAddFocusPending).toBe(false);
+    expect(container.scrollTop).toBe(scrollTopBefore);
+    expect(document.activeElement).toBe(activeBefore);
+  });
+
+  it("a_picker_layer_also_refuses_cmd_n_without_scrolling", () => {
+    renderVolumeBoard();
+    act(() => {
+      useUiStore.getState().setActivePicker({ kind: "status", id: "task-0" });
+    });
+    const container = boardContainer();
+    scrollTo(container, 1600);
+    const activeBefore = document.activeElement;
+    const scrollTopBefore = container.scrollTop;
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    fireEvent.keyDown(window, { key: "n", metaKey: true, shiftKey: true });
+
+    expect(useUiStore.getState().quickAddOpen).toBe(false);
+    expect(useUiStore.getState().quickAddFocusPending).toBe(false);
+    expect(container.scrollTop).toBe(scrollTopBefore);
+    expect(document.activeElement).toBe(activeBefore);
+  });
+});
+
+describe("prohibition 2 and the preserved defaults", () => {
+  it("the_empty_board_still_opens_quick_add_pre_focused", async () => {
+    renderVolumeBoard([]);
+
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+  });
+
+  it("the_issues_lane_quick_add_never_takes_focus_on_load", async () => {
+    const issue: IssueItem = {
+      id: "issue-1",
+      key: "FLY-100",
+      title: "An issue",
+      kind: "idea",
+      epicId: null,
+      taskId: null,
+    };
+    renderVolumeBoard(SIXTY_ROWS, [issue]);
+
+    const issuesQuickAdd = await screen.findByLabelText("Quick add an issue");
+    expect(document.activeElement).not.toBe(issuesQuickAdd);
+  });
+
+  it("no_row_renders_a_raw_internal_identifier_at_volume", () => {
+    // Deliberately a re-assertion of plan 01-17/01-18's property (G-01-2) at the volume where it
+    // first surfaced, not a new requirement — a real leak would match this pattern, since every
+    // id in this fixture is a real Crockford-base32-shaped string of the right length.
+    const { container } = renderVolumeBoard();
+    const ulidPattern = /\b[0-9A-HJKMNP-TV-Z]{26}\b/i;
+    expect(container.textContent ?? "").not.toMatch(ulidPattern);
   });
 });
