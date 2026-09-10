@@ -13,6 +13,11 @@ use tauri::{Emitter, Manager};
 /// `menu:action` (01-09-PLAN.md Task 2, threat T-01-02). Every other menu event (predefined
 /// items — Quit, Close Window, Cut/Copy/Paste/Undo/Redo, Minimize/Maximize/Bring All to Front,
 /// About) is already handled natively by Tauri/the OS and needs no forwarding here.
+///
+/// These same four ids are the exact set `menu_set_action_enabled` (`commands/menu.rs`) accepts
+/// (01-16-PLAN.md Task 2, UAT gap G-01-1) — `state/keyboard.ts`'s `MENU_ACTION_IDS` is their
+/// renderer-side mirror, kept in sync by hand across the IPC seam since a Rust const and a
+/// TypeScript array cannot share a single source.
 const FORWARDED_MENU_ACTIONS: &[&str] = &["register-project", "create-task", "create-epic", "open-palette"];
 
 fn main() {
@@ -91,6 +96,7 @@ fn main() {
             commands::criterion::criterion_list,
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
+            commands::menu::menu_set_action_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

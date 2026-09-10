@@ -10,5 +10,6 @@ pub mod criterion;
 pub mod epic;
 pub mod events;
 pub mod issue;
+pub mod menu;
 pub mod project;
 pub mod task;
