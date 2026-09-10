@@ -10,7 +10,7 @@ import { useBoardChangedSubscription, useBoardQuery, useCreateTask, useProjects 
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
-import { dispatchAction, returnToBoardLayer, useGlobalBindings, type ActionId } from "./state/keyboard";
+import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
 import "./styles/tokens.css";
 import "./styles/type.css";
@@ -133,20 +133,25 @@ function AppShell() {
     },
   });
 
-  // Bridges a native menu click (`src-tauri/src/menu.rs`'s `on_menu_event`) into the SAME
-  // keyboard-action pipeline a real keystroke uses (`dispatchAction`, `state/keyboard.ts`) —
-  // menu items never call a mutation/command directly, only ever the identical action id a
-  // keystroke would resolve to (threat T-01-02).
+  // Bridges a native menu click/accelerator (`src-tauri/src/menu.rs`'s `on_menu_event`) into the
+  // SAME keyboard-action pipeline a real keystroke uses (`dispatchAction`, `state/keyboard.ts`) —
+  // the native menu no longer carries a capability the keyboard lacks. A forwarded id re-enters
+  // `dispatchAction` and is admitted or refused by `bindingAllowedInLayer` exactly like a real
+  // keystroke would be (threat T-01-02); a menu item that is not permitted in the current layer
+  // is greyed out by the OS rather than silently dropped here (`state/menuSync.ts`'s
+  // `useMenuLayerSync`, 01-16-PLAN.md Task 3).
+  //
+  // Previously this handler called `returnToBoardLayer()` for every forwarded id except
+  // `open-palette` before dispatching, on the theory that a menu action is always an unambiguous
+  // click from outside the keyboard. That was UAT gap G-01-1: on macOS the native menu OWNS
+  // `create-task`'s `CmdOrCtrl+N` accelerator, so the keystroke never reaches the webview and
+  // this handler runs instead — which meant the reset ran on a *keystroke* and dismantled the
+  // very layer (the item detail panel) the keystroke was supposed to be blocked by. The layer
+  // guard in `state/keyboard.ts` was correct the whole time; it was being bypassed, not failing.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     subscribeMenuAction((actionId) => {
-      // A native menu click is an unambiguous request from outside the keyboard — it returns
-      // the app to the board layer before dispatching (`returnToBoardLayer`,
-      // `state/keyboard.ts`) rather than being silently dropped by the layer guard, for every
-      // forwarded id except `open-palette`, which is the one action that is legitimate over an
-      // open panel (01-13-PLAN.md Task 2).
-      if (actionId !== "open-palette") returnToBoardLayer();
       dispatchAction(actionId as ActionId);
     }).then((fn) => {
       if (cancelled) fn();
