@@ -28,6 +28,13 @@ import { BoardView } from "../BoardView";
 import { useCollapseStore } from "../collapseStore";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts, BoardItem, IssueItem } from "../useBoardQuery";
+import {
+  buildVolumeItems,
+  DEEP_SCROLL_OFFSET,
+  MOUNTABLE_ROW_ESTIMATE,
+  scrollBoardTo,
+  VOLUME_ROW_COUNT,
+} from "./volume";
 
 const invokeCommandMock = vi.fn();
 
@@ -40,18 +47,9 @@ vi.mock("../../adapters/tauri", () => ({
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
 
-// 60 exceeds the roughly 30 rows the 800px jsdom viewport (`test/setup.ts`'s `offsetHeight` stub)
-// plus `overscan: 10` at `ROW_HEIGHT` 40 can mount, with margin.
-const SIXTY_ROWS: BoardItem[] = Array.from({ length: 60 }, (_, i) => ({
-  id: `task-${i}`,
-  key: `FLY-${i + 1}`,
-  title: `Backlog task ${i}`,
-  status: "backlog",
-  rank: String(i + 1).padStart(4, "0"),
-  priority: 0,
-  epicId: null,
-  kind: "task",
-}));
+// The shared, self-checking volume fixture (`./volume.ts`) — exceeds `MOUNTABLE_ROW_ESTIMATE`
+// with margin, so this suite reaches the row the virtualizer does not mount yet.
+const SIXTY_ROWS: BoardItem[] = buildVolumeItems();
 
 beforeEach(() => {
   resetUiState();
@@ -103,13 +101,38 @@ function boardContainer() {
 }
 
 /** Scrolls `el` to `top` and fires a real `scroll` event so the virtualizer re-reads the offset —
- * mirrors a real browser's scroll, not a direct property write the virtualizer never observes. */
+ * mirrors a real browser's scroll, not a direct property write the virtualizer never observes.
+ * Delegates to the shared `scrollBoardTo` (`./volume.ts`) — the *reader* half of the same jsdom
+ * gap `test/setup.ts`'s `scrollTo` stub covers on the writer side — wrapped in `act` so React
+ * flushes the resulting state update before the next assertion. */
 function scrollTo(el: HTMLElement, top: number) {
   act(() => {
-    el.scrollTop = top;
-    fireEvent.scroll(el);
+    scrollBoardTo(el, top);
   });
 }
+
+// This block runs first and proves the fixture's own precondition — hoisted into named cases of
+// its own rather than left as an assumption inside a behavioral case, so a regression in the
+// fixture (a `ROW_HEIGHT`/`overscan`/jsdom-viewport change eroding the margin, or the quick-add
+// row mounting after all) reports as its own named failure, not a confusing failure buried
+// inside a case that is really testing something else.
+describe("the shared volume fixture's own adequacy (Task 1)", () => {
+  it("the_volume_fixture_exceeds_what_the_harness_can_mount", () => {
+    expect(VOLUME_ROW_COUNT).toBeGreaterThanOrEqual(50);
+    expect(VOLUME_ROW_COUNT).toBeGreaterThan(MOUNTABLE_ROW_ESTIMATE);
+    expect(VOLUME_ROW_COUNT - MOUNTABLE_ROW_ESTIMATE).toBeGreaterThanOrEqual(20);
+  });
+
+  it("the_quick_add_row_is_genuinely_unmounted_at_the_deep_scroll_offset", () => {
+    renderVolumeBoard();
+    const container = boardContainer();
+    scrollTo(container, DEEP_SCROLL_OFFSET);
+
+    expect(
+      screen.queryByPlaceholderText("Type a title, press Enter to create…"),
+    ).not.toBeInTheDocument();
+  });
+});
 
 describe("cmd_n_focuses_quick_add_when_the_row_is_scrolled_out_of_the_mounted_window", () => {
   it("cmd_n_focuses_quick_add_when_the_row_is_scrolled_out_of_the_mounted_window", async () => {
@@ -118,7 +141,7 @@ describe("cmd_n_focuses_quick_add_when_the_row_is_scrolled_out_of_the_mounted_wi
 
     // Scroll away from the top — far enough that the quick-add row (near the very top of the
     // rack) falls outside the virtualizer's mounted + overscanned window.
-    scrollTo(container, 1600);
+    scrollTo(container, DEEP_SCROLL_OFFSET);
 
     // Assert the defect precondition BEFORE pressing ⌘N — without this, the test could pass at
     // any volume and would prove nothing.
@@ -152,7 +175,7 @@ describe("a collapsed Backlog band can no longer swallow the quick-add row (Task
     });
     renderVolumeBoard();
     const container = boardContainer();
-    scrollTo(container, 1600);
+    scrollTo(container, DEEP_SCROLL_OFFSET);
 
     expect(
       screen.queryByPlaceholderText("Type a title, press Enter to create…"),
@@ -239,7 +262,7 @@ describe("the epic keystroke — the same path, not a second implementation", ()
   it("cmd_shift_n_focuses_quick_add_for_an_epic_at_volume", async () => {
     renderVolumeBoard();
     const container = boardContainer();
-    scrollTo(container, 1600);
+    scrollTo(container, DEEP_SCROLL_OFFSET);
 
     expect(
       screen.queryByPlaceholderText("Type an epic title, press Enter to create…"),
@@ -257,7 +280,7 @@ describe("the consume-once case", () => {
   it("scrolling_the_row_back_into_view_does_not_steal_focus_a_second_time", async () => {
     renderVolumeBoard();
     const container = boardContainer();
-    scrollTo(container, 1600);
+    scrollTo(container, DEEP_SCROLL_OFFSET);
 
     fireEvent.keyDown(window, { key: "n", metaKey: true });
     const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
@@ -269,7 +292,7 @@ describe("the consume-once case", () => {
     expect(document.activeElement).not.toBe(input);
 
     // Scroll far down (the row unmounts), then back to the top (it re-mounts).
-    scrollTo(container, 1600);
+    scrollTo(container, DEEP_SCROLL_OFFSET);
     await waitFor(() => {
       expect(
         screen.queryByPlaceholderText("Type a title, press Enter to create…"),
@@ -285,7 +308,7 @@ describe("the consume-once case", () => {
   it("escaping_quick_add_clears_an_unconsumed_focus_request", async () => {
     renderVolumeBoard();
     const container = boardContainer();
-    scrollTo(container, 1600);
+    scrollTo(container, DEEP_SCROLL_OFFSET);
 
     // Open quick-add through the store, then close it again in the same batch, before React
     // ever commits a render with the request outstanding — the row never gets the chance to
@@ -306,7 +329,7 @@ describe("prohibition 1 — G-01-1's layer guard, asserted at volume", () => {
     renderVolumeBoard();
     openDetailPanel("task-0");
     const container = boardContainer();
-    scrollTo(container, 1600);
+    scrollTo(container, DEEP_SCROLL_OFFSET);
     const activeBefore = document.activeElement;
     const scrollTopBefore = container.scrollTop;
 
@@ -325,7 +348,7 @@ describe("prohibition 1 — G-01-1's layer guard, asserted at volume", () => {
       useUiStore.getState().setActivePicker({ kind: "status", id: "task-0" });
     });
     const container = boardContainer();
-    scrollTo(container, 1600);
+    scrollTo(container, DEEP_SCROLL_OFFSET);
     const activeBefore = document.activeElement;
     const scrollTopBefore = container.scrollTop;
 
