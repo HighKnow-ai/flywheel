@@ -6,17 +6,29 @@
  * internal id.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { resetUiState } from "../../state/uiStore";
+import { useBoardChangedSubscription } from "../useBoardQuery";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
 
 const invokeCommandMock = vi.fn();
 
+// Captures the real handler `useBoardChangedSubscription` passes to `subscribeBoardChanged` —
+// never `Promise.resolve(() => {})`, which would let a "the roster invalidates on board:changed"
+// test pass while driving nothing (the same stubbing mistake 01-16-PLAN.md had to undo for the
+// menu bridge). Tests invoke `capturedBoardChangedHandler?.()` to simulate the core's push.
+let capturedBoardChangedHandler: (() => void) | undefined;
+
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
-  subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeBoardChanged: (handler: () => void) => {
+    capturedBoardChangedHandler = handler;
+    return Promise.resolve(() => {
+      capturedBoardChangedHandler = undefined;
+    });
+  },
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
 }));
@@ -27,6 +39,7 @@ const OUTSIDE_EPIC = { id: "epic-out-of-window", key: "FLY-7", title: "Outside t
 
 beforeEach(() => {
   resetUiState();
+  capturedBoardChangedHandler = undefined;
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
@@ -194,5 +207,165 @@ describe("epic roster", () => {
 
     expect(await screen.findByText("Unknown epic")).toBeInTheDocument();
     expect(screen.queryByText("epic-still-loading")).not.toBeInTheDocument();
+  });
+});
+
+describe("epic roster liveness (board:changed)", () => {
+  const TASK_A: BoardItem = {
+    id: "task-a",
+    key: "FLY-9",
+    title: "Task A",
+    status: "backlog",
+    rank: "10",
+    priority: 0,
+    epicId: "epic-a",
+    kind: "task",
+  };
+  const TASK_B: BoardItem = {
+    id: "task-b",
+    key: "FLY-10",
+    title: "Task B",
+    status: "backlog",
+    rank: "20",
+    priority: 0,
+    epicId: "epic-b",
+    kind: "task",
+  };
+
+  function triggerBoardChanged() {
+    act(() => {
+      capturedBoardChangedHandler?.();
+    });
+  }
+
+  /** Mounts the real `useBoardChangedSubscription` (normally wired once in `App.tsx`) alongside
+   * `BoardView` in these tests, so `subscribeBoardChanged` actually gets called and
+   * `capturedBoardChangedHandler` is populated — `BoardView` itself does not call this hook. */
+  function Subscriber() {
+    useBoardChangedSubscription();
+    return null;
+  }
+
+  it("a board:changed push refreshes the epic roster, not only the board window", async () => {
+    // Only epic-a is in the roster at first — epic-b's pill starts unresolved.
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve([{ id: "epic-a", key: "FLY-1", title: "Epic A" }]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Subscriber />
+        <BoardView
+          projectId="proj-1"
+          items={[TASK_A, TASK_B]}
+          counts={{ ...EMPTY_COUNTS, backlog: 2 }}
+          onCreateTask={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("FLY-1 Epic A")).toBeInTheDocument();
+    expect(screen.getByText("Unknown epic")).toBeInTheDocument();
+
+    const callsBeforePush = invokeCommandMock.mock.calls.filter(([c]) => c === "epic_list_all").length;
+
+    // epic-b now exists in the roster too.
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve([
+          { id: "epic-a", key: "FLY-1", title: "Epic A" },
+          { id: "epic-b", key: "FLY-2", title: "Epic B" },
+        ]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    triggerBoardChanged();
+
+    expect(await screen.findByText("FLY-2 Epic B")).toBeInTheDocument();
+    expect(screen.queryByText("Unknown epic")).not.toBeInTheDocument();
+    const callsAfterPush = invokeCommandMock.mock.calls.filter(([c]) => c === "epic_list_all").length;
+    expect(callsAfterPush).toBeGreaterThan(callsBeforePush);
+  });
+
+  it("a renamed epic's pill updates without a manual refetch", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve([{ id: "epic-a", key: "FLY-1", title: "Old Title" }]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Subscriber />
+        <BoardView
+          projectId="proj-1"
+          items={[TASK_A]}
+          counts={{ ...EMPTY_COUNTS, backlog: 1 }}
+          onCreateTask={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("FLY-1 Old Title")).toBeInTheDocument();
+
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve([{ id: "epic-a", key: "FLY-1", title: "New Title" }]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    triggerBoardChanged();
+
+    expect(await screen.findByText("FLY-1 New Title")).toBeInTheDocument();
+    expect(screen.queryByText("FLY-1 Old Title")).not.toBeInTheDocument();
+  });
+
+  it("a deleted epic stops resolving", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve([{ id: "epic-a", key: "FLY-1", title: "Epic A" }]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Subscriber />
+        <BoardView
+          projectId="proj-1"
+          items={[TASK_A]}
+          counts={{ ...EMPTY_COUNTS, backlog: 1 }}
+          onCreateTask={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("FLY-1 Epic A")).toBeInTheDocument();
+
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    triggerBoardChanged();
+
+    expect(await screen.findByText("Unknown epic")).toBeInTheDocument();
+    expect(screen.queryByText("FLY-1 Epic A")).not.toBeInTheDocument();
+    expect(screen.queryByText("epic-a")).not.toBeInTheDocument();
   });
 });

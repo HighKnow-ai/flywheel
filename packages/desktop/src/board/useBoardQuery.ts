@@ -451,9 +451,18 @@ export function useDeleteItem(projectId: string | undefined) {
 }
 
 /**
- * Subscribes EXACTLY ONCE to the core's `board:changed` push channel and invalidates the board
- * query key in the handler (D-04) — the UI must never treat its own mutation as already
- * resolved: creating a task refreshes the board because the core emitted `board:changed`.
+ * Subscribes EXACTLY ONCE to the core's `board:changed` push channel and invalidates both the
+ * board window's `["board"]` prefix and the epic roster's `["epics"]` prefix in the handler
+ * (D-04) — the UI must never treat its own mutation as already resolved: creating a task
+ * refreshes the board because the core emitted `board:changed`, and creating, renaming or
+ * deleting an epic — from anywhere: the quick-add, the command palette, a future agent writer —
+ * refreshes the chip list, the epic pill and the picker options through this same push (G-01-2).
+ *
+ * This is not an optimisation: without the `["epics"]` invalidation, a newly created epic would
+ * not appear in the filter chips until an unrelated refetch happened to evict the cache. Both
+ * invalidations use the bare, project-id-less prefix — `board:changed`'s payload does not carry
+ * enough to narrow either one to a single project, and a stale roster for a project the user is
+ * about to switch back to is exactly the failure this is preventing.
  */
 export function useBoardChangedSubscription() {
   const queryClient = useQueryClient();
@@ -464,6 +473,7 @@ export function useBoardChangedSubscription() {
 
     subscribeBoardChanged(() => {
       queryClient.invalidateQueries({ queryKey: ["board"] });
+      queryClient.invalidateQueries({ queryKey: ["epics"] });
     }).then((fn) => {
       if (cancelled) {
         fn();
