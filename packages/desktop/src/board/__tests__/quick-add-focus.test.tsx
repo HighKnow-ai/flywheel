@@ -111,6 +111,20 @@ function scrollTo(el: HTMLElement, top: number) {
   });
 }
 
+/** Selects a sticky band header by its label. `StatusBand` is the only element in the rack that
+ * carries an `aria-expanded` attribute, so scanning for that attribute plus a text-content match
+ * finds the header without also matching `BoardRow.tsx`'s status pill — which is ALSO labelled
+ * with the band name ("Status: Backlog. Press to change.") and would match a bare
+ * `getByRole("button", { name: /Backlog/ })` query against every backlog row in this fixture. */
+function bandHeader(label: string): HTMLElement {
+  const buttons = screen.getAllByRole("button");
+  const match = buttons.find(
+    (el) => el.hasAttribute("aria-expanded") && (el.textContent ?? "").startsWith(label),
+  );
+  if (!match) throw new Error(`No band header found for label "${label}"`);
+  return match;
+}
+
 // This block runs first and proves the fixture's own precondition — hoisted into named cases of
 // its own rather than left as an assumption inside a behavioral case, so a regression in the
 // fixture (a `ROW_HEIGHT`/`overscan`/jsdom-viewport change eroding the margin, or the quick-add
@@ -231,6 +245,54 @@ describe("a collapsed Backlog band can no longer swallow the quick-add row (Task
 
     await screen.findByPlaceholderText("Type a title, press Enter to create…");
     expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).not.toBe(true);
+  });
+});
+
+describe("a band the user collapses while quick-add is open stays collapsed (CR-01, WR-01)", () => {
+  it("collapsing_backlog_while_quick_add_is_open_sticks", async () => {
+    renderVolumeBoard();
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).not.toBe(true);
+
+    fireEvent.click(bandHeader("Backlog"));
+
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(true);
+
+    // Force further renders that do NOT involve Backlog — a future half-fix that survives one
+    // render but not several must still fail here.
+    act(() => {
+      useCollapseStore.getState().toggle("proj-1", "done");
+    });
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(true);
+
+    const container = boardContainer();
+    scrollTo(container, DEEP_SCROLL_OFFSET);
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(true);
+  });
+
+  it("the_backlog_collapse_toggle_is_operable_on_an_empty_project", async () => {
+    // effectiveQuickAddOpen = quickAddOpen || items.length === 0 is permanently true here — the
+    // permanent-inertness case CR-01 describes as "completely inert for the entire lifetime of an
+    // empty project."
+    renderVolumeBoard([]);
+    await screen.findByPlaceholderText("Type a title, press Enter to create…");
+
+    fireEvent.click(bandHeader("Backlog"));
+
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(true);
+
+    act(() => {
+      useCollapseStore.getState().toggle("proj-1", "done");
+    });
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(true);
+
+    const container = boardContainer();
+    scrollTo(container, 0);
+    expect(useCollapseStore.getState().collapsedByProject["proj-1"]?.backlog).toBe(true);
   });
 });
 
