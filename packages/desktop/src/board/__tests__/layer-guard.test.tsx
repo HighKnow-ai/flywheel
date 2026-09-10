@@ -132,7 +132,7 @@ function renderHarness(items: BoardItem[] = ITEMS, issues: IssueItem[] = []) {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
-      <FilterBar items={items} isFetching={false} />
+      <FilterBar projectId="proj-1" isFetching={false} />
       <BoardView
         projectId="proj-1"
         items={items}

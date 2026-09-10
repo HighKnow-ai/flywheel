@@ -67,7 +67,7 @@ function Board({ projectId, projectName }: { projectId: string; projectName: str
         {projectName}
       </header>
       {boardQuery.data && (
-        <FilterBar items={boardQuery.data.items} isFetching={boardQuery.isFetching} />
+        <FilterBar projectId={projectId} isFetching={boardQuery.isFetching} />
       )}
       <div style={{ flex: 1, minHeight: 0 }}>
         {boardQuery.data ? (

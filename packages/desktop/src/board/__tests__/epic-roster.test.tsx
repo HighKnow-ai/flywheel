@@ -6,10 +6,11 @@
  * internal id.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
-import { resetUiState } from "../../state/uiStore";
+import { FilterBar } from "../FilterBar";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 import { useBoardChangedSubscription } from "../useBoardQuery";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
 
@@ -367,5 +368,125 @@ describe("epic roster liveness (board:changed)", () => {
     expect(await screen.findByText("Unknown epic")).toBeInTheDocument();
     expect(screen.queryByText("FLY-1 Epic A")).not.toBeInTheDocument();
     expect(screen.queryByText("epic-a")).not.toBeInTheDocument();
+  });
+});
+
+describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
+  function renderFilterBar(projectId: string | undefined) {
+    const queryClient = new QueryClient();
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <FilterBar projectId={projectId} />
+      </QueryClientProvider>,
+    );
+  }
+
+  // 13 distinct epics — the exact count the UAT board (1,067 items / 13 epics) surfaced only 4
+  // of via the old windowed derivation.
+  const THIRTEEN_EPICS = Array.from({ length: 13 }, (_, i) => ({
+    id: `epic-${i}`,
+    key: `FLY-${i + 1}`,
+    title: `Epic ${i}`,
+  }));
+
+  it("lists every epic in the project, not only those in the loaded window", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(THIRTEEN_EPICS);
+      return Promise.resolve(undefined);
+    });
+
+    renderFilterBar("proj-1");
+
+    for (const epic of THIRTEEN_EPICS) {
+      expect(await screen.findByText(`${epic.key} ${epic.title}`)).toBeInTheDocument();
+    }
+  });
+
+  it("renders the chips in the roster's order", async () => {
+    // Deliberately not alphabetical/id-sorted — proves the chip row does not re-sort.
+    const unordered = [THIRTEEN_EPICS[5], THIRTEEN_EPICS[0], THIRTEEN_EPICS[9]];
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(unordered);
+      return Promise.resolve(undefined);
+    });
+
+    renderFilterBar("proj-1");
+
+    await screen.findByText(`${unordered[0].key} ${unordered[0].title}`);
+    const epicChips = document.getElementById("filter-epic");
+    const labels = Array.from(epicChips?.querySelectorAll("button") ?? []).map((b) => b.textContent);
+    expect(labels).toEqual([
+      "No epic",
+      ...unordered.map((epic) => `${epic.key} ${epic.title}`),
+    ]);
+  });
+
+  it("still renders the No epic chip first", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(THIRTEEN_EPICS.slice(0, 2));
+      return Promise.resolve(undefined);
+    });
+
+    renderFilterBar("proj-1");
+
+    await screen.findByText(`${THIRTEEN_EPICS[0].key} ${THIRTEEN_EPICS[0].title}`);
+    const epicChips = document.getElementById("filter-epic");
+    const firstButton = epicChips?.querySelector("button");
+    expect(firstButton?.textContent).toBe("No epic");
+
+    fireEvent.click(firstButton as HTMLButtonElement);
+    expect(useUiStore.getState().filterDraft.epicIds).toEqual([null]);
+  });
+
+  it("renders only the No epic chip for a project with no epics", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    renderFilterBar("proj-1");
+
+    await waitFor(() => {
+      expect(invokeCommandMock).toHaveBeenCalledWith("epic_list_all", { projectId: "proj-1" });
+    });
+    const epicChips = document.getElementById("filter-epic");
+    const buttons = Array.from(epicChips?.querySelectorAll("button") ?? []).map((b) => b.textContent);
+    expect(buttons).toEqual(["No epic"]);
+  });
+
+  it("issues no epic_list_all call without a project id", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(THIRTEEN_EPICS);
+      return Promise.resolve(undefined);
+    });
+
+    renderFilterBar(undefined);
+
+    expect(await screen.findByLabelText("Search items")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Backlog" })).toBeInTheDocument();
+    expect(invokeCommandMock).not.toHaveBeenCalledWith("epic_list_all", expect.anything());
+  });
+
+  it("selecting an epic chip writes only to the filter draft", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(THIRTEEN_EPICS.slice(0, 1));
+      return Promise.resolve(undefined);
+    });
+
+    renderFilterBar("proj-1");
+
+    const chip = await screen.findByText(`${THIRTEEN_EPICS[0].key} ${THIRTEEN_EPICS[0].title}`);
+    fireEvent.click(chip);
+
+    expect(useUiStore.getState().filterDraft.epicIds).toEqual([THIRTEEN_EPICS[0].id]);
+    // FilterBar owns no row rendering at all — selecting a chip must not trigger any
+    // client-side re-filtering of a row list inside this component (the plan's prohibition).
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
 });

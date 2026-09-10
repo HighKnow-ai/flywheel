@@ -91,7 +91,7 @@ describe("empty-window state copy", () => {
 
 describe("FilterBar", () => {
   it("toggles a status chip through the uiStore", () => {
-    renderWithQueryClient(<FilterBar items={[]} />);
+    renderWithQueryClient(<FilterBar />);
 
     expect(useUiStore.getState().filterDraft.statuses).toEqual([]);
 
@@ -103,7 +103,7 @@ describe("FilterBar", () => {
   });
 
   it("shows Clear Filters only once a filter or the search term is active", () => {
-    renderWithQueryClient(<FilterBar items={[]} />);
+    renderWithQueryClient(<FilterBar />);
 
     expect(screen.queryByRole("button", { name: /Clear Filters/ })).not.toBeInTheDocument();
 

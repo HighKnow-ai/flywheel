@@ -4,15 +4,21 @@
  * `⌘F` and `/` both focus it). Chips cover every dimension BOARD-06 names: status, epic
  * (including "No epic"), assignee (including "Unassigned"), priority and estimate.
  *
- * This component owns no server data and runs no query of its own — it only reads/writes
- * `state/uiStore.ts`'s filter draft and search term. `board/useBoardQuery.ts`'s `useBoardQuery`
- * is the single place that draft is debounced and translated into a `board_list`/`board_search`
- * call (D-03: no second filtering implementation, not even a client-side preview of one).
+ * This component owns no server data of its own beyond the small rosters below — it never reads
+ * the currently loaded board window, and it never runs the board's own filtering query itself. It
+ * only reads/writes `state/uiStore.ts`'s filter draft and search term. `board/useBoardQuery.ts`'s
+ * `useBoardQuery` is the single place that draft is debounced and translated into a
+ * `board_list`/`board_search` call (D-03: no second filtering implementation, not even a
+ * client-side preview of one). Selecting an epic chip only writes to `filterDraft.epicIds`; which
+ * rows that selects — including the "No epic" bucket, `EpicSelector::NoEpic` in
+ * `packages/core/src/query/filter.rs` — remains the Rust core's decision, never a renderer-side
+ * null check.
  *
- * The epic chip list is derived from whichever epics are present in the *currently loaded*
- * window (`items` below) rather than a dedicated "list every epic" query — a known simplification
- * documented in this plan's SUMMARY ("Known Stubs"): composing the epic filter with another
- * active filter that hides every row of a given epic will drop that epic from the chip list too.
+ * The epic chip list is the project's full epic roster from `useEpics` (BOARD-06, G-01-2,
+ * 01-18-PLAN.md) — a dedicated "list every epic" query, independent of the currently loaded board
+ * window and of any other active filter. Composing the epic filter with another active filter
+ * that hides every row of a given epic no longer drops that epic's chip. `useEpics` supplies chip
+ * *labels* only.
  */
 import { useMemo, useRef, type CSSProperties } from "react";
 import { Search, X } from "lucide-react";
@@ -27,12 +33,12 @@ import {
 } from "../legend/marks";
 import { useGlobalBindings } from "../state/keyboard";
 import { isFilterDraftActive, useUiStore } from "../state/uiStore";
-import { useActors, type BoardItem } from "./useBoardQuery";
+import { useActors, useEpics } from "./useBoardQuery";
 
 export interface FilterBarProps {
-  /** The currently loaded window's items (used only to derive the epic chip list — see the
-   * module doc comment above for the limitation this implies). */
-  items: BoardItem[];
+  /** The project whose epic roster supplies the epic chip labels (`useEpics`, G-01-2). Omitted
+   * (or `undefined`) issues no `epic_list_all` call and renders only the `No epic` chip. */
+  projectId?: string;
   /** A refetch is in flight while the previously-loaded window stays rendered underneath
    * (`useBoardQuery`'s `placeholderData: keepPreviousData`) — shown as a small non-blocking
    * indicator inside the search field itself, never a re-skeleton of the list
@@ -54,7 +60,7 @@ function chipStyle(active: boolean): CSSProperties {
   };
 }
 
-export function FilterBar({ items, isFetching = false }: FilterBarProps) {
+export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // `⌘F`/`/` (01-UI-SPEC.md "Search & filter") — routed through `state/keyboard.ts`'s
@@ -78,15 +84,15 @@ export function FilterBar({ items, isFetching = false }: FilterBarProps) {
   const actorsQuery = useActors();
   const actors = actorsQuery.data ?? [];
 
-  const epicOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const item of items) {
-      if (item.kind === "epic") {
-        seen.set(item.id, `${item.key} ${item.title}`);
-      }
-    }
-    return Array.from(seen.entries());
-  }, [items]);
+  // The project's full epic roster (BOARD-06, G-01-2) — never the loaded window. Order is the
+  // roster's own order (`crate::query::ORDER_BY`, pinned in `packages/core/tests/epic_roster.rs`);
+  // this component must not sort, dedupe or re-order it, which would create a second ordering
+  // definition.
+  const epicsQuery = useEpics(projectId);
+  const epicOptions = useMemo(
+    () => (epicsQuery.data ?? []).map((epic) => [epic.id, `${epic.key} ${epic.title}`] as const),
+    [epicsQuery.data],
+  );
 
   const anyActive = isFilterDraftActive(filterDraft) || searchTerm.trim().length > 0;
 
