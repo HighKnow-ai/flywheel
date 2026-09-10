@@ -52,6 +52,19 @@ Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
  * or an options object; writes the vertical target onto the element's own `scrollTop`, clamped at
  * a floor of zero, then dispatches a `scroll` event so any listener (the virtualizer included)
  * re-reads the new offset — mirroring a real browser's async-but-eventually-consistent scroll.
+ *
+ * IN-01 (01-REVIEW.md, closed in 01-21-PLAN.md Task 3): the floor clamp above is also joined by a
+ * CEILING clamp, but not as the review's fix sketch suggested (`scrollHeight - offsetHeight`,
+ * applied unconditionally). Verified directly against this repo's jsdom: every element reports
+ * `scrollHeight === 0` and `clientHeight === 0`, because jsdom implements no layout at all — which
+ * is exactly why this file already has to stub `offsetHeight` at 800 above. Applying the review's
+ * clamp unguarded would compute `max(0, 0 - 800) = 0` for every element and silently clamp EVERY
+ * programmatic scroll to zero, disabling the volume suite's `DEEP_SCROLL_OFFSET` and making the
+ * G-01-4 regression tests pass for the wrong reason — the precise failure mode this stub exists to
+ * prevent. The ceiling is therefore live ONLY when the target element reports a positive
+ * `scrollHeight` (a caller that has explicitly given it one, as the test proving this does); it is
+ * a complete no-op under jsdom's default zero-layout reality, leaving `DEEP_SCROLL_OFFSET` and
+ * every other unclamped caller in this suite exactly as they were.
  */
 if (typeof Element.prototype.scrollTo === "undefined") {
   Object.defineProperty(Element.prototype, "scrollTo", {
@@ -59,7 +72,13 @@ if (typeof Element.prototype.scrollTo === "undefined") {
     value: function scrollTo(this: Element, arg?: number | ScrollToOptions) {
       const top = typeof arg === "number" ? arg : arg?.top;
       if (typeof top === "number") {
-        this.scrollTop = Math.max(0, top);
+        let target = Math.max(0, top);
+        if (this.scrollHeight > 0) {
+          const visibleHeight = this.clientHeight || (this as unknown as HTMLElement).offsetHeight;
+          const maxScrollTop = Math.max(0, this.scrollHeight - visibleHeight);
+          target = Math.min(target, maxScrollTop);
+        }
+        this.scrollTop = target;
       }
       this.dispatchEvent(new Event("scroll"));
     },
