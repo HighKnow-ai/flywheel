@@ -365,6 +365,10 @@ Linear-reference-point's own pattern (D-01's explicit model).
   there is no separate "assign epic" step required to nest at creation time.
 - Detail and criteria are filled in afterward by opening the item (per D-09) — quick-add captures a
   title only.
+- **Corrected in plan `01-20` (G-01-4):** opening quick-add guarantees the Backlog band is
+  expanded first, because the row lives at the top of Backlog and a collapsed band would
+  otherwise leave the keystroke with nothing focusable. Scoped to Backlog only, and to the
+  current project only — no other band's collapse state is touched.
 
 ### Command palette (⌘K, D-02)
 
@@ -476,6 +480,18 @@ refetches:
   that re-sorts under the user's cursor without preserving identity is a defect**, not a stylistic
   choice.
 
+**Quick-add's focus delivery (corrected in plan `01-20`, G-01-4) — hard requirement:** the
+"focused" promised by the Global table's ⌘N and ⌘⇧N rows below must survive virtualization. The
+mechanism: opening quick-add raises a one-shot focus request in the UI store; the board scrolls
+the quick-add row into view by the minimum distance needed; the row focuses its own input from an
+effect when it mounts, consuming the request exactly once — so a row the virtualizer mounts late
+still receives the cursor. Mount-time `autoFocus` alone is **not** sufficient on a virtualized
+row and is retained only for the empty-board default (State Inventory's "zero items" row); a
+request that is never consumed is cleared the moment quick-add closes; and a row re-mounting for
+any other reason (the user scrolling back to it) must not take focus a second time. None of this
+may happen for a keystroke the layer guard refused: a refused ⌘N/⌘⇧N leaves focus, the scroll
+offset and every band's collapse state untouched.
+
 ### Global (anywhere in the app)
 
 | Key | Action |
@@ -571,7 +587,10 @@ Assignee, Set Epic, Delete).
 ## Performance Contract (BOARD-08)
 
 - **Virtualization:** `@tanstack/react-virtual`, fixed `estimateSize` (see Row Anatomy — no
-  `measureElement`), overscan 8–12 rows.
+  `measureElement`), overscan 8–12 rows. **Corrected in plan `01-20` (G-01-4):** the renderer
+  issues exactly one programmatic scroll — quick-add's scroll-into-view — addressed by **row
+  index** into the current project's row list, never by item id, using the virtualizer's own
+  index-scroll API with minimum-distance alignment (see "Quick-add's focus delivery" above).
 - **Query window:** the Rust core returns a bounded, indexed page (e.g. `LIMIT 200`) per D-03; the
   renderer requests the next window via cursor-based pagination keyed by `(status, rank)` as the
   user scrolls near the loaded window's end. The renderer never holds all 1,000+ rows in memory at
@@ -579,7 +598,9 @@ Assignee, Set Epic, Delete).
 - **Debounce:** 150ms keystroke-to-query debounce on search/filter inputs (per RESEARCH.md Flag 6).
 - **What must never happen on the renderer's main thread:** any client-side filter/sort/search pass
   over a full item array; synchronous parsing of large activity-trail JSON payloads in one block —
-  paginate the trail query too (see Activity trail, 50-event window).
+  paginate the trail query too (see Activity trail, 50-event window). Quick-add's scroll-into-view
+  must not introduce per-row measurement (the fixed `estimateSize` above stands) and must not
+  become a client-side pass over the full item array either (plan `01-20`, G-01-4).
 - **Measurable latency targets, each test-assertable:**
   - *Keystroke-to-paint* (search/filter typing): render settles within 250ms of the user pausing,
     measured at 1,000+ items in the project.
@@ -789,11 +810,18 @@ reserved for exactly one thing — the current position.
 
 ## UI Considerations
 
+**The volume lesson (plans `01-19`/`01-20`, gaps G-01-2 and G-01-4):** two consecutive major UAT
+gaps in this phase shared one root shape — an assumption true at small N and false at volume —
+and neither was reachable by any fixture in the desktop suite, whose ceiling was 13 rows
+(`epic-roster.test.tsx`) before this round. `packages/desktop/src/board/__tests__/volume.ts` is
+the shared, self-checking fixture that now exists so a volume-shaped assertion does not have to be
+rebuilt from scratch a third time.
+
 State coverage resolved against this phase's shape (empty / loading / error / populated / partial /
 overflow / long-text). Empty- and error-state **copy** live in Copywriting Contract above; this
 section covers coverage status and references those rows rather than restating them.
 
-Applicable state considerations resolved: 10 covered, 2 backstop, 0 unresolved.
+Applicable state considerations resolved: 11 covered, 2 backstop, 0 unresolved.
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
@@ -804,7 +832,8 @@ Applicable state considerations resolved: 10 covered, 2 backstop, 0 unresolved.
 | loading | search/filter round trip | ✅ covered | In-field non-blocking indicator; window never re-skeletons (State Inventory). |
 | error | mutation/query failure | ✅ covered | Persistent inline toast, synchronous invoke error path (State Inventory, Copywriting Contract). |
 | error | project unreachable (D-16) | ✅ covered | Dedicated reconciliation state; explicit relocation only (State Inventory, Copywriting Contract). |
-| overflow | board list, 1,000+ items | ✅ covered | Fixed-height virtualization + visible group counts (Performance Contract, State Inventory). |
+| overflow | board list, 1,000+ items | ✅ covered | Fixed-height virtualization + visible group counts (Performance Contract, State Inventory). **Amended in plan `01-20` (G-01-4):** this row's original claim covered rendering rows at volume, not focusing an off-window one — G-01-4 proved the quick-add row's focus needed its own coverage; see the row below. |
+| overflow | quick-add row, board scrolled past the mounted window | ✅ covered | Scrolled into view and focused from an effect rather than relying on mount-time focus (see "Quick-add's focus delivery," Keyboard Map). Attributed to plan `01-20` (G-01-4). |
 | long-text | row title | ✅ covered | Truncate-not-wrap + native tooltip; full text in detail panel (Row Anatomy). |
 | zero-one-many | acceptance criteria, 0 vs many | ✅ covered | Checked/total badge always visible (D-08); Done-warning fires only when total > 0 and unchecked > 0. |
 | partial | activity trail beyond 50 events | 🧪 backstop | "Load more" affordance assumed sufficient; not verified against a real 1,000+-event trail in this spec — executor should confirm pagination feels adequate during UAT. |
