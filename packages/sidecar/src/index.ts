@@ -34,7 +34,15 @@ interface KillRequest {
   runId: string;
 }
 
-type SidecarRequest = SpawnRequest | InterruptRequest | KillRequest;
+interface PermissionAnswerRequest {
+  id: string;
+  op: "permission_answer";
+  runId: string;
+  requestId: string;
+  decision: "allow" | "deny";
+}
+
+type SidecarRequest = SpawnRequest | InterruptRequest | KillRequest | PermissionAnswerRequest;
 
 /** One `claude_code` adapter instance drives every run this sidecar process hosts — PROC-01's
  * one-OS-process-per-session holds because each `startSession` spawns its own child, while the
@@ -101,6 +109,18 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
     case "kill": {
       try {
         await adapter.killSession(request.runId);
+        emitAck(request.id, true);
+      } catch (err: unknown) {
+        emitAck(request.id, false, String(err));
+      }
+      return;
+    }
+    case "permission_answer": {
+      // AGNT-06: the ONLY caller of resolvePermission — a decision relayed here is the ONLY
+      // thing that ever settles a held permission-prompt tool call (RESEARCH.md pitfall 4: the
+      // sidecar itself decides nothing).
+      try {
+        adapter.resolvePermission(request.runId, request.requestId, request.decision);
         emitAck(request.id, true);
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));

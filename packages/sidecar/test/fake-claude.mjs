@@ -15,18 +15,67 @@
  * reaches the grandchild through POSIX process-group inheritance (the grandchild is spawned here
  * WITHOUT its own `detached` flag, so it stays in this process's group), not through any signal
  * forwarding this script writes itself. See `packages/sidecar/test/stop.test.mjs`.
+ *
+ * **Permission-calling mode** (`FLYWHEEL_FAKE_CALL_PERMISSION=1` or `=2`, plan 02-05's AGNT-06
+ * tests): plays the REAL backend's own role in the permission-prompt round trip — reads its own
+ * `--permission-prompt-tool`/`--mcp-config` argv (exactly as the adapter built it), spawns the
+ * named MCP server as ITS OWN child via `@modelcontextprotocol/sdk`'s `StdioClientTransport`
+ * (matching how the documented `--mcp-config` mechanism actually works — the BACKEND owns
+ * spawning each named server, never the sidecar), and calls the one tool it exposes. `=1` calls
+ * it once; `=2` fires two calls concurrently (without awaiting the first) so the concurrency case
+ * can prove they resolve independently, in whichever order their answers arrive. Each call's
+ * outcome is printed as a `permission_tool_result` line — not part of claude's own real
+ * `stream-json` schema, but `normaliseStreamEvent` already tolerates and forwards any
+ * unrecognised shape as `type: "unknown"` while preserving its verbatim `raw` text, so the test
+ * reads the outcome straight off that field without needing a schema change.
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 const SESSION_ID = "fake-session-0001";
 const STUBBORN = process.env.FLYWHEEL_FAKE_STUBBORN === "1";
+const CALL_PERMISSION = Number(process.env.FLYWHEEL_FAKE_CALL_PERMISSION ?? "0");
 
 function printLine(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
 }
 
 let interrupted = false;
+
+/** Read `--flag <value>` from this process's own argv — the exact argv `buildClaudeArgv`
+ * constructed for the real `claude` binary, which this script stands in for. */
+function readFlag(flag) {
+  const index = process.argv.indexOf(flag);
+  return index === -1 ? undefined : process.argv[index + 1];
+}
+
+/** Call the permission-prompt tool once, labelled `label` for the caller to tell concurrent
+ * calls apart in its printed result. Spawns the MCP server named in `--mcp-config` exactly as
+ * the real backend would, per the documented `--permission-prompt-tool` mechanism. */
+async function callPermissionToolOnce(label) {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+
+  const mcpConfig = JSON.parse(readFlag("--mcp-config"));
+  const permissionPromptTool = readFlag("--permission-prompt-tool");
+  const [, serverName, rawToolName] = permissionPromptTool.match(/^mcp__(.+)__(.+)$/);
+  const serverConfig = mcpConfig.mcpServers[serverName];
+
+  const transport = new StdioClientTransport({ command: serverConfig.command, args: serverConfig.args });
+  const client = new Client({ name: "fake-claude", version: "0.1.0" });
+  await client.connect(transport);
+  try {
+    const result = await client.callTool({
+      name: rawToolName,
+      arguments: { tool_name: "Bash", input: { command: `echo ${label}` } },
+    });
+    const text = result.content?.[0]?.text ?? "{}";
+    const parsed = JSON.parse(text);
+    printLine({ type: "permission_tool_result", label, behavior: parsed.behavior });
+  } finally {
+    await client.close();
+  }
+}
 
 printLine({
   type: "system",
@@ -41,6 +90,14 @@ printLine({
     content: [{ type: "text", text: "Hello from the fake CLI." }],
   },
 });
+
+if (CALL_PERMISSION === 1) {
+  await callPermissionToolOnce("first");
+} else if (CALL_PERMISSION === 2) {
+  // Concurrency case: fire both calls WITHOUT awaiting the first — they must resolve
+  // independently, in whichever order their answers arrive, not the order they were raised.
+  await Promise.all([callPermissionToolOnce("first"), callPermissionToolOnce("second")]);
+}
 
 if (STUBBORN) {
   // A plain (non-detached) spawn from here inherits THIS process's process group — exactly the

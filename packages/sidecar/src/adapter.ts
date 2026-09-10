@@ -47,6 +47,12 @@ export interface ToolResultEvent extends AgentEventBase {
 
 export interface PermissionRequestEvent extends AgentEventBase {
   type: "permission_request";
+  /** The permission-prompt MCP server's own correlation id for this held call (AGNT-06) —
+   * carried end-to-end so a later `resolvePermission(runId, requestId, decision)` call settles
+   * THIS specific held tool call and no other. Distinct from `permission_requests.id` (the
+   * database row's own ULID, minted separately once the Rust core decides to create a pending
+   * row) — the two are correlated by the Rust core itself, not by sharing one identifier. */
+  requestId: string;
   toolName: string;
   input: unknown;
 }

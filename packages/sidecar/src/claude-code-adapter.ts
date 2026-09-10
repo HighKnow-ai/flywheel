@@ -10,6 +10,7 @@
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
 import {
   type AdapterCapabilities,
@@ -20,6 +21,12 @@ import {
   type StartSessionOptions,
   UnknownRunError,
 } from "./adapter.js";
+import {
+  MCP_SERVER_NAME,
+  PERMISSION_TOOL_NAME,
+  startPermissionServer,
+  type PermissionServerHandle,
+} from "./mcp-permission-server.js";
 
 /** The binary name/path this adapter spawns — overridable via `FLYWHEEL_CLAUDE_BIN` so tests can
  * point it at `test/fake-claude.mjs` instead of the real CLI. Never a credential. */
@@ -27,13 +34,32 @@ export function resolveClaudeBin(): string {
   return process.env.FLYWHEEL_CLAUDE_BIN ?? "claude";
 }
 
+/** The compiled standalone permission-server script's absolute path — resolved relative to THIS
+ * compiled module's own location (`dist/claude-code-adapter.js` -> `dist/mcp-permission-server.js`),
+ * never from `process.cwd()` (PROC-02's own "no implicit cwd" discipline, applied here to a
+ * sibling-file lookup rather than a git operation). */
+export function permissionServerScriptPath(): string {
+  return fileURLToPath(new URL("./mcp-permission-server.js", import.meta.url));
+}
+
 /**
  * Build the exact argv `claude` is invoked with. Pure function — no spawning, no environment
  * access — so it is unit-testable without a child process. Never places a credential in the
  * array: credentials only ever reach the child through its `env` (T-02-01).
+ *
+ * `permissionPromptToolName`/`mcpConfig` are appended together, or not at all — AGNT-06's
+ * blocking permission gate (`--permission-prompt-tool` + `--mcp-config` naming exactly one
+ * server, supplied explicitly on the command line rather than discovered from the worktree's own
+ * configuration, T-02-02). Both are optional purely so this function's own unit tests (and any
+ * future adapter that does not yet wire the gate) can call it with the bare two fields.
  */
-export function buildClaudeArgv(options: { prompt: string; permissionMode: string }): string[] {
-  return [
+export function buildClaudeArgv(options: {
+  prompt: string;
+  permissionMode: string;
+  permissionPromptToolName?: string;
+  mcpConfig?: string;
+}): string[] {
+  const argv = [
     "-p",
     options.prompt,
     "--output-format",
@@ -41,6 +67,10 @@ export function buildClaudeArgv(options: { prompt: string; permissionMode: strin
     "--permission-mode",
     options.permissionMode,
   ];
+  if (options.permissionPromptToolName && options.mcpConfig) {
+    argv.push("--permission-prompt-tool", options.permissionPromptToolName, "--mcp-config", options.mcpConfig);
+  }
+  return argv;
 }
 
 interface ClaudeStreamInit {
@@ -122,7 +152,7 @@ export function normaliseStreamEvent(
 
 const CAPABILITIES: AdapterCapabilities = {
   supportsResume: false,
-  supportsPermissionPrompt: false,
+  supportsPermissionPrompt: true,
   supportsCostReporting: true,
 };
 
@@ -155,6 +185,10 @@ interface LiveSession {
   lastResult: { subtype: string; totalCostUsd?: number; sessionId?: string } | undefined;
   onEvent: (event: AgentEvent) => void;
   nextSeq: number;
+  /** This run's own permission-prompt MCP server handle (AGNT-06) — started BEFORE `child` is
+   * spawned. `resolvePermission` (below) looks a run up here to relay a decision; `close()` is
+   * called exactly once, from {@link emitSessionClosed}, so the socket never outlives its run. */
+  permissionServer: PermissionServerHandle;
 }
 
 /** Tracks every session this sidecar has ever started, for the lifetime of this process —
@@ -172,6 +206,7 @@ function emitSessionClosed(
 ): void {
   if (session.closedEventEmitted) return;
   session.closedEventEmitted = true;
+  session.permissionServer.close();
   session.onEvent({
     runId,
     seq: session.nextSeq++,
@@ -211,7 +246,36 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   readonly capabilities = CAPABILITIES;
 
   async startSession(options: StartSessionOptions): Promise<void> {
-    const argv = buildClaudeArgv({ prompt: options.prompt, permissionMode: options.permissionMode });
+    // AGNT-06: the permission server starts BEFORE the backend is spawned, so its socket is
+    // already listening by the time the backend's first gated tool call could possibly arrive.
+    let session!: LiveSession;
+    const permissionServer = startPermissionServer((payload) => {
+      session.onEvent({
+        runId: options.runId,
+        seq: session.nextSeq++,
+        at: new Date().toISOString(),
+        raw: JSON.stringify({ type: "permission_request", ...payload }),
+        type: "permission_request",
+        requestId: payload.requestId,
+        toolName: payload.toolName,
+        input: payload.input,
+      });
+    });
+
+    const mcpConfig = JSON.stringify({
+      mcpServers: {
+        [MCP_SERVER_NAME]: {
+          command: process.execPath,
+          args: [permissionServerScriptPath(), permissionServer.socketPath],
+        },
+      },
+    });
+    const argv = buildClaudeArgv({
+      prompt: options.prompt,
+      permissionMode: options.permissionMode,
+      permissionPromptToolName: PERMISSION_TOOL_NAME,
+      mcpConfig,
+    });
     const bin = resolveClaudeBin();
 
     const child = spawn(bin, argv, {
@@ -227,7 +291,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       resolveClosed = resolve;
     });
 
-    const session: LiveSession = {
+    session = {
       child,
       closed,
       closedEventEmitted: false,
@@ -235,6 +299,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       lastResult: undefined,
       onEvent: options.onEvent,
       nextSeq: 0,
+      permissionServer,
     };
     liveSessions.set(options.runId, session);
 
@@ -300,6 +365,17 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       }
     }
     await session.closed;
+  }
+
+  /** Relay a decision to `runId`'s held permission-prompt tool call (AGNT-06) — the ONLY thing
+   * that ever settles one. Rejects with {@link UnknownRunError} for a `runId` this sidecar never
+   * spawned (mirrors `interruptSession`/`killSession`'s own guard); a `requestId` matching no
+   * currently-held call for a known run is a logged no-op inside
+   * `PermissionServerHandle.resolvePermission` itself, never an error here. */
+  resolvePermission(runId: string, requestId: string, decision: "allow" | "deny"): void {
+    const session = liveSessions.get(runId);
+    if (!session) throw new UnknownRunError(runId);
+    session.permissionServer.resolvePermission(requestId, decision);
   }
 
   async killSession(runId: string): Promise<void> {
