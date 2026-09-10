@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-17-PLAN.md (gap closure G-01-2)
-last_updated: "2026-09-10T04:29:41.981Z"
+stopped_at: Completed 01-18-PLAN.md (gap closure G-01-2)
+last_updated: "2026-09-10T04:53:48.269Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 01 execution started
-state_head: 55cc843b730953525c1b522e765fb8036f93ddfb
+state_head: 20a1c967749d71218223b76c1d33a97c961fde50
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 2 of 18
+Plan: 3 of 18
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 01 execution started
 
@@ -75,6 +75,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-the-board-is-the-store-of-record P15 | 15min | 3 tasks | 9 files |
 | Phase 01 P16 | 35min | 3 tasks | 12 files |
 | Phase 01 P17 | 25min | 3 tasks | 13 files |
+| Phase 01 P18 | 30min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,7 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-15: BOARD-01 reticked in REQUIREMENTS.md, restored to its pre-01-12 wording — G-01-EPIC-ASSIGN is fully closed (issue parenting, quick-add nesting, and both creation paths now carry the ids they were dropping)
 - [Phase 01]: G-01-1 closed: App.tsx's menu:action bridge no longer pre-empts the layer guard; native menu bar now mirrors bindingAllowedInLayer's verdict via menu_set_action_enabled (MenuHandles<R> generic in state.rs, concrete Wry at the command boundary)
 - [Phase 01]: [Phase 01] G-01-2 closed: epic roster (list_epics/epic_list_all/useEpics) mirrors the actor-roster triad, replacing BoardView's windowed epicsById derivation; epic-pill-unresolved is a registered Legend mark so the pill can never leak a raw internal id
+- [Phase 01]: G-01-2 closed: FilterBar's chip row and both parent pickers now resolve epics from the project-wide roster (useEpics), never the loaded board window — the epic filter/pickers are the second half of the fix 01-17 started for the pill
 
 ### Pending Todos
 
@@ -156,6 +158,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T04:29:41.944Z
-Stopped at: Completed 01-17-PLAN.md (gap closure G-01-2)
+Last session: 2026-09-10T04:53:48.231Z
+Stopped at: Completed 01-18-PLAN.md (gap closure G-01-2)
 Resume file: None

@@ -20,12 +20,12 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Board
 
-- [ ] **BOARD-01**: User can create, edit and delete epics, tasks and issues in a fixed three-level hierarchy that cannot be reconfigured
+- [x] **BOARD-01**: User can create, edit and delete epics, tasks and issues in a fixed three-level hierarchy that cannot be reconfigured
 - [ ] **BOARD-02**: Every task carries structured acceptance criteria as discrete, individually checkable items — not free prose
 - [ ] **BOARD-03**: Acceptance criteria are immutable once a task starts work; changing them creates a new revision rather than overwriting
 - [ ] **BOARD-04**: Items move through a fixed workflow (Backlog → Todo → In Progress → In Review → Done) that cannot be customised
 - [ ] **BOARD-05**: User can reorder and reprioritise items within an epic and within the backlog
-- [ ] **BOARD-06**: User can filter and search across all items in a project by text, status, epic and assignee
+- [x] **BOARD-06**: User can filter and search across all items in a project by text, status, epic and assignee
 - [ ] **BOARD-07**: User can drive board navigation and the common item actions entirely from the keyboard
 - [ ] **BOARD-08**: Board interactions complete without perceptible lag on a project containing at least 1,000 items
 - [ ] **BOARD-09**: Every item shows a chronological activity trail of what changed, when, and which actor changed it
@@ -227,12 +227,12 @@ Which phases cover which requirements. Populated during roadmap creation.
 | DATA-06 | Phase 2 | Pending |
 | DATA-07 | Phase 1 | Gaps Found |
 | DATA-08 | Phase 1 | Gaps Found |
-| BOARD-01 | Phase 1 | Gaps Found |
+| BOARD-01 | Phase 1 | Complete |
 | BOARD-02 | Phase 1 | Gaps Found |
 | BOARD-03 | Phase 4 | Pending |
 | BOARD-04 | Phase 1 | Gaps Found |
 | BOARD-05 | Phase 1 | Gaps Found |
-| BOARD-06 | Phase 1 | Gaps Found |
+| BOARD-06 | Phase 1 | Complete |
 | BOARD-07 | Phase 1 | Gaps Found |
 | BOARD-08 | Phase 1 | Gaps Found |
 | BOARD-09 | Phase 1 | Gaps Found |
