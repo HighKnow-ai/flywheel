@@ -24,6 +24,7 @@
 
 pub mod events;
 pub mod filter;
+pub mod permissions;
 pub mod search;
 
 use anyhow::Context;

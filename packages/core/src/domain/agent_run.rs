@@ -9,7 +9,7 @@
 
 use anyhow::Context;
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::event::{append_event, next_sequence};
 use crate::domain::trigger::create_user_action_trigger;
@@ -254,6 +254,31 @@ pub fn close_agent_run(
     )?;
 
     tx.commit().context("failed to commit close_agent_run transaction")?;
+    Ok(())
+}
+
+/// Move a run to `blocked` (AGNT-06, D-37) inside the CALLER'S transaction — never opens its own.
+/// Called only from `domain::permission_request::create_pending_request`'s own transaction, so a
+/// blocked run and its pending request row are written together or not at all; there is no
+/// window where one exists without the other.
+pub fn set_run_blocked(tx: &Transaction, agent_run_id: &str) -> anyhow::Result<()> {
+    tx.execute(
+        "UPDATE agent_runs SET status = 'blocked' WHERE id = ?1",
+        params![agent_run_id],
+    )
+    .context("failed to move the run to blocked")?;
+    Ok(())
+}
+
+/// Move a run back to `running` inside the CALLER'S transaction — the exact inverse of
+/// [`set_run_blocked`], called only from `domain::permission_request::answer_request`'s own
+/// transaction.
+pub fn clear_run_blocked(tx: &Transaction, agent_run_id: &str) -> anyhow::Result<()> {
+    tx.execute(
+        "UPDATE agent_runs SET status = 'running' WHERE id = ?1",
+        params![agent_run_id],
+    )
+    .context("failed to clear the run's blocked status")?;
     Ok(())
 }
 

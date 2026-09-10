@@ -12,6 +12,8 @@ pub mod agent_run;
 pub mod epic;
 pub mod event;
 pub mod issue;
+pub mod permission_request;
+pub mod permission_rule;
 pub mod project;
 pub mod task;
 pub mod trigger;
