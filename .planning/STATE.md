@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: The Board Is The Store Of Record
 status: executing
-stopped_at: Completed 01-19-PLAN.md (gap closure G-01-4)
-last_updated: "2026-09-10T06:13:34.395Z"
+stopped_at: Completed 01-20-PLAN.md (gap closure G-01-4 hardening)
+last_updated: "2026-09-10T06:28:34.139Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 01 execution started
-state_head: a75fe5591cb3a2362fc70119847d8e6cc36c2c98
+state_head: 49d8bab42db3a7a7a26d33a01b94522eaf3ac314
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 20
-  completed_plans: 19
+  completed_plans: 20
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-08)
 ## Current Position
 
 Phase: 01 (The Board Is The Store Of Record) — EXECUTING
-Plan: 2 of 20
+Plan: 3 of 20
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 01 execution started
 
@@ -77,6 +77,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P17 | 25min | 3 tasks | 13 files |
 | Phase 01 P18 | 30min | 3 tasks | 10 files |
 | Phase 01 P19 | 35min | 3 tasks | 6 files |
+| Phase 01 P20 | 25min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,8 @@ Recent decisions affecting current work:
 - [Phase 01]: G-01-2 closed: FilterBar's chip row and both parent pickers now resolve epics from the project-wide roster (useEpics), never the loaded board window — the epic filter/pickers are the second half of the fix 01-17 started for the pill
 - [Phase 01]: G-01-4 closed: quick-add focus uses a consume-once request flag (quickAddFocusPending) plus virtualizer.scrollToIndex, not autoFocus or a ref, so focus survives both late-mounting and re-application — A ref handle can't focus an unmounted row; a quickAddOpen-keyed effect can't re-fire on a second press with no state change
 - [Phase 01]: collapseStore gained a distinct idempotent expand(projectId, status) action rather than reusing toggle, so a second consecutive quick-add open cannot re-close an already-open Backlog band
+- [Phase 01]: [Phase 01-20]: MOUNTABLE_ROW_ESTIMATE is computed from three named local constants inside volume.ts (jsdom viewport height, ROW_HEIGHT, overscan) rather than imports, so a fixture-adequacy self-check catches drift without adding a production-code dependency to the test-helper module. — Matches the plan's literal instruction and keeps volume.ts's only production dependency to the BoardItem type; the self-check case fails the suite if VOLUME_ROW_COUNT's margin over the estimate erodes.
+- [Phase 01]: [Phase 01-20]: buildVolumeItems assigns each row a 26-character Crockford base32 id (ULID-shaped) instead of short ids, so plan 01-19's raw-identifier leak scan (G-01-2) is a real assertion against the shared volume fixture rather than a vacuous one. — A fixture built from short ids like "1"/"2" could never match the 26-character pattern the leak scan looks for, regardless of whether production code actually leaked one.
 
 ### Pending Todos
 
@@ -161,6 +164,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T06:13:34.346Z
-Stopped at: Completed 01-19-PLAN.md (gap closure G-01-4)
+Last session: 2026-09-10T06:28:34.088Z
+Stopped at: Completed 01-20-PLAN.md (gap closure G-01-4 hardening)
 Resume file: None

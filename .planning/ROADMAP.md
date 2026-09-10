@@ -85,7 +85,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. User opens any item and sees a chronological trail of what changed, when, and which actor — human or agent — changed it.
   5. User force-quits the application mid-work and relaunches (including across a version upgrade that migrates the database) with no committed change lost or corrupted, and can replay the project's entire change history in order from any cursor position.
 
-**Plans**: 19/20 plans executed — 18/18 executed (11/11 in 10 waves, plus 5 gap-closure plans 01-12 through 01-16 in 4 waves opened by conversational UAT, plus 01-17 and 01-18 for G-01-2), plus 2 planned gap-closure plans (01-19, 01-20) for G-01-4
+**Plans**: 20/20 plans executed — 18/18 executed (11/11 in 10 waves, plus 5 gap-closure plans 01-12 through 01-16 in 4 waves opened by conversational UAT, plus 01-17 and 01-18 for G-01-2), plus 2 planned gap-closure plans (01-19, 01-20) for G-01-4
 **UI hint**: yes
 
 Plans:
@@ -161,7 +161,7 @@ Plans:
 
 **Gap closure — Wave 8** *(blocked on 01-19 — shares quick-add-focus.test.tsx)*
 
-- [ ] 01-20-PLAN.md — G-01-4: a shared self-checking volume fixture, the forwarded-accelerator path proven at volume, and the focus contract recorded in 01-UI-SPEC.md
+- [x] 01-20-PLAN.md — G-01-4: a shared self-checking volume fixture, the forwarded-accelerator path proven at volume, and the focus contract recorded in 01-UI-SPEC.md
 
 **Notes**: This is where the three structural seams land that would otherwise be retrofit
 nightmares: the append-only event log written in the same transaction as the mutable projection
@@ -508,7 +508,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. The Board Is The Store Of Record | 19/20 | In Progress|  |
+| 1. The Board Is The Store Of Record | 20/20 | In Progress|  |
 | 2. One Agent, One Worktree, Watched Live | 0/TBD | Not started | - |
 | 3. Nothing Lost, Nothing Left Running | 0/TBD | Not started | - |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
