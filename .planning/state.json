@@ -1,0 +1,73 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": null,
+  "phases": [
+    {
+      "number": "1",
+      "name": "The Board Is The Store Of Record",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "One Agent, One Worktree, Watched Live",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "Nothing Lost, Nothing Left Running",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "`/clear` Is Free",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "Socratic Epic Authoring",
+      "status": "pending"
+    },
+    {
+      "number": "6",
+      "name": "Agents File Their Own Backlog",
+      "status": "pending"
+    },
+    {
+      "number": "7",
+      "name": "The Board Tells The Git Truth",
+      "status": "pending"
+    },
+    {
+      "number": "8",
+      "name": "Review And Merge Inside Flywheel",
+      "status": "pending"
+    },
+    {
+      "number": "9",
+      "name": "Planned Fan-Out That Does Not Collide",
+      "status": "pending"
+    },
+    {
+      "number": "10",
+      "name": "Fleet Supervision Across Every Project",
+      "status": "pending"
+    },
+    {
+      "number": "10.1",
+      "name": "Visual polish: brand assets and confirmed motion",
+      "status": "pending"
+    },
+    {
+      "number": "11",
+      "name": "Ship It",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd:progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 2 of 12 · 8% · executing"
+  },
+  "updated_at": "2026-09-10T11:44:52.923Z"
+}
