@@ -1,21 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 01-the-board-is-the-store-of-record
 source: [01-VERIFICATION.md]
 started: 2026-09-09T23:15:00Z
-updated: 2026-09-10T13:20:00Z
+updated: 2026-09-10T14:45:00Z
 ---
 
 ## Current Test
 
-number: 3
-name: Menu-bar visual greying affordance (carried from G-01-1 Task 3)
-expected: |
-  Toggle Command Palette appears greyed while the palette is open and re-enables when it
-  closes; File items (Register Project.../New Task/New Epic) are greyed on the first opening
-  of the File menu with the detail panel open, or at worst the second, per plan 01-16's
-  accepted one-frame-window design decision — never permanently enabled-and-dead.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -25,26 +18,59 @@ expected: Launch a real `tauri dev` build and, with the mouse untouched, exercis
 result: issue
 reported: "item detail panel Cmd-N is actually closing the panel and doing the command"
 severity: major
+resolution: |
+  Closed, not retracted. The reported Cmd-N defect was real; plans 01-14 through 01-16 fixed it
+  (G-01-1 `status: closed`). Its code half is independently verified in 01-VERIFICATION.md
+  truth #16 (BOARD-07c) via `menu-bridge.test.tsx` — the regression test G-01-1's `missing[2]`
+  demanded, exercising the `menu:action` bridge with a real detail layer instead of stubbing
+  `subscribeMenuAction` to a no-op. Its visual-affordance half passed as test 3. Its remaining
+  owner-observable half — the three-accelerator sweep G-01-1's `missing[1]` demanded — is
+  carried into test 4 rather than being silently assumed from the code read.
 
 ### 2. Perceived responsiveness at 1,000+ items
 
-expected: With a project seeded past 1,000 items (no seed tooling exists yet — see the note carried from the previous round), reorder, filter, search, and switch projects with the mouse untouched throughout. No perceptible lag or visual jank at volume.
-result: [pending]
+expected: The board is already seeded past 1,000 items and the data persists on disk (2 projects, 13 epics, 905 tasks, 161 issues in `~/Library/Application Support/Flywheel/flywheel.db` — written by the throwaway `fw-seed` tool through core's real domain API during the G-01-2 round, so keys, fractional ranks, the event log and the FTS index all landed as the app writes them). With that volume loaded, reorder, filter, search, and switch projects with the mouse untouched throughout. No perceptible lag or visual jank at volume.
+result: pass
+exercised_on: |
+  A `tauri dev` build (dev profile, unoptimized + debuginfo — the harsher of the two profiles
+  for a lag judgement, so a pass here is not flattered by release optimizations). Owner drove
+  the seeded THRE project (`01M22XBK2AMH58GBVV4VDXT8H3`, key_counter 1078) after switching to
+  it from the rail; the earlier duplicate registration `01M222FWC4FNCQKDZCXD8BEQ68` sits in the
+  rail as `unreachable` and is correctly refused — `.flywheel/project.json` names the active
+  project, so reconciliation is behaving as specified, not failing.
 
 ### 3. Menu-bar visual greying affordance (carried from G-01-1 Task 3)
 
 expected: Launch a real `tauri dev` build. With the item detail panel open, open the View menu with the mouse while the command palette is also open, and confirm Toggle Command Palette reads visually greyed (not merely refused-but-enabled); reopen the same detail panel and go straight to the File menu to observe whether Register Project.../New Task/New Epic are greyed on the first opening or only the second (the plan's accepted, bounded one-frame window). Toggle Command Palette must re-enable when the palette closes; no menu item may sit permanently enabled-and-dead.
-result: [pending]
-why_human: orca's computer-use provider on this host cannot click the real native menu bar or read a MenuItem's visual enabled/disabled state (surfaces.menubar:false / surfaces.dialogs:false), so no automated tool can settle it.
+result: pass
+why_human: orca's computer-use provider on this host cannot click the real native menu bar or read a MenuItem's visual enabled/disabled state (surfaces.menubar:false / surfaces.dialogs:false), so no automated tool can settle it — confirmed live this session against the running app (capabilities reported surfaces.menubar:false, surfaces.menus:false, surfaces.dialogs:false).
+exercised_on: A `tauri dev` build, owner-driven against the real native macOS menu bar.
+
+### 4. Accelerator re-test over the closed G-01-1 fix (all three forwarded ids)
+
+expected: G-01-1's diagnosis closed with an explicit instruction — "Cover all four forwarded ids, not just create-task: create-epic (Cmd-Shift-N) and register-project (Cmd-Shift-O) travel the identical path and are expected to show the same panel-closing symptom. Re-test all three during fix verification." The code half is verified (`menu-bridge.test.tsx` 17/17 fresh this session; `App.tsx`'s only `returnToBoardLayer` occurrence is a comment), but no human has driven the three accelerators against a real build since the fix landed. With the item detail panel open, press Cmd-N, then Cmd-Shift-N, then Cmd-Shift-O: each must be wholly inert — the panel stays open, no new task/epic is created, no project-registration dialog appears. Then press Cmd-K and confirm the palette still opens over the panel without stealing focus, and Escape returns you to the panel rather than dismissing both.
+result: issue
+reported: "it works, only Cmd-N and others are not stealing the focus when re-applied." — clarified: the accelerators are correctly inert while the detail panel is open (G-01-1's fix holds, and its `missing[1]` three-id sweep is hereby discharged); once the panel closes they DO fire, but keyboard focus stays on the board / the old panel instead of moving into the new item's field, so a Tab or a click is needed before typing.
+severity: major
+severity_note: |
+  The literal phrasing ("it works, only...") maps to `minor` under the severity guide's
+  "works but..." row. Recorded as `major` instead because the product's stated invariant is
+  mouse-free operation — 01-UI-SPEC.md's keyboard model and every UAT test in this phase say
+  "with the mouse untouched" — and this forces a pointer or an extra blind keystroke onto the
+  primary creation path. Downgrade to `minor` if the owner reads it as cosmetic.
+carried_from: test 1 (G-01-1's `missing[1]`)
+discharges: "G-01-1 missing[1] — all three forwarded ids (Cmd-N / Cmd-Shift-N / Cmd-Shift-O) driven against a real build with the detail panel open; all three confirmed inert."
+
 
 ## Summary
 
-total: 3
-passed: 1
-issues: 1
-pending: 2
+total: 4
+passed: 3
+issues: 2
+pending: 0
 skipped: 0
 blocked: 0
+issues_open: 1   # test 1's issue is closed (G-01-1); test 4 opened G-01-4
 
 note: |
   G-01-2 was found by owner inspection AFTER test 2 was recorded as passed. Test 2's own
@@ -169,3 +195,60 @@ The two tests above are what the re-verification could not settle from the codeb
 test 1 covers a UI surface that did not exist when the prior round ran, and test 2 is the
 volume clause the prior round explicitly recorded as not exercised (the board held 1 project /
 1 task / 1 issue at the time).
+
+- gap_id: G-01-4
+  truth: "Opening quick-add from anywhere on the board lands the cursor in its input, so a task or epic can be created and typed without touching the mouse."
+  status: failed
+  reason: |
+    User reported at test 4: "it works, only Cmd-N and others are not stealing the focus when
+    re-applied." Clarified in session: the accelerators are correctly INERT while the item detail
+    panel is open (G-01-1 holds), but once the panel is closed they fire and the command runs
+    while keyboard focus stays on the board / the previously-focused element instead of moving
+    into the new item's field — a Tab or a click is needed before typing.
+  severity: major
+  test: 4
+  root_cause: |
+    Quick-add's only focus mechanism is React's `autoFocus` prop, which fires ONLY on mount —
+    and the row it sits on is virtualized, so at volume it never mounts.
+
+    `BoardView.tsx:305` inserts the quick-add row at the top of the Backlog band, and
+    `BAND_ORDER` (line 72) puts `backlog` first, so the row lands at **index 1** of the virtual
+    row list. `useVirtualizer` (line 319) is configured `estimateSize: () => ROW_HEIGHT`
+    (`ROW_HEIGHT = 40`, BoardRow.tsx:52) with `overscan: 10`. The row is therefore only mounted
+    while the scroll position is within roughly `(1 + 10) x 40 = 440px` of the top of the board.
+
+    Press Cmd-N (or Cmd-Shift-N) while scrolled further down than that on a 1,000-item board and
+    the sequence is: `openQuickAdd` -> `storeOpenQuickAdd(kind)` -> `quickAddOpen: true` ->
+    the row is added to the `rows` memo -> the virtualizer declines to mount it because it is
+    outside the visible window plus overscan -> `<QuickAdd autoFocus>` (line 590-591) never
+    mounts -> `autoFocus` never fires -> focus stays exactly where it was, and the input the
+    user is meant to type into is scrolled off-screen entirely.
+
+    There is no scroll-into-view anywhere to rescue it: `scrollToIndex`, `scrollToOffset` and
+    `scrollIntoView` return ZERO hits across all of `packages/desktop/src/`. Nothing brings the
+    quick-add row into view when it opens; the code assumes it is already there.
+
+    Why every test is green, and why this is G-01-2's blind spot a second time: the largest
+    fixture in the suite is `epic-roster.test.tsx`'s 13 epics. At any fixture that small the
+    quick-add row is ALWAYS inside the mounted window, so `autoFocus` always fires and the
+    defect is structurally unreachable under test. The assumption "the quick-add row is mounted
+    whenever it is open" is invisible at 13 rows and false at 1,000 — exactly the shape of
+    G-01-2's "the loaded window contains every epic a visible task references".
+  artifacts:
+    - path: "packages/desktop/src/board/BoardView.tsx"
+      line: 305
+      issue: "Quick-add row is inserted at the top of the Backlog band (index 1 of the virtual list), far from the user's scroll position at volume."
+    - path: "packages/desktop/src/board/BoardView.tsx"
+      line: 319
+      issue: "useVirtualizer overscan: 10 at ROW_HEIGHT 40 means the quick-add row unmounts once the board is scrolled past ~440px, and no scrollToIndex ever brings it back."
+    - path: "packages/desktop/src/board/BoardView.tsx"
+      line: 590
+      issue: "<QuickAdd autoFocus> relies on mount-time autoFocus as its sole focus mechanism; an unmounted row cannot self-focus."
+    - path: "packages/desktop/src/board/QuickAdd.tsx"
+      line: 33
+      issue: "The autoFocus prop's contract ('lands the cursor in it immediately') is only honoured when the component actually mounts — an invariant nothing enforces."
+  missing:
+    - "Scroll the quick-add row into view when it opens — call the virtualizer's scrollToIndex for the quick-add row index inside the same state transition that sets quickAddOpen, so the row is mounted before focus is expected."
+    - "Stop relying on mount-time autoFocus as the sole focus mechanism: focus the input from an effect keyed on quickAddOpen (or an imperative ref handle) so a row that mounts late still receives focus."
+    - "Guarantee the Backlog band is expanded when quick-add opens — collapsedByStatus['backlog'] currently short-circuits the row's insertion entirely (BoardView.tsx:303), which is a second, independent way for Cmd-N to produce no focusable input."
+    - "Add a test at a volume that exceeds the virtualizer's overscan window (>= ~50 rows) with the board scrolled away from the top — every existing test runs against a handful of rows, where this defect cannot occur."
