@@ -413,6 +413,71 @@ describe("a band the user collapses while quick-add is open stays collapsed (CR-
     });
   });
 
+  // CR-01 residual (01-REVIEW.md, incremental review of fb961dc/71ca01d): the case above proves
+  // only the ONE-WAY leg of a project switch (A -> B). `backlogAutoExpandedForRef` is a scalar —
+  // it can hold at most one "already seeded" project id at a time — so it cannot also remember
+  // that A was already handled once a DIFFERENT project's episode has been recorded in between.
+  // The full round trip (A -> B -> A again, still without unmounting `BoardView`, exactly
+  // App.tsx:212's un-keyed render) reproduces CR-01's original symptom: returning to A silently
+  // re-expands the Backlog the user deliberately re-collapsed, with no click and no accelerator
+  // press to justify it.
+  it("returning_to_a_project_after_a_deliberate_collapse_does_not_re_expand_it", async () => {
+    // Step 1: populated project A, quick-add reachable (via ⌘N, not the empty-board default —
+    // this is the everyday populated-project shape, not the permanently-inert zero-item case
+    // already covered above), Backlog auto-expanded.
+    const { rerender } = renderVolumeBoard(SIXTY_ROWS, [], "proj-a");
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(useCollapseStore.getState().collapsedByProject["proj-a"]?.backlog).not.toBe(true);
+
+    // Step 2: user collapses A's Backlog (a real click on the band header, as every sibling test
+    // in this file does).
+    fireEvent.click(bandHeader("Backlog"));
+    expect(useCollapseStore.getState().collapsedByProject["proj-a"]?.backlog).toBe(true);
+
+    // Step 3: switch to project B — rerender the SAME tree with a new `projectId`, no unmount,
+    // no new `render` call, no React `key` — the absence of a key is the whole point, matching
+    // App.tsx:212. B is empty, so quick-add stays reachable for it without any keystroke.
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <BoardView
+          projectId="proj-b"
+          items={[]}
+          issues={[]}
+          counts={EMPTY_COUNTS}
+          onCreateTask={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(useCollapseStore.getState().collapsedByProject["proj-b"]?.backlog).not.toBe(true);
+    });
+
+    // Step 4: switch back to A — same tree, same lack of a key. `quickAddOpen` is still `true`
+    // in the shared `uiStore` from step 1 (a project switch never resets it), so quick-add stays
+    // reachable for A across the round trip exactly as CR-01's own report traces.
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <BoardView
+          projectId="proj-a"
+          items={SIXTY_ROWS}
+          issues={[]}
+          counts={{ ...EMPTY_COUNTS, backlog: SIXTY_ROWS.length }}
+          onCreateTask={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Step 5: A's Backlog must STILL be collapsed — the user's own click from step 2 must survive
+    // the detour through B. A scalar ref fails here: it forgot A was already seeded the moment B's
+    // episode was recorded, so it treats the return to A as a brand-new episode and re-expands.
+    await waitFor(() => {
+      expect(useCollapseStore.getState().collapsedByProject["proj-a"]?.backlog).toBe(true);
+    });
+  });
+
   it("the_expand_effect_performs_no_store_write_on_later_renders", async () => {
     act(() => {
       useCollapseStore.getState().toggle("proj-1", "backlog");
