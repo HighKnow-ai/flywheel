@@ -24,7 +24,9 @@ export type FocusRegion =
   | "board-list"
   | "quick-add"
   | "item-detail"
-  | "command-palette";
+  | "command-palette"
+  | "session-surface"
+  | "permission-card";
 
 /** Every board action reachable from the keyboard, the palette, or (menu.rs) the native menu.
  * `create-issue`/`open-legend`/`filter-status`/`filter-epic`/`filter-assignee`/`filter-priority`
@@ -57,7 +59,18 @@ export type ActionId =
   | "open-epic-picker"
   | "reorder-up"
   | "reorder-down"
-  | "delete-item";
+  | "delete-item"
+  // Agent actions (02-UI-SPEC.md "Keyboard Map Additions", AGNT-06). `answer-permission-*` are
+  // deliberately NOT reachable from `board-list` — `bindingAllowedInLayer` below permits them only
+  // in the `"permission-card"` layer (T-02-15).
+  | "start-work"
+  | "open-live-session"
+  | "stop-session"
+  | "toggle-raw-view"
+  | "answer-permission-allow"
+  | "answer-permission-deny"
+  | "answer-permission-allow-always"
+  | "open-settings";
 
 export interface Binding {
   id: ActionId;
@@ -120,6 +133,32 @@ export const BINDINGS: Binding[] = [
   { id: "reorder-up", region: "board-list", key: "ArrowUp", meta: true, label: "Reorder up" },
   { id: "reorder-down", region: "board-list", key: "ArrowDown", meta: true, label: "Reorder down" },
   { id: "delete-item", region: "board-list", key: "Backspace", meta: true, label: "Delete" },
+  // `w`/`l` — neither collides with the nine letters above (`j k o c s p e a m`), verified at test
+  // time from this table rather than restated (02-03-PLAN.md Task 3).
+  { id: "start-work", region: "board-list", key: "w", label: "Start Work" },
+  { id: "open-live-session", region: "board-list", key: "l", label: "Open Live Session" },
+
+  // ---- Live session surface (D-31) --------------------------------------------------------
+  { id: "stop-session", region: "session-surface", key: ".", meta: true, label: "Stop Session" },
+  { id: "toggle-raw-view", region: "session-surface", key: "r", label: "Toggle Raw View" },
+
+  // ---- Permission-request card (AGNT-06, D-37/D-38) — region-scoped so a bare `a`/`d` here
+  // never collides with the board list's own `a` (assignee picker); `bindingAllowedInLayer` below
+  // additionally restricts these to the card's own layer (T-02-15). Escape is deliberately NOT
+  // bound here — see the Escape ladder below, and its own comment on why the card is excluded
+  // entirely (T-02-16).
+  { id: "answer-permission-allow", region: "permission-card", key: "a", label: "Allow" },
+  { id: "answer-permission-deny", region: "permission-card", key: "d", label: "Deny" },
+  {
+    id: "answer-permission-allow-always",
+    region: "permission-card",
+    key: "a",
+    shift: true,
+    label: "Allow this tool for this project from now on",
+  },
+
+  // ---- Global (agent additions) -----------------------------------------------------------
+  { id: "open-settings", region: "global", key: ",", meta: true, label: "Open Settings" },
 
   // ---- Command-palette-only (no keystroke; CommandPalette.tsx's generator source) --------
   { id: "create-issue", region: "command-palette", label: "Create Issue" },
@@ -250,12 +289,19 @@ export const MENU_ACTION_IDS: readonly ActionId[] = [
 // diagnosed five separate misfocus symptoms as five copies of a guard that never existed here.
 // -------------------------------------------------------------------------------------------
 
-/** The five layers a keystroke can be "under" — `"picker"` covers every surface that either
- * traps focus or arms a one-keypress decision that isn't itself a Radix focus trap: a row-level
- * picker, the delete confirmation, and the Done warning (`DoneWarning.tsx` self-focuses and owns
- * its own Enter/Escape; a global shortcut moving focus away would silently disarm it — the same
- * reasoning that already exempts a real picker from the Escape ladder below). */
-export type UiLayer = "board" | "quick-add" | "detail" | "picker" | "palette";
+/** The layers a keystroke can be "under" — `"picker"` covers every surface that either traps
+ * focus or arms a one-keypress decision that isn't itself a Radix focus trap: a row-level picker,
+ * the delete confirmation, and the Done warning (`DoneWarning.tsx` self-focuses and owns its own
+ * Enter/Escape; a global shortcut moving focus away would silently disarm it — the same reasoning
+ * that already exempts a real picker from the Escape ladder below).
+ *
+ * `"session-surface"`/`"permission-card"` are this plan's additions (02-UI-SPEC.md D-31/AGNT-06):
+ * the live session surface and the permission-request card each get their own layer so
+ * `bindingAllowedInLayer` can scope their actions the same way every other layer's actions are
+ * scoped, rather than a special case. No component wires these layers into `topLayer` yet — that
+ * is plans 02-07/02-08's job once the surfaces themselves exist; this plan only reserves the
+ * vocabulary so `bindingAllowedInLayer` has somewhere correct to point a future caller. */
+export type UiLayer = "board" | "quick-add" | "detail" | "picker" | "palette" | "session-surface" | "permission-card";
 
 /** The four booleans every layer decision is made from. `EscapeLadderState` below extends this
  * with only `hasSelection` — the two are the same subject read two ways (which layer to CLOSE on
@@ -286,8 +332,20 @@ export function topLayer(state: LayerState): UiLayer {
  * here because it is an inline input inside the list, not a trapped scope — a bare letter typed
  * into it is separately suppressed by `resolveBinding`'s `isTypingTarget` check, which this
  * function does not touch. */
+const SESSION_SURFACE_ACTION_IDS = new Set<ActionId>(["stop-session", "toggle-raw-view"]);
+
+const PERMISSION_CARD_ACTION_IDS = new Set<ActionId>([
+  "answer-permission-allow",
+  "answer-permission-deny",
+  "answer-permission-allow-always",
+]);
+
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "open-palette") return layer !== "picker" && layer !== "palette";
+  // T-02-15 (STRIDE, elevation of privilege): permission-answer bindings must never fire outside
+  // the card's own layer — a stray `a`/`d` on the board must never approve or deny a tool call.
+  if (PERMISSION_CARD_ACTION_IDS.has(id)) return layer === "permission-card";
+  if (SESSION_SURFACE_ACTION_IDS.has(id)) return layer === "session-surface";
   return layer === "board" || layer === "quick-add";
 }
 
@@ -360,16 +418,32 @@ export function returnToBoardLayer(): void {
 // quick-add, then clear selection. A press with nothing open and nothing selected is a no-op.
 // -------------------------------------------------------------------------------------------
 
-export type EscapeLayer = "palette" | "detail" | "quick-add" | "selection";
+// The permission-request card (AGNT-06, D-37/D-38, T-02-16) is DELIBERATELY excluded from
+// `EscapeLayer` — no member here represents it, and no field on `EscapeLadderState` can express
+// "a card is pending" reaching this ladder. This is intentional, not an omission: dismissing a
+// pending permission card without answering it would hide the blocked state rather than resolve
+// it, so the agent must stay blocked until one of the card's own three actions (Allow/Deny/
+// Allow-always) fires. Every other overlay in this product (palette, detail, quick-add, and now
+// the session surface below) closes on Escape; the permission card is the one deliberate
+// deviation from that pattern in the whole product.
+export type EscapeLayer = "palette" | "session-surface" | "detail" | "quick-add" | "selection";
 
 export interface EscapeLadderState extends LayerState {
   hasSelection: boolean;
+  /** True while the live session surface (D-31) is open. Optional because no component sets it
+   * yet — plans 02-07/02-08 wire the surface itself; this ladder is ready for it now so that
+   * wiring only needs to supply the field, not touch this function. */
+  sessionSurfaceOpen?: boolean;
 }
 
-/** Pure — the caller applies whatever state change closing the returned layer implies. */
+/** Pure — the caller applies whatever state change closing the returned layer implies. Escape
+ * from the session surface returns to the board with focus restored to the task's row (D-31),
+ * ranked directly under the palette since the surface replaces the board's own content area —
+ * the item detail panel it would otherwise rank against is not simultaneously open. */
 export function nextEscapeLayer(state: EscapeLadderState): EscapeLayer | null {
   if (state.pickerOpen) return null;
   if (state.paletteOpen) return "palette";
+  if (state.sessionSurfaceOpen) return "session-surface";
   if (state.detailOpen) return "detail";
   if (state.quickAddOpen) return "quick-add";
   if (state.hasSelection) return "selection";
