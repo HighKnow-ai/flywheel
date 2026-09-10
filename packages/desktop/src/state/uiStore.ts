@@ -136,6 +136,13 @@ interface UiState {
    * deep inside `BoardView`'s tree, but the session surface it routes to replaces the whole
    * board/detail layout at the `AppShell` level. */
   activeAgentRunId: string | null;
+  /** The task id the launch sheet (D-27, plan 02-04) is currently open for, or `null` when it is
+   * closed. Lives here for the same cross-tree reasoning as `activeAgentRunId`: the sheet is
+   * mounted once at the `App.tsx` level (a peer of `CommandPalette`, per its own "briefing gate
+   * before anything is spawned" role), but it is triggered from `ItemDetailPanel.tsx`'s "Start
+   * Work" affordance (deep inside `BoardView`'s tree) and from the board-list `start-work` action
+   * id (`w`) — neither of which imports the sheet component itself. */
+  launchSheetTaskId: string | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -161,6 +168,7 @@ interface UiState {
    * honoured once and never twice (G-01-4). */
   clearQuickAddFocusPending: () => void;
   setActiveAgentRunId: (agentRunId: string | null) => void;
+  setLaunchSheetTaskId: (taskId: string | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -177,6 +185,7 @@ export const useUiStore = create<UiState>((set) => ({
   pendingDone: null,
   quickAddFocusPending: false,
   activeAgentRunId: null,
+  launchSheetTaskId: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -238,6 +247,7 @@ export const useUiStore = create<UiState>((set) => ({
   setPendingDone: (pending) => set({ pendingDone: pending }),
   clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
   setActiveAgentRunId: (agentRunId) => set({ activeAgentRunId: agentRunId }),
+  setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
 }));
 
 /** Resets every UI field back to its initial value — the shared reset four test suites
@@ -261,5 +271,6 @@ export function resetUiState() {
     pendingDone: null,
     quickAddFocusPending: false,
     activeAgentRunId: null,
+    launchSheetTaskId: null,
   });
 }

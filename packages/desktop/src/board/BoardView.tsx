@@ -211,7 +211,10 @@ export function BoardView({
   // status change" by the mutation simply never having been sent (01-UI-SPEC.md State Inventory).
   const pendingDone = useUiStore((state) => state.pendingDone);
   const setPendingDone = useUiStore((state) => state.setPendingDone);
-  const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
+  // The launch sheet (D-27, plan 02-04) is mounted once at the App.tsx level, a peer of
+  // CommandPalette — this board only ever opens it by name (the task id), never imports the
+  // sheet component itself, exactly as `detailItemId`/`activePicker` are opened by id above.
+  const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
 
   // A stable module-level empty object — returning a fresh `{}` literal from the selector would
   // give Zustand's default reference-equality check a new value on every call, causing an
@@ -566,6 +569,13 @@ export function BoardView({
         break;
       case "delete-item":
         if (selectedItem) requestDelete(selectedItem);
+        break;
+      case "start-work":
+        // Only a task has a worktree of its own to run an agent in (D-37) — a no-op on an epic
+        // row, matching `open-epic-picker`'s own task-only refusal above.
+        if (selectedId && selectedItem && (selectedItem.kind ?? "task") === "task") {
+          setLaunchSheetTaskId(selectedId);
+        }
         break;
       default:
         break;
@@ -1005,7 +1015,7 @@ export function BoardView({
             updateItem.mutate({ kind: selectedItem.kind ?? "task", id: selectedItem.id, title })
           }
           onSetStatus={(status) => requestStatusChange(selectedItem.kind ?? "task", selectedItem.id, status)}
-          onSessionStarted={(agentRunId) => setActiveAgentRunId(agentRunId)}
+          onStartWork={() => setLaunchSheetTaskId(selectedItem.id)}
           // The palette renders over this panel by design (the Escape ladder's fixed order) —
           // release the trap while the palette owns focus so the panel stays open instead of
           // fighting Radix's `FocusScope` for it (01-13-PLAN.md, G-01-FOCUS instance 5).

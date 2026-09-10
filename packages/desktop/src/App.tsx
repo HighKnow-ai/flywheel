@@ -7,6 +7,7 @@ import { CommandPalette } from "./board/CommandPalette";
 import { FilterBar } from "./board/FilterBar";
 import { FirstRun } from "./board/FirstRun";
 import { useBoardChangedSubscription, useBoardQuery, useCreateTask, useProjects } from "./board/useBoardQuery";
+import { LaunchSheet } from "./launch-sheet/LaunchSheet";
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
@@ -94,6 +95,11 @@ function AppShell() {
   // stays the board (this state is `null` whenever no session is being watched).
   const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
   const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
+  // D-27: the launch sheet, mounted once here as a peer of CommandPalette below — `null` means
+  // closed. `ItemDetailPanel.tsx`'s "Start Work" affordance and the board-list `start-work`
+  // action id (`w`) both open it purely by setting this task id (`board/BoardView.tsx`).
+  const launchSheetTaskId = useUiStore((state) => state.launchSheetTaskId);
+  const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
   // `⌘⇧O`'s actual effect — the SAME registration flow the rail's `+` button and the palette's
   // "Register Project…" command use (`projects/RegisterProjectFlow.tsx`), never a re-derived
   // copy (01-UI-SPEC.md "Project switcher"). `isError`/`error` are surfaced below (CR-02) —
@@ -223,6 +229,14 @@ function AppShell() {
         </div>
       </div>
       <CommandPalette />
+      <LaunchSheet
+        taskId={launchSheetTaskId}
+        onClose={() => setLaunchSheetTaskId(null)}
+        onStarted={(agentRunId) => {
+          setLaunchSheetTaskId(null);
+          setActiveAgentRunId(agentRunId);
+        }}
+      />
       {registerNoticeNode}
     </>
   );
