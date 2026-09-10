@@ -136,4 +136,63 @@ describe("epic roster", () => {
     await screen.findByText("Backlog");
     expect(invokeCommandMock).not.toHaveBeenCalledWith("epic_list_all", expect.anything());
   });
+
+  it("renders the unresolved mark, never the raw id, when the roster cannot resolve an epic", async () => {
+    const unresolvedId = "01M24BE37SW6X6EHZJ9J4MVY9X";
+    const items: BoardItem[] = [
+      {
+        id: "task-1",
+        key: "FLY-9",
+        title: "Child task",
+        status: "backlog",
+        rank: "10",
+        priority: 0,
+        epicId: unresolvedId,
+        kind: "task",
+      },
+    ];
+    // The roster resolves to something that does NOT contain this task's epic id.
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve([OUTSIDE_EPIC]);
+      return Promise.resolve(undefined);
+    });
+
+    const { container } = renderBoard(items, "proj-1");
+
+    expect(await screen.findByText("Unknown epic")).toBeInTheDocument();
+    expect(screen.queryByText(unresolvedId)).not.toBeInTheDocument();
+
+    // No element may carry the id in ANY attribute (title, aria-label, data-*) either — a
+    // tooltip or accessible-name leak must fail this test too, not only a visible-text leak.
+    const leaking = Array.from(container.querySelectorAll("*")).filter((el) =>
+      Array.from(el.attributes).some((attr) => attr.value.includes(unresolvedId)),
+    );
+    expect(leaking).toHaveLength(0);
+  });
+
+  it("renders the unresolved mark while the roster query is still pending", async () => {
+    const items: BoardItem[] = [
+      {
+        id: "task-1",
+        key: "FLY-9",
+        title: "Child task",
+        status: "backlog",
+        rank: "10",
+        priority: 0,
+        epicId: "epic-still-loading",
+        kind: "task",
+      },
+    ];
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return new Promise(() => {}); // never settles
+      return Promise.resolve(undefined);
+    });
+
+    renderBoard(items, "proj-1");
+
+    expect(await screen.findByText("Unknown epic")).toBeInTheDocument();
+    expect(screen.queryByText("epic-still-loading")).not.toBeInTheDocument();
+  });
 });

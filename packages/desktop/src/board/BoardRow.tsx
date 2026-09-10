@@ -112,12 +112,24 @@ export function BoardRow({
   const statusMark = MARKS_BY_ID[statusMarkId(item.status)];
   const priorityMark = MARKS_BY_ID[priorityMarkId(item.priority)];
   const epicMark = MARKS_BY_ID["epic-pill-none"];
+  // Defence in depth (G-01-2, T-01-17-02): once `epicsById` is the project's full roster
+  // (`BoardView`'s `useEpics()`), this mark is reachable only while that roster query is pending
+  // or has failed — it exists so a future regression in the roster's source degrades to a
+  // readable word rather than back to an internal identifier.
+  const epicUnresolvedMark = MARKS_BY_ID["epic-pill-unresolved"];
   const criteriaBadgeMark = MARKS_BY_ID["criteria-count-badge"];
   const estimateId = estimateMarkId(item.estimate);
   const estimateMark = estimateId ? MARKS_BY_ID[estimateId] : undefined;
   const assignee = item.assigneeId ? actorsById?.[item.assigneeId] : undefined;
   const epic = item.epicId ? epicsById?.[item.epicId] : undefined;
-  const epicLabel = item.epicId ? (epic ? `${epic.key} ${epic.title}` : item.epicId) : (epicMark?.label ?? "No epic");
+  // Exactly three outcomes, never a fourth: no epic id -> "No epic"; an epic id that resolves in
+  // the roster -> its key/title; an epic id that does not resolve -> "Unknown epic". No branch
+  // here can put the row's own epic id into the pill's text (G-01-2's reported defect).
+  const epicLabel = !item.epicId
+    ? (epicMark?.label ?? "No epic")
+    : epic
+      ? `${epic.key} ${epic.title}`
+      : (epicUnresolvedMark?.label ?? "Unknown epic");
   const assigneeBadgeMark = MARKS_BY_ID[
     assignee ? actorTypeMarkId(assignee.actorType) : "assignee-unassigned"
   ];
@@ -246,7 +258,7 @@ export function BoardRow({
         <span
           className="field-epic-pill type-label"
           style={{ flexShrink: 0, color: "var(--text-muted-strip)" }}
-          title={item.epicId ? undefined : epicMark?.meaning}
+          title={!item.epicId ? epicMark?.meaning : epic ? undefined : epicUnresolvedMark?.meaning}
         >
           {epicLabel}
         </span>

@@ -3,12 +3,26 @@
  * fixed order even when every band is empty, and renders one strip per row of the supplied
  * window (01-UI-SPEC.md "Board list" — the five status groups are fixed, never reorderable,
  * never hideable as a set).
+ *
+ * The epic-pill case (G-01-2, 01-17-PLAN.md) mocks `../../adapters/tauri` — the pill now resolves
+ * an epic's key/title from the `epic_list_all` roster query, never from a `kind: "epic"` row in
+ * `items`.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { resetUiState } from "../../state/uiStore";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
+
+const invokeCommandMock = vi.fn();
+
+vi.mock("../../adapters/tauri", () => ({
+  invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
+  subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeMenuAction: () => Promise.resolve(() => {}),
+  openFolderDialog: () => Promise.resolve(null),
+}));
 
 const EMPTY_COUNTS: BandCounts = {
   backlog: 0,
@@ -17,6 +31,22 @@ const EMPTY_COUNTS: BandCounts = {
   inReview: 0,
   done: 0,
 };
+
+beforeEach(() => {
+  resetUiState();
+  invokeCommandMock.mockReset();
+  invokeCommandMock.mockImplementation((command: string) => {
+    if (command === "actor_list") return Promise.resolve([]);
+    if (command === "epic_list_all") {
+      return Promise.resolve([{ id: "epic-1", key: "FLY-1", title: "Parent epic" }]);
+    }
+    return Promise.resolve(undefined);
+  });
+});
+
+afterEach(() => {
+  resetUiState();
+});
 
 function renderBoard(items: BoardItem[], counts: BandCounts) {
   const queryClient = new QueryClient();
@@ -62,18 +92,8 @@ describe("BoardView", () => {
     expect(screen.getByText("No epic")).toBeInTheDocument();
   });
 
-  it("shows the epic's human-readable key/title in the epic pill, not the raw epic_id ULID (WR-01)", () => {
+  it("shows the epic's human-readable key/title in the epic pill, resolved from the roster, not the raw epic_id ULID (G-01-2)", async () => {
     const items: BoardItem[] = [
-      {
-        id: "epic-1",
-        key: "FLY-1",
-        title: "Parent epic",
-        status: "backlog",
-        rank: "80",
-        priority: 0,
-        epicId: null,
-        kind: "epic",
-      },
       {
         id: "2",
         key: "FLY-2",
@@ -84,9 +104,9 @@ describe("BoardView", () => {
         epicId: "epic-1",
       },
     ];
-    renderBoard(items, { ...EMPTY_COUNTS, backlog: 2 });
+    renderBoard(items, { ...EMPTY_COUNTS, backlog: 1 });
 
-    expect(screen.getByText("FLY-1 Parent epic")).toBeInTheDocument();
+    expect(await screen.findByText("FLY-1 Parent epic")).toBeInTheDocument();
     expect(screen.queryByText("epic-1")).not.toBeInTheDocument();
   });
 });

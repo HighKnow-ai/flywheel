@@ -163,6 +163,18 @@ export const MARKS: Mark[] = [
     label: "No epic",
     meaning: "This task has no parent epic yet (D-13) — it may exist before its epic is known.",
   },
+  // Defence in depth (G-01-2, T-01-17-02): once the epic pill resolves against the project's
+  // full roster (`useEpics()`), this outcome is reachable only while that roster query is
+  // pending or has failed — it exists so a future regression in the roster's source degrades to
+  // a readable word rather than back to leaking `BoardRow.tsx`'s row's own internal epic id.
+  {
+    id: "epic-pill-unresolved",
+    channel: "epic",
+    glyph: "CircleHelp",
+    label: "Unknown epic",
+    meaning:
+      "This item names an epic Flywheel could not resolve from the project's roster — the internal id is never shown in its place.",
+  },
   // Acceptance-criteria marks (BOARD-02, D-05/D-06/D-08). The checked/total badge is
   // structurally exempt from the row's progressive-disclosure ladder (01-UI-SPEC.md "Row
   // Anatomy") — D-08 requires it "visible wherever the item appears."
