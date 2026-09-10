@@ -85,7 +85,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. User opens any item and sees a chronological trail of what changed, when, and which actor — human or agent — changed it.
   5. User force-quits the application mid-work and relaunches (including across a version upgrade that migrates the database) with no committed change lost or corrupted, and can replay the project's entire change history in order from any cursor position.
 
-**Plans**: 20/20 plans executed — 18/18 executed (11/11 in 10 waves, plus 5 gap-closure plans 01-12 through 01-16 in 4 waves opened by conversational UAT, plus 01-17 and 01-18 for G-01-2), plus 2 planned gap-closure plans (01-19, 01-20) for G-01-4
+**Plans**: 21 plans — 20/20 executed (11/11 in 10 waves, plus 5 gap-closure plans 01-12 through 01-16 in 4 waves opened by conversational UAT, plus 01-17 and 01-18 for G-01-2, plus 01-19 and 01-20 for G-01-4), plus 1 planned gap-closure plan (01-21) for CR-01
 **UI hint**: yes
 
 Plans:
@@ -162,6 +162,10 @@ Plans:
 **Gap closure — Wave 8** *(blocked on 01-19 — shares quick-add-focus.test.tsx)*
 
 - [x] 01-20-PLAN.md — G-01-4: a shared self-checking volume fixture, the forwarded-accelerator path proven at volume, and the focus contract recorded in 01-UI-SPEC.md
+
+**Gap closure — Wave 9** *(CR-01, the only blocker left by 01-VERIFICATION.md — a regression introduced by 01-19's own expand-Backlog effect; shares BoardView.tsx and quick-add-focus.test.tsx with 01-19/01-20)*
+
+- [ ] 01-21-PLAN.md — CR-01: scope the forced Backlog expansion to the rising edge of quick-add becoming reachable, so a band the user collapses stays collapsed
 
 **Notes**: This is where the three structural seams land that would otherwise be retrofit
 nightmares: the append-only event log written in the same transaction as the mutable projection
