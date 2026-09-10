@@ -149,14 +149,21 @@ export function BoardView({
 }: BoardViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  // The project id whose Backlog band the CURRENT quick-add-reachability episode has already
-  // auto-expanded for (CR-01, 01-VERIFICATION.md truth #22) — not a bare boolean. A boolean would
-  // carry its "already handled" verdict across a project switch, because `App.tsx` renders
-  // `<Board projectId={project.id} …>` with no React key (App.tsx:212), so this component is not
-  // remounted when `projectId` changes; only the prop updates. Keying on the project id instead
-  // makes a project switch a fresh episode, so the switched-to project's collapsed Backlog is
-  // still expanded once. See the expand-Backlog effect below for how this ref is used.
-  const backlogAutoExpandedForRef = useRef<string | null>(null);
+  // The set of project ids whose Backlog band the CURRENT quick-add-reachability episode has
+  // already auto-expanded for (CR-01, 01-VERIFICATION.md truth #22; CR-01 residual, 01-REVIEW.md
+  // 2026-09-10 incremental review) — not a single scalar. A scalar (boolean OR a bare project-id
+  // string) can only remember the ONE most-recently-seen episode, so it cannot distinguish
+  // "project A, already handled" from "project A, not yet handled" once a DIFFERENT project's
+  // episode has been recorded in between. `App.tsx` renders `<Board projectId={project.id} …>`
+  // with no React key (App.tsx:212), so this component is not remounted when `projectId`
+  // changes — only the prop updates — which means a project switch sequence longer than one hop
+  // (A -> B -> A again) is a real, reachable scenario, not a hypothetical: a scalar guard treats
+  // the return to A as a brand-new episode and silently re-expands a Backlog the user deliberately
+  // re-collapsed. A `Set` keyed on project id remembers every project this episode has already
+  // seeded, independent of visit order, so the switched-to project's collapsed Backlog is still
+  // expanded once AND a round trip back to an earlier project does not re-trigger the expansion.
+  // See the expand-Backlog effect below for how this set is used.
+  const backlogAutoExpandedRef = useRef<Set<string>>(new Set());
   // Selection is an item id, held in the shared store (01-09-PLAN.md Task 1) — never a row index
   // — so it survives a pushed delta reordering the window, and so `CommandPalette.tsx` (mounted
   // outside this tree) can read/drive it too.
@@ -386,23 +393,34 @@ export function BoardView({
   // `effectiveQuickAddOpen` is permanently true on a zero-item project, the toggle was inert for
   // that project's entire lifetime. Band collapse is a user-owned preference (01-UI-SPEC.md
   // "Board list") this effect may SEED once per reachability episode but must never re-assert.
-  // `backlogAutoExpandedForRef` makes that one-time: the ref holds the project id this episode
-  // has already expanded Backlog for, so every subsequent render of the same episode returns
-  // without writing. Resetting the ref to `null` when quick-add stops being reachable is what
-  // makes the NEXT open a fresh episode. The `collapsedByStatus.backlog` check stays — it is what
-  // makes the write conditional at all, because `collapseStore.expand` builds a fresh
-  // `collapsedByProject` object even when the value it writes is unchanged, and an unconditional
-  // call would re-render this component and re-run this effect forever.
+  // `backlogAutoExpandedRef` makes that one-time: the set holds every project id this episode has
+  // already expanded Backlog for, so every subsequent render of the same episode — for that
+  // project OR any other project already recorded in the set — returns without writing.
+  //
+  // CR-01 residual (01-REVIEW.md, incremental review): the FIRST shipped fix used a scalar
+  // (single project id) here instead of a set, which passes a one-way project switch (A -> B) but
+  // fails a round trip (A -> B -> A again): the scalar only remembers the most-recently-seen
+  // project, so returning to A reads as a brand-new episode and silently re-expands the Backlog
+  // the user just re-collapsed. A `Set` remembers every project the episode has already seeded,
+  // independent of visit order, closing that gap by construction.
+  //
+  // Clearing the WHOLE set when quick-add stops being reachable is what makes the NEXT open a
+  // fresh episode for every project — that transition is the end of the reachability episode,
+  // not just a fact about the current project, so every project's "already seeded" memory expires
+  // together. The `collapsedByStatus.backlog` check stays — it is what makes the write
+  // conditional at all, because `collapseStore.expand` builds a fresh `collapsedByProject` object
+  // even when the value it writes is unchanged, and an unconditional call would re-render this
+  // component and re-run this effect forever.
   useEffect(() => {
-    const episodeKey = projectId ?? "";
+    const key = projectId ?? "";
     if (!effectiveQuickAddOpen) {
-      backlogAutoExpandedForRef.current = null;
+      backlogAutoExpandedRef.current.clear();
       return;
     }
-    if (backlogAutoExpandedForRef.current === episodeKey) return;
-    backlogAutoExpandedForRef.current = episodeKey;
+    if (backlogAutoExpandedRef.current.has(key)) return;
+    backlogAutoExpandedRef.current.add(key);
     if (collapsedByStatus.backlog) {
-      expandBand(episodeKey, "backlog");
+      expandBand(key, "backlog");
     }
   }, [effectiveQuickAddOpen, collapsedByStatus, projectId, expandBand]);
 
