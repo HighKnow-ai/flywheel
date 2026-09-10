@@ -62,22 +62,26 @@ fn start_work_creates_worktree_branch_and_linked_rows() {
     assert_eq!(trigger_target_task, task.id);
     assert_eq!(trigger_source, "user_action");
 
-    let (agent_run_worktree_id, agent_run_task_id, agent_run_trigger_id, agent_run_status): (
+    let (agent_run_worktree_id, agent_run_task_id, agent_run_trigger_id, agent_run_status, agent_run_permission_mode): (
         Option<String>,
+        String,
         String,
         String,
         String,
     ) = conn
         .query_row(
-            "SELECT worktree_id, task_id, trigger_id, status FROM agent_runs WHERE id = ?1",
+            "SELECT worktree_id, task_id, trigger_id, status, permission_mode FROM agent_runs WHERE id = ?1",
             rusqlite::params![run.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         )
         .expect("the agent_runs row should exist");
     assert_eq!(agent_run_worktree_id.as_deref(), Some(worktree.id.as_str()));
     assert_eq!(agent_run_task_id, task.id);
     assert_eq!(agent_run_trigger_id, run.trigger_id);
     assert_eq!(agent_run_status, "running");
+    // Plan 02-04 Task 2's own acceptance criterion: agent_runs.permission_mode stores the
+    // accepted mode string for a started run — this call passed "acceptEdits" above.
+    assert_eq!(agent_run_permission_mode, "acceptEdits");
 
     // The task moved to in_progress, attributed to the agent actor.
     let agent_id = agent_actor_id(&conn).expect("agent actor should be seeded");
