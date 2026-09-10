@@ -6,13 +6,13 @@
  * internal id.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { FilterBar } from "../FilterBar";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import { useBoardChangedSubscription } from "../useBoardQuery";
-import type { BandCounts, BoardItem } from "../useBoardQuery";
+import type { BandCounts, BoardItem, IssueItem } from "../useBoardQuery";
 
 const invokeCommandMock = vi.fn();
 
@@ -53,13 +53,18 @@ afterEach(() => {
   resetUiState();
 });
 
-function renderBoard(items: BoardItem[], projectId: string | undefined) {
+function renderBoard(
+  items: BoardItem[],
+  projectId: string | undefined,
+  issues: IssueItem[] = [],
+) {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
       <BoardView
         projectId={projectId}
         items={items}
+        issues={issues}
         counts={{ ...EMPTY_COUNTS, backlog: items.length }}
         onCreateTask={() => {}}
       />
@@ -488,5 +493,154 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
     // FilterBar owns no row rendering at all — selecting a chip must not trigger any
     // client-side re-filtering of a row list inside this component (the plan's prohibition).
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+  });
+});
+
+describe("parent pickers and issues lane resolve epics from the roster (01-18-PLAN.md Task 2, G-01-2)", () => {
+  function selectItem(id: string) {
+    act(() => {
+      useUiStore.getState().setSelectedItemId(id);
+    });
+  }
+
+  /** Finds an issue row by its accessible name (`IssuesLane.tsx`'s `${key}, ${title}, ${kind}`
+   * `aria-label`) and clicks its parent button — mirrors `issue-parent.test.tsx`'s own helper. */
+  function openParentPicker(issueKeyPrefix: string) {
+    const row = screen.getByRole("listitem", { name: new RegExp(`^${issueKeyPrefix}, `) });
+    fireEvent.click(within(row).getByRole("button"));
+  }
+
+  const TASK: BoardItem = {
+    id: "task-only",
+    key: "FLY-9",
+    title: "Windowed task",
+    status: "backlog",
+    rank: "10",
+    priority: 0,
+    epicId: null,
+    kind: "task",
+  };
+
+  it("offers an epic that is not in the loaded window as a Set epic option", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve([
+          { id: "epic-x", key: "FLY-1", title: "Out-of-window Epic X" },
+          { id: "epic-y", key: "FLY-2", title: "Out-of-window Epic Y" },
+        ]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    // The window holds only the task row — no epic rows at all.
+    renderBoard([TASK], "proj-1");
+    selectItem(TASK.id);
+    const list = screen.getByRole("list", { name: "Board" });
+    fireEvent.keyDown(list, { key: "m" });
+
+    const menu = await screen.findByRole("menu", { name: "Set epic" });
+    expect(await within(menu).findByText("FLY-1 Out-of-window Epic X")).toBeInTheDocument();
+    expect(within(menu).getByText("FLY-2 Out-of-window Epic Y")).toBeInTheDocument();
+  });
+
+  it("never offers the picked row as its own epic", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve([
+          // Collides with the picked task's own id — a future fixture edge case, per the plan.
+          { id: TASK.id, key: "FLY-9", title: "Windowed task" },
+          { id: "epic-real", key: "FLY-3", title: "Real Epic" },
+        ]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderBoard([TASK], "proj-1");
+    selectItem(TASK.id);
+    const list = screen.getByRole("list", { name: "Board" });
+    fireEvent.keyDown(list, { key: "m" });
+
+    const menu = await screen.findByRole("menu", { name: "Set epic" });
+    expect(await within(menu).findByText("FLY-3 Real Epic")).toBeInTheDocument();
+    expect(within(menu).queryByText("FLY-9 Windowed task")).not.toBeInTheDocument();
+  });
+
+  it("renders the No epic empty option when the project has no epics", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    renderBoard([TASK], "proj-1");
+    selectItem(TASK.id);
+    const list = screen.getByRole("list", { name: "Board" });
+    fireEvent.keyDown(list, { key: "m" });
+
+    const menu = await screen.findByRole("menu", { name: "Set epic" });
+    expect(within(menu).getByText("No epic")).toBeInTheDocument();
+    const optionLabels = Array.from(menu.querySelectorAll('[role="menuitemradio"]')).map(
+      (el) => el.textContent,
+    );
+    expect(optionLabels).toEqual(["No epic"]);
+  });
+
+  it("offers an out-of-window epic in the Set parent picker's Epics group", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve([{ id: "epic-out", key: "FLY-7", title: "Out-of-window Epic" }]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const issue: IssueItem = {
+      id: "issue-1",
+      key: "FLY-8",
+      title: "An unparented issue",
+      kind: "idea",
+      epicId: null,
+      taskId: null,
+    };
+
+    // items holds only the task — no epic rows — proving the Epics group is roster-sourced.
+    renderBoard([TASK], "proj-1", [issue]);
+    openParentPicker("FLY-8");
+
+    const menu = await screen.findByRole("menu", { name: "Set parent" });
+    expect(await within(menu).findByText("FLY-7 Out-of-window Epic")).toBeInTheDocument();
+    expect(within(menu).getByText("Epics")).toBeInTheDocument();
+    expect(within(menu).getByText("Tasks")).toBeInTheDocument();
+    expect(within(menu).getByText("FLY-9 Windowed task")).toBeInTheDocument();
+  });
+
+  it("resolves an issue's out-of-window parent epic on its lane button", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve([{ id: "epic-out", key: "FLY-7", title: "Out-of-window Epic" }]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const issue: IssueItem = {
+      id: "issue-1",
+      key: "FLY-8",
+      title: "An issue under an out-of-window epic",
+      kind: "idea",
+      epicId: "epic-out",
+      taskId: null,
+    };
+
+    renderBoard([TASK], "proj-1", [issue]);
+
+    const row = await screen.findByRole("listitem", { name: /^FLY-8, / });
+    // The parent button's label resolves from the roster-backed `parentsById` (G-01-2), which
+    // settles asynchronously — `findByRole` waits for it rather than asserting on the pre-fetch
+    // render (which reads "No parent" until the roster resolves).
+    expect(await within(row).findByRole("button", { name: /FLY-7/ })).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /No parent/ })).not.toBeInTheDocument();
   });
 });

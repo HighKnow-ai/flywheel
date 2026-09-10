@@ -90,6 +90,12 @@ beforeEach(() => {
         counts: { ...EMPTY_COUNTS, backlog: ITEMS.length },
       });
     }
+    // The Epics group of the Set parent picker (and BoardRow's own pill) now resolve from the
+    // roster (G-01-2, 01-18-PLAN.md), never from `items` — this suite's assertions need the same
+    // epic `board_list` already returns to also be resolvable through `epic_list_all`.
+    if (command === "epic_list_all") {
+      return Promise.resolve([{ id: EPIC_1.id, key: EPIC_1.key, title: EPIC_1.title }]);
+    }
     return Promise.resolve(undefined);
   });
 });
@@ -160,8 +166,10 @@ describe("issue-parent", () => {
 
     const menu = await screen.findByRole("menu", { name: "Set parent" });
     expect(within(menu).getByText("No parent")).toBeInTheDocument();
+    // The Epics group now resolves from the `useEpics()` roster query (G-01-2), which settles
+    // asynchronously — `findByText` waits for it rather than asserting on the pre-fetch render.
+    expect(await within(menu).findByText("FLY-1 First Epic")).toBeInTheDocument();
     expect(within(menu).getByText("Epics")).toBeInTheDocument();
-    expect(within(menu).getByText("FLY-1 First Epic")).toBeInTheDocument();
     expect(within(menu).getByText("Tasks")).toBeInTheDocument();
     expect(within(menu).getByText("FLY-2 First Task")).toBeInTheDocument();
   });
@@ -185,7 +193,7 @@ describe("issue-parent", () => {
     openParentPicker("FLY-3");
 
     const menu = await screen.findByRole("menu", { name: "Set parent" });
-    fireEvent.click(within(menu).getByText("FLY-1 First Epic"));
+    fireEvent.click(await within(menu).findByText("FLY-1 First Epic"));
 
     await waitFor(() => {
       const call = invokeCommandMock.mock.calls.find(([command]) => command === "issue_set_parent");

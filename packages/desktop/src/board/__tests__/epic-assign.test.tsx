@@ -153,8 +153,10 @@ describe("epic-assign", () => {
     const menu = await screen.findByRole("menu", { name: "Set epic" });
     expect(menu).toBeInTheDocument();
     expect(within(menu).getByText("No epic")).toBeInTheDocument();
-    expect(within(menu).getByText("FLY-1 First Epic")).toBeInTheDocument();
-    expect(within(menu).getByText("FLY-2 Second Epic")).toBeInTheDocument();
+    // The options now resolve from the `useEpics()` roster query (G-01-2), which settles
+    // asynchronously — `findByText` waits for it rather than asserting on the pre-fetch render.
+    expect(await within(menu).findByText("FLY-1 First Epic")).toBeInTheDocument();
+    expect(await within(menu).findByText("FLY-2 Second Epic")).toBeInTheDocument();
   });
 
   it("choosing_an_epic_calls_task_set_epic_with_the_task_and_epic_ids", async () => {
@@ -164,7 +166,7 @@ describe("epic-assign", () => {
     fireEvent.keyDown(list, { key: "m" });
 
     await screen.findByRole("menu", { name: "Set epic" });
-    fireEvent.click(screen.getByText("FLY-1 First Epic"));
+    fireEvent.click(await screen.findByText("FLY-1 First Epic"));
 
     await waitFor(() => {
       const call = invokeCommandMock.mock.calls.find(([command]) => command === "task_set_epic");
@@ -196,6 +198,9 @@ describe("epic-assign", () => {
     fireEvent.keyDown(list, { key: "m" });
 
     const menu = await screen.findByRole("menu", { name: "Set epic" });
+    // The options now resolve from the `useEpics()` roster query (G-01-2), which settles
+    // asynchronously — wait for the roster-sourced option before reading the full list.
+    await within(menu).findByText("FLY-1 First Epic");
     const optionLabels = Array.from(menu.querySelectorAll('[role="menuitemradio"]')).map(
       (el) => el.textContent,
     );

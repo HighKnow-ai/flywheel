@@ -265,18 +265,23 @@ export function BoardView({
     [epics],
   );
 
-  // Item id -> {key, title, kind} for EVERY item in the loaded window (epics and tasks alike) —
-  // the same single-window derivation `epicsById` above uses, with the same known limitation (an
-  // item outside the loaded window cannot be offered/resolved as a parent). `IssuesLane.tsx`
-  // looks an issue's `epicId`/`taskId` up against this map to render its parent button
-  // (G-01-EPIC-ASSIGN, plan 01-15) — one lookup table for both kinds, rather than a second
-  // `tasksById` mirroring `epicsById`.
+  // Item id -> {key, title, kind} for both epics and tasks — `IssuesLane.tsx` looks an issue's
+  // `epicId`/`taskId` up against this map to render its parent button (G-01-EPIC-ASSIGN, plan
+  // 01-15). The **epic half** is built from the project's full roster (`useEpics`, G-01-2, plan
+  // 01-18), so an issue whose parent epic sorts outside the loaded window still resolves — the
+  // roster wins on a key collision so an epic's label has one source. The **task half** is still
+  // the loaded window, deliberately: tasks are the unbounded set D-03's windowing exists for, and
+  // a per-id parent-resolution command for tasks is accepted debt, not an oversight (see
+  // `01-17-PLAN.md`'s `<assumption_delta_decision>` and this plan's own design-decision note) — a
+  // task parent outside the window still reads `No parent`.
   const parentsById = useMemo<Record<string, { key: string; title: string; kind: string }>>(
-    () =>
-      Object.fromEntries(
+    () => ({
+      ...Object.fromEntries(
         items.map((item) => [item.id, { key: item.key, title: item.title, kind: item.kind ?? "task" }]),
       ),
-    [items],
+      ...Object.fromEntries(epics.map((epic) => [epic.id, { key: epic.key, title: epic.title, kind: "epic" }])),
+    }),
+    [items, epics],
   );
 
   // Quick-add is a layer of its own (Escape ladder step 3) — an empty project still shows it,
@@ -749,10 +754,11 @@ export function BoardView({
             if (!pickedIssue) return null;
             // Two labelled runs in one list — every epic first, then every task — reusing plan
             // 01-14's `ParentPicker` with grouped options rather than a second picker component.
+            // The Epics group is the project's full roster (`useEpics`, G-01-2, plan 01-18), so
+            // an out-of-window epic still reparents correctly; the Tasks group stays windowed,
+            // deliberately (see `parentsById`'s comment above).
             const parentOptions: ParentOption[] = [
-              ...items
-                .filter((item) => item.kind === "epic")
-                .map((epic) => ({ id: epic.id, label: `${epic.key} ${epic.title}`, group: "Epics" })),
+              ...epics.map((epic) => ({ id: epic.id, label: `${epic.key} ${epic.title}`, group: "Epics" })),
               ...items
                 .filter((item) => (item.kind ?? "task") === "task")
                 .map((task) => ({ id: task.id, label: `${task.key} ${task.title}`, group: "Tasks" })),
@@ -768,10 +774,11 @@ export function BoardView({
                   if (id === null) {
                     setIssueParent.mutate({ issueId: pickedIssue.id, parentKind: null, parentId: null });
                   } else {
-                    // Map the chosen id back to its kind by looking it up in the loaded window —
-                    // the picker itself never carries the parent kind, only an id.
-                    const target = items.find((item) => item.id === id);
-                    const parentKind = target?.kind === "epic" ? "epic" : "task";
+                    // Decide the chosen id's kind by testing roster membership FIRST, falling
+                    // back to the windowed `items` lookup for tasks — a chosen id that is in the
+                    // roster is an epic even if it sorts outside the loaded window, so it can
+                    // never be silently misfiled as a task the way a windowed-only lookup would.
+                    const parentKind = epicsById[id] ? "epic" : "task";
                     setIssueParent.mutate({ issueId: pickedIssue.id, parentKind, parentId: id });
                   }
                   closePicker();
@@ -836,11 +843,11 @@ export function BoardView({
                 />
               );
             case "epic": {
-              // Every epic in the loaded window except the picked row itself — the same
-              // derivation `epicsById` and `FilterBar`'s epic chips already use, so a task can
-              // never be offered as its own epic.
-              const epicOptions: ParentOption[] = items
-                .filter((item) => item.kind === "epic" && item.id !== pickedRow.id)
+              // Every epic in the project's full roster (`useEpics`, G-01-2, plan 01-18) except
+              // the picked row itself, regardless of which epics are in the loaded window — the
+              // same roster `epicsById` and `FilterBar`'s epic chips already use.
+              const epicOptions: ParentOption[] = epics
+                .filter((epic) => epic.id !== pickedRow.id)
                 .map((epic) => ({ id: epic.id, label: `${epic.key} ${epic.title}` }));
               return (
                 <ParentPicker
