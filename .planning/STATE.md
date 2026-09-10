@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-09-10T14:10:56.262Z"
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-09-10T23:28:46.770Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 02 execution started
-state_head: 9936f3c3ade45a24eea15c2290f05008b2615b49
+state_head: 656fed984a031e8ed39d6f977f5763eb746e4a09
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 31
-  completed_plans: 25
+  completed_plans: 26
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 5 of 10
+Plan: 6 of 10
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 02 execution started
 
@@ -83,6 +83,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P02 | 55min | 3 tasks | 17 files |
 | Phase 02 P03 | 45min | 3 tasks | 10 files |
 | Phase 02 P04 | 70min | 3 tasks | 15 files |
+| Phase 02 P05 | 100min | 3 tasks | 22 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Agent signal vocabulary shipped once (colour/legend/keyboard) so no later Phase 2 surface invents a parallel list — Colour roles, legend marks and keyboard bindings are consumed directly by the surfaces that render them, not re-derived
 - [Phase 02]: assemble_context_packet re-derives the hypothetical epic-integration-branch name read-only instead of calling base_ref_for_task, which would cut a real git branch as a side effect — A preview (opening the launch sheet) must never mutate the database or git history — matches D-28's determinism contract and the plan's own 'nothing happens until Start Work fires' invariant
 - [Phase 02]: state/uiStore.ts gained launchSheetTaskId and board/BoardView.tsx gained a start-work switch case, both outside plan 02-04's declared files_modified — ItemDetailPanel.tsx deliberately avoids importing the store directly; the launch sheet is mounted once at App.tsx level, so a cross-tree trigger field (mirroring activeAgentRunId) and its bridging call site were necessary to wire the sheet at all
+- [Phase 02]: The permission-prompt MCP server is a genuinely separate OS process spawned by the backend (claude) per its own --mcp-config; a Unix domain socket opened by the sidecar BEFORE the backend is spawned is the only channel between the two processes, since MCP's stdio transport requires the client to own the pipe ends to whatever it spawns.
+- [Phase 02]: Assumption A2 empirical spike found the installed claude CLI (2.1.236) applies its own built-in bash-command safety classification before ever consulting a configured --permission-prompt-tool, for at least read-only/safe-looking commands, even in --permission-mode default. Flagged as a Phase 3 input, not resolved this plan.
 
 ### Pending Todos
 
@@ -142,6 +145,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T14:10:56.210Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-09-10T23:28:37.606Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
