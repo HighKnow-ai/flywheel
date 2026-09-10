@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 01-the-board-is-the-store-of-record
 source: [01-VERIFICATION.md]
 started: 2026-09-09T23:15:00Z
-updated: 2026-09-10T00:35:00Z
+updated: 2026-09-10T00:45:00Z
 ---
 
 ## Current Test
@@ -41,8 +41,45 @@ blocked: 0
   reason: "User reported: item detail panel Cmd-N is actually closing the panel and doing the command"
   severity: major
   test: 1
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: |
+    The native macOS menu owns Cmd-N as an accelerator, so the keystroke never reaches the
+    webview and the layer guard never runs. menu.rs binds `create-task` to `CmdOrCtrl+N`;
+    macOS consumes the accelerator at the menu layer, fires `on_menu_event`, and main.rs
+    forwards the id over `menu:action`. App.tsx's bridge then treats every forwarded id as a
+    mouse click on a menu item — `if (actionId !== "open-palette") returnToBoardLayer()` —
+    which calls `setDetailItemId(null)` and closes the panel outright, and only then calls
+    `dispatchAction("create-task")`. The synthesized keydown now passes
+    `bindingAllowedInLayer` because the layer it was meant to be blocked by has just been
+    dismantled. `useGlobalBindings`'s guard is correct and untouched; it is simply bypassed.
+
+    The defect is the conflation in the bridge: `menu:action` is emitted identically for a
+    menu CLICK (an unambiguous request from outside the keyboard, where returning to the
+    board layer is right) and for a menu ACCELERATOR (a keystroke, which must obey the layer
+    guard like every other keystroke). Only the click reading was implemented.
+
+    Why the existing tests are green: every test file stubs `subscribeMenuAction` to a no-op,
+    so the menu bridge is absent under test. `layer-guard.test.tsx:162`
+    ("cmd_n_and_cmd_shift_n_do_not_open_quick_add_over_the_detail_panel") dispatches a
+    synthetic webview keydown, which does correctly hit the guard — but on real macOS that
+    keydown never happens, because the menu ate the accelerator first. The test's model of
+    the keystroke does not match the platform.
+  artifacts:
+    - path: "packages/desktop/src/App.tsx"
+      line: 149
+      issue: "Menu bridge calls returnToBoardLayer() for every forwarded id except open-palette, closing the detail panel before the layer guard can refuse the action. Cannot distinguish an accelerator from a click."
+    - path: "packages/desktop/src-tauri/src/menu.rs"
+      line: 35
+      issue: "create-task is bound to CmdOrCtrl+N as a native accelerator, so macOS consumes the keystroke before the webview sees it."
+    - path: "packages/desktop/src-tauri/src/main.rs"
+      line: 16
+      issue: "FORWARDED_MENU_ACTIONS forwards register-project, create-task, create-epic and open-palette identically for click and accelerator origins."
+    - path: "packages/desktop/src/board/__tests__/layer-guard.test.tsx"
+      line: 55
+      issue: "subscribeMenuAction stubbed to a no-op in every test file, so the menu:action path carrying this bug is untested."
+  missing:
+    - "Make the menu bridge obey the layer guard rather than pre-empting it: either stop calling returnToBoardLayer() and let bindingAllowedInLayer decide for all forwarded ids, or carry the event origin (accelerator vs click) so only a real click returns to the board layer."
+    - "Cover all four forwarded ids, not just create-task: create-epic (Cmd-Shift-N) and register-project (Cmd-Shift-O) travel the identical path and are expected to show the same panel-closing symptom even though this session's walkthrough read them as inert. Re-test all three during fix verification."
+    - "Add a regression test that exercises the menu:action bridge with a real detail layer open, instead of stubbing subscribeMenuAction to a no-op."
 
 ## Prior Round
 
