@@ -9,27 +9,27 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Data Model & Persistence
 
-- [x] **DATA-01**: Every board mutation is written to an append-only event log in the same transaction as the mutable projection it updates, so audit trail and current state can never diverge
-- [x] **DATA-02**: Every entity uses a client-generated globally unique identifier (ULID), never an auto-incrementing integer, so records created offline or on another device never collide
-- [x] **DATA-03**: Every mutation records the actor that made it, with humans and agents represented as distinct actors in the same actor model
+- [ ] **DATA-01**: Every board mutation is written to an append-only event log in the same transaction as the mutable projection it updates, so audit trail and current state can never diverge
+- [ ] **DATA-02**: Every entity uses a client-generated globally unique identifier (ULID), never an auto-incrementing integer, so records created offline or on another device never collide
+- [ ] **DATA-03**: Every mutation records the actor that made it, with humans and agents represented as distinct actors in the same actor model
 - [ ] **DATA-04**: Agent work is started through a generic trigger record whose source is one of a known set, with `user_action` implemented and `schedule`/`webhook` accepted by the schema but unimplemented
-- [x] **DATA-05**: The event log is readable as an ordered, resumable stream from any point via a cursor, so a future relay can subscribe and replay without a schema change
+- [ ] **DATA-05**: The event log is readable as an ordered, resumable stream from any point via a cursor, so a future relay can subscribe and replay without a schema change
 - [ ] **DATA-06**: Worktrees, agent runs, sessions, session summaries and artifacts are first-class records with their own identity, not JSON blobs attached to a task
-- [x] **DATA-07**: The database survives an unclean application termination without corruption or loss of committed work
-- [x] **DATA-08**: Schema migrations run automatically on launch and are reversible within one version
+- [ ] **DATA-07**: The database survives an unclean application termination without corruption or loss of committed work
+- [ ] **DATA-08**: Schema migrations run automatically on launch and are reversible within one version
 
 ### Board
 
-- [x] **BOARD-01**: User can create, edit and delete epics, tasks and issues in a fixed three-level hierarchy that cannot be reconfigured
-- [x] **BOARD-02**: Every task carries structured acceptance criteria as discrete, individually checkable items — not free prose
+- [ ] **BOARD-01**: User can create, edit and delete epics, tasks and issues in a fixed three-level hierarchy that cannot be reconfigured
+- [ ] **BOARD-02**: Every task carries structured acceptance criteria as discrete, individually checkable items — not free prose
 - [ ] **BOARD-03**: Acceptance criteria are immutable once a task starts work; changing them creates a new revision rather than overwriting
-- [x] **BOARD-04**: Items move through a fixed workflow (Backlog → Todo → In Progress → In Review → Done) that cannot be customised
-- [x] **BOARD-05**: User can reorder and reprioritise items within an epic and within the backlog
-- [x] **BOARD-06**: User can filter and search across all items in a project by text, status, epic and assignee
-- [x] **BOARD-07**: User can drive board navigation and the common item actions entirely from the keyboard
-- [x] **BOARD-08**: Board interactions complete without perceptible lag on a project containing at least 1,000 items
-- [x] **BOARD-09**: Every item shows a chronological activity trail of what changed, when, and which actor changed it
-- [x] **BOARD-10**: User can register multiple local git repositories as projects and switch between their boards
+- [ ] **BOARD-04**: Items move through a fixed workflow (Backlog → Todo → In Progress → In Review → Done) that cannot be customised
+- [ ] **BOARD-05**: User can reorder and reprioritise items within an epic and within the backlog
+- [ ] **BOARD-06**: User can filter and search across all items in a project by text, status, epic and assignee
+- [ ] **BOARD-07**: User can drive board navigation and the common item actions entirely from the keyboard
+- [ ] **BOARD-08**: Board interactions complete without perceptible lag on a project containing at least 1,000 items
+- [ ] **BOARD-09**: Every item shows a chronological activity trail of what changed, when, and which actor changed it
+- [ ] **BOARD-10**: User can register multiple local git repositories as projects and switch between their boards
 
 ### Worktree & Branch Management
 
@@ -219,24 +219,24 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | Phase 1 | Complete |
-| DATA-02 | Phase 1 | Complete |
-| DATA-03 | Phase 1 | Complete |
+| DATA-01 | Phase 1 | Gaps Found |
+| DATA-02 | Phase 1 | Gaps Found |
+| DATA-03 | Phase 1 | Gaps Found |
 | DATA-04 | Phase 2 | Pending |
-| DATA-05 | Phase 1 | Complete |
+| DATA-05 | Phase 1 | Gaps Found |
 | DATA-06 | Phase 2 | Pending |
-| DATA-07 | Phase 1 | Complete |
-| DATA-08 | Phase 1 | Complete |
-| BOARD-01 | Phase 1 | Complete |
-| BOARD-02 | Phase 1 | Complete |
+| DATA-07 | Phase 1 | Gaps Found |
+| DATA-08 | Phase 1 | Gaps Found |
+| BOARD-01 | Phase 1 | Gaps Found |
+| BOARD-02 | Phase 1 | Gaps Found |
 | BOARD-03 | Phase 4 | Pending |
-| BOARD-04 | Phase 1 | Complete |
-| BOARD-05 | Phase 1 | Complete |
-| BOARD-06 | Phase 1 | Complete |
-| BOARD-07 | Phase 1 | Complete |
-| BOARD-08 | Phase 1 | Complete |
-| BOARD-09 | Phase 1 | Complete |
-| BOARD-10 | Phase 1 | Complete |
+| BOARD-04 | Phase 1 | Gaps Found |
+| BOARD-05 | Phase 1 | Gaps Found |
+| BOARD-06 | Phase 1 | Gaps Found |
+| BOARD-07 | Phase 1 | Gaps Found |
+| BOARD-08 | Phase 1 | Gaps Found |
+| BOARD-09 | Phase 1 | Gaps Found |
+| BOARD-10 | Phase 1 | Gaps Found |
 | WORK-01 | Phase 2 | Pending |
 | WORK-02 | Phase 2 | Pending |
 | WORK-03 | Phase 3 | Pending |
