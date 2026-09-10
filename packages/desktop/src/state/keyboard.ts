@@ -542,3 +542,35 @@ export function useGlobalBindings(handlers: Partial<Record<ActionId, (binding: B
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [handlers]);
 }
+
+// -------------------------------------------------------------------------------------------
+// Region-scoped bindings hook (AGNT-06, plan 02-06 Task 1) — `useGlobalBindings`'s
+// `resolveGlobalBinding` only ever matches `"global"`-region bindings by design, so it cannot
+// serve a REGION-owned surface like the permission-request card, whose three `answer-permission-*`
+// actions live in the `"permission-card"` region (`BINDINGS` above) and are gated to the
+// `"permission-card"` `UiLayer` (`bindingAllowedInLayer`). This is that surface's own hook: the
+// `window`-level listener lives HERE, in this module, not inside the region-owning component —
+// which is what lets a component register its keys with no `onKeyDown` prop and no
+// `addEventListener` call of its own (T-02-16's whole point for the permission card: no local key
+// or dismissal handler that could let a pending request be closed without an answer).
+// -------------------------------------------------------------------------------------------
+
+export function useRegionBindings(
+  region: FocusRegion,
+  layer: UiLayer,
+  handlers: Partial<Record<ActionId, (binding: Binding) => void>>,
+) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const binding = resolveBinding(event, region);
+      if (!binding) return;
+      if (!bindingAllowedInLayer(binding.id, layer)) return;
+      const handler = handlers[binding.id];
+      if (!handler) return;
+      event.preventDefault();
+      handler(binding);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [region, layer, handlers]);
+}
