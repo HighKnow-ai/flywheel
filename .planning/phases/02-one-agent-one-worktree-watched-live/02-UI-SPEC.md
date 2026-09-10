@@ -510,26 +510,127 @@ existing accent rather than claiming a new "loudest" role for itself.
 
 ## UI Considerations
 
-State coverage resolved against this phase's new shapes (empty / loading / error / populated /
-partial / overflow / zero-one-many / long-text). Empty- and error-state copy live in the Copywriting
-Contract addition above; this section covers coverage status and references those rows.
+Produced by the UI-consideration probe (`ui-consideration-probe.cjs`) after the checker approved
+this contract, not hand-authored alongside it. Each of the seven new surfaces in the Surface
+Inventory was classified into element kinds, the probe raised only the state categories whose
+`applies to` set intersects those kinds, and every raised consideration was resolved. Empty- and
+error-state **copy** lives in the Copywriting Contract addition above; this section carries
+coverage status and references those rows rather than restating them.
 
-Applicable state considerations resolved: 9 covered, 2 backstop, 1 unresolved.
+Element kinds were confirmed rather than taken from the heuristic alone: the classifier missed
+`nav`/`interactive-control` on the live session surface, `interactive-control` on the permission
+card, and `static-content` on the blocked indicator, the Runs section and the worktree summary.
+Those were added before the categories were raised, so the coverage below rests on the confirmed
+kinds, not on a single tripped prose cue.
 
-| Category | Element(s) | Status | Resolution / Reason |
-|----------|------------|--------|---------------------|
-| zero-one-many | Worktree summary / Runs section, 0 vs many | ✅ covered | Absent entirely at zero (State Inventory Additions); Runs section is a normal windowed/virtualized list at many, same pattern as the board. |
-| empty | Settings, permission rules table | ✅ covered | Explicit empty-state copy (Copywriting Contract Additions). |
-| empty | Session surface, zero events (spawning) | ✅ covered | "Starting session…" pulse row, replaced by first real event (State Inventory Additions). |
-| loading | Launch sheet, context packet assembly | ✅ covered | Near-instant by design (pure query); skeleton fallback specified if it isn't. |
-| error | Failed run | ✅ covered | Destructive terminal banner + gloss copy; task status explicitly does not change (State Inventory Additions, Copywriting Contract Additions). |
-| error | `claude` CLI not detected | ✅ covered | Non-blocking inline notice, API-key path remains usable (State Inventory Additions). |
-| overflow | Session feed at long-running-session volume | ✅ covered | Windowed read against the persisted log, identical pattern to the board's proven 1,000+-item virtualization (Performance Contract Additions). |
-| overflow | Expanded tool-call payload, very long output | ✅ covered | Fixed max-height sub-block with internal scroll, never grows the row (Live Session Surface section). |
-| long-text | Worktree path truncation | ✅ covered | Truncates from the left so the meaningful `{PROJECT}/{TASK}/` tail stays visible (Item Detail Panel Additions). |
-| partial | Permission card answered from one mount point while the other is visible on screen | 🧪 backstop | Specified to update live via the existing pushed-delta mechanism (State Inventory Additions), but not verified against a real simultaneous-visibility scenario in this spec — executor should confirm during UAT that no stale duplicate card is ever visible for more than one delta cycle. |
-| overflow | Cost/token status strip at very large numbers (a multi-hour, high-cost run) | 🧪 backstop | Tabular-figure layout assumed to accommodate growth without reflow; not verified against a real large-number case in this spec. |
-| overflow | Settings, a project list long enough to need its own scrolling within the per-project override table | ⚠ unresolved | Not specified here — likely fine at Phase 2's realistic project counts (Phase 1's own ⌘1–⌘9 backstop already flags "many registered projects" as an open question), but the planner should confirm rather than assume. |
+**Applicable state considerations: 54 — 26 resolved explicit, 28 resolved backstop, 0 unresolved.**
+
+A 🧪 **backstop** row is not a covered row. It lifts into the plan as
+`{ statement, verification: backstop }` and at verify time is confirmed only by explicit evidence —
+a wired UI-state test — or routes to `human_needed`. It never passes silently.
+
+### E1 — Launch sheet
+
+*Element kinds: form, interactive-control, static-content*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ✅ covered | Launch sheet with nothing typed shows the assembled context packet plus the optional instruction field carrying its placeholder "Anything else the agent should know for this run? (optional)" — the sheet is never blank and the empty field never blocks Start Work. |
+| loading | ✅ covered | Context-packet assembly is a pure local query with no network call, so the sheet renders populated on open; if assembly ever exceeds one frame it renders the body as a skeleton rather than an empty dialog. |
+| error | 🧪 backstop | What the launch sheet shows if assembling the context packet fails, or if Start Work fails before any worktree exists. |
+| partial | 🧪 backstop | How the packet reads for a task with no acceptance criteria, no description, or an epic with no description — which sections collapse and which render a placeholder. |
+| overflow | ✅ covered | Launch sheet is fixed at 640px wide with max-height 80vh and a scrolling body, so a long context packet scrolls inside the sheet and the footer's Start Work / Cancel buttons stay pinned and reachable. |
+| long-text | ✅ covered | Branch names, worktree paths and packet prose render inside the 80vh scrolling body in the Mono role; long strings wrap or scroll within the sheet and never widen it past 640px. |
+
+### E2 — Live session surface
+
+*Element kinds: list-collection, static-content, nav, interactive-control*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ✅ covered | A session surface opened on a run with zero events yet shows the "Starting session…" pulse row, which is replaced by the first real event rather than accumulating above it. |
+| loading | ✅ covered | The spawning window is represented by the same "Starting session…" pulse row — the feed is never an empty scroll area while the process starts. |
+| error | ✅ covered | A failed run ends the feed with a banner-style terminal row carrying a 4px --destructive-text-rack left stripe, the result event's error subtype in Mono, and a one-line human gloss above it; the task's workflow status does not change. |
+| populated | ✅ covered | The feed is a virtualized windowed read against the persisted session log, so a typical long-running session renders at the same cost as the board's proven 1,000+-item virtualization and application memory stays flat as the transcript grows. |
+| partial | 🧪 backstop | A permission card answered at one mount point while the other is visible on screen must clear within one pushed-delta cycle, with no stale duplicate card left visible. |
+| overflow | ✅ covered | An expanded tool-call payload renders inside a fixed max-height sub-block with its own internal scroll, so it never grows its row; the feed itself scrolls within the surface and the header stays fixed. |
+| zero-one-many | 🧪 backstop | How the feed reads at exactly one event versus many — whether the singular case needs different spacing or copy than the virtualized many case. |
+| long-text | ✅ covered | Long assistant text and long tool payloads are contained by the same fixed max-height, internally scrolling sub-block rather than reflowing the surface. |
+
+### E3 — Permission-request card
+
+*Element kinds: form, list-collection, static-content, interactive-control*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ✅ covered | The permission-request card is mounted only while its run has a pending permission_requests row; with no pending request neither mount point renders anything. |
+| loading | 🧪 backstop | What the card shows between the user pressing Allow/Deny and the answer being written — whether the buttons disable, and what prevents a double-answer. |
+| error | 🧪 backstop | What the card shows if answering fails, or if the agent process died while the request was pending. |
+| populated | ✅ covered | A pending request renders the ShieldAlert glyph, the tool name in Heading weight, the tool's input payload read-only in Mono, and the three actions Allow / Deny / "Allow this tool for this project from now on" at their specified unequal weights. |
+| partial | 🧪 backstop | The same simultaneous-mount case as E2: answering in one place must resolve the other without leaving a stale card. |
+| overflow | 🧪 backstop | A very large tool input payload rendered in the card (rather than in the session feed) must be contained rather than growing the item detail panel unbounded. |
+| zero-one-many | 🧪 backstop | What is shown when a single run has more than one pending permission request at once — whether they queue, stack, or only the first is surfaced. |
+| long-text | 🧪 backstop | An unusually long tool name or single-line payload must not widen the compact item-detail variant of the card. |
+
+### E4 — Blocked indicator
+
+*Element kinds: list-collection, static-content*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ✅ covered | With no blocked run on a task the row carries no blocked pill and the project rail carries no blocked count — the indicator is absent, not a zero-state. |
+| loading | 🧪 backstop | Whether the blocked pill has any transitional appearance between a run becoming blocked and the delta arriving, or appears only on the settled state. |
+| error | 🧪 backstop | Whether a run that fails while blocked clears the blocked pill in the same delta that sets the failed status. |
+| populated | ✅ covered | A blocked run renders a pill immediately trailing the row's existing status glyph: ShieldAlert plus the word "Blocked", never colour alone, layered on top of the five fixed workflow-state glyphs rather than replacing one. |
+| partial | 🧪 backstop | How the project-rail blocked count behaves while some of a project's tasks have loaded and others have not. |
+| overflow | ✅ covered | The blocked pill is exempt from the row's progressive-disclosure truncation ladder, so it survives every board width at which the row still renders. |
+| zero-one-many | 🧪 backstop | Singular versus plural reading of the project-rail blocked count at one blocked task versus many. |
+| long-text | 🧪 backstop | That the fixed word "Blocked" is never localised or lengthened into something the pill cannot contain. |
+
+### E5 — Runs section
+
+*Element kinds: list-collection, interactive-control, static-content*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ✅ covered | The Runs section is absent from the item detail panel until at least one AgentRun exists for the task — no empty section header is rendered. |
+| loading | 🧪 backstop | What the Runs section shows while the run list for a task is still being read. |
+| error | ✅ covered | A failed run's row carries the CircleX glyph with the word "Failed" in --destructive-text-rack, distinguishable from an interrupted run's muted CircleSlash "Interrupted". |
+| populated | ✅ covered | Each run row shows its status badge, relative start time with the absolute on hover, duration for a terminal run, and cost so far. |
+| partial | ✅ covered | A still-running or blocked run has no duration yet and renders a live elapsed counter in its place rather than a blank or zero field. |
+| overflow | 🧪 backstop | A task with many runs must scroll or virtualize within the item detail panel rather than growing the panel unbounded. |
+| zero-one-many | 🧪 backstop | How the section reads at exactly one run versus many — whether a single run still warrants the section header and the Watch Live affordance placement. |
+| long-text | 🧪 backstop | A very large cost figure or a multi-day elapsed counter must not reflow the run row. |
+
+### E6 — Worktree summary
+
+*Element kinds: list-collection, static-content*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ✅ covered | The worktree summary line is absent from the item detail panel until a worktree exists for the task — it is never rendered as an empty or placeholder line. |
+| loading | 🧪 backstop | Whether the worktree line has any transitional state between Start Work firing and the worktree existing on disk. |
+| error | 🧪 backstop | What the line shows if the worktree recorded in the database is missing from disk when the panel renders. |
+| populated | ✅ covered | Once a worktree exists the line shows the branch name and the copyable absolute path, both in the Mono role. |
+| partial | 🧪 backstop | What is shown if a worktree row exists but its path or branch is null. |
+| overflow | ✅ covered | The absolute path truncates from the left so the meaningful {PROJECT}/{TASK}/ tail stays visible rather than the ~/Flywheel/ prefix. |
+| zero-one-many | 🧪 backstop | That exactly one worktree per task is the invariant, and what the line does if a second is ever recorded. |
+| long-text | ✅ covered | Left-truncation is the specified behaviour for any path too long for the panel's width; the line never wraps to a second row. |
+
+### E7 — Settings surface
+
+*Element kinds: form, list-collection, nav, interactive-control, static-content*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ✅ covered | The permission-rules table's empty state reads "No rules yet — they're created from a permission request's 'Allow this tool for this project from now on' action." rather than an empty table body. |
+| loading | 🧪 backstop | What Settings shows while the registered-project list and the permission-rules table are being read. |
+| error | 🧪 backstop | What is shown if the Keychain write fails, or if the Keychain is locked when the key is read at spawn time. |
+| populated | ✅ covered | Settings renders the credential-path segmented control, the per-project override list with every registered project defaulting to "Use global default", and the per-project per-tool rules table with tool name, decision, granted date and a Revoke action per row. |
+| partial | ✅ covered | After an API key is saved the input clears and the surface shows only "API key configured on {date}" with a Replace action — the secret is never re-rendered, and there is no show toggle. |
+| overflow | 🧪 backstop | A project list long enough to need its own scrolling inside the per-project override table — likely fine at Phase 2's realistic project counts, but not specified here (Phase 1 already flags "many registered projects" as an open question for the rail's Cmd-1..9 binding). |
+| zero-one-many | 🧪 backstop | How Settings reads with zero registered projects, one, and many — whether the per-project override table is hidden at zero. |
+| long-text | 🧪 backstop | A long project name or a long MCP tool name in the rules table must truncate rather than widen the table. |
 
 ---
 
@@ -556,12 +657,12 @@ New for Phase 2:
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-09-10 (gsd-ui-checker, 7/7 dimensions PASS)
