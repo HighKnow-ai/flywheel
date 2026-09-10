@@ -5,9 +5,12 @@
 //! independent of what the UI renders; the log write is never conditional on the emit succeeding).
 //!
 //! This module's own working directory is fixed by the OS at process launch and is NEVER read or
-//! reassigned (PROC-02) — every path this module hands the sidecar (a worktree path, in a `spawn`
-//! request built by `commands::agent_run::agent_run_start`) is already absolute by the time it
-//! arrives here.
+//! reassigned (PROC-02, ARCHITECTURE.md Anti-Pattern 3 — "the supervisor must never drift into a
+//! worker's worktree" enforced structurally, not by convention) — every path this module hands the
+//! sidecar (a worktree path, in a `spawn` request built by `commands::agent_run::agent_run_start`)
+//! is already absolute by the time it arrives here. `packages/core/tests/supervisor_cwd.rs`
+//! enforces this as a gate: it scans this file's own source for any ambient-current-directory
+//! call and fails the build if one appears.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
