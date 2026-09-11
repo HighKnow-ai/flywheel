@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Completed 02-09-PLAN.md
-last_updated: "2026-09-11T01:02:33.566Z"
+stopped_at: Completed 02-07-PLAN.md
+last_updated: "2026-09-11T01:41:37.513Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 02 execution started
-state_head: 6542b2b200616650548dc30d8b99cc9dcb0a913c
+state_head: 54904bb3aacb5cb235db83c981d97171940e79f6
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 31
-  completed_plans: 28
+  completed_plans: 29
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 8 of 10
+Plan: 9 of 10
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 02 execution started
 
@@ -86,6 +86,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P05 | 100min | 3 tasks | 22 files |
 | Phase 02 P06 | 50min | 3 tasks | 20 files |
 | Phase 02 P09 | 100min | 3 tasks | 20 files |
+| Phase 02 P07 | 130min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,8 @@ Recent decisions affecting current work:
 - [Phase 02]: [Phase 02]: agent_run_start now resolves the run's credential BEFORE start_agent_run creates the run/worktree, so an api_key-mode resolution failure never leaves an orphaned running agent_runs row with nothing spawned.
 - [Phase 02]: [Phase 02]: keyring is added with its default features kept ON (v1 required to compile at all) plus apple-native-keyring-store explicitly enabled, not default-features=false as first attempted.
 - [Phase 02]: [Phase 02]: Assumption A1 (does ANTHROPIC_API_KEY reliably override a present subscription session) could not be measured this session — no spend-authorized real API key was available; recorded as a Phase 3 input, matching the plan's own accepted fallback.
+- [Phase 02]: useSessionFeed pages tail-first with a literal "tail" pageParam for the initial page, letting a live invalidation re-resolve the tail against the log's current total while older loaded pages keep their own stable offsets — Avoids a second live-update mechanism separate from the paging query itself
+- [Phase 02]: Tool-call/tool_result pairing is FIFO-by-toolName since no correlation id exists on either event in the sidecar's AgentEvent union — Accepted simplification; documented as a known limitation under concurrent same-named tool calls rather than fixed by extending the sidecar's event shapes (out of scope for this UI-only plan)
 
 ### Pending Todos
 
@@ -153,6 +156,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-11T01:02:33.510Z
-Stopped at: Completed 02-09-PLAN.md
+Last session: 2026-09-11T01:41:37.459Z
+Stopped at: Completed 02-07-PLAN.md
 Resume file: None

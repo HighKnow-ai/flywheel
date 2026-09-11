@@ -64,12 +64,12 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [ ] **PROC-04**: No agent process survives application quit; a worker self-terminates if its supervisor disappears
 - [ ] **PROC-05**: On launch, orphaned agent processes and in-flight runs from a previous session are detected and surfaced to the user for a decision rather than silently resumed
 - [x] **PROC-06**: User can interrupt or stop a running agent session at any time and the worktree is left in a consistent, inspectable state
-- [ ] **PROC-07**: Agent output is streamed to the user live without unbounded memory growth on a long-running session
+- [x] **PROC-07**: Agent output is streamed to the user live without unbounded memory growth on a long-running session
 
 ### Agent Integration
 
 - [x] **AGNT-01**: All agent interaction goes through a single adapter interface; no supervisor code branches on which backend is in use
-- [ ] **AGNT-02**: A Claude Code adapter drives headless sessions and normalises their event stream into the adapter's common event type
+- [x] **AGNT-02**: A Claude Code adapter drives headless sessions and normalises their event stream into the adapter's common event type
 - [ ] **AGNT-03**: Agents run using the developer's existing local Claude Code credentials, with no credential ever leaving the machine
 - [ ] **AGNT-04**: An explicit API-key credential path is supported as a first-class alternative to local subscription credentials
 - [ ] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
@@ -262,9 +262,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PROC-04 | Phase 3 | Pending |
 | PROC-05 | Phase 3 | Pending |
 | PROC-06 | Phase 2 | Complete |
-| PROC-07 | Phase 2 | Pending |
+| PROC-07 | Phase 2 | Complete |
 | AGNT-01 | Phase 2 | Complete |
-| AGNT-02 | Phase 2 | Pending |
+| AGNT-02 | Phase 2 | Complete |
 | AGNT-03 | Phase 2 | Pending |
 | AGNT-04 | Phase 2 | Pending |
 | AGNT-05 | Phase 9 | Pending |
