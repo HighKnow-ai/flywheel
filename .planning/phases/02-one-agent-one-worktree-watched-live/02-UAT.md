@@ -3,15 +3,15 @@ status: testing
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T10:14:05Z
+updated: 2026-09-11T10:15:22Z
 ---
 
 ## Current Test
 
-number: 3
-name: Credential parity between local session and explicit API key (AGNT-03 / AGNT-04)
+number: 4
+name: Bare-terminal stop walkthrough in the packaged app (WINDOWS.md row 3)
 expected: |
-  No behavioral difference between the two credential paths; the key is present only in the child's environment.
+  Worktree intact and dirty exactly as the agent left it; no orphaned process under it.
 awaiting: user response
 
 ## Tests
@@ -81,7 +81,23 @@ caveat_status: |
 expected: No behavioral difference between the two credential paths; the key is present only in the child's environment.
 how: Run the same task once under local Claude Code credentials and once with an explicit API key configured in Settings; confirm identical product behavior and that the key never appears in `ps` or the persisted session JSONL.
 why_human: Requires two real credential configurations on one machine. Whether ANTHROPIC_API_KEY reliably overrides a present subscription session could not be measured in this environment (no spend-authorized key) and is recorded as a Phase 3 input.
-result: [pending]
+result: pass
+corroboration: |
+  The non-leak half was verified independently of the tester, since it needs no spend-authorized
+  key. Measured 2026-09-11 across both real runs:
+    - 0 credential-shaped matches (sk-ant-*, ANTHROPIC_API_KEY, "api_key") across 191 persisted
+      JSONL lines in 2 session logs.
+    - buildClaudeArgv returns 11 argv elements for the fully-gated call shape; 0 are
+      credential-shaped. The credential never reaches an argv the OS exposes via `ps`.
+    - The only path a credential takes to the child is `env: { ...process.env, ...options.env }`
+      (claude-code-adapter.ts:411). The adapter does not name ANTHROPIC_API_KEY anywhere — it is
+      resolved upstream and handed over as `options.env`.
+  The PARITY half — identical product behaviour under a subscription session versus an explicit
+  key — rests on the tester's own observation and was not independently reproduced here.
+open_question: |
+  Whether ANTHROPIC_API_KEY reliably OVERRIDES a present subscription session is still not
+  established by measurement, and remains the recorded Phase 3 input. This pass covers parity as
+  observed and non-leakage as measured; it does not settle precedence.
 
 ### 4. Bare-terminal stop walkthrough in the packaged app (WINDOWS.md row 3)
 expected: Worktree intact and dirty exactly as the agent left it; no orphaned process under it.
@@ -98,9 +114,9 @@ result: [pending]
 ## Summary
 
 total: 5
-passed: 2
+passed: 3
 issues: 0
-pending: 3
+pending: 2
 skipped: 0
 blocked: 0
 
