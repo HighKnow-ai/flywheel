@@ -230,6 +230,25 @@ reclamation and per-session cost display (Phase 10 — FLEET-\*, WORK-07, AGNT-0
   migration the user must be walked through, and the boundary is the thing this project has committed
   to keeping auditable.
 
+- **D-40 (checkpoint, plan 02-13):** **Deleting a task with agent-run history is blocked, with a
+  sentence the user can act on — never cascaded.** `delete_task` counts rows in `triggers`,
+  `worktrees`, `agent_runs` and `permission_requests` for the task and refuses the deletion
+  (`anyhow::bail!`, not `.context(...)`, so `commands/task.rs`'s `e.to_string()` surfaces it
+  unwrapped) naming the count and telling the user what to do instead, if any exist. This preserves
+  the non-repudiable record of what an agent did on the task (the product's core value) and cannot
+  orphan an on-disk worktree holding uncommitted changes. It needs no migration, so the decision
+  stays cheap to revisit once Phase 3 ("Nothing Lost, Nothing Left Running") adds an explicit
+  worktree-removal path. `events.task_id` carries no foreign key to `tasks`, so the event log
+  survives the deletion (or the block) either way.
+  Rejected: Option B (cascading the agent-runtime rows and letting the task delete) — it destroys
+  the structured record of every agent run and permission decision for that task and leaves the
+  worktree directory on disk with nothing on the board referencing it, with no product path to
+  remove it yet.
+  Cost accepted: a task started by mistake cannot be deleted until the Phase 3 worktree-removal path
+  exists; today's behaviour already blocked it (a raw `FOREIGN KEY constraint failed`), so this
+  changes the error from opaque to actionable rather than newly forbidding anything.
+  — **Reversibility:** cheap — a guard in one function, no schema change, revisit any time.
+
 ### Claude's Discretion
 
 The following were **not** discussed. The researcher and planner should resolve them against the
