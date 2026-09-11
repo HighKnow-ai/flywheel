@@ -624,60 +624,213 @@ fn resolve_log_window_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(LOG_WINDOW_DEFAULT_LIMIT).clamp(1, LOG_WINDOW_MAX_LIMIT)
 }
 
-/// A bounded page of `agent_run_id`'s durable JSONL log, read with the same `LIMIT`/`OFFSET`
-/// windowing shape `query::events::activity_trail` uses (D-33). `limit` is clamped server-side to
-/// at most 100 regardless of what is requested (T-02-06) — never the whole log in one call. Each
-/// returned element is the raw parsed JSON value of one log line; a line that fails to parse is
-/// skipped rather than failing the whole read.
+/// A bounded page of `agent_run_id`'s durable JSONL log (D-33/D-34, plan 02-07 Task 1) — a thin
+/// DTO wrapper over `flywheel_core::session_log::LogWindow`. `limit` is clamped server-side to at
+/// most 100 regardless of what is requested (T-02-06) — the desktop layer's own clamp on top of
+/// `read_window`'s own internal one, so the ceiling holds even if a future call site here forgets
+/// to apply it. `entries` carries each line's parsed JSON value, with a malformed line degrading
+/// to an `unknown` entry rather than being dropped (T-02-33). `total` is the log's true complete-
+/// line count, so the renderer can page backwards from the tail.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogWindowDto {
+    pub entries: Vec<serde_json::Value>,
+    pub offset: i64,
+    pub limit: i64,
+    pub total: i64,
+}
+
+impl From<flywheel_core::session_log::LogWindow> for LogWindowDto {
+    fn from(window: flywheel_core::session_log::LogWindow) -> Self {
+        Self {
+            entries: window.entries,
+            offset: window.offset as i64,
+            limit: window.limit as i64,
+            total: window.total as i64,
+        }
+    }
+}
+
 #[tauri::command]
 pub fn agent_run_log_window(
-    state: State<AppState>,
     agent_run_id: String,
     offset: Option<i64>,
     limit: Option<i64>,
-) -> Result<Vec<serde_json::Value>, String> {
+) -> Result<LogWindowDto, String> {
     let limit = resolve_log_window_limit(limit);
-    let offset = offset.unwrap_or(0).max(0) as usize;
+    let offset = offset.unwrap_or(0).max(0);
 
-    let log_path: String = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        conn.query_row(
-            "SELECT log_path FROM agent_runs WHERE id = ?1",
-            rusqlite::params![agent_run_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?
-    };
-
-    Ok(read_log_window(&log_path, offset, limit as usize))
+    flywheel_core::session_log::read_window(&agent_run_id, offset as usize, limit as usize)
+        .map(LogWindowDto::from)
+        .map_err(|e| e.to_string())
 }
 
-/// The actual windowed read over one session log file — split out from [`agent_run_log_window`]
-/// so it is unit-testable directly, without going through Tauri's `State<AppState>` extraction
-/// machinery (no other command handler in this crate carries unit tests, so there is no existing
-/// in-crate precedent to follow; a plain function over a file path is the smallest testable seam).
-/// A missing file returns an empty window, matching how a fresh activity trail behaves. A line
-/// that fails to parse is skipped rather than failing the whole read.
-fn read_log_window(log_path: &str, offset: usize, limit: usize) -> Vec<serde_json::Value> {
-    let file = match std::fs::File::open(log_path) {
+/// One verbatim line of the raw persisted log, with its 0-based line number (D-32's raw escape
+/// hatch) — never re-parsed as JSON, so the raw view is always the file's actual ground truth,
+/// byte for byte, even for a line the structured feed could not render.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RawLogLineDto {
+    pub line: i64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RawLogWindowDto {
+    pub lines: Vec<RawLogLineDto>,
+    pub offset: i64,
+    pub limit: i64,
+    pub total: i64,
+}
+
+/// The raw view's own bounded read (plan 02-07 Task 1/3, D-32) — the same windowing shape
+/// `agent_run_log_window` uses (offset/limit clamped identically, `total` from
+/// `session_log::count_lines`), but returning each line's VERBATIM text instead of its parsed
+/// value. Never reads the whole file into memory: bounded skip/take over a buffered reader,
+/// mirroring `session_log::read_window`'s own discipline.
+#[tauri::command]
+pub fn agent_run_raw_window(
+    agent_run_id: String,
+    offset: Option<i64>,
+    limit: Option<i64>,
+) -> Result<RawLogWindowDto, String> {
+    let limit = resolve_log_window_limit(limit);
+    let offset = offset.unwrap_or(0).max(0);
+
+    let total = flywheel_core::session_log::count_lines(&agent_run_id).map_err(|e| e.to_string())?;
+    let path =
+        flywheel_core::session_log::session_log_path(&agent_run_id).map_err(|e| e.to_string())?;
+    let lines = read_raw_line_window(&path, offset as usize, limit as usize, total);
+
+    Ok(RawLogWindowDto { lines, offset, limit, total: total as i64 })
+}
+
+/// The actual bounded verbatim read behind [`agent_run_raw_window`] — split out so it is
+/// unit-testable directly, without going through Tauri's `State<AppState>` extraction machinery.
+/// A missing file (or a `total` of zero) returns an empty window. Never steps past `total`
+/// lines, so an in-flight write's trailing fragment (excluded from `total` by
+/// `session_log::count_lines`) is never returned as a raw line either.
+fn read_raw_line_window(
+    path: &std::path::Path,
+    offset: usize,
+    limit: usize,
+    total: usize,
+) -> Vec<RawLogLineDto> {
+    let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(_) => return Vec::new(),
     };
     let reader = BufReader::new(file);
 
-    reader
-        .lines()
-        .skip(offset)
-        .take(limit)
-        .filter_map(|line| line.ok())
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
-        .collect()
+    let mut out = Vec::new();
+    for (line_number, line_result) in reader.lines().enumerate() {
+        if line_number >= total {
+            break;
+        }
+        if line_number < offset {
+            continue;
+        }
+        if out.len() >= limit {
+            break;
+        }
+        let Ok(text) = line_result else {
+            break;
+        };
+        out.push(RawLogLineDto { line: line_number as i64, text });
+    }
+    out
+}
+
+const AGENT_RUNS_FOR_TASK_DEFAULT_LIMIT: i64 = 50;
+const AGENT_RUNS_FOR_TASK_MAX_LIMIT: i64 = 50;
+
+fn resolve_agent_runs_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(AGENT_RUNS_FOR_TASK_DEFAULT_LIMIT).clamp(1, AGENT_RUNS_FOR_TASK_MAX_LIMIT)
+}
+
+/// One row of a task's Runs section (02-UI-SPEC.md "Runs section") — mirrors
+/// `flywheel_core::query::agent_runs::RunRow` field-for-field. Status words, relative times and
+/// durations are derived at read time in the renderer, never sent as pre-rendered strings.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunSummaryDto {
+    pub id: String,
+    pub task_id: String,
+    pub status: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub cost_usd: Option<f64>,
+    pub tokens_in: Option<i64>,
+    pub tokens_out: Option<i64>,
+}
+
+impl From<flywheel_core::query::agent_runs::RunRow> for RunSummaryDto {
+    fn from(run: flywheel_core::query::agent_runs::RunRow) -> Self {
+        Self {
+            id: run.id,
+            task_id: run.task_id,
+            status: run.status,
+            started_at: run.started_at,
+            ended_at: run.ended_at,
+            cost_usd: run.cost_usd,
+            tokens_in: run.tokens_in,
+            tokens_out: run.tokens_out,
+        }
+    }
+}
+
+/// `task_id`'s agent runs, newest first, bounded (plan 02-07 Task 1, 02-UI-SPEC.md "Runs
+/// section") — the item detail panel's Runs section reads this. Read-only.
+#[tauri::command]
+pub fn agent_runs_for_task(
+    state: State<AppState>,
+    task_id: String,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<RunSummaryDto>, String> {
+    let limit = resolve_agent_runs_limit(limit);
+    let offset = offset.unwrap_or(0).max(0);
+
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let rows = flywheel_core::query::agent_runs::runs_for_task(&conn, &task_id, limit, offset)
+        .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(RunSummaryDto::from).collect())
+}
+
+/// A task's worktree summary line (02-UI-SPEC.md "Worktree summary") — mirrors
+/// `flywheel_core::query::agent_runs::WorktreeSummary` field-for-field. Mirrors
+/// `worktree_summary_for_task`'s own contract: `None`/`null` for a task with no worktree yet,
+/// never a row of empty strings.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeSummaryDto {
+    pub branch: String,
+    pub path: String,
+}
+
+impl From<flywheel_core::query::agent_runs::WorktreeSummary> for WorktreeSummaryDto {
+    fn from(summary: flywheel_core::query::agent_runs::WorktreeSummary) -> Self {
+        Self { branch: summary.branch, path: summary.path }
+    }
+}
+
+/// `task_id`'s worktree summary, or `null` if no worktree exists for the task yet (plan 02-07
+/// Task 1, 02-UI-SPEC.md "Worktree summary"). Read-only.
+#[tauri::command]
+pub fn worktree_summary(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<Option<WorktreeSummaryDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let summary = flywheel_core::query::agent_runs::worktree_summary_for_task(&conn, &task_id)
+        .map_err(|e| e.to_string())?;
+    Ok(summary.map(WorktreeSummaryDto::from))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     #[test]
     fn resolve_log_window_limit_clamps_any_requested_value_to_the_100_row_ceiling() {
@@ -691,31 +844,27 @@ mod tests {
     }
 
     #[test]
-    fn read_log_window_returns_at_most_100_rows_for_any_requested_limit() {
+    fn read_raw_line_window_returns_at_most_the_requested_limit_and_never_past_total() {
         let dir = tempfile::tempdir().expect("failed to create scratch dir");
         let path = dir.path().join("run.jsonl");
         {
+            use std::io::Write;
             let mut file = std::fs::File::create(&path).expect("failed to create fixture log file");
             for i in 0..250 {
                 writeln!(file, "{{\"seq\":{i}}}").expect("failed to write fixture line");
             }
         }
-        let path_str = path.to_string_lossy().into_owned();
 
-        // Even asking for more than the ceiling (250 requested vs a 250-line file) must return
-        // at most LOG_WINDOW_MAX_LIMIT rows — this function itself enforces no default, so the
-        // caller (agent_run_log_window) is what applies resolve_log_window_limit's clamp; this
-        // test asserts read_log_window still honours whatever `limit` it is actually given.
-        let window = read_log_window(&path_str, 0, LOG_WINDOW_MAX_LIMIT as usize);
+        let window = read_raw_line_window(&path, 0, LOG_WINDOW_MAX_LIMIT as usize, 250);
         assert_eq!(window.len(), LOG_WINDOW_MAX_LIMIT as usize);
-
-        let full_clamped = read_log_window(&path_str, 0, resolve_log_window_limit(Some(9999)) as usize);
-        assert!(full_clamped.len() <= LOG_WINDOW_MAX_LIMIT as usize);
+        assert_eq!(window[0].line, 0);
+        assert_eq!(window[0].text, "{\"seq\":0}");
     }
 
     #[test]
-    fn read_log_window_on_a_missing_file_returns_an_empty_window() {
-        let window = read_log_window("/nonexistent/path/to/a/log.jsonl", 0, 50);
+    fn read_raw_line_window_on_a_missing_file_returns_an_empty_window() {
+        let window =
+            read_raw_line_window(std::path::Path::new("/nonexistent/path/to/a/log.jsonl"), 0, 50, 0);
         assert!(window.is_empty());
     }
 

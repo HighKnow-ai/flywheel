@@ -22,6 +22,7 @@
 //! "filtered results come back in the same priority-then-rank-then-id order as the unfiltered
 //! board").
 
+pub mod agent_runs;
 pub mod events;
 pub mod filter;
 pub mod permissions;

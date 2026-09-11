@@ -1,0 +1,86 @@
+//! Bounded reads over `agent_runs`/`worktrees` for the item detail panel's Runs section and
+//! worktree summary (D-31, D-34, 02-UI-SPEC.md "Item detail panel additions") — literal SQL,
+//! bound through `params![]`, following `query::events`'s own discipline (T-01-01/T-01-23): no
+//! `format!`/string-interpolated SQL anywhere in this module.
+//!
+//! Neither read stores a rendered label on its row: status words, relative times and durations
+//! are derived at read time in the renderer, the same `EventRow.description` rule `query::events`
+//! established — a future change to how a status or duration is worded applies to every
+//! historical row without a migration.
+
+use anyhow::Context;
+use rusqlite::{params, Connection, OptionalExtension};
+
+/// One row of a task's Runs section, newest first (02-UI-SPEC.md "Runs section"). `cost_usd`/
+/// `tokens_in`/`tokens_out` are `NULL` until the run's first `cost_update`/`result` event lands —
+/// the renderer's own concern to distinguish "not yet reported" from "reported as zero."
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunRow {
+    pub id: String,
+    pub task_id: String,
+    pub status: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub cost_usd: Option<f64>,
+    pub tokens_in: Option<i64>,
+    pub tokens_out: Option<i64>,
+}
+
+const RUNS_FOR_TASK_SQL: &str = "SELECT id, task_id, status, started_at, ended_at, cost_usd, \
+    tokens_in, tokens_out FROM agent_runs WHERE task_id = ?1 \
+    ORDER BY started_at DESC, id DESC LIMIT ?2 OFFSET ?3";
+
+fn row_to_run(row: &rusqlite::Row) -> rusqlite::Result<RunRow> {
+    Ok(RunRow {
+        id: row.get(0)?,
+        task_id: row.get(1)?,
+        status: row.get(2)?,
+        started_at: row.get(3)?,
+        ended_at: row.get(4)?,
+        cost_usd: row.get(5)?,
+        tokens_in: row.get(6)?,
+        tokens_out: row.get(7)?,
+    })
+}
+
+/// `task_id`'s agent runs, newest first by `started_at` then `id` (a total order — two runs can
+/// never share a `started_at` down to the same tie-break, matching `query::events::activity_trail`'s
+/// own "no bare timestamp sort" discipline applied here to a second column). Bounded by `limit`
+/// with an `offset` cursor, never the whole run history at once. A task with no runs yet returns
+/// an empty vector, never an error.
+pub fn runs_for_task(
+    conn: &Connection,
+    task_id: &str,
+    limit: i64,
+    offset: i64,
+) -> anyhow::Result<Vec<RunRow>> {
+    let mut stmt = conn.prepare(RUNS_FOR_TASK_SQL)?;
+    let rows = stmt
+        .query_map(params![task_id, limit, offset], row_to_run)?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to list agent runs for task")
+}
+
+/// A task's worktree summary (02-UI-SPEC.md "Worktree summary") — `branch`/`path` as
+/// `ensure_worktree` recorded them at creation time (D-23/D-24), never re-derived at read time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorktreeSummary {
+    pub branch: String,
+    pub path: String,
+}
+
+const WORKTREE_SUMMARY_SQL: &str = "SELECT branch, path FROM worktrees WHERE task_id = ?1";
+
+/// `task_id`'s worktree summary, or `None` for a task with no worktree yet (one worktree per
+/// task, ever — LINK-01/WORK-08's own UNIQUE constraint) — never a row of empty strings standing
+/// in for absence.
+pub fn worktree_summary_for_task(
+    conn: &Connection,
+    task_id: &str,
+) -> anyhow::Result<Option<WorktreeSummary>> {
+    conn.query_row(WORKTREE_SUMMARY_SQL, params![task_id], |row| {
+        Ok(WorktreeSummary { branch: row.get(0)?, path: row.get(1)? })
+    })
+    .optional()
+    .context("failed to read worktree summary for task")
+}
