@@ -9,10 +9,36 @@
 # distribution — not something this phase's tracer slice needs to prove the architecture).
 #
 # This script is the interim bridge: it execs the real, TypeScript-built sidecar
-# (`packages/sidecar/dist/index.js`) via the developer's own Node install, resolved relative to
-# this script's own location so it works regardless of which machine's absolute path checked this
-# repository out. Replace this with a real `pkg`/`nexe`-compiled binary per target triple when the
-# packaging/distribution plan lands.
+# (`packages/sidecar/dist/index.js`) via the developer's own Node install. Replace this with a
+# real `pkg`/`nexe`-compiled binary per target triple when the packaging/distribution plan lands.
+#
+# The entrypoint is located by WALKING UP from this script for the `packages/sidecar/dist`
+# marker, not by a fixed `../../../` hop (G-02-1). A fixed hop is only correct while this file
+# sits at `packages/desktop/src-tauri/binaries/`, and that is NOT where it runs from: Tauri copies
+# `externalBin` next to the app executable, so `tauri-plugin-shell` actually executes
+# `target/<profile>/flywheel-sidecar`, three levels up from which escapes the repository root
+# entirely. Node then exited 1 with MODULE_NOT_FOUND before reading a single request, and the
+# failure surfaced far from its cause as "failed to write request to the sidecar's stdin" on the
+# first Start Work. Walking up resolves correctly from BOTH locations.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec node "$SCRIPT_DIR/../../../sidecar/dist/index.js" "$@"
+
+ENTRY=""
+dir="$SCRIPT_DIR"
+while :; do
+  if [ -f "$dir/packages/sidecar/dist/index.js" ]; then
+    ENTRY="$dir/packages/sidecar/dist/index.js"
+    break
+  fi
+  [ "$dir" = "/" ] && break
+  dir="$(dirname "$dir")"
+done
+
+if [ -z "$ENTRY" ]; then
+  echo "flywheel-sidecar: could not find packages/sidecar/dist/index.js by walking up from ${SCRIPT_DIR}." >&2
+  echo "flywheel-sidecar: if the sidecar is unbuilt, run: npm --prefix packages/sidecar run build" >&2
+  echo "flywheel-sidecar: (this dev stub requires the source tree; a packaged app needs the real pkg/nexe binary.)" >&2
+  exit 127
+fi
+
+exec node "$ENTRY" "$@"
