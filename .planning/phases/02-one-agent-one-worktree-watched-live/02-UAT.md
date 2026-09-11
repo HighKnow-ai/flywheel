@@ -1,18 +1,26 @@
 ---
-status: testing
+status: partial
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T05:52:53.211Z
+updated: 2026-09-11T06:24:44Z
 ---
 
 ## Current Test
 
-number: 1
-name: Flat memory over a long real streaming session (PROC-07)
-expected: |
-  RSS stays flat while the persisted log keeps growing on disk.
-awaiting: user response
+[testing paused — 4 items outstanding, diverted to gap closure]
+
+Session paused after test 1 surfaced four defects (G-02-1..G-02-4), two of them blocking every
+remaining test. Tests 2-5 were never presented. Resume with `/gsd-verify-work 2` after
+`/gsd-execute-phase 2 --gaps-only`; reconcile_gaps will mark the closed gaps resolved and testing
+restarts from test 1, which has still never run to completion.
+
+Pre-UAT environment repair completed before gap closure (see OBS-01): the project's trunk `main`
+was fast-forwarded from c6bdc79 (README.md only) to b2b9c46 (336 files), and the fleet state built
+against the empty trunk — 3 worktrees, 6 flywheel branches, 3 worktrees rows, 3 agent_runs rows,
+3 cached epic integration branches — was cleared by
+`uat-evidence/reset-empty-trunk-fleet.sh --execute`. Board task statuses were deliberately left
+untouched. DB backup: flywheel.pre-reset-20260911T142247.db
 
 ## Tests
 
@@ -20,7 +28,11 @@ awaiting: user response
 expected: RSS stays flat while the persisted log keeps growing on disk.
 how: Start a long-running real session on a real task, leave it streaming for several minutes, and watch RSS in Activity Monitor while the transcript grows on disk.
 why_human: Real-process memory behavior over minutes cannot be observed by static analysis; explicitly manual-only per 02-VALIDATION.md. The CR-03 silent-drop defect that previously blocked this truth is now closed and tested — only the flat-RSS observation remains.
-result: [pending]
+result: issue
+reported: "flywheel/thre-23-cache-the-rank-allocator-6 → flywheel/epic/thre-11-project-registration / /Users/cymarechal/Flywheel/THRE/THRE-23 / failed to write request to the sidecar's stdin"
+severity: blocker
+reported_2: "Session / Failed / 0:00 / — in / — out — one event only: {\"raw\":\"session_closed: failed\",\"reason\":\"failed\",\"runId\":\"01M27HA6NQ6D2GH0QWRX7XKYVJ\",\"seq\":0,\"type\":\"session_closed\"}"
+note: The memory behaviour itself has still never been observed — two successive defects (G-02-1, then G-02-2) stopped Start Work before a session ever streamed. The truth is UNTESTED, not disproved; re-run after both patches are in place.
 
 ### 2. Permission pause and resume through a real claude process (AGNT-06)
 expected: The real claude process blocks on the MCP tool call and resumes correctly once answered.
@@ -50,9 +62,193 @@ result: [pending]
 
 total: 5
 passed: 0
-issues: 0
-pending: 5
+issues: 1
+pending: 4
 skipped: 0
 blocked: 0
 
 ## Gaps
+
+- gap_id: G-02-1
+  truth: "A user can start work on a task and watch a real claude session stream live"
+  status: failed
+  reason: "User reported: worktree and branch were created (flywheel/thre-23-cache-the-rank-allocator-6 → flywheel/epic/thre-11-project-registration at /Users/cymarechal/Flywheel/THRE/THRE-23), then Start Work failed with 'failed to write request to the sidecar's stdin'"
+  severity: blocker
+  test: 1
+  root_cause: "The dev-time sidecar stub resolves the real entrypoint relative to its OWN location (SCRIPT_DIR/../../../sidecar/dist/index.js), which is only correct while it sits at packages/desktop/src-tauri/binaries/. tauri-plugin-shell executes the copy Tauri places beside the app executable at target/debug/flywheel-sidecar, where ../../../ escapes the repository root and resolves to <repo-parent>/sidecar/dist/index.js. Node exits 1 with MODULE_NOT_FOUND, the sidecar process is dead before any request is sent, and the first spawn write hits a closed stdin. Reproduced directly: `./target/debug/flywheel-sidecar </dev/null` fails with Cannot find module '/Users/cymarechal/orca/workspaces/HighKnow-harness/sidecar/dist/index.js'."
+  secondary_cause: "spawn_sidecar() treats tauri-plugin-shell's .spawn() returning Ok as proof the sidecar is alive. The stub process starts and then exits 1 immediately, so startup does not abort as the module docstring intends ('failing to resolve or spawn the sidecar aborts startup rather than proceeding with a half-working app') — the failure is deferred to the first Start Work, far from its cause."
+  artifacts:
+    - path: "packages/desktop/src-tauri/binaries/flywheel-sidecar-aarch64-apple-darwin"
+      issue: "Entrypoint path is resolved relative to the stub's own directory, which differs between its source location and the Tauri-copied location beside the executable"
+    - path: "packages/desktop/src-tauri/src/sidecar.rs:536"
+      issue: "spawn_sidecar does not verify the sidecar is still alive after spawn, so an immediately-exiting sidecar surfaces only at first use"
+  missing:
+    - "Resolve packages/sidecar/dist/index.js in a way that holds from both the stub's source location and target/<profile>/ (walk up for the packages/sidecar/dist marker, or have build.rs emit an absolute path)"
+    - "Add a liveness/readiness check after spawn_sidecar so a sidecar that exits immediately aborts startup at its cause, per sidecar.rs's own stated contract"
+    - "Cover the Tauri-copied invocation path in tests — existing sidecar tests exercise packages/sidecar/dist directly and never run the stub as the app runs it"
+  debug_session: ""
+  interim_patch: |
+    UNCOMMITTED working-tree patch applied during UAT so testing could continue — it closes the
+    first `missing` item ONLY. packages/desktop/src-tauri/binaries/flywheel-sidecar-aarch64-apple-darwin
+    now walks up from its own directory for the packages/sidecar/dist/index.js marker instead of a
+    fixed ../../../ hop, which resolves correctly from both its source location and the
+    Tauri-copied target/<profile>/ location. The same file was copied over target/debug/flywheel-sidecar
+    so a plain app restart picks it up without a cargo rebuild. Verified: the stub now boots the
+    sidecar and exits 0 on stdin close, where it previously exited 1 with MODULE_NOT_FOUND.
+    STILL OPEN for gap closure — the spawn liveness check (missing item 2) and test coverage of
+    the Tauri-copied invocation path (missing item 3). This patch is deliberately NOT committed:
+    the commit belongs to the gap-closure plan's ledger, not to verify-work.
+
+- gap_id: G-02-2
+  truth: "Start Work spawns a real claude process that streams stream-json events into the session surface"
+  status: failed
+  reason: "User reported: session surface showed Failed, 0:00, no token counts, and the persisted log contained exactly one line — session_closed with reason failed at seq 0, meaning no stdout line was ever read from the child"
+  severity: blocker
+  test: 1
+  root_cause: "buildClaudeArgv omits --verbose. Claude Code rejects `-p` combined with `--output-format stream-json` at argument validation — 'When using --print, --output-format=stream-json requires --verbose' — exits 1 having emitted nothing on stdout, and writes the reason to stderr. Reproduced against claude 2.1.236 in the real worktree: the adapter's exact argv exits 1 without the flag and streams stream-json correctly with it."
+  secondary_cause: "The adapter never reads the child's stderr. `spawn()` is called with default stdio, so stderr is an undrained pipe and the CLI's own explanation of why it refused to start is discarded. `session_closed` carries only the word 'failed', so every spawn failure — bad argv, missing binary, auth failure — presents identically and undiagnosably in the UI. This is what turned a one-word CLI error into a blind debugging session, and it will do so again for the next failure."
+  tertiary_cause: "The unit test asserted buildClaudeArgv's output as an exact array literal, so it locked in the broken argv rather than catching it. Nothing in the suite ever ran the real claude binary — test/fake-claude.mjs accepts any arguments — so an argv the real CLI always rejects passed 29 green tests."
+  artifacts:
+    - path: "packages/sidecar/src/claude-code-adapter.ts"
+      issue: "buildClaudeArgv builds an argv the real CLI rejects; startSession spawns without reading stderr"
+    - path: "packages/sidecar/test/adapter.test.mjs"
+      issue: "Asserted the broken argv as ground truth; the fake CLI validates no arguments, so argv correctness was never tested against reality"
+  missing:
+    - "Add --verbose to buildClaudeArgv wherever stream-json is used under --print (PATCHED, see interim_patch)"
+    - "Capture the child's stderr and surface it — route it to system_notice events and carry a detail field on session_closed, so a failed spawn says why"
+    - "Add a test that runs the REAL claude binary with the built argv (skipped when the binary is absent), so an argv the CLI rejects cannot pass the suite again"
+  debug_session: ""
+  interim_patch: |
+    UNCOMMITTED working-tree patch applied during UAT so testing could continue — it closes the
+    first `missing` item ONLY. packages/sidecar/src/claude-code-adapter.ts now emits --verbose
+    alongside --output-format stream-json, and the sidecar was rebuilt (npm --prefix
+    packages/sidecar run build). packages/sidecar/test/adapter.test.mjs was updated to match and
+    gained a constraint-shaped regression guard asserting the stream-json/--verbose pairing across
+    every permission mode and both call shapes, so the pairing survives argv reordering. Full
+    sidecar suite re-run: 29 passed, 0 failed.
+    STILL OPEN for gap closure — stderr capture (missing item 2) and a real-binary argv test
+    (missing item 3). Not committed: the commit belongs to the gap-closure plan's ledger.
+  observation: |
+    Under --verbose the CLI also emits SessionStart hook_started/hook_response system events.
+    normaliseStreamEvent maps unknown system subtypes to type "unknown" carrying the raw line, so
+    nothing is dropped and no invariant breaks, but the session feed will show a run of "unknown"
+    rows before the first assistant text. Cosmetic, not a data-loss defect — noted so it is not
+    re-reported as a new bug during the re-run.
+
+- gap_id: G-02-3
+  truth: "A user can read the live session feed while an agent streams events into it"
+  status: failed
+  reason: "User reported: 'The design is terrible' with a screenshot of the session surface rendering every feed row on top of the ones below it — dozens of superimposed text layers, entirely unreadable"
+  severity: major
+  test: 1
+  root_cause: "SessionSurface's virtualizer positions each row absolutely at translateY(virtualRow.start) where start comes from feedRowEstimateSize, which returns a CONSTANT per row kind (FEED_ROW_HEIGHT, or FEED_TOOL_ROW_EXPANDED_HEIGHT for an expanded tool call) and is deliberately never corrected by measureElement. But the row wrapper sets no height and no overflow clamp, and FeedRow's body rows render with overflowWrap anywhere and no maxHeight. Any row whose real content exceeds the estimate therefore paints over every row positioned after it. With multi-kilobyte raw JSON payloads the overflow is many multiples of the row height, which is the superimposed mess in the screenshot."
+  analysis: |
+    02-UI-SPEC.md's "Performance Contract Additions" — a fixed row height per kind, never derived
+    from content length, never measured — is a sound virtualization contract. It was implemented
+    as a POSITION contract without being enforced as a RENDER contract. The estimate decides where
+    a row starts; nothing makes the row actually occupy that height. The two only agree for short
+    content, which is all the tests and the fake CLI ever produced.
+    The clamping pattern already exists in this very file: FeedRow.tsx:88 uses
+    overflow hidden + textOverflow ellipsis + whiteSpace nowrap for one span. It was simply not
+    applied to the body rows at FeedRow.tsx:129 and :150.
+  amplified_by: |
+    HONEST NOTE: the --verbose flag added for G-02-2 made this dramatically worse but did not
+    cause it. --verbose makes the CLI emit SessionStart hook events, which normaliseStreamEvent
+    maps to type "unknown" carrying the full raw line; 32 of this session's 51 events were
+    "unknown". The overflow bug is independent of that flag and would surface on any long
+    assistant message or tool result.
+  artifacts:
+    - path: "packages/desktop/src/session/SessionSurface.tsx:670-687"
+      issue: "Absolutely-positioned virtual row wrapper sets width but no height and no overflow clamp, so a row is free to paint outside the slot the virtualizer reserved for it"
+    - path: "packages/desktop/src/session/FeedRow.tsx:129,150"
+      issue: "Body rows render unbounded content with no maxHeight or overflow, unlike the clamped span at line 88"
+  missing:
+    - "Clamp each virtual row to the height the virtualizer reserved for it — height + overflow hidden on the absolute wrapper — so the render contract matches the position contract"
+    - "Apply the existing line-88 truncation pattern to the body rows so a long payload shows one ellipsised line, with the full text reachable through the already-built expand affordance or View raw"
+    - "Add a test that feeds a multi-kilobyte event through the feed and asserts row N+1's top is not overlapped by row N — the current tests never produce content longer than one line, which is why this passed"
+  debug_session: ""
+
+- gap_id: G-02-4
+  truth: "The board is the store of record — a finished agent run is recorded on the board as finished, with its cost and token usage"
+  status: failed
+  reason: "Two agent_runs rows (01M27H2H55SJ7BMMC1Z0M1WQRV, 01M27HA6NQ6D2GH0QWRX7XKYVJ) still read status=running long after their sessions ended. The second one's own persisted log contains a terminal session_closed event with reason failed. Only the run the user explicitly Stopped reached a terminal status."
+  severity: blocker
+  test: 1
+  root_cause: "close_agent_run — the one function that writes a terminal status, ended_at, cost_usd, tokens_in and tokens_out — is never called from production code. `grep -rn close_agent_run packages/ --include=*.rs` outside packages/core/tests returns only its own definition and doc comments. The string session_closed does not appear anywhere in packages/core/src or packages/desktop/src-tauri/src at all: the sidecar emits the terminal event, the Rust reader loop persists it to JSONL and forwards it to the renderer, and no consumer ever maps it onto the agent_runs row. Only interrupt_agent_run (agent_run.rs:323, the explicit Stop path) writes a terminal status, which is exactly why the Stopped run is the only one that has one."
+  impact: |
+    This is the Core Value failing, not a cosmetic gap. PROJECT.md: "Every unit of agent work is
+    anchored to a structured board item with real acceptance criteria." A run that ends on its own
+    — completed OR failed — stays `running` on the board forever, with no ended_at, no cost and no
+    token counts. The board's record of the fleet silently diverges from reality the moment an
+    agent finishes without being manually Stopped, which is the normal case. It also means a task
+    is never moved out of in_progress by a successful run, since this module's own docstring says
+    that transition is close_agent_run's responsibility.
+    It additionally explains OBS-03: the header's "— in / — out" counters are not a display bug.
+    The columns they read are never written.
+  why_tests_missed_it: |
+    packages/core/tests exercises close_agent_run directly and thoroughly, so the function is
+    correct and proven. Nothing tested that anything CALLS it. A unit test of a function that
+    production never invokes passes perfectly while the product is broken — the precise failure
+    mode UAT exists to catch.
+  artifacts:
+    - path: "packages/core/src/domain/agent_run.rs:201"
+      issue: "close_agent_run is fully implemented, documented and unit-tested, but has no production caller"
+    - path: "packages/desktop/src-tauri/src/sidecar.rs"
+      issue: "The reader loop persists and forwards session_closed but never maps it onto the agent_runs row"
+  missing:
+    - "Handle session_closed in the sidecar reader loop and call close_agent_run with the mapped status (completed / failed), carrying the result event's cost and token usage onto the row"
+    - "Populate tokens_in/tokens_out — decide whether they accumulate from per-message usage during the run or are written once from the terminal result, and make the header reflect that choice"
+    - "Add a test that drives a session to natural completion through the real reader loop and asserts the agent_runs row reaches a terminal status — asserting on close_agent_run alone cannot catch a missing call site"
+  debug_session: ""
+  stale_rows: |
+    The two runs above are stuck rows in the live database and will not self-heal. They need
+    clearing as part of the pre-UAT reset, or the board will show phantom running agents.
+
+## Observations
+
+Not defects in the phase-02 code, recorded so they are not mistaken for gaps.
+
+- id: OBS-01
+  title: "The agent's worktree is empty because this repository's main branch is empty"
+  detail: |
+    The THRE-28 run produced no useful work: seven Bash calls, all orientation, $0.39 spent, and
+    the agent openly said it was trying to work out what "wire up the focus trap" meant. Its
+    worktree /Users/cymarechal/Flywheel/THRE/THRE-28 contains exactly .git and README.md.
+    This is NOT a Flywheel defect. base_ref_for_task resolved correctly: the task has an epic, so
+    the base is the epic integration branch, lazily cut from the project's trunk tip — and
+    projects.default_branch is "main", which in this repository points at c6bdc79 "first commit",
+    a single-file tree containing only README.md. origin/main is at the same commit. All 336
+    tracked files live on the unmerged branch cymarechal-devoteam/gsd-new-project-ade (b2b9c46).
+    Flywheel built the topology it was asked to build; the trunk it was pointed at is a stub.
+    CONSEQUENCE FOR UAT: every remaining human test that needs an agent to do real work is
+    measuring nothing until the project points at a trunk that actually contains the codebase.
+    Either merge the working branch to main, or set the project's default_branch to the branch
+    holding the code.
+
+- id: OBS-02
+  title: "The agent left its own worktree and explored the main checkout"
+  detail: |
+    The last tool call of the THRE-28 run was
+    `ls -R .flywheel; grep -ril "focus trap" ...`.
+    Having found an empty tree, the agent walked out of its assigned worktree and into the
+    project's main checkout. Flywheel spawns the child with cwd set to the worktree path (PROC-02)
+    but nothing confines it there afterwards, so a cd is unopposed.
+    No phase-02 truth claims filesystem confinement, so this is not a gap against this phase — but
+    it cuts against the product's core promise that a unit of agent work is isolated to its
+    worktree, and it is the exact failure mode PROJECT.md names in the inverse direction (the
+    supervisor drifting into a worker's worktree). Worth raising as a board issue in its own right
+    rather than being folded into phase 02.
+
+- id: OBS-03
+  title: "Token counters stayed at em-dash while the session was running"
+  detail: |
+    Promoted to gap G-02-4 — this is a symptom, not a cosmetic quirk. tokens_in/tokens_out are
+    only ever written by close_agent_run, and nothing in production ever calls it.
+
+- id: OBS-04
+  title: "Two identical projects registered, and the rail shows THRE as Unreachable"
+  detail: |
+    The projects table holds two rows, 01M222FWC4FNCQKDZCXD8BEQ68 and 01M22XBK2AMH58GBVV4VDXT8H3,
+    both named threadfin with the same repo_path and default_branch. The project rail in the
+    screenshot shows THRE with an "Unreachable" warning. Worth a look, but not blocking the
+    current tests.
