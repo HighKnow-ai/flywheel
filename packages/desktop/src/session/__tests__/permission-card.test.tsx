@@ -41,6 +41,11 @@ vi.mock("../../adapters/tauri", () => ({
   latestAgentRunIdForTask: (taskId: string) => invokeCommandMock("task_latest_agent_run", { taskId }),
   answerPermissionRequest: (requestId: string, decision: string) =>
     invokeCommandMock("agent_run_answer_permission", { requestId, decision }),
+  // `ItemDetailPanel`'s plan 02-08 additions (`WorktreeSummary`/`RunsSection`) call these two
+  // directly, not through `invokeCommand` generically (`useBoardQuery.ts`'s own import shape) —
+  // delegated through the same one mock for the same reason every other adapter function here is.
+  agentRunsForTask: (taskId: string) => invokeCommandMock("agent_runs_for_task", { taskId }),
+  worktreeSummary: (taskId: string) => invokeCommandMock("worktree_summary", { taskId }),
   subscribeBoardChanged: (handler: () => void) => {
     capturedBoardChangedHandler = handler;
     return Promise.resolve(() => {
@@ -214,6 +219,25 @@ function setUpSharedMounts(initialRequests: PendingPermissionRequest[]) {
     if (command === "criterion_list") return Promise.resolve([]);
     if (command === "events_activity_trail") return Promise.resolve([]);
     if (command === "actor_list") return Promise.resolve([]);
+    // `ItemDetailPanel`'s Runs section (plan 02-08) needs a blocked row for RUN_ID so its own
+    // compact permission-card mount (the SAME card `usePendingPermissionRequests` feeds) has a
+    // row to render beneath — without this the section would read zero runs and render nothing.
+    if (command === "agent_runs_for_task") {
+      return Promise.resolve([
+        {
+          id: RUN_ID,
+          taskId: TASK_ID,
+          status: "blocked",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          endedAt: null,
+          costUsd: null,
+          tokensIn: null,
+          tokensOut: null,
+          externalSessionId: null,
+        },
+      ]);
+    }
+    if (command === "worktree_summary") return Promise.resolve(null);
     return Promise.resolve(undefined);
   });
 

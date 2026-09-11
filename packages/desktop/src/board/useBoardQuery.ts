@@ -17,7 +17,7 @@ import {
   worktreeSummary,
   type LogWindowDto,
 } from "../adapters/tauri";
-import { EMPTY_FILTER_DRAFT, type BoardFilterDraft } from "../state/uiStore";
+import { EMPTY_FILTER_DRAFT, useUiStore, type BoardFilterDraft } from "../state/uiStore";
 
 export interface Project {
   id: string;
@@ -794,4 +794,18 @@ export function useWorktreeSummary(taskId: string | undefined) {
     queryFn: () => worktreeSummary(taskId as string),
     enabled: Boolean(taskId),
   });
+}
+
+/**
+ * Resolves `taskId`'s most recent agent run and opens it in the live session surface (D-31, plan
+ * 02-08 Task 3) — the ONE entry point `board/BoardView.tsx`'s board-list `l` key
+ * (`open-live-session`, `state/keyboard.ts`) and `board/CommandPalette.tsx`'s matching palette
+ * command both call, so "which run is active" is computed once, not twice per 02-08-PLAN.md's own
+ * action text. A task with no runs yet resolves to `null` and is a no-op — no route change, no
+ * error, matching this codebase's own precedent for every other inapplicable-row action (e.g.
+ * `open-epic-picker` on an epic row).
+ */
+export async function openLiveSessionForTask(taskId: string): Promise<void> {
+  const agentRunId = await latestAgentRunIdForTask(taskId);
+  if (agentRunId) useUiStore.getState().setActiveAgentRunId(agentRunId);
 }

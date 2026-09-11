@@ -155,8 +155,25 @@ async function handleAnswerPermission(requestId: string, decision: PermissionDec
 }
 
 /** One run row, its own component so the elapsed-counter tick (running/blocked runs only) stays
- * an isolated re-render boundary rather than ticking the whole `RunsSection` list every second. */
-function RunRow({ run }: { run: RunSummaryDto }) {
+ * an isolated re-render boundary rather than ticking the whole `RunsSection` list every second.
+ *
+ * `isActive` (plan 02-08 Task 3) marks the currently active/most-recent run — `RunsSection`'s
+ * own first (newest) row, by construction of the newest-first read. That row alone carries the
+ * primary `Watch Live`/`View` action button, the same visual weight `ItemDetailPanel.tsx`'s own
+ * `Start Work` button carries when no run is active. Selecting any OTHER row (not the button —
+ * the row itself) opens that run read-only in the same session surface (02-UI-SPEC.md "Runs
+ * section": "no separate history viewer is built"). Both paths call the SAME `onOpenRun`
+ * callback with the run's own id — there is exactly one way this component ever asks its caller
+ * to open a run. */
+function RunRow({
+  run,
+  isActive,
+  onOpenRun,
+}: {
+  run: RunSummaryDto;
+  isActive: boolean;
+  onOpenRun: (agentRunId: string) => void;
+}) {
   const status: RunStatus = isRunStatus(run.status) ? run.status : "running";
   const isTerminal = TERMINAL_STATUSES.includes(status);
   const isBlocked = status === "blocked";
@@ -176,7 +193,12 @@ function RunRow({ run }: { run: RunSummaryDto }) {
   const pendingRequests = pendingQuery.data ?? [];
 
   return (
-    <div role="listitem" style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0 }}>
+    <div
+      role="listitem"
+      aria-label={identityLine}
+      onClick={() => onOpenRun(run.id)}
+      style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0, cursor: "pointer" }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
         <RunStatusBadge status={status} />
         <time
@@ -201,12 +223,35 @@ function RunRow({ run }: { run: RunSummaryDto }) {
         >
           {formatCostUsd(run.costUsd)}
         </span>
+        {isActive && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenRun(run.id);
+            }}
+            className="type-body"
+            style={{
+              marginLeft: "auto",
+              background: "var(--accent-nontext)",
+              border: "none",
+              borderRadius: "var(--radius-chrome)",
+              color: "var(--text-primary-rack)",
+              padding: "var(--space-xs) var(--space-md)",
+              cursor: "pointer",
+            }}
+          >
+            {isTerminal ? "View" : "Watch Live"}
+          </button>
+        )}
       </div>
       <span className="type-label" style={{ fontFamily: MONO_STACK, color: "var(--text-muted-rack)" }}>
         {identityLine}
       </span>
       {isBlocked && pendingRequests.length > 0 && (
-        <PermissionRequestCard variant="compact" requests={pendingRequests} onAnswer={handleAnswerPermission} />
+        <div onClick={(event) => event.stopPropagation()}>
+          <PermissionRequestCard variant="compact" requests={pendingRequests} onAnswer={handleAnswerPermission} />
+        </div>
       )}
     </div>
   );
@@ -214,6 +259,11 @@ function RunRow({ run }: { run: RunSummaryDto }) {
 
 export interface RunsSectionProps {
   taskId: string;
+  /** Called with an `agent_runs.id` whenever the user selects a run to open — either the active
+   * row's primary `Watch Live`/`View` button, or any other row (plan 02-08 Task 3). The caller
+   * (`ItemDetailPanel.tsx` -> `board/BoardView.tsx`) routes this into the ONE session surface,
+   * live or terminal — this component itself decides nothing about routing. */
+  onOpenRun: (agentRunId: string) => void;
 }
 
 /** The Runs section's own maximum height (E5 `overflow`) — a task with many runs scrolls WITHIN
@@ -221,7 +271,7 @@ export interface RunsSectionProps {
  * Task 1, `AGENT_RUNS_FOR_TASK_MAX_LIMIT`) already caps how much this could ever need to hold. */
 const RUNS_LIST_MAX_HEIGHT = 320;
 
-export function RunsSection({ taskId }: RunsSectionProps) {
+export function RunsSection({ taskId, onOpenRun }: RunsSectionProps) {
   const runsQuery = useAgentRuns(taskId);
 
   // E5 `loading`: render nothing while the read is in flight, for the same reason
@@ -252,8 +302,8 @@ export function RunsSection({ taskId }: RunsSectionProps) {
           minWidth: 0,
         }}
       >
-        {runs.map((run) => (
-          <RunRow key={run.id} run={run} />
+        {runs.map((run, index) => (
+          <RunRow key={run.id} run={run} isActive={index === 0} onOpenRun={onOpenRun} />
         ))}
       </div>
     </section>

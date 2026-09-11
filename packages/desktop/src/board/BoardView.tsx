@@ -59,6 +59,7 @@ import {
 } from "../state/keyboard";
 import { useUiStore, type PickerKind } from "../state/uiStore";
 import {
+  openLiveSessionForTask,
   useActors,
   useBlockedSummary,
   useCreateEpic,
@@ -216,6 +217,11 @@ export function BoardView({
   // CommandPalette — this board only ever opens it by name (the task id), never imports the
   // sheet component itself, exactly as `detailItemId`/`activePicker` are opened by id above.
   const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
+  // The live session surface (D-31, plan 02-01), mounted once at the `App.tsx` level like the
+  // launch sheet above — opened by id only, from `ItemDetailPanel.tsx`'s Runs section (a specific
+  // run id) or from `open-live-session`'s board-list `l` key / palette command below (resolved
+  // through the ONE shared `openLiveSessionForTask` entry point, plan 02-08 Task 3).
+  const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
 
   // A stable module-level empty object — returning a fresh `{}` literal from the selector would
   // give Zustand's default reference-equality check a new value on every call, causing an
@@ -585,6 +591,14 @@ export function BoardView({
         // row, matching `open-epic-picker`'s own task-only refusal above.
         if (selectedId && selectedItem && (selectedItem.kind ?? "task") === "task") {
           setLaunchSheetTaskId(selectedId);
+        }
+        break;
+      case "open-live-session":
+        // Same task-only refusal as `start-work` above (D-37). Resolution of "which run is
+        // active" is the ONE shared `openLiveSessionForTask` entry point (`useBoardQuery.ts`) —
+        // a task with no runs yet resolves to a no-op, never a route change or an error.
+        if (selectedId && selectedItem && (selectedItem.kind ?? "task") === "task") {
+          void openLiveSessionForTask(selectedId);
         }
         break;
       default:
@@ -1035,6 +1049,7 @@ export function BoardView({
           }
           onSetStatus={(status) => requestStatusChange(selectedItem.kind ?? "task", selectedItem.id, status)}
           onStartWork={() => setLaunchSheetTaskId(selectedItem.id)}
+          onOpenRun={(agentRunId) => setActiveAgentRunId(agentRunId)}
           // The palette renders over this panel by design (the Escape ladder's fixed order) —
           // release the trap while the palette owns focus so the panel stays open instead of
           // fighting Radix's `FocusScope` for it (01-13-PLAN.md, G-01-FOCUS instance 5).

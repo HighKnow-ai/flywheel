@@ -40,6 +40,7 @@ import {
 } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import {
+  openLiveSessionForTask,
   useActors,
   useBoardQuery,
   useCreateIssue,
@@ -230,6 +231,14 @@ export function CommandPalette() {
             title: selectedItem.title,
           });
           close();
+        }
+        break;
+      case "open-live-session":
+        // Same task-only refusal `BoardView.tsx`'s board-list `l` key applies (D-37) — resolved
+        // through the ONE shared entry point (`openLiveSessionForTask`, `useBoardQuery.ts`) so the
+        // palette and the real keystroke never compute "which run is active" two different ways.
+        if (selectedItem && (selectedItem.kind ?? "task") === "task") {
+          void openLiveSessionForTask(selectedItem.id);
         }
         break;
       default:

@@ -15,23 +15,24 @@
  * (`App.tsx`) decides which layout to render this inside; this component only owns its own
  * 480px content.
  *
- * Plan 02-06 Task 2 adds the permission-request card's `compact` variant, rendered above the
- * Activity Trail whenever the task's most recent run has a pending request (AGNT-06, D-37, D-38,
- * Discretion #6). Only a task can have a run (an epic/issue has no worktree of its own — D-37's
- * Boundary note), so this resolves its own `agentRunId` self-contained, the same pattern
- * `AcceptanceCriteriaList`/`ActivityTrail` already use for their own embedded-section queries
- * keyed off `item.id` — this component still imports no store (its own established convention).
+ * Plan 02-08 inserts two more task-only sections above the Activity Trail, in this order:
+ * `WorktreeSummary` (the task's git identity) then `RunsSection` (every run on this task, newest
+ * first). Both are absent until they have something to show (State Inventory "No worktree/runs
+ * yet"). `RunsSection` now owns the permission-request card's `compact` mount too (moved here
+ * from plan 02-06 Task 2's original panel-level mount) — the card lives beneath the specific
+ * blocked run's own row rather than as a generic sibling section, so a run and the answer it is
+ * waiting on read as one linked record (Discretion #6 still holds: the SAME
+ * `usePendingPermissionRequests(agentRunId)` query every mount point reads).
  */
 import { useRef, useState, type KeyboardEvent } from "react";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
-import { answerPermissionRequest } from "../adapters/tauri";
-import { useLatestAgentRunId, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { StatusPicker } from "../board/pickers/StatusPicker";
 import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
-import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
 import { ActivityTrail } from "./ActivityTrail";
+import { RunsSection } from "./RunsSection";
+import { WorktreeSummary } from "./WorktreeSummary";
 
 export type DetailItemKind = "epic" | "task" | "issue";
 
@@ -65,6 +66,13 @@ export interface ItemDetailPanelProps {
    * component's own former direct call). Only rendered for a task (D-37: an epic/issue has no
    * worktree of its own to run an agent in). */
   onStartWork?: () => void;
+  /** Called with an `agent_runs.id` whenever the user selects a run to open, from the Runs
+   * section's active-row primary action or any other row (D-31, plan 02-08 Task 3). The caller
+   * (`board/BoardView.tsx`) routes this into the app's one session surface. Optional and
+   * defaulted to a no-op — this component stays free of any store import (the same established
+   * convention `onStartWork` already follows), and an epic/issue never renders the Runs section
+   * that would need it (D-37). */
+  onOpenRun?: (agentRunId: string) => void;
 }
 
 export function ItemDetailPanel({
@@ -74,6 +82,7 @@ export function ItemDetailPanel({
   onSetStatus,
   trapped = true,
   onStartWork,
+  onOpenRun,
 }: ItemDetailPanelProps) {
   const [titleDraft, setTitleDraft] = useState(item.title);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
@@ -84,17 +93,6 @@ export function ItemDetailPanel({
   const isIssue = item.kind === "issue";
   const isTask = item.kind === "task";
   const statusMark = item.status ? MARKS_BY_ID[statusMarkId(item.status)] : undefined;
-
-  // The permission-request card's `compact` mount (AGNT-06, plan 02-06 Task 2) — resolves this
-  // task's most recent run, then reads the exact SAME `agentRunId`-keyed query the session feed's
-  // mount reads for that run, so answering in either place clears both (Discretion #6).
-  const latestRunQuery = useLatestAgentRunId(isTask ? item.id : undefined);
-  const pendingQuery = usePendingPermissionRequests(isTask ? latestRunQuery.data : undefined);
-  const pendingRequests = pendingQuery.data ?? [];
-
-  async function handleAnswerPermission(requestId: string, decision: PermissionDecision) {
-    await answerPermissionRequest(requestId, decision);
-  }
 
   function commitTitle() {
     const trimmed = titleDraft.trim();
@@ -246,9 +244,9 @@ export function ItemDetailPanel({
             />
           )}
 
-          {isTask && pendingRequests.length > 0 && (
-            <PermissionRequestCard variant="compact" requests={pendingRequests} onAnswer={handleAnswerPermission} />
-          )}
+          {isTask && <WorktreeSummary taskId={item.id} />}
+
+          {isTask && <RunsSection taskId={item.id} onOpenRun={onOpenRun ?? (() => {})} />}
 
           {!isIssue && <ActivityTrail parentType={item.kind === "epic" ? "epic" : "task"} parentId={item.id} />}
         </aside>
