@@ -5,7 +5,13 @@
  */
 import { useEffect, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invokeCommand, subscribeBoardChanged } from "../adapters/tauri";
+import {
+  invokeCommand,
+  latestAgentRunIdForTask,
+  pendingPermissionRequests,
+  subscribeAgentEvent,
+  subscribeBoardChanged,
+} from "../adapters/tauri";
 import { EMPTY_FILTER_DRAFT, type BoardFilterDraft } from "../state/uiStore";
 
 export interface Project {
@@ -487,4 +493,102 @@ export function useBoardChangedSubscription() {
       unlisten?.();
     };
   }, [queryClient]);
+}
+
+/** `usePendingPermissionRequests`' query key, keyed by `agentRunId` — the one shared query BOTH
+ * the permission-request card's mount points read (AGNT-06, D-37/D-38, plan 02-06 Task 2,
+ * Discretion #6: "one query, one key, consumed by both mount points, so the two instances cannot
+ * disagree"). Exported so a caller resolving its own `agentRunId` late (`ItemDetailPanel.tsx`) can
+ * still land on the exact key the session feed's mount uses for the same run. */
+export function pendingPermissionRequestsQueryKey(agentRunId: string) {
+  return ["pending-permission-requests", agentRunId] as const;
+}
+
+/**
+ * The permission-request card's one shared source of truth (AGNT-06, D-37/D-38, plan 02-06 Task
+ * 2) — both mount points (`SessionSurface.tsx`'s `feed` variant, `ItemDetailPanel.tsx`'s `compact`
+ * variant) call this with the SAME `agentRunId` and read the SAME query, so answering at either
+ * place invalidates both instances within one pushed-delta cycle rather than leaving a stale
+ * second copy (E3's `partial` consideration). `null`/`undefined` (no run yet, e.g. an epic/issue,
+ * or a task that has never had a run) disables the query entirely — never a call with an empty id.
+ *
+ * Invalidated on BOTH `subscribeBoardChanged` (D-04 — the answer round trip's own emit, and the
+ * inbound rule-check-or-block path's emit) and `subscribeAgentEvent` (a fresh `permission_request`
+ * event arrives on this channel too, per `sidecar.rs`'s reader loop) — never polled. Each mount
+ * point registers its own pair of listeners (scoped to ITS OWN `agentRunId`), following this
+ * file's existing per-hook subscription pattern rather than adding a third global listener.
+ */
+export function usePendingPermissionRequests(agentRunId: string | null | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!agentRunId) return undefined;
+    const queryKey = pendingPermissionRequestsQueryKey(agentRunId);
+    let unlistenBoard: (() => void) | undefined;
+    let unlistenAgent: (() => void) | undefined;
+    let cancelled = false;
+
+    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
+      if (cancelled) fn();
+      else unlistenBoard = fn;
+    });
+    subscribeAgentEvent(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
+      if (cancelled) fn();
+      else unlistenAgent = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlistenBoard?.();
+      unlistenAgent?.();
+    };
+  }, [agentRunId, queryClient]);
+
+  return useQuery({
+    queryKey: pendingPermissionRequestsQueryKey(agentRunId ?? "none"),
+    queryFn: () => pendingPermissionRequests(agentRunId as string),
+    enabled: Boolean(agentRunId),
+  });
+}
+
+/** `useLatestAgentRunId`'s query key, keyed by `taskId`. */
+function latestAgentRunIdQueryKey(taskId: string) {
+  return ["latest-agent-run", taskId] as const;
+}
+
+/**
+ * The most recent agent run id for `taskId` (AGNT-06, plan 02-06 Task 2) — `ItemDetailPanel.tsx`'s
+ * own resolution of "this task's active run," so its compact permission-request card mount can
+ * read the exact same `agentRunId`-keyed `usePendingPermissionRequests` query the session feed's
+ * mount uses for the same run. `undefined` (an epic/issue, which has no worktree of its own to run
+ * an agent in — D-37's Boundary note) disables the query entirely. Invalidated on
+ * `subscribeBoardChanged` (Start Work's own `board:changed` emit, D-04) — never polled.
+ */
+export function useLatestAgentRunId(taskId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = taskId ? latestAgentRunIdQueryKey(taskId) : (["latest-agent-run", "none"] as const);
+
+  useEffect(() => {
+    if (!taskId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: latestAgentRunIdQueryKey(taskId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [taskId, queryClient]);
+
+  return useQuery({
+    queryKey,
+    queryFn: () => latestAgentRunIdForTask(taskId as string),
+    enabled: Boolean(taskId),
+  });
 }

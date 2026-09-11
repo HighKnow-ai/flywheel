@@ -17,7 +17,12 @@ vi.mock("../../adapters/tauri", async () => {
     agentRunLogWindow: (agentRunId: string, offset: number, limit: number) =>
       invokeCommandMock("agent_run_log_window", { agentRunId, offset, limit }),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
+    subscribeBoardChanged: () => Promise.resolve(() => {}),
     stopAgentRun: (agentRunId: string) => invokeCommandMock("agent_run_stop", { agentRunId }),
+    // The permission-request card's feed mount (plan 02-06 Task 2) — no pending requests by
+    // default so every pre-existing test in this file keeps rendering the plain event feed alone.
+    pendingPermissionRequests: () => Promise.resolve([]),
+    answerPermissionRequest: () => Promise.resolve(undefined),
   };
 });
 

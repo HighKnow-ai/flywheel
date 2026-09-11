@@ -192,3 +192,32 @@ export async function listPermissionRules(projectId: string): Promise<Permission
 export async function revokePermissionRule(ruleId: string): Promise<void> {
   await invokeCommand<void>("permission_rule_revoke", { ruleId });
 }
+
+/**
+ * One pending `permission_requests` row (AGNT-06, plan 02-06) — mirrors
+ * `commands/agent_run.rs`'s `PendingPermissionRequestDto` field-for-field. The permission-request
+ * card's own data source.
+ */
+export interface PendingPermissionRequestDto {
+  id: string;
+  toolName: string;
+  inputPayload: string | null;
+  createdAt: string;
+}
+
+/**
+ * Every pending permission request for `agentRunId`, oldest first (AGNT-06, plan 02-06 Task 2).
+ * Read-only. Thin typed wrapper over `agent_run_pending_permissions`.
+ */
+export async function pendingPermissionRequests(agentRunId: string): Promise<PendingPermissionRequestDto[]> {
+  return invokeCommand<PendingPermissionRequestDto[]>("agent_run_pending_permissions", { agentRunId });
+}
+
+/**
+ * The most recent agent run id for `taskId`, or `null` if the task has never had a run (AGNT-06,
+ * plan 02-06 Task 2) — the item detail panel's own resolution of "this task's active run." Thin
+ * typed wrapper over `task_latest_agent_run`.
+ */
+export async function latestAgentRunIdForTask(taskId: string): Promise<string | null> {
+  return invokeCommand<string | null>("task_latest_agent_run", { taskId });
+}

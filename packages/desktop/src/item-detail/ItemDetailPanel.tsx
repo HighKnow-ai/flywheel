@@ -14,12 +14,22 @@
  * space with the list (01-UI-SPEC.md "Item detail — side panel", responsive rule) — the caller
  * (`App.tsx`) decides which layout to render this inside; this component only owns its own
  * 480px content.
+ *
+ * Plan 02-06 Task 2 adds the permission-request card's `compact` variant, rendered above the
+ * Activity Trail whenever the task's most recent run has a pending request (AGNT-06, D-37, D-38,
+ * Discretion #6). Only a task can have a run (an epic/issue has no worktree of its own — D-37's
+ * Boundary note), so this resolves its own `agentRunId` self-contained, the same pattern
+ * `AcceptanceCriteriaList`/`ActivityTrail` already use for their own embedded-section queries
+ * keyed off `item.id` — this component still imports no store (its own established convention).
  */
 import { useRef, useState, type KeyboardEvent } from "react";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
+import { answerPermissionRequest } from "../adapters/tauri";
+import { useLatestAgentRunId, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { StatusPicker } from "../board/pickers/StatusPicker";
 import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
+import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
 import { ActivityTrail } from "./ActivityTrail";
 
@@ -72,7 +82,19 @@ export function ItemDetailPanel({
   );
   const statusButtonRef = useRef<HTMLButtonElement>(null);
   const isIssue = item.kind === "issue";
+  const isTask = item.kind === "task";
   const statusMark = item.status ? MARKS_BY_ID[statusMarkId(item.status)] : undefined;
+
+  // The permission-request card's `compact` mount (AGNT-06, plan 02-06 Task 2) — resolves this
+  // task's most recent run, then reads the exact SAME `agentRunId`-keyed query the session feed's
+  // mount reads for that run, so answering in either place clears both (Discretion #6).
+  const latestRunQuery = useLatestAgentRunId(isTask ? item.id : undefined);
+  const pendingQuery = usePendingPermissionRequests(isTask ? latestRunQuery.data : undefined);
+  const pendingRequests = pendingQuery.data ?? [];
+
+  async function handleAnswerPermission(requestId: string, decision: PermissionDecision) {
+    await answerPermissionRequest(requestId, decision);
+  }
 
   function commitTitle() {
     const trimmed = titleDraft.trim();
@@ -222,6 +244,10 @@ export function ItemDetailPanel({
               parentId={item.id}
               projectId={item.projectId}
             />
+          )}
+
+          {isTask && pendingRequests.length > 0 && (
+            <PermissionRequestCard variant="compact" requests={pendingRequests} onAnswer={handleAnswerPermission} />
           )}
 
           {!isIssue && <ActivityTrail parentType={item.kind === "epic" ? "epic" : "task"} parentId={item.id} />}

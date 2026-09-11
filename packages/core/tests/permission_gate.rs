@@ -9,7 +9,10 @@ use core::domain::permission_request::{answer_request, create_pending_request, A
 use core::domain::permission_rule::{matching_rule, revoke_rule, rules_for_project, upsert_rule};
 use core::domain::project;
 use core::domain::task::create_task;
-use core::query::permissions::{blocked_count_for_project, blocked_task_ids_for_project};
+use core::query::permissions::{
+    blocked_count_for_project, blocked_task_ids_for_project, latest_run_id_for_task,
+    pending_requests_for_run,
+};
 use rusqlite::Connection;
 
 /// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — see
@@ -252,6 +255,58 @@ fn blocked_count_and_ids_reflect_only_tasks_whose_most_recent_run_is_blocked() {
         let ids = blocked_task_ids_for_project(&conn, &project.id)
             .expect("blocked_task_ids_for_project should succeed");
         assert_eq!(ids, vec![blocked_task.id.clone()]);
+    });
+}
+
+#[test]
+fn pending_requests_for_run_returns_every_pending_row_in_creation_order() {
+    let (mut conn, actor_id, _project_id, _task_id, run_id) = seeded_running_run();
+
+    // A run with no pending requests returns an empty vec, not an error.
+    assert!(pending_requests_for_run(&conn, &run_id)
+        .expect("pending_requests_for_run should succeed")
+        .is_empty());
+
+    let first = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id)
+        .expect("create_pending_request should succeed");
+    // Two concurrent held calls (02-05-SUMMARY's own D4) can each raise their own pending row for
+    // the SAME run — this query must surface BOTH, not just the latest.
+    let second = create_pending_request(&mut conn, &run_id, "Edit", Some("{\"path\":\"a.txt\"}"), &actor_id)
+        .expect("create_pending_request should succeed");
+
+    let pending = pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
+    assert_eq!(pending.len(), 2, "both concurrent pending requests must be returned");
+    assert_eq!(pending[0].id, first.id, "oldest first (creation order)");
+    assert_eq!(pending[1].id, second.id);
+    assert_eq!(pending[0].tool_name, "Bash");
+    assert_eq!(pending[1].tool_name, "Edit");
+
+    // Answering one leaves only the other pending.
+    answer_request(&mut conn, &first.id, "allowed", &actor_id).expect("answer_request should succeed");
+    let remaining = pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].id, second.id);
+}
+
+#[test]
+fn latest_run_id_for_task_resolves_the_most_recently_started_run() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "A task", None)
+            .expect("create_task should succeed");
+
+        // A task with no runs yet resolves to None, not an error.
+        assert_eq!(
+            latest_run_id_for_task(&conn, &task.id).expect("latest_run_id_for_task should succeed"),
+            None
+        );
+
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        assert_eq!(
+            latest_run_id_for_task(&conn, &task.id).expect("latest_run_id_for_task should succeed"),
+            Some(run.id)
+        );
     });
 }
 

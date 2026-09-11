@@ -541,6 +541,48 @@ pub fn permission_rule_revoke(state: State<AppState>, app: AppHandle, rule_id: S
     Ok(())
 }
 
+/// One pending permission request, projected for the wire (camelCase) — the permission-request
+/// card's data source (AGNT-06, plan 02-06 Task 2). Mirrors
+/// `flywheel_core::query::permissions::PendingPermissionRequest` field-for-field.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPermissionRequestDto {
+    pub id: String,
+    pub tool_name: String,
+    pub input_payload: Option<String>,
+    pub created_at: String,
+}
+
+impl From<flywheel_core::query::permissions::PendingPermissionRequest> for PendingPermissionRequestDto {
+    fn from(r: flywheel_core::query::permissions::PendingPermissionRequest) -> Self {
+        Self { id: r.id, tool_name: r.tool_name, input_payload: r.input_payload, created_at: r.created_at }
+    }
+}
+
+/// List every pending permission request for `agent_run_id`, oldest first (AGNT-06, plan 02-06
+/// Task 2) — the permission-request card's data source, shared by both mount points (the session
+/// feed and the item detail panel both call this with the same `agent_run_id`). Read-only.
+#[tauri::command]
+pub fn agent_run_pending_permissions(
+    state: State<AppState>,
+    agent_run_id: String,
+) -> Result<Vec<PendingPermissionRequestDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let rows = flywheel_core::query::permissions::pending_requests_for_run(&conn, &agent_run_id)
+        .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(Into::into).collect())
+}
+
+/// The most recent agent run id for `task_id`, or `null` if the task has never had a run (AGNT-06,
+/// plan 02-06 Task 2) — the item detail panel's own resolution of "this task's active run," so its
+/// compact permission-request card mount can read the exact same `agent_run_id`-keyed query the
+/// session feed's mount uses. Read-only.
+#[tauri::command]
+pub fn task_latest_agent_run(state: State<AppState>, task_id: String) -> Result<Option<String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    flywheel_core::query::permissions::latest_run_id_for_task(&conn, &task_id).map_err(|e| e.to_string())
+}
+
 fn resolve_log_window_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(LOG_WINDOW_DEFAULT_LIMIT).clamp(1, LOG_WINDOW_MAX_LIMIT)
 }

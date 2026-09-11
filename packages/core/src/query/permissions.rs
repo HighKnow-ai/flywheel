@@ -11,7 +11,7 @@
 //! regardless).
 
 use anyhow::Context;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 const BLOCKED_TASK_IDS_SQL: &str = "SELECT ar.task_id FROM agent_runs ar \
     WHERE ar.project_id = ?1 AND ar.status = 'blocked' \
@@ -40,4 +40,60 @@ pub fn blocked_count_for_project(conn: &Connection, project_id: &str) -> anyhow:
         .query_row(BLOCKED_COUNT_SQL, params![project_id], |row| row.get(0))
         .context("failed to count blocked tasks for project")?;
     Ok(count)
+}
+
+/// One pending `permission_requests` row, projected for a caller that needs its CONTENT (tool
+/// name, raw input payload, when it was raised) rather than just its existence — unlike
+/// `blocked_task_ids_for_project` above, which only proves a task is blocked. Feeds the
+/// permission-request card (AGNT-06, plan 02-06).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingPermissionRequest {
+    pub id: String,
+    pub tool_name: String,
+    pub input_payload: Option<String>,
+    pub created_at: String,
+}
+
+const PENDING_REQUESTS_FOR_RUN_SQL: &str = "SELECT id, tool_name, input_payload, created_at \
+    FROM permission_requests WHERE agent_run_id = ?1 AND status = 'pending' \
+    ORDER BY created_at ASC, id ASC";
+
+/// Every pending `permission_requests` row for `agent_run_id`, oldest first — the permission-
+/// request card's own E3 zero-one-many resolution ("stacked in creation order, each independently
+/// answerable," 02-06-PLAN.md Task 1). Ordinarily at most one row (the sidecar holds one tool call
+/// open per run in the common case), but two concurrent held calls (02-05-SUMMARY's own D4) can
+/// each raise their own pending row for the SAME run — this reads ALL of them, never just the
+/// latest. `domain::permission_request::pending_for_run`'s `LIMIT 1` serves a different caller
+/// (the sidecar-answer round trip, which only ever settles one row per answer) and is unaffected
+/// by this addition.
+pub fn pending_requests_for_run(
+    conn: &Connection,
+    agent_run_id: &str,
+) -> anyhow::Result<Vec<PendingPermissionRequest>> {
+    let mut stmt = conn.prepare(PENDING_REQUESTS_FOR_RUN_SQL)?;
+    let rows = stmt
+        .query_map(params![agent_run_id], |row| {
+            Ok(PendingPermissionRequest {
+                id: row.get(0)?,
+                tool_name: row.get(1)?,
+                input_payload: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to list pending permission requests for run")
+}
+
+const LATEST_RUN_ID_FOR_TASK_SQL: &str =
+    "SELECT id FROM agent_runs WHERE task_id = ?1 ORDER BY started_at DESC LIMIT 1";
+
+/// The most recent agent run id for `task_id` (by `started_at`), or `None` if the task has never
+/// had a run — the item detail panel's own resolution of "this task's active run" (AGNT-06, plan
+/// 02-06 Task 2), so its compact permission-request card mount can read the exact same
+/// `agent_run_id`-keyed query the feed mount uses (Discretion #6: "one query, one key, consumed by
+/// both mount points"). Mirrors `blocked_task_ids_for_project`'s own "most recent run" definition.
+pub fn latest_run_id_for_task(conn: &Connection, task_id: &str) -> anyhow::Result<Option<String>> {
+    conn.query_row(LATEST_RUN_ID_FOR_TASK_SQL, params![task_id], |row| row.get(0))
+        .optional()
+        .context("failed to resolve the latest agent run for task")
 }

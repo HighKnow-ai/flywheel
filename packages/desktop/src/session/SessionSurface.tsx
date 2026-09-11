@@ -13,10 +13,21 @@
  * no new colour token in this plan; plan 02-03 introduces the `agent` mark channel and the new
  * colour roles, and plan 02-07 binds the glyphs. No keydown listener is registered here either:
  * `⌘.` belongs to `state/keyboard.ts`'s single key→action map, owned by plan 02-03 this wave.
+ *
+ * Plan 02-06 Task 2 mounts the permission-request card's `feed` variant here, at the tail of the
+ * event list — this feed is still the plain, unstructured row-per-raw-event render plan 02-07
+ * replaces, so "at its position in the transcript" resolves concretely to "after every event
+ * currently loaded," which is where a genuinely pending request always sits (nothing else can
+ * happen on this run until it's answered). The feed's follow-the-tail behaviour (a tail sentinel,
+ * scrolled into view on new events) is suppressed for as long as ANY request is pending, and
+ * resumes the instant none is (02-UI-SPEC.md Performance Contract: "the feed must not auto-scroll
+ * away from" a pending card).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { agentRunLogWindow, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
+import { agentRunLogWindow, answerPermissionRequest, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
+import { usePendingPermissionRequests } from "../board/useBoardQuery";
+import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
 
 const PAGE_SIZE = 50;
 
@@ -90,6 +101,7 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
   const queryKey = sessionLogQueryKey(agentRunId);
   const [status, setStatus] = useState<RunStatus>(initialStatus);
   const [stopping, setStopping] = useState(false);
+  const tailRef = useRef<HTMLDivElement>(null);
 
   const logQuery = useInfiniteQuery({
     queryKey,
@@ -99,6 +111,16 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
     getNextPageParam: (lastPage, allPages) =>
       (lastPage?.length ?? 0) === PAGE_SIZE ? allPages.length * PAGE_SIZE : undefined,
   });
+
+  // The permission-request card's `feed` mount (AGNT-06, plan 02-06 Task 2) — this run's pending
+  // set, read from the ONE shared query the item detail panel's compact mount also reads for the
+  // same `agentRunId`, so answering in either place clears both (Discretion #6).
+  const pendingQuery = usePendingPermissionRequests(agentRunId);
+  const pendingRequests = pendingQuery.data ?? [];
+
+  async function handleAnswer(requestId: string, decision: PermissionDecision) {
+    await answerPermissionRequest(requestId, decision);
+  }
 
   // A live `agent:event` push invalidates the windowed read (D-32/D-04) — the stream itself is
   // never treated as the source of truth, only the persisted log read back through the command.
@@ -130,6 +152,17 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
 
   const showStop = !TERMINAL_STATUSES.includes(status);
   const events = logQuery.data?.pages.flat() ?? [];
+
+  // Follow-the-tail (02-UI-SPEC.md Performance Contract) — suppressed for as long as ANY
+  // permission request is pending, and resumes the instant none is (this effect re-runs on
+  // `pendingRequests.length` transitioning back to zero, which is exactly "resume once answered").
+  useEffect(() => {
+    if (pendingRequests.length > 0) return;
+    // Optional call, not just optional chaining on the ref: jsdom (this project's test
+    // environment) implements no `Element.prototype.scrollIntoView` at all — a real browser always
+    // has it, but a test asserting this behaviour installs its own spy first.
+    tailRef.current?.scrollIntoView?.({ block: "end" });
+  }, [events.length, pendingRequests.length]);
 
   return (
     <div
@@ -213,6 +246,14 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
             {logQuery.isFetchingNextPage ? "Loading…" : "Load more"}
           </button>
         )}
+
+        {pendingRequests.length > 0 && (
+          <div style={{ marginTop: "var(--space-md)" }}>
+            <PermissionRequestCard variant="feed" requests={pendingRequests} onAnswer={handleAnswer} />
+          </div>
+        )}
+
+        <div ref={tailRef} />
       </div>
     </div>
   );
