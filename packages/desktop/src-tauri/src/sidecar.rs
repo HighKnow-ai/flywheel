@@ -4,6 +4,13 @@
 //! emitting it to the renderer (PITFALLS.md pitfall 10 — the persisted log is ground truth,
 //! independent of what the UI renders; the log write is never conditional on the emit succeeding).
 //!
+//! No per-run fault on this reader loop can ever terminate it (CR-03, PROC-07 — the gap this
+//! module used to have: one run's unwritable log file used to panic the loop and silently starve
+//! every other run's events for the rest of the app session). A malformed line, an unwritable or
+//! unappendable session log, an unparseable event and a rejected run id are each turned into a
+//! value by [`persist_event_line`] and handled by its caller — never a panic, never an early
+//! return out of the loop. One run's I/O failure stays scoped to that run.
+//!
 //! This module's own working directory is fixed by the OS at process launch and is NEVER read or
 //! reassigned (PROC-02, ARCHITECTURE.md Anti-Pattern 3 — "the supervisor must never drift into a
 //! worker's worktree" enforced structurally, not by convention) — every path this module hands the
@@ -98,10 +105,12 @@ impl SidecarHandle {
     }
 
     /// Send an `interrupt` request for `run_id` over the sidecar's stdin and block until its
-    /// acknowledgement arrives (D-35) — `agent_run_stop` calls this BEFORE writing the run's
-    /// terminal status, so the process has already started (and, by the time this returns,
-    /// finished) shutting down before the domain write lands. The request `id` is `run_id`
-    /// itself, matching `agent_run_start`'s own convention (`commands/agent_run.rs`).
+    /// acknowledgement arrives (D-35). Since plan 02-11 (CR-04), `agent_run_stop` no longer
+    /// gates its terminal write on this call: the interrupt is still sent and this call still
+    /// waits on it, but its outcome can only widen the command's returned `sidecar_warning` — it
+    /// can never delay or prevent the domain write that records the run's terminal status. The
+    /// request `id` is `run_id` itself, matching `agent_run_start`'s own convention
+    /// (`commands/agent_run.rs`).
     pub fn interrupt_run(&self, run_id: &str) -> anyhow::Result<()> {
         let (tx, rx) = std::sync::mpsc::channel::<Result<serde_json::Value, String>>();
         {
@@ -232,6 +241,77 @@ impl SidecarHandle {
     }
 }
 
+/// The outcome of one attempt to persist a single sidecar stdout event line to its owning run's
+/// session log (CR-03, PROC-07). Every variant is a plain value returned to the caller — never an
+/// unwind — because the caller is the single shared reader task for every run in the app.
+#[derive(Debug, PartialEq)]
+pub(crate) enum PersistOutcome {
+    /// The line was appended to `run_id`'s session log.
+    Written,
+    /// `run_id` does not have the shape of a real run id (see [`is_plausible_run_id`]) — rejected
+    /// before any filesystem path was ever built from it (T-02G-12-01).
+    RejectedRunId,
+    /// `run_id`'s session log could not be opened. Carries the error text; nothing was inserted
+    /// into the writers map, so the very next event for this run retries the open rather than
+    /// being permanently poisoned by a cached failure (T-02G-12-02).
+    OpenFailed(String),
+    /// `run_id`'s session log was open, but appending this line to it failed. Carries the error
+    /// text.
+    AppendFailed(String),
+}
+
+/// Whether `run_id` has the shape of a real run id: exactly 26 ASCII alphanumeric characters —
+/// the shape the `CHECK (length(id) = 26)` constraint in `0003_agent_runtime.sql` already
+/// guarantees for every id this codebase mints via `flywheel_core::ids::new_id()`. This is the
+/// guard that stops a `runId` read off an untrusted sidecar stdout line from ever being joined
+/// into a filesystem path unchecked (T-02G-12-01) — called before [`SessionLogWriter::open`] /
+/// `session_log_path` on every path through [`persist_event_line`].
+pub(crate) fn is_plausible_run_id(run_id: &str) -> bool {
+    run_id.len() == 26 && run_id.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// The only place a session-log writer is opened from the shared sidecar reader loop (CR-03). Every
+/// failure path here — a poisoned `writers` mutex, a log file that cannot be opened, a write that
+/// cannot be appended, an implausible run id — is returned as a [`PersistOutcome`] value, never a
+/// panic and never an unwind, because the caller is the ONE reader task for every run this
+/// application supervises: a panic here would take every other run's live feed and persisted log
+/// down with it for the rest of the app session.
+///
+/// On [`PersistOutcome::OpenFailed`], nothing is inserted into `writers` — the next call for the
+/// same `run_id` retries the open (T-02G-12-02) instead of caching a transient failure forever.
+pub(crate) fn persist_event_line(
+    writers: &Mutex<HashMap<String, SessionLogWriter>>,
+    run_id: &str,
+    event_line: &str,
+) -> PersistOutcome {
+    if !is_plausible_run_id(run_id) {
+        return PersistOutcome::RejectedRunId;
+    }
+
+    let mut writers = match writers.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            return PersistOutcome::OpenFailed(format!("session log writers mutex poisoned: {poisoned}"))
+        }
+    };
+
+    if !writers.contains_key(run_id) {
+        let writer = match SessionLogWriter::open(run_id) {
+            Ok(writer) => writer,
+            Err(err) => return PersistOutcome::OpenFailed(format!("{err:#}")),
+        };
+        writers.insert(run_id.to_string(), writer);
+    }
+
+    match writers.get_mut(run_id) {
+        Some(writer) => match writer.append_event_line(event_line) {
+            Ok(()) => PersistOutcome::Written,
+            Err(err) => PersistOutcome::AppendFailed(format!("{err:#}")),
+        },
+        None => PersistOutcome::OpenFailed("session log writer unexpectedly absent after insert".to_string()),
+    }
+}
+
 /// Spawn the bundled `flywheel-sidecar` binary and start its stdout reader task. Follows this
 /// codebase's expect-or-crash-loudly-at-startup idiom (`main.rs`'s `.setup()` closure) — a failure
 /// to resolve or spawn the sidecar aborts startup rather than proceeding with a half-working app.
@@ -268,14 +348,10 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                 if let Some(sidecar) = state.sidecar.as_ref() {
                                     // The persistent write happens FIRST, unconditionally — the
                                     // emit below is a best-effort live view, never the source of
-                                    // truth (PITFALLS.md pitfall 10).
-                                    if let Ok(mut writers) = sidecar.writers.lock() {
-                                        let writer = writers.entry(run_id.clone()).or_insert_with(|| {
-                                            SessionLogWriter::open(&run_id)
-                                                .expect("failed to open session log writer for run")
-                                        });
-                                        let _ = writer.append_event_line(&event_line);
-                                    }
+                                    // truth (PITFALLS.md pitfall 10). No outcome here — Written or
+                                    // otherwise — can ever stop this loop (CR-03): a per-run fault
+                                    // is a value `persist_event_line` returns, never a panic.
+                                    let _outcome = persist_event_line(&sidecar.writers, &run_id, &event_line);
                                 }
                             }
                         }
