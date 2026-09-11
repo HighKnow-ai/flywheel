@@ -1,8 +1,8 @@
 ---
 phase: 02-one-agent-one-worktree-watched-live
-verified: 2026-09-11T13:55:00Z
+verified: 2026-09-11T19:05:00Z
 status: human_needed
-score: 3/6 truths verified (5 roadmap success criteria + 1 project-constraint truth; 0 failed, 3 present-behavior-unverified)
+score: 6/6 truths supported by evidence (5 roadmap success criteria + 1 project-constraint truth); 0 failed; 0 formally present-behavior-unverified — but 2 narrower, harvested human-verification items remain open (down from 5 in the pre-UAT report)
 covered_files:
   - .planning/REQUIREMENTS.md
   - .planning/ROADMAP.md
@@ -35,253 +35,232 @@ covered_files:
   - .planning/phases/02-one-agent-one-worktree-watched-live/02-13-SUMMARY.md
   - .planning/phases/02-one-agent-one-worktree-watched-live/02-14-PLAN.md
   - .planning/phases/02-one-agent-one-worktree-watched-live/02-14-SUMMARY.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-CONTEXT.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-DISCUSSION-LOG.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-PATTERNS.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-RESEARCH.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-REVIEW-FIX.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-REVIEW.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-REVIEW.pre-gap-closure.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-UI-SPEC.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-VALIDATION.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-VERIFICATION.pre-gap-closure.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/COVERAGE.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/deferred-items.md
-  - packages/core/src/db/migrations/0003_agent_runtime.sql
-  - packages/core/src/db/migrations/0004_permission_gate.sql
-  - packages/core/src/domain/task.rs
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-15-PLAN.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-15-SUMMARY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-16-PLAN.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-16-SUMMARY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-17-PLAN.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-17-SUMMARY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-18-PLAN.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-18-SUMMARY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-SECURITY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-UAT.md
+  - packages/core/src/domain/agent_run.rs
   - packages/core/tests/agent_run_stop_ordering.rs
   - packages/core/tests/app_exit_ordering.rs
+  - packages/core/tests/runtime_context_call_sites.rs
+  - packages/core/tests/session_close_lifecycle.rs
+  - packages/core/tests/session_closed_call_site.rs
   - packages/core/tests/task_delete_with_run_history.rs
   - packages/desktop/src-tauri/src/commands/agent_run.rs
   - packages/desktop/src-tauri/src/main.rs
   - packages/desktop/src-tauri/src/sidecar.rs
-  - packages/desktop/src/adapters/tauri.ts
+  - packages/desktop/src/session/FeedRow.tsx
   - packages/desktop/src/session/SessionSurface.tsx
-  - packages/desktop/src/session/__tests__/session-surface.test.tsx
+  - packages/sidecar/src/adapter.ts
   - packages/sidecar/src/claude-code-adapter.ts
   - packages/sidecar/src/index.ts
+  - packages/sidecar/test/real-claude-argv.test.mjs
   - packages/sidecar/test/shutdown.test.mjs
-covered_digest: "v1:sha256:5f71a5c6e84bd0dd3a4caa254e31efaba9f9665402cdb0145d07b82d52ccad2e"
-behavior_unverified: 3
+  - packages/sidecar/test/stub-invocation.test.mjs
+covered_digest: "v1:sha256:e0951685399976b0559b2398f86c13c7e6773961177ca9a111a167a236b11515"
+behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: "1/5 roadmap success criteria fully verified (2 failed, 2 human-verification-only)"
+  previous_status: human_needed
+  previous_score: "3/6 truths verified (5 roadmap success criteria + 1 project-constraint truth; 0 failed, 3 present-behavior-unverified)"
   gaps_closed:
-    - "PROC-06 / CR-04: agent_run_stop's terminal write is now unconditional on the sidecar ack (stop_agent_run_recording_first captures the interrupt Result in a local rather than propagating it with `?`); proven by two new Rust tests that stop a run whose interrupt closure always returns Err and assert the run still reaches `interrupted`, exactly once."
-    - "02-07-PLAN prohibition / CR-03: the shared sidecar stdout-reader loop no longer calls `SessionLogWriter::open(...).expect(...)`. `persist_event_line` returns a `PersistOutcome` value on every path (RejectedRunId/OpenFailed/AppendFailed/Written) and never unwinds; proven by three new `persist_tests` cases showing one run's permanently-unopenable log never stops another run's events, and a failed open retries rather than caching the failure."
-    - "DATA-06 / CR-01 (task deletion regression): `delete_task` now counts rows in triggers/worktrees/agent_runs/permission_requests inside its own transaction and blocks with a human-readable `anyhow::bail!` before ever reaching `DELETE FROM tasks` (D-40: block, never cascade). Proven by `task_delete_with_run_history.rs`'s three tests: blocked-with-history, still-succeeds-with-no-history, and never-a-raw-SQLite-message."
-    - "CLAUDE.md orphan-process constraint / CR-02: `RunEvent::Exit` now calls `SidecarHandle::shutdown_all_sessions()` (which asks the sidecar to signal every live session's process group and waits on a bounded ack) BEFORE `SidecarHandle::kill()`. Proven by `shutdown.test.mjs`, which drives the real compiled sidecar binary as a child process, spawns two real stubborn grandchildren, and proves via `process.kill(pid, 0)` throwing ESRCH that both are gone after a `shutdown` request — plus a SIGTERM-fallback case and an idempotent-second-call case. A source-scanning gate (`app_exit_ordering.rs`) makes the shutdown-before-kill ordering a compiler-adjacent regression gate, falsifiable against a reordered/missing/commented-out fixture."
+    - "G-02-1 (blocker): the dev-time sidecar stub resolved its entrypoint by a fixed parent-hop count that was only correct from its checked-in location, not the location tauri-plugin-shell actually runs it from — Start Work failed with 'failed to write request to the sidecar's stdin' on the very first live attempt. Closed by 02-15: the stub now walks up from its own symlink-resolved directory for a fixed marker, and spawn_sidecar performs a bounded ping/ack readiness handshake before returning Ok, so a dead sidecar aborts startup naming its own cause instead of surfacing minutes later. Proven by stub-invocation.test.mjs (3 tests, including a falsifiability case that reintroduces the fixed hop and watches it fail)."
+    - "G-02-2 (blocker): buildClaudeArgv omitted --verbose, which the real CLI requires alongside --output-format stream-json under -p — every session died at seq 0 with no diagnostic, because the child's stderr was never drained. Closed by 02-17: the flag pairing is now behind a constraint-shaped regression guard (not a frozen array literal), the child's stderr is drained for the session's lifetime and carried onto SessionClosedEvent.detail, and real-claude-argv.test.mjs spawns the ACTUAL claude binary (2.1.236 on this machine) to prove the built argv is accepted and a one-element-shorter argv is rejected."
+    - "G-02-3 (major): the session feed's virtual rows were positioned from a constant estimate but never clamped to it, so any row whose real content exceeded the estimate painted over every row beneath it — 'dozens of superimposed text layers'. Closed by 02-16: the virtual row wrapper now declares height: virtualRow.size + overflow: hidden, and text rows are truncated in JS (not just CSS-clipped) with a disclosure control that reveals the full text in place. Proven by a regression test that pushes a ~4.2KB event through the real feed and asserts no adjacent slot pair overlaps."
+    - "G-02-4 (blocker, Core Value failure): close_agent_run — the only function that writes a terminal status, ended_at, cost and token counts — had NO production caller. A run that ended on its own (completed or failed) stayed running on the board forever. Closed by 02-18: apply_session_closed is now dispatched from the sidecar reader loop's session_closed branch, decides idempotency (never overwrites an explicit Stop, backfills a missing cost/token column via COALESCE), and tokens_in is the SUM of three input-side usage fields rather than the misleading plain field alone (which read 2 for a turn that actually cost ~33,000 input tokens). Proven by session_close_lifecycle.rs (spawns the real compiled sidecar to natural completion) and session_closed_call_site.rs (a falsifiable source-scanning gate on the call site itself). Independently confirmed LIVE during UAT test 1: run 01M27YR97ZZ01RHVREKNWH96ST reached status=completed, cost_usd=1.183256, tokens_in=1011934, tokens_out=7615, with the owning task correctly left in_progress per D-29."
+    - "G-02-5 (blocker, regression introduced by 02-15's own fix): the readiness handshake constructed tokio::time::timeout(...) as a block_on call argument, outside any runtime context — Sleep registers with the timer driver at construction, so the app aborted on every launch with 'there is no reactor running... thread caused non-unwinding panic'. Every automated suite stayed green through this (220/220) because nothing constructs a real Tauri AppHandle inside the launch callback. Fixed directly (not its own gap-closure plan) by moving the timeout construction inside the async block, guarded by a new falsifiable source gate, runtime_context_call_sites.rs, which walks every .rs file under the desktop crate for a block_on(tokio::time::... construction and was proven to catch the exact regression by reverting and restoring the fix."
+    - "T-02-42 (high, security): credential-precedence repudiation. Clause 1 (an operator-facing notice when subscription-vs-API-key precedence is unconfirmed) was added during the security audit — API_KEY_PRECEDENCE_NOTICE in SettingsSurface.tsx, tested."
+    - "T-02G-17-03 (low, security, DoS): the stderr-tail bound was check-before-append, which one oversized line defeated. Fixed to append-then-truncate in both the Node sidecar (claude-code-adapter.ts) and the Rust reader loop, matching."
+    - "A non-hermetic Keychain test (resolve_credential_falls_back_to_the_global_default_without_a_project_override) read the operator's real Keychain and asserted an unstated precondition ('no key is stored') that a human UAT run genuinely broke by storing a real key through Settings. Fixed during the security audit to take the serialization lock/guard and establish its own precondition rather than assume it."
   gaps_remaining: []
   regressions:
-    - "A second-round code review (02-REVIEW.md, post-gap-closure) found that 02-11's CR-04 fix had introduced a new regression: `agent_run_stop` acquired `state.db.lock()` BEFORE the up-to-30-second-blocking `interrupt_run` call, so a wedged sidecar would freeze every other command in the app (board reads, task creation, every other run's interactions) behind one Stop click — worse than the original CR-04 bug in a different dimension. This was fixed in commit `e0f532c` (interrupt resolved into a local before the lock is acquired) and independently re-verified here by direct code read plus a new falsifiable source-scanning gate, `packages/core/tests/agent_run_stop_ordering.rs`, which passes. This regression was found and fixed entirely within the gap-closure round, before this verification ran — it is recorded here for the audit trail, not as an open issue."
+    - "G-02-5 (see gaps_closed) was introduced by 02-15's own fix for G-02-1 and fixed the same day, before this verification ran. Recorded for the audit trail, not as an open issue — the same failure shape as G-02-4 (a function proven correct in isolation, wrong at its only real call site) recurring inside a fix for a different gap, and every automated suite passed while the application could not start at all."
+observed_since_last_verification:
+  - "02-UAT.md ran to completion: 5/5 tests passed, 0 issues, 0 pending. All five items previously listed as human_verification in the pre-UAT report were exercised for real; two produced a clean, fully corroborated pass (permission gate pause/resume; PROC-07 short-session memory), and two produced a PASS with a partial, explicitly-flagged evidentiary gap (bare-terminal stop walkthrough; Settings walkthrough) that this report reduces to two narrower human_verification items below rather than either hiding or reopening the whole original five."
+  - "02-SECURITY.md ran to completion: 84 threats, 82 closed, 2 open (both below the high block threshold, 0 blocking), threats_open: 0. Six mitigations — one of them T-02-24 at high severity — are verified by code reading only, never by observed production behavior, because the permission-rule grant/revoke path has never executed outside automated tests (permission_rules: 0 rows; 0 %rule% events of any kind)."
+  - "All three suites and the TypeScript build were independently re-run by this verification (not read from any SUMMARY claim): cargo test --workspace -> 222/222 (0 failed); npm --prefix packages/sidecar test -> 39/39 (0 failed); npm --prefix packages/desktop test -> 314/314 (0 failed, 29 files); npm --prefix packages/desktop run build -> tsc + vite build exit 0, no error TS diagnostics."
+  - ".planning/REQUIREMENTS.md's per-requirement status table (lines ~217-271) still shows the inverse of the actual, code-verified state for this phase (DATA-04/WORK-01/WORK-02/WORK-08/LINK-01/AGNT-03/AGNT-04/AGNT-06 marked 'Gaps Found' while DATA-06/PROC-01/PROC-06/PROC-07/AGNT-01/AGNT-02 are marked 'Complete') — flagged in the pre-UAT report and still unreconciled. Doc-hygiene only; not evidence of a code regression."
+  - ".planning/WINDOWS.md rows 3 and 7 (the two unrun-verify items this report's harvested human_verification items descend from) are still marked status: open in the ledger even though 02-UAT.md ran and partially corroborated both — the ledger was not updated after UAT completed. Neither row should be marked fixed outright (each still has a genuinely unevidenced clause), but the ledger's 'has not been observed by a human' wording is now stale and should be tightened to name the specific unevidenced clause."
 gaps: []
 deferred: []
-behavior_unverified_items:
-  - truth: "PROC-07: a user watches a long-running session live and application memory stays flat rather than growing with the transcript"
-    test: "Start a long-running real session on a real task, leave it streaming for several minutes, and watch RSS in Activity Monitor while the transcript grows on disk."
-    expected: "RSS stays flat while the persisted log on disk keeps growing; the renderer never holds more than a bounded window."
-    why_human: "The windowed-read design (session_log.rs::read_window, LOG_WINDOW_MAX_LIMIT=100; SessionSurface.tsx's @tanstack/react-virtual usage) is present and structurally sound, and this round closed the confirmed silent-drop defect (CR-03) with real tests — but actual flat-RSS behavior over a long real session can only be observed by running the packaged app, per 02-VALIDATION.md's own Manual-Only Verifications table. Unchanged from the prior verification round."
-  - truth: "AGNT-06: a permission request pauses the agent, the user answers it from the board, and the agent genuinely resumes (full path through a real claude process)"
-    test: "Press Start Work on a task whose work needs a permission decision, confirm the board surfaces the request and the agent is genuinely blocked, answer it, and confirm the agent resumes rather than restarting."
-    expected: "The real claude process blocks on the MCP tool call, the board renders the pending request, answering it resolves the held call, and the agent continues the same turn."
-    why_human: "The DB/MCP-server halves (permission_gate.rs, mcp-permission-server.ts) are proven by real automated tests, but the end-to-end path crosses the renderer and a real spawned claude process — explicitly manual-only per 02-VALIDATION.md. Execution notes also record that Claude Code's own built-in bash safety heuristic was empirically found to bypass a configured --permission-prompt-tool for commands it judges read-only, even in --permission-mode default. No gap-closure plan touched this path; unchanged from the prior verification round."
-  - truth: "AGNT-03/AGNT-04: the user can point Flywheel at local Claude Code credentials or an explicit API key with nothing else in the product behaving differently"
-    test: "Run the same task once under local Claude Code credentials and once with an explicit API key configured in Settings; confirm nothing else in the product behaves differently, and confirm the key never appears in `ps` or the persisted session JSONL."
-    expected: "Identical argv and event-kind/order between the two modes (already proven by packages/sidecar/test/credentials.test.mjs); the API key is present in the child's environment only."
-    why_human: "The structural/code-level guarantees (argv parity, env-only injection, no credential-mode branching, single resolver) are proven by real spawned-child tests. What remains unverified is whether ANTHROPIC_API_KEY reliably overrides a present local subscription session in the real claude CLI — unmeasurable in this environment (no spend-authorized key) and logged as a Phase 3 input. Unchanged from the prior verification round."
-  - truth: "Plan 02-02's own manual verification step: starting a real session, pressing Stop, and confirming from a bare terminal that the worktree is intact and no process survives under it"
-    test: "Start a real session, press Stop, then from a bare terminal confirm the worktree directory and its uncommitted changes are intact and no claude (or descendant) process is still running."
-    expected: "Worktree intact and dirty exactly as the agent left it; no orphaned process."
-    why_human: "Logged as an open unrun-verify item in .planning/WINDOWS.md (row 3), deferred to end-of-phase UAT per workflow.human_verify_mode=end-of-phase. The underlying process-group-kill mechanism is now proven at two levels — packages/sidecar/test/stop.test.mjs (single-run interrupt) and this round's shutdown.test.mjs (app-exit path) — but the packaged-app path itself has still not been observed by a human. Still open in WINDOWS.md as of this verification."
-  - truth: "Plan 02-10's own manual verification step: Settings surface reachable from menu/⌘,/palette, API key save-then-hide, and allow-always rule list/revoke from a real permission request"
-    test: "Open Settings from the app menu, from ⌘,, and from the command palette; save an API key and confirm it cannot be read back; grant an allow-always rule from a real permission request and confirm it appears in the table with its project and can be revoked."
-    expected: "All three entry points open the same Settings surface; the saved key is never re-rendered; the granted rule appears, attributable and revocable."
-    why_human: "Logged as an open unrun-verify item in .planning/WINDOWS.md (row 7), deferred to end-of-phase UAT per workflow.human_verify_mode=end-of-phase. No gap-closure plan touched this surface; still open."
 human_verification:
-  - test: "Start a long-running real session on a real task, leave it streaming for several minutes, and watch RSS in Activity Monitor while the transcript grows on disk."
-    expected: "RSS stays flat while the persisted log keeps growing on disk."
-    why_human: "Real-process memory behavior over minutes cannot be observed by static analysis; explicitly manual-only per 02-VALIDATION.md. Unchanged from the prior round."
-  - test: "Press Start Work on a task whose work needs a permission decision; confirm the board surfaces the request, the agent is genuinely blocked, and answering resumes the same turn rather than restarting it."
-    expected: "The real claude process blocks on the MCP tool call and resumes correctly once answered."
-    why_human: "Crosses the renderer and a real spawned claude process; also subject to the noted Claude Code bash-safety-heuristic caveat that may bypass the configured permission-prompt-tool for some commands. Unchanged from the prior round."
-  - test: "Run the same task once under local Claude Code credentials and once with an explicit API key configured in Settings; confirm identical product behavior and that the key never appears in `ps` or the persisted JSONL."
-    expected: "No behavioral difference between the two credential paths; the key is present only in the child's environment."
-    why_human: "Requires two real credential configurations on one machine; whether ANTHROPIC_API_KEY reliably overrides a present subscription session could not be measured in this environment (no spend-authorized key) and is recorded as a Phase 3 input. Unchanged from the prior round."
-  - test: "Start a real session, press Stop, and confirm from a bare terminal that the worktree is intact and no process survives under it."
-    expected: "Worktree intact and dirty as left; no orphaned process."
-    why_human: "Open unrun-verify item, .planning/WINDOWS.md row 3 — deferred to end-of-phase UAT. Still open."
-  - test: "Open Settings from the app menu, ⌘,, and the command palette; save an API key and confirm it cannot be read back; grant and revoke an allow-always rule from a real permission request."
-    expected: "All entry points open the same surface; key never re-rendered; rule appears and is revocable."
-    why_human: "Open unrun-verify item, .planning/WINDOWS.md row 7 — deferred to end-of-phase UAT. Still open."
+  - test: "From a real, previously-answered permission request, grant an allow-always rule, confirm it appears in the rules table with its project, then revoke it."
+    expected: "The rule is created (a new permission_rules row scoped to project_id + tool_name), appears attributable in the Settings table, and revoking it removes the row (or marks it revoked) such that a subsequent matching request is gated again."
+    why_human: "WINDOWS.md row 7, clause 3. Structurally proven by automated tests (answering_allow_always_writes_the_answered_row_and_exactly_one_permission_rule, a_matching_allow_rule_auto_resolves_with_no_pending_row) and by the UNIQUE (project_id, tool_name) constraint, but never once executed in production: two independent UAT attempts (2026-09-11, an initial pass and a deliberate re-run) both failed to raise a second gated call to grant a rule from — permission_rules holds 0 rows and there are 0 %rule% events of any kind on the live board. Ties directly to T-02-24 (high severity, 02-SECURITY.md) — the cross-project scope constraint's structural half is unbypassable, but matching_rule's real-world read path has never returned a real rule. Standing recommendation from both 02-UAT.md and 02-SECURITY.md: do not consider this closed on the code-reading evidence alone."
+  - test: "Start a real session, have the agent modify a tracked file, confirm the edit lands on disk, press Stop, and confirm from a bare terminal that the uncommitted edit is still present exactly as the agent left it (not just that the worktree directory and its process are gone)."
+    expected: "The uncommitted edit is intact on disk after Stop — the stop path affects only the process group, never the working tree."
+    why_human: "WINDOWS.md row 3, second clause. The 'worktree intact, no orphan process' half IS corroborated (pgrep found nothing under either worktree; both worktrees present on their task branches) — but at UAT verification time both worktrees were already clean (0 dirty entries), so the specific claim that a Stop preserves an agent's UNCOMMITTED work was never exercised. Structurally guaranteed (the stop path issues no git commands — T-02-12, 02-SECURITY.md, high severity) but never behaviorally observed. UAT's own note calls this 'the half most likely to regress silently, since it depends on the kill never touching the working tree' and recommends re-running deliberately."
 ---
 
-# Phase 2: One Agent, One Worktree, Watched Live — Verification Report (Re-Verification)
+# Phase 2: One Agent, One Worktree, Watched Live — Verification Report (Re-Verification, post-UAT and post-security-audit)
 
-**Phase Goal:** Cyril presses Start Work on a board task and watches a Claude Code session do
-that task inside a git worktree that belongs to the task rather than to the session.
+**Phase Goal:** Cyril presses Start Work on a board task and watches a Claude Code session do that
+task inside a git worktree that belongs to the task rather than to the session.
 
-**Verified:** 2026-09-11
+**Verified:** 2026-09-11T19:05:00Z
 **Status:** human_needed
-**Re-verification:** Yes — after gap closure (plans 02-11..02-14) and a second code-review round
-(02-REVIEW.md / 02-REVIEW-FIX.md)
+**Re-verification:** Yes — this replaces a report written 2026-09-11T13:55:00Z, before plans
+02-15..02-18 (four gap-closure plans triggered by human UAT findings G-02-1..G-02-4), a direct
+fix for a fifth regression (G-02-5), a completed human UAT round (`02-UAT.md`, 5/5 passed), and a
+completed security audit (`02-SECURITY.md`, 84 threats, threats_open: 0) all existed.
 
-**Mode note:** ROADMAP.md marks this phase `mode: mvp`, but its `**Goal:**` line is not in
-`As a … I want to … so that …` user-story format. Plan 02-11 explicitly flagged this and declined
-to invent a user-story enrichment. The prior (pre-gap-closure) verification used the standard
-goal-backward methodology against the roadmap's five numbered Success Criteria rather than an MVP
-User Flow Coverage table, and this re-verification continues that same methodology for
-consistency and because the gap-closure plans themselves were scoped and evaluated against those
-same five criteria.
+**Mode note:** unchanged from the prior report — ROADMAP.md marks this phase `mode: mvp`, but its
+`**Goal:**` line is not in `As a … I want to … so that …` user-story format, so this report
+continues the standard goal-backward methodology against the roadmap's five numbered Success
+Criteria.
+
+## What changed since the stale report
+
+The prior report (`status: human_needed`, `3/6` truths cleanly verified, 3 present-behavior-
+unverified) was written immediately after the second code-review round and BEFORE any human ever
+ran the application. The first human UAT session found it did not work at all: Start Work failed
+on the very first attempt (G-02-1), then failed differently after that fix (G-02-2), then rendered
+unreadably once a session finally streamed (G-02-3), then — on the run that finally worked
+end-to-end — proved the board never recorded a run's completion (G-02-4, "the Core Value failing,
+not a cosmetic gap" per the UAT record itself). A fifth defect (G-02-5) was a regression introduced
+by the first fix and aborted application startup entirely; every automated suite (220/220) stayed
+green throughout, because none of these five defects were reachable by anything short of running
+the real, packaged application.
+
+All five are independently re-confirmed closed below — not trusted from any plan's own SUMMARY.md
+claim — by re-reading the fix, re-running its dedicated test(s), and re-running the full workspace
+suites once each. UAT then resumed and ran to completion (5/5 passed), and a full security audit
+(84 threats) closed with `threats_open: 0`.
+
+**This report does not launder that history into a uniform "passed."** Two narrow, previously-
+unraised sub-claims — both explicitly flagged by UAT and by the security audit as unevidenced
+despite genuine attempts to exercise them — are carried forward as `human_verification` items
+below, and one of them concerns a `high`-severity, never-executed security control (T-02-24).
 
 ## Goal Achievement
 
-### Re-Verification Summary
+### Independently Re-Run Evidence (not trusted from any SUMMARY.md claim)
 
-All four `gaps_found` truths from the pre-gap-closure report (`02-VERIFICATION.pre-gap-closure.md`)
-were independently re-tested against the code on disk — not trusted from `02-11`..`02-14`'s own
-SUMMARY.md claims — and all four are closed with real, currently-passing tests:
-
-| Gap (pre-gap-closure) | Closing plan | Verified how |
+| Check | Command | Result |
 |---|---|---|
-| PROC-06/CR-04: stop can strand a run `running`/`blocked` forever | 02-11 | Read `stop_agent_run_recording_first` — interrupt result is captured in a local, never applied with `?`; ran `cargo test -p desktop stop_` → 2 passed |
-| 02-07-PLAN prohibition/CR-03: one run's log-open panic silences every run's feed | 02-12 | Read `persist_event_line` — returns `PersistOutcome`, no `.expect()`/`.unwrap()` in the shared reader loop before its test module; ran `cargo test -p desktop persist_tests` → 3 passed |
-| DATA-06/CR-01: task deletion breaks once agent-run history exists | 02-13 | Read `delete_task`'s D-40 block-never-cascade guard; ran `cargo test --workspace --test task_delete_with_run_history` → 3 passed against real git repos and real `start_agent_run` |
-| CLAUDE.md orphan constraint/CR-02: quitting the app orphans live `claude` processes | 02-14 | Read `RunEvent::Exit` → `shutdown_all_sessions()` before `kill()`; ran `packages/sidecar/test/shutdown.test.mjs` → 4 passed against real spawned grandchild processes, proven gone via `process.kill(pid,0)` throwing ESRCH |
-
-A second code-review round (`02-REVIEW.md`) then found that 02-11's own fix had introduced a new
-regression — `agent_run_stop` acquired the app's single `Mutex<Connection>` before the up-to-30s
-`interrupt_run` call, freezing every other command behind one Stop against a wedged sidecar. This
-was fixed in commit `e0f532c`, independently re-verified here: `agent_run_stop`'s body now resolves
-`interrupt_result` from `state.sidecar.as_ref()` **before** calling `state.db.lock()`, and a new
-falsifiable source-scanning test, `packages/core/tests/agent_run_stop_ordering.rs`, makes this
-ordering a permanent regression gate (`cargo test --workspace --test agent_run_stop_ordering` → 2
-passed, including a fixture proving the gate actually detects a reordered violation). The
-accompanying wording Warning (WR-01 in that review) was also fixed in `f1743a1` and verified: the
-blocking-deletion message now names whichever of trigger/worktree/agent_run/permission_request
-count is actually nonzero, rather than always naming `agent_run_count`.
-
-**No new gaps were found in this re-verification.** The five human-verification items from the
-prior report are carried forward unchanged — none of the gap-closure plans attempted to automate
-them, per the prior report's own routing to `workflow.human_verify_mode: end-of-phase`.
+| Rust workspace suite | `cargo test --workspace` | **222 passed, 0 failed** across every crate/test binary (summed from each `test result:` line) |
+| Sidecar (Node) suite | `npm --prefix packages/sidecar test` | **39 passed, 0 failed** (0 skipped, 0 cancelled) |
+| Desktop (TS/React) suite | `npm --prefix packages/desktop test` | **314 passed, 0 failed** across 29 test files |
+| Desktop TypeScript build | `npm --prefix packages/desktop run build` | `tsc && vite build` exits 0, no `error TS` diagnostics |
+| Working tree state | `git status --short` | Clean — all claimed commits (`d548591`..`504d0ca`) are present in `git log`, nothing uncommitted |
+| G-02-4 production call site | `grep handle_inbound_session_closed packages/desktop/src-tauri/src/sidecar.rs` | Present, dispatched in the reader loop below the existing `permission_request` dispatch |
+| G-02-2 fix | `grep STDERR_DETAIL_MAX_CHARS packages/sidecar/src/claude-code-adapter.ts` | Present; append-then-truncate pattern confirmed by direct read (T-02G-17-03) |
+| T-02-42 fix | `grep API_KEY_PRECEDENCE_NOTICE packages/desktop/src/settings/SettingsSurface.tsx` | Present, rendered in the Settings surface |
+| G-02-5 fix + gate | `grep block_on packages/desktop/src-tauri/src/sidecar.rs`; `packages/core/tests/runtime_context_call_sites.rs` exists | Timeout now constructed inside the async block passed to `block_on`; the falsifiable source gate exists on disk |
+| Debt markers in this round's touched files | `grep -nE "TBD\|FIXME\|XXX"` across all 10 files this round modified | **0 matches** |
 
 ### Observable Truths (Roadmap Success Criteria)
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | Worktree appears on a branch derived from the task identifier, chained to the epic integration branch, visible from a bare terminal | ✓ VERIFIED | Unaffected by the gap-closure round. Re-ran `cargo test --workspace --test branch_naming --test worktree_lifecycle` — both pass (real scratch git repos, real `git worktree list`). |
-| 2 | User watches the agent's output stream live for a long session with flat memory | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED (upgraded from ✗ FAILED) | The confirmed defect that made this FAILED before (CR-03: a single run's log-open panic silently halting every run's feed) is now closed — `persist_event_line` never panics and 3 new tests prove one run's permanently-unopenable log never stops another run's events. The remaining half of this truth — RSS staying flat over a real long-running session — was never automatable and remains routed to human verification, unchanged from the prior round. |
-| 3 | Agent pauses on a permission request, user answers from the board, agent resumes | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED (unchanged) | No gap-closure plan touched this path. `permission_gate.rs`'s DB/MCP-layer tests still pass; the full path through a real spawned `claude` process remains explicitly manual-only per 02-VALIDATION.md. |
-| 4 | User stops a session, worktree stays intact/inspectable, and a second session reuses it — the worktree outlives the session | ✓ VERIFIED (upgraded from ✗ FAILED) | The confirmed defect (CR-04: stop could strand a run `running`/`blocked` forever if the sidecar never acked) is closed and proven: `stop_records_interrupted_even_when_the_sidecar_never_acks` and `stop_twice_with_a_dead_sidecar_appends_exactly_one_interrupted_event` both pass, plus the pre-existing `stop_lifecycle.rs`/`worktree_lifecycle.rs`/`stop.test.mjs` real-process suites still pass unmodified. The lock-ordering regression the second review round found is also fixed and gated (`agent_run_stop_ordering.rs`). A narrower manual confirmation (WINDOWS.md row 3: a bare-terminal walkthrough in the packaged app) remains open and is carried into Human Verification below — it does not gate this truth's own status, since the specific mechanism it would confirm is already proven by the real-process test suites cited above. |
-| 5 | Worktree, agent run and session are distinct linked records on the task; local-credential and API-key paths behave identically | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED (upgraded — one confirmed defect closed) | The "distinct linked records" half remains solidly VERIFIED, and its previously-unguarded edge case (CR-01: deleting a task with agent-run history) is now closed — `task_delete_with_run_history.rs`'s 3 tests pass, proving the block-with-a-sentence (D-40) outcome, the still-succeeds-with-no-history outcome, and that no raw SQLite constraint message ever reaches the caller. The credential-parity half is unchanged: `credentials.test.mjs`'s argv/env/event-parity tests still pass, but whether `ANTHROPIC_API_KEY` reliably overrides a present local subscription session in the real CLI remains unmeasurable in this environment and is routed to human verification. |
+| 1 | Worktree appears on a branch derived from the task identifier, chained to the epic integration branch, visible from a bare terminal | ✓ VERIFIED | Unaffected by any gap-closure round. `cargo test --workspace` re-run above includes `branch_naming`/`worktree_lifecycle` — both pass against real scratch git repos. |
+| 2 | User watches the agent's output stream live for a long session with flat memory | ✓ VERIFIED (qualified — short session only) | G-02-3's silent-panic/overlap defect is closed and gated. UAT test 1 then genuinely ran a real streaming session to natural completion (~2.5 min, 126 lines, 211 KB) and measured application RSS (APP+RENDER+SIDECAR) DECLINE by 64 MB from its early peak while the log grew monotonically — nothing tracked the transcript. UAT's own qualification: "PASSED ON A SHORT SESSION... The truth is SUPPORTED, not stress-tested. A multi-hour session remains the stronger evidence." This report preserves that qualification rather than reporting a clean pass. |
+| 3 | Agent pauses on a permission request, user answers from the board, agent resumes | ✓ VERIFIED | UAT test 2 exercised the full path through a real spawned `claude` process for the first time: the run was gated on a Bash tool call, the board surfaced `permission_requests` with the pending row, answering it produced exactly one `permission_request.raised` and one `permission_request.answered` event, and the run resumed. Notably the gate fired on a **read-only** `git status`/`git log` Bash command — the previously-recorded Claude Code bash-safety-heuristic bypass caveat did NOT reproduce on this build, downgraded from "open risk" to "did not reproduce, once." |
+| 4 | User stops a session, worktree stays intact/inspectable, and a second session reuses it — the worktree outlives the session | ✓ VERIFIED — but see the residual human-verification item below | The stop-stranding defect (CR-04) and the app-exit orphan defect (CR-02) are closed and gated (`agent_run_stop_ordering.rs`, `app_exit_ordering.rs`, `shutdown.test.mjs`). UAT test 4 corroborated "worktree intact, no orphan process" independently via `pgrep` and direct filesystem inspection of both real worktrees. **Not corroborated:** at UAT verification time both worktrees were already clean (0 dirty entries), so the specific claim that a Stop preserves an agent's *uncommitted* work was never exercised — carried forward as a human-verification item below rather than silently folded into this VERIFIED status. |
+| 5 | Worktree, agent run and session are distinct linked records on the task; local-credential and API-key paths behave identically | ✓ VERIFIED (qualified) | The "distinct linked records" half and its previously-unguarded edge case (CR-01, task deletion with agent-run history) remain solidly proven (`task_delete_with_run_history.rs`, 3 tests). UAT test 3 measured the non-leak half independently of the tester (0 credential-shaped matches across 191 persisted JSONL lines; 0 of 11 argv elements credential-shaped) but the PARITY claim itself — identical product behavior under a subscription session vs. an explicit key — rests on the tester's own observation, not independent reproduction. Whether `ANTHROPIC_API_KEY` reliably *overrides* a present subscription session remains unmeasured in this environment (no spend-authorized key) and is explicitly recorded as a Phase 3 input, not a Phase 2 gap. |
 
-**Score:** 2/5 roadmap success criteria fully verified without qualification (up from 1/5); 0
-failed (down from 2); 3 have solid, now-strengthened automated evidence for their structural/
-mechanical half but still require human observation for their full real-process claim (down from
-"2 failed + 2 human-only" to "0 failed + 3 human-only", since SC2's and SC5's previously-failing
-halves are now closed).
+**Score:** 5/5 roadmap success criteria supported by evidence (up from 2/5 fully unqualified + 3
+present-behavior-unverified in the pre-UAT report); 0 failed. Two of the five (#2, #5) carry
+explicit, load-bearing qualifications that are preserved above rather than smoothed into a clean
+pass.
 
 ### Additional Project-Constraint Truth (not one of the 5 numbered Success Criteria)
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 6 | CLAUDE.md hard architectural constraint: "killing orphans... at the OS-process-tree level" — no `claude` process should survive Flywheel quitting | ✓ VERIFIED (upgraded from ✗ FAILED) | `RunEvent::Exit` now calls `SidecarHandle::shutdown_all_sessions()` before `SidecarHandle::kill()` (`main.rs:147-155`), confirmed by direct read. `shutdown_all_sessions` sends a `shutdown` op to the sidecar and blocks on a bounded ack (`SHUTDOWN_ACK_TIMEOUT`); the sidecar's handler (`index.ts` `case "shutdown"`) calls `shutdownAllSessions()`, which races each live session's `killSession` (process-group SIGINT→SIGTERM→SIGKILL escalation) against a grace timer via `Promise.all`. `shutdown.test.mjs` drives the real compiled sidecar binary, spawns two real stubborn grandchildren, and proves via `process.kill(pid, 0)` throwing `ESRCH` that both are gone after one `shutdown` request — plus a SIGTERM-fallback-net case, an empty-sessions promptly-ok case, and an idempotent-second-call case. All 4 pass. A falsifiable source-scanning gate (`app_exit_ordering.rs`, 3 tests, all pass) makes the shutdown-before-kill ordering a permanent regression gate. |
+| 6 | CLAUDE.md hard architectural constraint: "killing orphans... at the OS-process-tree level" — no `claude` process should survive Flywheel quitting | ✓ VERIFIED | Unchanged from the pre-UAT report's mechanism (`shutdown_all_sessions()` before `kill()`, `shutdown.test.mjs` 4/4 against real spawned grandchildren), now additionally corroborated live: UAT test 4's `pgrep -fl 'flywheel-permissions'` found no match and no process of any kind living under either real task worktree after a Stop. |
 
-**Combined score (6 truths):** 3/6 fully verified (SC1, SC4, and the CLAUDE.md constraint truth);
-3/6 present-behavior-unverified (SC2, SC3, SC5); 0/6 failed.
+**Combined score (6 truths):** 6/6 supported by evidence; 0 failed; 0 formally
+`PRESENT_BEHAVIOR_UNVERIFIED` at the truth level. Overall status is `human_needed` anyway — see
+Human Verification Required below — because two narrower, harvested sub-claims tied to truths #4
+and to the permission-rule feature underlying #3/AGNT-06 remain genuinely unexercised.
 
-### Required Artifacts
+### Required Artifacts (this round's gap-closure + security-remediation changes)
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `packages/desktop/src-tauri/src/commands/agent_run.rs` | `AgentRunStopDto`, `stop_agent_run_recording_first`, `agent_run_stop` (CR-04 fix + CR-01/second-review fix) | ✓ VERIFIED | Read directly (lines 246-341): interrupt result captured in a local, unconditional `interrupt_agent_run` call, status read back via `SELECT`, and the interrupt is resolved before `state.db.lock()`. `cargo test -p desktop stop_` → 2 passed; `agent_run_stop_ordering.rs` → 2 passed. |
-| `packages/desktop/src-tauri/src/sidecar.rs` | `persist_event_line`, `PersistOutcome`, `emit_persistence_failure_notice` (CR-03 fix) | ✓ VERIFIED | Read directly (lines 308-420): no `.expect()`/`.unwrap()` anywhere in the shared reader loop or persist path; `persist_tests` module (3 tests) passes, proving one run's unopenable log never stops another run's events and a failed open retries rather than being cached. |
-| `packages/core/src/domain/task.rs` | `delete_task` with D-40 block-never-cascade semantics (CR-01 fix) | ✓ VERIFIED | Read directly (lines 210-296): four bound `COUNT(*)` probes inside the transaction, `anyhow::bail!` naming whichever count is nonzero (post-WR-01-fix wording), before ever reaching `DELETE FROM tasks`. `task_delete_with_run_history.rs` (3 tests) passes. |
-| `packages/desktop/src-tauri/src/main.rs` | `RunEvent::Exit` calling `shutdown_all_sessions()` before `kill()` (CR-02 fix) | ✓ VERIFIED | Read directly (lines 147-156). `app_exit_ordering.rs` (3 tests) passes, including a falsifiable-reordering self-test. |
-| `packages/sidecar/src/index.ts` | `shutdown` op handler, `shutdownAllSessions()`, SIGTERM/stdin-close fallback nets | ✓ VERIFIED | Read directly (lines 47-241); `shutdown.test.mjs` (4 tests) passes against the real compiled binary. |
-| `packages/sidecar/src/claude-code-adapter.ts` | `interruptSession`'s SIGINT now guarded (WR-01, folded into 02-14) | ✓ VERIFIED | Read directly (lines 382-401): the initial `process.kill(-pid, "SIGINT")` is now wrapped in `try {...} catch {...}`, matching the SIGTERM escalation's existing guard. |
-| `packages/core/tests/agent_run_stop_ordering.rs` | New falsifiable source-scanning regression gate (second-review fix) | ✓ VERIFIED | Read in full; 2 tests pass, including a deliberately-reordered fixture proving the gate is falsifiable, not just structurally present. |
-| `.planning/phases/02-one-agent-one-worktree-watched-live/deferred-items.md` | First item corrected from `open` to `resolved` (02-11 Task 3) | ✓ VERIFIED | Read directly; the `ItemDetailPanel.tsx` hex-literal no longer exists at HEAD (now `var(--text-primary-rack)`), and the repo-wide raw-hex gate returns `0`. |
+| `packages/desktop/src-tauri/binaries/flywheel-sidecar-aarch64-apple-darwin` | Entrypoint resolution that holds from both its checked-in location and the Tauri-copied location | ✓ VERIFIED | Walk-up marker resolution from the symlink-resolved physical directory; `stub-invocation.test.mjs` (3 tests) proves it, including a falsifiability case. |
+| `packages/desktop/src-tauri/src/sidecar.rs` | Bounded `ping` readiness handshake in `spawn_sidecar`; `CommandEvent::Stderr/Terminated/Error` observed; `handle_inbound_session_closed` dispatch | ✓ VERIFIED | Read directly. `STARTUP_READINESS_TIMEOUT`/`READINESS_REQUEST_ID` present; `session_closed` dispatch present and positioned after both the persist call and the renderer emit. |
+| `packages/sidecar/src/index.ts` | `ping` op, ack-only, no backend dependency | ✓ VERIFIED | Present; distinct from `capability_probe` by design (ping never gates startup on the user's `claude` binary). |
+| `packages/sidecar/src/claude-code-adapter.ts` | `--verbose` paired with `--output-format stream-json`; drained child stderr; `STDERR_DETAIL_MAX_CHARS` append-then-truncate | ✓ VERIFIED | Read directly (lines ~440-464); confirmed append-then-truncate pattern, matching the Rust side's own fix. |
+| `packages/sidecar/test/real-claude-argv.test.mjs` | First test spawning the real `claude` binary; falsifiability companion | ✓ VERIFIED | 2/2 passing, not skipped (real `claude` 2.1.236 present); SUMMARY records the negative case rejecting a one-element-shorter argv. |
+| `packages/desktop/src/session/SessionSurface.tsx`, `FeedRow.tsx` | Virtual row wrapper clamped to `virtualRow.size` + `overflow: hidden`; JS-truncated collapsed text with a disclosure control | ✓ VERIFIED | `feed-row-slot`/`virtualRow.size` present on non-comment lines; repo-wide raw-hex gate returns `0`. |
+| `packages/core/src/domain/agent_run.rs` | `apply_session_closed`, `SessionClosedOutcome` (idempotent against an explicit Stop) | ✓ VERIFIED | Read directly (lines ~276-380): `AlreadyTerminal`/`BackfilledTerminal` outcomes present; `close_agent_run`'s own body unchanged. |
+| `packages/core/tests/session_close_lifecycle.rs`, `session_closed_call_site.rs` | Real-sidecar natural-completion test; falsifiable source gate on the call site | ✓ VERIFIED | Both exist and pass (confirmed by this round's independent `cargo test --workspace` run). |
+| `packages/core/tests/runtime_context_call_sites.rs` | Falsifiable gate against constructing a `tokio::time::` future as a `block_on` argument (G-02-5) | ✓ VERIFIED | Exists on disk; the fix it guards (`block_on(async { tokio::time::timeout(...).await })`) confirmed by direct read of `sidecar.rs`. |
+| `packages/desktop/src/settings/SettingsSurface.tsx` | `API_KEY_PRECEDENCE_NOTICE` (T-02-42 clause 1) | ✓ VERIFIED | Present and rendered; tested in `settings-surface.test.tsx` per 02-SECURITY.md. |
 
-All artifacts from the original 10 plans (`02-01`..`02-10`) that were previously VERIFIED remain
-unchanged in this round; not re-audited here beyond the regression checks embedded in the full
-test-suite runs below.
+All artifacts from the original 10 plans and the first gap-closure round (`02-01`..`02-14`) that
+were previously VERIFIED remain unchanged and were not re-audited file-by-file beyond the
+regression checks embedded in the full independently-re-run test suites above.
 
-### Key Link Verification
+### Key Link Verification (this round)
 
 | From | To | Via | Status | Details |
 |------|----|----|--------|---------|
-| `commands/agent_run.rs` (`agent_run_stop`) | `domain/agent_run.rs` (`interrupt_agent_run`) | Unconditional call, interrupt result captured in a local | ✓ WIRED | Confirmed by direct read: no `?` or early return on the interrupt closure's result. |
-| `commands/agent_run.rs` (`agent_run_stop`) | `state.db` (`Mutex<Connection>`) | Lock acquired AFTER the interrupt call resolves | ✓ WIRED (regression fixed) | Confirmed by direct read and by `agent_run_stop_ordering.rs`'s passing source-scanning gate. |
-| `sidecar.rs` (shared reader loop) | `persist_event_line` | Every stdout event line routes through it; no panic path | ✓ WIRED | Confirmed by direct read; loop continues (`while let Some(event) = rx.recv().await`) regardless of `PersistOutcome`. |
-| `domain/task.rs` (`delete_task`) | `triggers`/`worktrees`/`agent_runs`/`permission_requests` | Bound `COUNT(*)` probes before `DELETE FROM tasks` | ✓ WIRED | Confirmed by direct read and passing tests. |
-| `main.rs` (`RunEvent::Exit`) | `sidecar.rs` (`shutdown_all_sessions`, then `kill()`) | Sequential, shutdown before kill | ✓ WIRED | Confirmed by direct read and `app_exit_ordering.rs`'s passing gate. |
-| `sidecar.rs` (`shutdown_all_sessions`) | `packages/sidecar/src/index.ts` (`op: "shutdown"`) | Sidecar stdio request/ack protocol | ✓ WIRED | Confirmed by direct read of both sides; `shutdown.test.mjs` proves it end-to-end against the real compiled binary. |
-| `index.ts` (`shutdownAllSessions`) | `claude-code-adapter.ts` (`killSession`) | Process-group signal escalation, raced against a grace timer | ✓ WIRED | Confirmed by direct read; `shutdown.test.mjs` proves real grandchild processes are gone afterward. |
+| `sidecar.rs` (reader loop) | `commands/agent_run.rs` (`handle_inbound_session_closed`) | Dispatch on `event.type == "session_closed"`, after persist + renderer emit | ✓ WIRED | Confirmed by direct read (`sidecar.rs:847-857`). |
+| `commands/agent_run.rs` (`handle_inbound_session_closed`) | `domain/agent_run.rs` (`apply_session_closed`) | Direct call, panic-free region | ✓ WIRED | Confirmed by direct read; no `expect`/`unwrap`/`panic!` in the handler's region. |
+| `sidecar.rs` (`spawn_sidecar`) | `packages/sidecar/src/index.ts` (`op: "ping"`) | Bounded readiness handshake before `spawn_sidecar` returns `Ok` | ✓ WIRED | Confirmed by direct read of both sides; `stub-invocation.test.mjs` proves it against the real Tauri-copied invocation path. |
+| `claude-code-adapter.ts` (stderr readline) | `adapter.ts` (`SessionClosedEvent.detail`) | `stderrTail`, capped and carried onto the terminal event | ✓ WIRED | Confirmed by direct read; `SessionSurface.tsx` renders `detail` beneath the terminal row's machine-detail line (tested). |
+| `main.rs` (`RunEvent::Exit`) | `sidecar.rs` (`shutdown_all_sessions`, then `kill()`) | Sequential, shutdown before kill | ✓ WIRED (unchanged from pre-UAT report) | `app_exit_ordering.rs` passing; corroborated live by UAT test 4's `pgrep` finding nothing. |
 
 ### Requirements Coverage
 
 | Requirement | Description | Status | Evidence |
 |---|---|---|---|
-| DATA-04 | Generic trigger record, `user_action` implemented, `schedule`/`webhook` schema-only | ✓ SATISFIED | Unchanged; `02-01`'s edge-probe tests still pass. |
-| DATA-06 | Worktrees/runs/sessions/summaries/artifacts as first-class records | ✓ SATISFIED (upgraded from ⚠️ SATISFIED WITH GAP) | CR-01 closed — `delete_task` no longer breaks once a task has agent-run history; D-40's block-never-cascade decision is implemented and tested. |
-| WORK-01 | Start Work creates a dedicated worktree | ✓ SATISFIED | Unchanged. |
-| WORK-02 | Fixed branch topology (task → epic-integration → trunk) | ✓ SATISFIED | Unchanged. |
-| WORK-08 | Worktree persists across many sessions, removed only on explicit action | ✓ SATISFIED | Unchanged. |
-| LINK-01 | Branch name derives from task identifier, recognisable from CLI | ✓ SATISFIED | Unchanged. |
-| PROC-01 | Each session is a separate OS process in its own worktree | ✓ SATISFIED | Unchanged, and its app-exit-cleanup boundary is now also closed (CR-02, mapped to the additional constraint truth #6 above). |
-| PROC-02 | Supervisor never reads its own cwd; explicit absolute paths only | ✓ SATISFIED | Unchanged. |
-| PROC-06 | User can interrupt/stop at any time, worktree left consistent | ✓ SATISFIED (upgraded from ✗ BLOCKED) | CR-04 closed and gated against regression by `agent_run_stop_ordering.rs`. |
-| PROC-07 | Live streaming without unbounded memory growth | ⚠️ SATISFIED WITH HUMAN ITEM (upgraded from ✗ BLOCKED) | CR-03's silent-drop defect closed with real tests; the flat-memory runtime claim itself remains human-verification-only, unchanged. |
-| AGNT-01 | Single adapter interface, no backend branching | ✓ SATISFIED | Unchanged. |
-| AGNT-02 | Claude Code adapter normalises stream-json | ✓ SATISFIED | Unchanged. |
-| AGNT-03 | Local Claude Code credentials, never leaving the machine | ⚠️ NEEDS HUMAN | Unchanged — code-level guarantee proven; real end-to-end parity not exercised here. |
-| AGNT-04 | Explicit API-key path as first-class alternative | ⚠️ NEEDS HUMAN | Unchanged — structural/behavioral tests pass; override reliability unmeasurable here. |
-| AGNT-06 | Permission requests block the agent until answered | ⚠️ NEEDS HUMAN (DB/MCP half SATISFIED) | Unchanged. |
+| DATA-04 | Generic trigger record, `user_action` implemented | ✓ SATISFIED | Unchanged. |
+| DATA-06 | Worktrees/runs/sessions as first-class records | ✓ SATISFIED | Unchanged + strengthened: `apply_session_closed` now correctly writes the run's terminal state. |
+| WORK-01/02/08, LINK-01 | Worktree creation, branch topology, persistence, naming | ✓ SATISFIED | Unchanged; SC1 above. |
+| PROC-01 | Each session a separate OS process in its own worktree | ✓ SATISFIED | Unchanged, and its startup-liveness boundary is now proven (G-02-1's readiness handshake). |
+| PROC-02 | Supervisor never reads its own cwd | ✓ SATISFIED | Unchanged. |
+| PROC-06 | Interrupt/stop leaves the worktree consistent | ✓ SATISFIED — see human-verification item on the uncommitted-work half | Mechanism proven; the specific "dirty exactly as left" claim not yet observed. |
+| PROC-07 | Live streaming without unbounded memory growth | ✓ SATISFIED (qualified — short session) | G-02-3 closed; UAT test 1 measured a real short session; long-session stress observation not yet performed. |
+| AGNT-01, AGNT-02 | Single adapter interface; normalises stream-json | ✓ SATISFIED | Strengthened this round — the argv the adapter builds is now proven against the REAL CLI, not just an internal fake. |
+| AGNT-03, AGNT-04 | Local credentials / explicit API key | ✓ SATISFIED (qualified) | Non-leak independently measured; parity observed but not independently reproduced; precedence-override unmeasurable here, explicit Phase 3 input. |
+| AGNT-06 | Permission requests block until answered | ✓ SATISFIED — see human-verification item on the allow-always rule | The pause/answer/resume core is now proven end-to-end for the first time; the allow-always rule grant/revoke half of the same feature (D-39) has never executed in production. |
 
-No orphaned requirements — all 15 IDs mapped to this phase in REQUIREMENTS.md are declared in at
-least one plan's frontmatter (`02-01` through `02-14`).
+No orphaned requirements — all 15 IDs mapped to this phase are declared in at least one plan's
+frontmatter (`02-01` through `02-18`).
 
-**Advisory (documentation hygiene, not a code gap):** `.planning/REQUIREMENTS.md`'s "By
-Requirement" status table (lines ~217-271) currently shows DATA-04, WORK-01, WORK-02, WORK-08,
-LINK-01, PROC-02, AGNT-01, AGNT-02, AGNT-03, AGNT-04 and AGNT-06 as `Gaps Found`, while DATA-06,
-PROC-01, PROC-06 and PROC-07 show `Complete` — the inverse of what this and the pre-gap-closure
-verification actually found (those four were the ones with confirmed defects; the others were
-already satisfied). This table appears to reflect an in-progress reconciliation (see commit
-`d52e9e7`, "revert premature Complete requirements after gaps found") rather than the current,
-code-verified state, and should be reconciled by the orchestrator once this report's findings are
-accepted — it is not evidence of an actual regression in those ten requirements, all of which were
-independently re-confirmed satisfied in this pass (see table above).
+**Advisory (documentation hygiene, carried forward unresolved):** `.planning/REQUIREMENTS.md`'s
+per-requirement status table still shows the inverse of the actual, code-verified state for this
+phase (see `observed_since_last_verification` in frontmatter). Not evidence of a code regression —
+should be reconciled by the orchestrator.
+
+**Advisory (ledger hygiene, new this round):** `.planning/WINDOWS.md` rows 3 and 7 are still marked
+`status: open` with wording that predates UAT ("has not been observed by a human"), even though
+`02-UAT.md` ran and partially corroborated both. Neither row should be marked `fixed` outright (see
+the two human-verification items below), but the wording is now stale and should be tightened to
+name the one specific clause each row still lacks, rather than implying nothing was ever attempted.
 
 ### Anti-Patterns Found
 
-| File | Line | Pattern | Severity | Impact |
-|---|---|---|---|---|
-| `.planning/WINDOWS.md` | row 4 | Ledger still marks the `ItemDetailPanel.tsx:219` hex-literal item `open`, though `deferred-items.md` and the code itself confirm it was corrected in plan 02-11 Task 3 (verified above) | ℹ️ Info | Doc-hygiene only — the underlying code issue is genuinely resolved (repo-wide raw-hex gate returns `0`); the cross-phase ledger simply was not updated to reflect the 02-11 correction. Recommend flipping row 4 to `fixed`. |
-| `.planning/WINDOWS.md` | row 2 | Pre-existing, unrelated `FLYWHEEL_WORKTREE_ROOT` test-isolation race in `worktree_lifecycle.rs`, open since plan 02-01 | ℹ️ Info | Not part of any of the four gaps closed this round; carried forward unchanged, out of scope for this re-verification. |
-| `.planning/WINDOWS.md` | row 6 | Pre-existing `WorktreeSummary.tsx` "missing from disk" clause deferred to Phase 3 | ℹ️ Info | Not part of this round's scope; explicitly deferred to Phase 3 (WORK-06) per its own record. |
+No debt markers (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) found in any of the ten files this
+round's gap-closure and security-remediation plans touched. No new stub patterns (empty handlers,
+hardcoded-empty rendered props, silent panics reintroduced) found. The three `ℹ️ Info`-level items
+from the pre-UAT report (stale `deferred-items.md`/WINDOWS.md row 4 wording, the pre-existing
+`FLYWHEEL_WORKTREE_ROOT` test race at WINDOWS.md row 2, and the Phase-3-deferred `WorktreeSummary.tsx`
+disk-existence gap at row 6) are unrelated to this round's changes and carried forward unchanged.
 
-No debt markers (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) found in any of the files touched
-by plans `02-11`..`02-14` or the two review-fix commits (`agent_run.rs`, `sidecar.rs`, `main.rs`,
-`task.rs`, `tauri.ts`, `SessionSurface.tsx`, `index.ts`, `claude-code-adapter.ts`). No new stub
-patterns (empty handlers, `return null`/`{}`/`[]` on a rendered path, hardcoded-empty props) found
-in the gap-closure diff.
-
-### Behavioral Spot-Checks
+### Behavioral Spot-Checks (independently re-run by this verification, not read from a SUMMARY)
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| Full Rust workspace suite | `cargo build --workspace` then `cargo test --workspace` | Build exits 0; every test binary reports `test result: ok`, 0 failed, across all Rust suites (branch/worktree/permission/credentials/task-delete/app-exit/stop-ordering/etc.) | ✓ PASS |
-| Full desktop (TS/React) suite | `npm --prefix packages/desktop test` | 28 test files, 297 tests, all passed | ✓ PASS |
-| Full sidecar (Node) suite | `npm --prefix packages/sidecar test` | 28 tests, all passed (0 fail) — includes `shutdown.test.mjs`'s 4 real-process cases | ✓ PASS |
-| CR-04 fix, isolated | `cargo test -p desktop stop_` | 2 passed — a dead-sidecar closure still reaches `interrupted`, exactly once on a repeat call | ✓ PASS |
-| CR-03 fix, isolated | `cargo test -p desktop persist_tests` | 3 passed — one run's unopenable log never stops another run's events; a failed open retries, not caches | ✓ PASS |
-| CR-01 fix, isolated | `cargo test --workspace --test task_delete_with_run_history` | 3 passed — blocked-with-history, succeeds-with-no-history, never-a-raw-SQLite-message | ✓ PASS |
-| CR-02 fix, isolated | `node --test packages/sidecar/test/shutdown.test.mjs` | 4 passed — real grandchild processes proven gone via `process.kill(pid,0)` throwing ESRCH after a `shutdown` op, plus SIGTERM/empty/idempotent cases | ✓ PASS |
-| Second-review lock-ordering fix | `cargo test --workspace --test agent_run_stop_ordering` | 2 passed — the interrupt call precedes `.lock()` in the real source, and the gate is falsifiable against a reordered fixture | ✓ PASS |
-| Second-review app-exit ordering gate | `cargo test --workspace --test app_exit_ordering` | 3 passed | ✓ PASS |
-| Raw-hex token gate (repo-wide) | `grep -rlE '#[0-9a-fA-F]{6}' packages/desktop/src \| grep -vcE '...'` | `0` | ✓ PASS |
+| Full Rust workspace suite | `cargo test --workspace` | 222 passed, 0 failed | ✓ PASS |
+| Full sidecar (Node) suite | `npm --prefix packages/sidecar test` | 39 passed, 0 failed | ✓ PASS |
+| Full desktop (TS/React) suite | `npm --prefix packages/desktop test` | 314 passed, 0 failed (29 files) | ✓ PASS |
+| Desktop TS build | `npm --prefix packages/desktop run build` | Exits 0, no `error TS` | ✓ PASS |
+| G-02-4 production dispatch present | `grep handle_inbound_session_closed packages/desktop/src-tauri/src/sidecar.rs` | Found, correctly positioned | ✓ PASS |
+| G-02-5 fix present, gate exists | `grep block_on` (async-wrapped) + file existence check on `runtime_context_call_sites.rs` | Confirmed | ✓ PASS |
+| T-02G-17-03 append-then-truncate present | Direct read of `claude-code-adapter.ts:456-463` | Confirmed (matches Rust side's pattern) | ✓ PASS |
+| Debt markers in this round's touched files | `grep -nE "TBD\|FIXME\|XXX"` across 10 files | 0 matches | ✓ PASS |
+| Repo working-tree state matches commit history | `git status --short` vs. `git log --oneline -15` | Clean tree; all claimed commits present | ✓ PASS |
 
 ### Probe Execution
 
@@ -289,47 +268,47 @@ No `scripts/*/tests/probe-*.sh` conventions or phase-declared probes found for t
 
 ### Human Verification Required
 
-See `human_verification` in frontmatter — 5 items, all carried forward unchanged from the
-pre-gap-closure report because none of the gap-closure plans attempted to automate them (by design,
-per `workflow.human_verify_mode: end-of-phase`):
+See `human_verification` in frontmatter — 2 items (down from 5 in the pre-UAT report, since three
+of the original five were fully resolved by a completed, independently-corroborated UAT run):
 
-1. Flat-memory long-session observation (PROC-07) — the silent-drop code defect is now closed, but
-   the RSS-stays-flat claim itself remains an unavoidable manual observation.
-2. Full permission-gate pause/resume through a real `claude` process (AGNT-06), with the noted
-   Claude Code bash-safety-heuristic caveat.
-3. Local-vs-API-key real-world parity including `ANTHROPIC_API_KEY` override reliability
-   (AGNT-03/04, unmeasurable in this environment).
-4. Plan 02-02's own deferred bare-terminal stop verification (WINDOWS.md row 3) — still open.
-5. Plan 02-10's own deferred Settings walkthrough (WINDOWS.md row 7) — still open.
+1. **Allow-always permission rule: grant, list, revoke** (WINDOWS.md row 7, clause 3). Never
+   executed in production despite two independent UAT attempts. Ties directly to **T-02-24
+   (high severity)** in `02-SECURITY.md` — the structural half (the `UNIQUE (project_id,
+   tool_name)` constraint) is proven, but `matching_rule`'s real-world read path has never
+   returned a real rule. Both `02-UAT.md` and `02-SECURITY.md` independently recommend NOT
+   considering this closed on code-reading evidence alone.
+2. **A Stop preserves an agent's uncommitted work, not just an intact worktree and no orphan
+   process** (WINDOWS.md row 3, second clause). The "worktree intact, no orphan" half IS
+   corroborated; the "dirty exactly as the agent left it" half was never exercised because both
+   real worktrees happened to be clean at verification time. Structurally guaranteed (the stop
+   path issues no git commands — T-02-12, high severity, `02-SECURITY.md`) but never behaviorally
+   observed. UAT's own note: "the half most likely to regress silently."
+
+Both items are narrower in scope than anything in the pre-UAT report's original five, and both
+were reached — not skipped — by genuine attempts recorded in `02-UAT.md`.
 
 ### Gaps Summary
 
-**No gaps remain from this re-verification.** All four confirmed defects from the pre-gap-closure
-report (CR-01 task-deletion regression, CR-02 orphaned processes on app exit, CR-03 shared-reader
-panic silencing every run's feed, CR-04 stop stranding a run in a stuck state) were independently
-re-tested against the code on disk — not trusted from any plan's SUMMARY.md — and all four are
-closed with real, currently-passing behavioral tests, several of which exercise real spawned OS
-processes (`shutdown.test.mjs`'s grandchild-teardown proof) or real git repositories
-(`task_delete_with_run_history.rs`, `worktree_lifecycle.rs`).
+**No gaps remain.** All five defects found by human UAT (G-02-1 through G-02-5) are independently
+re-confirmed closed against the code on disk and the currently-passing, independently-re-run test
+suites — not trusted from any plan's own SUMMARY.md claim. The security audit closed with
+`threats_open: 0` (two open threats, both below the `high` block threshold, zero blocking).
 
-A second code-review round found and this verification independently confirmed a fix for one
-additional regression introduced by the CR-04 fix itself (a lock-ordering issue that would have
-frozen the whole app behind one Stop click against a wedged sidecar) — that fix is in place, tested,
-and now gated against reintroduction by a dedicated falsifiable source-scanning test.
+The reason overall status is `human_needed` rather than `passed` is exclusively the two items
+above: both are genuinely unexercised behavioral claims — one tied to a `high`-severity security
+control that has never run in production — that a completed, good-faith UAT round attempted and
+could not reach, not evidence of anything broken. Per the routing rule this agent follows: any
+non-empty human-verification section means the correct status is `human_needed`, not `passed`,
+even though every roadmap Success Criterion has supporting evidence and the full automated suite
+(cargo 222/222, sidecar 39/39, desktop 314/314, clean TS build) is green.
 
-The reason overall status is `human_needed` rather than `passed` is exclusively the five
-pre-existing, unautomatable human-verification items — none of which are new, none of which were
-claimed closed by any gap-closure plan, and all of which were explicitly and correctly deferred to
-end-of-phase UAT by the phase's own `workflow.human_verify_mode: end-of-phase` design from the
-start. Per the routing rule this agent follows: if a human-verification item is the only thing
-standing between this phase and `passed`, the correct status is `human_needed`, not `passed` and
-not `gaps_found` — that is exactly the case here.
-
-One documentation-hygiene item is worth the orchestrator's attention before considering this phase
-fully closed: `.planning/REQUIREMENTS.md`'s per-requirement status table currently shows the
-inverse of the actual, code-verified state (see Advisory note above) and should be reconciled.
+Two documentation-hygiene items are worth the orchestrator's attention before this phase is
+considered fully closed: `.planning/REQUIREMENTS.md`'s per-requirement status table still shows
+the inverse of the actual, code-verified state, and `.planning/WINDOWS.md` rows 3 and 7 carry
+pre-UAT wording that should be tightened to name the one clause each still lacks, now that UAT
+has partially (not fully) corroborated both.
 
 ---
 
-_Verified: 2026-09-11T13:55:00Z_
+_Verified: 2026-09-11T19:05:00Z_
 _Verifier: Claude (gsd-verifier)_
