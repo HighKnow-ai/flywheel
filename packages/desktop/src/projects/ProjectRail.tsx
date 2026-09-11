@@ -15,10 +15,17 @@
  *
  * The `+` affordance at the rail's foot opens the SAME registration flow ⌘⇧O and the native File
  * menu use (`RegisterProjectFlow.tsx`) — never a second, rail-local copy of that sequence.
+ *
+ * Plan 02-06 Task 3 adds the current project's blocked-count badge (D-37, AGNT-06) — the
+ * per-project half of the mechanism FLEET-02 generalises across projects in Phase 10, built as the
+ * real mechanism rather than a placeholder. Renders a numeral, never a raw dot, and renders
+ * nothing at all at zero (never a visible "0") — only the CURRENT project's entry carries it, per
+ * this plan's own scope (a rail-wide per-project count is FLEET-02's job).
  */
 import { useState, type CSSProperties } from "react";
 import { Plus, TriangleAlert } from "lucide-react";
 import type { Project } from "../board/useBoardQuery";
+import { useBlockedSummary } from "../board/useBoardQuery";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 
 // 01-UI-SPEC.md "Project switcher (left rail)": "collapsed width ~56–72px" — 72 (the upper
@@ -94,6 +101,11 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   // `isError`/`error` entirely (CR-02) — reuses the same transient-notice slot below rather than
   // a second one, and `FirstRun.tsx`'s own error copy/styling rather than a third idiom.
   const registrationErrorNotice = useRegistrationErrorNotice(registerIsError, registerError);
+  // The current project's blocked count (D-37) — called unconditionally, above the early return
+  // below, so this hook's call order never changes between renders (Rules of Hooks). Disabled
+  // entirely (no read at all) when no project is current.
+  const blockedSummaryQuery = useBlockedSummary(currentProjectId);
+  const blockedCount = blockedSummaryQuery.data?.blockedCount ?? 0;
 
   if (projects.length === 0) {
     // Not present pre-first-registration — `App.tsx` renders `FirstRun` instead, but this guard
@@ -122,6 +134,31 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
             >
               {project.keyPrefix}
             </span>
+            {isCurrent && blockedCount > 0 && (
+              // A numeral, never a raw dot (D-37) — absent entirely at zero, never a visible "0".
+              <span
+                aria-hidden="true"
+                title={blockedCount === 1 ? "1 task waiting on you" : `${blockedCount} tasks waiting on you`}
+                className="type-micro tabular-nums"
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  right: -4,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minWidth: 16,
+                  height: 16,
+                  padding: "0 3px",
+                  color: "var(--surface-dominant)",
+                  background: "var(--blocked-text-rack)",
+                  borderRadius: "50%",
+                  fontWeight: 600,
+                }}
+              >
+                {blockedCount}
+              </span>
+            )}
             {isUnreachable && (
               <>
                 <span

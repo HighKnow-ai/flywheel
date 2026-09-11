@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  blockedSummary,
   invokeCommand,
   latestAgentRunIdForTask,
   pendingPermissionRequests,
@@ -590,5 +591,46 @@ export function useLatestAgentRunId(taskId: string | undefined) {
     queryKey,
     queryFn: () => latestAgentRunIdForTask(taskId as string),
     enabled: Boolean(taskId),
+  });
+}
+
+/** `useBlockedSummary`'s query key, keyed by `projectId` — D-37's board-visible blocked signal
+ * (plan 02-06 Task 3): the board row indicator and the project-rail count read the SAME summary,
+ * so the two can never disagree at different moments. */
+export function blockedSummaryQueryKey(projectId: string | undefined) {
+  return ["blocked-summary", projectId] as const;
+}
+
+/**
+ * Every blocked task id in `projectId` plus the count (D-37, plan 02-06 Task 3) — feeds
+ * `BoardRow.tsx`'s blocked pill and `ProjectRail.tsx`'s count badge. Invalidated by
+ * `subscribeBoardChanged` — the same pushed delta that already drives the board (D-04); never
+ * polled. `undefined` disables the query entirely (no project selected yet).
+ */
+export function useBlockedSummary(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: blockedSummaryQueryKey(projectId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [projectId, queryClient]);
+
+  return useQuery({
+    queryKey: blockedSummaryQueryKey(projectId),
+    queryFn: () => blockedSummary(projectId as string),
+    enabled: Boolean(projectId),
   });
 }

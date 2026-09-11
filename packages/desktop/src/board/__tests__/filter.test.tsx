@@ -5,13 +5,24 @@
  * - `FilterBar` toggles a status chip through `state/uiStore.ts` and shows "Clear Filters" only
  *   once a filter or the search term is active.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView, type EmptyStateContent } from "../BoardView";
 import { FilterBar } from "../FilterBar";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts } from "../useBoardQuery";
+
+// Plan 02-06 Task 3 gave `BoardView` its own `subscribeBoardChanged` subscriber
+// (`useBlockedSummary`) — this file previously rendered `BoardView` with no `adapters/tauri` mock
+// at all, which produces a genuine unhandled rejection now that `BoardView` calls
+// `subscribeBoardChanged` directly (see `workflow.test.tsx`'s identical fix for the full
+// explanation). This file's own assertions are unaffected either way.
+vi.mock("../../adapters/tauri", () => ({
+  invokeCommand: () => Promise.resolve(undefined),
+  subscribeBoardChanged: () => Promise.resolve(() => {}),
+  blockedSummary: () => Promise.resolve({ blockedTaskIds: [], blockedCount: 0 }),
+}));
 
 const EMPTY_COUNTS: BandCounts = {
   backlog: 0,

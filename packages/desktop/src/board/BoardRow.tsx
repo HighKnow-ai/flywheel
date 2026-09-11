@@ -35,6 +35,14 @@
  * 1-indexed position within that band's currently loaded window — not the virtualizer's mounted
  * window — so a screen reader announces total/position correctly even though only a few rows
  * exist in the DOM at any moment.
+ *
+ * Plan 02-06 Task 3 adds the blocked indicator pill (D-37, AGNT-06): a new field inserted
+ * immediately after the status glyph, layered ONTO it rather than replacing it — blocked is an
+ * orthogonal signal, not a sixth workflow state (BOARD-04's five states stay locked). It carries no
+ * `field-*` class, which is the SAME structural mechanism (`App.css`'s container-query rules only
+ * ever target `field-*` classes) that already makes the criteria checked/total badge exempt from
+ * the row's progressive-disclosure ladder — a blocked task must never silently lose its blocked
+ * signal at a narrower window width (D-08's reasoning, applied here).
  */
 import type { CSSProperties, ComponentType, MouseEvent } from "react";
 import * as icons from "lucide-react";
@@ -86,12 +94,20 @@ export interface BoardRowProps {
   /** The band's true total item count (from the core's per-band counts) — `aria-setsize`'s
    * source. */
   setSize?: number;
+  /** True when this item's most recent agent run is blocked (D-37, plan 02-06 Task 3) —
+   * `BoardView`'s `useBlockedSummary(projectId)` read, never a per-row query of its own. Renders
+   * the blocked pill layered onto the status glyph; absent (not a visible zero) when `false`. */
+  blocked?: boolean;
   onSelect?: () => void;
   onOpenDetail?: () => void;
   onOpenStatusPicker?: () => void;
   onOpenPriorityPicker?: () => void;
   onOpenEstimatePicker?: () => void;
   onOpenAssigneePicker?: () => void;
+  /** Activating the blocked pill — opens the item detail panel (which renders the
+   * permission-request card automatically whenever a pending request exists, plan 02-06 Task 2),
+   * the fastest path from "I see something needs me" to "I answered it." */
+  onOpenBlocked?: () => void;
 }
 
 export function BoardRow({
@@ -102,14 +118,17 @@ export function BoardRow({
   epicsById,
   posInSet,
   setSize,
+  blocked = false,
   onSelect,
   onOpenDetail,
   onOpenStatusPicker,
   onOpenPriorityPicker,
   onOpenEstimatePicker,
   onOpenAssigneePicker,
+  onOpenBlocked,
 }: BoardRowProps) {
   const statusMark = MARKS_BY_ID[statusMarkId(item.status)];
+  const blockedMark = MARKS_BY_ID["blocked-indicator"];
   const priorityMark = MARKS_BY_ID[priorityMarkId(item.priority)];
   const epicMark = MARKS_BY_ID["epic-pill-none"];
   // Defence in depth (G-01-2, T-01-17-02): once `epicsById` is the project's full roster
@@ -141,11 +160,16 @@ export function BoardRow({
 
   // 01-UI-SPEC.md Accessibility: each row's accessible name concatenates key, title, status,
   // priority and the criteria checked/total count — virtualization must not silently break
-  // linear screen-reader navigation.
-  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked`;
+  // linear screen-reader navigation. "Blocked" appends when set (D-37) — never colour alone.
+  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}${blocked ? ", Blocked" : ""}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked`;
 
   function handleRowClick() {
     onSelect?.();
+  }
+
+  function handleBlockedPillClick(event: MouseEvent<HTMLSpanElement>) {
+    event.stopPropagation();
+    onOpenBlocked?.();
   }
 
   function handleStatusGlyphClick(event: MouseEvent<HTMLSpanElement>) {
@@ -214,6 +238,32 @@ export function BoardRow({
       >
         <Icon name={statusMark?.glyph ?? "Circle"} />
       </span>
+      {blocked && (
+        // No `field-*` class — the same structural mechanism that already exempts the criteria
+        // count from `App.css`'s container-query truncation ladder (D-08's reasoning, applied
+        // here). Layered onto the status glyph above, never replacing it (D-37/BOARD-04).
+        <span
+          role="button"
+          aria-label={`${blockedMark?.label ?? "Blocked"}. Press to view the pending request.`}
+          title={blockedMark?.meaning}
+          onClick={handleBlockedPillClick}
+          className="type-micro"
+          style={{
+            display: "inline-flex",
+            flexShrink: 0,
+            alignItems: "center",
+            gap: 2,
+            color: "var(--blocked-text-strip)",
+            border: "1px solid var(--blocked-text-strip)",
+            borderRadius: "var(--radius-chrome)",
+            padding: "1px var(--space-xs)",
+            cursor: "pointer",
+          }}
+        >
+          <Icon name={blockedMark?.glyph ?? "ShieldAlert"} size={12} />
+          {blockedMark?.label ?? "Blocked"}
+        </span>
+      )}
       <span
         className="type-body tabular-nums"
         style={{ flexShrink: 0, minWidth: 64, fontWeight: 600 }}

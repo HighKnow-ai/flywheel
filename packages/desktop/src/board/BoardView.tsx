@@ -60,6 +60,7 @@ import {
 import { useUiStore, type PickerKind } from "../state/uiStore";
 import {
   useActors,
+  useBlockedSummary,
   useCreateEpic,
   useCreateIssue,
   useDeleteItem,
@@ -296,6 +297,15 @@ export function BoardView({
   const epicsById = useMemo<Record<string, EpicSummary>>(
     () => Object.fromEntries(epics.map((epic) => [epic.id, epic])),
     [epics],
+  );
+
+  // D-37's board-visible blocked signal (plan 02-06 Task 3) — one project-scoped read, never a
+  // per-row query, so `BoardRow`'s pill and the project rail's own read (`ProjectRail.tsx`) always
+  // agree on which tasks are blocked at any given moment.
+  const blockedSummaryQuery = useBlockedSummary(projectId);
+  const blockedTaskIds = useMemo(
+    () => new Set(blockedSummaryQuery.data?.blockedTaskIds ?? []),
+    [blockedSummaryQuery.data],
   );
 
   // Item id -> {key, title, kind} for both epics and tasks — `IssuesLane.tsx` looks an issue's
@@ -760,6 +770,7 @@ export function BoardView({
                   epicsById={epicsById}
                   posInSet={row.posInSet}
                   setSize={counts[BAND_COUNT_KEY[row.item.status as BandStatus]]}
+                  blocked={blockedTaskIds.has(row.item.id)}
                   onSelect={() => setSelectedId(row.item.id)}
                   onOpenDetail={() => {
                     setSelectedId(row.item.id);
@@ -780,6 +791,14 @@ export function BoardView({
                   onOpenAssigneePicker={() => {
                     setSelectedId(row.item.id);
                     openPickerFor("assignee", row.item.id);
+                  }}
+                  onOpenBlocked={() => {
+                    // Same destination as double-clicking the row (opens the item detail panel);
+                    // Task 2 already renders the compact permission-request card there whenever a
+                    // pending request exists — this IS the fastest path from "I see something
+                    // needs me" to "I answered it" (D-37).
+                    setSelectedId(row.item.id);
+                    setDetailItemId(row.item.id);
                   }}
                 />
               </div>

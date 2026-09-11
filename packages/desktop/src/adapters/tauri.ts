@@ -221,3 +221,18 @@ export async function pendingPermissionRequests(agentRunId: string): Promise<Pen
 export async function latestAgentRunIdForTask(taskId: string): Promise<string | null> {
   return invokeCommand<string | null>("task_latest_agent_run", { taskId });
 }
+
+/**
+ * D-37's board-visible blocked signal for one project (plan 02-06 Task 3): every blocked task id
+ * plus the count, read together so the board row indicator and the project-rail badge always agree
+ * (one read, never two that could disagree at different moments). Read-only. Thin typed wrapper
+ * over `board_blocked_summary`.
+ */
+export interface BlockedSummaryDto {
+  blockedTaskIds: string[];
+  blockedCount: number;
+}
+
+export async function blockedSummary(projectId: string): Promise<BlockedSummaryDto> {
+  return invokeCommand<BlockedSummaryDto>("board_blocked_summary", { projectId });
+}

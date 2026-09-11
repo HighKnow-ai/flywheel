@@ -16,18 +16,23 @@ import type { BandCounts, BoardItem, IssueItem } from "../useBoardQuery";
 
 const invokeCommandMock = vi.fn();
 
-// Captures the real handler `useBoardChangedSubscription` passes to `subscribeBoardChanged` —
-// never `Promise.resolve(() => {})`, which would let a "the roster invalidates on board:changed"
-// test pass while driving nothing (the same stubbing mistake 01-16-PLAN.md had to undo for the
-// menu bridge). Tests invoke `capturedBoardChangedHandler?.()` to simulate the core's push.
-let capturedBoardChangedHandler: (() => void) | undefined;
+// Captures EVERY handler registered against `subscribeBoardChanged` — never a single overwritable
+// slot, which would let whichever subscriber mounts LAST silently win and every earlier one go
+// undriven. Real Tauri `listen()` supports any number of independent listeners for the same event,
+// and `BoardView` itself gained its own `subscribeBoardChanged` subscriber (plan 02-06 Task 3's
+// `useBlockedSummary`) alongside `<Subscriber>`'s `useBoardChangedSubscription` below — a
+// single-slot mock would have this second, equally real subscriber silently clobber the first.
+// Tests invoke `triggerBoardChanged()` (below) to simulate the core's push reaching ALL of them,
+// never `capturedBoardChangedHandler?.()` against one assumed handler (the stubbing mistake
+// 01-16-PLAN.md had to undo for the menu bridge, generalised here to "one of potentially many").
+let capturedBoardChangedHandlers: Array<() => void> = [];
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: (handler: () => void) => {
-    capturedBoardChangedHandler = handler;
+    capturedBoardChangedHandlers.push(handler);
     return Promise.resolve(() => {
-      capturedBoardChangedHandler = undefined;
+      capturedBoardChangedHandlers = capturedBoardChangedHandlers.filter((h) => h !== handler);
     });
   },
   subscribeMenuAction: () => Promise.resolve(() => {}),
@@ -40,7 +45,7 @@ const OUTSIDE_EPIC = { id: "epic-out-of-window", key: "FLY-7", title: "Outside t
 
 beforeEach(() => {
   resetUiState();
-  capturedBoardChangedHandler = undefined;
+  capturedBoardChangedHandlers = [];
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
@@ -240,13 +245,17 @@ describe("epic roster liveness (board:changed)", () => {
 
   function triggerBoardChanged() {
     act(() => {
-      capturedBoardChangedHandler?.();
+      // Every registered subscriber sees the push — matching the real core's `emit`, which
+      // notifies every listener `listen()` ever registered, not just the first/last one.
+      for (const handler of capturedBoardChangedHandlers) handler();
     });
   }
 
   /** Mounts the real `useBoardChangedSubscription` (normally wired once in `App.tsx`) alongside
    * `BoardView` in these tests, so `subscribeBoardChanged` actually gets called and
-   * `capturedBoardChangedHandler` is populated — `BoardView` itself does not call this hook. */
+   * `capturedBoardChangedHandlers` is populated — `BoardView` itself has its own separate
+   * subscriber too (plan 02-06 Task 3's `useBlockedSummary`), which is exactly why this file
+   * tracks every handler rather than just one. */
   function Subscriber() {
     useBoardChangedSubscription();
     return null;

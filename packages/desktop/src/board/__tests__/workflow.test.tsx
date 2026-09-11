@@ -5,13 +5,28 @@
  * (`legend/marks.ts`'s `STATUS_MARKS`, itself asserted elsewhere to match
  * `core::domain::WORKFLOW_STATES`), never a second hand-typed list in either component.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { StatusPicker } from "../pickers/StatusPicker";
 import { STATUS_MARKS } from "../../legend/marks";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
+
+// Plan 02-06 Task 3 gave `BoardView` its own `subscribeBoardChanged` subscriber
+// (`useBlockedSummary`) — this file previously rendered `BoardView` with no `adapters/tauri` mock
+// at all (every query settling into a harmlessly-ignored rejection, since none of this file's own
+// assertions depend on query data). `subscribeBoardChanged`'s real `listen()` call rejects
+// synchronously outside a real Tauri context, and unlike `invokeCommand`'s rejections (silently
+// absorbed by react-query's own query-error handling), nothing here ever attached a `.catch()` to
+// that specific promise — surfacing as a genuine unhandled rejection now that `BoardView` calls it
+// directly. A minimal mock (matching every sibling test file's own convention) removes the noise
+// without asserting anything new; this file's own tests are unaffected either way.
+vi.mock("../../adapters/tauri", () => ({
+  invokeCommand: () => Promise.resolve(undefined),
+  subscribeBoardChanged: () => Promise.resolve(() => {}),
+  blockedSummary: () => Promise.resolve({ blockedTaskIds: [], blockedCount: 0 }),
+}));
 
 const EMPTY_COUNTS: BandCounts = {
   backlog: 0,

@@ -583,6 +583,28 @@ pub fn task_latest_agent_run(state: State<AppState>, task_id: String) -> Result<
     flywheel_core::query::permissions::latest_run_id_for_task(&conn, &task_id).map_err(|e| e.to_string())
 }
 
+/// D-37's board-visible blocked signal for one project (plan 02-06 Task 3): the board row's
+/// blocked pill and the project-rail count read the SAME summary, so the two can never disagree at
+/// different moments. A read: no mutation, no emit.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockedSummaryDto {
+    pub blocked_task_ids: Vec<String>,
+    pub blocked_count: i64,
+}
+
+/// Every blocked task id in `project_id` plus the count (D-37) — feeds `BoardRow.tsx`'s blocked
+/// pill and `ProjectRail.tsx`'s count badge, delegating straight to `query::permissions`. Read-only.
+#[tauri::command]
+pub fn board_blocked_summary(state: State<AppState>, project_id: String) -> Result<BlockedSummaryDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let blocked_task_ids = flywheel_core::query::permissions::blocked_task_ids_for_project(&conn, &project_id)
+        .map_err(|e| e.to_string())?;
+    let blocked_count = flywheel_core::query::permissions::blocked_count_for_project(&conn, &project_id)
+        .map_err(|e| e.to_string())?;
+    Ok(BlockedSummaryDto { blocked_task_ids, blocked_count })
+}
+
 fn resolve_log_window_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(LOG_WINDOW_DEFAULT_LIMIT).clamp(1, LOG_WINDOW_MAX_LIMIT)
 }
