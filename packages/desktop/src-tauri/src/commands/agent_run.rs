@@ -1269,4 +1269,128 @@ mod tests {
             .expect("permission_requests row should exist");
         assert_eq!(answered_status, "allowed", "the second (denying) answer must never overwrite the first");
     }
+
+    /// A fresh migrated database with one project, one task, one trigger, one worktree row and
+    /// one `running` `agent_runs` row — inserted directly via literal SQL (not
+    /// `domain::agent_run::start_agent_run`, which shells out to real git against the helper's
+    /// placeholder project path, mirroring this file's own `seeded_conn_with_running_agent_run`
+    /// precedent). `stop_agent_run_recording_first` takes a bare `&mut Connection` and a
+    /// closure, so no real worktree on disk and no Tauri `AppHandle` are needed for these tests.
+    fn seeded_conn_with_running_run() -> (Connection, String, String) {
+        let (conn, task_id) = seeded_conn_with_task(false);
+        let project_id: String = conn
+            .query_row("SELECT project_id FROM tasks WHERE id = ?1", rusqlite::params![task_id], |row| {
+                row.get(0)
+            })
+            .expect("task's project_id should be readable");
+        let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .expect("seeded human actor should exist");
+        let agent_actor_id = flywheel_core::domain::agent_run::agent_actor_id(&conn)
+            .expect("seeded agent actor should exist");
+
+        let now = "2026-01-01T00:00:00.000Z";
+        let trigger_id = flywheel_core::ids::new_id();
+        let worktree_id = flywheel_core::ids::new_id();
+        let run_id = flywheel_core::ids::new_id();
+
+        conn.execute(
+            "INSERT INTO triggers (
+                id, project_id, target_task_id, source, config, enabled, last_fired_at,
+                created_by, created_at
+            ) VALUES (?1, ?2, ?3, 'user_action', NULL, 1, NULL, ?4, ?5)",
+            rusqlite::params![trigger_id, project_id, task_id, human_actor_id, now],
+        )
+        .expect("failed to insert fixture trigger row");
+
+        conn.execute(
+            "INSERT INTO worktrees (
+                id, task_id, project_id, path, branch, base_branch, status, created_by, created_at
+            ) VALUES (
+                ?1, ?2, ?3, '/tmp/does-not-need-to-exist-for-this-test', 'flywheel/test-task',
+                'main', 'active', ?4, ?5
+            )",
+            rusqlite::params![worktree_id, task_id, project_id, human_actor_id, now],
+        )
+        .expect("failed to insert fixture worktree row");
+
+        conn.execute(
+            "INSERT INTO agent_runs (
+                id, worktree_id, task_id, project_id, trigger_id, actor_id, status,
+                permission_mode, log_path, started_at
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, 'running', 'acceptEdits',
+                '/tmp/does-not-need-to-exist-for-this-test.jsonl', ?7
+            )",
+            rusqlite::params![run_id, worktree_id, task_id, project_id, trigger_id, agent_actor_id, now],
+        )
+        .expect("failed to insert fixture agent_runs row");
+
+        (conn, task_id, run_id)
+    }
+
+    /// CR-04's failure mode as a red-if-regressed test: a stop whose sidecar closure returns
+    /// `Err` must still reach a terminal status, and the returned DTO must carry the warning the
+    /// user actually sees (plan 02-11 Task 3 renders `sidecar_warning` in the session surface).
+    #[test]
+    fn stop_records_interrupted_even_when_the_sidecar_never_acks() {
+        let (mut conn, _task_id, run_id) = seeded_conn_with_running_run();
+
+        let dto = stop_agent_run_recording_first(&mut conn, &run_id, || {
+            Err("sidecar did not acknowledge the interrupt request within 30s".to_string())
+        })
+        .expect("stop_agent_run_recording_first should succeed even when the interrupt closure fails");
+
+        assert_eq!(dto.status, "interrupted");
+        assert_eq!(dto.agent_run_id, run_id);
+        let warning = dto.sidecar_warning.expect("a failed interrupt must produce a sidecar_warning");
+        assert!(
+            warning.contains("could not confirm the agent process stopped"),
+            "the warning must bind to the user-facing promise, not an incidental format, got: {warning}"
+        );
+
+        let status: String = conn
+            .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |row| {
+                row.get(0)
+            })
+            .expect("agent_runs row should exist");
+        assert_eq!(status, "interrupted", "the run must reach a terminal status regardless of the sidecar outcome");
+
+        let ended_at: Option<String> = conn
+            .query_row("SELECT ended_at FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |row| {
+                row.get(0)
+            })
+            .expect("agent_runs row should exist");
+        assert!(ended_at.is_some(), "ended_at must be set after an interrupt");
+    }
+
+    /// A second stop against the same dead sidecar must be safe (D-35 idempotence): no second
+    /// `agent_run.interrupted` event, and the recorded status is never overwritten.
+    #[test]
+    fn stop_twice_with_a_dead_sidecar_appends_exactly_one_interrupted_event() {
+        let (mut conn, _task_id, run_id) = seeded_conn_with_running_run();
+
+        let failing_interrupt =
+            || Err("sidecar did not acknowledge the interrupt request within 30s".to_string());
+
+        stop_agent_run_recording_first(&mut conn, &run_id, failing_interrupt)
+            .expect("first stop should succeed even when the interrupt closure fails");
+        stop_agent_run_recording_first(&mut conn, &run_id, failing_interrupt)
+            .expect("second stop on an already-terminal run should be a harmless idempotent no-op");
+
+        let event_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE event_type = 'agent_run.interrupted' AND stream_id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(event_count, 1, "a second stop must append no second agent_run.interrupted event");
+
+        let status: String = conn
+            .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |row| {
+                row.get(0)
+            })
+            .expect("agent_runs row should exist");
+        assert_eq!(status, "interrupted", "the status must remain interrupted, not overwritten");
+    }
 }
