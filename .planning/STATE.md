@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: "2026-09-10T23:28:46.770Z"
+stopped_at: Completed 02-06-PLAN.md
+last_updated: "2026-09-11T00:19:17.018Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 02 execution started
-state_head: 656fed984a031e8ed39d6f977f5763eb746e4a09
+state_head: 5a8916d21aabc0e650041bc4296554e6426f3c87
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 31
-  completed_plans: 26
+  completed_plans: 27
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 6 of 10
+Plan: 7 of 10
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 02 execution started
 
@@ -84,6 +84,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P03 | 45min | 3 tasks | 10 files |
 | Phase 02 P04 | 70min | 3 tasks | 15 files |
 | Phase 02 P05 | 100min | 3 tasks | 22 files |
+| Phase 02 P06 | 50min | 3 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,8 @@ Recent decisions affecting current work:
 - [Phase 02]: state/uiStore.ts gained launchSheetTaskId and board/BoardView.tsx gained a start-work switch case, both outside plan 02-04's declared files_modified — ItemDetailPanel.tsx deliberately avoids importing the store directly; the launch sheet is mounted once at App.tsx level, so a cross-tree trigger field (mirroring activeAgentRunId) and its bridging call site were necessary to wire the sheet at all
 - [Phase 02]: The permission-prompt MCP server is a genuinely separate OS process spawned by the backend (claude) per its own --mcp-config; a Unix domain socket opened by the sidecar BEFORE the backend is spawned is the only channel between the two processes, since MCP's stdio transport requires the client to own the pipe ends to whatever it spawns.
 - [Phase 02]: Assumption A2 empirical spike found the installed claude CLI (2.1.236) applies its own built-in bash-command safety classification before ever consulting a configured --permission-prompt-tool, for at least read-only/safe-looking commands, even in --permission-mode default. Flagged as a Phase 3 input, not resolved this plan.
+- [Phase 02]: pending_requests_for_run reads ALL pending permission_requests rows for a run, not just the latest, since two concurrent MCP tool calls can each raise their own pending row (02-05's D4). — The card's own E3 zero-one-many resolution promises to stack every pending request, which the existing LIMIT-1 lookup could not satisfy.
+- [Phase 02]: useRegionBindings added to state/keyboard.ts as the region-scoped sibling of useGlobalBindings — the permission card's a/d/Shift+A shortcuts resolve through it, keeping the card's own file free of any local key or dismissal handler (T-02-16). — A component with a structural zero-key-handler requirement needs the window listener to live outside its own file.
 
 ### Pending Todos
 
@@ -145,6 +148,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-10T23:28:37.606Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-09-11T00:19:16.965Z
+Stopped at: Completed 02-06-PLAN.md
 Resume file: None
