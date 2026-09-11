@@ -275,17 +275,29 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
         .context("failed to count permission requests referencing this task")?;
 
     if trigger_count > 0 || worktree_count > 0 || agent_run_count > 0 || permission_request_count > 0 {
+        // WR-01 (`02-REVIEW.md` gap-closure round): this block is gated on ANY of the four counts
+        // being nonzero, but the message must never NAME `agent_run_count` when it is the count
+        // that happens to be zero — e.g. a task with only a `worktrees` row (no `agent_runs` row
+        // yet, a state `start_agent_run` can leave behind if its own transaction fails after
+        // `ensure_worktree` already committed) would otherwise read "it has 0 recorded agent
+        // runs and a worktree exists for it," which contradicts itself. Name whichever count is
+        // actually nonzero, falling back in the same trigger/worktree/agent_run/permission_request
+        // priority order the gate above checks — the D-40 semantics (block, never cascade) are
+        // unchanged; only the wording changes.
         let run_word = if agent_run_count == 1 { "run" } else { "runs" };
-        let worktree_clause = if worktree_count > 0 {
-            "and a worktree exists for it"
+        let reason = if agent_run_count > 0 {
+            format!("it has {agent_run_count} recorded agent {run_word}")
+        } else if worktree_count > 0 {
+            "a worktree has been created for it".to_string()
+        } else if trigger_count > 0 {
+            "a trigger has been recorded for it".to_string()
         } else {
-            "and no worktree exists for it"
+            "a permission request has been recorded for it".to_string()
         };
         anyhow::bail!(
-            "Cannot delete this task: it has {agent_run_count} recorded agent {run_word} \
-             {worktree_clause}. Flywheel does not delete an agent's recorded work as a side \
-             effect of deleting a task — leave the task on the board, or wait for the \
-             worktree-removal action a future release adds."
+            "Cannot delete this task: {reason}. Flywheel does not delete an agent's recorded \
+             work as a side effect of deleting a task — leave the task on the board, or wait \
+             for the worktree-removal action a future release adds."
         );
     }
 
