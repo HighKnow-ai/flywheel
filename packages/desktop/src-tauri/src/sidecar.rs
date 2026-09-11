@@ -636,9 +636,18 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
         .write(ready_line.as_bytes())
         .context("the sidecar's stdin was not writable at spawn time")?;
 
-    let handshake_result = tauri::async_runtime::block_on(tokio::time::timeout(
-        STARTUP_READINESS_TIMEOUT,
-        async {
+    // The timeout future MUST be constructed INSIDE the runtime context, never passed in as an
+    // already-built argument (G-02-5). `tokio::time::timeout` builds its `Sleep` eagerly at
+    // CONSTRUCTION time, and `Sleep` registers with the runtime's timer driver through
+    // thread-local state the moment it is created. Call arguments are evaluated BEFORE
+    // `block_on` enters the runtime, so building it outside panicked with "there is no reactor
+    // running, must be called from the context of a Tokio 1.x runtime". That panic fired inside
+    // `main.rs`'s `.setup()` closure — which runs on the main thread during
+    // `did_finish_launching`, outside any runtime, in a frame that CANNOT UNWIND — so it aborted
+    // the process before a window was ever shown, rather than surfacing as the startup error this
+    // function returns.
+    let handshake_result = tauri::async_runtime::block_on(async {
+        tokio::time::timeout(STARTUP_READINESS_TIMEOUT, async {
             let mut stderr_tail = String::new();
             loop {
                 match rx.recv().await {
@@ -689,8 +698,9 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                     }
                 }
             }
-        },
-    ));
+        })
+        .await
+    });
 
     match handshake_result {
         Ok(Ok(())) => {}
@@ -842,8 +852,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                             // and the renderer emit directly above, so a fault in this database
                             // write can never delay or suppress the live event the user is
                             // watching.
-                            if event.get("type").and_then(|v| v.as_str())
-                                == Some("session_closed")
+                            if event.get("type").and_then(|v| v.as_str()) == Some("session_closed")
                             {
                                 crate::commands::agent_run::handle_inbound_session_closed(
                                     &app_for_reader,

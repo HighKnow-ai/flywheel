@@ -3,7 +3,7 @@ status: testing
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T09:54:28Z
+updated: 2026-09-11T10:01:59Z
 ---
 
 ## Current Test
@@ -26,7 +26,8 @@ prior_attempts: |
   Attempt 2 (2026-09-11) — blocked by G-02-2: session closed instantly, one event at seq 0.
   Attempt 3 (2026-09-11) — reached a live session, but the agent had an empty worktree (OBS-01,
   an operator environment issue since repaired) and the feed was unreadable (G-02-3). Interrupted.
-  All four gaps are now resolved and re-verified, so the flat-memory truth gets its first real run.
+  Attempt 4 (2026-09-11) — the app aborted at startup: G-02-5, a regression introduced by
+  G-02-1's own fix. Resolved before the attempt was retried.
 note: The memory behaviour has still never been observed. Three attempts were stopped by defects, not by the truth being false — it is UNTESTED, not disproved. This is the first attempt against fully closed gaps.
 
 ### 2. Permission pause and resume through a real claude process (AGNT-06)
@@ -213,6 +214,36 @@ blocked: 0
   stale_rows: |
     The two runs above are stuck rows in the live database and will not self-heal. They need
     clearing as part of the pre-UAT reset, or the board will show phantom running agents.
+
+- gap_id: G-02-5
+  truth: "The application starts"
+  status: resolved
+  reason: "User reported: panic at sidecar.rs:639 — 'there is no reactor running, must be called from the context of a Tokio 1.x runtime', followed by 'panic in a function that cannot unwind / thread caused non-unwinding panic. aborting.' The window never appeared."
+  severity: blocker
+  test: 1
+  introduced_by: 02-15-PLAN.md
+  regression: true
+  root_cause: "The readiness handshake added for G-02-1 passed its timeout future as a CALL ARGUMENT: `block_on(tokio::time::timeout(dur, fut))`. `tokio::time::timeout` builds its `Sleep` eagerly at construction, and `Sleep` registers with the runtime's timer driver through thread-local state the moment it is created. Rust evaluates call arguments BEFORE the call, so the Sleep was built outside any runtime and panicked. The panic fired inside main.rs's `.setup()` closure, which runs on the main thread during `did_finish_launching` in a frame that CANNOT UNWIND, so the process aborted instead of surfacing the startup error `spawn_sidecar` is written to return."
+  why_tests_missed_it: |
+    `cargo test --workspace` passed 220/220 with the application unable to start at all. No test
+    constructs a real Tauri AppHandle inside the platform launch callback, so `spawn_sidecar`'s only
+    real call context is untested. This is the SAME shape as G-02-4 — a function proven correct in
+    isolation, wrong at its only real call site — reappearing inside the fix for G-02-1. Worth
+    noting plainly: the gap-closure round introduced a startup-abort while closing a
+    failed-to-start bug, and every suite stayed green through it.
+  resolution: |
+    Fixed by constructing the timeout INSIDE the async block:
+    `block_on(async { tokio::time::timeout(d, fut).await })`. Guarded by a new falsifiable source
+    gate, `packages/core/tests/runtime_context_call_sites.rs`, which walks every .rs file under the
+    desktop crate's src/ and fails on any `block_on(` whose first argument begins a `tokio::time::`
+    construction. Proven falsifiable by reverting the fix (gate FAILED naming the line) and
+    restoring it (gate passed). Full suites after the fix: rust 222/222, sidecar 38/38,
+    desktop 312/312.
+  artifacts:
+    - path: "packages/desktop/src-tauri/src/sidecar.rs"
+      issue: "Timer future constructed as a block_on argument, outside the runtime context"
+  missing: []
+  debug_session: ""
 
 ## Observations
 
