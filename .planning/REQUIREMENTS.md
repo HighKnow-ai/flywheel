@@ -14,7 +14,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **DATA-03**: Every mutation records the actor that made it, with humans and agents represented as distinct actors in the same actor model
 - [x] **DATA-04**: Agent work is started through a generic trigger record whose source is one of a known set, with `user_action` implemented and `schedule`/`webhook` accepted by the schema but unimplemented
 - [x] **DATA-05**: The event log is readable as an ordered, resumable stream from any point via a cursor, so a future relay can subscribe and replay without a schema change
-- [ ] **DATA-06**: Worktrees, agent runs, sessions, session summaries and artifacts are first-class records with their own identity, not JSON blobs attached to a task
+- [x] **DATA-06**: Worktrees, agent runs, sessions, session summaries and artifacts are first-class records with their own identity, not JSON blobs attached to a task
 - [x] **DATA-07**: The database survives an unclean application termination without corruption or loss of committed work
 - [x] **DATA-08**: Schema migrations run automatically on launch and are reversible within one version
 
@@ -33,18 +33,18 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Worktree & Branch Management
 
-- [ ] **WORK-01**: Starting work on a task creates a dedicated git worktree for that task
+- [x] **WORK-01**: Starting work on a task creates a dedicated git worktree for that task
 - [x] **WORK-02**: Branches follow the fixed topology: a task branch merges into its epic integration branch, which merges into the trunk
 - [ ] **WORK-03**: A worktree is never destroyed without first checking for uncommitted changes; if any exist, destruction is refused and surfaced to the user
 - [ ] **WORK-04**: Concurrent git operations against the same repository retry with exponential backoff and jitter on index-lock contention rather than failing the task
 - [ ] **WORK-05**: Agent spawn timing is desynchronised so that parallel starts do not collide on the same repository index
 - [ ] **WORK-06**: On launch, the application reconciles worktrees recorded in the database against those actually present on disk and surfaces any discrepancy to the user rather than silently repairing it
 - [ ] **WORK-07**: User can see all worktrees across all projects, their disk usage, and reclaim stale ones
-- [ ] **WORK-08**: A task's worktree persists across many agent sessions and is only removed on explicit completion or user action
+- [x] **WORK-08**: A task's worktree persists across many agent sessions and is only removed on explicit completion or user action
 
 ### Git & Forge Linkage
 
-- [ ] **LINK-01**: Every task is bound to exactly one branch whose name derives from the task identifier, so the branch is recognisable from the command line without Flywheel
+- [x] **LINK-01**: Every task is bound to exactly one branch whose name derives from the task identifier, so the branch is recognisable from the command line without Flywheel
 - [ ] **LINK-02**: Every board item shows its branch, its commits, and its current ahead/behind position relative to its integration target
 - [ ] **LINK-03**: Commits produced by an agent carry the task identifier in a commit-message trailer, so `git log` alone reveals which board item produced any change
 - [ ] **LINK-04**: User can navigate from a branch name or a commit hash back to the originating board item
@@ -224,7 +224,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | DATA-03 | Phase 1 | Complete |
 | DATA-04 | Phase 2 | Complete |
 | DATA-05 | Phase 1 | Complete |
-| DATA-06 | Phase 2 | Pending |
+| DATA-06 | Phase 2 | Complete |
 | DATA-07 | Phase 1 | Complete |
 | DATA-08 | Phase 1 | Complete |
 | BOARD-01 | Phase 1 | Complete |
@@ -237,15 +237,15 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BOARD-08 | Phase 1 | Complete |
 | BOARD-09 | Phase 1 | Complete |
 | BOARD-10 | Phase 1 | Complete |
-| WORK-01 | Phase 2 | Pending |
+| WORK-01 | Phase 2 | Complete |
 | WORK-02 | Phase 2 | Complete |
 | WORK-03 | Phase 3 | Pending |
 | WORK-04 | Phase 3 | Pending |
 | WORK-05 | Phase 3 | Pending |
 | WORK-06 | Phase 3 | Pending |
 | WORK-07 | Phase 10 | Pending |
-| WORK-08 | Phase 2 | Pending |
-| LINK-01 | Phase 2 | Pending |
+| WORK-08 | Phase 2 | Complete |
+| LINK-01 | Phase 2 | Complete |
 | LINK-02 | Phase 7 | Pending |
 | LINK-03 | Phase 7 | Pending |
 | LINK-04 | Phase 7 | Pending |

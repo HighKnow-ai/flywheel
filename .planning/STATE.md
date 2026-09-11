@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Completed 02-07-PLAN.md
-last_updated: "2026-09-11T01:41:37.513Z"
+stopped_at: Completed 02-08-PLAN.md
+last_updated: "2026-09-11T02:16:04.893Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 02 execution started
-state_head: 54904bb3aacb5cb235db83c981d97171940e79f6
+state_head: c6dedc6d77d16f3aefaf336d721ae4a45d51b8a9
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 31
-  completed_plans: 29
+  completed_plans: 30
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 9 of 10
+Plan: 10 of 10
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 02 execution started
 
@@ -87,6 +87,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P06 | 50min | 3 tasks | 20 files |
 | Phase 02 P09 | 100min | 3 tasks | 20 files |
 | Phase 02 P07 | 130min | 3 tasks | 14 files |
+| Phase 02 P08 | 35min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,8 @@ Recent decisions affecting current work:
 - [Phase 02]: [Phase 02]: Assumption A1 (does ANTHROPIC_API_KEY reliably override a present subscription session) could not be measured this session — no spend-authorized real API key was available; recorded as a Phase 3 input, matching the plan's own accepted fallback.
 - [Phase 02]: useSessionFeed pages tail-first with a literal "tail" pageParam for the initial page, letting a live invalidation re-resolve the tail against the log's current total while older loaded pages keep their own stable offsets — Avoids a second live-update mechanism separate from the paging query itself
 - [Phase 02]: Tool-call/tool_result pairing is FIFO-by-toolName since no correlation id exists on either event in the sidecar's AgentEvent union — Accepted simplification; documented as a known limitation under concurrent same-named tool calls rather than fixed by extending the sidecar's event shapes (out of scope for this UI-only plan)
+- [Phase 02]: Extended query::agent_runs's existing SELECT list (RunRow/RunSummaryDto) to include external_session_id — the column already existed on agent_runs but plan 02-07's own read path never selected it.
+- [Phase 02]: Moved the permission-request card's compact mount from a generic ItemDetailPanel-level section into RunsSection, nested beneath the specific blocked run's own row, so a run and the answer it is waiting on read as one linked record.
 
 ### Pending Todos
 
@@ -156,6 +159,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-11T01:41:37.459Z
-Stopped at: Completed 02-07-PLAN.md
+Last session: 2026-09-11T02:16:04.841Z
+Stopped at: Completed 02-08-PLAN.md
 Resume file: None
