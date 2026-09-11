@@ -306,6 +306,7 @@ export async function clearApiKey(): Promise<void> {
 export interface BackendCapabilityDto {
   available: boolean;
   version: string | null;
+  apiKeyPathUsable: boolean;
 }
 
 export async function backendCapabilityProbe(): Promise<BackendCapabilityDto> {

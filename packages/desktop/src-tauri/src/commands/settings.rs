@@ -155,16 +155,53 @@ pub fn settings_clear_api_key(state: State<AppState>) -> Result<(), String> {
 pub struct BackendCapabilityDto {
     pub available: bool,
     pub version: Option<String>,
+    /// Always `true` — configuring/selecting the API-key credential mode (`settings_set_
+    /// credential_mode`, `settings_store_api_key`) is never gated on the local backend binary
+    /// being resolvable; neither checks `available` before doing its own work. This field makes
+    /// that degradation contract explicit in the probe's own response, rather than leaving a
+    /// caller to infer it from the absence of an error (D-39, plan 02-09 Task 3).
+    pub api_key_path_usable: bool,
+}
+
+/// The `BackendCapabilityDto` reported when no sidecar is running at all (`state.sidecar` is
+/// `None` — `state.rs`'s own doc comment: "the sidecar failed to start," never a valid steady
+/// state in the real app, but still a shape `backend_capability_probe` must degrade against
+/// rather than panic on). Factored out so it is unit-testable without a live Tauri `State`.
+fn capability_dto_when_no_sidecar() -> BackendCapabilityDto {
+    BackendCapabilityDto {
+        available: false,
+        version: None,
+        api_key_path_usable: true,
+    }
 }
 
 #[tauri::command]
 pub fn backend_capability_probe(state: State<AppState>) -> Result<BackendCapabilityDto, String> {
     let Some(sidecar) = state.sidecar.as_ref() else {
-        return Ok(BackendCapabilityDto {
-            available: false,
-            version: None,
-        });
+        return Ok(capability_dto_when_no_sidecar());
     };
     let (available, version) = sidecar.capability_probe().map_err(|e| e.to_string())?;
-    Ok(BackendCapabilityDto { available, version })
+    Ok(BackendCapabilityDto {
+        available,
+        version,
+        api_key_path_usable: true,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The half of "the probe with the binary absent reports unavailable and reports the
+    /// API-key path usable" (plan 02-09 Task 3 acceptance criteria) that is reachable without a
+    /// live sidecar process — `packages/sidecar/test/credentials.test.mjs`'s own
+    /// `probeClaudeBinary reports unavailable...` test covers the sidecar-level half (pointing
+    /// `FLYWHEEL_CLAUDE_BIN` at a non-existent path).
+    #[test]
+    fn when_the_sidecar_is_not_running_the_probe_reports_unavailable_but_the_api_key_path_stays_usable() {
+        let dto = capability_dto_when_no_sidecar();
+        assert_eq!(dto.available, false);
+        assert_eq!(dto.version, None);
+        assert_eq!(dto.api_key_path_usable, true);
+    }
 }
