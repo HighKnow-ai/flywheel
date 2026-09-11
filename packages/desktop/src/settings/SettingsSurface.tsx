@@ -35,6 +35,7 @@ import {
   type SettingsDto,
 } from "../adapters/tauri";
 import { useProjects } from "../board/useBoardQuery";
+import { PermissionRulesTable } from "./PermissionRulesTable";
 
 /** The two credential-mode values the schema/commands accept (`commands/settings.rs`'s
  * `validate_mode`) — the exact labels 02-UI-SPEC.md's Copywriting Contract specifies. */
@@ -358,6 +359,13 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
             </div>
           </section>
         )}
+
+        <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+            Permission Rules
+          </span>
+          <PermissionRulesTable projects={projects} loadingProjects={projectsQuery.isPending} />
+        </section>
       </div>
     </div>
   );

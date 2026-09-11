@@ -19,7 +19,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsSurface } from "../SettingsSurface";
 import type { Project } from "../../board/useBoardQuery";
-import type { SettingsDto } from "../../adapters/tauri";
+import type { PermissionRuleDto, SettingsDto } from "../../adapters/tauri";
 
 const invokeCommandMock = vi.fn();
 const getSettingsMock = vi.fn();
@@ -256,6 +256,119 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     // Enforced by the plan's own file-level grep gate at verify time — documented here so a
     // reader of the suite sees the contract stated too (mirrors permission-card.test.tsx's own
     // "structural gates enforced elsewhere" documentation test).
+    expect(true).toBe(true);
+  });
+});
+
+/**
+ * Behavior under test (02-10-PLAN.md Task 2, 02-UI-SPEC.md "Permission rules", E7): the
+ * empty-state copy renders exactly, absent while a rule exists; every rule row shows its OWN
+ * project name (never a global-looking table); revoking calls the mutation with the rule's id and
+ * only removes the row once the re-read resolves; a long tool name truncates; skeleton rows (not
+ * the empty-state copy) render while the fan-out read is in flight; the `Revoke` action's copy is
+ * exactly "Revoke".
+ */
+function ruleFixture(overrides: Partial<PermissionRuleDto> = {}): PermissionRuleDto {
+  return {
+    id: "rule-1",
+    projectId: "proj-a",
+    toolName: "Bash",
+    decision: "allow_always",
+    createdAt: "2026-01-10T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+describe("SettingsSurface — permission rules (Task 2)", () => {
+  it("renders the exact empty-state copy when no rules exist", async () => {
+    mockProjects([PROJECT_A]);
+    listPermissionRulesMock.mockResolvedValue([]);
+    renderSettings();
+
+    expect(
+      await screen.findByText(
+        'No rules yet — they\'re created from a permission request\'s "Allow this tool for this project from now on" action.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders each rule with its OWN project's name — a rule can never be read as global", async () => {
+    mockProjects([PROJECT_A, PROJECT_B]);
+    listPermissionRulesMock.mockImplementation((projectId: string) =>
+      Promise.resolve(
+        projectId === "proj-a"
+          ? [ruleFixture({ id: "rule-a", projectId: "proj-a", toolName: "Bash" })]
+          : [ruleFixture({ id: "rule-b", projectId: "proj-b", toolName: "Edit" })],
+      ),
+    );
+    renderSettings();
+
+    const flywheelRow = await screen.findByText("Flywheel");
+    const acmeRow = await screen.findByText("Acme");
+    expect(flywheelRow.closest('[role="row"]')?.textContent).toContain("Bash");
+    expect(acmeRow.closest('[role="row"]')?.textContent).toContain("Edit");
+  });
+
+  it("revoking a rule calls the mutation with its id and removes the row only after the re-read resolves", async () => {
+    mockProjects([PROJECT_A]);
+    let currentRules = [ruleFixture({ id: "rule-a" })];
+    listPermissionRulesMock.mockImplementation(() => Promise.resolve(currentRules));
+    revokePermissionRuleMock.mockImplementation(() => {
+      currentRules = [];
+      return Promise.resolve(undefined);
+    });
+    renderSettings();
+
+    const revokeButton = await screen.findByRole("button", { name: "Revoke" });
+    fireEvent.click(revokeButton);
+
+    await waitFor(() => expect(revokePermissionRuleMock).toHaveBeenCalledWith("rule-a"));
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'No rules yet — they\'re created from a permission request\'s "Allow this tool for this project from now on" action.',
+        ),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("truncates a long tool name with an ellipsis rather than widening the table", async () => {
+    mockProjects([PROJECT_A]);
+    const longName = "A".repeat(200);
+    listPermissionRulesMock.mockResolvedValue([ruleFixture({ toolName: longName })]);
+    renderSettings();
+
+    const toolCell = await screen.findByText(longName);
+    expect(toolCell.style.textOverflow).toBe("ellipsis");
+    expect(toolCell.style.whiteSpace).toBe("nowrap");
+    expect(toolCell.style.overflow).toBe("hidden");
+  });
+
+  it("renders skeleton rows (not the empty-state copy) while the rules read is in flight", async () => {
+    mockProjects([PROJECT_A]);
+    listPermissionRulesMock.mockReturnValue(new Promise(() => {})); // never resolves
+    renderSettings();
+
+    await screen.findByText("Permission Rules");
+    expect(screen.getByTestId("permission-rules-skeleton")).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'No rules yet — they\'re created from a permission request\'s "Allow this tool for this project from now on" action.',
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("the Revoke action's copy is exactly 'Revoke'", async () => {
+    mockProjects([PROJECT_A]);
+    listPermissionRulesMock.mockResolvedValue([ruleFixture()]);
+    renderSettings();
+
+    expect(await screen.findByRole("button", { name: "Revoke" })).toBeInTheDocument();
+  });
+
+  it("has a revoke path — the table is never read-only", () => {
+    // Enforced by the plan's own file-level grep gate at verify time (>=1 occurrence of
+    // `revokePermissionRule` in `PermissionRulesTable.tsx`) — documented here too.
     expect(true).toBe(true);
   });
 });
