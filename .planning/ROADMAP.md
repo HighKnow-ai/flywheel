@@ -190,7 +190,7 @@ actor identity extends to multi-remote without migration.
   4. User stops a running session and finds the worktree intact and inspectable, then starts a second session on that same worktree — the worktree outlives the session.
   5. User sees the worktree, the agent run and the session as distinct linked records on the task, each started through a trigger record, and can point Flywheel at either his existing local Claude Code credentials or an explicit API key with nothing else in the product behaving differently.
 
-**Plans**: 10/10 plans executed in 8 waves
+**Plans**: 14 plans (10/10 executed in 8 waves; 4 gap-closure plans added in 3 waves after verification found gaps)
 **UI hint**: yes
 
 Plans:
@@ -227,6 +227,21 @@ Plans:
 **Wave 8** *(blocked on Wave 7 completion)*
 
 - [x] 02-10-PLAN.md — The first Settings surface: credential path, per-project overrides, and revocable permission rules
+
+**Gap closure** *(02-VERIFICATION.md status `gaps_found` — 4 failed truths, all four Criticals from 02-REVIEW.md)*
+
+**Wave 1**
+
+- [ ] 02-11-PLAN.md — Gap CR-04/PROC-06: a Stop always reaches a terminal status, even when the sidecar never acks
+- [ ] 02-13-PLAN.md — Gap CR-01/DATA-06: decide and test what deleting a task with agent-run history does (blocking decision checkpoint)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-12-PLAN.md — Gap CR-03/PROC-07: one run's log-write failure can never silence the shared reader, and the skip is never silent
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-14-PLAN.md — Gap CR-02: quitting Flywheel kills every live session's process group, and WR-01's interrupt race
 
 **Notes**: Two more structural seams land here: the generic trigger record with `user_action`
 implemented and `schedule`/`webhook` accepted-but-unimplemented (DATA-04), and the single agent
