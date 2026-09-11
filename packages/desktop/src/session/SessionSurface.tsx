@@ -673,11 +673,20 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
               return (
                 <div
                   key={row.key}
+                  data-testid="feed-row-slot"
+                  // G-02-3: this wrapper occupies EXACTLY the height the virtualizer reserved
+                  // for this row (`virtualRow.size`, produced by `feedRowEstimateSize`'s fixed
+                  // per-row-kind constant — never corrected by measurement) and clips anything
+                  // that exceeds it. `feedRowEstimateSize` decided where the NEXT row starts, so
+                  // a row free to paint past its own reservation paints over every row
+                  // positioned after it — which is exactly what gap G-02-3 reported.
                   style={{
                     position: "absolute",
                     top: 0,
                     left: 0,
                     width: "100%",
+                    height: virtualRow.size,
+                    overflow: "hidden",
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >

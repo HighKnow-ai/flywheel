@@ -159,6 +159,28 @@ describe("SessionSurface", () => {
     expect(screen.getByText("Event number 2")).toBeInTheDocument();
   });
 
+  it("every rendered row slot declares the height the virtualizer reserved and clips its overflow", async () => {
+    // G-02-3 structural half: jsdom performs no layout at all — `getBoundingClientRect` returns
+    // zeroes here, so a real painted overlap can never be observed in this environment. These
+    // assertions read the DECLARED geometry instead — the inline `height` and `overflow` values
+    // React put on the wrapper — which is the only geometry that exists in jsdom, and which is
+    // precisely the geometry the defect got wrong. Task 3 below adds the behavioural half with an
+    // oversized event, still reading this same declared geometry.
+    const events = [makeEvent(0), makeEvent(1), makeEvent(2)];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+    const slots = document.querySelectorAll('[data-testid="feed-row-slot"]');
+    expect(slots.length).toBe(3);
+    slots.forEach((slot) => {
+      const style = (slot as HTMLElement).style;
+      expect(style.height).not.toBe("");
+      expect(style.overflow).toBe("hidden");
+    });
+  });
+
   it("shows the ← Board affordance and calls onBack when clicked", async () => {
     mockWindowReads(() => []);
 
