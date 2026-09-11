@@ -311,24 +311,29 @@ pub(crate) fn stop_agent_run_recording_first(
 /// means "the sidecar did not answer". `actor_id` is resolved server-side (T-01-04, T-02-13) —
 /// never accepted from the renderer. Drops the connection lock before emitting `board:changed`
 /// with an `{ entity: "agent_run", id }` payload, the same shape `task_create` uses (D-04).
+///
+/// CR-01 (`02-REVIEW.md` gap-closure round): the interrupt call — which can block for up to
+/// `SidecarHandle::INTERRUPT_ACK_TIMEOUT` (30s) — MUST run before `state.db.lock()` is acquired,
+/// never after. `state.db` is the one `Mutex<Connection>` every other command in this codebase
+/// locks first; holding it across a 30-second wait on a wedged sidecar would freeze every other
+/// board read, task creation, and agent-run interaction in the app, not just this one Stop call.
+/// If a future refactor moves the lock acquisition ahead of the interrupt again, this ordering
+/// silently regresses — there is no compiler error for it, only degraded behavior under exactly
+/// the failure mode CR-04 exists to make graceful.
 #[tauri::command]
 pub fn agent_run_stop(
     state: State<AppState>,
     app: AppHandle,
     agent_run_id: String,
 ) -> Result<AgentRunStopDto, String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-
-    let sidecar = state.sidecar.as_ref();
-    let run_id_for_interrupt = agent_run_id.clone();
-    let interrupt = move || -> Result<(), String> {
-        match sidecar {
-            Some(sidecar) => sidecar.interrupt_run(&run_id_for_interrupt).map_err(|e| e.to_string()),
-            None => Ok(()),
-        }
+    // Resolve the interrupt outcome BEFORE touching `state.db` — see the CR-01 note above.
+    let interrupt_result = match state.sidecar.as_ref() {
+        Some(sidecar) => sidecar.interrupt_run(&agent_run_id).map_err(|e| e.to_string()),
+        None => Ok(()),
     };
 
-    let dto = stop_agent_run_recording_first(&mut conn, &agent_run_id, interrupt)?;
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let dto = stop_agent_run_recording_first(&mut conn, &agent_run_id, move || interrupt_result)?;
     drop(conn);
 
     app.emit(
