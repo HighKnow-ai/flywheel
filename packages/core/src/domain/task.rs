@@ -211,6 +211,19 @@ pub fn update_task(
 /// second event. Issues linked to this task are **orphaned, never cascade-deleted**: `issues.task_id`
 /// is set to NULL before the task row itself is removed, so a task deletion never fails with a
 /// foreign-key error when an issue references it (CR-01).
+///
+/// **Decided deletion semantics for agent-run history (D-40, DATA-06, CR-01 gap 3):** a task that
+/// has ever had Start Work pressed on it holds rows in `triggers` (on `target_task_id`),
+/// `worktrees`, `agent_runs` and/or `permission_requests` (all `NOT NULL REFERENCES tasks(id)`
+/// with no `ON DELETE` clause, and `foreign_keys = ON` on every connection). This function BLOCKS
+/// the deletion in that case — it never cascades those rows away — and returns an `Err` whose
+/// `to_string()` is a human sentence naming what blocks it, never SQLite's raw `FOREIGN KEY
+/// constraint failed` message. This preserves the non-repudiable record of what an agent did on
+/// the task and can never orphan an on-disk worktree holding uncommitted changes. `events.task_id`
+/// is a plain column with no foreign key to `tasks` (`0002_board_schema.sql`), so the event log —
+/// including every `agent_run.*` and permission-decision entry — survives regardless: this
+/// function only ever blocks the *structured* rows, never the append-only stream. A task with NO
+/// agent-run history deletes exactly as it did before this decision existed.
 pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
@@ -228,6 +241,53 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
         tx.commit().context("failed to commit no-op delete_task transaction")?;
         return Ok(());
     };
+
+    // D-40: block the deletion if this task has any agent-run history, rather than let SQLite's
+    // implicit NO ACTION surface a raw FOREIGN KEY constraint error. Each count is a
+    // compile-time-literal SELECT with a single bound parameter (Phase 01's no-format!-SQL rule).
+    let trigger_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM triggers WHERE target_task_id = ?1",
+            params![task_id],
+            |row| row.get(0),
+        )
+        .context("failed to count triggers referencing this task")?;
+    let worktree_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM worktrees WHERE task_id = ?1",
+            params![task_id],
+            |row| row.get(0),
+        )
+        .context("failed to count worktrees referencing this task")?;
+    let agent_run_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM agent_runs WHERE task_id = ?1",
+            params![task_id],
+            |row| row.get(0),
+        )
+        .context("failed to count agent runs referencing this task")?;
+    let permission_request_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM permission_requests WHERE task_id = ?1",
+            params![task_id],
+            |row| row.get(0),
+        )
+        .context("failed to count permission requests referencing this task")?;
+
+    if trigger_count > 0 || worktree_count > 0 || agent_run_count > 0 || permission_request_count > 0 {
+        let run_word = if agent_run_count == 1 { "run" } else { "runs" };
+        let worktree_clause = if worktree_count > 0 {
+            "and a worktree exists for it"
+        } else {
+            "and no worktree exists for it"
+        };
+        anyhow::bail!(
+            "Cannot delete this task: it has {agent_run_count} recorded agent {run_word} \
+             {worktree_clause}. Flywheel does not delete an agent's recorded work as a side \
+             effect of deleting a task — leave the task on the board, or wait for the \
+             worktree-removal action a future release adds."
+        );
+    }
 
     // Issues referencing this task must also be orphaned, not left dangling — `issues.task_id`
     // is a `NO ACTION` FK to `tasks(id)` with `foreign_keys = ON`, so the `DELETE FROM tasks`

@@ -127,6 +127,12 @@ pub fn task_update(
 
 /// Delete a task (idempotent). `actor_id` is resolved server-side (T-01-04); emits
 /// `board:changed` after commit (D-04).
+///
+/// **D-40:** if the task has any agent-run history (`triggers`/`worktrees`/`agent_runs`/
+/// `permission_requests`), `delete_task` returns `Err` naming what blocks it instead of deleting.
+/// `.map_err(|e| e.to_string())` below surfaces that domain message to the renderer verbatim —
+/// there is no wrapping `.context(...)` anywhere between `delete_task`'s `anyhow::bail!` and this
+/// handler, so the user never sees a raw SQLite `FOREIGN KEY constraint failed` string.
 #[tauri::command]
 pub fn task_delete(state: State<AppState>, app: AppHandle, task_id: String) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
