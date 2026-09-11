@@ -763,6 +763,10 @@ pub struct RunSummaryDto {
     pub cost_usd: Option<f64>,
     pub tokens_in: Option<i64>,
     pub tokens_out: Option<i64>,
+    /// D-30's session identity (plan 02-08 Task 2, a deviation from this DTO's original field
+    /// list) — `NULL` until the sidecar's `init` event reports it. The Runs section renders it
+    /// alongside the run's own id so a run and its session read as one linked record.
+    pub external_session_id: Option<String>,
 }
 
 impl From<flywheel_core::query::agent_runs::RunRow> for RunSummaryDto {
@@ -776,6 +780,7 @@ impl From<flywheel_core::query::agent_runs::RunRow> for RunSummaryDto {
             cost_usd: run.cost_usd,
             tokens_in: run.tokens_in,
             tokens_out: run.tokens_out,
+            external_session_id: run.external_session_id,
         }
     }
 }

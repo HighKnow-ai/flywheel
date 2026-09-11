@@ -183,6 +183,10 @@ export interface RunSummaryDto {
   costUsd: number | null;
   tokensIn: number | null;
   tokensOut: number | null;
+  /** D-30's session identity (plan 02-08 Task 2) — `null` until the sidecar's `init` event
+   * reports it. The Runs section renders it alongside the run's own id (`Run · session
+   * {externalSessionId}`) so a run and its session read as one linked record. */
+  externalSessionId: string | null;
 }
 
 /**

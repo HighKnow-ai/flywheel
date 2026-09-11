@@ -14,6 +14,13 @@ use rusqlite::{params, Connection, OptionalExtension};
 /// One row of a task's Runs section, newest first (02-UI-SPEC.md "Runs section"). `cost_usd`/
 /// `tokens_in`/`tokens_out` are `NULL` until the run's first `cost_update`/`result` event lands —
 /// the renderer's own concern to distinguish "not yet reported" from "reported as zero."
+///
+/// `external_session_id` (added plan 02-08 Task 2, a deviation from this module's own original
+/// `SELECT` list) is D-30's session identity — the Runs section renders it alongside the run's own
+/// id (`Run · session {external_session_id}`) so a run and its session read as one linked record
+/// rather than two the user must correlate themselves (02-UI-SPEC.md Discretion #1). `NULL` until
+/// the sidecar's own `init` event reports it (AGNT-01) — a run in flight before that event lands
+/// renders its run identity alone.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunRow {
     pub id: String,
@@ -24,10 +31,11 @@ pub struct RunRow {
     pub cost_usd: Option<f64>,
     pub tokens_in: Option<i64>,
     pub tokens_out: Option<i64>,
+    pub external_session_id: Option<String>,
 }
 
 const RUNS_FOR_TASK_SQL: &str = "SELECT id, task_id, status, started_at, ended_at, cost_usd, \
-    tokens_in, tokens_out FROM agent_runs WHERE task_id = ?1 \
+    tokens_in, tokens_out, external_session_id FROM agent_runs WHERE task_id = ?1 \
     ORDER BY started_at DESC, id DESC LIMIT ?2 OFFSET ?3";
 
 fn row_to_run(row: &rusqlite::Row) -> rusqlite::Result<RunRow> {
@@ -40,6 +48,7 @@ fn row_to_run(row: &rusqlite::Row) -> rusqlite::Result<RunRow> {
         cost_usd: row.get(5)?,
         tokens_in: row.get(6)?,
         tokens_out: row.get(7)?,
+        external_session_id: row.get(8)?,
     })
 }
 

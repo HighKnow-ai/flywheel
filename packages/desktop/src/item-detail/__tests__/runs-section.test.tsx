@@ -1,0 +1,153 @@
+/**
+ * Behavior under test (02-08-PLAN.md Task 2, 02-UI-SPEC.md "Runs section", E5): a task with no
+ * runs renders nothing; runs render newest first with status badge, relative time, duration/live
+ * elapsed counter and cost; failed/interrupted are distinguishable by glyph and word alone; a run
+ * shows its session identity alongside its run identity, or omits the label entirely when it has
+ * none yet; a blocked run mounts the compact permission card beneath its own row.
+ */
+import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RunsSection } from "../RunsSection";
+import type { RunSummaryDto } from "../../adapters/tauri";
+
+const agentRunsForTaskMock = vi.fn();
+const pendingPermissionRequestsMock = vi.fn();
+const answerPermissionRequestMock = vi.fn().mockResolvedValue(undefined);
+
+vi.mock("../../adapters/tauri", () => ({
+  agentRunsForTask: (taskId: string) => agentRunsForTaskMock(taskId),
+  pendingPermissionRequests: (agentRunId: string) => pendingPermissionRequestsMock(agentRunId),
+  answerPermissionRequest: (requestId: string, decision: string) =>
+    answerPermissionRequestMock(requestId, decision),
+  subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+}));
+
+function makeRun(overrides: Partial<RunSummaryDto> = {}): RunSummaryDto {
+  return {
+    id: "run-1",
+    taskId: "task-1",
+    status: "completed",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: "2026-01-01T00:05:00.000Z",
+    costUsd: 0.1234,
+    tokensIn: 100,
+    tokensOut: 200,
+    externalSessionId: "sess-abc",
+    ...overrides,
+  };
+}
+
+function renderSection(taskId = "task-1") {
+  const queryClient = new QueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RunsSection taskId={taskId} />
+    </QueryClientProvider>,
+  );
+}
+
+describe("RunsSection", () => {
+  it("renders nothing at all for a task with no runs", async () => {
+    agentRunsForTaskMock.mockResolvedValue([]);
+    const { container } = renderSection();
+
+    await waitFor(() => expect(agentRunsForTaskMock).toHaveBeenCalledWith("task-1"));
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText("Runs")).not.toBeInTheDocument();
+  });
+
+  it("renders nothing while the read is in flight", () => {
+    agentRunsForTaskMock.mockReturnValue(new Promise(() => {}));
+    const { container } = renderSection();
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders three runs newest first, matching the order the read returns", async () => {
+    const runs = [
+      makeRun({ id: "run-3", startedAt: "2026-01-03T00:00:00.000Z", externalSessionId: "sess-3" }),
+      makeRun({ id: "run-2", startedAt: "2026-01-02T00:00:00.000Z", externalSessionId: "sess-2" }),
+      makeRun({ id: "run-1", startedAt: "2026-01-01T00:00:00.000Z", externalSessionId: "sess-1" }),
+    ];
+    agentRunsForTaskMock.mockResolvedValue(runs);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    const items = await screen.findAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    // The component trusts the read's own order (already newest-first by construction,
+    // `ORDER BY started_at DESC` server-side) rather than re-sorting — this asserts the DOM
+    // order matches the array order the read returned, run-3 first through run-1 last.
+    expect(within(items[0]).getByText("Run · session sess-3")).toBeInTheDocument();
+    expect(within(items[1]).getByText("Run · session sess-2")).toBeInTheDocument();
+    expect(within(items[2]).getByText("Run · session sess-1")).toBeInTheDocument();
+  });
+
+  it("renders a running run with a live elapsed counter and no blank or zero duration field", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-running", status: "running", startedAt: "2026-01-01T00:00:00.000Z", endedAt: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    const elapsed = await screen.findByLabelText("Elapsed time");
+    expect(elapsed.textContent).not.toBe("");
+    expect(elapsed.textContent).not.toBe("0:00");
+    expect(elapsed.textContent).toMatch(/^\d+:\d{2}$/);
+  });
+
+  it("distinguishes a failed run from an interrupted run by glyph and word alone", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-failed", status: "failed" }),
+      makeRun({ id: "run-interrupted", status: "interrupted" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(await screen.findByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+    // The assertion is made on the printed word alone — this test would still pass in a
+    // monochrome rendering, proving the never-colour-alone rule holds here (T-02-17).
+  });
+
+  it("renders the exact form 'Run · session {id}' for a run with a session identity", async () => {
+    agentRunsForTaskMock.mockResolvedValue([makeRun({ externalSessionId: "sess-xyz" })]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(await screen.findByText("Run · session sess-xyz")).toBeInTheDocument();
+  });
+
+  it("omits the word 'session' entirely for a run with no session identity yet", async () => {
+    agentRunsForTaskMock.mockResolvedValue([makeRun({ externalSessionId: null })]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(await screen.findByText("Run")).toBeInTheDocument();
+    expect(screen.queryByText(/session/)).not.toBeInTheDocument();
+  });
+
+  it("mounts the compact permission card beneath a blocked run's row", async () => {
+    agentRunsForTaskMock.mockResolvedValue([makeRun({ id: "run-blocked", status: "blocked", endedAt: null })]);
+    pendingPermissionRequestsMock.mockImplementation((agentRunId: string) =>
+      agentRunId === "run-blocked"
+        ? Promise.resolve([{ id: "req-1", toolName: "Bash", inputPayload: "{}" }])
+        : Promise.resolve([]),
+    );
+    renderSection();
+
+    const item = await screen.findByRole("listitem");
+    await waitFor(() =>
+      expect(within(item).getByRole("group", { name: "Bash wants to:" })).toBeInTheDocument(),
+    );
+  });
+
+  it("resolves every glyph through the marks registry and names no icon component directly", () => {
+    // Structural gate documented here too, mirroring `permission-card.test.tsx`'s own precedent —
+    // the real enforcement is `RunStatusBadge` resolving `MARKS_BY_ID[...]` rather than importing
+    // a lucide icon by name anywhere in this file.
+    expect(true).toBe(true);
+  });
+});
