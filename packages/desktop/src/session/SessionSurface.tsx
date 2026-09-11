@@ -336,7 +336,8 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
         style={{
           marginTop: "var(--space-sm)",
           padding: "var(--space-sm) var(--space-md)",
-          borderLeft: "4px solid var(--destructive-text-rack)",
+          background: "var(--surface-secondary)",
+          borderRadius: "var(--radius-chrome)",
         }}
       >
         <p className="type-body" style={{ margin: 0, color: "var(--text-primary-rack)" }}>

@@ -118,7 +118,6 @@ function PermissionRequestRow({
         flexDirection: "column",
         gap: "var(--space-sm)",
         padding: "var(--space-md)",
-        borderLeft: "4px solid var(--blocked-text-rack)",
         borderRadius: "var(--radius-chrome)",
         background: "var(--surface-secondary)",
         color: "var(--text-primary-rack)",
