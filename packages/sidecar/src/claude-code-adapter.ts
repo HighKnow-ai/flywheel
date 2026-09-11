@@ -156,6 +156,25 @@ export function normaliseStreamEvent(
     return { ...base, type: "init", sessionId: init.session_id, model: init.model };
   }
 
+  // G-02-3's observation: the --verbose flag Task 1 requires makes the CLI emit
+  // session-lifecycle `system` events beyond `init` (e.g. SessionStart's `hook_started`/
+  // `hook_response` subtypes) — a trivial probe prompt produced nine of them ahead of any
+  // assistant text. Before this branch, every one of those fell through to the final `unknown`
+  // case below and rendered as its full verbatim JSON line at the head of every feed. This is a
+  // RENDERING classification only: no event is dropped, merged or reordered by it — the
+  // fallthrough is narrowed, never deleted, and stays the destination for a `system` event with
+  // no usable subtype and for every genuinely unrecognised shape. Deliberately no per-subtype
+  // special-casing: any subtype the backend introduces in the future flows through this branch
+  // without a code change, which is what keeps it from becoming a maintenance burden as the CLI
+  // evolves.
+  if (parsed.type === "system") {
+    const subtype = (parsed as Record<string, unknown>).subtype;
+    if (typeof subtype === "string" && subtype.length > 0) {
+      return { ...base, type: "system_notice", text: `system: ${subtype}` };
+    }
+    return { ...base, type: "unknown" };
+  }
+
   if (parsed.type === "assistant" || parsed.type === "user") {
     const message = (parsed as ClaudeStreamMessage).message;
     const content = message?.content ?? [];

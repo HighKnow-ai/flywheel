@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { CapabilityUnsupportedError } from "../dist/adapter.js";
-import { buildClaudeArgv, ClaudeCodeAdapter } from "../dist/claude-code-adapter.js";
+import { buildClaudeArgv, ClaudeCodeAdapter, normaliseStreamEvent } from "../dist/claude-code-adapter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
@@ -126,4 +126,67 @@ test("normalised events for the fake CLI's stream arrive in source order with co
   assert.equal(events[events.length - 1].reason, "completed");
 
   delete process.env.FLYWHEEL_CLAUDE_BIN;
+});
+
+// G-02-3's observation: a table of subtypes, not a list of individually-asserted known names —
+// including one the backend does not currently emit — asserted as a CLASS of behaviour so a
+// future subtype flows through without a test (or code) change.
+const NON_INIT_SYSTEM_SUBTYPES = [
+  "hook_started",
+  "hook_response",
+  "compact_boundary",
+  "an_invented_subtype_this_backend_has_never_emitted",
+];
+
+test("normaliseStreamEvent maps every non-init system subtype to system_notice (G-02-3)", () => {
+  for (const subtype of NON_INIT_SYSTEM_SUBTYPES) {
+    const line = JSON.stringify({ type: "system", subtype });
+    const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+    assert.equal(event.type, "system_notice", `subtype "${subtype}" must normalise to system_notice`);
+    assert.ok(
+      typeof event.text === "string" && event.text.length > 0,
+      `subtype "${subtype}" must carry a non-empty text summary`,
+    );
+    // Preservation, not classification: whatever this branch decides the event's TYPE is, the
+    // verbatim source line must survive unchanged — the guard against a future edit deciding a
+    // notice does not need to carry its source.
+    assert.equal(event.raw, line, `subtype "${subtype}": raw must be byte-identical to the input line`);
+  }
+});
+
+test("normaliseStreamEvent boundary: the init subtype still normalises to init, unchanged", () => {
+  const line = JSON.stringify({ type: "system", subtype: "init", session_id: "s-1", model: "m-1" });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "init");
+  assert.equal(event.sessionId, "s-1");
+  assert.equal(event.raw, line);
+});
+
+test("normaliseStreamEvent boundary: a top-level type this function does not recognise still normalises to unknown", () => {
+  const line = JSON.stringify({ type: "a_top_level_type_nothing_here_recognises" });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "unknown");
+  assert.equal(event.raw, line);
+});
+
+test("normaliseStreamEvent: a system event with a missing or empty subtype is unrecognised, not a notice with an empty summary", () => {
+  const missingSubtypeLine = JSON.stringify({ type: "system" });
+  const missingSubtypeEvent = normaliseStreamEvent(
+    JSON.parse(missingSubtypeLine),
+    missingSubtypeLine,
+    "run-1",
+    0,
+    "2026-01-01T00:00:00.000Z",
+  );
+  assert.equal(missingSubtypeEvent.type, "unknown");
+
+  const emptySubtypeLine = JSON.stringify({ type: "system", subtype: "" });
+  const emptySubtypeEvent = normaliseStreamEvent(
+    JSON.parse(emptySubtypeLine),
+    emptySubtypeLine,
+    "run-1",
+    0,
+    "2026-01-01T00:00:00.000Z",
+  );
+  assert.equal(emptySubtypeEvent.type, "unknown");
 });
