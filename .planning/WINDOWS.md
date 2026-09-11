@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 6
+open_count: 7
 waived_count: 0
 fixed_count: 0
-total_count: 6
-last_updated: 2026-09-11T02:15:22.725Z
+total_count: 7
+last_updated: 2026-09-11T02:41:59.616Z
 ---
 
 # Broken Windows Ledger
@@ -21,6 +21,7 @@ last_updated: 2026-09-11T02:15:22.725Z
 | 4 | 02 | deviation | packages/desktop/src/item-detail/ItemDetailPanel.tsx | 219 | hard-codes color: #ffffff on the Start Work button label instead of a token — pre-existing since plan 02-01, blocks 02-03 Task 1's own hex-literal verify gate but is outside 02-03's files_modified scope | open |  | 2026-09-10T13:38:00.146Z |  |
 | 5 | 02 | deviation | packages/desktop/src/legend/marks.ts |  | Task 2's verify gate grep -c 'export const MARKS' reports 2 (also matches the pre-existing export const MARKS_BY_ID substring) — false negative predating this plan; the real single-MARKS-array criterion is verified separately and holds | open |  | 2026-09-10T13:38:00.282Z |  |
 | 6 | 02 | deviation | packages/desktop/src/item-detail/WorktreeSummary.tsx |  | T-02-37 'missing from disk' clause not mitigated (no backend disk-existence signal); only the null-field case is implemented. Deferred to Phase 3 WORK-06 reconciliation. | open |  | 2026-09-11T02:15:22.725Z |  |
+| 7 | 02 | unrun-verify | .planning/phases/02-one-agent-one-worktree-watched-live/02-10-PLAN.md |  | Plan 02-10's own manual verification step (open Settings from the menu, from ⌘,, and from the palette; save an API key and confirm it cannot be read back; grant an allow-always rule from a real permission request and confirm it appears in the table with its project and can be revoked) has not been observed by a human — deferred to end-of-phase UAT per workflow.human_verify_mode=end-of-phase. | open |  | 2026-09-11T02:41:59.616Z |  |
 
 ````json
 [
@@ -94,6 +95,18 @@ last_updated: 2026-09-11T02:15:22.725Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-11T02:15:22.725Z",
+    "resolved_at": null
+  },
+  {
+    "id": 7,
+    "kind": "unrun-verify",
+    "phase": "02",
+    "file": ".planning/phases/02-one-agent-one-worktree-watched-live/02-10-PLAN.md",
+    "line": null,
+    "description": "Plan 02-10's own manual verification step (open Settings from the menu, from ⌘,, and from the palette; save an API key and confirm it cannot be read back; grant an allow-always rule from a real permission request and confirm it appears in the table with its project and can be revoked) has not been observed by a human — deferred to end-of-phase UAT per workflow.human_verify_mode=end-of-phase.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-11T02:41:59.616Z",
     "resolved_at": null
   }
 ]

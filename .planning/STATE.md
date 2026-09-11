@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
-status: executing
-stopped_at: Completed 02-08-PLAN.md
-last_updated: "2026-09-11T02:16:04.893Z"
+status: verifying
+stopped_at: Completed 02-10-PLAN.md
+last_updated: "2026-09-11T02:43:35.995Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 02 execution started
-state_head: c6dedc6d77d16f3aefaf336d721ae4a45d51b8a9
+state_head: 46aca7c6cec32460e12c9eaddad52dbeb658d062
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 31
-  completed_plans: 30
+  completed_plans: 31
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
 Plan: 10 of 10
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-10 — Phase 02 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -88,6 +88,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P09 | 100min | 3 tasks | 20 files |
 | Phase 02 P07 | 130min | 3 tasks | 14 files |
 | Phase 02 P08 | 35min | 3 tasks | 12 files |
+| Phase 02 P10 | 45min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Tool-call/tool_result pairing is FIFO-by-toolName since no correlation id exists on either event in the sidecar's AgentEvent union — Accepted simplification; documented as a known limitation under concurrent same-named tool calls rather than fixed by extending the sidecar's event shapes (out of scope for this UI-only plan)
 - [Phase 02]: Extended query::agent_runs's existing SELECT list (RunRow/RunSummaryDto) to include external_session_id — the column already existed on agent_runs but plan 02-07's own read path never selected it.
 - [Phase 02]: Moved the permission-request card's compact mount from a generic ItemDetailPanel-level section into RunsSection, nested beneath the specific blocked run's own row, so a run and the answer it is waiting on read as one linked record.
+- [Phase 02]: [Phase 02]: settings_set_credential_mode's mode widened from String to Option<String> so a per-project override can be cleared back to the global default — the domain layer already supported None, the Tauri command never exposed it.
+- [Phase 02]: [Phase 02]: PermissionRulesTable takes an explicit loadingProjects prop from its caller rather than inferring loading state from an empty projects array, which is ambiguous between 'still loading' and 'genuinely zero'.
 
 ### Pending Todos
 
@@ -159,6 +162,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-11T02:16:04.841Z
-Stopped at: Completed 02-08-PLAN.md
+Last session: 2026-09-11T02:43:35.940Z
+Stopped at: Completed 02-10-PLAN.md
 Resume file: None
