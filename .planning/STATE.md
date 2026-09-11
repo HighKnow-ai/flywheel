@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: "Completed 02-16-PLAN.md (gap closure: G-02-3)"
-last_updated: "2026-09-11T09:12:33.257Z"
+stopped_at: "Completed 02-17-PLAN.md (gap closure: G-02-2)"
+last_updated: "2026-09-11T09:33:26.324Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 02 execution started
-state_head: cfbce5ba605416b83c12c6e9d4c6893fe055033a
+state_head: f4b07c893ed8f1f1957c5aa35f1d6b24a0ee8b86
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 39
-  completed_plans: 37
+  completed_plans: 38
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 7 of 14
+Plan: 8 of 14
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 02 execution started
 
@@ -95,6 +95,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P14 | 25min | 3 tasks | 6 files |
 | Phase 02 P15 | 45min | 3 tasks | 5 files |
 | Phase 02 P16 | 35min | 3 tasks | 4 files |
+| Phase 02 P17 | 20min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,8 @@ Recent decisions affecting current work:
 - [Phase 02]: [Phase 02] G-02-1 closed: the dev sidecar stub now walks up from its own symlink-resolved physical directory for the packages/sidecar/dist marker instead of a fixed parent-hop count, and spawn_sidecar performs a bounded ping readiness handshake (reading the spawn receiver directly, before AppState/pending_acks exists) before returning Ok, so an immediately-dying sidecar aborts startup naming its own exit status and stderr instead of surfacing later as a stdin write failure.
 - [Phase 02]: [Phase 02] ping is a distinct sidecar op from capability_probe: ping asks only whether the sidecar process itself is alive and speaking its own protocol (no side effect, no backend dependency), while capability_probe spawns the user's claude binary and must never gate application startup.
 - [Phase 02]: Collapsed body-row text is JS-sliced to FEED_ROW_TRUNCATION_THRESHOLD, not just CSS-clipped — jsdom keeps the full DOM text node under text-overflow:ellipsis, contradicting the plan's own Task 3 assertion that oversized marker text is absent before expanding; JS slicing also avoids rendering multi-kilobyte strings into the DOM purely to hide them with CSS.
+- [Phase 02]: G-02-2 closed: buildClaudeArgv pairs stream-json with --verbose behind a constraint-shaped guard (converse + examined-count asserted), the sidecar drains the child's stderr for the session's lifetime and carries a failure explanation on SessionClosedEvent.detail, and a real-binary test (with a falsifiability companion) proves an argv the CLI rejects can no longer pass the suite.
+- [Phase 02]: Non-init system stream events now normalise to system_notice (terse 'system: <subtype>' text) instead of unknown, so the --verbose flag's session-lifecycle chatter reads as one short line per event; the fallthrough to unknown is narrowed, never deleted, and no renderer change was needed.
 
 ### Pending Todos
 
@@ -178,6 +181,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-11T09:12:32.955Z
-Stopped at: Completed 02-16-PLAN.md (gap closure: G-02-3)
+Last session: 2026-09-11T09:33:26.263Z
+Stopped at: Completed 02-17-PLAN.md (gap closure: G-02-2)
 Resume file: None
