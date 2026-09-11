@@ -3,7 +3,7 @@ status: partial
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T06:24:44Z
+updated: 2026-09-11T07:05:37Z
 ---
 
 ## Current Test
@@ -180,9 +180,16 @@ blocked: 0
     anchored to a structured board item with real acceptance criteria." A run that ends on its own
     — completed OR failed — stays `running` on the board forever, with no ended_at, no cost and no
     token counts. The board's record of the fleet silently diverges from reality the moment an
-    agent finishes without being manually Stopped, which is the normal case. It also means a task
-    is never moved out of in_progress by a successful run, since this module's own docstring says
-    that transition is close_agent_run's responsibility.
+    agent finishes without being manually Stopped, which is the normal case.
+    CORRECTION (2026-09-11, raised by the planner and confirmed independently by the plan-checker):
+    an earlier revision of this note claimed a task is never moved out of in_progress because
+    agent_run.rs's docstring makes that transition close_agent_run's responsibility. That reading is
+    BACKWARDS. The docstring names it as close_agent_run's explicit NON-behavior — "Nothing in this
+    module ever moves a task OUT of `in_progress`" — and D-29 locks it ("Starting a session moves the
+    task to In Progress; nothing ever moves it out"). Plan 02-18 prohibits implementing the mistaken
+    reading, in its objective, a prohibition, an acceptance criterion, and threat T-02G-18-06.
+    The gap's real impact is unchanged: status, ended_at, cost_usd, tokens_in and tokens_out are
+    never written for a run that ends on its own.
     It additionally explains OBS-03: the header's "— in / — out" counters are not a display bug.
     The columns they read are never written.
   why_tests_missed_it: |
