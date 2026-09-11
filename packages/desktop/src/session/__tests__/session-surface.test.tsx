@@ -304,6 +304,44 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
   });
 });
 
+describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)", () => {
+  function makePersistenceFailureNotice(runId: string, text: string) {
+    return {
+      runId,
+      seq: -1,
+      at: "2026-01-01T00:00:00.000Z",
+      raw: text,
+      type: "system_notice",
+      text,
+      flywheelPersistenceFailure: true,
+    };
+  }
+
+  it("shows the incomplete-transcript banner when a persistence-failure notice arrives", async () => {
+    mockWindowReads(() => []);
+    renderSurface();
+
+    await screen.findByRole("button", { name: "← Board" });
+    capturedAgentEventHandler?.(
+      makePersistenceFailureNotice("run-1", "Flywheel could not write this session's log — the transcript below may be incomplete."),
+    );
+
+    await screen.findByText("Flywheel could not write this session's log — the transcript below may be incomplete.");
+  });
+
+  it("renders no banner for a persistence-failure notice naming a different run", async () => {
+    mockWindowReads(() => []);
+    renderSurface();
+
+    await screen.findByRole("button", { name: "← Board" });
+    capturedAgentEventHandler?.(
+      makePersistenceFailureNotice("run-9-a-different-run", "Some other run's log failed to open."),
+    );
+
+    expect(screen.queryByText("Some other run's log failed to open.")).not.toBeInTheDocument();
+  });
+});
+
 describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
   it("shows exactly one Starting session… row for zero events, replaced by the first real event", async () => {
     let events: Record<string, unknown>[] = [];

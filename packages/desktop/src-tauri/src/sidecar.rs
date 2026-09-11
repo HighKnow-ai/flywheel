@@ -82,6 +82,11 @@ pub struct SidecarHandle {
     /// correlation point. Populated when `create_pending_request` succeeds (inbound, the
     /// no-matching-rule path), consumed and removed by `relay_permission_answer` (outbound).
     pending_permission_requests: Mutex<HashMap<String, (String, String)>>,
+    /// Run ids for which the reader loop has already emitted a persistence-failure notice
+    /// (CR-03, PROC-07) — so a run whose log keeps failing to open or append produces exactly
+    /// ONE notice, not one per failing event, while still retrying the write itself on every
+    /// event (T-02G-12-02).
+    notified_persist_failures: Mutex<std::collections::HashSet<String>>,
 }
 
 /// How long `interrupt_run` waits for the sidecar's ack before giving up — generous enough to
@@ -312,6 +317,30 @@ pub(crate) fn persist_event_line(
     }
 }
 
+/// Make a skipped persist observable to the user (CR-03, PROC-07's own prohibition that the live
+/// feed never silently drops agent output) — emits a synthetic `system_notice` on the existing
+/// `agent:event` channel, mirroring the sidecar's own `SystemNoticeEvent` shape (`packages/
+/// sidecar/src/adapter.ts`) exactly so the renderer needs no new event type. `detail` must carry
+/// the OS error KIND text only — this
+/// function never interpolates the resolved log path, the app-data directory, or any environment
+/// value into `text` or `raw` (T-02G-12-03: those are Rust-core-internal facts, not something to
+/// hand to the renderer).
+fn emit_persistence_failure_notice(app: &AppHandle, run_id: &str, detail: &str) {
+    let text = format!(
+        "Flywheel could not write this session's log ({detail}) — the transcript below may be incomplete."
+    );
+    let payload = serde_json::json!({
+        "runId": run_id,
+        "seq": -1,
+        "at": chrono::Utc::now().to_rfc3339(),
+        "raw": text.clone(),
+        "type": "system_notice",
+        "text": text,
+        "flywheelPersistenceFailure": true,
+    });
+    let _ = app.emit("agent:event", &payload);
+}
+
 /// Spawn the bundled `flywheel-sidecar` binary and start its stdout reader task. Follows this
 /// codebase's expect-or-crash-loudly-at-startup idiom (`main.rs`'s `.setup()` closure) — a failure
 /// to resolve or spawn the sidecar aborts startup rather than proceeding with a half-working app.
@@ -329,6 +358,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
         writers: Mutex::new(HashMap::new()),
         pending_acks: Mutex::new(HashMap::new()),
         pending_permission_requests: Mutex::new(HashMap::new()),
+        notified_persist_failures: Mutex::new(std::collections::HashSet::new()),
     };
 
     let app_for_reader = app.clone();
@@ -351,7 +381,43 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                     // truth (PITFALLS.md pitfall 10). No outcome here — Written or
                                     // otherwise — can ever stop this loop (CR-03): a per-run fault
                                     // is a value `persist_event_line` returns, never a panic.
-                                    let _outcome = persist_event_line(&sidecar.writers, &run_id, &event_line);
+                                    let outcome = persist_event_line(&sidecar.writers, &run_id, &event_line);
+                                    if outcome != PersistOutcome::Written {
+                                        // The user-facing guarantee is the emitted notice below,
+                                        // not this line — stderr is suppressed on a release
+                                        // Windows build (this module's own doc comment).
+                                        eprintln!(
+                                            "session log persist failed for run {run_id}: {outcome:?}"
+                                        );
+                                        let already_notified = {
+                                            match sidecar.notified_persist_failures.lock() {
+                                                Ok(mut notified) => !notified.insert(run_id.clone()),
+                                                Err(_) => true, // poisoned — never spam a notice
+                                            }
+                                        };
+                                        if !already_notified {
+                                            // A fixed, outcome-shaped phrase only — NEVER the
+                                            // `PersistOutcome`'s own stored string, which (via
+                                            // `SessionLogWriter::open`'s anyhow context) embeds
+                                            // the resolved session-log path. Passing that path to
+                                            // the renderer would be exactly the app-data-directory
+                                            // disclosure T-02G-12-03 forbids; the full detail
+                                            // stays in the `eprintln!` breadcrumb above, which
+                                            // never crosses the IPC boundary.
+                                            let detail = match &outcome {
+                                                PersistOutcome::RejectedRunId => "an invalid run id",
+                                                PersistOutcome::OpenFailed(_) => "the log file could not be opened",
+                                                PersistOutcome::AppendFailed(_) => "the log file could not be written to",
+                                                // Guarded by the `outcome != Written` check above —
+                                                // never actually reached, but a plain fallback
+                                                // value rather than a panicking call (this loop's
+                                                // own invariant: no per-run fault may ever unwind
+                                                // it, and neither may a defensive branch here).
+                                                PersistOutcome::Written => "an unknown condition",
+                                            };
+                                            emit_persistence_failure_notice(&app_for_reader, &run_id, detail);
+                                        }
+                                    }
                                 }
                             }
                         }

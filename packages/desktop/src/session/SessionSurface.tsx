@@ -410,6 +410,42 @@ function StopWarningNotice({ warning }: { warning: string }) {
   );
 }
 
+/** The "this run's persisted transcript may be incomplete" banner (plan 02-12, CR-03/PROC-07) —
+ * `02-UI-SPEC.md` specifies no presentation for this case either, so it reuses the exact same
+ * muted notice treatment `StopWarningNotice` above established: `--text-muted-rack`, a single
+ * one-line human sentence, no destructive styling. Rendered ABOVE the feed and OUTSIDE the
+ * virtualizer's row list — it is surface state, not a feed row, so it survives paging and never
+ * competes with the bounded-window property `buildFeedRows`/`useSessionFeed` maintain. */
+function PersistenceFailureBanner({ text }: { text: string }) {
+  return (
+    <div
+      role="listitem"
+      style={{
+        marginBottom: "var(--space-sm)",
+        padding: "var(--space-sm) var(--space-md)",
+        background: "var(--surface-secondary)",
+        borderRadius: "var(--radius-chrome)",
+      }}
+    >
+      <p
+        className="type-body"
+        style={{
+          margin: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-xs)",
+          color: "var(--text-primary-rack)",
+        }}
+      >
+        <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--text-muted-rack)" }}>
+          <Icon name="TriangleAlert" />
+        </span>
+        {text}
+      </p>
+    </div>
+  );
+}
+
 /** The user must never see an empty scroll area while the process starts (02-UI-SPEC.md State
  * Inventory: "empty"/"loading" both resolve to this same pulse row) — replaced the moment the
  * first real event arrives, never accumulating above it (it renders only while `feedRows` is
@@ -428,6 +464,8 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
   const [status, setStatus] = useState<RunStatus>(initialStatus);
   const [stopping, setStopping] = useState(false);
   const [stopWarning, setStopWarning] = useState<string | null>(null);
+  const [persistenceFailed, setPersistenceFailed] = useState(false);
+  const [persistenceFailureText, setPersistenceFailureText] = useState<string | null>(null);
   const [rawViewOpen, setRawViewOpen] = useState(false);
   const tailRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -461,6 +499,14 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
     subscribeAgentEvent((event) => {
       if (event.type === "session_closed" && isRunStatus(event.reason)) {
         setStatus(event.reason);
+      }
+      // The incomplete-transcript banner (plan 02-12, CR-03/PROC-07): the Rust-side reader loop
+      // emits this SAME `agent:event` channel's synthetic `system_notice` the first time this
+      // run's session-log persist fails. Scoped to THIS surface's own run — a notice for a
+      // different run must never show here (one run's I/O fault stays scoped to that run).
+      if (event.flywheelPersistenceFailure === true && event.runId === agentRunId) {
+        setPersistenceFailed(true);
+        setPersistenceFailureText(typeof event.text === "string" ? event.text : null);
       }
     }).then((fn) => {
       unlisten = fn;
@@ -613,6 +659,12 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
           data-testid="session-feed-scroll"
           style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}
         >
+          {persistenceFailed && (
+            <PersistenceFailureBanner
+              text={persistenceFailureText ?? "Flywheel could not write this session's log — the transcript below may be incomplete."}
+            />
+          )}
+
           {showStartingPulse && <StartingSessionRow />}
 
           <div role="list" aria-label="Session events" style={{ position: "relative", height: rowVirtualizer.getTotalSize(), width: "100%" }}>
