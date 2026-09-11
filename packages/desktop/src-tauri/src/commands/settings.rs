@@ -82,17 +82,22 @@ fn validate_mode(mode: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Set the credential mode at either scope (D-39). `scope` must be exactly `"global"` or
-/// `"project"`; `project_id` is required (and only meaningful) for `"project"`. `actor_id` is
-/// resolved server-side (T-01-04), never accepted from the renderer.
+/// Set the credential mode at either scope (D-39), or clear a project's override back to "use the
+/// global default" (`mode: None`, plan 02-10 Task 1's per-project row's third option). `scope`
+/// must be exactly `"global"` or `"project"`; `project_id` is required (and only meaningful) for
+/// `"project"`; `mode: None` is only meaningful for `"project"` — the global default itself cannot
+/// be cleared, since there is no further fallback for it to defer to. `actor_id` is resolved
+/// server-side (T-01-04), never accepted from the renderer.
 #[tauri::command]
 pub fn settings_set_credential_mode(
     state: State<AppState>,
     scope: String,
     project_id: Option<String>,
-    mode: String,
+    mode: Option<String>,
 ) -> Result<(), String> {
-    validate_mode(&mode)?;
+    if let Some(m) = mode.as_deref() {
+        validate_mode(m)?;
+    }
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
@@ -100,6 +105,10 @@ pub fn settings_set_credential_mode(
 
     match scope.as_str() {
         "global" => {
+            let mode = mode.ok_or_else(|| {
+                "mode is required for scope \"global\" — the global default cannot be cleared"
+                    .to_string()
+            })?;
             flywheel_core::domain::settings::set_global_credential_mode(&mut conn, &actor_id, &mode)
                 .map_err(|e| e.to_string())?;
         }
@@ -111,7 +120,7 @@ pub fn settings_set_credential_mode(
                 &mut conn,
                 &actor_id,
                 &project_id,
-                Some(mode.as_str()),
+                mode.as_deref(),
             )
             .map_err(|e| e.to_string())?;
         }

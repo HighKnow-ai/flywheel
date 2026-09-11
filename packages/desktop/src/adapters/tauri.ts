@@ -353,13 +353,16 @@ export async function getSettings(): Promise<SettingsDto> {
 }
 
 /**
- * Set the credential mode at either scope (D-39, plan 02-09). `scope` is exactly `"global"` or
- * `"project"`; `projectId` is required (and only meaningful) for `"project"`. Thin typed wrapper
- * over `settings_set_credential_mode`.
+ * Set the credential mode at either scope (D-39, plan 02-09), or clear a project's override back
+ * to "use the global default" (`mode: null`, plan 02-10 Task 1 — the per-project row's third
+ * segmented-control option). `scope` is exactly `"global"` or `"project"`; `projectId` is required
+ * (and only meaningful) for `"project"`; `null` is only meaningful for `"project"` — the global
+ * default itself cannot be cleared, only reassigned to one of the two real modes. Thin typed
+ * wrapper over `settings_set_credential_mode`.
  */
 export async function setCredentialMode(
   scope: "global" | "project",
-  mode: "local" | "api_key",
+  mode: "local" | "api_key" | null,
   projectId?: string,
 ): Promise<void> {
   await invokeCommand<void>("settings_set_credential_mode", { scope, projectId, mode });
