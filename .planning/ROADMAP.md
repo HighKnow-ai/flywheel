@@ -190,7 +190,7 @@ actor identity extends to multi-remote without migration.
   4. User stops a running session and finds the worktree intact and inspectable, then starts a second session on that same worktree — the worktree outlives the session.
   5. User sees the worktree, the agent run and the session as distinct linked records on the task, each started through a trigger record, and can point Flywheel at either his existing local Claude Code credentials or an explicit API key with nothing else in the product behaving differently.
 
-**Plans**: 18 plans (10/10 executed in 8 waves; 4 gap-closure plans executed in 3 waves after verification found gaps; 4 more gap-closure plans added in 3 waves after human UAT found G-02-1..G-02-4)
+**Plans**: 15/18 plans executed (10/10 executed in 8 waves; 4 gap-closure plans executed in 3 waves after verification found gaps; 4 more gap-closure plans added in 3 waves after human UAT found G-02-1..G-02-4)
 **UI hint**: yes
 
 Plans:
@@ -247,7 +247,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 02-15-PLAN.md — Gap G-02-1: the sidecar stub resolves its entrypoint from where Tauri actually runs it, and a dead sidecar aborts startup at its cause
+- [x] 02-15-PLAN.md — Gap G-02-1: the sidecar stub resolves its entrypoint from where Tauri actually runs it, and a dead sidecar aborts startup at its cause
 - [ ] 02-16-PLAN.md — Gap G-02-3: a feed row paints inside the slot the virtualizer reserved for it, and a long payload reads as one line that opens in place
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -578,7 +578,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
-| 2. One Agent, One Worktree, Watched Live | 14/14 | In Progress|  |
+| 2. One Agent, One Worktree, Watched Live | 15/18 | In Progress|  |
 | 3. Nothing Lost, Nothing Left Running | 0/TBD | Not started | - |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: "Completed 02-14-PLAN.md (gap closure: CR-02 PROC-01/PROC-06, WR-01)"
-last_updated: "2026-09-11T05:22:39.230Z"
+stopped_at: "Completed 02-15-PLAN.md (gap closure: G-02-1)"
+last_updated: "2026-09-11T08:59:46.396Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 02 execution started
-state_head: 80cbe56e1594e5a2a981cf9d3050e70310cd58e2
+state_head: efd500f6e01ae1a9b4f92421c27be0128bd57508
 progress:
   total_phases: 12
   completed_phases: 0
-  total_plans: 35
-  completed_plans: 35
+  total_plans: 39
+  completed_plans: 36
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 5 of 14
+Plan: 6 of 14
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 02 execution started
 
@@ -93,6 +93,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P13 | 22min | 3 tasks | 4 files |
 | Phase 02 P12 | 35min | 3 tasks | 4 files |
 | Phase 02 P14 | 25min | 3 tasks | 6 files |
+| Phase 02 P15 | 45min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,8 @@ Recent decisions affecting current work:
 - [Phase 02]: persist_event_line replaces sidecar.rs's panicking session-log open with a non-panicking PersistOutcome seam (CR-03/PROC-07) — A panic in the shared sidecar stdout reader task took down every run's live feed and persisted log for the rest of the app session; every failure mode is now a returned value.
 - [Phase 02]: A skipped session-log persist now surfaces a visible incomplete-transcript banner instead of a suppressed stderr line — 02-07's own prohibition requires the live feed never silently drop agent output; the banner is gated once-per-run via a HashSet so a repeatedly-failing run does not spam notices.
 - [Phase 02]: [Phase 02] CR-02 closed: the sidecar shutdown op (plus SIGTERM/stdin-EOF fallback nets) tears down every live session's process group, and main.rs's RunEvent::Exit now calls it before kill(), machine-verified by a source-order gate. — Every claude session is spawned detached:true precisely so it becomes its own process-group leader, independent of the sidecar's group -- killing only the sidecar (kill()) can never reach it, so an explicit shutdown-then-kill ordering is the only correct sequence.
+- [Phase 02]: [Phase 02] G-02-1 closed: the dev sidecar stub now walks up from its own symlink-resolved physical directory for the packages/sidecar/dist marker instead of a fixed parent-hop count, and spawn_sidecar performs a bounded ping readiness handshake (reading the spawn receiver directly, before AppState/pending_acks exists) before returning Ok, so an immediately-dying sidecar aborts startup naming its own exit status and stderr instead of surfacing later as a stdin write failure.
+- [Phase 02]: [Phase 02] ping is a distinct sidecar op from capability_probe: ping asks only whether the sidecar process itself is alive and speaking its own protocol (no side effect, no backend dependency), while capability_probe spawns the user's claude binary and must never gate application startup.
 
 ### Pending Todos
 
@@ -173,6 +176,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-11T05:22:39.170Z
-Stopped at: Completed 02-14-PLAN.md (gap closure: CR-02 PROC-01/PROC-06, WR-01)
+Last session: 2026-09-11T08:59:46.334Z
+Stopped at: Completed 02-15-PLAN.md (gap closure: G-02-1)
 Resume file: None
