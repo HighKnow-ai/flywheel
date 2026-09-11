@@ -37,6 +37,13 @@
  * This is how `credentials.test.mjs` asserts "the child observed the resolved credential" and "no
  * sidecar-written stdout line contains the value" at the same time — the equality check happens
  * entirely inside this process, never crossing back out as anything but a boolean.
+ *
+ * **Usage block** (G-02-4, plan 02-18): both of this script's `result` lines carry a `usage`
+ * object in the real CLI's own field shape (`input_tokens`, `cache_creation_input_tokens`,
+ * `cache_read_input_tokens`, `output_tokens`) — the same shape measured live against claude
+ * 2.1.236 during that plan's planning session. The three input-side values are fixed and DISTINCT
+ * so that their sum equals no single one of them, on purpose: a test asserting the summed total
+ * cannot pass by accident against any one field alone.
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -44,6 +51,16 @@ import { createInterface } from "node:readline";
 const SESSION_ID = "fake-session-0001";
 const STUBBORN = process.env.FLYWHEEL_FAKE_STUBBORN === "1";
 const CALL_PERMISSION = Number(process.env.FLYWHEEL_FAKE_CALL_PERMISSION ?? "0");
+
+// G-02-4: three DISTINCT input-side values (2, 30, 400) so their sum (432) equals no single one
+// of them — a test asserting the summed total cannot pass by accident against any one field.
+// Field names mirror the real CLI's own usage block, measured live during this plan's planning.
+const FAKE_USAGE = {
+  input_tokens: 2,
+  cache_creation_input_tokens: 30,
+  cache_read_input_tokens: 400,
+  output_tokens: 7,
+};
 
 function printLine(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
@@ -158,6 +175,7 @@ if (STUBBORN) {
       subtype: "success",
       total_cost_usd: 0.0021,
       session_id: SESSION_ID,
+      usage: FAKE_USAGE,
     });
     process.exit(0);
   });
@@ -171,6 +189,7 @@ if (STUBBORN) {
       subtype: "success",
       total_cost_usd: 0.0021,
       session_id: SESSION_ID,
+      usage: FAKE_USAGE,
     });
     process.exit(0);
   }, 50);

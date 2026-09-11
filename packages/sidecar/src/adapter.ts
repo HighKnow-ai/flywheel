@@ -72,6 +72,15 @@ export interface ResultEvent extends AgentEventBase {
   subtype: string;
   totalCostUsd?: number;
   sessionId?: string;
+  /** Session TOTALS reported once by the backend on its terminal result line — never accumulated
+   * per message (G-02-4's "Token accounting decision"). `inputTokens` is the SUM of the backend's
+   * plain, cache-creation and cache-read input token fields; a run whose backend produced no usage
+   * figure carries neither field, never a zero. Placed at the TOP LEVEL (not nested) because
+   * `SessionSurface.tsx`'s `StatusStrip` scans top-level numeric fields on each loaded log entry
+   * for a field named `inputTokens` — a nested placement would never be found, and this placement
+   * needs no renderer change at all to make the header read the real figures. */
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 /** A line that parsed as JSON but matched no known shape — still carries `raw`, never dropped. */
@@ -88,8 +97,17 @@ export interface SessionClosedEvent extends AgentEventBase {
   type: "session_closed";
   reason: "interrupted" | "completed" | "failed";
   /** The final `result` stream-json line's normalised fields, when the backend produced one
-   * before exiting — absent for a forced stop that never got to emit its own result. */
-  result?: { subtype: string; totalCostUsd?: number; sessionId?: string };
+   * before exiting — absent for a forced stop that never got to emit its own result. `inputTokens`/
+   * `outputTokens` are the same once-reported session TOTALS as {@link ResultEvent}'s own fields
+   * (G-02-4's "Token accounting decision") — never accumulated per message, never a zero when
+   * absent from the backend's own usage block. */
+  result?: {
+    subtype: string;
+    totalCostUsd?: number;
+    sessionId?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+  };
   /** The backend's own explanation of why the session ended (G-02-2) — the child's retained
    * stderr tail, or a spawn error's message. Present only when there is one to show; a session
    * that closed cleanly having written nothing to stderr carries no `detail` at all (the field is

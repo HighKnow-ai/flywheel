@@ -128,14 +128,53 @@ interface ClaudeStreamMessage {
   message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> };
 }
 
+/** The real CLI's usage block, measured live against claude 2.1.236 during G-02-4's planning
+ * (`## Ground truth captured during planning`): a single trivial turn reported `input_tokens` 2,
+ * `cache_creation_input_tokens` 17080, `cache_read_input_tokens` 16016, `output_tokens` 4. Each
+ * field is optional and independently absent-or-present — a malformed or partial usage block must
+ * degrade to "no count" for the fields it lacks, never to a fabricated zero. */
+interface ClaudeStreamUsage {
+  input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  output_tokens?: number;
+}
+
 interface ClaudeStreamResult {
   type: "result";
   subtype: string;
   total_cost_usd?: number;
   session_id?: string;
+  usage?: ClaudeStreamUsage;
 }
 
 type ClaudeStreamEvent = ClaudeStreamInit | ClaudeStreamMessage | ClaudeStreamResult | Record<string, unknown>;
+
+/** Read one optional numeric field out of a usage-shaped object, returning `undefined` for a
+ * missing or non-numeric value rather than coercing it to zero — used four times over
+ * {@link ClaudeStreamUsage}'s fields so a malformed usage block degrades to "no count" per field,
+ * never to a fabricated zero (G-02-4). */
+function optionalUsageNumber(usage: ClaudeStreamUsage | undefined, field: keyof ClaudeStreamUsage): number | undefined {
+  const value = usage?.[field];
+  return typeof value === "number" ? value : undefined;
+}
+
+/** Sum the three input-side usage fields into the one figure `agent_runs.tokens_in` records
+ * (G-02-4's "Token accounting decision"). MEASURED, not assumed: the plain `input_tokens` field
+ * alone read 2 for a turn that actually consumed roughly 33,000 input tokens, because the bulk
+ * arrived as cache creation and cache reads — recording it alone would store a number that is
+ * right about the uncached prefix and wrong about the session. Returns `undefined`, never 0, when
+ * none of the three fields is present. */
+function summedInputTokens(usage: ClaudeStreamUsage | undefined): number | undefined {
+  const fields: Array<keyof ClaudeStreamUsage> = [
+    "input_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+  ];
+  const values = fields.map((field) => optionalUsageNumber(usage, field)).filter((value): value is number => value !== undefined);
+  if (values.length === 0) return undefined;
+  return values.reduce((sum, value) => sum + value, 0);
+}
 
 /**
  * Map one parsed `stream-json` object to exactly one {@link AgentEvent}. A shape this function
@@ -200,12 +239,18 @@ export function normaliseStreamEvent(
 
   if (parsed.type === "result") {
     const result = parsed as ClaudeStreamResult;
+    // G-02-4: inputTokens is a SUM over three usage fields, not the plain field alone — see
+    // summedInputTokens's own doc comment for the measured reason it must be a sum.
+    const inputTokens = summedInputTokens(result.usage);
+    const outputTokens = optionalUsageNumber(result.usage, "output_tokens");
     return {
       ...base,
       type: "result",
       subtype: result.subtype,
       totalCostUsd: result.total_cost_usd,
       sessionId: result.session_id,
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
     };
   }
 
@@ -249,8 +294,12 @@ interface LiveSession {
    * exit code looks like a normal exit (D-35: a stopped run is a normal outcome, not an error). */
   interruptionRequested: boolean;
   /** The last `result` stream-json line's normalised fields, if any arrived before the process
-   * closed — carried on the terminal `session_closed` event when present. */
-  lastResult: { subtype: string; totalCostUsd?: number; sessionId?: string } | undefined;
+   * closed — carried on the terminal `session_closed` event when present. `inputTokens`/
+   * `outputTokens` are the session-total figures `normaliseStreamEvent`'s result branch already
+   * computed (G-02-4) — carried through unchanged, never re-derived here. */
+  lastResult:
+    | { subtype: string; totalCostUsd?: number; sessionId?: string; inputTokens?: number; outputTokens?: number }
+    | undefined;
   /** At most {@link STDERR_DETAIL_MAX_CHARS} characters of the child's own stderr, accumulated as
    * it is read (G-02-2) — exists so a failed session can say why it failed. Also set directly (to
    * the spawn error's message) when the child could never be spawned at all. */
@@ -429,6 +478,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
             subtype: normalised.subtype,
             totalCostUsd: normalised.totalCostUsd,
             sessionId: normalised.sessionId,
+            inputTokens: normalised.inputTokens,
+            outputTokens: normalised.outputTokens,
           };
         }
         options.onEvent(normalised);
