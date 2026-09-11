@@ -14,7 +14,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **DATA-03**: Every mutation records the actor that made it, with humans and agents represented as distinct actors in the same actor model
 - [ ] **DATA-04**: Agent work is started through a generic trigger record whose source is one of a known set, with `user_action` implemented and `schedule`/`webhook` accepted by the schema but unimplemented
 - [x] **DATA-05**: The event log is readable as an ordered, resumable stream from any point via a cursor, so a future relay can subscribe and replay without a schema change
-- [ ] **DATA-06**: Worktrees, agent runs, sessions, session summaries and artifacts are first-class records with their own identity, not JSON blobs attached to a task
+- [x] **DATA-06**: Worktrees, agent runs, sessions, session summaries and artifacts are first-class records with their own identity, not JSON blobs attached to a task
 - [x] **DATA-07**: The database survives an unclean application termination without corruption or loss of committed work
 - [x] **DATA-08**: Schema migrations run automatically on launch and are reversible within one version
 
@@ -224,7 +224,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | DATA-03 | Phase 1 | Complete |
 | DATA-04 | Phase 2 | Gaps Found |
 | DATA-05 | Phase 1 | Complete |
-| DATA-06 | Phase 2 | Gaps Found |
+| DATA-06 | Phase 2 | Complete |
 | DATA-07 | Phase 1 | Complete |
 | DATA-08 | Phase 1 | Complete |
 | BOARD-01 | Phase 1 | Complete |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Completed 02-11-PLAN.md
-last_updated: "2026-09-11T04:20:52.336Z"
+stopped_at: "Completed 02-13-PLAN.md (gap closure: CR-01 DATA-06)"
+last_updated: "2026-09-11T04:41:33.406Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 02 execution started
-state_head: 4afff606f80969430d98a4c76554a57fd5581e6a
+state_head: 4ec22007db7b95198fb897ed43dbf300892ef1ac
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 35
-  completed_plans: 32
+  completed_plans: 33
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 2 of 14
+Plan: 3 of 14
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 02 execution started
 
@@ -90,6 +90,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P08 | 35min | 3 tasks | 12 files |
 | Phase 02 P10 | 45min | 3 tasks | 12 files |
 | Phase 02 P11 | 9min | 3 tasks | 5 files |
+| Phase 02 P13 | 22min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,7 @@ Recent decisions affecting current work:
 - [Phase 02]: [Phase 02]: agent_run_stop's CR-04 fix is a decouple-then-report shape (AgentRunStopDto { status, sidecarWarning }), not the review's raw format!-wrapped Err sketch — an Err from a decoupled command still lands in SessionSurface.tsx's .catch(() => setStopping(false)), leaving the UI stuck since the surface only ever sets terminal status from a session_closed push a dead sidecar never sends.
 - [Phase 02]: [Phase 02]: stop_agent_run_recording_first captures the interrupt closure's Result in a local, read only after the domain write completes, rather than applying ? or matching with an early return, making 'is the domain write reachable when the sidecar failed' a structural, greppable property instead of a comment promising discipline.
 - [Phase 02]: [Phase 02]: The unconfirmed-stop notice reuses E2's terminal-row pattern at the interrupted/muted weight (--text-muted-rack, CircleSlash) rather than the failed treatment, since 02-UI-SPEC.md specifies no presentation for a successful-but-unconfirmed stop and the run genuinely did reach interrupted.
+- [Phase 02]: D-40 (checkpoint, plan 02-13): Deleting a task with agent-run history is BLOCKED, with an actionable message (option-a) -- never cascaded. Preserves the non-repudiable record of agent work; needs no migration; cheap to revisit once Phase 3 adds a worktree-removal path.
 
 ### Pending Todos
 
@@ -166,6 +168,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-11T04:20:52.280Z
-Stopped at: Completed 02-11-PLAN.md
+Last session: 2026-09-11T04:41:27.701Z
+Stopped at: Completed 02-13-PLAN.md (gap closure: CR-01 DATA-06)
 Resume file: None
