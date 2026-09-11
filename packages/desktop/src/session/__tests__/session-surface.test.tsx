@@ -7,12 +7,19 @@
  * - Plan 02-07 Task 2: the structured feed itself — one row per event kind, tool-call
  *   collapse/expand, the terminal row, the "Starting session…" pulse, bounded virtualization,
  *   and scroll-triggered older-page paging.
+ * - Plan 02-16 Task 1/3 (G-02-3): the virtual row slot is clamped to the height the virtualizer
+ *   reserved for it, and a multi-kilobyte event never overlaps the row rendered beneath it. jsdom
+ *   performs no layout at all, so `getBoundingClientRect` returns zeroes here and a real painted
+ *   overlap can never be observed in this environment — these assertions read the DECLARED
+ *   geometry instead (the inline `height` and the pixel value inside `transform`), which is the
+ *   only geometry that exists in jsdom, and which is precisely the geometry the defect got wrong.
  */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionSurface } from "../SessionSurface";
 import { sessionFeedQueryKey } from "../../board/useBoardQuery";
+import { FEED_ROW_HEIGHT } from "../FeedRow";
 
 const invokeCommandMock = vi.fn();
 
@@ -136,6 +143,44 @@ function makeToolResult(seq: number, toolName: string, output: unknown) {
 
 function makeSessionClosed(seq: number, reason: string, result?: { subtype: string }) {
   return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `closed-${seq}`, type: "session_closed", reason, result };
+}
+
+const OVERSIZED_EVENT_MARKER = "OVERSIZED-END-MARKER";
+
+/** G-02-3, Task 3: an `assistant_text`-shaped entry carrying roughly four kilobytes of text — many
+ * multiples of the collapsed row height at any plausible font size, which is the condition the
+ * UAT screenshot showed. The distinctive marker sits near the END of the text so a later assertion
+ * can prove the expanded view reveals text the collapsed view did not. */
+function makeOversizedEvent(seq: number) {
+  const filler = "the-agent-said-quite-a-lot-of-words-here ".repeat(100); // ~4.2 KB
+  return {
+    runId: "run-1",
+    seq,
+    at: "2026-01-01T00:00:00.000Z",
+    raw: `oversized-${seq}`,
+    type: "assistant_text",
+    text: `${filler}${OVERSIZED_EVENT_MARKER}`,
+  };
+}
+
+/** Reads one `feed-row-slot` element's DECLARED geometry — the inline `height` and the pixel
+ * value inside its `transform`. Both are declared inline by Task 1, so both are readable in
+ * jsdom (which performs no layout). Fails loudly, with the element's own `outerHTML` in the
+ * message, when either value is absent — an absent height IS the defect this plan closes and
+ * must never be silently coerced to zero. */
+function readSlotGeometry(slot: Element): { height: number; translateY: number } {
+  const style = (slot as HTMLElement).style;
+  const heightRaw = style.height;
+  const transformRaw = style.transform;
+  const heightMatch = /^([\d.]+)px$/.exec(heightRaw);
+  const transformMatch = /translateY\(([\d.]+)px\)/.exec(transformRaw);
+  if (!heightMatch) {
+    throw new Error(`feed-row-slot has no declared pixel height: ${slot.outerHTML}`);
+  }
+  if (!transformMatch) {
+    throw new Error(`feed-row-slot has no declared translateY transform: ${slot.outerHTML}`);
+  }
+  return { height: Number(heightMatch[1]), translateY: Number(transformMatch[1]) };
 }
 
 function renderSurface(queryClient = new QueryClient()) {
@@ -533,6 +578,42 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
       ),
     );
     await screen.findByText("Event number 0");
+  });
+
+  it("G-02-3: a multi-kilobyte event never overlaps the row beneath it", async () => {
+    const events = [makeOversizedEvent(0), makeEvent(1), makeEvent(2)];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+    const slots = Array.from(document.querySelectorAll('[data-testid="feed-row-slot"]'));
+    expect(slots.length).toBe(3);
+
+    const geometries = slots.map(readSlotGeometry);
+    for (let i = 0; i < geometries.length - 1; i += 1) {
+      const earlier = geometries[i];
+      const later = geometries[i + 1];
+      expect(earlier.translateY + earlier.height).toBeLessThanOrEqual(later.translateY);
+    }
+
+    // The oversized row's declared height equals the collapsed constant imported from FeedRow —
+    // proving the reservation did not silently grow to accommodate the payload.
+    expect(geometries[0].height).toBe(FEED_ROW_HEIGHT);
+  });
+
+  it("G-02-3: an oversized row's full text is reachable in place", async () => {
+    const events = [makeOversizedEvent(0)];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    const toggle = await screen.findByRole("button", { name: /Expand full text/ });
+    expect(screen.queryByText(new RegExp(OVERSIZED_EVENT_MARKER))).not.toBeInTheDocument();
+
+    toggle.click();
+
+    expect(await screen.findByText(new RegExp(OVERSIZED_EVENT_MARKER))).toBeInTheDocument();
   });
 });
 
