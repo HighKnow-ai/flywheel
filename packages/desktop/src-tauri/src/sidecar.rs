@@ -95,6 +95,13 @@ pub struct SidecarHandle {
 /// never times out under this ceiling; only a genuinely wedged or crashed sidecar does.
 const INTERRUPT_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// How long `shutdown_all_sessions` waits for the sidecar's ack before giving up (CR-02, plan
+/// 02-14). Deliberately far shorter than [`INTERRUPT_ACK_TIMEOUT`]: this one is waited on during
+/// APPLICATION EXIT, where the operating system and the user both expect the app to go away
+/// promptly, and it only needs to cover the sidecar's own `SHUTDOWN_SESSION_GRACE_MS` (2s,
+/// `packages/sidecar/src/index.ts`) plus IPC overhead — not the full 30-second interrupt ceiling.
+const SHUTDOWN_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 impl SidecarHandle {
     /// Send one newline-delimited JSON request to the sidecar's stdin (a `spawn`/`interrupt`/
     /// `kill` request, built by the caller).
@@ -235,8 +242,59 @@ impl SidecarHandle {
         self.send_request(&request.to_string())
     }
 
-    /// Kill the sidecar's own process (and, by extension, every child session it was driving) —
-    /// called on app exit so no orphaned sidecar or session process survives Flywheel closing.
+    /// Ask the sidecar to tear down every live session's process group, and wait a bounded
+    /// moment for its ack (CR-02, plan 02-14). This must be called BEFORE [`Self::kill`] on app
+    /// exit: every `claude` session is spawned `detached: true`
+    /// (`packages/sidecar/src/claude-code-adapter.ts`) precisely so it becomes its own
+    /// process-group leader, independent of the sidecar's own group — killing the sidecar
+    /// (`kill`, below) reaches none of them, so this call is the ONLY thing that still can.
+    /// Structurally mirrors [`Self::capability_probe`]: generates its own request id, registers a
+    /// `pending_acks` entry, sends the request, and blocks on `recv_timeout`. On a send failure or
+    /// a timeout, the stale `pending_acks` entry is removed exactly as `interrupt_run` and
+    /// `capability_probe` do, so a late ack can never resurrect it — and either way this returns
+    /// an `Err` rather than panicking or hanging, so app exit can always proceed to `kill()`
+    /// regardless of the outcome.
+    pub fn shutdown_all_sessions(&self) -> anyhow::Result<usize> {
+        let request_id = format!("shutdown-{}", flywheel_core::ids::new_id());
+        let (tx, rx) = std::sync::mpsc::channel::<Result<serde_json::Value, String>>();
+        {
+            let mut pending = self
+                .pending_acks
+                .lock()
+                .map_err(|_| anyhow::anyhow!("sidecar pending-acks mutex poisoned"))?;
+            pending.insert(request_id.clone(), tx);
+        }
+
+        let request = serde_json::json!({ "id": request_id, "op": "shutdown" });
+        if let Err(err) = self.send_request(&request.to_string()) {
+            if let Ok(mut pending) = self.pending_acks.lock() {
+                pending.remove(&request_id);
+            }
+            return Err(err);
+        }
+
+        match rx.recv_timeout(SHUTDOWN_ACK_TIMEOUT) {
+            Ok(Ok(data)) => Ok(data.get("killed").and_then(|v| v.as_u64()).unwrap_or(0) as usize),
+            Ok(Err(err)) => Err(anyhow::anyhow!("sidecar shutdown request failed: {err}")),
+            Err(_) => {
+                if let Ok(mut pending) = self.pending_acks.lock() {
+                    pending.remove(&request_id);
+                }
+                Err(anyhow::anyhow!(
+                    "sidecar did not acknowledge the shutdown request within {SHUTDOWN_ACK_TIMEOUT:?}"
+                ))
+            }
+        }
+    }
+
+    /// Kill the sidecar's own process — a single `tauri-plugin-shell` `CommandChild::kill()`
+    /// signal to that ONE process. This does NOT reach any child session: every `claude` session
+    /// is spawned `detached: true` (`packages/sidecar/src/claude-code-adapter.ts`) precisely so it
+    /// becomes its own process-group leader, independent of the sidecar's own group (CR-02).
+    /// Reaching the sessions is [`Self::shutdown_all_sessions`]'s job, and it MUST be called first
+    /// — killing the sidecar before the sessions would remove the only thing left that can still
+    /// signal them. Called on app exit, after `shutdown_all_sessions`, so no orphaned sidecar
+    /// process survives Flywheel closing.
     pub fn kill(&self) {
         if let Ok(mut guard) = self.child.lock() {
             if let Some(child) = guard.take() {

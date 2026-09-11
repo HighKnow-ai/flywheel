@@ -135,12 +135,21 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // Kill the sidecar's own process (and, transitively, every session it was driving)
-            // on app exit — never leave an orphaned sidecar or agent process behind
-            // (RESEARCH.md Pitfall 3, applied at the supervisor-exit level).
+            // On app exit, tell the sidecar to end every live session BEFORE killing the sidecar
+            // itself (CR-02). Every `claude` session is spawned `detached: true`
+            // (`claude-code-adapter.ts`'s `startSession`) precisely so it becomes its own
+            // process-group leader, independent of the sidecar's own group — so the sidecar's own
+            // kill (below) cannot reach any of them. `shutdown_all_sessions` is the only thing
+            // that still can, which is why it MUST run first: killing the supervisor before the
+            // sessions would remove the only thing left able to signal them. A shutdown failure is
+            // only logged, never allowed to skip the kill — a wedged or crashed sidecar must never
+            // make the product unquittable.
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     if let Some(sidecar) = state.sidecar.as_ref() {
+                        if let Err(err) = sidecar.shutdown_all_sessions() {
+                            eprintln!("failed to signal live agent sessions during app exit: {err:#}");
+                        }
                         sidecar.kill();
                     }
                 }
