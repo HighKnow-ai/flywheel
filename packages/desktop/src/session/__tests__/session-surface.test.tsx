@@ -16,6 +16,11 @@ import { sessionFeedQueryKey } from "../../board/useBoardQuery";
 
 const invokeCommandMock = vi.fn();
 
+/** Captures the handler `SessionSurface`'s `subscribeAgentEvent` effect registers, so a test can
+ * simulate a live `agent:event` push (plan 02-11 Task 3) without a real Tauri event channel. Most
+ * tests in this file never call it — the default no-op unlisten below is unaffected either way. */
+let capturedAgentEventHandler: ((event: Record<string, unknown>) => void) | null = null;
+
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
@@ -24,9 +29,19 @@ vi.mock("../../adapters/tauri", async () => {
       invokeCommandMock("agent_run_log_window", { agentRunId, offset, limit }),
     agentRunRawWindow: (agentRunId: string, offset: number, limit: number) =>
       invokeCommandMock("agent_run_raw_window", { agentRunId, offset, limit }),
-    subscribeAgentEvent: () => Promise.resolve(() => {}),
+    subscribeAgentEvent: (handler: (event: Record<string, unknown>) => void) => {
+      capturedAgentEventHandler = handler;
+      return Promise.resolve(() => {
+        capturedAgentEventHandler = null;
+      });
+    },
     subscribeBoardChanged: () => Promise.resolve(() => {}),
-    stopAgentRun: (agentRunId: string) => invokeCommandMock("agent_run_stop", { agentRunId }),
+    // Default: an AgentRunStopResult with no warning, so every pre-existing test in this file
+    // (none of which assert on the resolved value) keeps working unchanged.
+    stopAgentRun: (agentRunId: string) =>
+      invokeCommandMock("agent_run_stop", { agentRunId }).then(
+        (result: unknown) => result ?? { status: "interrupted", sidecarWarning: null },
+      ),
     // The permission-request card's feed mount (plan 02-06 Task 2) — no pending requests by
     // default so every pre-existing test in this file keeps rendering the plain event feed alone.
     pendingPermissionRequests: () => Promise.resolve([]),
@@ -202,6 +217,75 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
 
     const stoppingButton = await screen.findByRole("button", { name: "Stopping…" });
     expect(stoppingButton).toBeDisabled();
+  });
+
+  it("leaves the stopping state from the command result when no session_closed push arrives", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_stop") {
+        return Promise.resolve({
+          status: "interrupted",
+          sidecarWarning:
+            "Flywheel recorded this run as interrupted, but could not confirm the agent process stopped: sidecar did not acknowledge the interrupt request within 30s",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+
+    const stopButton = await screen.findByRole("button", { name: "Stop" });
+    stopButton.click();
+
+    // No session_closed push ever arrives (subscribeAgentEvent's captured handler is never
+    // invoked) — the surface must still leave its stopping state from the command's own result.
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Stopping…" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+    expect(
+      screen.getByText(/could not confirm the agent process stopped/),
+    ).toBeInTheDocument();
+  });
+
+  it("renders no warning notice when the sidecar confirms the interrupt", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_stop") return Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      return Promise.resolve(undefined);
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+
+    const stopButton = await screen.findByRole("button", { name: "Stop" });
+    stopButton.click();
+
+    await waitFor(() => expect(screen.getByText("Interrupted")).toBeInTheDocument());
+    expect(screen.queryByText(/could not confirm/)).not.toBeInTheDocument();
+  });
+
+  it("still applies a real session_closed push, as an additional source alongside the stop result", async () => {
+    mockWindowReads(() => []);
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("button", { name: "Stop" });
+    capturedAgentEventHandler?.(makeSessionClosed(1, "completed"));
+
+    await waitFor(() => expect(screen.getByText("Completed")).toBeInTheDocument());
   });
 
   it("renders the exact run-status word for each of the five statuses", () => {

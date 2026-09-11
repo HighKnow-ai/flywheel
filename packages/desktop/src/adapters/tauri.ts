@@ -227,15 +227,25 @@ export async function subscribeAgentEvent(
 }
 
 /**
- * Stop a running agent run (D-35: interrupt, then force; plan 02-02). Thin typed wrapper over
- * `agent_run_stop`, following `invokeCommand`'s single-seam rule. This call's own resolution is
- * NOT the run's terminal status — the sidecar's interrupt-then-force sequence has already
- * finished by the time the Rust command returns, but the session surface reads the actual
- * terminal state back through the pushed `agent:event`'s `session_closed` reason, never from this
- * promise's return value (mirrors `subscribeBoardChanged`'s own "never trust your own write" rule).
+ * What `agent_run_stop` returns (CR-04, plan 02-11) — the mirror of the Rust command's
+ * `AgentRunStopDto`.
  */
-export async function stopAgentRun(agentRunId: string): Promise<void> {
-  await invokeCommand<void>("agent_run_stop", { agentRunId });
+export interface AgentRunStopResult {
+  status: string;
+  sidecarWarning: string | null;
+}
+
+/**
+ * Stop a running agent run (D-35: interrupt, then force; plan 02-02; CR-04 fix in plan 02-11).
+ * Thin typed wrapper over `agent_run_stop`, following `invokeCommand`'s single-seam rule. This
+ * call's resolution carries the status Flywheel RECORDED — the terminal write is never gated on
+ * the sidecar's acknowledgement, so this promise always resolves to a terminal status once the
+ * command succeeds. The pushed `agent:event`'s `session_closed` reason remains the source for
+ * what the agent process actually did on its own; the two can legitimately disagree when the
+ * sidecar is unreachable, which is exactly what `sidecarWarning` is for.
+ */
+export async function stopAgentRun(agentRunId: string): Promise<AgentRunStopResult> {
+  return invokeCommand<AgentRunStopResult>("agent_run_stop", { agentRunId });
 }
 
 /**

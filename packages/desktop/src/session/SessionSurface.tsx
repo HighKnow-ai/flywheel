@@ -366,6 +366,50 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
   );
 }
 
+const STOP_WARNING_GLOSS = "Flywheel could not confirm the agent process actually stopped.";
+
+/** The "stop was recorded but the sidecar could not confirm it" notice (plan 02-11, CR-04) —
+ * `02-UI-SPEC.md` specifies no presentation for this case, so this reuses E2's terminal-row
+ * pattern (a one-line human gloss above the machine detail, in the Mono role) at the
+ * **interrupted** weight: `--text-muted-rack` and the CircleSlash mark, never the failed run's
+ * `--destructive-text-rack` stripe or CircleX glyph, because the run DID reach `interrupted`. */
+function StopWarningNotice({ warning }: { warning: string }) {
+  const mark = MARKS_BY_ID["run-interrupted"];
+  return (
+    <div
+      role="listitem"
+      style={{
+        marginTop: "var(--space-sm)",
+        padding: "var(--space-sm) var(--space-md)",
+        background: "var(--surface-secondary)",
+        borderRadius: "var(--radius-chrome)",
+      }}
+    >
+      <p
+        className="type-body"
+        style={{
+          margin: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-xs)",
+          color: "var(--text-primary-rack)",
+        }}
+      >
+        <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--text-muted-rack)" }}>
+          <Icon name={mark?.glyph ?? "CircleSlash"} />
+        </span>
+        {STOP_WARNING_GLOSS}
+      </p>
+      <p
+        className="type-label"
+        style={{ margin: "var(--space-xs) 0 0 0", fontFamily: MONO_STACK, color: "var(--text-muted-rack)" }}
+      >
+        {warning}
+      </p>
+    </div>
+  );
+}
+
 /** The user must never see an empty scroll area while the process starts (02-UI-SPEC.md State
  * Inventory: "empty"/"loading" both resolve to this same pulse row) — replaced the moment the
  * first real event arrives, never accumulating above it (it renders only while `feedRows` is
@@ -383,6 +427,7 @@ const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }: SessionSurfaceProps) {
   const [status, setStatus] = useState<RunStatus>(initialStatus);
   const [stopping, setStopping] = useState(false);
+  const [stopWarning, setStopWarning] = useState<string | null>(null);
   const [rawViewOpen, setRawViewOpen] = useState(false);
   const tailRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -424,11 +469,24 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentRunId]);
 
+  // The command's own resolution now carries the status Flywheel RECORDED (plan 02-11, CR-04) —
+  // the terminal write is never gated on the sidecar's acknowledgement, so this promise always
+  // resolves once the command succeeds. A real `session_closed` push (the effect above) remains
+  // the source for what the agent process actually did and still wins if it arrives; this is an
+  // ADDITIONAL source, guarded by `isRunStatus` so an unexpected string can never widen the
+  // status union. `.catch` stays the genuine-failure path — the terminal write itself failed.
   function handleStop() {
     setStopping(true);
-    stopAgentRun(agentRunId).catch(() => {
-      setStopping(false);
-    });
+    stopAgentRun(agentRunId)
+      .then((result) => {
+        if (isRunStatus(result.status)) {
+          setStatus(result.status);
+        }
+        setStopWarning(result.sidecarWarning);
+      })
+      .catch(() => {
+        setStopping(false);
+      });
   }
 
   const showStop = !TERMINAL_STATUSES.includes(status);
@@ -578,6 +636,8 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
           </div>
 
           {terminalInfo && <TerminalRow info={terminalInfo} />}
+
+          {stopWarning && <StopWarningNotice warning={stopWarning} />}
 
           {pendingRequests.length > 0 && (
             <div style={{ marginTop: "var(--space-md)" }}>
