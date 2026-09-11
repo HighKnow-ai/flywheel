@@ -3,33 +3,33 @@
  * from a task and popped back out of via the `← Board` affordance — never a tab inside the 480px
  * item detail panel and never a dockable pane. The board stays the board.
  *
- * Deliberately thin here — plan 02-07 builds the structured feed, virtualization, raw view and
- * status strip. This component proves the read path reaches the screen: it reads pages with
- * `useInfiniteQuery` against `agentRunLogWindow` (D-33's bounded window) and invalidates on
- * `subscribeAgentEvent` (D-32's live push) — one plain row per event, oldest first.
+ * Plan 02-02 Task 3 adds the Stop affordance and the run-status word. Plan 02-06 Task 2 mounts
+ * the permission-request card's `feed` variant here, at the tail of the event list, and
+ * suppresses the feed's follow-the-tail scroll for as long as any request is pending.
  *
- * Plan 02-02 Task 3 adds the Stop affordance and the run-status word. Status is rendered as plain
- * words only — `Running` / `Blocked` / `Completed` / `Failed` / `Interrupted` — with no glyph and
- * no new colour token in this plan; plan 02-03 introduces the `agent` mark channel and the new
- * colour roles, and plan 02-07 binds the glyphs. No keydown listener is registered here either:
- * `⌘.` belongs to `state/keyboard.ts`'s single key→action map, owned by plan 02-03 this wave.
- *
- * Plan 02-06 Task 2 mounts the permission-request card's `feed` variant here, at the tail of the
- * event list — this feed is still the plain, unstructured row-per-raw-event render plan 02-07
- * replaces, so "at its position in the transcript" resolves concretely to "after every event
- * currently loaded," which is where a genuinely pending request always sits (nothing else can
- * happen on this run until it's answered). The feed's follow-the-tail behaviour (a tail sentinel,
- * scrolled into view on new events) is suppressed for as long as ANY request is pending, and
- * resumes the instant none is (02-UI-SPEC.md Performance Contract: "the feed must not auto-scroll
- * away from" a pending card).
+ * Plan 02-07 Task 2 replaces the tracer's plain row-per-raw-event render with the real
+ * structured feed (D-32): `useSessionFeed` (`board/useBoardQuery.ts`) pages a bounded window in
+ * from the TAIL of the persisted log (D-33), older pages fetched as the user scrolls toward the
+ * top of what is loaded — never the whole transcript in memory (PROC-07). `FeedRow.tsx` renders
+ * one row per normalised event; `buildFeedRows` below is the pairing/filtering step that turns
+ * the raw windowed-read entries into that row list — a `tool_call` paired with its own
+ * `tool_result` by `toolName` (FIFO — no correlation id exists on either event), `init`/
+ * `cost_update`/`permission_request`/`session_closed` suppressed from the row list (each is
+ * either metadata the header/status-strip consumes elsewhere, or — for `session_closed` — the
+ * terminal row's own data source), and any other kind falling back to a raw, verbatim row rather
+ * than silently disappearing (T-02-33). Virtualized with this codebase's own
+ * `@tanstack/react-virtual` configuration — a fixed size per row kind, `virtualizer.measure()`
+ * (never `measureElement`) invalidating the size cache when a tool-call row's expand state
+ * changes, matching Phase 1's explicit rejection of measured virtualization.
  */
-import { useEffect, useRef, useState } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { agentRunLogWindow, answerPermissionRequest, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
-import { usePendingPermissionRequests } from "../board/useBoardQuery";
+import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { answerPermissionRequest, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
+import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
+import { FeedRow, feedRowEstimateSize, useExpandedRows, type FeedRowData } from "./FeedRow";
 
-const PAGE_SIZE = 50;
+const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
 /** The five values `agent_runs.status` can hold (migration `0003_agent_runtime.sql`). */
 export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted";
@@ -58,59 +58,172 @@ export interface SessionSurfaceProps {
   initialStatus?: RunStatus;
 }
 
-function sessionLogQueryKey(agentRunId: string) {
-  return ["agent-run-log", agentRunId] as const;
+/** Event kinds the feed suppresses from its own row list — each is either consumed elsewhere
+ * (`init`/`cost_update` feed the header/status-strip; `permission_request` is the dedicated
+ * `PermissionRequestCard` mount below) or is the terminal row's own data source
+ * (`session_closed`, resolved by `findTerminalInfo`). Suppressing is not dropping: nothing here
+ * is a candidate for the raw-fallback rule below, because each is already rendered somewhere. */
+const SUPPRESSED_EVENT_TYPES = new Set(["init", "cost_update", "permission_request", "session_closed"]);
+
+/** A stable React/expand-tracking key for one raw log entry — `seq` (every normalised
+ * `AgentEvent` carries one, AGNT-01) is preferred because it never shifts when the tail page's
+ * own OFFSET changes as the log crosses a page boundary; a malformed line (session_log.rs's own
+ * synthesized `unknown` entry) falls back to its `line` number, and the flattened array position
+ * is the last resort for a genuinely shapeless entry. */
+function keyForEvent(event: Record<string, unknown>, index: number): string {
+  if (typeof event.seq === "number") return `seq-${event.seq}`;
+  if (typeof event.line === "number") return `line-${event.line}`;
+  return `idx-${index}`;
 }
 
-/** One plain row for an event — deliberately unstructured (plan 02-07 replaces this render with
- * the real structured feed). Falls back gracefully when a field this phase's normalised events
- * don't always carry (e.g. `text`) is absent. */
-function EventRow({ event, index }: { event: Record<string, unknown>; index: number }) {
-  const type = typeof event.type === "string" ? event.type : "unknown";
-  const summary =
-    (typeof event.text === "string" && event.text) ||
-    (typeof event.toolName === "string" && event.toolName) ||
-    (typeof event.sessionId === "string" && event.sessionId) ||
-    "";
+function rawTextFor(event: Record<string, unknown>): string {
+  if (typeof event.raw === "string") return event.raw;
+  try {
+    return JSON.stringify(event);
+  } catch {
+    return String(event);
+  }
+}
+
+/**
+ * Turn the flattened, ascending-chronological windowed-read entries into the feed's own row
+ * list (D-32). A `tool_call` is paired with the next same-`toolName` `tool_result` (FIFO per
+ * tool name — the sidecar's own `AgentEvent` union carries no call-correlation id, so exact
+ * pairing under concurrent same-named calls is a known, accepted simplification; every event
+ * still renders SOMETHING regardless, per T-02-33). An unpaired `tool_result` (no matching
+ * pending call, or no `toolName` at all) falls back to a raw row rather than disappearing.
+ */
+export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[] {
+  const rows: FeedRowData[] = [];
+  const pendingByTool = new Map<string, number[]>();
+
+  entries.forEach((event, index) => {
+    const type = typeof event.type === "string" ? event.type : "unknown";
+    const key = keyForEvent(event, index);
+
+    if (type === "tool_result") {
+      const toolName = typeof event.toolName === "string" ? event.toolName : undefined;
+      const queue = toolName ? pendingByTool.get(toolName) : undefined;
+      if (queue && queue.length > 0) {
+        const targetIndex = queue.shift() as number;
+        const target = rows[targetIndex];
+        if (target && target.kind === "tool_call") {
+          rows[targetIndex] = { ...target, output: event.output };
+        }
+        return;
+      }
+      rows.push({ kind: "raw", key, raw: rawTextFor(event) });
+      return;
+    }
+
+    if (SUPPRESSED_EVENT_TYPES.has(type)) return;
+
+    if (type === "assistant_text") {
+      rows.push({ kind: "assistant_text", key, text: typeof event.text === "string" ? event.text : "" });
+      return;
+    }
+
+    if (type === "tool_call") {
+      const toolName = typeof event.toolName === "string" ? event.toolName : "tool";
+      rows.push({ kind: "tool_call", key, toolName, input: event.input });
+      const queue = pendingByTool.get(toolName) ?? [];
+      queue.push(rows.length - 1);
+      pendingByTool.set(toolName, queue);
+      return;
+    }
+
+    if (type === "system_notice") {
+      rows.push({ kind: "system_notice", key, text: typeof event.text === "string" ? event.text : "" });
+      return;
+    }
+
+    // Anything else — including session_log.rs's own `unknown` entry for a malformed line —
+    // never disappears (T-02-33).
+    rows.push({ kind: "raw", key, raw: rawTextFor(event) });
+  });
+
+  return rows;
+}
+
+interface TerminalInfo {
+  reason: RunStatus;
+  subtype?: string;
+}
+
+/** The terminal row's own data source (D-35's "exactly one `session_closed` event, ever") — the
+ * LAST such event in the loaded window, since a run only ever closes once. */
+export function findTerminalInfo(entries: Record<string, unknown>[]): TerminalInfo | undefined {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const event = entries[i];
+    if (event.type === "session_closed" && isRunStatus(event.reason)) {
+      const result = event.result as { subtype?: string } | undefined;
+      return { reason: event.reason, subtype: result?.subtype };
+    }
+  }
+  return undefined;
+}
+
+const FAILED_RUN_GLOSS = "This run ended in an error. The worktree was left as-is — nothing was lost.";
+
+function TerminalRow({ info }: { info: TerminalInfo }) {
+  if (info.reason === "failed") {
+    return (
+      <div
+        role="listitem"
+        style={{
+          marginTop: "var(--space-sm)",
+          padding: "var(--space-sm) var(--space-md)",
+          borderLeft: "4px solid var(--destructive-text-rack)",
+        }}
+      >
+        <p className="type-body" style={{ margin: 0, color: "var(--text-primary-rack)" }}>
+          {FAILED_RUN_GLOSS}
+        </p>
+        {info.subtype && (
+          <p
+            className="type-label"
+            style={{ margin: "var(--space-xs) 0 0 0", fontFamily: MONO_STACK, color: "var(--destructive-text-rack)" }}
+          >
+            {info.subtype}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
       role="listitem"
-      style={{
-        display: "flex",
-        gap: "var(--space-sm)",
-        padding: "var(--space-xs) 0",
-        borderBottom: "1px solid var(--divider)",
-      }}
+      className="type-label"
+      style={{ marginTop: "var(--space-sm)", padding: "var(--space-sm) var(--space-md)", color: "var(--text-muted-rack)" }}
     >
-      <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)", flexShrink: 0 }}>
-        {String(index).padStart(4, "0")}
-      </span>
-      <span className="type-label" style={{ color: "var(--accent-text-rack)", flexShrink: 0 }}>
-        {type}
-      </span>
-      <span className="type-body" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-        {summary}
-      </span>
+      {RUN_STATUS_LABELS[info.reason]}
     </div>
   );
 }
 
+/** The user must never see an empty scroll area while the process starts (02-UI-SPEC.md State
+ * Inventory: "empty"/"loading" both resolve to this same pulse row) — replaced the moment the
+ * first real event arrives, never accumulating above it (it renders only while `feedRows` is
+ * empty). */
+function StartingSessionRow() {
+  return (
+    <div role="listitem" className="type-body" style={{ padding: "var(--space-xs) 0", color: "var(--text-muted-rack)" }}>
+      Starting session…
+    </div>
+  );
+}
+
+const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
+
 export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }: SessionSurfaceProps) {
-  const queryClient = useQueryClient();
-  const queryKey = sessionLogQueryKey(agentRunId);
   const [status, setStatus] = useState<RunStatus>(initialStatus);
   const [stopping, setStopping] = useState(false);
   const tailRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement>(null);
+  const { expanded, toggle } = useExpandedRows();
 
-  const logQuery = useInfiniteQuery({
-    queryKey,
-    queryFn: async ({ pageParam }) =>
-      (await agentRunLogWindow(agentRunId, pageParam, PAGE_SIZE)) ?? [],
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) =>
-      (lastPage?.length ?? 0) === PAGE_SIZE ? allPages.length * PAGE_SIZE : undefined,
-  });
+  const feedQuery = useSessionFeed(agentRunId);
 
   // The permission-request card's `feed` mount (AGNT-06, plan 02-06 Task 2) — this run's pending
   // set, read from the ONE shared query the item detail panel's compact mount also reads for the
@@ -122,15 +235,13 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
     await answerPermissionRequest(requestId, decision);
   }
 
-  // A live `agent:event` push invalidates the windowed read (D-32/D-04) — the stream itself is
-  // never treated as the source of truth, only the persisted log read back through the command.
-  // The terminal status word ALSO arrives through this same pushed delta (a `session_closed`
-  // event's `reason`, plan 02-02 D-35) — never from `stopAgentRun`'s own resolved promise, which
-  // is why the Stop control below never assumes its own write landed.
+  // The terminal status word arrives through the same pushed delta a live `agent:event` push
+  // drives (a `session_closed` event's `reason`, plan 02-02 D-35) — never from `stopAgentRun`'s
+  // own resolved promise, which is why the Stop control below never assumes its own write landed.
+  // `useSessionFeed` itself owns invalidating the windowed read on this same subscription.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     subscribeAgentEvent((event) => {
-      queryClient.invalidateQueries({ queryKey });
       if (event.type === "session_closed" && isRunStatus(event.reason)) {
         setStatus(event.reason);
       }
@@ -144,14 +255,46 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
   function handleStop() {
     setStopping(true);
     stopAgentRun(agentRunId).catch(() => {
-      // The terminal status still arrives through the pushed delta if the stop actually landed
-      // server-side — a failed invoke here just re-enables the control so the user can retry.
       setStopping(false);
     });
   }
 
   const showStop = !TERMINAL_STATUSES.includes(status);
-  const events = logQuery.data?.pages.flat() ?? [];
+
+  const entries = useMemo(
+    () => feedQuery.data?.pages.flatMap((page) => page.entries) ?? [],
+    [feedQuery.data],
+  );
+  const feedRows = useMemo(() => buildFeedRows(entries), [entries]);
+  const terminalInfo = useMemo(() => findTerminalInfo(entries), [entries]);
+  const showStartingPulse = feedRows.length === 0 && !terminalInfo;
+
+  const rowVirtualizer = useVirtualizer({
+    count: feedRows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) => feedRowEstimateSize(feedRows[index], expanded.has(feedRows[index].key)),
+    overscan: 10,
+  });
+
+  // A tool-call row's expand/collapse toggle changes its OWN fixed size (never a measured one —
+  // `feedRowEstimateSize` still returns one of exactly two constants); `measure()` invalidates
+  // the virtualizer's cached sizes so the new `estimateSize` output takes effect. This is not
+  // `measureElement` (DOM-based, per-row measurement) — it is a deterministic recomputation from
+  // the same fixed-size function.
+  useEffect(() => {
+    rowVirtualizer.measure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
+  function handleScroll(event: UIEvent<HTMLDivElement>) {
+    if (
+      event.currentTarget.scrollTop <= SCROLL_TOP_FETCH_THRESHOLD_PX &&
+      feedQuery.hasPreviousPage &&
+      !feedQuery.isFetchingPreviousPage
+    ) {
+      feedQuery.fetchPreviousPage();
+    }
+  }
 
   // Follow-the-tail (02-UI-SPEC.md Performance Contract) — suppressed for as long as ANY
   // permission request is pending, and resumes the instant none is (this effect re-runs on
@@ -162,7 +305,7 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
     // environment) implements no `Element.prototype.scrollIntoView` at all — a real browser always
     // has it, but a test asserting this behaviour installs its own spy first.
     tailRef.current?.scrollIntoView?.({ block: "end" });
-  }, [events.length, pendingRequests.length]);
+  }, [feedRows.length, pendingRequests.length, terminalInfo]);
 
   return (
     <div
@@ -216,36 +359,35 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
         )}
       </header>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}>
-        {logQuery.isPending && (
-          <p className="type-body" style={{ color: "var(--text-muted-rack)" }}>
-            Loading session…
-          </p>
-        )}
+      <div
+        ref={parentRef}
+        onScroll={handleScroll}
+        data-testid="session-feed-scroll"
+        style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}
+      >
+        {showStartingPulse && <StartingSessionRow />}
 
-        <div role="list" aria-label="Session events" style={{ display: "flex", flexDirection: "column" }}>
-          {events.map((event, index) => (
-            <EventRow key={index} event={event} index={index} />
-          ))}
+        <div role="list" aria-label="Session events" style={{ position: "relative", height: rowVirtualizer.getTotalSize(), width: "100%" }}>
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const row = feedRows[virtualRow.index];
+            return (
+              <div
+                key={row.key}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} />
+              </div>
+            );
+          })}
         </div>
 
-        {logQuery.hasNextPage && (
-          <button
-            type="button"
-            onClick={() => logQuery.fetchNextPage()}
-            disabled={logQuery.isFetchingNextPage}
-            className="type-label"
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "var(--accent-text-rack)",
-              cursor: "pointer",
-              padding: "var(--space-sm) 0",
-            }}
-          >
-            {logQuery.isFetchingNextPage ? "Loading…" : "Load more"}
-          </button>
-        )}
+        {terminalInfo && <TerminalRow info={terminalInfo} />}
 
         {pendingRequests.length > 0 && (
           <div style={{ marginTop: "var(--space-md)" }}>

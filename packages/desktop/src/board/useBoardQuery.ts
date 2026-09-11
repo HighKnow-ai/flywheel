@@ -4,14 +4,18 @@
  * `subscribeBoardChanged` (D-04): the renderer never trusts its own write as already resolved.
  */
 import { useEffect, useState } from "react";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  agentRunLogWindow,
+  agentRunsForTask,
   blockedSummary,
   invokeCommand,
   latestAgentRunIdForTask,
   pendingPermissionRequests,
   subscribeAgentEvent,
   subscribeBoardChanged,
+  worktreeSummary,
+  type LogWindowDto,
 } from "../adapters/tauri";
 import { EMPTY_FILTER_DRAFT, type BoardFilterDraft } from "../state/uiStore";
 
@@ -632,5 +636,162 @@ export function useBlockedSummary(projectId: string | undefined) {
     queryKey: blockedSummaryQueryKey(projectId),
     queryFn: () => blockedSummary(projectId as string),
     enabled: Boolean(projectId),
+  });
+}
+
+/** `useSessionFeed`'s own page size (plan 02-07 Task 1/2, D-33) — matches
+ * `commands/agent_run.rs`'s `LOG_WINDOW_DEFAULT_LIMIT`. */
+const SESSION_FEED_PAGE_SIZE = 50;
+
+/** `useSessionFeed`'s query key, keyed by `agentRunId` — exported so `SessionSurface.tsx` (and
+ * any future caller) can invalidate/read the same cache entry without re-deriving the key shape. */
+export function sessionFeedQueryKey(agentRunId: string) {
+  return ["agent-run-log", agentRunId] as const;
+}
+
+/** `useInfiniteQuery`'s own page-identity value: `"tail"` for the initial (most-recent) page,
+ * a numeric byte-line offset for every page paged in afterward via `fetchPreviousPage` (D-33's
+ * "page backwards from the tail"). */
+type SessionFeedPageParam = number | "tail";
+
+/** Resolve ONE page of `useSessionFeed`'s window. `"tail"` is resolved in two calls when the log
+ * is longer than one page: a first call learns the log's true `total` (every `read_window` call
+ * reports it, regardless of the requested window), then a second call requests the actual last
+ * page at `total - PAGE_SIZE`. A log no longer than one page needs only the first call — its own
+ * `offset: 0` window already covers everything. */
+async function fetchSessionFeedPage(
+  agentRunId: string,
+  pageParam: SessionFeedPageParam,
+): Promise<LogWindowDto> {
+  if (pageParam !== "tail") {
+    return agentRunLogWindow(agentRunId, pageParam, SESSION_FEED_PAGE_SIZE);
+  }
+  const probe = await agentRunLogWindow(agentRunId, 0, SESSION_FEED_PAGE_SIZE);
+  if (probe.total <= SESSION_FEED_PAGE_SIZE) return probe;
+  const tailOffset = probe.total - SESSION_FEED_PAGE_SIZE;
+  return agentRunLogWindow(agentRunId, tailOffset, SESSION_FEED_PAGE_SIZE);
+}
+
+/**
+ * The live session surface's own feed read (D-32/D-33, plan 02-07 Task 2): a bounded window
+ * page-in from the TAIL of the persisted log, paging OLDER pages backward via
+ * `fetchPreviousPage()` as the user scrolls toward the top of what's loaded — never the whole
+ * transcript at once (PROC-07). Because the initial page's own `pageParam` is the literal string
+ * `"tail"` rather than a fixed numeric offset, a live `agent:event` invalidation naturally
+ * re-resolves that page against the log's CURRENT total on every refetch — the tail page always
+ * catches up to newly arrived events, while every older page already loaded keeps its own stable
+ * numeric offset (appending to the end of a log never shifts an earlier line's offset).
+ *
+ * `data.pages` is chronological ascending (oldest loaded page first, tail page last) — the exact
+ * order `fetchPreviousPage` prepending to `data.pages` naturally produces, so a caller can render
+ * `pages.flatMap(p => p.entries)` directly without a second reverse/sort step.
+ */
+export function useSessionFeed(agentRunId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = sessionFeedQueryKey(agentRunId);
+
+  // A live `agent:event` push invalidates the windowed read (D-32/D-04) — the stream itself is
+  // never treated as the source of truth, only the persisted log read back through the command.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeAgentEvent(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentRunId, queryClient]);
+
+  return useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) => fetchSessionFeedPage(agentRunId, pageParam as SessionFeedPageParam),
+    initialPageParam: "tail" as SessionFeedPageParam,
+    // The feed never pages "forward" past the tail — new events arrive by the tail page itself
+    // re-resolving on invalidation (see doc comment above), not by fetching a page after it.
+    getNextPageParam: () => undefined,
+    getPreviousPageParam: (firstPage) =>
+      firstPage.offset > 0 ? Math.max(0, firstPage.offset - SESSION_FEED_PAGE_SIZE) : undefined,
+  });
+}
+
+/** `useAgentRuns`' query key, keyed by `taskId` (plan 02-07 Task 1, 02-UI-SPEC.md "Runs
+ * section"). */
+function agentRunsQueryKey(taskId: string) {
+  return ["agent-runs", taskId] as const;
+}
+
+/**
+ * A task's agent runs, newest first (02-UI-SPEC.md "Runs section") — the item detail panel's
+ * future Runs-section data source (this plan builds the read path; a later plan renders it).
+ * Invalidated on `subscribeBoardChanged` (Start Work's own emit, D-04) — never polled.
+ * `undefined` disables the query entirely.
+ */
+export function useAgentRuns(taskId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = taskId ? agentRunsQueryKey(taskId) : (["agent-runs", "none"] as const);
+
+  useEffect(() => {
+    if (!taskId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: agentRunsQueryKey(taskId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [taskId, queryClient]);
+
+  return useQuery({
+    queryKey,
+    queryFn: () => agentRunsForTask(taskId as string),
+    enabled: Boolean(taskId),
+  });
+}
+
+/** `useWorktreeSummary`'s query key, keyed by `taskId` (plan 02-07 Task 1, 02-UI-SPEC.md
+ * "Worktree summary"). */
+function worktreeSummaryQueryKey(taskId: string) {
+  return ["worktree-summary", taskId] as const;
+}
+
+/**
+ * A task's worktree summary line (02-UI-SPEC.md "Worktree summary") — the item detail panel's
+ * future worktree-summary data source (this plan builds the read path; a later plan renders it).
+ * `null` for a task with no worktree yet. Invalidated on `subscribeBoardChanged` — never polled.
+ * `undefined` disables the query entirely.
+ */
+export function useWorktreeSummary(taskId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = taskId ? worktreeSummaryQueryKey(taskId) : (["worktree-summary", "none"] as const);
+
+  useEffect(() => {
+    if (!taskId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: worktreeSummaryQueryKey(taskId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [taskId, queryClient]);
+
+  return useQuery({
+    queryKey,
+    queryFn: () => worktreeSummary(taskId as string),
+    enabled: Boolean(taskId),
   });
 }

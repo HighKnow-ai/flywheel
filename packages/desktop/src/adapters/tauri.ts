@@ -115,20 +115,100 @@ export async function previewContextPacket(taskId: string): Promise<ContextPacke
 }
 
 /**
- * A bounded page of an agent run's durable session log (D-33, D-34) — the same
+ * A bounded page of an agent run's durable session log (D-33, D-34, plan 02-07 Task 1) — the same
  * `LIMIT`/`OFFSET` windowed-read shape `events_activity_trail` already uses, server-capped at
- * 100 rows regardless of what is requested (T-02-06).
+ * 100 rows regardless of what is requested (T-02-06). `total` is the log's true complete-line
+ * count at read time, so `useSessionFeed` (`board/useBoardQuery.ts`) can page backwards from the
+ * tail rather than forward from the start. Mirrors `commands/agent_run.rs`'s `LogWindowDto`
+ * field-for-field.
  */
+export interface LogWindowDto {
+  entries: Record<string, unknown>[];
+  offset: number;
+  limit: number;
+  total: number;
+}
+
 export async function agentRunLogWindow(
   agentRunId: string,
   offset: number,
   limit: number,
-): Promise<Record<string, unknown>[]> {
-  return invokeCommand<Record<string, unknown>[]>("agent_run_log_window", {
+): Promise<LogWindowDto> {
+  return invokeCommand<LogWindowDto>("agent_run_log_window", {
     agentRunId,
     offset,
     limit,
   });
+}
+
+/**
+ * The raw view's own bounded read (D-32's escape hatch, plan 02-07 Task 1/3) — the same windowing
+ * shape `agentRunLogWindow` uses, but each entry is a line's VERBATIM text plus its 0-based line
+ * number, never a parsed value. Mirrors `commands/agent_run.rs`'s `RawLogWindowDto` field-for-field.
+ */
+export interface RawLogLineDto {
+  line: number;
+  text: string;
+}
+
+export interface RawLogWindowDto {
+  lines: RawLogLineDto[];
+  offset: number;
+  limit: number;
+  total: number;
+}
+
+export async function agentRunRawWindow(
+  agentRunId: string,
+  offset: number,
+  limit: number,
+): Promise<RawLogWindowDto> {
+  return invokeCommand<RawLogWindowDto>("agent_run_raw_window", {
+    agentRunId,
+    offset,
+    limit,
+  });
+}
+
+/**
+ * One row of a task's Runs section (02-UI-SPEC.md "Runs section", plan 02-07 Task 1) — mirrors
+ * `commands/agent_run.rs`'s `RunSummaryDto` field-for-field.
+ */
+export interface RunSummaryDto {
+  id: string;
+  taskId: string;
+  status: string;
+  startedAt: string;
+  endedAt: string | null;
+  costUsd: number | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+}
+
+/**
+ * `taskId`'s agent runs, newest first, bounded (plan 02-07 Task 1). Thin typed wrapper over
+ * `agent_runs_for_task`. Read-only.
+ */
+export async function agentRunsForTask(
+  taskId: string,
+  limit?: number,
+  offset?: number,
+): Promise<RunSummaryDto[]> {
+  return invokeCommand<RunSummaryDto[]>("agent_runs_for_task", { taskId, limit, offset });
+}
+
+/**
+ * A task's worktree summary line (02-UI-SPEC.md "Worktree summary", plan 02-07 Task 1) — `null`
+ * for a task with no worktree yet. Mirrors `commands/agent_run.rs`'s `WorktreeSummaryDto`
+ * field-for-field. Thin typed wrapper over `worktree_summary`. Read-only.
+ */
+export interface WorktreeSummaryDto {
+  branch: string;
+  path: string;
+}
+
+export async function worktreeSummary(taskId: string): Promise<WorktreeSummaryDto | null> {
+  return invokeCommand<WorktreeSummaryDto | null>("worktree_summary", { taskId });
 }
 
 /**
