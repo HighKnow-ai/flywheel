@@ -176,6 +176,20 @@ pub fn agent_run_start(
     let human_actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
 
+    // Resolve the credential BEFORE any run/worktree state is created (D-39, plan 02-09 Task 2).
+    // `resolve_credential` errors when the credential mode is api_key and no key is stored
+    // (T-02-42) — that failure must never leave behind an already-`running` `agent_runs` row and
+    // a freshly created worktree that will never actually be spawned into, so the project id is
+    // looked up (read-only) and the credential resolved BEFORE `start_agent_run` runs.
+    let project_id: String = conn
+        .query_row(
+            "SELECT project_id FROM tasks WHERE id = ?1",
+            rusqlite::params![task_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let env = crate::sidecar::resolved_env_for_run(&conn, &project_id).map_err(|e| e.to_string())?;
+
     let run = flywheel_core::domain::agent_run::start_agent_run(
         &mut conn,
         &task_id,
@@ -208,6 +222,7 @@ pub fn agent_run_start(
             "worktreePath": worktree_path,
             "prompt": prompt,
             "permissionMode": permission_mode,
+            "env": env,
         });
         sidecar
             .send_request(&request.to_string())

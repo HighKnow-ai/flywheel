@@ -34,6 +34,41 @@ export function resolveClaudeBin(): string {
   return process.env.FLYWHEEL_CLAUDE_BIN ?? "claude";
 }
 
+/**
+ * Ask whether the backend binary [`resolveClaudeBin`] would spawn is resolvable, and its
+ * reported version (D-39, plan 02-09 Task 3). Read-only: spawns `<bin> --version`, never a real
+ * session, and never touches a credential. Resolves `{ available: false }` — never rejects — when
+ * the binary cannot be found or exits non-zero, so a missing backend degrades the product rather
+ * than surfacing as an error (02-RESEARCH.md's Environment Availability fallback note; the
+ * adapter's own capability-probe pattern).
+ */
+export function probeClaudeBinary(): Promise<{ available: boolean; version?: string }> {
+  return new Promise((resolve) => {
+    const bin = resolveClaudeBin();
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(bin, ["--version"], { stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+      resolve({ available: false });
+      return;
+    }
+
+    let output = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.on("error", () => resolve({ available: false }));
+    child.on("close", (code) => {
+      if (code === 0) {
+        const version = output.trim();
+        resolve({ available: true, version: version.length > 0 ? version : undefined });
+      } else {
+        resolve({ available: false });
+      }
+    });
+  });
+}
+
 /** The compiled standalone permission-server script's absolute path — resolved relative to THIS
  * compiled module's own location (`dist/claude-code-adapter.js` -> `dist/mcp-permission-server.js`),
  * never from `process.cwd()` (PROC-02's own "no implicit cwd" discipline, applied here to a

@@ -10,7 +10,7 @@
 import { createInterface } from "node:readline";
 
 import type { AgentEvent } from "./adapter.js";
-import { ClaudeCodeAdapter } from "./claude-code-adapter.js";
+import { ClaudeCodeAdapter, probeClaudeBinary } from "./claude-code-adapter.js";
 
 interface SpawnRequest {
   id: string;
@@ -42,7 +42,20 @@ interface PermissionAnswerRequest {
   decision: "allow" | "deny";
 }
 
-type SidecarRequest = SpawnRequest | InterruptRequest | KillRequest | PermissionAnswerRequest;
+/** D-39, plan 02-09 Task 3: ask whether the backend binary this adapter would spawn is
+ * resolvable, and its reported version. Read-only — never spawns a session, never touches a
+ * credential; carries no `runId` because it names no run. */
+interface CapabilityProbeRequest {
+  id: string;
+  op: "capability_probe";
+}
+
+type SidecarRequest =
+  | SpawnRequest
+  | InterruptRequest
+  | KillRequest
+  | PermissionAnswerRequest
+  | CapabilityProbeRequest;
 
 /** One `claude_code` adapter instance drives every run this sidecar process hosts — PROC-01's
  * one-OS-process-per-session holds because each `startSession` spawns its own child, while the
@@ -61,8 +74,8 @@ function emitEvent(event: AgentEvent): void {
   writeLine({ kind: "event", event });
 }
 
-function emitAck(id: string, ok: boolean, error?: string): void {
-  writeLine({ kind: "ack", id, ok, error });
+function emitAck(id: string, ok: boolean, error?: string, data?: unknown): void {
+  writeLine({ kind: "ack", id, ok, error, data });
 }
 
 async function handleRequest(request: SidecarRequest): Promise<void> {
@@ -122,6 +135,16 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       try {
         adapter.resolvePermission(request.runId, request.requestId, request.decision);
         emitAck(request.id, true);
+      } catch (err: unknown) {
+        emitAck(request.id, false, String(err));
+      }
+      return;
+    }
+    case "capability_probe": {
+      // D-39, plan 02-09 Task 3: read-only — never spawns a session, never touches a credential.
+      try {
+        const result = await probeClaudeBinary();
+        emitAck(request.id, true, undefined, result);
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));
       }

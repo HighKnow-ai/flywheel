@@ -28,6 +28,15 @@
  * `stream-json` schema, but `normaliseStreamEvent` already tolerates and forwards any
  * unrecognised shape as `type: "unknown"` while preserving its verbatim `raw` text, so the test
  * reads the outcome straight off that field without needing a schema change.
+ *
+ * **Environment-check mode** (`FLYWHEEL_FAKE_CHECK_ENV_VAR=<name>`, plan 02-09's D-39 credential
+ * tests): proves the child process actually observed a value passed through its own environment
+ * WITHOUT ever printing that value to stdout — this script compares `process.env[<name>]` against
+ * a SEPARATE env var, `FLYWHEEL_FAKE_EXPECT_ENV_VALUE`, delivered through the environment (never
+ * through stdout/argv either) and prints only the boolean result as a `env_check_result` line.
+ * This is how `credentials.test.mjs` asserts "the child observed the resolved credential" and "no
+ * sidecar-written stdout line contains the value" at the same time — the equality check happens
+ * entirely inside this process, never crossing back out as anything but a boolean.
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -97,6 +106,16 @@ if (CALL_PERMISSION === 1) {
   // Concurrency case: fire both calls WITHOUT awaiting the first — they must resolve
   // independently, in whichever order their answers arrive, not the order they were raised.
   await Promise.all([callPermissionToolOnce("first"), callPermissionToolOnce("second")]);
+}
+
+const CHECK_ENV_VAR = process.env.FLYWHEEL_FAKE_CHECK_ENV_VAR;
+if (CHECK_ENV_VAR) {
+  // Never print process.env[CHECK_ENV_VAR] itself — only the boolean equality result. Both
+  // values arrive through the environment (never argv, never stdout), so this comparison proves
+  // env pass-through without ever putting the secret on this process's own stdout.
+  const actual = process.env[CHECK_ENV_VAR];
+  const expected = process.env.FLYWHEEL_FAKE_EXPECT_ENV_VALUE;
+  printLine({ type: "env_check_result", varName: CHECK_ENV_VAR, matches: actual === expected, present: actual !== undefined });
 }
 
 if (STUBBORN) {

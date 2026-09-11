@@ -236,3 +236,78 @@ export interface BlockedSummaryDto {
 export async function blockedSummary(projectId: string): Promise<BlockedSummaryDto> {
   return invokeCommand<BlockedSummaryDto>("board_blocked_summary", { projectId });
 }
+
+/**
+ * One registered project's credential-mode override (D-39, plan 02-09) — mirrors
+ * `commands/settings.rs`'s `ProjectCredentialOverrideDto` field-for-field. `credentialMode` is
+ * `null` when the project has no override ("use the global default").
+ */
+export interface ProjectCredentialOverrideDto {
+  projectId: string;
+  projectName: string;
+  credentialMode: string | null;
+}
+
+/**
+ * The full Settings read (D-39, plan 02-09) — mirrors `commands/settings.rs`'s `SettingsDto`
+ * field-for-field. Never carries the API key value itself, only whether one is configured and
+ * when.
+ */
+export interface SettingsDto {
+  globalCredentialMode: string;
+  projectOverrides: ProjectCredentialOverrideDto[];
+  apiKeyConfigured: boolean;
+  apiKeyConfiguredAt: string | null;
+}
+
+/**
+ * Read the full Settings state (D-39, plan 02-09's mechanism; plan 02-10 renders it). Read-only.
+ * Thin typed wrapper over `settings_get`.
+ */
+export async function getSettings(): Promise<SettingsDto> {
+  return invokeCommand<SettingsDto>("settings_get");
+}
+
+/**
+ * Set the credential mode at either scope (D-39, plan 02-09). `scope` is exactly `"global"` or
+ * `"project"`; `projectId` is required (and only meaningful) for `"project"`. Thin typed wrapper
+ * over `settings_set_credential_mode`.
+ */
+export async function setCredentialMode(
+  scope: "global" | "project",
+  mode: "local" | "api_key",
+  projectId?: string,
+): Promise<void> {
+  await invokeCommand<void>("settings_set_credential_mode", { scope, projectId, mode });
+}
+
+/**
+ * Store the API key in the macOS Keychain (D-39, plan 02-09). Thin typed wrapper over
+ * `settings_store_api_key` — the value never round-trips back out through any command.
+ */
+export async function storeApiKey(value: string): Promise<void> {
+  await invokeCommand<void>("settings_store_api_key", { value });
+}
+
+/**
+ * Clear the stored API key (D-39, plan 02-09). Idempotent. Thin typed wrapper over
+ * `settings_clear_api_key`.
+ */
+export async function clearApiKey(): Promise<void> {
+  await invokeCommand<void>("settings_clear_api_key");
+}
+
+/**
+ * Whether the local `claude` backend binary is resolvable, and its reported version (plan 02-09
+ * Task 3) — mirrors `commands/settings.rs`'s `BackendCapabilityDto` field-for-field. Read-only:
+ * never spawns a session, never touches a credential. Thin typed wrapper over
+ * `backend_capability_probe`.
+ */
+export interface BackendCapabilityDto {
+  available: boolean;
+  version: string | null;
+}
+
+export async function backendCapabilityProbe(): Promise<BackendCapabilityDto> {
+  return invokeCommand<BackendCapabilityDto>("backend_capability_probe");
+}

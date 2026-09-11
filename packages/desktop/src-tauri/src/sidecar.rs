@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use anyhow::Context;
+use rusqlite::Connection;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -25,12 +26,32 @@ use flywheel_core::session_log::SessionLogWriter;
 
 /// One line of the sidecar's stdout protocol: either a normalised agent event, or an
 /// acknowledgement of a request this supervisor sent. Anything else (a malformed line) is logged
-/// and dropped — it can never crash the reader task.
+/// and dropped — it can never crash the reader task. `data` is `None` for every ack except
+/// `capability_probe`'s (D-39, plan 02-09 Task 3) — the only request in this protocol that
+/// carries a response payload beyond plain success/failure.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum SidecarStdoutLine {
     Event { event: serde_json::Value },
-    Ack { id: String, ok: bool, error: Option<String> },
+    Ack {
+        id: String,
+        ok: bool,
+        error: Option<String>,
+        #[serde(default)]
+        data: Option<serde_json::Value>,
+    },
+}
+
+/// Resolve which credential a spawn for `project_id` should use, and the environment additions
+/// the sidecar's spawn request should carry (D-39). Called from `commands::agent_run::
+/// agent_run_start` ONCE per spawn, immediately before the spawn request is built — NEVER cached
+/// on `AppState` or anywhere else (T-02-41): a cached credential would outlive the setting that
+/// produced it, breaking a per-project override the moment a user changes it mid-session. This is
+/// a thin wrapper over `flywheel_core::credentials::resolve_credential` — the actual credential
+/// read happens there, this function exists only so the spawn-request call site in
+/// `commands::agent_run` names a function local to the sidecar-facing module it calls into.
+pub fn resolved_env_for_run(conn: &Connection, project_id: &str) -> anyhow::Result<HashMap<String, String>> {
+    Ok(flywheel_core::credentials::resolve_credential(conn, project_id)?.env)
 }
 
 /// The live sidecar process handle: its child (for kill-on-app-exit), its stdin request sender,
@@ -40,7 +61,12 @@ enum SidecarStdoutLine {
 pub struct SidecarHandle {
     child: Mutex<Option<CommandChild>>,
     writers: Mutex<HashMap<String, SessionLogWriter>>,
-    pending_acks: Mutex<HashMap<String, std::sync::mpsc::Sender<Result<(), String>>>>,
+    /// Every still-outstanding request awaiting its ack, keyed by request `id`. The channel
+    /// carries the ack's `data` payload (a bare `Null` for every request type except
+    /// `capability_probe`, which is the only one with a response beyond plain success/failure) —
+    /// generalised from a plain `Result<(), String>` in plan 02-09 Task 3 so `capability_probe`
+    /// could reuse this exact wait-for-ack mechanism rather than inventing a second one.
+    pending_acks: Mutex<HashMap<String, std::sync::mpsc::Sender<Result<serde_json::Value, String>>>>,
     /// Maps a `permission_requests.id` (the DATABASE row id — the only id the board/renderer
     /// ever sees or names) to the `(run_id, mcp_request_id)` pair `agent_run_answer_permission`
     /// needs to relay a decision back to the SPECIFIC held MCP tool call the sidecar's
@@ -77,7 +103,7 @@ impl SidecarHandle {
     /// finished) shutting down before the domain write lands. The request `id` is `run_id`
     /// itself, matching `agent_run_start`'s own convention (`commands/agent_run.rs`).
     pub fn interrupt_run(&self, run_id: &str) -> anyhow::Result<()> {
-        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<serde_json::Value, String>>();
         {
             let mut pending = self
                 .pending_acks
@@ -95,7 +121,7 @@ impl SidecarHandle {
         }
 
         match rx.recv_timeout(INTERRUPT_ACK_TIMEOUT) {
-            Ok(Ok(())) => Ok(()),
+            Ok(Ok(_data)) => Ok(()),
             Ok(Err(err)) => Err(anyhow::anyhow!("sidecar interrupt request failed: {err}")),
             Err(_) => {
                 // Timed out (or the sender was dropped without ever sending) — clean up the stale
@@ -106,6 +132,48 @@ impl SidecarHandle {
                 }
                 Err(anyhow::anyhow!(
                     "sidecar did not acknowledge the interrupt request for run {run_id:?} within {INTERRUPT_ACK_TIMEOUT:?}"
+                ))
+            }
+        }
+    }
+
+    /// Ask the sidecar to resolve the backend binary it would spawn and report its version
+    /// (D-39, plan 02-09 Task 3). Read-only: never spawns a session, never touches a credential —
+    /// mirrors `interrupt_run`'s own send-then-block-on-ack shape, reusing [`Self::pending_acks`]
+    /// for the wait. Returns `(available, version)`; `version` is `None` whenever `available` is
+    /// `false` or the backend printed no parseable version string.
+    pub fn capability_probe(&self) -> anyhow::Result<(bool, Option<String>)> {
+        let request_id = format!("capability-probe-{}", flywheel_core::ids::new_id());
+        let (tx, rx) = std::sync::mpsc::channel::<Result<serde_json::Value, String>>();
+        {
+            let mut pending = self
+                .pending_acks
+                .lock()
+                .map_err(|_| anyhow::anyhow!("sidecar pending-acks mutex poisoned"))?;
+            pending.insert(request_id.clone(), tx);
+        }
+
+        let request = serde_json::json!({ "id": request_id, "op": "capability_probe" });
+        if let Err(err) = self.send_request(&request.to_string()) {
+            if let Ok(mut pending) = self.pending_acks.lock() {
+                pending.remove(&request_id);
+            }
+            return Err(err);
+        }
+
+        match rx.recv_timeout(INTERRUPT_ACK_TIMEOUT) {
+            Ok(Ok(data)) => {
+                let available = data.get("available").and_then(|v| v.as_bool()).unwrap_or(false);
+                let version = data.get("version").and_then(|v| v.as_str()).map(str::to_string);
+                Ok((available, version))
+            }
+            Ok(Err(err)) => Err(anyhow::anyhow!("sidecar capability probe failed: {err}")),
+            Err(_) => {
+                if let Ok(mut pending) = self.pending_acks.lock() {
+                    pending.remove(&request_id);
+                }
+                Err(anyhow::anyhow!(
+                    "sidecar did not respond to the capability probe within {INTERRUPT_ACK_TIMEOUT:?}"
                 ))
             }
         }
@@ -222,13 +290,13 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                             crate::commands::agent_run::handle_inbound_permission_request(&app_for_reader, &event);
                         }
                     }
-                    Ok(SidecarStdoutLine::Ack { id, ok, error }) => {
+                    Ok(SidecarStdoutLine::Ack { id, ok, error, data }) => {
                         if let Some(state) = app_for_reader.try_state::<crate::state::AppState>() {
                             if let Some(sidecar) = state.sidecar.as_ref() {
                                 if let Ok(mut pending) = sidecar.pending_acks.lock() {
                                     if let Some(sender) = pending.remove(&id) {
                                         let result = if ok {
-                                            Ok(())
+                                            Ok(data.unwrap_or(serde_json::Value::Null))
                                         } else {
                                             Err(error.unwrap_or_else(|| "sidecar request failed".to_string()))
                                         };

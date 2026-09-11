@@ -118,6 +118,11 @@ fn main() {
             commands::agent_run::agent_run_pending_permissions,
             commands::agent_run::task_latest_agent_run,
             commands::agent_run::board_blocked_summary,
+            commands::settings::settings_get,
+            commands::settings::settings_set_credential_mode,
+            commands::settings::settings_store_api_key,
+            commands::settings::settings_clear_api_key,
+            commands::settings::backend_capability_probe,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

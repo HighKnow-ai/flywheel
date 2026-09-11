@@ -13,4 +13,5 @@ pub mod events;
 pub mod issue;
 pub mod menu;
 pub mod project;
+pub mod settings;
 pub mod task;
