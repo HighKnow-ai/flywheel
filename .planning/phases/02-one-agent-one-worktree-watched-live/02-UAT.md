@@ -1,26 +1,18 @@
 ---
-status: partial
+status: testing
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T07:05:37Z
+updated: 2026-09-11T09:54:28Z
 ---
 
 ## Current Test
 
-[testing paused — 4 items outstanding, diverted to gap closure]
-
-Session paused after test 1 surfaced four defects (G-02-1..G-02-4), two of them blocking every
-remaining test. Tests 2-5 were never presented. Resume with `/gsd-verify-work 2` after
-`/gsd-execute-phase 2 --gaps-only`; reconcile_gaps will mark the closed gaps resolved and testing
-restarts from test 1, which has still never run to completion.
-
-Pre-UAT environment repair completed before gap closure (see OBS-01): the project's trunk `main`
-was fast-forwarded from c6bdc79 (README.md only) to b2b9c46 (336 files), and the fleet state built
-against the empty trunk — 3 worktrees, 6 flywheel branches, 3 worktrees rows, 3 agent_runs rows,
-3 cached epic integration branches — was cleared by
-`uat-evidence/reset-empty-trunk-fleet.sh --execute`. Board task statuses were deliberately left
-untouched. DB backup: flywheel.pre-reset-20260911T142247.db
+number: 1
+name: Flat memory over a long real streaming session (PROC-07)
+expected: |
+  RSS stays flat while the persisted log keeps growing on disk.
+awaiting: user response
 
 ## Tests
 
@@ -28,11 +20,14 @@ untouched. DB backup: flywheel.pre-reset-20260911T142247.db
 expected: RSS stays flat while the persisted log keeps growing on disk.
 how: Start a long-running real session on a real task, leave it streaming for several minutes, and watch RSS in Activity Monitor while the transcript grows on disk.
 why_human: Real-process memory behavior over minutes cannot be observed by static analysis; explicitly manual-only per 02-VALIDATION.md. The CR-03 silent-drop defect that previously blocked this truth is now closed and tested — only the flat-RSS observation remains.
-result: issue
-reported: "flywheel/thre-23-cache-the-rank-allocator-6 → flywheel/epic/thre-11-project-registration / /Users/cymarechal/Flywheel/THRE/THRE-23 / failed to write request to the sidecar's stdin"
-severity: blocker
-reported_2: "Session / Failed / 0:00 / — in / — out — one event only: {\"raw\":\"session_closed: failed\",\"reason\":\"failed\",\"runId\":\"01M27HA6NQ6D2GH0QWRX7XKYVJ\",\"seq\":0,\"type\":\"session_closed\"}"
-note: The memory behaviour itself has still never been observed — two successive defects (G-02-1, then G-02-2) stopped Start Work before a session ever streamed. The truth is UNTESTED, not disproved; re-run after both patches are in place.
+result: [pending]
+prior_attempts: |
+  Attempt 1 (2026-09-11) — blocked by G-02-1: "failed to write request to the sidecar's stdin".
+  Attempt 2 (2026-09-11) — blocked by G-02-2: session closed instantly, one event at seq 0.
+  Attempt 3 (2026-09-11) — reached a live session, but the agent had an empty worktree (OBS-01,
+  an operator environment issue since repaired) and the feed was unreadable (G-02-3). Interrupted.
+  All four gaps are now resolved and re-verified, so the flat-memory truth gets its first real run.
+note: The memory behaviour has still never been observed. Three attempts were stopped by defects, not by the truth being false — it is UNTESTED, not disproved. This is the first attempt against fully closed gaps.
 
 ### 2. Permission pause and resume through a real claude process (AGNT-06)
 expected: The real claude process blocks on the MCP tool call and resumes correctly once answered.
@@ -62,8 +57,8 @@ result: [pending]
 
 total: 5
 passed: 0
-issues: 1
-pending: 4
+issues: 0
+pending: 5
 skipped: 0
 blocked: 0
 
@@ -71,7 +66,9 @@ blocked: 0
 
 - gap_id: G-02-1
   truth: "A user can start work on a task and watch a real claude session stream live"
-  status: failed
+  status: resolved
+  resolved_by: 02-15-PLAN.md
+  resolved_at: 2026-09-11
   reason: "User reported: worktree and branch were created (flywheel/thre-23-cache-the-rank-allocator-6 → flywheel/epic/thre-11-project-registration at /Users/cymarechal/Flywheel/THRE/THRE-23), then Start Work failed with 'failed to write request to the sidecar's stdin'"
   severity: blocker
   test: 1
@@ -101,7 +98,9 @@ blocked: 0
 
 - gap_id: G-02-2
   truth: "Start Work spawns a real claude process that streams stream-json events into the session surface"
-  status: failed
+  status: resolved
+  resolved_by: 02-17-PLAN.md
+  resolved_at: 2026-09-11
   reason: "User reported: session surface showed Failed, 0:00, no token counts, and the persisted log contained exactly one line — session_closed with reason failed at seq 0, meaning no stdout line was ever read from the child"
   severity: blocker
   test: 1
@@ -137,7 +136,9 @@ blocked: 0
 
 - gap_id: G-02-3
   truth: "A user can read the live session feed while an agent streams events into it"
-  status: failed
+  status: resolved
+  resolved_by: 02-16-PLAN.md
+  resolved_at: 2026-09-11
   reason: "User reported: 'The design is terrible' with a screenshot of the session surface rendering every feed row on top of the ones below it — dozens of superimposed text layers, entirely unreadable"
   severity: major
   test: 1
@@ -170,7 +171,9 @@ blocked: 0
 
 - gap_id: G-02-4
   truth: "The board is the store of record — a finished agent run is recorded on the board as finished, with its cost and token usage"
-  status: failed
+  status: resolved
+  resolved_by: 02-18-PLAN.md
+  resolved_at: 2026-09-11
   reason: "Two agent_runs rows (01M27H2H55SJ7BMMC1Z0M1WQRV, 01M27HA6NQ6D2GH0QWRX7XKYVJ) still read status=running long after their sessions ended. The second one's own persisted log contains a terminal session_closed event with reason failed. Only the run the user explicitly Stopped reached a terminal status."
   severity: blocker
   test: 1
