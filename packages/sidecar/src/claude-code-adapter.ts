@@ -207,6 +207,12 @@ const CAPABILITIES: AdapterCapabilities = {
  */
 export const STOP_GRACE_MS = 5_000;
 
+/** The cap, in characters, on how much of a child's stderr is retained on {@link LiveSession.stderrTail}
+ * for the terminal event's `detail` (G-02-2). Bounds both the memory one long-running session can
+ * hold and the size of the string that crosses into the persisted log and the renderer — a chatty
+ * child cannot grow this without bound just because it never closes. */
+export const STDERR_DETAIL_MAX_CHARS = 2000;
+
 /** One session's live process-tracking state, keyed by `runId` in {@link liveSessions} — enough
  * for `interruptSession`/`killSession` to find the right child, know whether it already closed
  * (idempotency, D-35), and classify why it closed once it does. */
@@ -226,6 +232,10 @@ interface LiveSession {
   /** The last `result` stream-json line's normalised fields, if any arrived before the process
    * closed — carried on the terminal `session_closed` event when present. */
   lastResult: { subtype: string; totalCostUsd?: number; sessionId?: string } | undefined;
+  /** At most {@link STDERR_DETAIL_MAX_CHARS} characters of the child's own stderr, accumulated as
+   * it is read (G-02-2) — exists so a failed session can say why it failed. Also set directly (to
+   * the spawn error's message) when the child could never be spawned at all. */
+  stderrTail: string;
   onEvent: (event: AgentEvent) => void;
   nextSeq: number;
   /** This run's own permission-prompt MCP server handle (AGNT-06) — started BEFORE `child` is
@@ -250,6 +260,12 @@ function emitSessionClosed(
   if (session.closedEventEmitted) return;
   session.closedEventEmitted = true;
   session.permissionServer.close();
+  // G-02-2: a retained stderr tail (or a spawn error's message, set directly onto the same field)
+  // becomes the terminal event's `detail` — the backend's own explanation of why the session
+  // ended, previously discarded entirely. Omitted, not an empty string, when there is nothing to
+  // show — a session that closed cleanly having written nothing to stderr must not carry a
+  // meaningless `detail: ""`.
+  const trimmedDetail = session.stderrTail.trim();
   session.onEvent({
     runId,
     seq: session.nextSeq++,
@@ -261,6 +277,7 @@ function emitSessionClosed(
     type: "session_closed",
     reason,
     result: session.lastResult,
+    ...(trimmedDetail.length > 0 ? { detail: trimmedDetail } : {}),
   });
 }
 
@@ -340,6 +357,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       closedEventEmitted: false,
       interruptionRequested: false,
       lastResult: undefined,
+      stderrTail: "",
       onEvent: options.onEvent,
       nextSeq: 0,
       permissionServer,
@@ -347,6 +365,31 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     liveSessions.set(options.runId, session);
 
     const rl = createInterface({ input: child.stdout });
+
+    // G-02-2: drain the child's own stderr for the entire lifetime of the session, from the
+    // moment it is spawned, for two reasons. First, the child's own explanation of a refusal was
+    // previously discarded entirely — `spawn()`'s default stdio left stderr an undrained pipe,
+    // which is what turned a one-word CLI argument-validation error into a blind debugging
+    // session. Second, an undrained pipe is a latent blocking hazard in its own right: a child
+    // that ever writes more than the OS pipe buffer holds would stall on its own stderr write.
+    // Each line becomes a `system_notice` on the SAME `onEvent` channel as every stdout-derived
+    // event (D-32's rendering treats it as a muted line, never styled as an error), and is also
+    // retained (capped at `STDERR_DETAIL_MAX_CHARS`) on `session.stderrTail`, which
+    // `emitSessionClosed` carries onto the terminal event as `detail` so a failed spawn can
+    // finally say why. Guarded: a child whose `stderr` is not a readable stream (never true for a
+    // `spawn()` call with default stdio, but not a stream this code otherwise controls) is a
+    // no-op here rather than a throw.
+    if (child.stderr) {
+      const stderrRl = createInterface({ input: child.stderr });
+      stderrRl.on("line", (line: string) => {
+        const at = new Date().toISOString();
+        const seq = session.nextSeq++;
+        options.onEvent({ runId: options.runId, seq, at, raw: line, type: "system_notice", text: line });
+        if (session.stderrTail.length < STDERR_DETAIL_MAX_CHARS) {
+          session.stderrTail += `${line}\n`;
+        }
+      });
+    }
 
     await new Promise<void>((resolve, reject) => {
       rl.on("line", (line: string) => {
@@ -373,6 +416,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       });
 
       child.on("error", (err) => {
+        // The child never produced a process at all, so there is no stderr to have drained — the
+        // spawn error's own message is the closest thing to a stderr tail this session ever gets
+        // (G-02-2), and it still explains itself on the terminal event's `detail`.
+        session.stderrTail = err.message;
         emitSessionClosed(options.runId, session, "failed");
         resolveClosed();
         reject(err);

@@ -141,8 +141,8 @@ function makeToolResult(seq: number, toolName: string, output: unknown) {
   return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `result-${seq}`, type: "tool_result", toolName, output };
 }
 
-function makeSessionClosed(seq: number, reason: string, result?: { subtype: string }) {
-  return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `closed-${seq}`, type: "session_closed", reason, result };
+function makeSessionClosed(seq: number, reason: string, result?: { subtype: string }, detail?: string) {
+  return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `closed-${seq}`, type: "session_closed", reason, result, detail };
 }
 
 const OVERSIZED_EVENT_MARKER = "OVERSIZED-END-MARKER";
@@ -528,6 +528,30 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     await screen.findByText("This run ended in an error. The worktree was left as-is — nothing was lost.");
     expect(screen.getByText("error_during_execution")).toBeInTheDocument();
+  });
+
+  it("renders the terminal event's detail beneath the machine-detail line for a failed run (G-02-2)", async () => {
+    const events = [
+      makeEvent(0),
+      makeSessionClosed(1, "failed", { subtype: "error_during_execution" }, "Error: something went wrong on stderr"),
+    ];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    await screen.findByText("error_during_execution");
+    expect(screen.getByText("Error: something went wrong on stderr")).toBeInTheDocument();
+  });
+
+  it("renders no detail block for a failed run whose terminal event carries none", async () => {
+    const events = [makeEvent(0), makeSessionClosed(1, "failed", { subtype: "error_during_execution" })];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    await screen.findByText("error_during_execution");
+    // Absent, not an empty string — nothing extra renders when the sidecar had nothing to say.
+    expect(screen.queryByTestId("terminal-detail")).not.toBeInTheDocument();
   });
 
   it("renders a plain terminal row for a completed run, with no destructive styling", async () => {

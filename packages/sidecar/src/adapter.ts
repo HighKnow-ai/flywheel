@@ -90,6 +90,13 @@ export interface SessionClosedEvent extends AgentEventBase {
   /** The final `result` stream-json line's normalised fields, when the backend produced one
    * before exiting — absent for a forced stop that never got to emit its own result. */
   result?: { subtype: string; totalCostUsd?: number; sessionId?: string };
+  /** The backend's own explanation of why the session ended (G-02-2) — the child's retained
+   * stderr tail, or a spawn error's message. Present only when there is one to show; a session
+   * that closed cleanly having written nothing to stderr carries no `detail` at all (the field is
+   * absent, never an empty string). NEVER a place a resolved credential or environment value may
+   * appear — the child's own stderr is text produced by a process the user's agent controls, not
+   * a channel this adapter writes secrets onto. */
+  detail?: string;
 }
 
 /**

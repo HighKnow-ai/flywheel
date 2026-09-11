@@ -311,6 +311,10 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
 interface TerminalInfo {
   reason: RunStatus;
   subtype?: string;
+  /** The backend's own explanation of why the session ended (G-02-2) — the sidecar's retained
+   * stderr tail, or a spawn error's message, carried on the terminal event's `detail` field.
+   * Absent, not empty, when there is nothing to show. */
+  detail?: string;
 }
 
 /** The terminal row's own data source (D-35's "exactly one `session_closed` event, ever") — the
@@ -320,11 +324,18 @@ export function findTerminalInfo(entries: Record<string, unknown>[]): TerminalIn
     const event = entries[i];
     if (event.type === "session_closed" && isRunStatus(event.reason)) {
       const result = event.result as { subtype?: string } | undefined;
-      return { reason: event.reason, subtype: result?.subtype };
+      const detail = typeof event.detail === "string" ? event.detail : undefined;
+      return { reason: event.reason, subtype: result?.subtype, detail };
     }
   }
   return undefined;
 }
+
+/** The shared "expanded" sub-block's fixed max height (px) — matches
+ * `FeedRow.tsx`'s own `EXPANDED_SUBBLOCK_MAX_HEIGHT` (G-02-3's containment pattern for a long,
+ * internally-scrolling block), duplicated here rather than imported since `FeedRow.tsx` does not
+ * export it and this module already duplicates `MONO_STACK` the same way. */
+const TERMINAL_DETAIL_MAX_HEIGHT = 240;
 
 const FAILED_RUN_GLOSS = "This run ended in an error. The worktree was left as-is — nothing was lost.";
 
@@ -350,6 +361,23 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
           >
             {info.subtype}
           </p>
+        )}
+        {info.detail && (
+          <div
+            data-testid="terminal-detail"
+            className="type-label"
+            style={{
+              marginTop: "var(--space-xs)",
+              maxHeight: TERMINAL_DETAIL_MAX_HEIGHT,
+              overflowY: "auto",
+              fontFamily: MONO_STACK,
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+              color: "var(--text-muted-rack)",
+            }}
+          >
+            {info.detail}
+          </div>
         )}
       </div>
     );
