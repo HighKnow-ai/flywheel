@@ -833,6 +833,23 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                     &event,
                                 );
                             }
+
+                            // G-02-4: the terminal-event consumer the sidecar's `session_closed`
+                            // event never had. Without this call site, a run that ends on its own
+                            // — completed or failed — stays `running` on the board forever, with
+                            // no end time, no cost and no token counts; only the explicit Stop path
+                            // ever wrote a terminal status. Sits AFTER both the persist call above
+                            // and the renderer emit directly above, so a fault in this database
+                            // write can never delay or suppress the live event the user is
+                            // watching.
+                            if event.get("type").and_then(|v| v.as_str())
+                                == Some("session_closed")
+                            {
+                                crate::commands::agent_run::handle_inbound_session_closed(
+                                    &app_for_reader,
+                                    &event,
+                                );
+                            }
                         }
                         Ok(SidecarStdoutLine::Ack {
                             id,

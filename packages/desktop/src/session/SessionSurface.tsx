@@ -115,9 +115,13 @@ function RunStatusBadge({ status }: { status: RunStatus }) {
 
 /** The most recent numeric value found under any of `fields`, scanning newest-to-oldest — the
  * status strip's own opportunistic extraction (02-UI-SPEC.md "Cost/token status strip"). The
- * sidecar's `cost_update`/`result` events report cost live but do not yet stream live token
- * counts (only `agent_runs.tokens_in`/`tokens_out`, written once at run close) — a caller with no
- * matching field gets `undefined`, rendered as "—" rather than a fabricated zero. */
+ * backend reports token counts and cost as SESSION TOTALS exactly once, on its terminal `result`
+ * event — never accumulated per message (G-02-4's "Token accounting decision") — and carries them
+ * as TOP-LEVEL fields (`inputTokens`/`outputTokens`/`totalCostUsd`) this scan already looks for, so
+ * the counters legitimately read "—" for the duration of a running session and flip to the real
+ * figures the moment the backend reports them; that is correct behaviour under this decision, not
+ * residue of a defect. A caller with no matching field gets `undefined`, rendered as "—" rather
+ * than a fabricated zero. */
 function latestNumericField(entries: Record<string, unknown>[], fields: string[]): number | undefined {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const event = entries[i];

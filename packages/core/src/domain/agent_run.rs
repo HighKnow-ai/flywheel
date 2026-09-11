@@ -1,11 +1,23 @@
-//! `start_agent_run` / `close_agent_run` (D-29, D-30, D-34, DATA-04): the transactional-outbox
-//! write that turns "Start Work" into a trigger row, an `agent_runs` row, and — when the task
-//! isn't already `in_progress` — a task status change attributed to the agent actor, all inside
-//! one transaction.
+//! `start_agent_run` / `close_agent_run` / `apply_session_closed` (D-29, D-30, D-34, DATA-04): the
+//! transactional-outbox write that turns "Start Work" into a trigger row, an `agent_runs` row, and
+//! — when the task isn't already `in_progress` — a task status change attributed to the agent
+//! actor, all inside one transaction.
 //!
 //! Nothing in this module ever moves a task OUT of `in_progress` — that is `close_agent_run`'s
-//! explicit non-behavior, matching this phase's load-bearing prohibition: an agent must never move
-//! a task out of `in_progress` and must never check off its own acceptance criteria.
+//! (and, per G-02-4, `apply_session_closed`'s) explicit non-behavior, matching this phase's
+//! load-bearing prohibition: an agent must never move a task out of `in_progress` and must never
+//! check off its own acceptance criteria. D-29 locks it: "Starting a session moves the task to In
+//! Progress; nothing ever moves it out." This is stated a second time here — deliberately —
+//! because an earlier revision of `02-UAT.md`'s own impact note read this the other way round,
+//! naming that transition as `close_agent_run`'s responsibility. That reading is backwards; this
+//! doc comment and D-29 are the authoritative statement, not that note.
+//!
+//! `apply_session_closed` (G-02-4) is the terminal-event applier — the missing link between the
+//! sidecar's `session_closed` event and the run's row. `close_agent_run` was always correct and
+//! thoroughly unit-tested; what was missing was a caller. `apply_session_closed` is that caller,
+//! and it also owns the idempotency decision D-35's explicit-Stop path requires: a terminal event
+//! must never overwrite a status `interrupt_agent_run` already wrote, and must never append a
+//! second terminal event for the same run.
 
 use anyhow::Context;
 use chrono::Utc;
@@ -14,7 +26,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use crate::domain::event::{append_event, next_sequence};
 use crate::domain::trigger::create_user_action_trigger;
 use crate::domain::worktree::ensure_worktree;
-use crate::ids::new_id;
+use crate::ids::{is_ulid, new_id};
 use crate::session_log::session_log_path;
 
 /// One `agent_runs` row, as read back immediately after [`start_agent_run`] commits.
@@ -255,6 +267,117 @@ pub fn close_agent_run(
 
     tx.commit().context("failed to commit close_agent_run transaction")?;
     Ok(())
+}
+
+/// What handling one `session_closed` event did to the run's row (G-02-4). Kept as an enum return
+/// value — mirroring `commands::agent_run::PermissionRequestOutcome`'s own reasoning — so this
+/// decision is unit-testable against a bare `Connection` without a real spawned sidecar.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SessionClosedOutcome {
+    /// The run reached this terminal status for the first time — `close_agent_run` was called and
+    /// exactly one terminal event was appended.
+    Closed(AgentRunStatus),
+    /// The run was already in a terminal status and the event carried no figure the row was
+    /// missing — nothing was written at all.
+    AlreadyTerminal,
+    /// The run was already in a terminal status, but the event carried at least one figure (cost
+    /// or a token count) an empty column was missing — that figure alone was backfilled. The
+    /// status and end time were left exactly as they were, and no second terminal event was
+    /// appended.
+    BackfilledTerminal,
+    /// The event's run id is a well-formed identifier but matches no `agent_runs` row.
+    UnknownRun,
+    /// The event was not a terminal `session_closed` event, or its run id was absent/malformed, or
+    /// its `reason` did not map to a known status — nothing was read and nothing was written.
+    Ignored,
+}
+
+/// Apply one sidecar `session_closed` event to the run's row (G-02-4) — the production caller
+/// `close_agent_run` never had. This is the missing link: the sidecar has always emitted this
+/// event and the reader loop has always persisted and forwarded it, but nothing ever mapped it
+/// onto `agent_runs` until this function existed.
+///
+/// `close_agent_run`'s own body and signature are UNCHANGED by this function's existence — it is
+/// correct, documented and thoroughly unit-tested, and what was missing was a caller, not a change
+/// to its contract. The idempotency guard against overwriting an explicit Stop lives here, in the
+/// new caller, rather than inside `close_agent_run` itself, so a proven contract is not modified
+/// for a concern that belongs to its caller.
+///
+/// Never moves `tasks.status` — same as `close_agent_run`, per D-29 and this module's own doc
+/// comment above.
+pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) -> anyhow::Result<SessionClosedOutcome> {
+    if event.get("type").and_then(|v| v.as_str()) != Some("session_closed") {
+        return Ok(SessionClosedOutcome::Ignored);
+    }
+
+    let Some(run_id) = event.get("runId").and_then(|v| v.as_str()) else {
+        return Ok(SessionClosedOutcome::Ignored);
+    };
+    // Reject a malformed run id BEFORE any database statement is issued (T-02G-18-01) — a run id
+    // read off a sidecar stdout line is exactly as trusted as any other value crossing that
+    // process boundary, never more.
+    if !is_ulid(run_id) {
+        return Ok(SessionClosedOutcome::Ignored);
+    }
+
+    // Map the event's own reason vocabulary to a status. Any value this adapter did not name is
+    // ignored outright — never guess a default (G-02-4's own explicit instruction).
+    let status = match event.get("reason").and_then(|v| v.as_str()) {
+        Some("completed") => AgentRunStatus::Completed,
+        Some("failed") => AgentRunStatus::Failed,
+        Some("interrupted") => AgentRunStatus::Interrupted,
+        _ => return Ok(SessionClosedOutcome::Ignored),
+    };
+
+    // A missing figure stays absent and is never coerced to zero (T-02G-18-04) — the sidecar's own
+    // `ResultEvent`/`SessionClosedEvent.result` contract (packages/sidecar/src/adapter.ts).
+    let result = event.get("result");
+    let cost_usd = result.and_then(|r| r.get("totalCostUsd")).and_then(serde_json::Value::as_f64);
+    let tokens_in = result.and_then(|r| r.get("inputTokens")).and_then(serde_json::Value::as_i64);
+    let tokens_out = result.and_then(|r| r.get("outputTokens")).and_then(serde_json::Value::as_i64);
+
+    let existing: Option<(String, Option<f64>, Option<i64>, Option<i64>)> = conn
+        .query_row(
+            "SELECT status, cost_usd, tokens_in, tokens_out FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .context("failed to read agent_runs row before applying session_closed")?;
+
+    let Some((current_status, current_cost, current_tokens_in, current_tokens_out)) = existing else {
+        return Ok(SessionClosedOutcome::UnknownRun);
+    };
+
+    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted") {
+        // `interrupt_agent_run` has already recorded the user's explicit Stop (D-35) — the
+        // terminal event for that same run arrives afterwards. Overwriting the status or end time
+        // here would both destroy the user-initiated outcome and append a second terminal event
+        // (T-02G-18-02, T-02G-18-03) — but the cost the run actually incurred is still worth
+        // recording, so an empty column is backfilled, and only an empty column, when the event
+        // carries a figure for it.
+        let backfill_cost = current_cost.is_none() && cost_usd.is_some();
+        let backfill_tokens_in = current_tokens_in.is_none() && tokens_in.is_some();
+        let backfill_tokens_out = current_tokens_out.is_none() && tokens_out.is_some();
+
+        if !backfill_cost && !backfill_tokens_in && !backfill_tokens_out {
+            return Ok(SessionClosedOutcome::AlreadyTerminal);
+        }
+
+        conn.execute(
+            "UPDATE agent_runs SET
+                cost_usd = COALESCE(cost_usd, ?1),
+                tokens_in = COALESCE(tokens_in, ?2),
+                tokens_out = COALESCE(tokens_out, ?3)
+             WHERE id = ?4",
+            params![cost_usd, tokens_in, tokens_out, run_id],
+        )
+        .context("failed to backfill terminal agent_runs figures")?;
+        return Ok(SessionClosedOutcome::BackfilledTerminal);
+    }
+
+    close_agent_run(conn, run_id, status, cost_usd, tokens_in, tokens_out)?;
+    Ok(SessionClosedOutcome::Closed(status))
 }
 
 /// Move a run to `blocked` (AGNT-06, D-37) inside the CALLER'S transaction — never opens its own.

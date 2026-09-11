@@ -19,6 +19,13 @@
 //! their DB-only logic into a plain, Tauri-free function (`process_inbound_permission_request`/
 //! `answer_permission_request`) so the decision logic is unit-testable without a real spawned
 //! sidecar process, mirroring `build_preview_dto`'s own reasoning.
+//!
+//! `handle_inbound_session_closed` (G-02-4) follows the exact same split for the terminal path: a
+//! `session_closed` event arriving on `sidecar.rs`'s reader loop is handled by this Tauri-facing
+//! half, which calls straight through to the DB-only
+//! `flywheel_core::domain::agent_run::apply_session_closed` — the production caller
+//! `close_agent_run` never had. This is the call site whose absence was gap G-02-4: a run that
+//! ends on its own — completed or failed — previously stayed `running` on the board forever.
 
 use std::io::{BufRead, BufReader};
 
@@ -479,6 +486,40 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
             );
         }
         PermissionRequestOutcome::UnknownRun => {}
+    }
+}
+
+/// The Tauri-facing half of the terminal-event path (G-02-4) — called from `sidecar.rs`'s reader
+/// loop for every `session_closed` event, mirroring [`handle_inbound_permission_request`]'s own
+/// split: the DB-only decision (`flywheel_core::domain::agent_run::apply_session_closed`) stays
+/// testable without a real spawned sidecar, and this half performs the IPC-adjacent side effect
+/// (the `board:changed` emit) the outcome implies.
+///
+/// This function must never panic — no `expect`, no `unwrap`, no direct indexing (T-02G-18-05): a
+/// malformed event, a poisoned lock, or an error from the applier is a silent no-op here, matching
+/// `sidecar.rs`'s own "a malformed line never crashes the reader task" discipline. No per-run fault
+/// on this path may ever disturb the shared reader loop that calls it.
+pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let Ok(mut conn) = state.db.lock() else { return };
+
+    let outcome = match flywheel_core::domain::agent_run::apply_session_closed(&mut conn, event) {
+        Ok(outcome) => outcome,
+        Err(_) => return,
+    };
+    drop(conn);
+
+    let run_id = event.get("runId").and_then(|v| v.as_str());
+    let changed = matches!(
+        outcome,
+        flywheel_core::domain::agent_run::SessionClosedOutcome::Closed(_)
+            | flywheel_core::domain::agent_run::SessionClosedOutcome::BackfilledTerminal
+    );
+    if let (true, Some(run_id)) = (changed, run_id) {
+        let _ = app.emit(
+            "board:changed",
+            serde_json::json!({ "entity": "agent_run", "id": run_id }),
+        );
     }
 }
 
