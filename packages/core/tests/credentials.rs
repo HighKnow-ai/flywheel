@@ -350,6 +350,21 @@ fn resolve_credential_in_local_mode_returns_an_empty_environment() {
 
 #[test]
 fn resolve_credential_falls_back_to_the_global_default_without_a_project_override() {
+    // This test READS the real Keychain — `resolve_credential` in api_key mode does — so it needs
+    // the same two protections every other Keychain-touching test in this file already takes, and
+    // was the one place they were missed. It looks like a pure database test and is not one.
+    //
+    // Without them it asserted an unstated precondition about the DEVELOPER'S MACHINE: "no key is
+    // stored". That held until a human stored a key through the product's own Settings surface
+    // (Phase 02 UAT test 5, 2026-09-11T10:24:01Z), after which `cargo test` failed 3/3 on a
+    // machine whose code was correct. A suite that breaks because someone used the product is
+    // reporting on the environment, not the code.
+    skip_unless_keychain_accessible!();
+    let _guard = KeychainRestoreGuard::capture();
+    // ESTABLISH the precondition rather than assuming it. The guard above restores whatever was
+    // here — including a real operator key — when this test returns, whatever its outcome.
+    let _ = real_entry().delete_credential();
+
     let (mut conn, actor_id, project) = common::seeded_project();
     settings::set_global_credential_mode(&mut conn, &actor_id, "api_key").unwrap();
     // No project override set — the resolver must fall back to the global default, which is now

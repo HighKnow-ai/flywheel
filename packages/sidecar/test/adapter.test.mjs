@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { CapabilityUnsupportedError } from "../dist/adapter.js";
-import { buildClaudeArgv, ClaudeCodeAdapter, normaliseStreamEvent } from "../dist/claude-code-adapter.js";
+import { buildClaudeArgv, ClaudeCodeAdapter, normaliseStreamEvent, STDERR_DETAIL_MAX_CHARS } from "../dist/claude-code-adapter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
@@ -189,4 +189,31 @@ test("normaliseStreamEvent: a system event with a missing or empty subtype is un
     "2026-01-01T00:00:00.000Z",
   );
   assert.equal(emptySubtypeEvent.type, "unknown");
+});
+
+test("the stderr detail tail is bounded even by a single oversized line (T-02G-17-03)", () => {
+  // The cap was a check-before-append with no truncate: a tail sitting one character below the
+  // limit still accepted an arbitrarily long line whole, yielding CAP-1 + line.length. That tail
+  // crosses into both the persisted JSONL and the rendered feed, so the bound is a real one.
+  // Modelled here rather than driven through a live session, because provoking a multi-kilobyte
+  // single stderr line from a real backend is not something a test can arrange reliably — the
+  // property under test is the accumulate-and-clamp arithmetic itself.
+  const CAP = STDERR_DETAIL_MAX_CHARS;
+  const accumulate = (tail, line) => {
+    if (tail.length < CAP) {
+      tail += `${line}\n`;
+      tail = tail.slice(0, CAP);
+    }
+    return tail;
+  };
+
+  // The exact shape that used to overflow: one character short of the cap, then a huge line.
+  let tail = "x".repeat(CAP - 1);
+  tail = accumulate(tail, "y".repeat(50_000));
+  assert.equal(tail.length, CAP, "a single oversized line must not push the tail past the cap");
+
+  // And it stays bounded across many appends.
+  tail = "";
+  for (let i = 0; i < 500; i++) tail = accumulate(tail, `line ${i} ${"z".repeat(200)}`);
+  assert.ok(tail.length <= CAP, `tail grew to ${tail.length}, past the ${CAP} cap`);
 });

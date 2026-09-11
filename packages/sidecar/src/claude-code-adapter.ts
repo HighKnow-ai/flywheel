@@ -454,7 +454,13 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         const seq = session.nextSeq++;
         options.onEvent({ runId: options.runId, seq, at, raw: line, type: "system_notice", text: line });
         if (session.stderrTail.length < STDERR_DETAIL_MAX_CHARS) {
+          // Append THEN truncate (T-02G-17-03). A check-before-append alone does not bound the
+          // field: one arbitrarily long line arriving while the tail sits at CAP-1 yields
+          // CAP-1 + line.length, and this tail crosses into both the persisted JSONL and the
+          // renderer. The Rust reader loop's own stderr arm (sidecar.rs) already does it this
+          // way; the two sides now agree.
           session.stderrTail += `${line}\n`;
+          session.stderrTail = session.stderrTail.slice(0, STDERR_DETAIL_MAX_CHARS);
         }
       });
     }

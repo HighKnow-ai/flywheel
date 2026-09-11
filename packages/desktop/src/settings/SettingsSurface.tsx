@@ -61,6 +61,28 @@ const BACKEND_CAPABILITY_QUERY_KEY = ["backend-capability"] as const;
 
 /** The exact copy from 02-UI-SPEC.md's Copywriting Contract ("Settings — CLI not detected
  * notice") — never a hard error, since the API-key path remains fully usable regardless. */
+/** T-02-42 clause 1 (D-39). The threat's declared mitigation is conjoined: the API-key override
+ * assumption (A1) is measured and its outcome recorded, AND "if the override cannot be confirmed
+ * the Settings surface carries a notice rather than the product assuming it worked."
+ *
+ * A1 was never confirmed — measuring it needs a spend-authorized key alongside a live subscription
+ * session, which no environment available to this project has had (02-09-SUMMARY.md "What could
+ * NOT be measured"; 02-UAT.md test 3's open_question). The conditional therefore fired, and this
+ * string is its consequence.
+ *
+ * Why it is not cosmetic: clause 2 (error rather than silent fallback, credentials.rs) only covers
+ * api_key mode with NO key stored. The harm this threat names is the opposite configuration —
+ * BOTH credentials present — where resolve_credential succeeds, ANTHROPIC_API_KEY is set, and the
+ * control reads "API Key". If the environment variable does not in fact win over a live
+ * `claude login` session, Flywheel bills the subscription while displaying API Key. Saying so is
+ * the mitigation; silence is the threat.
+ *
+ * Delete this only when precedence has been MEASURED, not when it is assumed. */
+const API_KEY_PRECEDENCE_NOTICE =
+  "Unverified: if you are also signed in with the claude CLI, we have not confirmed which " +
+  "credential the backend actually uses. Sign out of the CLI to be certain this key is the one " +
+  "being billed.";
+
 const BACKEND_UNAVAILABLE_NOTICE =
   "Local credentials require the claude CLI, which wasn't found. The API key path still works.";
 
@@ -304,6 +326,16 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
               {backendUnavailable && (
                 <p role="status" className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
                   {BACKEND_UNAVAILABLE_NOTICE}
+                </p>
+              )}
+              {settings.globalCredentialMode === "api_key" && (
+                <p
+                  role="status"
+                  data-testid="api-key-precedence-notice"
+                  className="type-label"
+                  style={{ margin: 0, color: "var(--text-muted-rack)" }}
+                >
+                  {API_KEY_PRECEDENCE_NOTICE}
                 </p>
               )}
               {settings.globalCredentialMode === "api_key" && <ApiKeyField settings={settings} />}

@@ -157,6 +157,29 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     expect(screen.queryByRole("button", { name: /show/i })).not.toBeInTheDocument();
   });
 
+  it("API Key mode carries the unverified-precedence notice (T-02-42)", async () => {
+    // The threat's declared mitigation is conjoined: measure the override assumption AND, if it
+    // cannot be confirmed, say so here. It was never confirmed — no environment available to this
+    // project has had a spend-authorized key alongside a live subscription session — so the
+    // conditional fired and this notice IS the mitigation. Asserted on content, not on the exact
+    // sentence, so rewording the copy does not fail the test but deleting the warning does.
+    getSettingsMock.mockResolvedValue(settingsFixture({ globalCredentialMode: "api_key" }));
+    renderSettings();
+
+    const notice = await screen.findByTestId("api-key-precedence-notice");
+    expect(notice).toHaveTextContent(/unverified/i);
+    expect(notice).toHaveTextContent(/claude cli/i);
+    expect(notice).toHaveAttribute("role", "status");
+  });
+
+  it("Local mode carries no precedence notice — it applies only to the API-key path (T-02-42)", async () => {
+    getSettingsMock.mockResolvedValue(settingsFixture({ globalCredentialMode: "local" }));
+    renderSettings();
+
+    await screen.findByRole("radio", { name: "Local Claude Code Credentials" });
+    expect(screen.queryByTestId("api-key-precedence-notice")).not.toBeInTheDocument();
+  });
+
   it("saving a key clears the input and shows the configured-on copy with a Replace action", async () => {
     getSettingsMock
       .mockResolvedValueOnce(settingsFixture({ globalCredentialMode: "api_key" }))
