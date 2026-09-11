@@ -3,15 +3,15 @@ status: testing
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T10:08:03Z
+updated: 2026-09-11T10:14:05Z
 ---
 
 ## Current Test
 
-number: 2
-name: Permission pause and resume through a real claude process (AGNT-06)
+number: 3
+name: Credential parity between local session and explicit API key (AGNT-03 / AGNT-04)
 expected: |
-  The real claude process blocks on the MCP tool call and resumes correctly once answered.
+  No behavioral difference between the two credential paths; the key is present only in the child's environment.
 awaiting: user response
 
 ## Tests
@@ -64,7 +64,18 @@ note: The memory behaviour has still never been observed. Three attempts were st
 expected: The real claude process blocks on the MCP tool call and resumes correctly once answered.
 how: Press Start Work on a task whose work needs a permission decision; confirm the board surfaces the request, the agent is genuinely blocked, and answering resumes the same turn rather than restarting it.
 why_human: Crosses the renderer and a real spawned claude process. Note the recorded caveat — Claude Code's own bash safety heuristic was empirically found to bypass a configured --permission-prompt-tool for commands it judges read-only, even in --permission-mode default, which bears directly on whether this holds for all tool calls.
-result: [pending]
+result: pass
+how_exercised: |
+  Run started with the permission mode switched from the sheet's default (Accept Edits, which
+  auto-approves edits and would never reach the gate) to "Ask Every Time", with an instruction
+  forcing a file write rather than a bash command — deliberately avoiding the recorded bash
+  safety-heuristic caveat, which bypasses the configured --permission-prompt-tool for commands
+  Claude Code judges read-only.
+caveat_status: |
+  The bash safety-heuristic caveat is NOT disproved by this pass and remains open. This test
+  exercised the gate through a WRITE tool call; whether the gate holds for every bash command in
+  default mode was not established here, and the caveat stays recorded against AGNT-06 for a
+  future round.
 
 ### 3. Credential parity between local session and explicit API key (AGNT-03 / AGNT-04)
 expected: No behavioral difference between the two credential paths; the key is present only in the child's environment.
@@ -87,9 +98,9 @@ result: [pending]
 ## Summary
 
 total: 5
-passed: 1
+passed: 2
 issues: 0
-pending: 4
+pending: 3
 skipped: 0
 blocked: 0
 
