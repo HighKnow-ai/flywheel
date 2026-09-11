@@ -1,399 +1,231 @@
 ---
 phase: 02-one-agent-one-worktree-watched-live
-reviewed: 2026-09-11T00:00:00Z
+reviewed: 2026-09-11T05:31:11Z
 depth: standard
-files_reviewed: 81
+files_reviewed: 14
 files_reviewed_list:
-  - packages/core/src/branch.rs
-  - packages/core/src/context_packet.rs
-  - packages/core/src/credentials.rs
-  - packages/core/src/db/migrations/0003_agent_runtime.sql
-  - packages/core/src/db/migrations/0004_permission_gate.sql
-  - packages/core/src/db/migrations/0005_credentials.sql
-  - packages/core/src/db/mod.rs
-  - packages/core/src/domain/agent_run.rs
-  - packages/core/src/domain/mod.rs
-  - packages/core/src/domain/permission_request.rs
-  - packages/core/src/domain/permission_rule.rs
-  - packages/core/src/domain/settings.rs
-  - packages/core/src/domain/trigger.rs
-  - packages/core/src/domain/worktree.rs
-  - packages/core/src/git.rs
-  - packages/core/src/lib.rs
-  - packages/core/src/query/agent_runs.rs
-  - packages/core/src/query/mod.rs
-  - packages/core/src/query/permissions.rs
+  - packages/core/src/domain/task.rs
   - packages/core/src/session_log.rs
-  - packages/core/tests/agent_tracer.rs
-  - packages/core/tests/branch_naming.rs
-  - packages/core/tests/context_packet.rs
-  - packages/core/tests/credentials.rs
-  - packages/core/tests/permission_gate.rs
-  - packages/core/tests/session_log_window.rs
-  - packages/core/tests/stop_lifecycle.rs
-  - packages/core/tests/supervisor_cwd.rs
-  - packages/core/tests/worktree_lifecycle.rs
-  - packages/desktop/src-tauri/Cargo.toml
-  - packages/desktop/src-tauri/capabilities/default.json
+  - packages/core/tests/app_exit_ordering.rs
+  - packages/core/tests/task_delete_with_run_history.rs
   - packages/desktop/src-tauri/src/commands/agent_run.rs
-  - packages/desktop/src-tauri/src/commands/settings.rs
+  - packages/desktop/src-tauri/src/commands/task.rs
   - packages/desktop/src-tauri/src/main.rs
-  - packages/desktop/src-tauri/src/menu.rs
   - packages/desktop/src-tauri/src/sidecar.rs
-  - packages/desktop/src-tauri/src/state.rs
-  - packages/desktop/src/App.tsx
   - packages/desktop/src/adapters/tauri.ts
-  - packages/desktop/src/board/BoardRow.tsx
-  - packages/desktop/src/board/BoardView.tsx
-  - packages/desktop/src/board/CommandPalette.tsx
-  - packages/desktop/src/board/__tests__/blocked-indicator.test.tsx
-  - packages/desktop/src/board/__tests__/epic-roster.test.tsx
-  - packages/desktop/src/board/__tests__/filter.test.tsx
-  - packages/desktop/src/board/__tests__/workflow.test.tsx
-  - packages/desktop/src/board/useBoardQuery.ts
-  - packages/desktop/src/item-detail/ItemDetailPanel.tsx
-  - packages/desktop/src/item-detail/RunsSection.tsx
-  - packages/desktop/src/item-detail/WorktreeSummary.tsx
-  - packages/desktop/src/item-detail/__tests__/runs-section.test.tsx
-  - packages/desktop/src/item-detail/__tests__/worktree-summary.test.tsx
-  - packages/desktop/src/launch-sheet/LaunchSheet.tsx
-  - packages/desktop/src/launch-sheet/__tests__/launch-sheet.test.tsx
-  - packages/desktop/src/legend/Legend.tsx
-  - packages/desktop/src/legend/__tests__/legend.test.tsx
-  - packages/desktop/src/legend/marks.ts
-  - packages/desktop/src/projects/ProjectRail.tsx
-  - packages/desktop/src/session/FeedRow.tsx
-  - packages/desktop/src/session/PermissionRequestCard.tsx
-  - packages/desktop/src/session/RawLogView.tsx
-  - packages/desktop/src/session/SessionSurface.tsx
-  - packages/desktop/src/session/__tests__/permission-card.test.tsx
   - packages/desktop/src/session/__tests__/session-surface.test.tsx
-  - packages/desktop/src/settings/PermissionRulesTable.tsx
-  - packages/desktop/src/settings/SettingsSurface.tsx
-  - packages/desktop/src/settings/__tests__/settings-surface.test.tsx
-  - packages/desktop/src/state/__tests__/keyboard-agent.test.ts
-  - packages/desktop/src/state/keyboard.ts
-  - packages/desktop/src/state/uiStore.ts
-  - packages/desktop/src/styles/motion.css
-  - packages/desktop/src/styles/tokens.css
-  - packages/desktop/src/theme/__tests__/contrast.test.ts
-  - packages/desktop/src/theme/tokens.ts
-  - packages/desktop/vitest.config.ts
-  - packages/sidecar/package.json
-  - packages/sidecar/src/adapter.ts
+  - packages/desktop/src/session/SessionSurface.tsx
   - packages/sidecar/src/claude-code-adapter.ts
   - packages/sidecar/src/index.ts
-  - packages/sidecar/src/mcp-permission-server.ts
-  - packages/sidecar/test/adapter.test.mjs
-  - packages/sidecar/test/credentials.test.mjs
-  - packages/sidecar/test/fake-claude.mjs
-  - packages/sidecar/test/permission.test.mjs
-  - packages/sidecar/test/stop.test.mjs
+  - packages/sidecar/test/shutdown.test.mjs
 findings:
-  critical: 4
-  warning: 2
-  info: 0
-  total: 6
+  critical: 1
+  warning: 1
+  info: 1
+  total: 3
 status: issues_found
 ---
 
-# Phase 02: Code Review Report
+# Phase 02: Code Review Report (gap-closure round)
 
-**Reviewed:** 2026-09-11T00:00:00Z
+**Reviewed:** 2026-09-11T05:31:11Z
 **Depth:** standard
-**Files Reviewed:** 81
+**Files Reviewed:** 14
 **Status:** issues_found
 
 ## Summary
 
-This phase wires up real agent-process supervision: spawning `claude` via a Node sidecar,
-persisting session logs, gating tool calls on a human permission decision, and resolving
-credentials from the macOS Keychain. The credential boundary (`credentials.rs`,
-`domain/settings.rs`) and the once-only permission-answer transition
-(`domain/permission_request.rs`) are both careful, well-tested, and match their documented
-invariants — I could not break either one. The sidecar's own process-group interrupt/kill
-mechanics (`claude-code-adapter.ts`) are real and covered by a genuine multi-process test suite
-(`stop.test.mjs`).
+This is a re-review of the incremental scope from plans `02-11`..`02-14`, which set out to close
+the four Criticals (`CR-01`..`CR-04`) and one Warning (`WR-01`) the prior review found. Three of
+the four Criticals, and the Warning, are genuinely and verifiably closed — I could not reopen them:
 
-However, four defects sit exactly where this review was asked to look hardest — process
-lifecycle/orphan risk, and the permission/stop hold-release path — plus one migration-driven
-regression in existing task-deletion behavior that this phase's own schema changes broke without
-any accompanying fix or test. All four are provable from the code as written, not speculative.
+- **CR-01 (task deletion FK regression):** closed. `delete_task` now runs four bound `COUNT(*)`
+  probes inside its transaction and `anyhow::bail!`s with a human sentence naming the blocking
+  count before ever reaching `DELETE FROM tasks`, so SQLite's raw constraint error is structurally
+  unreachable. `task_delete_with_run_history.rs` proves the block for a task with agent-run
+  history, proves an unblocked delete still works for a task with none, and proves no `FOREIGN
+  KEY` substring ever reaches the caller either way.
+- **CR-02 (orphaned `claude` processes on app exit):** closed, and unusually well-proven.
+  `shutdown_all_sessions` is called before `kill()` (enforced by a source-scanning gate,
+  `app_exit_ordering.rs`, that also proves the gate is falsifiable against a reordered/missing/
+  commented-out fixture), it only ever signals process groups the sidecar's own `liveSessions` map
+  already tracks (never a pid taken off the wire), and `shutdown.test.mjs` drives the real compiled
+  sidecar binary as a child process and proves real OS-level grandchild processes are gone via
+  `process.kill(pid, 0)` throwing `ESRCH` — the strongest kind of evidence for this class of claim.
+- **CR-03 (one run's log-open panic killing the shared reader loop):** closed.
+  `SessionLogWriter::open`'s failure is now routed through `persist_event_line` into a
+  `PersistOutcome` value, never an `.expect()`; `is_plausible_run_id` rejects a malformed run id
+  before any path is built; a failed open is retried (not cached) on the next event for the same
+  run; the user-facing notice is a fixed, outcome-shaped phrase that never carries the resolved
+  session-log path. `sidecar.rs`'s own `persist_tests` module proves run B's events keep flowing
+  while run A's log stays permanently unopenable, and that a rejected run id never touches the
+  filesystem at all.
+- **WR-01 (unguarded initial SIGINT racing process exit):** closed — `interruptSession`'s SIGINT
+  call is now wrapped in the identical `try { ... } catch { /* already exited */ }` shape the
+  SIGTERM escalation already used.
+
+**CR-04, however, is only half-closed.** The domain write itself is now genuinely
+unreachable-proof — `stop_agent_run_recording_first` captures the interrupt outcome in a local and
+always reaches the terminal DB write regardless — and this is well covered by both Rust unit tests
+and the renderer's own `session-surface.test.tsx` suite. But the plan's refactor introduced a new
+regression while fixing the old one: `agent_run_stop` now acquires the application's single shared
+`Mutex<Connection>` *before* invoking the (up to 30-second-blocking) interrupt call, where the
+pre-fix code acquired it *after*. The practical effect is that every other command in the
+application — board reads, task creation, every other agent run's interactions — blocks for up to
+30 seconds behind one Stop click against an unresponsive sidecar. This is exactly the scenario
+CR-04 was written to make graceful, and the fix makes it worse in a different dimension: instead of
+one run's board tile disagreeing with reality, the entire app freezes for the same window. See
+CR-01 (fresh numbering) below.
 
 ## Critical Issues
 
-### CR-01: Task deletion now fails once a task has ever had an agent run (new NOT NULL FKs, no orphaning path)
+### CR-01: `agent_run_stop` holds the application's single DB mutex for up to 30 seconds while waiting on an unresponsive sidecar — freezing every other command, not just this run's
 
-**File:** `packages/core/src/db/migrations/0003_agent_runtime.sql:31-59`, `packages/core/src/db/migrations/0004_permission_gate.sql:34-46`
+**File:** `packages/desktop/src-tauri/src/commands/agent_run.rs:315-341` (the lock), `:274-301`
+(the blocking call it wraps), `packages/desktop/src-tauri/src/state.rs:16` (`pub db:
+Mutex<Connection>`, the one connection every command handler locks).
 
-**Issue:** This phase adds four tables with `NOT NULL ... REFERENCES tasks(id)` columns and no
-`ON DELETE` clause (SQLite's implicit default is `NO ACTION`): `triggers.target_task_id`,
-`worktrees.task_id`, `agent_runs.task_id`, and `permission_requests.task_id`. `apply_pragmas`
-(`db/mod.rs:56`) turns on `PRAGMA foreign_keys = ON` for every connection.
-
-The existing `domain::task::delete_task` (not itself in this phase's file list, but broken by
-these migrations) already has a documented fix for exactly this class of problem — `issues.task_id`
-is a nullable FK, so `delete_task` sets it to `NULL` before deleting the task row (its own comment
-cites this as "CR-01" from a prior phase). It does the same for `acceptance_criteria` by deleting
-them outright. It does **not** do either for `triggers`/`worktrees`/`agent_runs`/
-`permission_requests`, because those tables did not exist when `delete_task` was written — and
-none of the plans in this phase's file list touched `delete_task` to catch up.
-
-Concretely: once a task has ever had "Start Work" clicked on it (creating rows in `triggers`,
-`worktrees`, `agent_runs`, and possibly `permission_requests`), calling `task_delete` will run
-`DELETE FROM tasks WHERE id = ?1` inside a transaction, SQLite will reject it with a raw
-"FOREIGN KEY constraint failed" error (these FKs are `NOT NULL`, so there is no "orphan by setting
-NULL" option even if the code tried), the transaction rolls back, and the delete silently fails —
-surfaced to the renderer as an opaque `e.to_string()` message via
-`commands/task.rs::task_delete`. This is a real regression in shipped functionality (task
-deletion), not a new-feature gap, and it is completely untested: no test in `packages/core/tests/`
-deletes a task that has ever had a worktree/agent_run/trigger row (`hierarchy_workflow.rs` only
-covers the pre-existing `issues.task_id` case).
-
-**Fix:** Either forbid deleting a task with any non-terminal or any agent run history (a clear,
-user-facing error rather than a raw SQLite constraint failure), or decide the real product
-behavior — e.g. delete `agent_runs`/`triggers`/`permission_requests` rows for the task (they are
-historical/append-only, so cascading their deletion loses audit trail) or block deletion outright
-once `worktrees` has a row for the task (matching D-23's "one worktree per task, ever" framing).
-Whichever is chosen, add a migration-level `ON DELETE` clause or an explicit pre-delete cleanup in
-`delete_task`, and add a test that starts an agent run against a task and then deletes it.
-
-```sql
--- one option: block cascading loss of audit trail, but let the schema express the decision
--- instead of leaving it as an accidental raw SQLite error
-CREATE TABLE agent_runs (
-    ...
-    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT, -- explicit, not implicit NO ACTION
-    ...
-);
-```
-
----
-
-### CR-02: App exit does not kill in-flight agent sessions — orphaned `claude` processes survive Flywheel closing
-
-**File:** `packages/desktop/src-tauri/src/sidecar.rs:224-232`, `packages/desktop/src-tauri/src/main.rs:137-148`, `packages/sidecar/src/claude-code-adapter.ts:316-322`
-
-**Issue:** `main.rs`'s `RunEvent::Exit` handler calls `SidecarHandle::kill()`, whose own doc
-comment claims this kills "the sidecar's own process (and, by extension, every child session it
-was driving)". That claim is false. `SidecarHandle::kill()` calls
-`tauri_plugin_shell::process::CommandChild::kill()`, which (verified against
-`tauri-plugin-shell` 2.3.6's vendored source, `process/mod.rs:78`) calls
-`SharedChild::kill()` — a signal to that **one** process only, not its process group and not its
-descendants.
-
-Every individual `claude` session the sidecar drives is spawned in `claude-code-adapter.ts`'s
-`startSession` with `detached: true` specifically so it becomes its own process-group leader
-(the comment there correctly explains this is needed so `interruptSession`/`killSession` can
-signal "the whole group, never just this one PID"). The same property that makes an *explicit*
-Stop work correctly also means these sessions are **not** killed by, and do not belong to, the
-sidecar's own process group — killing the sidecar process does nothing to them.
-
-Net effect: if the user quits Flywheel (Cmd+Q, closing the window, or the OS terminating the app)
-while any agent run is still `running`, that `claude` process keeps running indefinitely after the
-app is gone — no supervisor left alive to interrupt it, no UI showing it, still writing to the
-developer's worktree and consuming API credit. This is exactly the orphan-risk failure mode
-`CLAUDE.md`'s own architecture notes name as a hard requirement ("killing orphans... at the
-OS-process-tree level"), and there is no test anywhere in this phase (`stop.test.mjs`,
-`stop_lifecycle.rs`) that exercises the app-exit path — every existing test only covers the
-explicit interrupt/kill request path.
-
-**Fix:** On `RunEvent::Exit`, before (or instead of) killing the sidecar's own process, send the
-sidecar a `kill`-all-sessions instruction (or a new op) and wait briefly for it to signal every
-live session's process group, e.g.:
+**Issue:** `agent_run_stop` now does this:
 
 ```rust
-// main.rs
-if let tauri::RunEvent::Exit = event {
-    if let Some(state) = app_handle.try_state::<AppState>() {
-        if let Some(sidecar) = state.sidecar.as_ref() {
-            sidecar.kill_all_sessions_and_wait(); // new: iterate liveSessions, SIGTERM each group
-            sidecar.kill();
+pub fn agent_run_stop(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_id: String,
+) -> Result<AgentRunStopDto, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;   // <-- global lock acquired FIRST
+
+    let sidecar = state.sidecar.as_ref();
+    let run_id_for_interrupt = agent_run_id.clone();
+    let interrupt = move || -> Result<(), String> {
+        match sidecar {
+            Some(sidecar) => sidecar.interrupt_run(&run_id_for_interrupt).map_err(|e| e.to_string()),
+            None => Ok(()),
         }
-    }
-}
-```
-```ts
-// index.ts — a new op, or handle "kill" without a runId to mean "all"
-case "shutdown": {
-  await Promise.all([...liveSessions.keys()].map((runId) => adapter.killSession(runId)));
-  emitAck(request.id, true);
-  return;
-}
-```
+    };
 
----
-
-### CR-03: A single session-log write failure permanently kills the sidecar's entire event/ack pipeline, for every run
-
-**File:** `packages/desktop/src-tauri/src/sidecar.rs:272-278`
-
-**Issue:**
-```rust
-if let Ok(mut writers) = sidecar.writers.lock() {
-    let writer = writers.entry(run_id.clone()).or_insert_with(|| {
-        SessionLogWriter::open(&run_id)
-            .expect("failed to open session log writer for run")
-    });
-    let _ = writer.append_event_line(&event_line);
-}
-```
-This runs inside the single, shared `while let Some(event) = rx.recv().await` loop
-(`spawn_sidecar`, line ~256) that is the **only** place stdout from the sidecar process is ever
-read — every normalised agent event, every `Ack` (for `spawn`/`interrupt`/`permission_answer`/
-`capability_probe`), for every run this sidecar drives, flows through this one loop.
-
-`SessionLogWriter::open` can fail for ordinary, non-exotic reasons: disk full, the app-data
-directory becoming unwritable, a permissions problem, or (on Windows) another process holding the
-file. When it does, `.expect(...)` panics. This is a `tauri::async_runtime::spawn`ed task with no
-`.await`/join anywhere on its `JoinHandle` and no restart logic — a panic here unwinds and
-terminates *this one task*, silently (the panic message goes to stderr, which is suppressed in a
-release Windows build per `main.rs:1`'s `windows_subsystem = "windows"` attribute, and is easy to
-miss even on macOS). From that moment, `rx.recv().await` is never polled again: no further stdout
-line from the sidecar — for *any* run, not just the one whose log file failed to open — is ever
-processed again for the lifetime of the app session.
-
-This directly compounds the permission-hold-and-stop path this review was asked to scrutinize: any
-`agent_run_answer_permission` after this point still writes the database (its own transaction
-never depended on the reader task), but the outbound relay depends on `SidecarHandle::send_request`
-succeeding — which still works — while the sidecar's own resolution and the eventual
-`session_closed`/`permission_request` events for it are never observed, and any `interrupt_run`
-call (see CR-04) will always time out because its ack can never arrive.
-
-**Fix:** Never let one run's I/O failure take down the shared reader loop. Fall back rather than
-panic, and keep going:
-
-```rust
-let writer = writers.entry(run_id.clone()).or_insert_with(|| {
-    match SessionLogWriter::open(&run_id) {
-        Ok(w) => w,
-        Err(err) => {
-            eprintln!("failed to open session log writer for run {run_id}: {err:#}");
-            // fall back to a null/no-op writer, or `continue` this iteration entirely,
-            // rather than panicking the one shared reader task for every run.
-        }
-    }
-});
-```
-
----
-
-### CR-04: `agent_run_stop` has no recovery path when the sidecar never acknowledges an interrupt — a run can get stuck `running`/`blocked` forever
-
-**File:** `packages/desktop/src-tauri/src/commands/agent_run.rs:253-273`
-
-**Issue:**
-```rust
-pub fn agent_run_stop(state: State<AppState>, app: AppHandle, agent_run_id: String) -> Result<(), String> {
-    if let Some(sidecar) = state.sidecar.as_ref() {
-        sidecar.interrupt_run(&agent_run_id).map_err(|e| e.to_string())?;   // <-- early return on Err
-    }
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let dto = stop_agent_run_recording_first(&mut conn, &agent_run_id, interrupt)?;
+    drop(conn);
     ...
-    flywheel_core::domain::agent_run::interrupt_agent_run(&mut conn, &agent_run_id, &human_actor_id)
-        .map_err(|e| e.to_string())?;
-    ...
-}
 ```
-`interrupt_run` blocks for up to `INTERRUPT_ACK_TIMEOUT` (30s) waiting for the sidecar's ack. If
-the sidecar's reader task has died (CR-03), the sidecar process has crashed, or it is simply wedged,
-this call returns `Err` and the `?` above means `domain::agent_run::interrupt_agent_run` — the only
-code path in this codebase that ever writes a run to a terminal `interrupted` status — is **never
-called**. The database row is left exactly as it was (`running` or `blocked`), the board keeps
-showing an active/blocked task indefinitely, and the only user-facing recourse is to press Stop
-again, which repeats the same 30-second timeout with the same outcome. There is no other command in
-this file, or anywhere else reviewed, that can force a run's status to a terminal state once the
-sidecar side is unresponsive.
 
-This is precisely the failure mode called out for special attention: "a call that is never
-released, or one released without an answer." A stuck sidecar leaves the database and the UI
-permanently disagreeing with reality, with no escape hatch.
-
-**Fix:** Decouple the domain write from the sidecar ack outcome. On a timeout/error from
-`interrupt_run`, still record the run as interrupted (the user unambiguously asked to stop it) and
-surface the sidecar failure as a secondary warning, rather than gating the DB write on the ack:
+and `stop_agent_run_recording_first` calls the `interrupt` closure as its very first statement:
 
 ```rust
-pub fn agent_run_stop(state: State<AppState>, app: AppHandle, agent_run_id: String) -> Result<(), String> {
-    let sidecar_result = state.sidecar.as_ref().map(|s| s.interrupt_run(&agent_run_id));
+pub(crate) fn stop_agent_run_recording_first(
+    conn: &mut Connection,
+    agent_run_id: &str,
+    interrupt: impl FnOnce() -> Result<(), String>,
+) -> Result<AgentRunStopDto, String> {
+    let interrupt_result = interrupt();   // <-- blocks up to INTERRUPT_ACK_TIMEOUT (30s), while `conn`'s MutexGuard is already held
+    ...
+```
+
+`interrupt()` calls `SidecarHandle::interrupt_run`, which blocks on `rx.recv_timeout(INTERRUPT_ACK_TIMEOUT)` — 30 seconds — before giving up. `state.db` is a plain `std::sync::Mutex<Connection>` (`state.rs:16`), and it is the *only* connection in the process: every other `#[tauri::command]` in this codebase (`task.rs`, the rest of `agent_run.rs`, `board.rs`, `epic.rs`, `settings.rs`, …) opens with `state.db.lock()` before doing anything else. Tauri dispatches commands on a thread pool, so these are genuinely concurrent callers competing for the same OS mutex.
+
+Net effect: the moment a user clicks Stop on a run whose sidecar is wedged, crashed, or simply slow to ack — precisely the failure mode CR-04 was written to make graceful — every other window of the app (the board, task creation, every other task's item detail panel, every other agent run's Stop/permission-answer button) hangs for up to 30 seconds, because they are all blocked acquiring `state.db.lock()` behind this one call. This is a strictly worse outcome for the exact scenario CR-04 targets: the previous (pre-fix) code called `interrupt_run` **before** acquiring the DB lock (see the prior review's own CR-04 quote: `sidecar.interrupt_run(&agent_run_id)...?; let mut conn = state.db.lock()...`), so a wedged sidecar only affected the one Stop call, not the whole app. The gap-closure refactor, in restructuring the function so the DB write is unconditional, moved the lock acquisition earlier than it needs to be.
+
+None of the added tests catch this: `stop_agent_run_recording_first`'s own unit tests
+(`agent_run.rs:1334-1395`) call it directly against a bare `Connection`, never through
+`AppState`'s `Mutex`, so the lock-contention regression is invisible to them; the renderer's
+`session-surface.test.tsx` mocks the Tauri command boundary entirely.
+
+**Fix:** Call the interrupt request *before* acquiring the DB lock — the closure captures
+`state.sidecar`, not `conn`, so nothing about it actually needs the lock held:
+
+```rust
+#[tauri::command]
+pub fn agent_run_stop(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_id: String,
+) -> Result<AgentRunStopDto, String> {
+    // Run the (potentially 30s-blocking) interrupt request BEFORE ever touching the shared DB
+    // mutex, so a wedged sidecar only ever delays THIS command, never every other command in the
+    // app racing on the same `Mutex<Connection>`.
+    let interrupt_result = match state.sidecar.as_ref() {
+        Some(sidecar) => sidecar.interrupt_run(&agent_run_id).map_err(|e| e.to_string()),
+        None => Ok(()),
+    };
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::agent_run::interrupt_agent_run(&mut conn, &agent_run_id, &human_actor_id)
-        .map_err(|e| e.to_string())?;
+    let dto = record_stop_outcome(&mut conn, &agent_run_id, interrupt_result)?;
     drop(conn);
 
     app.emit("board:changed", serde_json::json!({ "entity": "agent_run", "id": agent_run_id })).ok();
-
-    // Surface the sidecar-side failure without leaving the run stuck.
-    if let Some(Err(err)) = sidecar_result {
-        return Err(format!("the process may not have fully stopped: {err}"));
-    }
-    Ok(())
+    Ok(dto)
 }
 ```
+
+with `stop_agent_run_recording_first` correspondingly changed to accept the already-resolved
+`Result<(), String>` (or keep the closure shape but call it strictly before the lock is taken at
+every call site, including the test helpers, so the shape itself cannot be misused this way again).
 
 ## Warnings
 
-### WR-01: `interruptSession`'s initial SIGINT is not guarded against the same exit race its own SIGTERM escalation is
+### WR-01: `delete_task`'s blocking-deletion message can read as self-contradictory when only `triggers`/`permission_requests` rows exist with zero `agent_runs`
 
-**File:** `packages/sidecar/src/claude-code-adapter.ts:382-403`
+**File:** `packages/core/src/domain/task.rs:277-290`
 
-**Issue:** The SIGTERM escalation step is wrapped defensively:
-```ts
-if (!session.closedEventEmitted && session.child.pid !== undefined) {
-  try {
-    process.kill(-session.child.pid, "SIGTERM");
-  } catch {
-    // Exited in the gap between the grace window elapsing and this signal — nothing to do.
-  }
-}
-```
-but the first SIGINT a few lines earlier is not:
-```ts
-session.interruptionRequested = true;
-const pid = session.child.pid;
-process.kill(-pid, "SIGINT");   // no try/catch
-```
-If the child process exits naturally in the gap between the `session.closedEventEmitted` check
-(line 385) and this call, `process.kill(-pid, ...)` throws `ESRCH` synchronously. Because
-`interruptSession` is `async`, this becomes a rejected promise. `index.ts`'s `case "interrupt"`
-does catch it (`emitAck(request.id, false, String(err))`), so the sidecar process itself survives,
-but the Rust side receives a spurious interrupt *failure* for a run that in fact completed
-successfully on its own — exactly the race D-35's idempotency contract is supposed to make
-invisible to the caller.
+**Issue:** The message is built as:
 
-**Fix:** Wrap the SIGINT call the same way the SIGTERM escalation already is:
-```ts
-try {
-  process.kill(-pid, "SIGINT");
-} catch {
-  // Exited in the gap between the closedEventEmitted check and this call — treat as already closed.
-}
+```rust
+let run_word = if agent_run_count == 1 { "run" } else { "runs" };
+...
+anyhow::bail!(
+    "Cannot delete this task: it has {agent_run_count} recorded agent {run_word} \
+     {worktree_clause}. ..."
+);
 ```
 
-### WR-02: `worktree_add`'s pre-flight existence check is a TOCTOU gap, not an atomic guarantee
+This is gated on `trigger_count > 0 || worktree_count > 0 || agent_run_count > 0 ||
+permission_request_count > 0` — any one of the four alone is enough to block the delete — but the
+message always names `agent_run_count`. `start_agent_run` (`domain/agent_run.rs:89-127`) calls
+`ensure_worktree` *before* opening its own transaction that inserts the `triggers` and
+`agent_runs` rows together; if that transaction fails for any reason after the worktree already
+committed (e.g. the task row disappearing between the two steps), a task could end up with
+`worktree_count > 0` and `agent_run_count == 0`. In that state the user sees "Cannot delete this
+task: it has 0 recorded agent runs and a worktree exists for it," which reads as contradictory
+(the count says "nothing blocks you" while the sentence still refuses). No test in
+`task_delete_with_run_history.rs` exercises this partial-history shape — both tests there create
+either full history (trigger + worktree + agent_run + permission_request together) or none at all.
 
-**File:** `packages/core/src/git.rs:83-110` (via `packages/core/src/domain/worktree.rs:130-135`)
+**Fix:** Either name whichever count is actually nonzero (worktree/trigger/permission count as a
+fallback when `agent_run_count == 0`), or phrase the message in terms of "has been started" rather
+than a specific number that can legitimately be zero while still blocking:
 
-**Issue:** `ensure_worktree` checks `worktree_path.exists()` and bails with a descriptive error if
-a stale directory is found with no matching `worktrees` row, then separately calls
-`git::worktree_add`. Between that check and the actual `git worktree add` invocation there is a
-window (however small, in a single-user desktop app) where another process — or a second
-concurrent `ensure_worktree` call racing on the same task, since the existence check in
-`worktree_for_task` also happens outside any transaction — could create the path first. `git
-worktree add` would then fail with its own (different, less specific) error, or in a worse case
-partially populate a worktree the code believes doesn't exist yet. Given this is a single local
-desktop app with one shared `Mutex<Connection>` serializing all command handlers, the practical
-exposure is low, but it's worth calling out since the review explicitly asked for scrutiny of path
-handling around worktree creation.
+```rust
+let reason = if agent_run_count > 0 {
+    format!("it has {agent_run_count} recorded agent {run_word}")
+} else if worktree_count > 0 {
+    "a worktree has been created for it".to_string()
+} else {
+    "work has been started on it".to_string()
+};
+anyhow::bail!("Cannot delete this task: {reason}. ...");
+```
 
-**Fix:** Not urgent given the current single-process, single-connection architecture, but worth a
-short comment acknowledging the gap is accepted, or moving the existence check to just before the
-`git worktree add` call inside the same critical section that already serializes on `state.db`.
+## Info
+
+### IN-01: `stop_agent_run_recording_first` surfaces a generic `rusqlite` "no rows" error for an `agent_run_id` the caller invented
+
+**File:** `packages/desktop/src-tauri/src/commands/agent_run.rs:274-301`
+
+**Issue:** `interrupt_agent_run` treats an unknown `agent_run_id` as a silent no-op (`domain/
+agent_run.rs:310-313`: `existing` is `None` → commit and return `Ok(())`). `stop_agent_run_
+recording_first` then unconditionally runs `SELECT status FROM agent_runs WHERE id = ?1` and
+propagates `rusqlite::Error::QueryReturnedNoRows`'s generic message ("Query returned no rows") to
+the renderer via `.map_err(|e| e.to_string())?` — rather than a message naming the actual problem
+("no such agent run"). Low practical impact (the renderer never invents an id itself), but it's an
+easy, cheap improvement given the rest of this file's discipline around naming rejected values in
+its error strings (`validate_permission_mode`, `validate_instruction`, `db_decision_for`).
+
+**Fix:** Check for the row's existence explicitly and return a named error before running the
+`status` read, mirroring `domain::task::update_task`'s `with_context(|| format!("task {task_id:?}
+not found"))` idiom elsewhere in this codebase.
 
 ---
 
-_Reviewed: 2026-09-11T00:00:00Z_
+_Reviewed: 2026-09-11T05:31:11Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
