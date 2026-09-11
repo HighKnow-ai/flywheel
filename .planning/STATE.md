@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: "Completed 02-15-PLAN.md (gap closure: G-02-1)"
-last_updated: "2026-09-11T08:59:46.396Z"
+stopped_at: "Completed 02-16-PLAN.md (gap closure: G-02-3)"
+last_updated: "2026-09-11T09:12:33.257Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 02 execution started
-state_head: efd500f6e01ae1a9b4f92421c27be0128bd57508
+state_head: cfbce5ba605416b83c12c6e9d4c6893fe055033a
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 39
-  completed_plans: 36
+  completed_plans: 37
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 6 of 14
+Plan: 7 of 14
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 02 execution started
 
@@ -94,6 +94,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P12 | 35min | 3 tasks | 4 files |
 | Phase 02 P14 | 25min | 3 tasks | 6 files |
 | Phase 02 P15 | 45min | 3 tasks | 5 files |
+| Phase 02 P16 | 35min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -145,6 +146,7 @@ Recent decisions affecting current work:
 - [Phase 02]: [Phase 02] CR-02 closed: the sidecar shutdown op (plus SIGTERM/stdin-EOF fallback nets) tears down every live session's process group, and main.rs's RunEvent::Exit now calls it before kill(), machine-verified by a source-order gate. — Every claude session is spawned detached:true precisely so it becomes its own process-group leader, independent of the sidecar's group -- killing only the sidecar (kill()) can never reach it, so an explicit shutdown-then-kill ordering is the only correct sequence.
 - [Phase 02]: [Phase 02] G-02-1 closed: the dev sidecar stub now walks up from its own symlink-resolved physical directory for the packages/sidecar/dist marker instead of a fixed parent-hop count, and spawn_sidecar performs a bounded ping readiness handshake (reading the spawn receiver directly, before AppState/pending_acks exists) before returning Ok, so an immediately-dying sidecar aborts startup naming its own exit status and stderr instead of surfacing later as a stdin write failure.
 - [Phase 02]: [Phase 02] ping is a distinct sidecar op from capability_probe: ping asks only whether the sidecar process itself is alive and speaking its own protocol (no side effect, no backend dependency), while capability_probe spawns the user's claude binary and must never gate application startup.
+- [Phase 02]: Collapsed body-row text is JS-sliced to FEED_ROW_TRUNCATION_THRESHOLD, not just CSS-clipped — jsdom keeps the full DOM text node under text-overflow:ellipsis, contradicting the plan's own Task 3 assertion that oversized marker text is absent before expanding; JS slicing also avoids rendering multi-kilobyte strings into the DOM purely to hide them with CSS.
 
 ### Pending Todos
 
@@ -176,6 +178,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-11T08:59:46.334Z
-Stopped at: Completed 02-15-PLAN.md (gap closure: G-02-1)
+Last session: 2026-09-11T09:12:32.955Z
+Stopped at: Completed 02-16-PLAN.md (gap closure: G-02-3)
 Resume file: None
