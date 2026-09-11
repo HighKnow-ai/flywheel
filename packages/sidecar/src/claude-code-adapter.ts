@@ -99,6 +99,14 @@ export function buildClaudeArgv(options: {
     options.prompt,
     "--output-format",
     "stream-json",
+    // MANDATORY alongside `-p --output-format stream-json` — not a debugging nicety (G-02-2).
+    // Claude Code rejects the combination at argument validation with "When using --print,
+    // --output-format=stream-json requires --verbose", exits 1 before emitting a single line,
+    // and writes that reason to stderr, which this adapter does not read. The result was a
+    // session that closed instantly with a bare `session_closed: failed` and no diagnosis.
+    // Verified against claude 2.1.236: identical argv fails exit 1 without this flag and
+    // streams stream-json with it.
+    "--verbose",
     "--permission-mode",
     options.permissionMode,
   ];
