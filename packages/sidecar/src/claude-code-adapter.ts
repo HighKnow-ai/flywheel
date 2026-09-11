@@ -387,7 +387,17 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     session.interruptionRequested = true;
     const pid = session.child.pid;
     // Negative pid: signal the whole process group, never just this one PID (RESEARCH.md Pitfall 3).
-    process.kill(-pid, "SIGINT");
+    // Guarded exactly like the SIGTERM escalation below (WR-01): the child can exit in the gap
+    // between the closedEventEmitted check above and this call, which throws ESRCH synchronously
+    // and would otherwise surface to the Rust side as a spurious interrupt FAILURE for a run that
+    // in fact completed successfully on its own. `interruptionRequested` is already set above, so
+    // the close handler still reports "interrupted" rather than "completed" when the signal did
+    // land in time.
+    try {
+      process.kill(-pid, "SIGINT");
+    } catch {
+      // Exited in the gap between the liveness check and this signal — nothing to do.
+    }
 
     const exitedInTime = await raceClosed(session, STOP_GRACE_MS);
     if (exitedInTime) return;

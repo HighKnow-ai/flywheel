@@ -50,12 +50,21 @@ interface CapabilityProbeRequest {
   op: "capability_probe";
 }
 
+/** CR-02, plan 02-14: tear down every live session this sidecar is driving. Carries no `runId` —
+ * mirroring {@link CapabilityProbeRequest}'s shape, and for the same reason: it names no single
+ * run. The ack's `data` carries `{ killed: <count> }`. */
+interface ShutdownRequest {
+  id: string;
+  op: "shutdown";
+}
+
 type SidecarRequest =
   | SpawnRequest
   | InterruptRequest
   | KillRequest
   | PermissionAnswerRequest
-  | CapabilityProbeRequest;
+  | CapabilityProbeRequest
+  | ShutdownRequest;
 
 /** One `claude_code` adapter instance drives every run this sidecar process hosts — PROC-01's
  * one-OS-process-per-session holds because each `startSession` spawns its own child, while the
@@ -65,6 +74,40 @@ const adapter = new ClaudeCodeAdapter();
 /** Live in-flight sessions this sidecar is driving, keyed by `runId` — the `Map<runId, session>`
  * the sidecar-shape research names. */
 const sessions = new Map<string, Promise<void>>();
+
+/**
+ * How long {@link shutdownAllSessions} waits for each session's teardown before moving on, in
+ * milliseconds (CR-02, plan 02-14). The Rust supervisor is blocked on this call's ack during
+ * application exit, so a session that refuses to die must not make the product unquittable —
+ * this value is deliberately BELOW the Rust side's own `SHUTDOWN_ACK_TIMEOUT`
+ * (`packages/desktop/src-tauri/src/sidecar.rs`) so the ack normally arrives before the supervisor
+ * gives up on it.
+ */
+const SHUTDOWN_SESSION_GRACE_MS = 2000;
+
+/**
+ * Tear down every live session this sidecar is driving (CR-02, PROC-01) — the handler for an
+ * explicit `shutdown` request, and the body of both fallback nets in {@link main}. Snapshots the
+ * live run ids BEFORE iterating so a session that finishes and removes itself from `sessions`
+ * mid-call cannot change what this invocation reports. `killSession` sends its process-group
+ * signal SYNCHRONOUSLY, before its own first `await` — so racing every call against the grace
+ * timer together via `Promise.all` signals every session before any single one of them is done
+ * waiting, never "signal one, wait, signal next". A rejection from an unknown or already-closed
+ * run id is swallowed per-run so it can never abort the remaining sessions' teardown. Resolves
+ * successfully with `0` and never waits when there are no live sessions.
+ */
+async function shutdownAllSessions(): Promise<number> {
+  const runIds = [...sessions.keys()];
+  await Promise.all(
+    runIds.map((runId) =>
+      Promise.race([
+        adapter.killSession(runId).catch(() => undefined),
+        new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_SESSION_GRACE_MS)),
+      ]),
+    ),
+  );
+  return runIds.length;
+}
 
 function writeLine(payload: unknown): void {
   process.stdout.write(JSON.stringify(payload) + "\n");
@@ -150,6 +193,17 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       }
       return;
     }
+    case "shutdown": {
+      // CR-02, plan 02-14: the Rust core sends this BEFORE it kills the sidecar's own process,
+      // so every live session's process group is signalled while something can still reach them.
+      try {
+        const killed = await shutdownAllSessions();
+        emitAck(request.id, true, undefined, { killed });
+      } catch (err: unknown) {
+        emitAck(request.id, false, String(err));
+      }
+      return;
+    }
     default: {
       const unknownRequest = request as { id?: string };
       emitAck(unknownRequest.id ?? "unknown", false, "unrecognised op");
@@ -169,6 +223,22 @@ function main(): void {
       return;
     }
     void handleRequest(request);
+  });
+
+  // Fallback net 1 (CR-02): a polite SIGTERM still tears down every live session's process group
+  // before this sidecar itself exits. This can never help against a SIGKILL — which is what
+  // tauri-plugin-shell's CommandChild::kill() sends on Unix — so it is a belt on top of the
+  // explicit `shutdown` request above, which the Rust core sends BEFORE that kill, never a
+  // replacement for it.
+  process.on("SIGTERM", () => {
+    void shutdownAllSessions().then(() => process.exit(0));
+  });
+
+  // Fallback net 2 (CR-02): the Rust side's stdin pipe closing is this sidecar's only other
+  // signal that its supervisor is gone. Same caveat as the SIGTERM net above — a SIGKILL bypasses
+  // this entirely too.
+  rl.on("close", () => {
+    void shutdownAllSessions();
   });
 }
 
