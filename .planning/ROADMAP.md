@@ -190,7 +190,7 @@ actor identity extends to multi-remote without migration.
   4. User stops a running session and finds the worktree intact and inspectable, then starts a second session on that same worktree — the worktree outlives the session.
   5. User sees the worktree, the agent run and the session as distinct linked records on the task, each started through a trigger record, and can point Flywheel at either his existing local Claude Code credentials or an explicit API key with nothing else in the product behaving differently.
 
-**Plans**: 6/10 plans executed in 8 waves
+**Plans**: 7/10 plans executed in 8 waves
 **UI hint**: yes
 
 Plans:
@@ -222,7 +222,7 @@ Plans:
 **Wave 7** *(blocked on Wave 6 completion)*
 
 - [ ] 02-08-PLAN.md — The records on the task: the worktree summary and the runs list, with one way into the session surface
-- [ ] 02-09-PLAN.md — The credential boundary: Keychain-backed API key, per-project override, resolved once per spawn, proven parity
+- [x] 02-09-PLAN.md — The credential boundary: Keychain-backed API key, per-project override, resolved once per spawn, proven parity
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
@@ -548,7 +548,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
-| 2. One Agent, One Worktree, Watched Live | 6/10 | In Progress|  |
+| 2. One Agent, One Worktree, Watched Live | 7/10 | In Progress|  |
 | 3. Nothing Lost, Nothing Left Running | 0/TBD | Not started | - |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |

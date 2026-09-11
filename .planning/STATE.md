@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: Completed 02-06-PLAN.md
-last_updated: "2026-09-11T00:19:17.018Z"
+stopped_at: Completed 02-09-PLAN.md
+last_updated: "2026-09-11T01:02:33.566Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 02 execution started
-state_head: 5a8916d21aabc0e650041bc4296554e6426f3c87
+state_head: 6542b2b200616650548dc30d8b99cc9dcb0a913c
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 31
-  completed_plans: 27
+  completed_plans: 28
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 7 of 10
+Plan: 8 of 10
 Status: Ready to execute
 Last activity: 2026-09-10 — Phase 02 execution started
 
@@ -85,6 +85,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P04 | 70min | 3 tasks | 15 files |
 | Phase 02 P05 | 100min | 3 tasks | 22 files |
 | Phase 02 P06 | 50min | 3 tasks | 20 files |
+| Phase 02 P09 | 100min | 3 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,10 @@ Recent decisions affecting current work:
 - [Phase 02]: Assumption A2 empirical spike found the installed claude CLI (2.1.236) applies its own built-in bash-command safety classification before ever consulting a configured --permission-prompt-tool, for at least read-only/safe-looking commands, even in --permission-mode default. Flagged as a Phase 3 input, not resolved this plan.
 - [Phase 02]: pending_requests_for_run reads ALL pending permission_requests rows for a run, not just the latest, since two concurrent MCP tool calls can each raise their own pending row (02-05's D4). — The card's own E3 zero-one-many resolution promises to stack every pending request, which the existing LIMIT-1 lookup could not satisfy.
 - [Phase 02]: useRegionBindings added to state/keyboard.ts as the region-scoped sibling of useGlobalBindings — the permission card's a/d/Shift+A shortcuts resolve through it, keeping the card's own file free of any local key or dismissal handler (T-02-16). — A component with a structural zero-key-handler requirement needs the window listener to live outside its own file.
+- [Phase 02]: [Phase 02]: A global-scope credential-mode change writes no events row (events.project_id is NOT NULL and a global setting has no natural project stream); settings.updated_by/updated_at is its own audit record instead. Per-project override changes append a real project-scoped event.
+- [Phase 02]: [Phase 02]: agent_run_start now resolves the run's credential BEFORE start_agent_run creates the run/worktree, so an api_key-mode resolution failure never leaves an orphaned running agent_runs row with nothing spawned.
+- [Phase 02]: [Phase 02]: keyring is added with its default features kept ON (v1 required to compile at all) plus apple-native-keyring-store explicitly enabled, not default-features=false as first attempted.
+- [Phase 02]: [Phase 02]: Assumption A1 (does ANTHROPIC_API_KEY reliably override a present subscription session) could not be measured this session — no spend-authorized real API key was available; recorded as a Phase 3 input, matching the plan's own accepted fallback.
 
 ### Pending Todos
 
@@ -148,6 +153,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-11T00:19:16.965Z
-Stopped at: Completed 02-06-PLAN.md
+Last session: 2026-09-11T01:02:33.510Z
+Stopped at: Completed 02-09-PLAN.md
 Resume file: None
