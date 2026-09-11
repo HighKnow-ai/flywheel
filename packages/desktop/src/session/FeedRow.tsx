@@ -58,6 +58,12 @@ function stringifyPayload(value: unknown): string {
   }
 }
 
+/** The shared "expanded" sub-block's fixed max height (px) — the SAME value `ToolCallRow`'s own
+ * expanded payload block already used before this task, now named so the body-row presentation
+ * component below can share it rather than duplicating the literal. Still a constant: the block's
+ * own internal scroll is what absorbs a long payload, never the row's own reserved slot. */
+const EXPANDED_SUBBLOCK_MAX_HEIGHT = 240;
+
 function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowData, { kind: "tool_call" }>; expanded: boolean; onToggleExpand: () => void }) {
   const target = toolCallTarget(row.input);
   return (
@@ -96,7 +102,7 @@ function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowDa
           style={{
             marginTop: "var(--space-xs)",
             marginLeft: "var(--space-md)",
-            maxHeight: 240,
+            maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT,
             overflowY: "auto",
             fontFamily: MONO_STACK,
             whiteSpace: "pre-wrap",
@@ -122,37 +128,162 @@ function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowDa
   );
 }
 
+/** The character count above which a text row is considered to have more to show than one
+ * collapsed line can hold (G-02-3, Task 2). This is a PRESENTATION threshold — it decides only
+ * whether a disclosure control is OFFERED. It never affects any row's height: `feedRowEstimateSize`
+ * below still returns one of exactly two constants, so the fixed-size virtualization contract
+ * (02-UI-SPEC.md "Performance Contract Additions") is untouched by this value. */
+export const FEED_ROW_TRUNCATION_THRESHOLD = 120;
+
+/** The text a given expandable row kind carries, for length-based expandability — `undefined` for
+ * `tool_call`, whose expandability is unconditional (see `isRowExpandable` below) and does not
+ * depend on any text length. */
+function expandableRowText(row: FeedRowData): string | undefined {
+  switch (row.kind) {
+    case "assistant_text":
+    case "system_notice":
+      return row.text;
+    case "raw":
+      return row.raw;
+    default:
+      return undefined;
+  }
+}
+
+/** Whether a row offers a disclosure control at all — a PURE function of the row's own data,
+ * deterministic and never a measurement of the rendered DOM (the distinction 02-UI-SPEC.md's
+ * Performance Contract Additions requires). `tool_call` is always expandable, unchanged from
+ * before this task: expanding it reveals its input/output payload, not "more of one line".
+ * `assistant_text`, `system_notice` and `raw` are expandable only when their own text exceeds
+ * `FEED_ROW_TRUNCATION_THRESHOLD` — a short row offers no control and cannot be expanded. */
+export function isRowExpandable(row: FeedRowData): boolean {
+  if (row.kind === "tool_call") return true;
+  const text = expandableRowText(row);
+  return typeof text === "string" && text.length > FEED_ROW_TRUNCATION_THRESHOLD;
+}
+
+/** The shared presentation for every body row kind that is plain text (`assistant_text`,
+ * `system_notice`, `raw`) — D-32's "assistant text as prose" stays true under the G-02-3 clamp by
+ * making that prose expandable rather than permanently one ellipsised line. Collapsed: the text on
+ * one line, clipped exactly the way `ToolCallRow`'s label span already clips — hidden overflow, an
+ * ellipsis, a no-wrap rule and a zero minimum width — AND capped to `FEED_ROW_TRUNCATION_THRESHOLD`
+ * characters before it ever reaches the DOM, so a multi-kilobyte payload never sits in the document
+ * behind a CSS clip (wasteful, and unreachable-until-expanded content should not exist at all).
+ * Expanded (only reachable when `isRowExpandable` is true): the full text inside the same
+ * fixed-max-height, internally-scrolling block `ToolCallRow`'s own expanded payload uses,
+ * preserving whitespace and allowing long unbroken tokens to break. */
+function ExpandableTextRow({
+  row,
+  roleClassName,
+  color,
+  mono,
+  expanded,
+  onToggleExpand,
+}: {
+  row: FeedRowData;
+  roleClassName: string;
+  color: string;
+  mono?: boolean;
+  expanded: boolean;
+  onToggleExpand: () => void;
+}) {
+  const text = expandableRowText(row) ?? "";
+  const expandable = isRowExpandable(row);
+  const showExpanded = expandable && expanded;
+  const collapsedText = text.length > FEED_ROW_TRUNCATION_THRESHOLD ? text.slice(0, FEED_ROW_TRUNCATION_THRESHOLD) : text;
+
+  return (
+    <div role="listitem" style={{ padding: "var(--space-xs) 0", minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-xs)", minWidth: 0 }}>
+        {expandable && (
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            aria-expanded={showExpanded}
+            aria-label={showExpanded ? "Collapse full text" : "Expand full text"}
+            style={{
+              flexShrink: 0,
+              display: "inline-block",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              color,
+              transition: "none",
+            }}
+          >
+            {showExpanded ? "▾" : "▸"}
+          </button>
+        )}
+        {showExpanded ? (
+          <div
+            className={roleClassName}
+            style={{
+              maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT,
+              overflowY: "auto",
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+              color,
+              fontFamily: mono ? MONO_STACK : undefined,
+              minWidth: 0,
+            }}
+          >
+            {text}
+          </div>
+        ) : (
+          <span
+            className={roleClassName}
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
+              color,
+              fontFamily: mono ? MONO_STACK : undefined,
+            }}
+          >
+            {collapsedText}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function FeedRow({ row, expanded, onToggleExpand }: FeedRowProps) {
   switch (row.kind) {
     case "assistant_text":
       return (
-        <div role="listitem" className="type-body" style={{ padding: "var(--space-xs) 0", color: "var(--text-primary-rack)", overflowWrap: "anywhere" }}>
-          {row.text}
-        </div>
+        <ExpandableTextRow
+          row={row}
+          roleClassName="type-body"
+          color="var(--text-primary-rack)"
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+        />
       );
     case "system_notice":
       return (
-        <div role="listitem" className="type-micro" style={{ padding: "var(--space-xs) 0", color: "var(--text-muted-rack)" }}>
-          {row.text}
-        </div>
+        <ExpandableTextRow
+          row={row}
+          roleClassName="type-micro"
+          color="var(--text-muted-rack)"
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+        />
       );
     case "tool_call":
       return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} />;
     case "raw":
       return (
-        <div
-          role="listitem"
-          className="type-body"
-          style={{
-            padding: "var(--space-xs) 0",
-            color: "var(--text-muted-rack)",
-            fontFamily: MONO_STACK,
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-          }}
-        >
-          {row.raw}
-        </div>
+        <ExpandableTextRow
+          row={row}
+          roleClassName="type-body"
+          color="var(--text-muted-rack)"
+          mono
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+        />
       );
     default: {
       const exhaustive: never = row;
@@ -162,14 +293,20 @@ export function FeedRow({ row, expanded, onToggleExpand }: FeedRowProps) {
 }
 
 /** A fixed row height per kind (02-UI-SPEC.md "Performance Contract Additions": "a fixed
- * `estimateSize` per row kind... never measured"). An EXPANDED tool-call row is the one exception
- * — its own larger fixed height, still a constant, never derived from actual content length
- * (the expanded sub-block's own internal scroll is what absorbs a long payload). */
+ * `estimateSize` per row kind... never measured"). `FEED_TOOL_ROW_EXPANDED_HEIGHT` is the expanded
+ * height for EVERY expandable row kind, not the tool call's alone (G-02-3, Task 2) — its own
+ * larger fixed height, still a constant, never derived from actual content length (the expanded
+ * sub-block's own internal scroll is what absorbs a long payload). Its exported name and value are
+ * unchanged from before this task, so no call site moves. */
 export const FEED_ROW_HEIGHT = 32;
 export const FEED_TOOL_ROW_EXPANDED_HEIGHT = 296;
 
+/** Depends only on the row's kind and its expand state, never on the length of its content — a
+ * ten-character and a ten-thousand-character row of the same kind return the identical constant,
+ * which is exactly what keeps this a fixed-size virtualization contract rather than a measured
+ * one (02-UI-SPEC.md "Performance Contract Additions"). */
 export function feedRowEstimateSize(row: FeedRowData, expanded: boolean): number {
-  if (row.kind === "tool_call" && expanded) return FEED_TOOL_ROW_EXPANDED_HEIGHT;
+  if (isRowExpandable(row) && expanded) return FEED_TOOL_ROW_EXPANDED_HEIGHT;
   return FEED_ROW_HEIGHT;
 }
 
