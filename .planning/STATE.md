@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: One Agent, One Worktree, Watched Live
 status: executing
-stopped_at: "Completed 02-12-PLAN.md (gap closure: CR-03 PROC-07)"
-last_updated: "2026-09-11T05:02:38.143Z"
+stopped_at: "Completed 02-14-PLAN.md (gap closure: CR-02 PROC-01/PROC-06, WR-01)"
+last_updated: "2026-09-11T05:22:39.230Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 02 execution started
-state_head: 400aa0c1bd44f9c33fa6d9336a4538eff7dfe39c
+state_head: 80cbe56e1594e5a2a981cf9d3050e70310cd58e2
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 35
-  completed_plans: 34
+  completed_plans: 35
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 02 (One Agent, One Worktree, Watched Live) — EXECUTING
-Plan: 4 of 14
+Plan: 5 of 14
 Status: Ready to execute
 Last activity: 2026-09-11 — Phase 02 execution started
 
@@ -92,6 +92,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P11 | 9min | 3 tasks | 5 files |
 | Phase 02 P13 | 22min | 3 tasks | 4 files |
 | Phase 02 P12 | 35min | 3 tasks | 4 files |
+| Phase 02 P14 | 25min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,7 @@ Recent decisions affecting current work:
 - [Phase 02]: D-40 (checkpoint, plan 02-13): Deleting a task with agent-run history is BLOCKED, with an actionable message (option-a) -- never cascaded. Preserves the non-repudiable record of agent work; needs no migration; cheap to revisit once Phase 3 adds a worktree-removal path.
 - [Phase 02]: persist_event_line replaces sidecar.rs's panicking session-log open with a non-panicking PersistOutcome seam (CR-03/PROC-07) — A panic in the shared sidecar stdout reader task took down every run's live feed and persisted log for the rest of the app session; every failure mode is now a returned value.
 - [Phase 02]: A skipped session-log persist now surfaces a visible incomplete-transcript banner instead of a suppressed stderr line — 02-07's own prohibition requires the live feed never silently drop agent output; the banner is gated once-per-run via a HashSet so a repeatedly-failing run does not spam notices.
+- [Phase 02]: [Phase 02] CR-02 closed: the sidecar shutdown op (plus SIGTERM/stdin-EOF fallback nets) tears down every live session's process group, and main.rs's RunEvent::Exit now calls it before kill(), machine-verified by a source-order gate. — Every claude session is spawned detached:true precisely so it becomes its own process-group leader, independent of the sidecar's group -- killing only the sidecar (kill()) can never reach it, so an explicit shutdown-then-kill ordering is the only correct sequence.
 
 ### Pending Todos
 
@@ -171,6 +173,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-11T05:02:38.087Z
-Stopped at: Completed 02-12-PLAN.md (gap closure: CR-03 PROC-07)
+Last session: 2026-09-11T05:22:39.170Z
+Stopped at: Completed 02-14-PLAN.md (gap closure: CR-02 PROC-01/PROC-06, WR-01)
 Resume file: None
