@@ -3,15 +3,15 @@ status: testing
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T10:01:59Z
+updated: 2026-09-11T10:08:03Z
 ---
 
 ## Current Test
 
-number: 1
-name: Flat memory over a long real streaming session (PROC-07)
+number: 2
+name: Permission pause and resume through a real claude process (AGNT-06)
 expected: |
-  RSS stays flat while the persisted log keeps growing on disk.
+  The real claude process blocks on the MCP tool call and resumes correctly once answered.
 awaiting: user response
 
 ## Tests
@@ -20,7 +20,37 @@ awaiting: user response
 expected: RSS stays flat while the persisted log keeps growing on disk.
 how: Start a long-running real session on a real task, leave it streaming for several minutes, and watch RSS in Activity Monitor while the transcript grows on disk.
 why_human: Real-process memory behavior over minutes cannot be observed by static analysis; explicitly manual-only per 02-VALIDATION.md. The CR-03 silent-drop defect that previously blocked this truth is now closed and tested — only the flat-RSS observation remains.
-result: [pending]
+result: pass
+reported: "Flat memory seems ok on a short session"
+evidence: |
+  Run 01M27YR97ZZ01RHVREKNWH96ST, ~2.5 min, natural completion.
+  Application-side RSS (APP + RENDER + SIDECAR — the three processes PROC-07 is actually about):
+    t=20s   402.4 MB      log 0 KB / 0 lines
+    t=51s   444.8 MB      log 66 KB / 39 lines     <- peak, startup/JIT warm-up
+    t=143s  382.8 MB      log 199 KB / 123 lines
+    t=163s  381.1 MB      log 211 KB / 126 lines
+  Memory DECLINED 64 MB from its early peak while the log grew monotonically to 211 KB.
+  Nothing tracked the transcript. The windowed-read design held.
+qualification: |
+  PASSED ON A SHORT SESSION, and the user said as much. 126 lines / 211 KB over ~2.5 minutes is
+  well short of the megabyte-scale transcript the instrument's own guidance says is needed to make
+  the ratio meaningful. The truth is SUPPORTED, not stress-tested. A multi-hour session remains the
+  stronger evidence; re-run opportunistically rather than treating this as settled forever.
+instrument_limitation: |
+  The watcher's TOTAL_MB column sums in AGENT_MB — the spawned `claude` child (539-620 MB here) —
+  which is a separate process whose memory is its own business, not the application's. Its verdict
+  logic used that total, so it would have been skewed by the agent process starting and exiting
+  rather than by anything PROC-07 asserts. Corrected after this run: the verdict now measures
+  application RSS only and reports the agent separately. The reading above was taken from the
+  per-process columns, which were always correct.
+also_verified: |
+  This run incidentally supplied the live confirmation for G-02-4, which no automated test could
+  give: the session reached natural completion and the board recorded
+  status=completed, ended_at set, cost_usd=1.183256, tokens_in=1011934, tokens_out=7615 — where
+  before, a run that ended on its own stayed `running` forever with all four columns empty. The
+  owning task THRE-38 remained `in_progress`, so D-29 held. tokens_in of ~1.01M also vindicates the
+  planner's measured decision to sum the three input-side usage fields; `input_tokens` alone would
+  have recorded a near-zero number for this run.
 prior_attempts: |
   Attempt 1 (2026-09-11) — blocked by G-02-1: "failed to write request to the sidecar's stdin".
   Attempt 2 (2026-09-11) — blocked by G-02-2: session closed instantly, one event at seq 0.
@@ -57,9 +87,9 @@ result: [pending]
 ## Summary
 
 total: 5
-passed: 0
+passed: 1
 issues: 0
-pending: 5
+pending: 4
 skipped: 0
 blocked: 0
 
@@ -244,6 +274,31 @@ blocked: 0
       issue: "Timer future constructed as a block_on argument, outside the runtime context"
   missing: []
   debug_session: ""
+
+## Deferred Follow-Ups
+
+- test: 1
+  idea: "The design is really terrible - but we can fix that in a later session."
+  deferred_at: 2026-09-11
+  detail: |
+    Deferred by the user to a later session. NOT a gap and NOT to be planned as one — recorded so
+    the specifics survive, since "the design is terrible" without them is unactionable later.
+    Observed in the session surface after G-02-3's clamp landed (the clamp itself worked — rows are
+    one line and no longer overlap):
+      1. `system: thinking_tokens` dominates the feed. The event fires per thinking chunk, so it
+         appears many times between every pair of meaningful rows. Task 4 of 02-17 mapped non-init
+         system subtypes to system_notice, which fixed the raw-JSON wall but made the FREQUENCY
+         visible. A notice this repetitive probably wants collapsing into a single run-length row,
+         or filtering out of the default view entirely.
+      2. `assistant` and `user` events still render as raw JSON one-liners
+         (`{"type":"assistant","message":{"model":"claude-opus-5",...`). normaliseStreamEvent maps
+         assistant/user to assistant_text / tool_call / tool_result only when the expected content
+         block is present; a streaming message whose `content` is empty or not-yet-filled falls
+         through to `unknown` and renders verbatim. Tool calls (`Bash · pwd && npx vitest ...`) and
+         final assistant prose DO render correctly, so this is specifically the streaming-shape
+         events, not a wholesale failure.
+    Together these are why the feed still reads as noise despite the clamp working: the signal is
+    there, buried in per-chunk notices and unparsed streaming envelopes.
 
 ## Observations
 

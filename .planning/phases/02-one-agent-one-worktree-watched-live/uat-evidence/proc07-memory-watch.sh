@@ -175,13 +175,20 @@ $(descendants "$p")"
     "$(echo "$BYTES"    | awk '{print $1/1024}')" \
     "$LINES"
 
+  # The verdict measures APPLICATION memory only — app + renderer + sidecar. The spawned agent
+  # child (CHILD_KB) is a separate process whose footprint is its own business, and it is large
+  # (hundreds of MB) and short-lived, so including it made the verdict swing on the agent starting
+  # and exiting rather than on anything PROC-07 asserts. It is still sampled and reported in its
+  # own column; it simply does not decide the verdict.
+  APP_SIDE_KB=$((APP_KB + REND_KB + SIDE_KB))
+
   # Anchor the "before" reading on the first sample where a log actually exists —
   # memory before the stream starts is not the baseline PROC-07 is about.
   if [ -z "$FIRST_TOTAL" ] && [ "$BYTES" -gt 0 ]; then
-    FIRST_TOTAL="$TOTAL_KB"; FIRST_BYTES="$BYTES"
+    FIRST_TOTAL="$APP_SIDE_KB"; FIRST_BYTES="$BYTES"
   fi
-  LAST_TOTAL="$TOTAL_KB"; LAST_BYTES="$BYTES"
-  [ "$TOTAL_KB" -gt "$PEAK_TOTAL" ] && PEAK_TOTAL="$TOTAL_KB"
+  LAST_TOTAL="$APP_SIDE_KB"; LAST_BYTES="$BYTES"
+  [ "$APP_SIDE_KB" -gt "$PEAK_TOTAL" ] && PEAK_TOTAL="$APP_SIDE_KB"
 
   sleep "$INTERVAL"
 done
@@ -200,7 +207,8 @@ LOG_DELTA=$((LAST_BYTES - FIRST_BYTES))
 awk -v m0="$FIRST_TOTAL" -v m1="$LAST_TOTAL" -v peak="$PEAK_TOTAL" \
     -v b0="$FIRST_BYTES" -v b1="$LAST_BYTES" -v md="$MEM_DELTA" -v ld="$LOG_DELTA" '
 BEGIN {
-  printf "memory   first %.1f MB  ->  last %.1f MB   (delta %+.1f MB, peak %.1f MB)\n",
+  printf "app memory (app+renderer+sidecar, excludes the agent child)\n"
+  printf "         first %.1f MB  ->  last %.1f MB   (delta %+.1f MB, peak %.1f MB)\n",
          m0/1024, m1/1024, md/1024, peak/1024
   printf "log      first %.1f KB  ->  last %.1f KB   (delta %+.1f KB)\n",
          b0/1024, b1/1024, ld/1024
