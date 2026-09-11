@@ -58,13 +58,31 @@ interface ShutdownRequest {
   op: "shutdown";
 }
 
+/** G-02-1, plan 02-15: the startup readiness handshake's counterpart. `spawn_sidecar`
+ * (`packages/desktop/src-tauri/src/sidecar.rs`) writes this to the freshly-spawned child's stdin
+ * and waits, bounded, for ANY ack carrying this same `id` before returning — the cheapest
+ * possible question this process can answer ("are you alive and reading your own stdin/writing
+ * your own stdout protocol at all?"), with no side effect and no dependency on anything else.
+ *
+ * This is deliberately NOT {@link CapabilityProbeRequest}: `capability_probe` spawns the backend
+ * `claude` binary to ask a question about the USER's install, which is unrelated to and far more
+ * expensive than whether this sidecar process itself is alive — gating application startup on a
+ * user-environment probe like that would fail closed for reasons that have nothing to do with the
+ * sidecar's own health. `ping` asks nothing about `claude`, spawns nothing, and touches no
+ * credential. */
+interface PingRequest {
+  id: string;
+  op: "ping";
+}
+
 type SidecarRequest =
   | SpawnRequest
   | InterruptRequest
   | KillRequest
   | PermissionAnswerRequest
   | CapabilityProbeRequest
-  | ShutdownRequest;
+  | ShutdownRequest
+  | PingRequest;
 
 /** One `claude_code` adapter instance drives every run this sidecar process hosts — PROC-01's
  * one-OS-process-per-session holds because each `startSession` spawns its own child, while the
@@ -202,6 +220,14 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));
       }
+      return;
+    }
+    case "ping": {
+      // G-02-1, plan 02-15: the startup readiness handshake's counterpart. Does nothing else —
+      // no adapter call, no session lookup, no backend-binary probe — so the ack it produces
+      // proves only that this process is alive and speaking its own stdio protocol, which is the
+      // one thing `spawn_sidecar` needs to know before it is allowed to return.
+      emitAck(request.id, true);
       return;
     }
     default: {

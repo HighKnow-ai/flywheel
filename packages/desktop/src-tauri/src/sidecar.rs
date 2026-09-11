@@ -11,6 +11,18 @@
 //! value by [`persist_event_line`] and handled by its caller — never a panic, never an early
 //! return out of the loop. One run's I/O failure stays scoped to that run.
 //!
+//! [`spawn_sidecar`] returns only AFTER the sidecar has answered its own bounded startup readiness
+//! handshake on its own stdio protocol (G-02-1) — `tauri-plugin-shell`'s `.spawn()` returning `Ok`
+//! proves only that the operating system accepted the exec, not that a live process is on the
+//! other end reading its stdin and writing its own protocol on stdout. A sidecar that exits
+//! immediately after spawn (a bad stub, a missing Node, a crash on boot) now aborts startup
+//! naming its own exit status and its own stderr tail, through this module's callers' existing
+//! expect-or-crash-loudly idiom, instead of deferring the failure to the first request written to
+//! a stdin that was never open on the other end. The wait is bounded by
+//! [`STARTUP_READINESS_TIMEOUT`] — a wedged sidecar fails the handshake rather than hanging
+//! application startup. Once the handshake succeeds, the reader task below observes the sidecar's
+//! stderr and process-lifecycle events for the remainder of the process, not only its stdout.
+//!
 //! This module's own working directory is fixed by the OS at process launch and is NEVER read or
 //! reassigned (PROC-02, ARCHITECTURE.md Anti-Pattern 3 — "the supervisor must never drift into a
 //! worker's worktree" enforced structurally, not by convention) — every path this module hands the
@@ -39,7 +51,9 @@ use flywheel_core::session_log::SessionLogWriter;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum SidecarStdoutLine {
-    Event { event: serde_json::Value },
+    Event {
+        event: serde_json::Value,
+    },
     Ack {
         id: String,
         ok: bool,
@@ -57,7 +71,10 @@ enum SidecarStdoutLine {
 /// a thin wrapper over `flywheel_core::credentials::resolve_credential` — the actual credential
 /// read happens there, this function exists only so the spawn-request call site in
 /// `commands::agent_run` names a function local to the sidecar-facing module it calls into.
-pub fn resolved_env_for_run(conn: &Connection, project_id: &str) -> anyhow::Result<HashMap<String, String>> {
+pub fn resolved_env_for_run(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<HashMap<String, String>> {
     Ok(flywheel_core::credentials::resolve_credential(conn, project_id)?.env)
 }
 
@@ -73,7 +90,8 @@ pub struct SidecarHandle {
     /// `capability_probe`, which is the only one with a response beyond plain success/failure) —
     /// generalised from a plain `Result<(), String>` in plan 02-09 Task 3 so `capability_probe`
     /// could reuse this exact wait-for-ack mechanism rather than inventing a second one.
-    pending_acks: Mutex<HashMap<String, std::sync::mpsc::Sender<Result<serde_json::Value, String>>>>,
+    pending_acks:
+        Mutex<HashMap<String, std::sync::mpsc::Sender<Result<serde_json::Value, String>>>>,
     /// Maps a `permission_requests.id` (the DATABASE row id — the only id the board/renderer
     /// ever sees or names) to the `(run_id, mcp_request_id)` pair `agent_run_answer_permission`
     /// needs to relay a decision back to the SPECIFIC held MCP tool call the sidecar's
@@ -102,11 +120,35 @@ const INTERRUPT_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// `packages/sidecar/src/index.ts`) plus IPC overhead — not the full 30-second interrupt ceiling.
 const SHUTDOWN_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// The fixed request id [`spawn_sidecar`]'s startup readiness handshake uses (G-02-1). It names no
+/// run and is never reused for anything else — every other request id in this module either names
+/// a `run_id` or is freshly generated per call (`capability_probe`, `shutdown_all_sessions`).
+const READINESS_REQUEST_ID: &str = "startup-readiness-check";
+
+/// How long [`spawn_sidecar`] waits for the sidecar's own answer to the readiness handshake before
+/// giving up and aborting startup (G-02-1). Five seconds is generous relative to a plain Node
+/// process boot — importing its own small module graph and starting a `readline` interface — yet
+/// short enough that a wedged or hung sidecar cannot make the whole application appear to hang at
+/// launch; the same expect-or-crash-loudly idiom `main.rs`'s `.setup()` closure already applies to
+/// every other startup step surfaces this as a named, actionable failure well within a user's
+/// patience for "the app is starting."
+const STARTUP_READINESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The cap, in bytes, on how much of the sidecar's stderr [`spawn_sidecar`]'s readiness handshake
+/// retains while waiting (G-02-1, T-02G-15-03). Once reached, further stderr chunks are dropped
+/// rather than grown without bound — this is a startup diagnostic tail for the developer's own
+/// console, not a full capture, and an unbounded buffer here would let a chatty or looping child
+/// process grow this function's memory use while startup is blocked waiting on it.
+const READINESS_STDERR_TAIL_CAP: usize = 4096;
+
 impl SidecarHandle {
     /// Send one newline-delimited JSON request to the sidecar's stdin (a `spawn`/`interrupt`/
     /// `kill` request, built by the caller).
     pub fn send_request(&self, request_json: &str) -> anyhow::Result<()> {
-        let mut guard = self.child.lock().map_err(|_| anyhow::anyhow!("sidecar child mutex poisoned"))?;
+        let mut guard = self
+            .child
+            .lock()
+            .map_err(|_| anyhow::anyhow!("sidecar child mutex poisoned"))?;
         let child = guard.as_mut().context("sidecar process is not running")?;
         let mut line = request_json.to_string();
         line.push('\n');
@@ -184,8 +226,14 @@ impl SidecarHandle {
 
         match rx.recv_timeout(INTERRUPT_ACK_TIMEOUT) {
             Ok(Ok(data)) => {
-                let available = data.get("available").and_then(|v| v.as_bool()).unwrap_or(false);
-                let version = data.get("version").and_then(|v| v.as_str()).map(str::to_string);
+                let available = data
+                    .get("available")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let version = data
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
                 Ok((available, version))
             }
             Ok(Err(err)) => Err(anyhow::anyhow!("sidecar capability probe failed: {err}")),
@@ -203,9 +251,17 @@ impl SidecarHandle {
     /// Remember the correlation between a freshly-created `permission_requests.id` and the
     /// sidecar's own `(run_id, mcp_request_id)` for that held call (AGNT-06 inbound path) — the
     /// ONLY place this mapping is written.
-    pub fn register_pending_permission_request(&self, db_request_id: &str, run_id: &str, mcp_request_id: &str) {
+    pub fn register_pending_permission_request(
+        &self,
+        db_request_id: &str,
+        run_id: &str,
+        mcp_request_id: &str,
+    ) {
         if let Ok(mut map) = self.pending_permission_requests.lock() {
-            map.insert(db_request_id.to_string(), (run_id.to_string(), mcp_request_id.to_string()));
+            map.insert(
+                db_request_id.to_string(),
+                (run_id.to_string(), mcp_request_id.to_string()),
+            );
         }
     }
 
@@ -214,7 +270,11 @@ impl SidecarHandle {
     /// (already relayed, or a row this handle never learned about), this is a harmless no-op —
     /// never an error the caller must handle specially, mirroring the sidecar's own
     /// `resolvePermission`'s "no held call — ignore" contract for its `requestId`.
-    pub fn relay_permission_answer(&self, db_request_id: &str, decision: &str) -> anyhow::Result<()> {
+    pub fn relay_permission_answer(
+        &self,
+        db_request_id: &str,
+        decision: &str,
+    ) -> anyhow::Result<()> {
         let entry = {
             let mut map = self
                 .pending_permission_requests
@@ -231,7 +291,12 @@ impl SidecarHandle {
     /// Relay a decision directly by `(run_id, mcp_request_id)` — used by the rule-short-circuit
     /// inbound path (T-02-24), which never creates a `permission_requests` row and so has
     /// nothing to look up in [`Self::pending_permission_requests`].
-    pub fn relay_permission_answer_direct(&self, run_id: &str, mcp_request_id: &str, decision: &str) -> anyhow::Result<()> {
+    pub fn relay_permission_answer_direct(
+        &self,
+        run_id: &str,
+        mcp_request_id: &str,
+        decision: &str,
+    ) -> anyhow::Result<()> {
         let request = serde_json::json!({
             "id": format!("permission-answer-{mcp_request_id}"),
             "op": "permission_answer",
@@ -354,7 +419,9 @@ pub(crate) fn persist_event_line(
     let mut writers = match writers.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
-            return PersistOutcome::OpenFailed(format!("session log writers mutex poisoned: {poisoned}"))
+            return PersistOutcome::OpenFailed(format!(
+                "session log writers mutex poisoned: {poisoned}"
+            ))
         }
     };
 
@@ -371,7 +438,9 @@ pub(crate) fn persist_event_line(
             Ok(()) => PersistOutcome::Written,
             Err(err) => PersistOutcome::AppendFailed(format!("{err:#}")),
         },
-        None => PersistOutcome::OpenFailed("session log writer unexpectedly absent after insert".to_string()),
+        None => PersistOutcome::OpenFailed(
+            "session log writer unexpectedly absent after insert".to_string(),
+        ),
     }
 }
 
@@ -444,7 +513,10 @@ mod persist_tests {
 
         // A healthy second run, in the SAME call sequence, is completely unaffected.
         let line_b0 = "{\"seq\":0}";
-        assert_eq!(persist_event_line(&writers, &run_b, line_b0), PersistOutcome::Written);
+        assert_eq!(
+            persist_event_line(&writers, &run_b, line_b0),
+            PersistOutcome::Written
+        );
         assert_eq!(
             flywheel_core::session_log::count_lines(&run_b).expect("count_lines should succeed"),
             1,
@@ -453,7 +525,11 @@ mod persist_tests {
         let path_b = flywheel_core::session_log::session_log_path(&run_b)
             .expect("session_log_path should resolve for run B");
         let content_b = std::fs::read_to_string(&path_b).expect("failed to read run B's log file");
-        assert_eq!(content_b, format!("{line_b0}\n"), "run B's file must contain the exact line text");
+        assert_eq!(
+            content_b,
+            format!("{line_b0}\n"),
+            "run B's file must contain the exact line text"
+        );
 
         // Run A's failure REPEATS — still OpenFailed — and run B keeps flowing regardless.
         assert!(matches!(
@@ -461,7 +537,10 @@ mod persist_tests {
             PersistOutcome::OpenFailed(_)
         ));
         let line_b1 = "{\"seq\":1}";
-        assert_eq!(persist_event_line(&writers, &run_b, line_b1), PersistOutcome::Written);
+        assert_eq!(
+            persist_event_line(&writers, &run_b, line_b1),
+            PersistOutcome::Written
+        );
         assert_eq!(
             flywheel_core::session_log::count_lines(&run_b).expect("count_lines should succeed"),
             2,
@@ -530,17 +609,98 @@ mod persist_tests {
     }
 }
 
-/// Spawn the bundled `flywheel-sidecar` binary and start its stdout reader task. Follows this
-/// codebase's expect-or-crash-loudly-at-startup idiom (`main.rs`'s `.setup()` closure) — a failure
-/// to resolve or spawn the sidecar aborts startup rather than proceeding with a half-working app.
+/// Spawn the bundled `flywheel-sidecar` binary, prove it is alive and speaking its own protocol
+/// via a bounded readiness handshake (G-02-1), and start its stdout/stderr/lifecycle reader task.
+/// Follows this codebase's expect-or-crash-loudly-at-startup idiom (`main.rs`'s `.setup()`
+/// closure) — a failure to resolve, spawn, OR ANSWER READY aborts startup rather than proceeding
+/// with a half-working app. See this module's own doc comment for the full contract.
 pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
     let sidecar_command = app
         .shell()
         .sidecar("flywheel-sidecar")
         .context("failed to resolve the flywheel-sidecar binary")?;
-    let (mut rx, child) = sidecar_command
+    let (mut rx, mut child) = sidecar_command
         .spawn()
         .context("failed to spawn the flywheel-sidecar process")?;
+
+    // Readiness handshake (G-02-1): write the cheapest possible liveness question to the child's
+    // stdin, then drive a bounded wait over the SAME receiver the reader task will later own,
+    // BEFORE that receiver is ever moved into the reader task. `main.rs`'s `.setup()` closure runs
+    // before `app.manage(AppState { .. })`, so the reader task's existing `pending_acks` mechanism
+    // (which reads `AppState` back off the `AppHandle`) is not available yet — this handshake
+    // reads the spawn receiver directly instead.
+    let ready_request = serde_json::json!({ "id": READINESS_REQUEST_ID, "op": "ping" });
+    let mut ready_line = ready_request.to_string();
+    ready_line.push('\n');
+    child
+        .write(ready_line.as_bytes())
+        .context("the sidecar's stdin was not writable at spawn time")?;
+
+    let handshake_result = tauri::async_runtime::block_on(tokio::time::timeout(
+        STARTUP_READINESS_TIMEOUT,
+        async {
+            let mut stderr_tail = String::new();
+            loop {
+                match rx.recv().await {
+                    Some(CommandEvent::Stdout(line_bytes)) => {
+                        let line = String::from_utf8_lossy(&line_bytes).into_owned();
+                        let parsed: Result<SidecarStdoutLine, _> =
+                            serde_json::from_str(line.trim());
+                        // ANY ack carrying the readiness request's own id ends the wait
+                        // successfully, regardless of its `ok` field — it proves a live process
+                        // reading stdin and writing its own protocol on stdout, which is the
+                        // whole question being asked. Anything else (an unrelated line, a
+                        // malformed line) is skipped; the handshake only ever looks for its own id.
+                        if let Ok(SidecarStdoutLine::Ack { id, .. }) = parsed {
+                            if id == READINESS_REQUEST_ID {
+                                return Ok(());
+                            }
+                        }
+                    }
+                    Some(CommandEvent::Stderr(bytes)) => {
+                        if stderr_tail.len() < READINESS_STDERR_TAIL_CAP {
+                            stderr_tail.push_str(&String::from_utf8_lossy(&bytes));
+                            stderr_tail.push('\n');
+                            stderr_tail.truncate(stderr_tail.len().min(READINESS_STDERR_TAIL_CAP));
+                        }
+                    }
+                    Some(CommandEvent::Terminated(payload)) => {
+                        return Err(anyhow::anyhow!(
+                            "the flywheel-sidecar process exited before answering the readiness handshake (exit code {:?}, signal {:?}); stderr: {}",
+                            payload.code,
+                            payload.signal,
+                            stderr_tail
+                        ));
+                    }
+                    Some(CommandEvent::Error(err)) => {
+                        return Err(anyhow::anyhow!(
+                            "the flywheel-sidecar process reported an error before answering the readiness handshake: {err}"
+                        ));
+                    }
+                    Some(_) => {
+                        // Catch-all: `CommandEvent` is `#[non_exhaustive]` — a future variant
+                        // must not fail this build. Skip it and keep waiting.
+                    }
+                    None => {
+                        return Err(anyhow::anyhow!(
+                            "the flywheel-sidecar's event stream closed before it answered the readiness handshake; stderr: {}",
+                            stderr_tail
+                        ));
+                    }
+                }
+            }
+        },
+    ));
+
+    match handshake_result {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => return Err(err),
+        Err(_elapsed) => {
+            return Err(anyhow::anyhow!(
+                "the flywheel-sidecar did not answer the readiness handshake within {STARTUP_READINESS_TIMEOUT:?}"
+            ));
+        }
+    }
 
     let handle = SidecarHandle {
         child: Mutex::new(Some(child)),
@@ -553,94 +713,161 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
     let app_for_reader = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let CommandEvent::Stdout(line_bytes) = event {
-                let line = String::from_utf8_lossy(&line_bytes).into_owned();
-                let parsed: Result<SidecarStdoutLine, _> = serde_json::from_str(line.trim());
+            match event {
+                CommandEvent::Stderr(bytes) => {
+                    // Developer breadcrumb only — never surfaced to the renderer. Mid-session
+                    // sidecar stderr is out of this plan's scope beyond keeping the pipe drained
+                    // (T-02G-15-04); the startup case is already handled by the handshake above.
+                    eprintln!(
+                        "flywheel-sidecar stderr: {}",
+                        String::from_utf8_lossy(&bytes)
+                    );
+                }
+                CommandEvent::Terminated(payload) => {
+                    // A sidecar that dies mid-session is now observable instead of silent
+                    // (G-02-1's secondary cause) — but reconciling any `agent_runs` rows it was
+                    // driving is explicitly out of scope here (see plan 02-15's "Adjacent Open
+                    // Items"; 02-18 owns that). Nothing further can arrive on this receiver once
+                    // its process is gone, so the loop ends.
+                    eprintln!(
+                        "flywheel-sidecar process terminated (exit code {:?}, signal {:?})",
+                        payload.code, payload.signal
+                    );
+                    break;
+                }
+                CommandEvent::Error(err) => {
+                    eprintln!("flywheel-sidecar process error: {err}");
+                }
+                CommandEvent::Stdout(line_bytes) => {
+                    let line = String::from_utf8_lossy(&line_bytes).into_owned();
+                    let parsed: Result<SidecarStdoutLine, _> = serde_json::from_str(line.trim());
 
-                match parsed {
-                    Ok(SidecarStdoutLine::Event { event }) => {
-                        let run_id = event.get("runId").and_then(|v| v.as_str()).map(str::to_string);
-                        let event_line = event.to_string();
+                    match parsed {
+                        Ok(SidecarStdoutLine::Event { event }) => {
+                            let run_id = event
+                                .get("runId")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string);
+                            let event_line = event.to_string();
 
-                        if let Some(run_id) = run_id {
-                            if let Some(state) = app_for_reader.try_state::<crate::state::AppState>() {
-                                if let Some(sidecar) = state.sidecar.as_ref() {
-                                    // The persistent write happens FIRST, unconditionally — the
-                                    // emit below is a best-effort live view, never the source of
-                                    // truth (PITFALLS.md pitfall 10). No outcome here — Written or
-                                    // otherwise — can ever stop this loop (CR-03): a per-run fault
-                                    // is a value `persist_event_line` returns, never a panic.
-                                    let outcome = persist_event_line(&sidecar.writers, &run_id, &event_line);
-                                    if outcome != PersistOutcome::Written {
-                                        // The user-facing guarantee is the emitted notice below,
-                                        // not this line — stderr is suppressed on a release
-                                        // Windows build (this module's own doc comment).
-                                        eprintln!(
+                            if let Some(run_id) = run_id {
+                                if let Some(state) =
+                                    app_for_reader.try_state::<crate::state::AppState>()
+                                {
+                                    if let Some(sidecar) = state.sidecar.as_ref() {
+                                        // The persistent write happens FIRST, unconditionally — the
+                                        // emit below is a best-effort live view, never the source of
+                                        // truth (PITFALLS.md pitfall 10). No outcome here — Written or
+                                        // otherwise — can ever stop this loop (CR-03): a per-run fault
+                                        // is a value `persist_event_line` returns, never a panic.
+                                        let outcome = persist_event_line(
+                                            &sidecar.writers,
+                                            &run_id,
+                                            &event_line,
+                                        );
+                                        if outcome != PersistOutcome::Written {
+                                            // The user-facing guarantee is the emitted notice below,
+                                            // not this line — stderr is suppressed on a release
+                                            // Windows build (this module's own doc comment).
+                                            eprintln!(
                                             "session log persist failed for run {run_id}: {outcome:?}"
                                         );
-                                        let already_notified = {
-                                            match sidecar.notified_persist_failures.lock() {
-                                                Ok(mut notified) => !notified.insert(run_id.clone()),
-                                                Err(_) => true, // poisoned — never spam a notice
-                                            }
-                                        };
-                                        if !already_notified {
-                                            // A fixed, outcome-shaped phrase only — NEVER the
-                                            // `PersistOutcome`'s own stored string, which (via
-                                            // `SessionLogWriter::open`'s anyhow context) embeds
-                                            // the resolved session-log path. Passing that path to
-                                            // the renderer would be exactly the app-data-directory
-                                            // disclosure T-02G-12-03 forbids; the full detail
-                                            // stays in the `eprintln!` breadcrumb above, which
-                                            // never crosses the IPC boundary.
-                                            let detail = match &outcome {
-                                                PersistOutcome::RejectedRunId => "an invalid run id",
-                                                PersistOutcome::OpenFailed(_) => "the log file could not be opened",
-                                                PersistOutcome::AppendFailed(_) => "the log file could not be written to",
-                                                // Guarded by the `outcome != Written` check above —
-                                                // never actually reached, but a plain fallback
-                                                // value rather than a panicking call (this loop's
-                                                // own invariant: no per-run fault may ever unwind
-                                                // it, and neither may a defensive branch here).
-                                                PersistOutcome::Written => "an unknown condition",
+                                            let already_notified = {
+                                                match sidecar.notified_persist_failures.lock() {
+                                                    Ok(mut notified) => {
+                                                        !notified.insert(run_id.clone())
+                                                    }
+                                                    Err(_) => true, // poisoned — never spam a notice
+                                                }
                                             };
-                                            emit_persistence_failure_notice(&app_for_reader, &run_id, detail);
+                                            if !already_notified {
+                                                // A fixed, outcome-shaped phrase only — NEVER the
+                                                // `PersistOutcome`'s own stored string, which (via
+                                                // `SessionLogWriter::open`'s anyhow context) embeds
+                                                // the resolved session-log path. Passing that path to
+                                                // the renderer would be exactly the app-data-directory
+                                                // disclosure T-02G-12-03 forbids; the full detail
+                                                // stays in the `eprintln!` breadcrumb above, which
+                                                // never crosses the IPC boundary.
+                                                let detail = match &outcome {
+                                                    PersistOutcome::RejectedRunId => {
+                                                        "an invalid run id"
+                                                    }
+                                                    PersistOutcome::OpenFailed(_) => {
+                                                        "the log file could not be opened"
+                                                    }
+                                                    PersistOutcome::AppendFailed(_) => {
+                                                        "the log file could not be written to"
+                                                    }
+                                                    // Guarded by the `outcome != Written` check above —
+                                                    // never actually reached, but a plain fallback
+                                                    // value rather than a panicking call (this loop's
+                                                    // own invariant: no per-run fault may ever unwind
+                                                    // it, and neither may a defensive branch here).
+                                                    PersistOutcome::Written => {
+                                                        "an unknown condition"
+                                                    }
+                                                };
+                                                emit_persistence_failure_notice(
+                                                    &app_for_reader,
+                                                    &run_id,
+                                                    detail,
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            let _ = app_for_reader.emit("agent:event", &event);
+
+                            // AGNT-06 inbound half: a permission_request event on this SAME reader
+                            // loop, handled BEFORE any pending row exists — the rule short-circuit
+                            // (T-02-24) checks first, so a matching allow-always rule never creates a
+                            // board-visible pending request or blocks the run.
+                            if event.get("type").and_then(|v| v.as_str())
+                                == Some("permission_request")
+                            {
+                                crate::commands::agent_run::handle_inbound_permission_request(
+                                    &app_for_reader,
+                                    &event,
+                                );
+                            }
+                        }
+                        Ok(SidecarStdoutLine::Ack {
+                            id,
+                            ok,
+                            error,
+                            data,
+                        }) => {
+                            if let Some(state) =
+                                app_for_reader.try_state::<crate::state::AppState>()
+                            {
+                                if let Some(sidecar) = state.sidecar.as_ref() {
+                                    if let Ok(mut pending) = sidecar.pending_acks.lock() {
+                                        if let Some(sender) = pending.remove(&id) {
+                                            let result = if ok {
+                                                Ok(data.unwrap_or(serde_json::Value::Null))
+                                            } else {
+                                                Err(error.unwrap_or_else(|| {
+                                                    "sidecar request failed".to_string()
+                                                }))
+                                            };
+                                            let _ = sender.send(result);
                                         }
                                     }
                                 }
                             }
                         }
-
-                        let _ = app_for_reader.emit("agent:event", &event);
-
-                        // AGNT-06 inbound half: a permission_request event on this SAME reader
-                        // loop, handled BEFORE any pending row exists — the rule short-circuit
-                        // (T-02-24) checks first, so a matching allow-always rule never creates a
-                        // board-visible pending request or blocks the run.
-                        if event.get("type").and_then(|v| v.as_str()) == Some("permission_request") {
-                            crate::commands::agent_run::handle_inbound_permission_request(&app_for_reader, &event);
+                        Err(_) => {
+                            // A malformed line — logged nowhere yet, dropped, never crashes the
+                            // reader task (this module's own doc comment above).
                         }
                     }
-                    Ok(SidecarStdoutLine::Ack { id, ok, error, data }) => {
-                        if let Some(state) = app_for_reader.try_state::<crate::state::AppState>() {
-                            if let Some(sidecar) = state.sidecar.as_ref() {
-                                if let Ok(mut pending) = sidecar.pending_acks.lock() {
-                                    if let Some(sender) = pending.remove(&id) {
-                                        let result = if ok {
-                                            Ok(data.unwrap_or(serde_json::Value::Null))
-                                        } else {
-                                            Err(error.unwrap_or_else(|| "sidecar request failed".to_string()))
-                                        };
-                                        let _ = sender.send(result);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        // A malformed line — logged nowhere yet, dropped, never crashes the
-                        // reader task (this module's own doc comment above).
-                    }
+                }
+                _ => {
+                    // Catch-all: `CommandEvent` is `#[non_exhaustive]` — a future variant must
+                    // not break this build.
                 }
             }
         }
