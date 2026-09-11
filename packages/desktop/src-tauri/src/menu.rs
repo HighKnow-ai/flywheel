@@ -32,8 +32,19 @@ use crate::state::MenuHandles;
 
 /// Builds the whole menu bar. Called once from `main.rs`'s `Builder::menu` during setup.
 pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    // "Settings…" with the `⌘,` accelerator — the macOS convention for an app's own preferences
+    // item, placed in the App menu between About and Quit (plan 02-10 Task 3). This is the first
+    // of the product's three routes into the Settings surface (D-39); the other two are the
+    // global `⌘,` keystroke itself (`state/keyboard.ts`'s `open-settings` binding, already
+    // registered by plan 02-03) and the command palette entry generated from that same binding.
+    let open_settings = MenuItemBuilder::with_id("open-settings", "Settings…")
+        .accelerator("CmdOrCtrl+,")
+        .build(app)?;
+
     let app_menu = SubmenuBuilder::new(app, "Flywheel")
         .about(None)
+        .separator()
+        .item(&open_settings)
         .separator()
         .quit()
         .build()?;
@@ -51,9 +62,9 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .accelerator("CmdOrCtrl+K")
         .build(app)?;
 
-    // Register the layer-aware handles BEFORE the four items are placed into their submenus
-    // below — `.item(&x)` only ever borrows, but registering here (right after all four exist,
-    // right before any submenu references them) is what keeps this the one place a future fifth
+    // Register the layer-aware handles BEFORE the five items are placed into their submenus
+    // below — `.item(&x)` only ever borrows, but registering here (right after all five exist,
+    // right before any submenu references them) is what keeps this the one place a future sixth
     // forwarded item would also need touching. `AppHandle<R>` implements `Manager`, so `manage`
     // is available on any runtime `build_menu` is instantiated against; the one real call site
     // (`tauri::Builder::default()` in `main.rs`) instantiates `R` as `tauri::Wry`, which is the
@@ -65,6 +76,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         create_task: new_task.clone(),
         create_epic: new_epic.clone(),
         open_palette: toggle_palette.clone(),
+        open_settings: open_settings.clone(),
     });
 
     let file_menu = SubmenuBuilder::new(app, "File")

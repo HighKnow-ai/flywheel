@@ -12,6 +12,7 @@ import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
 import { SessionSurface } from "./session/SessionSurface";
+import { SettingsSurface } from "./settings/SettingsSurface";
 import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
@@ -100,6 +101,11 @@ function AppShell() {
   // action id (`w`) both open it purely by setting this task id (`board/BoardView.tsx`).
   const launchSheetTaskId = useUiStore((state) => state.launchSheetTaskId);
   const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
+  // D-39: the Settings surface, mounted once here like the session surface and the launch sheet
+  // above — opened by the native menu's "Settings…" item, the global `⌘,` binding, and the
+  // command palette (plan 02-10 Task 3), all through this one `open-settings` action id.
+  const settingsOpen = useUiStore((state) => state.settingsOpen);
+  const setSettingsOpen = useUiStore((state) => state.setSettingsOpen);
   // `⌘⇧O`'s actual effect — the SAME registration flow the rail's `+` button and the palette's
   // "Register Project…" command use (`projects/RegisterProjectFlow.tsx`), never a re-derived
   // copy (01-UI-SPEC.md "Project switcher"). `isError`/`error` are surfaced below (CR-02) —
@@ -143,6 +149,7 @@ function AppShell() {
       const project = (projectsQuery.data ?? [])[binding.projectIndex ?? -1];
       if (project) setCurrentProjectId(project.id);
     },
+    "open-settings": () => setSettingsOpen(true),
   });
 
   // Bridges a native menu click/accelerator (`src-tauri/src/menu.rs`'s `on_menu_event`) into the
@@ -214,7 +221,12 @@ function AppShell() {
           onSelect={(selected) => setCurrentProjectId(selected.id)}
         />
         <div style={{ flex: 1, minHeight: 0 }}>
-          {activeAgentRunId ? (
+          {settingsOpen ? (
+            // D-39: same "pushed into, popped back out of" shell as the session surface below —
+            // checked first, since Settings may be opened regardless of whatever the board
+            // content area was showing underneath it (an active session, an unreachable project).
+            <SettingsSurface onBack={() => setSettingsOpen(false)} />
+          ) : activeAgentRunId ? (
             // D-31: pushed into from a task, popped back out of on "← Board" — the board itself
             // (and its own state — filters, selection, scroll) is untouched underneath this.
             <SessionSurface agentRunId={activeAgentRunId} onBack={() => setActiveAgentRunId(null)} />

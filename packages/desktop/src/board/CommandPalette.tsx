@@ -308,6 +308,22 @@ export function CommandPalette() {
             },
           });
           continue;
+        case "open-settings":
+          out.push({
+            id,
+            label,
+            group: "Navigation",
+            // Same `closeToBoard()`-then-`dispatchAction` shape as `create-task`/`create-epic`
+            // above — the label comes from the binding table (plan 02-10 Task 3's own acceptance
+            // criterion: no hand-written literal here), and `App.tsx`'s `useGlobalBindings`
+            // registration is what actually opens the surface, so the menu item, `⌘,` and this
+            // palette entry all dispatch through the one `open-settings` action id.
+            run: () => {
+              closeToBoard();
+              dispatchAction(id);
+            },
+          });
+          continue;
         case "create-issue":
           out.push({
             id,

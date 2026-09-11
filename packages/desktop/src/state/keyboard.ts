@@ -267,18 +267,19 @@ export function actionLabel(id: ActionId): string {
   return BINDINGS.find((b) => b.id === id)?.label ?? id;
 }
 
-/** The TypeScript mirror of `src-tauri/src/main.rs`'s `FORWARDED_MENU_ACTIONS` — the exact four
+/** The TypeScript mirror of `src-tauri/src/main.rs`'s `FORWARDED_MENU_ACTIONS` — the exact five
  * ids `menu.rs` builds as custom native menu items and `on_menu_event` forwards over
  * `menu:action`. This is the set `state/menuSync.ts`'s `useMenuLayerSync` (01-16-PLAN.md Task 3)
  * drives native enable/disable state for, and the set `App.tsx`'s bridge re-enters
  * `dispatchAction`/`bindingAllowedInLayer` for exactly like a real keystroke (G-01-1, threat
  * T-01-02) — kept here, not re-declared in either consumer, so the two sides of the seam cannot
- * drift independently. */
+ * drift independently. `"open-settings"` is plan 02-10 Task 3's addition (D-39). */
 export const MENU_ACTION_IDS: readonly ActionId[] = [
   "register-project",
   "create-task",
   "create-epic",
   "open-palette",
+  "open-settings",
 ];
 
 // -------------------------------------------------------------------------------------------

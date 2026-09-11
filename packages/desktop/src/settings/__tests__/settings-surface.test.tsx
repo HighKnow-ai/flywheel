@@ -14,10 +14,13 @@
  * - A rejected key save keeps the typed value, renders an inline error, and never claims a key is
  *   configured.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsSurface } from "../SettingsSurface";
+import { CommandPalette } from "../../board/CommandPalette";
+import { actionLabel, dispatchAction, MENU_ACTION_IDS, useGlobalBindings } from "../../state/keyboard";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { Project } from "../../board/useBoardQuery";
 import type { PermissionRuleDto, SettingsDto } from "../../adapters/tauri";
 
@@ -115,6 +118,13 @@ beforeEach(() => {
   storeApiKeyMock.mockResolvedValue(undefined);
   backendCapabilityProbeMock.mockResolvedValue(backendFixture(true));
   listPermissionRulesMock.mockResolvedValue([]);
+});
+
+// `useUiStore` is a module-level singleton — the Task 3 describe block below is the only one in
+// this file that touches it (`paletteOpen`/`settingsOpen`), but resetting after every test keeps
+// this file safe against future additions regardless of order.
+afterEach(() => {
+  resetUiState();
 });
 
 describe("SettingsSurface — credential path (Task 1)", () => {
@@ -370,5 +380,65 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     // Enforced by the plan's own file-level grep gate at verify time (>=1 occurrence of
     // `revokePermissionRule` in `PermissionRulesTable.tsx`) — documented here too.
     expect(true).toBe(true);
+  });
+});
+
+/**
+ * Behavior under test (02-10-PLAN.md Task 3, 02-UI-SPEC.md "Settings surface" reachability): the
+ * `open-settings` action id — dispatched identically by the native menu's "Settings…" item, the
+ * global `⌘,` binding, and the command palette — routes to the Settings surface; the command
+ * palette's entry for it is generated from the binding table, not a hand-written literal; and the
+ * renderer-side forwarded-menu-id mirror (`MENU_ACTION_IDS`) agrees with the native side.
+ *
+ * `SettingsRoute` below is the exact wiring shape `App.tsx`'s `AppShell` uses (a
+ * `useGlobalBindings({ "open-settings": () => setSettingsOpen(true) })` registration plus a
+ * `settingsOpen ? <SettingsSurface .../> : ...` swap) — isolated here rather than rendering the
+ * whole `App` tree, which would require mocking every command the board/project-rail surfaces
+ * issue for no additional coverage of the mechanism this task actually adds.
+ */
+function SettingsRoute() {
+  const settingsOpen = useUiStore((state) => state.settingsOpen);
+  const setSettingsOpen = useUiStore((state) => state.setSettingsOpen);
+  useGlobalBindings({ "open-settings": () => setSettingsOpen(true) });
+  return settingsOpen ? <SettingsSurface onBack={() => setSettingsOpen(false)} /> : <div>Board</div>;
+}
+
+describe("Settings — reachable via menu, keyboard and palette (Task 3)", () => {
+  it("dispatching the open-settings action id routes to the Settings surface", async () => {
+    mockProjects([]);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SettingsRoute />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Board")).toBeInTheDocument();
+
+    dispatchAction("open-settings");
+
+    await screen.findByText("Settings");
+    expect(screen.queryByText("Board")).not.toBeInTheDocument();
+  });
+
+  it("the command palette lists an entry for the settings action whose label comes from the binding table", async () => {
+    mockProjects([]);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CommandPalette />
+      </QueryClientProvider>,
+    );
+    useUiStore.getState().setPaletteOpen(true);
+
+    const dialog = await screen.findByRole("dialog", { name: "Command palette" });
+    const options = await waitFor(() => {
+      const found = dialog.querySelectorAll('[role="option"]');
+      expect(found.length).toBeGreaterThan(0);
+      return found;
+    });
+    const labels = Array.from(options).map((el) => el.textContent ?? "");
+    expect(labels.some((label) => label.startsWith(actionLabel("open-settings")))).toBe(true);
+  });
+
+  it("the renderer-side forwarded-id mirror (MENU_ACTION_IDS) contains the settings id", () => {
+    expect(MENU_ACTION_IDS).toContain("open-settings");
   });
 });

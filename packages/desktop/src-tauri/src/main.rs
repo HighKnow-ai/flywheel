@@ -15,11 +15,16 @@ use tauri::{Emitter, Manager};
 /// items — Quit, Close Window, Cut/Copy/Paste/Undo/Redo, Minimize/Maximize/Bring All to Front,
 /// About) is already handled natively by Tauri/the OS and needs no forwarding here.
 ///
-/// These same four ids are the exact set `menu_set_action_enabled` (`commands/menu.rs`) accepts
+/// `"open-settings"` is plan 02-10 Task 3's addition (D-39) — extending this closed list by one
+/// id, the same discipline every prior addition to this set has followed, never widening the
+/// check itself.
+///
+/// These same five ids are the exact set `menu_set_action_enabled` (`commands/menu.rs`) accepts
 /// (01-16-PLAN.md Task 2, UAT gap G-01-1) — `state/keyboard.ts`'s `MENU_ACTION_IDS` is their
 /// renderer-side mirror, kept in sync by hand across the IPC seam since a Rust const and a
 /// TypeScript array cannot share a single source.
-const FORWARDED_MENU_ACTIONS: &[&str] = &["register-project", "create-task", "create-epic", "open-palette"];
+const FORWARDED_MENU_ACTIONS: &[&str] =
+    &["register-project", "create-task", "create-epic", "open-palette", "open-settings"];
 
 fn main() {
     tauri::Builder::default()

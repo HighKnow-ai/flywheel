@@ -17,8 +17,12 @@ pub struct AppState {
     pub sidecar: Option<SidecarHandle>,
 }
 
-/// Native menu handles for the four forwarded custom items — `main.rs`'s
+/// Native menu handles for the five forwarded custom items — `main.rs`'s
 /// `FORWARDED_MENU_ACTIONS` and `state/keyboard.ts`'s `MENU_ACTION_IDS` on the TypeScript side.
+/// `open_settings` is plan 02-10 Task 3's addition (D-39) — the same forwarding/enable-disable
+/// discipline Phase 1's original four items already established, extended by one id rather than
+/// widened into a general mechanism.
+///
 /// Registered once in `menu::build_menu`, looked up by
 /// `commands::menu::menu_set_action_enabled` to push the renderer's layer verdict onto the
 /// native menu bar (01-16-PLAN.md Task 2, UAT gap G-01-1's affordance half — the enforcement
@@ -36,13 +40,14 @@ pub struct MenuHandles<R: tauri::Runtime> {
     pub create_task: MenuItem<R>,
     pub create_epic: MenuItem<R>,
     pub open_palette: MenuItem<R>,
+    pub open_settings: MenuItem<R>,
 }
 
 impl<R: tauri::Runtime> MenuHandles<R> {
-    /// Resolves an action id string to its handle, or `None` for anything outside the four
+    /// Resolves an action id string to its handle, or `None` for anything outside the five
     /// forwarded ids. `commands::menu::menu_set_action_enabled` uses the `None` case to refuse an
     /// unrecognised id rather than silently doing nothing — the renderer may only ever toggle
-    /// the four items the menu bar itself declares, never an arbitrary menu node
+    /// the five items the menu bar itself declares, never an arbitrary menu node
     /// (threat T-01-16-01).
     pub fn get(&self, action_id: &str) -> Option<&MenuItem<R>> {
         match action_id {
@@ -50,6 +55,7 @@ impl<R: tauri::Runtime> MenuHandles<R> {
             "create-task" => Some(&self.create_task),
             "create-epic" => Some(&self.create_epic),
             "open-palette" => Some(&self.open_palette),
+            "open-settings" => Some(&self.open_settings),
             _ => None,
         }
     }

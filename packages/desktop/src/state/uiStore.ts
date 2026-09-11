@@ -143,6 +143,12 @@ interface UiState {
    * Work" affordance (deep inside `BoardView`'s tree) and from the board-list `start-work` action
    * id (`w`) — neither of which imports the sheet component itself. */
   launchSheetTaskId: string | null;
+  /** Whether the Settings surface (D-39, plan 02-10) is currently open — same cross-tree
+   * reasoning as `activeAgentRunId`/`launchSheetTaskId`: the surface is mounted once at the
+   * `App.tsx` level (a peer of the board/session surface, replacing the same content area), but
+   * opened from the native menu bridge, the global `⌘,` binding, and the command palette, none of
+   * which import the surface component itself. */
+  settingsOpen: boolean;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -169,6 +175,7 @@ interface UiState {
   clearQuickAddFocusPending: () => void;
   setActiveAgentRunId: (agentRunId: string | null) => void;
   setLaunchSheetTaskId: (taskId: string | null) => void;
+  setSettingsOpen: (open: boolean) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -186,6 +193,7 @@ export const useUiStore = create<UiState>((set) => ({
   quickAddFocusPending: false,
   activeAgentRunId: null,
   launchSheetTaskId: null,
+  settingsOpen: false,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -248,6 +256,7 @@ export const useUiStore = create<UiState>((set) => ({
   clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
   setActiveAgentRunId: (agentRunId) => set({ activeAgentRunId: agentRunId }),
   setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
+  setSettingsOpen: (open) => set({ settingsOpen: open }),
 }));
 
 /** Resets every UI field back to its initial value — the shared reset four test suites
@@ -272,5 +281,6 @@ export function resetUiState() {
     quickAddFocusPending: false,
     activeAgentRunId: null,
     launchSheetTaskId: null,
+    settingsOpen: false,
   });
 }
