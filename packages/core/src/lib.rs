@@ -5,6 +5,7 @@
 
 pub mod branch;
 pub mod context_packet;
+pub mod credentials;
 pub mod db;
 pub mod domain;
 pub mod git;

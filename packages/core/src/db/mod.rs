@@ -23,6 +23,7 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0002_board_schema.sql"),
         include_str!("migrations/0003_agent_runtime.sql"),
         include_str!("migrations/0004_permission_gate.sql"),
+        include_str!("migrations/0005_credentials.sql"),
     ]
 }
 

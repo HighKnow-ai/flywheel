@@ -15,6 +15,7 @@ pub mod issue;
 pub mod permission_request;
 pub mod permission_rule;
 pub mod project;
+pub mod settings;
 pub mod task;
 pub mod trigger;
 pub mod worktree;

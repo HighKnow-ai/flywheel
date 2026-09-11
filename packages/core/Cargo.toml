@@ -26,6 +26,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # the automations milestone's scheduled-trigger source needs a cron primitive; no code in this
 # crate starts a scheduler yet (`domain::trigger::cron_tick_trigger_unimplemented`).
 tokio-cron-scheduler = "0.15"
+keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
 
 [dev-dependencies]
 tempfile = "3"
