@@ -1,18 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T10:17:58Z
+updated: 2026-09-11T10:21:47Z
 ---
 
 ## Current Test
 
-number: 5
-name: Settings surface walkthrough (WINDOWS.md row 7)
-expected: |
-  All three entry points open the same Settings surface; the saved key is never re-rendered; a granted rule appears with its project and can be revoked.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -72,10 +68,18 @@ how_exercised: |
   safety-heuristic caveat, which bypasses the configured --permission-prompt-tool for commands
   Claude Code judges read-only.
 caveat_status: |
-  The bash safety-heuristic caveat is NOT disproved by this pass and remains open. This test
-  exercised the gate through a WRITE tool call; whether the gate holds for every bash command in
-  default mode was not established here, and the caveat stays recorded against AGNT-06 for a
-  future round.
+  CORRECTED after reading the board. The run did NOT go through a write tool call as suggested —
+  `permission_requests` holds one row and its gated tool is `Bash`, with the command
+  `git -C .../THRE-53 status -sb; ...; git log --oneline main..HEAD; ...; head -c 3000 STATE.md`.
+  That is entirely READ-ONLY, and the gate fired on it anyway.
+  This is materially better evidence than a write would have been: the recorded caveat says Claude
+  Code's own bash safety heuristic bypasses a configured --permission-prompt-tool for commands it
+  judges read-only, even in default mode. It did not reproduce here. The gate held for a read-only
+  bash command, was answered, and the run resumed (`permission_request.raised` and
+  `permission_request.answered` are both recorded, one each).
+  The caveat is therefore NOT confirmed on this build. It is downgraded from an open risk to
+  "did not reproduce, once" — one observation is not proof of absence, so it stays noted against
+  AGNT-06, but no longer as an assumed bypass.
 
 ### 3. Credential parity between local session and explicit API key (AGNT-03 / AGNT-04)
 expected: No behavioral difference between the two credential paths; the key is present only in the child's environment.
@@ -129,14 +133,32 @@ scope_limitation: |
 expected: All three entry points open the same Settings surface; the saved key is never re-rendered; a granted rule appears with its project and can be revoked.
 how: Open Settings from the app menu, from ⌘, and from the command palette; save an API key and confirm it cannot be read back; grant an allow-always rule from a real permission request and confirm it appears in the table and can be revoked.
 why_human: Open unrun-verify item, .planning/WINDOWS.md row 7 — deferred to end-of-phase UAT.
-result: [pending]
+result: pass
+not_corroborated: |
+  ⚠ TWO OF THE THREE CLAUSES LEFT NO TRACE ON THE BOARD. The tester reported a pass; the database
+  measured immediately afterwards cannot support two thirds of it, and this is recorded rather than
+  smoothed over because both unevidenced clauses are the security-relevant ones.
+    - "the saved key is never re-rendered": `settings` holds 0 rows. Storing a key writes the
+      `api_key_configured_at` row (credentials.rs — the secret itself goes to the macOS Keychain via
+      the `keyring` crate, but the date row lands in `settings`). No row means no key was ever
+      stored, so a key that CAN be read back would not have been detected.
+    - "a granted rule appears with its project and can be revoked": `permission_rules` holds 0 rows
+      and there are 0 `%rule%` events of any kind. `permission_requests` is still 1 — test 2's —
+      so no second gated call was raised to grant an allow-always rule from. Granted-then-revoked
+      and never-granted are indistinguishable in the end state, but the absent events settle it:
+      no rule was ever created.
+    - "all three entry points open the same Settings surface" is the one clause that leaves no
+      database trace by design, and is the one most likely to have actually been exercised.
+  RECOMMENDED: re-run clauses 2 and 3 deliberately before WINDOWS.md row 7 is closed. A key that
+  can be read back out of the UI, or a rule that cannot be revoked, are exactly the failures this
+  row exists to catch, and neither was put to the test.
 
 ## Summary
 
 total: 5
-passed: 4
+passed: 5
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
