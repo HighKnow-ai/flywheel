@@ -172,3 +172,10 @@ None — no external service configuration required.
 ---
 *Phase: 02-one-agent-one-worktree-watched-live*
 *Completed: 2026-09-11*
+
+## Self-Check: PASSED
+
+- `packages/core/tests/task_delete_with_run_history.rs` exists on disk.
+- All 4 commits (`61e32f1` docs, `15153b8` test, `abc1dd7` feat, `556c05f` docs) found in git log.
+- D-40 present in `02-CONTEXT.md`.
+- Re-ran `cargo build --workspace` (exit 0), `cargo test -p core --test task_delete_with_run_history` (3 passed, 0 failed), `cargo test -p core --test hierarchy_workflow` (18 passed, 0 failed), `cargo test --workspace` (0 failures across all binaries) — all confirmed above.
