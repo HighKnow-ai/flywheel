@@ -3,15 +3,15 @@ status: testing
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T10:15:22Z
+updated: 2026-09-11T10:17:58Z
 ---
 
 ## Current Test
 
-number: 4
-name: Bare-terminal stop walkthrough in the packaged app (WINDOWS.md row 3)
+number: 5
+name: Settings surface walkthrough (WINDOWS.md row 7)
 expected: |
-  Worktree intact and dirty exactly as the agent left it; no orphaned process under it.
+  All three entry points open the same Settings surface; the saved key is never re-rendered; a granted rule appears with its project and can be revoked.
 awaiting: user response
 
 ## Tests
@@ -103,7 +103,27 @@ open_question: |
 expected: Worktree intact and dirty exactly as the agent left it; no orphaned process under it.
 how: Start a real session, press Stop, then from a bare terminal confirm the worktree directory and its uncommitted changes are intact and no claude (or descendant) process is still running.
 why_human: Open unrun-verify item, .planning/WINDOWS.md row 3 — deferred to end-of-phase UAT per workflow.human_verify_mode=end-of-phase. The underlying process-group-kill mechanism is proven by real multi-process tests; the packaged-app path has not been observed by a human.
-result: [pending]
+result: pass
+corroborated: |
+  The no-orphan half was verified independently after the tester's pass:
+    - `pgrep -fl 'flywheel-permissions'` -> no match. Scoping to Flywheel's own permission-gate
+      argv matters here: a bare `claude` grep also catches the operator's unrelated Claude Code
+      session and would read as a false orphan.
+    - No process of any kind living under /Users/cymarechal/Flywheel/THRE.
+    - Both worktrees (THRE-38, THRE-53) still present on disk on their own task branches.
+not_corroborated: |
+  The "dirty exactly as the agent left it" half has NO supporting evidence. At verification time
+  both worktrees reported 0 dirty entries and no agent commits, and no file matching the
+  stop-test or permission-test instructions exists anywhere under /Users/cymarechal/Flywheel.
+  So what was confirmed is "worktree INTACT, no orphan" — a stopped agent leaving UNCOMMITTED WORK
+  intact was not exercised by this run. That is the half most likely to regress silently, since it
+  depends on the kill never touching the working tree. Worth re-running deliberately: make the
+  agent edit a tracked file, confirm the edit is on disk, then Stop and re-check.
+scope_limitation: |
+  WINDOWS.md row 3 names the PACKAGED app. This ran under `npm run tauri dev`, where the binary is
+  target/debug/desktop launched directly. Process-group semantics are effectively identical, so
+  this is real evidence — but the packaged .app bundle path remains unobserved by a human and the
+  WINDOWS.md row should not be closed on this alone.
 
 ### 5. Settings surface walkthrough (WINDOWS.md row 7)
 expected: All three entry points open the same Settings surface; the saved key is never re-rendered; a granted rule appears with its project and can be revoked.
@@ -114,9 +134,9 @@ result: [pending]
 ## Summary
 
 total: 5
-passed: 3
+passed: 4
 issues: 0
-pending: 2
+pending: 1
 skipped: 0
 blocked: 0
 
