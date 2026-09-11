@@ -243,24 +243,92 @@ pub fn agent_run_start(
     })
 }
 
-/// Stop a running agent run (D-35: interrupt, then force). Sends the sidecar's `interrupt`
-/// request FIRST, over `SidecarHandle::interrupt_run`, and blocks until it acknowledges — so the
-/// process has already finished the whole interrupt-then-force sequence by the time the domain
-/// write below lands — then calls `domain::agent_run::interrupt_agent_run` (idempotent: a no-op
-/// on a run that is already terminal). `actor_id` is resolved server-side (T-01-04, T-02-13) —
+/// What [`agent_run_stop`] recorded (CR-04, D-35, PROC-06). `status` is read back from
+/// `agent_runs` after the write, never a hard-coded literal, and `sidecar_warning` is populated
+/// only when the sidecar's interrupt request could not be confirmed — a `None` here means the
+/// interrupt was acknowledged (or no sidecar was attached at all), never that nothing was
+/// recorded.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRunStopDto {
+    pub agent_run_id: String,
+    pub status: String,
+    pub sidecar_warning: Option<String>,
+}
+
+/// The DB-only half of [`agent_run_stop`] (CR-04): records the run's terminal status
+/// UNCONDITIONALLY, regardless of what `interrupt` returns. `interrupt` is invoked exactly once,
+/// FIRST, but its `Result` is captured in a local rather than propagated with `?` or an early
+/// `return` — a sidecar that crashed, wedged, or never acknowledged the request can therefore
+/// only widen the returned DTO's `sidecar_warning`, never starve the domain write below it. This
+/// is the actual fix for CR-04: the previous `agent_run_stop` applied `?` directly to
+/// `interrupt_run`'s result, so a sidecar that failed to answer within
+/// `SidecarHandle::INTERRUPT_ACK_TIMEOUT` left the run stuck `running`/`blocked` forever with no
+/// force path — precisely the moment a user most needs Stop to work (PROC-06 "at any time").
+///
+/// `actor_id` is resolved server-side (T-01-04) — never accepted from the renderer.
+/// `interrupt_agent_run` is idempotent on an already-terminal run (D-35), so calling this seam
+/// twice on the same run appends no second `agent_run.interrupted` event and does not overwrite
+/// the recorded status. `Err` from this function means only that the terminal write itself
+/// failed — never that the sidecar did not answer.
+pub(crate) fn stop_agent_run_recording_first(
+    conn: &mut Connection,
+    agent_run_id: &str,
+    interrupt: impl FnOnce() -> Result<(), String>,
+) -> Result<AgentRunStopDto, String> {
+    let interrupt_result = interrupt();
+
+    let human_actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::agent_run::interrupt_agent_run(conn, agent_run_id, &human_actor_id)
+        .map_err(|e| e.to_string())?;
+
+    let status: String = conn
+        .query_row(
+            "SELECT status FROM agent_runs WHERE id = ?1",
+            rusqlite::params![agent_run_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let sidecar_warning = interrupt_result.err().map(|e| {
+        format!(
+            "Flywheel recorded this run as interrupted, but could not confirm the agent process stopped: {e}"
+        )
+    });
+
+    Ok(AgentRunStopDto { agent_run_id: agent_run_id.to_string(), status, sidecar_warning })
+}
+
+/// Stop a running agent run (D-35: interrupt, then force; CR-04). The interrupt request is still
+/// sent to the sidecar FIRST, over `SidecarHandle::interrupt_run`, and this command still blocks
+/// until it acknowledges (or times out) — but that outcome can only ADD a warning to the
+/// returned DTO, never prevent the terminal write: see `stop_agent_run_recording_first`, which
+/// keeps the interrupt's `Result` in a local instead of propagating it with `?`. A sidecar that
+/// is crashed, wedged, or never acknowledges the interrupt therefore still leaves the run at a
+/// terminal status, exactly once, regardless of what the sidecar side did. `Err` from THIS
+/// command now means only that the terminal write itself could not be recorded — it no longer
+/// means "the sidecar did not answer". `actor_id` is resolved server-side (T-01-04, T-02-13) —
 /// never accepted from the renderer. Drops the connection lock before emitting `board:changed`
 /// with an `{ entity: "agent_run", id }` payload, the same shape `task_create` uses (D-04).
 #[tauri::command]
-pub fn agent_run_stop(state: State<AppState>, app: AppHandle, agent_run_id: String) -> Result<(), String> {
-    if let Some(sidecar) = state.sidecar.as_ref() {
-        sidecar.interrupt_run(&agent_run_id).map_err(|e| e.to_string())?;
-    }
-
+pub fn agent_run_stop(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_id: String,
+) -> Result<AgentRunStopDto, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let human_actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::agent_run::interrupt_agent_run(&mut conn, &agent_run_id, &human_actor_id)
-        .map_err(|e| e.to_string())?;
+
+    let sidecar = state.sidecar.as_ref();
+    let run_id_for_interrupt = agent_run_id.clone();
+    let interrupt = move || -> Result<(), String> {
+        match sidecar {
+            Some(sidecar) => sidecar.interrupt_run(&run_id_for_interrupt).map_err(|e| e.to_string()),
+            None => Ok(()),
+        }
+    };
+
+    let dto = stop_agent_run_recording_first(&mut conn, &agent_run_id, interrupt)?;
     drop(conn);
 
     app.emit(
@@ -269,7 +337,7 @@ pub fn agent_run_stop(state: State<AppState>, app: AppHandle, agent_run_id: Stri
     )
     .ok();
 
-    Ok(())
+    Ok(dto)
 }
 
 /// What happened when [`process_inbound_permission_request`] handled one `permission_request`
