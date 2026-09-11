@@ -22,12 +22,16 @@
  * (never `measureElement`) invalidating the size cache when a tool-call row's expand state
  * changes, matching Phase 1's explicit rejection of measured virtualization.
  */
-import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType, type UIEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import * as icons from "lucide-react";
 import { answerPermissionRequest, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
+import { MARKS_BY_ID } from "../legend/marks";
+import { useRegionBindings } from "../state/keyboard";
 import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
 import { FeedRow, feedRowEstimateSize, useExpandedRows, type FeedRowData } from "./FeedRow";
+import { RawLogView } from "./RawLogView";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -48,6 +52,157 @@ function isRunStatus(value: unknown): value is RunStatus {
   return typeof value === "string" && value in RUN_STATUS_LABELS;
 }
 
+/** `agent_runs.status` -> the matching published `agent`-channel mark id (`legend/marks.ts`,
+ * plan 02-03) — the run-status badge's own glyph/label source, never a second hand-typed list. */
+const RUN_STATUS_MARK_ID: Record<RunStatus, string> = {
+  running: "run-running",
+  blocked: "run-blocked",
+  completed: "run-completed",
+  failed: "run-failed",
+  interrupted: "run-interrupted",
+};
+
+/** 02-UI-SPEC.md's "Run Status" table — running/interrupted reuse existing roles, the other
+ * three are the colour roles plan 02-03 published. */
+const RUN_STATUS_COLOR: Record<RunStatus, string> = {
+  running: "var(--accent-text-rack)",
+  blocked: "var(--blocked-text-rack)",
+  completed: "var(--success-text-rack)",
+  failed: "var(--destructive-text-rack)",
+  interrupted: "var(--text-muted-rack)",
+};
+
+type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
+
+/** Resolve a Lucide icon by name — the same by-name pattern `ActivityTrail.tsx`/
+ * `PermissionRequestCard.tsx` already use, so no icon component is ever named directly. */
+function Icon({ name, size = 14 }: { name: string; size?: number }) {
+  const Component = (icons as unknown as Record<string, IconComponent>)[name];
+  if (!Component) return null;
+  return <Component size={size} strokeWidth={2} />;
+}
+
+/** Whether the OS reports a reduced-motion preference — checked once at mount (no acceptance
+ * criterion in this plan requires reacting to the preference changing mid-session). Guarded for
+ * an environment with no `matchMedia` at all (this project's own jsdom test environment does not
+ * implement it by default; a test asserting the reduced-motion path installs its own mock first). */
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** The glyph-and-word run-status badge (02-UI-SPEC.md "Run Status", plan 02-07 Task 3) — never
+ * colour alone. `run-running`'s `Loader` glyph carries the one continuous-motion exception this
+ * product allows (Motion Additions: "signalling a process is alive right now, not decorating a
+ * state change"); `.agent-pulse` (styles/motion.css) is omitted entirely under a reduced-motion
+ * preference rather than merely zeroed, so the glyph stays static rather than freezing mid-pulse —
+ * but it is never removed, the running state must stay legible either way. */
+function RunStatusBadge({ status }: { status: RunStatus }) {
+  const mark = MARKS_BY_ID[RUN_STATUS_MARK_ID[status]];
+  const pulsing = status === "running" && !prefersReducedMotion();
+  return (
+    <span
+      className="type-label"
+      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR[status] }}
+    >
+      <span aria-hidden="true" className={pulsing ? "agent-pulse" : undefined} style={{ display: "inline-flex" }}>
+        <Icon name={mark?.glyph ?? "Circle"} />
+      </span>
+      {RUN_STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+/** The most recent numeric value found under any of `fields`, scanning newest-to-oldest — the
+ * status strip's own opportunistic extraction (02-UI-SPEC.md "Cost/token status strip"). The
+ * sidecar's `cost_update`/`result` events report cost live but do not yet stream live token
+ * counts (only `agent_runs.tokens_in`/`tokens_out`, written once at run close) — a caller with no
+ * matching field gets `undefined`, rendered as "—" rather than a fabricated zero. */
+function latestNumericField(entries: Record<string, unknown>[], fields: string[]): number | undefined {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const event = entries[i];
+    for (const field of fields) {
+      const value = event[field];
+      if (typeof value === "number") return value;
+    }
+  }
+  return undefined;
+}
+
+function formatElapsed(startIso: string | undefined, nowMs: number): string {
+  if (!startIso) return "0:00";
+  const startMs = new Date(startIso).getTime();
+  if (Number.isNaN(startMs)) return "0:00";
+  const deltaSeconds = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+  const minutes = Math.floor(deltaSeconds / 60);
+  const seconds = deltaSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatCount(value: number | undefined): string {
+  return value === undefined ? "—" : value.toLocaleString();
+}
+
+function formatCostUsd(value: number | undefined): string {
+  return value === undefined ? "—" : `$${value.toFixed(4)}`;
+}
+
+/** Re-renders once a second while `enabled` — the status strip's own elapsed-time ticker. Its
+ * own isolated re-render boundary (`StatusStrip` below, not the header/feed) is what keeps this
+ * tick from re-rendering the rest of the surface (02-UI-SPEC.md Performance Contract Additions:
+ * "an isolated re-render boundary... matching the board's... 'one row moves, the rack does not
+ * re-render' thesis"). */
+function useNowTick(enabled: boolean, intervalMs = 1000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [enabled, intervalMs]);
+  return now;
+}
+
+/** The right-aligned cost/token status strip (02-UI-SPEC.md "Cost/token status strip") — its own
+ * component so the elapsed-time tick's re-render never reaches the header chrome or the feed. */
+function StatusStrip({
+  entries,
+  running,
+}: {
+  entries: Record<string, unknown>[];
+  running: boolean;
+}) {
+  const now = useNowTick(running);
+  const startedAt = typeof entries[0]?.at === "string" ? (entries[0].at as string) : undefined;
+  const tokensIn = latestNumericField(entries, ["tokensIn", "inputTokens", "tokens_in"]);
+  const tokensOut = latestNumericField(entries, ["tokensOut", "outputTokens", "tokens_out"]);
+  const costUsd = latestNumericField(entries, ["totalCostUsd", "cost_usd"]);
+
+  return (
+    <div
+      style={{
+        marginLeft: "auto",
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--space-md)",
+        color: "var(--text-muted-rack)",
+      }}
+    >
+      <span className="type-label tabular-nums" aria-label="Elapsed time">
+        {formatElapsed(startedAt, now)}
+      </span>
+      <span className="type-label tabular-nums" aria-label="Tokens in">
+        {formatCount(tokensIn)} in
+      </span>
+      <span className="type-label tabular-nums" aria-label="Tokens out">
+        {formatCount(tokensOut)} out
+      </span>
+      <span className="type-label tabular-nums" aria-label="Cost">
+        {formatCostUsd(costUsd)}
+      </span>
+    </div>
+  );
+}
+
 export interface SessionSurfaceProps {
   agentRunId: string;
   onBack: () => void;
@@ -59,11 +214,19 @@ export interface SessionSurfaceProps {
 }
 
 /** Event kinds the feed suppresses from its own row list — each is either consumed elsewhere
- * (`init`/`cost_update` feed the header/status-strip; `permission_request` is the dedicated
- * `PermissionRequestCard` mount below) or is the terminal row's own data source
- * (`session_closed`, resolved by `findTerminalInfo`). Suppressing is not dropping: nothing here
- * is a candidate for the raw-fallback rule below, because each is already rendered somewhere. */
-const SUPPRESSED_EVENT_TYPES = new Set(["init", "cost_update", "permission_request", "session_closed"]);
+ * (`init`/`cost_update`/`result` feed the header/status-strip; `permission_request` is the
+ * dedicated `PermissionRequestCard` mount below) or is the terminal row's own data source
+ * (`session_closed`, resolved by `findTerminalInfo`) — a standalone `result` normally arrives
+ * immediately before `session_closed` and would otherwise render as a redundant raw line right
+ * before the real terminal row appears. Suppressing is not dropping: nothing here is a candidate
+ * for the raw-fallback rule below, because each is already rendered somewhere. */
+const SUPPRESSED_EVENT_TYPES = new Set([
+  "init",
+  "cost_update",
+  "result",
+  "permission_request",
+  "session_closed",
+]);
 
 /** A stable React/expand-tracking key for one raw log entry — `seq` (every normalised
  * `AgentEvent` carries one, AGNT-01) is preferred because it never shifts when the tail page's
@@ -219,9 +382,17 @@ const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }: SessionSurfaceProps) {
   const [status, setStatus] = useState<RunStatus>(initialStatus);
   const [stopping, setStopping] = useState(false);
+  const [rawViewOpen, setRawViewOpen] = useState(false);
   const tailRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null);
   const { expanded, toggle } = useExpandedRows();
+
+  // The "View raw" toggle (02-UI-SPEC.md "View raw" affordance, plan 02-07 Task 3) — subscribes
+  // to the `toggle-raw-view` action id rather than owning a key of its own; the window-level
+  // listener lives inside `useRegionBindings` (state/keyboard.ts), not here.
+  useRegionBindings("session-surface", "session-surface", {
+    "toggle-raw-view": () => setRawViewOpen((prev) => !prev),
+  });
 
   const feedQuery = useSessionFeed(agentRunId);
 
@@ -334,9 +505,25 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
           ← Board
         </button>
         <span className="type-heading">Session</span>
-        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-          {RUN_STATUS_LABELS[status]}
-        </span>
+        <RunStatusBadge status={status} />
+
+        <StatusStrip entries={entries} running={status === "running" || status === "blocked"} />
+
+        <button
+          type="button"
+          onClick={() => setRawViewOpen((prev) => !prev)}
+          className="type-label"
+          style={{
+            background: "transparent",
+            border: "1px solid var(--divider)",
+            borderRadius: "var(--radius-chrome)",
+            color: "var(--text-primary-rack)",
+            padding: "var(--space-xs) var(--space-md)",
+            cursor: "pointer",
+          }}
+        >
+          {rawViewOpen ? "View structured" : "View raw"}
+        </button>
 
         {showStop && (
           <button
@@ -345,7 +532,6 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
             disabled={stopping}
             className="type-label"
             style={{
-              marginLeft: "auto",
               background: "transparent",
               border: "1px solid var(--divider)",
               borderRadius: "var(--radius-chrome)",
@@ -359,44 +545,48 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
         )}
       </header>
 
-      <div
-        ref={parentRef}
-        onScroll={handleScroll}
-        data-testid="session-feed-scroll"
-        style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}
-      >
-        {showStartingPulse && <StartingSessionRow />}
+      {rawViewOpen ? (
+        <RawLogView agentRunId={agentRunId} />
+      ) : (
+        <div
+          ref={parentRef}
+          onScroll={handleScroll}
+          data-testid="session-feed-scroll"
+          style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}
+        >
+          {showStartingPulse && <StartingSessionRow />}
 
-        <div role="list" aria-label="Session events" style={{ position: "relative", height: rowVirtualizer.getTotalSize(), width: "100%" }}>
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const row = feedRows[virtualRow.index];
-            return (
-              <div
-                key={row.key}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-              >
-                <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} />
-              </div>
-            );
-          })}
-        </div>
-
-        {terminalInfo && <TerminalRow info={terminalInfo} />}
-
-        {pendingRequests.length > 0 && (
-          <div style={{ marginTop: "var(--space-md)" }}>
-            <PermissionRequestCard variant="feed" requests={pendingRequests} onAnswer={handleAnswer} />
+          <div role="list" aria-label="Session events" style={{ position: "relative", height: rowVirtualizer.getTotalSize(), width: "100%" }}>
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = feedRows[virtualRow.index];
+              return (
+                <div
+                  key={row.key}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} />
+                </div>
+              );
+            })}
           </div>
-        )}
 
-        <div ref={tailRef} />
-      </div>
+          {terminalInfo && <TerminalRow info={terminalInfo} />}
+
+          {pendingRequests.length > 0 && (
+            <div style={{ marginTop: "var(--space-md)" }}>
+              <PermissionRequestCard variant="feed" requests={pendingRequests} onAnswer={handleAnswer} />
+            </div>
+          )}
+
+          <div ref={tailRef} />
+        </div>
+      )}
     </div>
   );
 }

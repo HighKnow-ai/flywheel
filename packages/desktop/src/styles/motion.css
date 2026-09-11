@@ -23,6 +23,29 @@
   transition: transform var(--duration-displace) var(--ease);
 }
 
+/**
+ * The running-session pulse (02-UI-SPEC.md "Motion Additions", plan 02-07 Task 3) — a slow,
+ * subtle opacity pulse on the `Loader` glyph, the ONE place in this product a non-mechanical,
+ * continuous animation is justified: it signals "a process is alive right now," not a state
+ * change. `SessionSurface.tsx`'s own `usePrefersReducedMotion` check omits this class entirely
+ * under reduced motion rather than relying on the blanket `animation-duration: 0s` rule below —
+ * that rule alone would freeze the glyph at an arbitrary point in its cycle rather than at a
+ * fully legible, static one.
+ */
+@keyframes agent-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.agent-pulse {
+  animation: agent-pulse 1.6s var(--ease) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-settle: 0s;

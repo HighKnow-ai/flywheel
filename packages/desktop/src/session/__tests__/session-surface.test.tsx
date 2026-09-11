@@ -22,6 +22,8 @@ vi.mock("../../adapters/tauri", async () => {
     ...actual,
     agentRunLogWindow: (agentRunId: string, offset: number, limit: number) =>
       invokeCommandMock("agent_run_log_window", { agentRunId, offset, limit }),
+    agentRunRawWindow: (agentRunId: string, offset: number, limit: number) =>
+      invokeCommandMock("agent_run_raw_window", { agentRunId, offset, limit }),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
     stopAgentRun: (agentRunId: string) => invokeCommandMock("agent_run_stop", { agentRunId }),
@@ -49,6 +51,52 @@ function mockWindowReads(getEvents: () => Record<string, unknown>[]) {
       return Promise.resolve(windowFor(getEvents(), args.offset, args.limit));
     }
     return Promise.resolve(undefined);
+  });
+}
+
+/** A `RawLogWindowDto`-shaped stub response (plan 02-07 Task 1) — mirrors what
+ * `commands/agent_run.rs`'s real `agent_run_raw_window` returns. */
+function rawWindowFor(lines: string[], offset: number, limit: number) {
+  return {
+    lines: lines.slice(offset, offset + limit).map((text, i) => ({ line: offset + i, text })),
+    offset,
+    limit,
+    total: lines.length,
+  };
+}
+
+/** Stubs BOTH `agent_run_log_window` and `agent_run_raw_window` from one call — the raw view and
+ * the structured feed are independent reads (plan 02-07 Task 3), so a test exercising the toggle
+ * needs both stubbed at once. */
+function mockCombinedReads(opts: { events?: Record<string, unknown>[]; rawLines?: string[] }) {
+  invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) => {
+    if (command === "agent_run_log_window") {
+      return Promise.resolve(windowFor(opts.events ?? [], args.offset, args.limit));
+    }
+    if (command === "agent_run_raw_window") {
+      return Promise.resolve(rawWindowFor(opts.rawLines ?? [], args.offset, args.limit));
+    }
+    return Promise.resolve(undefined);
+  });
+}
+
+/** Installs a `window.matchMedia` stub reporting `matches` for every query — this project's own
+ * jsdom test environment implements no `matchMedia` at all by default (`SessionSurface.tsx`'s own
+ * `prefersReducedMotion` guards for that absence in every OTHER test in this file). */
+function mockMatchMedia(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
   });
 }
 
@@ -341,5 +389,134 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
       ),
     );
     await screen.findByText("Event number 0");
+  });
+});
+
+describe("SessionSurface raw view, status strip, and run-status badge (plan 02-07 Task 3)", () => {
+  it("toggles between the structured feed and the raw view and back", async () => {
+    const events = [makeEvent(0)];
+    const rawLines = ['{"type":"assistant_text","text":"Event number 0"}'];
+    mockCombinedReads({ events, rawLines });
+
+    renderSurface();
+
+    await screen.findByText("Event number 0");
+
+    screen.getByRole("button", { name: "View raw" }).click();
+
+    await screen.findByRole("log", { name: "Raw session log" });
+    expect(screen.queryByText("Event number 0")).not.toBeInTheDocument();
+    await screen.findByText(rawLines[0]);
+
+    screen.getByRole("button", { name: "View structured" }).click();
+
+    await screen.findByText("Event number 0");
+    expect(screen.queryByRole("log", { name: "Raw session log" })).not.toBeInTheDocument();
+  });
+
+  it("renders a line number beside each raw line, seeded against a known window", async () => {
+    const rawLines = ["first line", "second line", "third line"];
+    mockCombinedReads({ rawLines });
+
+    renderSurface();
+
+    screen.getByRole("button", { name: "View raw" }).click();
+    await screen.findByText("first line");
+
+    expect(screen.getByText("second line")).toBeInTheDocument();
+    expect(screen.getByText("third line")).toBeInTheDocument();
+    expect(screen.getByText("0")).toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  it("pages through the same bounded window the feed uses — a large log still renders at most one page's worth of lines", async () => {
+    const rawLines = Array.from({ length: 250 }, (_, i) => `raw line ${i}`);
+    mockCombinedReads({ rawLines });
+
+    renderSurface();
+
+    screen.getByRole("button", { name: "View raw" }).click();
+    // The tail page is offset 200..249 (total 250, page size 50) — its first line renders.
+    await screen.findByText("raw line 200");
+
+    const rendered = screen.getAllByText(/^raw line \d+$/);
+    // LOG_WINDOW_MAX_LIMIT (packages/core/src/session_log.rs) is 100 — the raw view's own page
+    // size (50) already stays well under it, so a large log never renders more than one bounded
+    // page's worth of lines at once.
+    expect(rendered.length).toBeLessThanOrEqual(100);
+  });
+
+  it("renders the status strip with elapsed time, tokens in, tokens out, and a USD cost figure", async () => {
+    const events = [
+      { runId: "run-1", seq: 0, at: "2026-01-01T00:00:00.000Z", raw: "hi", type: "assistant_text", text: "hi" },
+      {
+        runId: "run-1",
+        seq: 1,
+        at: "2026-01-01T00:00:05.000Z",
+        raw: "result",
+        type: "result",
+        subtype: "success",
+        totalCostUsd: 0.0123,
+        tokensIn: 120,
+        tokensOut: 45,
+      },
+    ];
+    mockCombinedReads({ events });
+
+    renderSurface();
+
+    await screen.findByText("hi");
+    await waitFor(() => expect(screen.getByLabelText("Cost")).toHaveTextContent("$0.0123"));
+    expect(screen.getByLabelText("Tokens in")).toHaveTextContent("120 in");
+    expect(screen.getByLabelText("Tokens out")).toHaveTextContent("45 out");
+    expect(screen.getByLabelText("Elapsed time")).toBeInTheDocument();
+  });
+
+  it("renders the correct glyph-and-word pair for each of the five run statuses", () => {
+    const cases: Array<["running" | "blocked" | "completed" | "failed" | "interrupted", string]> = [
+      ["running", "Running"],
+      ["blocked", "Blocked"],
+      ["completed", "Completed"],
+      ["failed", "Failed"],
+      ["interrupted", "Interrupted"],
+    ];
+    for (const [status, label] of cases) {
+      mockCombinedReads({});
+      const { container, unmount } = render(
+        <QueryClientProvider client={new QueryClient()}>
+          <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus={status} />
+        </QueryClientProvider>,
+      );
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(container.querySelector("svg")).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("applies the pulse class to the running badge when no reduced-motion preference is set", () => {
+    mockCombinedReads({});
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+    expect(container.querySelector(".agent-pulse")).not.toBeNull();
+  });
+
+  it("omits the pulse class under a reduced-motion preference but still renders the running glyph and word", () => {
+    mockMatchMedia(true);
+    mockCombinedReads({});
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeInTheDocument();
+    expect(container.querySelector(".agent-pulse")).toBeNull();
+
+    // @ts-expect-error test-only cleanup of the global override installed above
+    delete window.matchMedia;
   });
 });
