@@ -200,8 +200,8 @@ mod tests {
     #[test]
     fn when_the_sidecar_is_not_running_the_probe_reports_unavailable_but_the_api_key_path_stays_usable() {
         let dto = capability_dto_when_no_sidecar();
-        assert_eq!(dto.available, false);
+        assert!(!dto.available);
         assert_eq!(dto.version, None);
-        assert_eq!(dto.api_key_path_usable, true);
+        assert!(dto.api_key_path_usable);
     }
 }

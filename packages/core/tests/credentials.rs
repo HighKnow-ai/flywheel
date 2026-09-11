@@ -172,11 +172,11 @@ fn has_api_key_reports_presence_without_returning_the_value() {
     let (mut conn, actor_id, _project) = common::seeded_project();
 
     credentials::clear_api_key(&mut conn).expect("clear_api_key should succeed on an empty entry");
-    assert_eq!(credentials::has_api_key().unwrap(), false);
+    assert!(!credentials::has_api_key().unwrap());
 
     credentials::store_api_key(&mut conn, &actor_id, TEST_API_KEY_VALUE)
         .expect("store_api_key should succeed");
-    assert_eq!(credentials::has_api_key().unwrap(), true);
+    assert!(credentials::has_api_key().unwrap());
 }
 
 #[test]
@@ -213,11 +213,11 @@ fn clear_api_key_removes_the_keychain_entry_and_the_configured_at_date() {
 
     credentials::store_api_key(&mut conn, &actor_id, TEST_API_KEY_VALUE)
         .expect("store_api_key should succeed");
-    assert_eq!(credentials::has_api_key().unwrap(), true);
+    assert!(credentials::has_api_key().unwrap());
 
     credentials::clear_api_key(&mut conn).expect("clear_api_key should succeed");
 
-    assert_eq!(credentials::has_api_key().unwrap(), false);
+    assert!(!credentials::has_api_key().unwrap());
     assert_eq!(credentials::api_key_configured_at(&conn).unwrap(), None);
 }
 
