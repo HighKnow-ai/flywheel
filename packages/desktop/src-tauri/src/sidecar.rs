@@ -341,6 +341,137 @@ fn emit_persistence_failure_notice(app: &AppHandle, run_id: &str, detail: &str) 
     let _ = app.emit("agent:event", &payload);
 }
 
+/// CR-03's exact failure mode, as falsifiable tests: force `SessionLogWriter::open` to fail for
+/// one run and prove — by bytes on disk, not just the return value — that another run's events
+/// keep flowing. Follows `packages/core/tests/session_log_window.rs`'s own precedent of writing
+/// through `session_log_path` against the real OS app-data directory with a fresh ULID-shaped run
+/// id per test, removing each test's own files/directories afterward. No test here constructs a
+/// `SidecarHandle`, spawns a process, or requires a Tauri `AppHandle` — `persist_event_line`
+/// takes only `&Mutex<HashMap<String, SessionLogWriter>>`, so none of that is needed.
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+
+    /// A fresh ULID-shaped run id this test owns exclusively.
+    fn fresh_run_id() -> String {
+        flywheel_core::ids::new_id()
+    }
+
+    /// Force `SessionLogWriter::open` to fail for `run_id`, portably (macOS, Linux and Windows
+    /// alike): create a DIRECTORY at the log path itself, so an append-mode file open against it
+    /// fails — without touching permissions or filling a disk. Returns the obstructed path so the
+    /// caller can remove it.
+    fn obstruct_log_path(run_id: &str) -> std::path::PathBuf {
+        let path = flywheel_core::session_log::session_log_path(run_id)
+            .expect("session_log_path should resolve for a fresh run id");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("failed to create the sessions directory");
+        }
+        std::fs::create_dir_all(&path).expect("failed to obstruct the log path with a directory");
+        path
+    }
+
+    #[test]
+    fn one_runs_unopenable_log_never_stops_another_runs_events() {
+        let writers: Mutex<HashMap<String, SessionLogWriter>> = Mutex::new(HashMap::new());
+        let run_a = fresh_run_id();
+        let run_b = fresh_run_id();
+        let obstruction = obstruct_log_path(&run_a);
+
+        // Run A's log can never be opened — it returns a value, never a panic.
+        assert!(matches!(
+            persist_event_line(&writers, &run_a, "{\"seq\":0}"),
+            PersistOutcome::OpenFailed(_)
+        ));
+
+        // A healthy second run, in the SAME call sequence, is completely unaffected.
+        let line_b0 = "{\"seq\":0}";
+        assert_eq!(persist_event_line(&writers, &run_b, line_b0), PersistOutcome::Written);
+        assert_eq!(
+            flywheel_core::session_log::count_lines(&run_b).expect("count_lines should succeed"),
+            1,
+            "run B's first line must be persisted despite run A's failure"
+        );
+        let path_b = flywheel_core::session_log::session_log_path(&run_b)
+            .expect("session_log_path should resolve for run B");
+        let content_b = std::fs::read_to_string(&path_b).expect("failed to read run B's log file");
+        assert_eq!(content_b, format!("{line_b0}\n"), "run B's file must contain the exact line text");
+
+        // Run A's failure REPEATS — still OpenFailed — and run B keeps flowing regardless.
+        assert!(matches!(
+            persist_event_line(&writers, &run_a, "{\"seq\":1}"),
+            PersistOutcome::OpenFailed(_)
+        ));
+        let line_b1 = "{\"seq\":1}";
+        assert_eq!(persist_event_line(&writers, &run_b, line_b1), PersistOutcome::Written);
+        assert_eq!(
+            flywheel_core::session_log::count_lines(&run_b).expect("count_lines should succeed"),
+            2,
+            "run B's second line must be persisted despite run A's REPEATED failure"
+        );
+
+        let _ = std::fs::remove_dir_all(&obstruction);
+        let _ = std::fs::remove_file(&path_b);
+    }
+
+    #[test]
+    fn a_failed_open_is_retried_on_the_next_event_rather_than_cached() {
+        let writers: Mutex<HashMap<String, SessionLogWriter>> = Mutex::new(HashMap::new());
+        let run_id = fresh_run_id();
+        let obstruction = obstruct_log_path(&run_id);
+
+        assert!(matches!(
+            persist_event_line(&writers, &run_id, "{\"seq\":0}"),
+            PersistOutcome::OpenFailed(_)
+        ));
+
+        // The obstruction is removed — nothing about the FIRST failure was cached in `writers`,
+        // so the very next call for the SAME run id must retry the open and succeed.
+        std::fs::remove_dir_all(&obstruction).expect("failed to remove the obstruction");
+
+        assert_eq!(
+            persist_event_line(&writers, &run_id, "{\"seq\":1}"),
+            PersistOutcome::Written
+        );
+        assert_eq!(
+            flywheel_core::session_log::count_lines(&run_id).expect("count_lines should succeed"),
+            1
+        );
+
+        let path = flywheel_core::session_log::session_log_path(&run_id)
+            .expect("session_log_path should resolve for a fresh run id");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_run_id_that_is_not_a_plausible_ulid_is_rejected_before_any_path_is_built() {
+        let writers: Mutex<HashMap<String, SessionLogWriter>> = Mutex::new(HashMap::new());
+
+        // 26 characters (the required length) but with a path separator in it.
+        let separator_id = format!("{}/", "a".repeat(25));
+        // A plausible-looking but one-character-short id.
+        let short_id = "a".repeat(25);
+        let candidates = [separator_id.as_str(), short_id.as_str(), ""];
+
+        for run_id in candidates {
+            assert_eq!(
+                persist_event_line(&writers, run_id, "{}"),
+                PersistOutcome::RejectedRunId,
+                "run id {run_id:?} should be rejected before any path is built"
+            );
+            // Rejection happens before `session_log_path`/`SessionLogWriter::open` are ever
+            // called — computing the WOULD-BE path here (a pure string operation, never touching
+            // the filesystem) and asserting it does not exist proves nothing was created for it.
+            if let Ok(would_be_path) = flywheel_core::session_log::session_log_path(run_id) {
+                assert!(
+                    !would_be_path.exists(),
+                    "no file or directory should ever be created for a rejected run id, got {would_be_path:?}"
+                );
+            }
+        }
+    }
+}
+
 /// Spawn the bundled `flywheel-sidecar` binary and start its stdout reader task. Follows this
 /// codebase's expect-or-crash-loudly-at-startup idiom (`main.rs`'s `.setup()` closure) — a failure
 /// to resolve or spawn the sidecar aborts startup rather than proceeding with a half-working app.

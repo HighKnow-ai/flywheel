@@ -36,7 +36,11 @@ pub struct SessionLogWriter {
 
 impl SessionLogWriter {
     /// Open (creating if absent) the log file for `agent_run_id`, creating its parent
-    /// `sessions/` directory if it does not exist yet.
+    /// `sessions/` directory if it does not exist yet. Its caller on the shared sidecar reader
+    /// loop (`packages/desktop/src-tauri/src/sidecar.rs`'s `persist_event_line`) MUST treat this
+    /// function's `Err` as a value to route to `PersistOutcome::OpenFailed` — never as an unwind
+    /// — because that caller is the ONE reader task for every run the application supervises
+    /// (CR-03, PROC-07).
     pub fn open(agent_run_id: &str) -> anyhow::Result<Self> {
         let path = session_log_path(agent_run_id)?;
         if let Some(parent) = path.parent() {
