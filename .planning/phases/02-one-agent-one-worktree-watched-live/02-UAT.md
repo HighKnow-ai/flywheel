@@ -3,7 +3,7 @@ status: complete
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-11T10:21:47Z
+updated: 2026-09-11T10:24:46Z
 ---
 
 ## Current Test
@@ -149,9 +149,19 @@ not_corroborated: |
       no rule was ever created.
     - "all three entry points open the same Settings surface" is the one clause that leaves no
       database trace by design, and is the one most likely to have actually been exercised.
-  RECOMMENDED: re-run clauses 2 and 3 deliberately before WINDOWS.md row 7 is closed. A key that
-  can be read back out of the UI, or a rule that cannot be revoked, are exactly the failures this
-  row exists to catch, and neither was put to the test.
+  RE-RUN 2026-09-11T10:24 — SPLIT RESULT, measured against the board immediately afterwards:
+    - Clause 2 (saved key never re-rendered) is now CORROBORATED. `settings` gained two rows:
+      `api_key_configured_at` at 10:24:01 and `global_credential_mode` at 10:24:02. A key was
+      genuinely stored through the Settings surface, so the write-only field was exercised for real.
+    - Clause 3 (granted rule appears and can be revoked) is STILL UNEVIDENCED after the re-run.
+      `permission_rules` is 0, there are still 0 `%rule%` events of any kind, and
+      `permission_requests` is still 1 — test 2's original row. No second gated call was ever
+      raised, so there was no permission card to grant an allow-always rule from, and the
+      grant/revoke path has never executed.
+  STANDING RECOMMENDATION: WINDOWS.md row 7 should not be closed on clause 3. The permission-rule
+  table and its Revoke action remain the only part of D-39's Settings surface never exercised by a
+  human, and an ungrantable or unrevokable rule is a security-relevant failure. Carried into the
+  security review's scope rather than left as a UAT footnote.
 
 ## Summary
 
