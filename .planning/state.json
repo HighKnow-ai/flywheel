@@ -11,7 +11,7 @@
     {
       "number": "2",
       "name": "One Agent, One Worktree, Watched Live",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "3",
@@ -66,8 +66,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 02 of 12 · 0% · executing"
+    "label": "Advance to the next step (plan phase 3)",
+    "reason": "Phase 3 of 12 — needs a plan"
   },
-  "updated_at": "2026-09-11T09:50:06.548Z"
+  "updated_at": "2026-09-12T00:48:21.700Z"
 }

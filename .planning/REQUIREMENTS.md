@@ -12,7 +12,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **DATA-01**: Every board mutation is written to an append-only event log in the same transaction as the mutable projection it updates, so audit trail and current state can never diverge
 - [x] **DATA-02**: Every entity uses a client-generated globally unique identifier (ULID), never an auto-incrementing integer, so records created offline or on another device never collide
 - [x] **DATA-03**: Every mutation records the actor that made it, with humans and agents represented as distinct actors in the same actor model
-- [ ] **DATA-04**: Agent work is started through a generic trigger record whose source is one of a known set, with `user_action` implemented and `schedule`/`webhook` accepted by the schema but unimplemented
+- [x] **DATA-04**: Agent work is started through a generic trigger record whose source is one of a known set, with `user_action` implemented and `schedule`/`webhook` accepted by the schema but unimplemented
 - [x] **DATA-05**: The event log is readable as an ordered, resumable stream from any point via a cursor, so a future relay can subscribe and replay without a schema change
 - [x] **DATA-06**: Worktrees, agent runs, sessions, session summaries and artifacts are first-class records with their own identity, not JSON blobs attached to a task
 - [x] **DATA-07**: The database survives an unclean application termination without corruption or loss of committed work
@@ -33,18 +33,18 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Worktree & Branch Management
 
-- [ ] **WORK-01**: Starting work on a task creates a dedicated git worktree for that task
-- [ ] **WORK-02**: Branches follow the fixed topology: a task branch merges into its epic integration branch, which merges into the trunk
+- [x] **WORK-01**: Starting work on a task creates a dedicated git worktree for that task
+- [x] **WORK-02**: Branches follow the fixed topology: a task branch merges into its epic integration branch, which merges into the trunk
 - [ ] **WORK-03**: A worktree is never destroyed without first checking for uncommitted changes; if any exist, destruction is refused and surfaced to the user
 - [ ] **WORK-04**: Concurrent git operations against the same repository retry with exponential backoff and jitter on index-lock contention rather than failing the task
 - [ ] **WORK-05**: Agent spawn timing is desynchronised so that parallel starts do not collide on the same repository index
 - [ ] **WORK-06**: On launch, the application reconciles worktrees recorded in the database against those actually present on disk and surfaces any discrepancy to the user rather than silently repairing it
 - [ ] **WORK-07**: User can see all worktrees across all projects, their disk usage, and reclaim stale ones
-- [ ] **WORK-08**: A task's worktree persists across many agent sessions and is only removed on explicit completion or user action
+- [x] **WORK-08**: A task's worktree persists across many agent sessions and is only removed on explicit completion or user action
 
 ### Git & Forge Linkage
 
-- [ ] **LINK-01**: Every task is bound to exactly one branch whose name derives from the task identifier, so the branch is recognisable from the command line without Flywheel
+- [x] **LINK-01**: Every task is bound to exactly one branch whose name derives from the task identifier, so the branch is recognisable from the command line without Flywheel
 - [ ] **LINK-02**: Every board item shows its branch, its commits, and its current ahead/behind position relative to its integration target
 - [ ] **LINK-03**: Commits produced by an agent carry the task identifier in a commit-message trailer, so `git log` alone reveals which board item produced any change
 - [ ] **LINK-04**: User can navigate from a branch name or a commit hash back to the originating board item
@@ -70,10 +70,10 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 - [x] **AGNT-01**: All agent interaction goes through a single adapter interface; no supervisor code branches on which backend is in use
 - [x] **AGNT-02**: A Claude Code adapter drives headless sessions and normalises their event stream into the adapter's common event type
-- [ ] **AGNT-03**: Agents run using the developer's existing local Claude Code credentials, with no credential ever leaving the machine
-- [ ] **AGNT-04**: An explicit API-key credential path is supported as a first-class alternative to local subscription credentials
+- [x] **AGNT-03**: Agents run using the developer's existing local Claude Code credentials, with no credential ever leaving the machine
+- [x] **AGNT-04**: An explicit API-key credential path is supported as a first-class alternative to local subscription credentials
 - [ ] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
-- [ ] **AGNT-06**: Permission requests raised by a running agent surface to the user and block that agent until answered
+- [x] **AGNT-06**: Permission requests raised by a running agent surface to the user and block that agent until answered
 - [ ] **AGNT-07**: Destructive actions (force-push, branch deletion, recursive delete) always require explicit confirmation, even when the session is running in an auto-accept permission mode
 - [ ] **AGNT-08**: The adapter reports token usage and cost per session
 
@@ -222,7 +222,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 1 | Complete |
-| DATA-04 | Phase 2 | Gaps Found |
+| DATA-04 | Phase 2 | Complete |
 | DATA-05 | Phase 1 | Complete |
 | DATA-06 | Phase 2 | Complete |
 | DATA-07 | Phase 1 | Complete |
@@ -237,15 +237,15 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BOARD-08 | Phase 1 | Complete |
 | BOARD-09 | Phase 1 | Complete |
 | BOARD-10 | Phase 1 | Complete |
-| WORK-01 | Phase 2 | Gaps Found |
-| WORK-02 | Phase 2 | Gaps Found |
+| WORK-01 | Phase 2 | Complete |
+| WORK-02 | Phase 2 | Complete |
 | WORK-03 | Phase 3 | Pending |
 | WORK-04 | Phase 3 | Pending |
 | WORK-05 | Phase 3 | Pending |
 | WORK-06 | Phase 3 | Pending |
 | WORK-07 | Phase 10 | Pending |
-| WORK-08 | Phase 2 | Gaps Found |
-| LINK-01 | Phase 2 | Gaps Found |
+| WORK-08 | Phase 2 | Complete |
+| LINK-01 | Phase 2 | Complete |
 | LINK-02 | Phase 7 | Pending |
 | LINK-03 | Phase 7 | Pending |
 | LINK-04 | Phase 7 | Pending |
@@ -265,10 +265,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PROC-07 | Phase 2 | Complete |
 | AGNT-01 | Phase 2 | Complete |
 | AGNT-02 | Phase 2 | Complete |
-| AGNT-03 | Phase 2 | Gaps Found |
-| AGNT-04 | Phase 2 | Gaps Found |
+| AGNT-03 | Phase 2 | Complete |
+| AGNT-04 | Phase 2 | Complete |
 | AGNT-05 | Phase 9 | Pending |
-| AGNT-06 | Phase 2 | Gaps Found |
+| AGNT-06 | Phase 2 | Complete |
 | AGNT-07 | Phase 3 | Pending |
 | AGNT-08 | Phase 10 | Pending |
 | CTX-01 | Phase 4 | Pending |
