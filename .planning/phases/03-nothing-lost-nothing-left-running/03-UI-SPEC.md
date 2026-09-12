@@ -155,6 +155,11 @@ confirmation.
      that would lose work." **Exactly one button: "OK"** (there is no "Remove Anyway" — D-43's "no
      escape hatch" is structural, not merely the default). `Escape` closes the dialog identically to
      clicking OK; the worktree is untouched either way.
+     **At volume:** the entry list scrolls inside a fixed max-height region so the dialog keeps a
+     stable size and its OK button stays reachable on a worktree with hundreds of dirty files. Every
+     entry stays present inside that scroll region — the list is never capped or elided with an "and
+     `{N}` more" line, because criterion 1 is "shows **exactly** what would have been lost" and a
+     truncated list does not.
 - **Porcelain status-word mapping** (D-42's four named outcomes, plus a defensive fallback so an
   uncommon porcelain code is never silently dropped): `M` → "Modified" · `A` → "Added" · `D` →
   "Deleted" · `??` → "Untracked" · anything else (`R`enamed, `C`opied, a merge-conflict code, etc.)
@@ -203,6 +208,15 @@ Decision" below.
   scope — this phase shows only what the database already recorded from the process's last known
   state, never a re-attached live stream), and no "View Live" affordance into the session surface —
   the process is being killed, not observed.
+- **In-flight and failure, per row** (decided during the UI-consideration probe; closes this
+  document's former Open Decision #1). Between the Kill press and the row resolving, the row shows a
+  transient "Killing…" label in place of its Kill button. If the kill **fails** — the process refuses
+  to die, or the PID is gone but the OS still reports it — **the row persists** with inline failure
+  copy naming the PID and stating that Flywheel could not kill it. The modal is **not dismissible
+  while any row is unresolved**, failed rows included. This is the difference between criterion 2
+  being honest and being merely attempted: the app must never reach the board implying a clean launch
+  it did not achieve. A Kill All that partially fails leaves exactly the failed rows mounted and
+  clears the rest.
 - Once every row resolves (by Kill or Kill All), the modal unmounts and the board renders normally.
   Each killed run transitions to `abandoned` (D-49) and — if a kill record exists (D-50) — becomes
   the same acknowledgment-pending row the next section describes, so a user who kills five orphans in
@@ -333,6 +347,13 @@ than merely to look "more serious":
    card, unchanged in `state/keyboard.ts`; only the visual weight each key's button carries differs.
    `Shift+A` has no effect while this variant holds focus, since it renders no allow-always action to
    trigger.
+6. **Uncategorized destructive commands fail closed into this variant.** A command that trips the
+   destructive shim but matches **none** of D-56's six categories still renders the destructive card
+   — stop-sign glyph, reversed button emphasis, no allow-always — with generic consequence copy
+   naming the raw command rather than a specific effect. It never falls through to the routine
+   permission card. The six-category table above is a table of *better copy*, not a gate on *which
+   treatment applies*: an unrecognized dangerous command is the case where approve-by-reflex is most
+   dangerous, so it must not be the case that inherits the routine card's Allow-primary layout.
 
 ### Git lock-retry transient row (D-51, D-53, D-54)
 
@@ -517,6 +538,8 @@ meaning to it (via glyph/word) rather than adding a competing accent.
 | Orphan modal — kill-all action | "Kill All" |
 | Orphan modal — footer note | "Every process above is spending tokens right now — Flywheel didn't start any of them this time." |
 | Orphan modal — unresolvable task fallback | "an unresolvable task" |
+| Orphan modal row — kill in flight | "Killing…" |
+| Orphan modal row — kill failed | "Couldn't kill this process (PID `{pid}`). It's still running. Kill it from a terminal, then reopen Flywheel." |
 | Missing-worktree heading | "This worktree is missing from disk." |
 | Missing-worktree body | "Flywheel expected it at `{path}`, but nothing is there. Recreate it to keep working, or remove the record if you don't need it anymore." |
 | Missing-worktree actions | "Recreate Worktree" / "Remove Record" |
@@ -527,6 +550,7 @@ meaning to it (via glyph/word) rather than adding a competing accent.
 | Needs-Decision, project-rail badge (tooltip) | "`{N}` task`{s}` need a decision." |
 | Destructive-gate heading | "Destructive action — needs your OK" |
 | Destructive-gate consequence copy | See the D-56 category table in "Information Architecture & Layout" § Destructive-action gate card |
+| Destructive-gate consequence copy — uncategorized command | "This command can destroy work, and Flywheel doesn't recognise exactly what it would do." (the raw command still renders in Mono beneath it) |
 | Destructive-gate actions | "Deny" (primary/filled) / "Allow, just this once" (outline) |
 | Git lock-retry (session feed, transient) | "git: retrying after index lock (attempt `{n}`/`{max}`)…" |
 | Git lock-exhaustion (activity trail) | "Git lock contention: `{command}` in `{repository}` failed after `{N}` attempts." |
@@ -535,68 +559,152 @@ meaning to it (via glyph/word) rather than adding a competing accent.
 
 ## UI Considerations
 
-Hand-authored against this phase's new surfaces (no automated probe run this session — see the
-template's own note that this section may be produced post-approval; the coverage below is the
-researcher's own pass, in the same spirit and rigor `01-UI-SPEC.md`'s equivalent section used).
+State coverage resolved against this phase's eight new surfaces by the UI-consideration probe
+(`ui-consideration-probe.cjs`), not by a hand pass — so the two git-lock surfaces and the
+categories an earlier grouped pass folded together are each covered on their own row below.
+
+Element kinds were **confirmed, not accepted** from the heuristic classifier: the "Needs Decision"
+indicator classified as `list-collection` only and was corrected to `list-collection +
+interactive-control + static-content`, which is what raises its long-text row. The classifier is
+lossy in the under-detecting direction, so this confirmation step — not the cue match — is what
+makes the coverage below sound.
+
 Empty- and error-state **copy** lives in the Copywriting Contract above; this section covers
-coverage status and references those rows rather than restating them.
+coverage STATUS and references those rows rather than restating them.
 
-**Applicable state considerations resolved: 15 covered, 4 backstop, 0 unresolved.**
+**Applicable state considerations: 64 raised — 31 covered (explicit), 18 backstop, 15 dismissed
+with reason, 0 unresolved.**
 
-### Worktree removal dialog
+Four rows were **decided by the owner during this probe** rather than lifted from the prose, and
+are marked `[decided]`: E2/loading and E2/error (per-row in-flight state and kill-failure
+behaviour — together these close Open Decision #1 below), E6/partial (a destructive command
+matching none of D-56's six categories), and E1/overflow (the dirty-file list at volume). Each is
+`✅ covered`, not `🧪 backstop` — they are contract now, and the builder must not re-decide them.
 
-*Element kinds: form, interactive-control, static-content*
+Status vocabulary matches `01-UI-SPEC.md`: `✅ covered` lifts into `must_haves.truths` as a plain
+truth; `🧪 backstop` lifts as `{ statement, verification: backstop }` and, at verify time, is
+confirmed only by explicit evidence or routes to `human_needed` — never a silent pass; `⊘ dismissed`
+carries a reason and is deliberately not lifted.
+
+### Worktree removal dialog (E1)
+
+*Element kinds: form, list-collection, interactive-control, static-content*
 
 | Category | Status | Resolution / Reason |
 |----------|--------|---------------------|
-| empty | ✅ covered | The dialog is never opened with nothing to show — it always resolves to Checking, then Clean or Dirty; there is no "no worktree" case reachable from this action (the action itself is hidden when no worktree exists). |
-| loading | ✅ covered | The Checking state (sub-100ms expected) shows a single micro-line rather than a skeleton, per Copywriting Contract. |
-| error | 🧪 backstop | What the dialog shows if the `git status --porcelain` read itself fails (e.g. the worktree directory was deleted out from under Flywheel between the summary line rendering and the dialog opening) — not specified here; likely the same generic mutation-error toast Phase 1 already defines, but not confirmed against this specific path. |
-| populated | ✅ covered | The Dirty/Refusal state renders every porcelain entry as its own row (status word + Mono path), per Information Architecture. |
-| overflow | 🧪 backstop | A worktree with an unusually large number of dirty files (hundreds) is not specified as scrolling within a fixed-height list vs. growing the dialog unbounded. |
-| long-text | ✅ covered | Paths render in Mono; the dialog reuses `DeleteConfirm`'s existing max-width body treatment rather than growing to fit an unusually long path. |
+| empty | ✅ covered | The "Remove Worktree" action is not rendered in `WorktreeSummary` when the task has no worktree record, so the dialog has no zero-data state — it always opens against a known worktree path. |
+| loading | ✅ covered | While `git status --porcelain` is in flight the dialog shows the Checking state: a single Micro-role line, never a skeleton or spinner (sub-100ms expected). |
+| error | 🧪 backstop | If the porcelain read itself fails — e.g. the worktree directory was deleted out from under Flywheel between the summary line rendering and the dialog opening — the dialog surfaces the read failure and refuses the removal. It must never present the Clean state on an unreadable worktree. Exact copy and treatment are not pinned here. |
+| populated | ✅ covered | The Dirty refusal state renders every `git status --porcelain` entry as its own row: the porcelain status word mapped per the Copywriting Contract, plus the file path in Mono. |
+| partial | 🧪 backstop | A porcelain read that returns but is truncated or only partially parseable is treated as dirty and refuses the removal — never rendered as a partial list. Fail closed toward preserving work. |
+| overflow | ✅ covered **[decided]** | The dirty-file list scrolls inside a fixed max-height region so the dialog keeps a stable overall size and its Cancel/Remove buttons stay reachable regardless of file count. Every entry is present inside the scroll region — the list is never capped or elided with an "and N more" line, so criterion 1's "shows exactly what would have been lost" holds at any volume. |
+| zero-one-many | ✅ covered | The refusal heading interpolates singular/plural — "Can't remove — `{N}` uncommitted change`{s}`" — per the Copywriting Contract. The zero case is the Clean state, which carries its own distinct copy rather than an empty list. |
+| long-text | ✅ covered | Paths render in Mono and inherit `DeleteConfirm.tsx`'s existing max-width body treatment; the dialog does not grow horizontally to fit an unusually long path. |
 
-### Orphan recovery modal
+### Orphan recovery modal (E2)
 
 *Element kinds: list-collection, interactive-control, static-content*
 
 | Category | Status | Resolution / Reason |
 |----------|--------|---------------------|
-| empty | ✅ covered | The modal is structurally never rendered when the reconciler finds zero live orphans — its existence is conditioned on `N ≥ 1`. |
-| loading | ✅ covered | The reconciliation itself runs in `main.rs`'s `setup()` before any window is shown (D-46) — by the time the window paints, the modal's content is already fully resolved; there is no in-app loading state for this surface. |
-| populated | ✅ covered | Each row shows task identity, run identity, relative start time and a Kill action; Kill All resolves every row, per Information Architecture. |
-| zero-one-many | ✅ covered | Singular/plural heading text ("process" vs. "processes") is specified in the Copywriting Contract's `{es}` interpolation. |
-| long-text | 🧪 backstop | An unusually long task title in a modal row is not specified as truncating vs. wrapping — the board row's own truncate-not-wrap convention likely applies but is not confirmed for this specific surface. |
+| empty | ✅ covered | The modal is structurally never mounted when the launch reconciler finds zero live orphans — its existence is conditioned on `N ≥ 1`, so there is no empty state to design. |
+| loading | ✅ covered **[decided]** | Reconciliation completes in `main.rs` `setup()` before any window paints, so the modal has no initial load state. Per-row kill actions **do** carry an in-flight state: a row shows a transient "Killing…" label between the Kill press and the row resolving. Closes Open Decision #1. |
+| error | ✅ covered **[decided]** | When a kill fails, the row **persists** in the modal with inline failure copy naming the PID and stating that Flywheel could not kill it. The modal cannot be dismissed while any row is unresolved — the app must not reach the board claiming a clean launch it did not achieve. This is what makes criterion 2 honest rather than merely attempted. |
+| populated | ✅ covered | Each row shows task identity, run identity, a relative start timestamp and a Kill action; a Kill All primary action resolves every row. |
+| partial | ✅ covered | A Kill All that succeeds for some rows and fails for others leaves exactly the failed rows mounted with their failure copy while successful rows disappear. The modal stays blocking until the remainder are resolved. |
+| overflow | 🧪 backstop | The orphan row list scrolls within the fixed 560px-wide modal rather than growing it past the viewport; the exact max-height is not pinned. |
+| zero-one-many | ✅ covered | Heading copy interpolates singular/plural ("process" vs. "processes") per the Copywriting Contract; zero is unreachable by construction. |
+| long-text | 🧪 backstop | An unusually long task title in a modal row follows the board row's truncate-not-wrap convention; not separately confirmed for this surface. |
 
-### Missing-worktree decision banner / abandoned-run acknowledgment
+### Missing-worktree decision banner (E3)
 
-*Element kinds: static-content, interactive-control*
+*Element kinds: list-collection, interactive-control, static-content*
 
 | Category | Status | Resolution / Reason |
 |----------|--------|---------------------|
-| empty | ✅ covered | Both are absent by construction whenever their triggering condition (a `missing` worktree row / an unacknowledged `abandoned` run) does not hold — matching `WorktreeSummary`'s and `RunsSection`'s existing "absence is the state" convention. |
-| populated | ✅ covered | Both render their full copy and action set as soon as the triggering condition holds, per Information Architecture. |
-| partial | 🧪 backstop | An abandoned run whose kill-record file exists but is itself malformed/unparseable falls back to which copy — the "no kill record" fallback line, or a third, more specific "corrupted record" line — is not specified; the "no kill record" fallback is the safe default until proven insufficient. |
+| empty | ✅ covered | Absent by construction whenever the worktree row's status is not `missing` — absence is the state, matching `WorktreeSummary`'s existing convention. It never renders alongside the ordinary branch+path line; it replaces that line entirely. |
+| loading | 🧪 backstop | "Recreate Worktree" re-runs worktree creation in the same latency class as the original Start Work flow; whether it needs its own loading state is left as an implementation density decision (Open Decision #2 below). |
+| error | 🧪 backstop | If "Recreate Worktree" fails — base ref gone, disk unavailable — the banner stays mounted and surfaces the failure rather than clearing the task's "Needs Decision" pill. A failed recreate is not a decision made. |
+| populated | ✅ covered | Glyph, Label-role heading, body naming the expected path, and two equal-weight actions (Recreate Worktree / Remove Record) render together as soon as the worktree row reads `missing`. There is no third option and no "ignore". |
+| partial | ⊘ dismissed | The banner has no partial data shape — a worktree row is either `missing` or it is not, and there is no intermediate record for it to render. |
+| overflow | 🧪 backstop | A long recorded path in the body wraps within the item detail panel rather than truncating — the path is the actionable content, not decoration. Not separately pinned in this document. |
+| zero-one-many | ⊘ dismissed | Singleton surface — one banner per worktree row, never a collection, so there is no zero/one/many axis. |
+| long-text | 🧪 backstop | The interpolated filesystem path can be arbitrarily long; it inherits the item detail panel's body wrapping rather than the board row's truncation ladder. |
 
-### "Needs Decision" indicator
+### Abandoned-run acknowledgment (E4)
+
+*Element kinds: list-collection, interactive-control, static-content*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ✅ covered | Absent by construction whenever the task's most recent relevant run is not `abandoned`, or is already acknowledged — matching `RunsSection`'s existing absence-is-the-state convention. |
+| loading | 🧪 backstop | The Acknowledge round trip is a single record write; whether it shows an in-flight state is not pinned. |
+| error | 🧪 backstop | If Acknowledge fails to persist, the badge and explanatory line stay mounted and the task's "Needs Decision" pill does not clear. |
+| populated | ✅ covered | Run-status badge carrying the `run-abandoned` mark (`Unplug` glyph, word "Abandoned", `--destructive-text-rack`), one explanatory line beneath it sourced from the watchdog kill record, and a single Acknowledge button. Selecting the row still opens its transcript read-only. |
+| partial | ✅ covered | When no kill record exists for the run — **including when a record exists but is malformed or unparseable** — the copy falls back to the honest weaker claim ("This run never finished, and Flywheel doesn't know why it stopped"), never inventing a specific reason the data does not support. |
+| overflow | ⊘ dismissed | One explanatory line inside an existing run row; it has no container of its own to exceed beyond the row's inherited treatment. |
+| zero-one-many | ⊘ dismissed | Singleton per run row rather than a collection — there is no zero/one/many axis. |
+| long-text | ⊘ dismissed | The only interpolated value in this copy is a fixed-width timestamp; no long-text case is reachable. |
+
+### "Needs Decision" indicator (E5)
+
+*Element kinds: list-collection, interactive-control, static-content (corrected from the classifier's `list-collection` alone)*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ✅ covered | No pill and no rail badge when zero tasks in the project have an outstanding recovery item — matching the Blocked badge's own "never a visible 0" rule. |
+| loading | ⊘ dismissed | The pill is derived from already-loaded board state; it has no independent fetch and therefore no loading state. |
+| error | ⊘ dismissed | The pill renders from local board state and issues no request of its own that can fail. |
+| populated | ✅ covered | Pill renders trailing the Blocked pill when both are present, or trailing the status glyph alone; the project rail renders a separate destructive-family count badge, never merged into the amber Blocked count. |
+| partial | ⊘ dismissed | The pill is a boolean rollup over a task's outstanding recovery items — there is no partial state between present and absent. |
+| overflow | ✅ covered | Exempt from the row's progressive-disclosure truncation ladder per Row Anatomy Additions — never silently dropped at a narrower window width. |
+| zero-one-many | ✅ covered | Rail-badge tooltip interpolates singular/plural ("`{N}` task`{s}` need a decision"); zero renders no badge at all. |
+| long-text | ✅ covered | When a long task title, a Blocked pill and a Needs Decision pill compete for row width, **both pills hold their space and the title truncates**. The pills sit above the title in the truncation ladder: a dropped pill loses a signal, a truncated title loses only characters. |
+
+### Destructive-action gate card (E6)
+
+*Element kinds: form, list-collection, interactive-control, static-content*
+
+| Category | Status | Resolution / Reason |
+|----------|--------|---------------------|
+| empty | ⊘ dismissed | The card is mounted only against a pending `permission_requests` row; with no pending request there is no card, so it has no zero-data state. |
+| loading | 🧪 backstop | Between pressing Deny or "Allow, just this once" and the request resolving, the card stays visible and its buttons do not accept a second press; exact in-flight treatment is not pinned. |
+| error | 🧪 backstop | If answering fails at the IPC layer the card stays mounted and unanswered rather than optimistically clearing — mirroring the same open backstop the routine permission-request card already carries in `02-UI-SPEC.md` E3. |
+| populated | ✅ covered | Destructive border stripe, `OctagonAlert` glyph, "Destructive action — needs your OK" heading above the tool name, the per-category consequence sentence, the raw payload in Mono, and the reversed Deny-primary / "Allow, just this once"-secondary button pair with no third action. |
+| partial | ✅ covered **[decided]** | A command that trips the destructive shim but matches **none** of D-56's six categories still renders the **destructive** variant — stop-sign glyph, reversed button emphasis, no allow-always — with generic consequence copy naming the raw command rather than a specific effect. It never falls through to the routine permission card: an unrecognized dangerous command **fails closed** into the strong gate. |
+| overflow | 🧪 backstop | A long raw command payload in the Mono block scrolls or wraps within the card rather than expanding it past its mount container; not pinned. |
+| zero-one-many | 🧪 backstop | Where several destructive requests are pending at once they queue as separate cards in mount order rather than merging into one; not pinned in this document. |
+| long-text | 🧪 backstop | Long interpolated branch names inside consequence copy wrap rather than truncate — the branch name is the load-bearing detail of the sentence. |
+
+### Git lock-retry transient row (E7)
 
 *Element kinds: list-collection, static-content*
 
 | Category | Status | Resolution / Reason |
 |----------|--------|---------------------|
-| empty | ✅ covered | No pill, no rail badge, when zero tasks in the project have an outstanding recovery item — matching the Blocked pill's own "never a visible 0" rule. |
-| populated | ✅ covered | Pill renders trailing Blocked (if both present) or trailing the status glyph alone; rail badge is a separate, visually distinct numeral from the Blocked count. |
-| overflow | ✅ covered | Exempt from the row's progressive-disclosure truncation ladder, per Row Anatomy Additions — never silently dropped at a narrower window width. |
-| zero-one-many | ✅ covered | Rail-badge tooltip interpolates singular/plural ("task" vs. "tasks"), per Copywriting Contract. |
+| empty | ✅ covered | No row at all for a collision that resolves without user-visible delay — the collision counter is silent by design (D-53). Only a retry sequence taking visible wall-clock time produces a row. |
+| loading | ✅ covered | The row **is** the in-flight state: "git: retrying after index lock (attempt `{n}`/`{max}`)…" in Micro role, `text-muted-rack`, never styled as an error. |
+| error | ✅ covered | The row never renders the failure itself — it disappears the instant the underlying `git` call either succeeds or exhausts its budget, and never lingers as a stale row. Exhaustion surfaces as the Activity Trail entry (E8) instead. |
+| populated | ✅ covered | A single muted Micro-role line in the session feed, identical in treatment to the existing `api_retry`-style transient row. |
+| partial | ⊘ dismissed | A single interpolated line with no independent fields — it has no partial-data shape. |
+| overflow | ⊘ dismissed | One short Micro-role line inside the feed's existing row treatment; it cannot exceed its container. |
+| zero-one-many | 🧪 backstop | Where several shimmed `git` calls back off concurrently, whether each gets its own row or they collapse into one is not pinned; at Phase 3's one-agent-at-a-time scale concurrent retries within a single session are not expected. |
+| long-text | ⊘ dismissed | Copy is fixed apart from two small integers; no long-text case is reachable. |
 
-### Destructive-action gate card
+### Git lock-exhaustion entry (E8)
 
-*Element kinds: form, interactive-control, static-content*
+*Element kinds: list-collection, static-content*
 
 | Category | Status | Resolution / Reason |
 |----------|--------|---------------------|
-| populated | ✅ covered | Full glyph/heading/consequence-copy/button treatment specified per D-56 category, per Information Architecture. |
-| error | 🧪 backstop | What the card shows if answering it fails at the IPC layer (mirrors the identical open backstop the routine Permission-request card already carries in `02-UI-SPEC.md` E3 — not newly resolved by this phase either). |
+| empty | ✅ covered | A resolved retry sequence writes nothing to the trail — this entry is the only board-visible git-lock-contention artifact that ever exists (D-53), protecting the signal-to-noise ratio D-53 explicitly guards. |
+| loading | ⊘ dismissed | Activity Trail entries are historical records rendered from already-loaded events; the entry has no load state of its own. |
+| error | ⊘ dismissed | The entry **is** the error record; it has no failure mode of its own beyond the trail's existing rendering. |
+| populated | ✅ covered | One human-rendered trail entry — "Git lock contention: `{command}` in `{repository}` failed after `{N}` attempts." — attributed to the system actor with the `assignee-system` mark and timestamped like every other entry. |
+| partial | ⊘ dismissed | The entry is written from a complete event payload or not at all; there is no partial shape. |
+| overflow | 🧪 backstop | A long interpolated command string inherits the Activity Trail's existing entry treatment rather than defining its own; not separately pinned. |
+| zero-one-many | ✅ covered | Repeated exhaustions append as ordinary separate trail entries; the trail's existing ordering, grouping and density rules apply unchanged. |
+| long-text | 🧪 backstop | The interpolated command can be arbitrarily long; it follows the trail's existing entry wrapping rather than a new rule. |
 
 ---
 
@@ -609,11 +717,13 @@ these are Phase 3 concerns and none is resolved here.
 
 New for Phase 3:
 
-1. **Whether a long-running "Kill All" (many orphans at once) needs any per-row in-flight indicator**
-   (e.g. a brief "Killing…" label before the row disappears) — not specified; the realistic count at
-   Phase 3's one-agent-at-a-time scale makes this unlikely to matter in practice, but the planner may
-   add a lightweight transient label if the kill round-trip proves visibly slow during
-   implementation.
+1. ~~**Whether a long-running "Kill All" (many orphans at once) needs any per-row in-flight
+   indicator**~~ — **CLOSED during the UI-consideration probe.** A row shows a transient "Killing…"
+   label between the Kill press and the row resolving, and a row whose kill **fails** persists with
+   inline failure copy naming the PID while the modal stays undismissable. See `## UI Considerations`
+   → Orphan recovery modal (E2), rows `loading` and `error`. This is contract, not an implementation
+   density call: criterion 2 asserts no agent process survives, so the modal must not be dismissible
+   in a state where one does.
 2. **Whether the missing-worktree banner's "Recreate Worktree" action reuses the exact latency
    treatment of the original Start Work flow (a spinner-free, near-instant round trip) or needs its
    own loading state** — not specified here; left as an implementation density decision, consistent
