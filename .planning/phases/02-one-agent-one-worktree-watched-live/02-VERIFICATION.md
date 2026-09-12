@@ -1,6 +1,6 @@
 ---
 phase: 02-one-agent-one-worktree-watched-live
-verified: 2026-09-12T11:40:00Z
+verified: 2026-09-12T12:30:00Z
 status: passed
 score: 6/6 truths supported by evidence (5 roadmap success criteria + 1 project-constraint truth); 0 failed; 0 present-behavior-unverified; 0 open human-verification items (down from 1 at the last pass, 2 two passes ago, and 5 in the pre-UAT report)
 covered_files:
@@ -45,6 +45,9 @@ covered_files:
   - .planning/phases/02-one-agent-one-worktree-watched-live/02-18-SUMMARY.md
   - .planning/phases/02-one-agent-one-worktree-watched-live/02-SECURITY.md
   - .planning/phases/02-one-agent-one-worktree-watched-live/02-UAT.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/archive/02-REVIEW.pre-gap-closure.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/archive/02-VERIFICATION.pre-gap-closure.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/archive/README.md
   - packages/core/src/domain/agent_run.rs
   - packages/core/tests/agent_run_stop_ordering.rs
   - packages/core/tests/app_exit_ordering.rs
@@ -63,7 +66,7 @@ covered_files:
   - packages/sidecar/test/real-claude-argv.test.mjs
   - packages/sidecar/test/shutdown.test.mjs
   - packages/sidecar/test/stub-invocation.test.mjs
-covered_digest: "v1:sha256:7a47cc09cbc5a571ca653a73eaff94051ed6ef05694cd8cdea9919628747079d"
+covered_digest: "v1:sha256:3cebf0d8767b01624e73cf571ed014cf90729c6b21b54e29ddced3d14d1593a5"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
@@ -71,32 +74,39 @@ re_verification:
   previous_score: "6/6 truths supported by evidence (5 roadmap success criteria + 1 project-constraint truth); 0 failed; 1 narrower human-verification item remained open"
   gaps_closed:
     - "The single remaining human-verification item — whether a Stop preserves an agent's specifically UNCOMMITTED work, not just an intact branch and no orphan process — is now closed by a third, successful attempt. Independently re-verified this pass directly against the live worktree and database, not trusted from any narrative: `git -C .../THRE-58 status --short` returns ` M README.md`; `git -C .../THRE-58 diff -- README.md` shows an uncommitted `+stop-test` line; `agent_runs` records THRE-58's run as `interrupted` with `ended_at = 2026-09-12T00:34:36.064558+00:00`, matching the expected kill time exactly; `pgrep -fl 'flywheel-permissions'` finds no match (no orphaned process). The process-group kill demonstrably does not reach the working tree. T-02-12 (high, 02-SECURITY.md) and WINDOWS.md row 3 are both closed with this evidence; row 7 (the allow-always permission-rule round trip, closed in the prior pass) is also now flipped to `status: fixed` in the ledger, matching its own already-updated narrative."
+    - "FOURTH PASS: the advisory this same block left open — that 02-UAT.md test 4's own body was never updated to match its resolution, only its frontmatter timestamp — is now closed. Commit `4facbfd` added a `resolved:` block to 02-UAT.md test 4 naming THRE-58, the `interrupted` run reaching `ended_at 2026-09-12T00:34:36.064558Z`, the uncommitted ` M README.md`, and no orphaned process (`pgrep -fl 'flywheel-permissions'` no match) — confirmed by direct read of 02-UAT.md this pass, not trusted from the commit message. The block also names the earlier no-op itself ('a string replacement whose anchor did not match, run without an assertion, which still reported success') rather than silently repairing it, closing the hygiene gap without erasing the record of how it happened."
   gaps_remaining: []
   regressions: []
 observed_since_last_verification:
-  - "THIS PASS (2026-09-12): independently re-ran every command the instruction supplied, not trusted from WINDOWS.md's, 02-SECURITY.md's, or 02-UAT.md's own narrative. `git -C /Users/cymarechal/Flywheel/THRE/THRE-58 status --short` -> ` M README.md`. `git -C .../THRE-58 diff -- README.md` -> uncommitted `+stop-test` line appended after the existing test-command block. `sqlite3 flywheel.db` on `agent_runs` joined to `tasks` -> THRE-58's run `interrupted`, `started_at 2026-09-12T00:33:31.202604+00:00`, `ended_at 2026-09-12T00:34:36.064558+00:00` — matching the expected 00:34:36Z exactly. `pgrep -fl 'flywheel-permissions'` -> no match, exit code 1."
-  - "THIS PASS: full `agent_runs` table inspected (not just the last 3 rows) — 5 runs total, 2 `completed` (THRE-38: cost_usd 1.183256/tokens_in 1011934/tokens_out 7615; THRE-33: cost_usd 0.8583115/tokens_in 531449/tokens_out 5811) and 3 `interrupted` (THRE-53, THRE-43, THRE-58, each with populated cost/token columns), 0 stuck at `running`. G-02-4's fix (close_agent_run gaining a production caller) is holding across five independent real runs spanning two days, not just the single run that first demonstrated it at UAT."
-  - "THIS PASS: all five live worktrees' dirty state re-checked directly (`git status --short` in each) — THRE-33, THRE-38, THRE-43, THRE-53 report 0 dirty entries (consistent with prior passes: THRE-43's edit was committed, `1a59dbe`); THRE-58 alone reports ` M README.md`, the uncommitted edit the third attempt was designed to produce."
-  - "THIS PASS: `.planning/WINDOWS.md` re-read directly — both row 3 and row 7 now carry `status: fixed` with matching `resolved_at` timestamps (`2026-09-12T00:35:37.853Z` and `2026-09-12T00:29:05.383Z` respectively), and the ledger header now reads `open_count: 5, fixed_count: 2, total_count: 7` — internally consistent with the two rows' own status fields. Confirmed via `git show` that the single commit (`b467830`) which flipped row 3 to `fixed` also updated `02-SECURITY.md`'s T-02-12 entry to `RESOLVED` in the same commit, so the ledger and the threat register did not drift apart."
-  - "THIS PASS: `.planning/phases/.../02-SECURITY.md` re-read directly — T-02-12 now reads `RESOLVED 2026-09-12T00:34Z — now verified by observed behaviour`, with the same THRE-58 evidence as WINDOWS.md row 3. `threats_open: 0` unchanged. The main threat-register summary line (`84 threats · 82 closed · 2 open`) still refers to T-02-37 (medium, Phase-3-deferred) and one other pre-existing open item — T-02-12 was never counted in that 2-open figure (its disposition was `closed` in the register from audit time; the separate 'code-reading only' table tracked *evidence quality*, not disposition), so no inconsistency there."
-  - "THIS PASS: a discrepancy found and worth recording — `.planning/phases/.../02-UAT.md` test 4's own body (the `not_corroborated:` field) was NOT updated to reflect the third attempt; only its frontmatter `updated:` timestamp changed (confirmed via `git show b467830 -- .../02-UAT.md`, a 2-line diff touching only that timestamp). The claim that '02-UAT.md test 4 carries a FULLY RESOLVED block' does not hold literally — that language lives in WINDOWS.md row 3 and 02-SECURITY.md's T-02-12 entry, not in 02-UAT.md itself. This is a documentation-hygiene gap in 02-UAT.md, not a substantive one: the underlying claim was independently verified directly against the live worktree and database by this pass, not taken from any of the three files' narrative. Recorded as an advisory, not a gap, because presence-of-evidence was confirmed at the primary source (git + sqlite) rather than through the stale document."
+  - "THIRD PASS (2026-09-12, commit b467830): independently re-ran every command the instruction supplied, not trusted from WINDOWS.md's, 02-SECURITY.md's, or 02-UAT.md's own narrative. `git -C /Users/cymarechal/Flywheel/THRE/THRE-58 status --short` -> ` M README.md`. `git -C .../THRE-58 diff -- README.md` -> uncommitted `+stop-test` line appended after the existing test-command block. `sqlite3 flywheel.db` on `agent_runs` joined to `tasks` -> THRE-58's run `interrupted`, `started_at 2026-09-12T00:33:31.202604+00:00`, `ended_at 2026-09-12T00:34:36.064558+00:00` — matching the expected 00:34:36Z exactly. `pgrep -fl 'flywheel-permissions'` -> no match, exit code 1."
+  - "THIRD PASS: full `agent_runs` table inspected (not just the last 3 rows) — 5 runs total, 2 `completed` (THRE-38: cost_usd 1.183256/tokens_in 1011934/tokens_out 7615; THRE-33: cost_usd 0.8583115/tokens_in 531449/tokens_out 5811) and 3 `interrupted` (THRE-53, THRE-43, THRE-58, each with populated cost/token columns), 0 stuck at `running`. G-02-4's fix (close_agent_run gaining a production caller) is holding across five independent real runs spanning two days, not just the single run that first demonstrated it at UAT."
+  - "THIRD PASS: all five live worktrees' dirty state re-checked directly (`git status --short` in each) — THRE-33, THRE-38, THRE-43, THRE-53 report 0 dirty entries (consistent with prior passes: THRE-43's edit was committed, `1a59dbe`); THRE-58 alone reports ` M README.md`, the uncommitted edit the third attempt was designed to produce."
+  - "THIRD PASS: `.planning/WINDOWS.md` re-read directly — both row 3 and row 7 now carry `status: fixed` with matching `resolved_at` timestamps (`2026-09-12T00:35:37.853Z` and `2026-09-12T00:29:05.383Z` respectively), and the ledger header now reads `open_count: 5, fixed_count: 2, total_count: 7` — internally consistent with the two rows' own status fields. Confirmed via `git show` that the single commit (`b467830`) which flipped row 3 to `fixed` also updated `02-SECURITY.md`'s T-02-12 entry to `RESOLVED` in the same commit, so the ledger and the threat register did not drift apart."
+  - "THIRD PASS: `.planning/phases/.../02-SECURITY.md` re-read directly — T-02-12 now reads `RESOLVED 2026-09-12T00:34Z — now verified by observed behaviour`, with the same THRE-58 evidence as WINDOWS.md row 3. `threats_open: 0` unchanged. The main threat-register summary line (`84 threats · 82 closed · 2 open`) still refers to T-02-37 (medium, Phase-3-deferred) and one other pre-existing open item — T-02-12 was never counted in that 2-open figure (its disposition was `closed` in the register from audit time; the separate 'code-reading only' table tracked *evidence quality*, not disposition), so no inconsistency there."
+  - "THIRD PASS: a discrepancy found and worth recording — `.planning/phases/.../02-UAT.md` test 4's own body (the `not_corroborated:` field) was NOT updated to reflect the third attempt; only its frontmatter `updated:` timestamp changed (confirmed via `git show b467830 -- .../02-UAT.md`, a 2-line diff touching only that timestamp). The claim that '02-UAT.md test 4 carries a FULLY RESOLVED block' does not hold literally — that language lives in WINDOWS.md row 3 and 02-SECURITY.md's T-02-12 entry, not in 02-UAT.md itself. This is a documentation-hygiene gap in 02-UAT.md, not a substantive one: the underlying claim was independently verified directly against the live worktree and database by this pass, not taken from any of the three files' narrative. Recorded as an advisory, not a gap, because presence-of-evidence was confirmed at the primary source (git + sqlite) rather than through the stale document. Closed at the fourth pass — see below."
   - "No source file was touched between the prior pass and this one (`git log` shows only phase-02 doc/ledger commits since; `git status --short` on the main repo shows only unrelated untracked directories — `.flywheel/`, `.gsd/`, `.planning/milestone.lock`, a new `10.1-*` phase directory — none touching this phase's covered files). The full-suite results carried forward from two passes ago (cargo 222/222, sidecar 39/39, desktop 314/314, clean TS build) were not re-run this pass; they would produce no new evidence."
   - ".planning/REQUIREMENTS.md's per-requirement status table (lines ~217-271) still shows the inverse of the actual, code-verified state for this phase (DATA-04/WORK-01/WORK-02/WORK-08/LINK-01/AGNT-03/AGNT-04/AGNT-06 marked 'Gaps Found' while DATA-06/PROC-01/PROC-06/PROC-07/AGNT-01/AGNT-02 are marked 'Complete') — flagged across three passes now and still unreconciled. Directly re-confirmed this pass by reading the table. Doc-hygiene only; not evidence of a code regression; does not block `passed`."
+  - "FOURTH PASS (2026-09-12, post-4facbfd): 02-UAT.md test 4 re-read directly (not the diff, the live file) — it now carries a `resolved:` block naming THRE-58, the run reaching `interrupted` at `2026-09-12T00:34:36.064558Z`, the uncommitted ` M README.md`, and no orphaned process, plus a 'NOTE ON THIS RECORD' paragraph documenting the prior silent no-op as a failure in its own right rather than papering over it. The advisory this report carried at the third pass is closed."
+  - "FOURTH PASS: archive integrity independently re-verified, not trusted from the commit message. `git show 4facbfd~1:.../02-VERIFICATION.pre-gap-closure.md` and `git show 4facbfd~1:.../02-REVIEW.pre-gap-closure.md` diffed byte-for-byte against their current `archive/` copies with plain `diff` — both diffs empty, exit 0. `git log --follow --stat` on each archived path shows the `4facbfd` commit itself as `0 insertions(+), 0 deletions(-)` on that file — a pure rename, not an edit disguised as one. `archive/README.md` (new, 15 lines) explains why the two reports were moved."
+  - "FOURTH PASS: working tree confirmed clean of any change to phase-02 covered files — `git status --short` on the main repo shows only unrelated untracked directories (`.flywheel/`, `.gsd/`, `.planning/milestone.lock`, a new `10.1-visual-polish-...` phase directory), none touching this phase. HEAD is `4facbfd`, the commit named in the verification instruction, and it is the tip of the branch (no unpushed or uncommitted phase-02 changes)."
 gaps: []
 deferred: []
 human_verification: []
 ---
 
-# Phase 2: One Agent, One Worktree, Watched Live — Verification Report (Re-Verification, post-UAT, post-security-audit, post-third-human-observation)
+# Phase 2: One Agent, One Worktree, Watched Live — Verification Report (Re-Verification, post-UAT, post-security-audit, post-third-human-observation, fourth pass — advisory closure)
 
 **Phase Goal:** Cyril presses Start Work on a board task and watches a Claude Code session do that
 task inside a git worktree that belongs to the task rather than to the session.
 
-**Verified:** 2026-09-12T11:40:00Z
+**Verified:** 2026-09-12T12:30:00Z
 **Status:** passed
-**Re-verification:** Yes — this updates a report written 2026-09-12T10:15:00Z (itself updating
-reports written 2026-09-11T19:05:00Z and 2026-09-11T13:55:00Z), in light of a third, successful
-human attempt at the one item the last two reports held open.
+**Re-verification:** Yes — this updates a report written 2026-09-12T11:40:00Z (itself updating
+reports written 2026-09-12T10:15:00Z, 2026-09-11T19:05:00Z and 2026-09-11T13:55:00Z). This fourth
+pass is deliberately narrow: it does not re-litigate the five gap closures, the security audit, or
+the suites. It confirms two things the third pass surfaced but left open — that the third pass's
+own advisory (02-UAT.md test 4's stale narrative) is now closed, and that two superseded reports
+moved to `archive/` in the same commit were moved verbatim, not quietly edited.
 
 **Mode note:** unchanged from prior reports — ROADMAP.md marks this phase `mode: mvp`, but its
 `**Goal:**` line is not in `As a … I want to … so that …` user-story format, so this report
@@ -136,6 +146,41 @@ above and the Advisory section below.
 With this item closed, the human-verification section is now empty. Per this agent's own routing
 rule, an empty human-verification section together with zero failed truths and zero blockers means
 the correct status is `passed`.
+
+## Fourth pass (narrow scope): advisory closure and archive-integrity check
+
+This pass does not re-litigate the five gap closures, the security audit, or the suites — they were
+carried forward unchanged (no source file touched since the third pass). It checks exactly three
+things.
+
+**1. The third pass's own advisory — 02-UAT.md test 4's stale narrative — is now closed.** Direct
+read of `02-UAT.md` (not the commit diff, the live file) confirms test 4 now carries a `resolved:`
+block naming THRE-58, the run reaching `interrupted` at `2026-09-12T00:34:36.064558Z`, the
+uncommitted ` M README.md`, and no orphaned process — the same evidence WINDOWS.md row 3 and
+02-SECURITY.md's T-02-12 entry already carried. It also carries a `NOTE ON THIS RECORD` paragraph
+that names the earlier failure explicitly: "this resolution was first written only into WINDOWS.md
+and 02-SECURITY.md. The edit meant for this file silently no-opped — a string replacement whose
+anchor did not match, run without an assertion, which still reported success." The no-op is
+recorded, not quietly repaired out of the historical trail. **Closed.**
+
+**2. Two superseded reports were moved to `archive/`, not edited.** `git show
+4facbfd~1:.../02-VERIFICATION.pre-gap-closure.md` and `git show
+4facbfd~1:.../02-REVIEW.pre-gap-closure.md` were diffed byte-for-byte against their current
+`archive/` copies with plain `diff` — **both diffs are empty (exit 0)**. `git log --follow --stat`
+on each archived path confirms the `4facbfd` commit itself touched each file with
+`0 insertions(+), 0 deletions(-)` — a pure git rename, not an edit disguised as one. A new
+`archive/README.md` (15 lines) explains why the two reports were moved: the pre-gap-closure
+verification report's own `status: gaps_found` was blocking the phase predicate on a stale status
+long after every gap it named was closed, and rewriting a historical report's status to unblock a
+gate would have destroyed the record that makes the gate worth having. **Confirmed intact.**
+
+**3. Working tree is clean and every change above is committed.** `git status --short` on the main
+repo shows only unrelated untracked directories (`.flywheel/`, `.gsd/`, `.planning/milestone.lock`,
+a new `10.1-visual-polish-...` phase directory) — none touching phase 02's covered files. HEAD is
+`4facbfd`, the commit named in the verification instruction. **Confirmed.**
+
+All three checks held. `status: passed` is re-affirmed and this report's `verified` timestamp is
+refreshed so it is no longer stale relative to `02-UAT.md`.
 
 ## Goal Achievement
 
@@ -241,13 +286,14 @@ orchestrator.
 with this report's independent verification. This closes the ledger-hygiene gap the prior two passes
 flagged.
 
-**Advisory (new this pass — 02-UAT.md staleness):** `02-UAT.md` test 4's own `not_corroborated:` body
-text was not updated to reflect the third, successful attempt — only its frontmatter `updated:`
-timestamp changed (confirmed via `git show b467830`, a 2-line diff). WINDOWS.md row 3 and
-02-SECURITY.md's T-02-12 entry were both updated correctly in the same commit and independently
-match this pass's own direct git/sqlite evidence, so this does not weaken the substantive finding —
-but a reader consulting only `02-UAT.md` would see a stale "unevidenced" narrative for test 4.
-Orchestrator should append a closing note to `02-UAT.md` test 4 for consistency.
+**Advisory (02-UAT.md staleness — now resolved, fourth pass):** the third pass found that
+`02-UAT.md` test 4's own `not_corroborated:` body text had not been updated to reflect the third,
+successful attempt — only its frontmatter `updated:` timestamp had changed (`git show b467830`, a
+2-line diff). Commit `4facbfd` fixed this: test 4 now carries a `resolved:` block naming THRE-58,
+the `interrupted` run at `2026-09-12T00:34:36.064558Z`, the uncommitted ` M README.md`, no orphaned
+process, and — notably — the no-op failure itself, so the record shows how the gap happened rather
+than erasing it. Confirmed by direct read of `02-UAT.md` this pass, not trusted from the commit
+message. **Closed.**
 
 **Advisory (security audit hygiene, carried forward):** No `## Threat Flags` section exists in any
 of the 18 `*-SUMMARY.md` files for this phase. Treat the absence of threat flags across this phase's
@@ -315,12 +361,18 @@ routing rule this agent follows, that combination is exactly what `passed` requi
   this phase's life and only became independently observed at the very end — the same
   code-correct-but-never-executed pattern that let G-02-4 ship. Worth remembering when trusting a
   green suite on future phases.
-- New this pass: `02-UAT.md` test 4's own narrative text was never updated to match its resolution
-  (only its frontmatter timestamp changed) — a minor doc-hygiene gap, orchestrator should close it,
-  but it does not affect this phase's `passed` status since the underlying claim was independently
-  re-derived from primary sources (git + sqlite) rather than from that document.
+- Resolved at the fourth pass: the third pass found `02-UAT.md` test 4's own narrative text had
+  never been updated to match its resolution (only its frontmatter timestamp had changed). Commit
+  `4facbfd` added a `resolved:` block to test 4 naming THRE-58, the `interrupted` run, the
+  uncommitted ` M README.md`, no orphaned process, and the no-op failure itself — confirmed by
+  direct read this pass. No open doc-hygiene gap remains here.
+- Also confirmed at the fourth pass: two superseded reports (`02-VERIFICATION.pre-gap-closure.md`,
+  `02-REVIEW.pre-gap-closure.md`) were moved into `archive/` in the same commit. Both diffed
+  byte-for-byte against their pre-move content — empty diffs, and `git log --follow --stat` shows
+  `0 insertions(+), 0 deletions(-)` on each in that commit. A pure rename, not an edit disguised as
+  one.
 
 ---
 
-_Verified: 2026-09-12T11:40:00Z_
+_Verified: 2026-09-12T12:30:00Z_
 _Verifier: Claude (gsd-verifier)_
