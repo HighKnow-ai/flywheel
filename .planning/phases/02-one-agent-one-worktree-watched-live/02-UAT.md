@@ -3,7 +3,7 @@ status: complete
 phase: 02-one-agent-one-worktree-watched-live
 source: [02-VERIFICATION.md]
 started: 2026-09-11T05:52:53.211Z
-updated: 2026-09-12T00:35:37Z
+updated: 2026-09-12T00:41:53Z
 ---
 
 ## Current Test
@@ -128,6 +128,28 @@ scope_limitation: |
   target/debug/desktop launched directly. Process-group semantics are effectively identical, so
   this is real evidence — but the packaged .app bundle path remains unobserved by a human and the
   WINDOWS.md row should not be closed on this alone.
+resolved: |
+  FULLY RESOLVED 2026-09-12T00:34Z, on a third attempt. The blocks above are kept verbatim as the
+  record of what was true when each earlier attempt was made; this is what finally closed it.
+    - THRE-58's run reached `interrupted` at 2026-09-12T00:34:36.064558Z — a real Stop, not a
+      natural end — with cost and token columns populated.
+    - That worktree still reports ` M README.md`, and `git diff` shows an UNCOMMITTED `+stop-test`
+      line that was never committed.
+    - `pgrep -fl 'flywheel-permissions'` returns no match: no orphaned process.
+  The process-group kill demonstrably does not reach the working tree — precisely what T-02-12
+  asserts, and precisely what neither earlier attempt reached (attempt 1 left a clean tree;
+  attempt 2 had the agent commit before the Stop). T-02-12 moves from verified-by-code-only to
+  observed, and WINDOWS.md row 3 is closed.
+  Corroboration noticed in passing: `agent_runs` now holds 2 `completed` and 3 `interrupted` —
+  five runs, every one terminal, none stuck at `running`. G-02-4's fix is holding across repeated
+  real use rather than on the single run that first demonstrated it.
+  NOTE ON THIS RECORD: this resolution was first written only into WINDOWS.md and 02-SECURITY.md.
+  The edit meant for this file silently no-opped — a string replacement whose anchor did not match,
+  run without an assertion, which still reported success. The phase verifier caught the
+  discrepancy by re-deriving the claim from git and the database instead of trusting the documents'
+  narrative, and flagged it rather than letting it pass. Recorded because a ledger that quietly
+  fails to record is the same class of defect as a test that quietly fails to run — the pattern
+  that let G-02-4 ship.
 
 ### 5. Settings surface walkthrough (WINDOWS.md row 7)
 expected: All three entry points open the same Settings surface; the saved key is never re-rendered; a granted rule appears with its project and can be revoked.
