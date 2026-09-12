@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 6
+open_count: 5
 waived_count: 0
-fixed_count: 1
+fixed_count: 2
 total_count: 7
-last_updated: 2026-09-12T00:29:05.383Z
+last_updated: 2026-09-12T00:35:37.853Z
 ---
 
 # Broken Windows Ledger
@@ -17,7 +17,7 @@ last_updated: 2026-09-12T00:29:05.383Z
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
 | 1 | 01 | stub | packages/desktop/src/board/BoardView.tsx |  | Issue parent options (ParentPicker) and quick-add's indent target are derived from the loaded board window only — an epic/task outside it cannot be offered as a parent; shares its cause with the existing epic-filter-chip window limitation (01-VERIFICATION.md row 12) | open |  | 2026-09-09T14:25:54.759Z |  |
 | 2 | 02 | deviation | packages/core/tests/worktree_lifecycle.rs |  | Same unsynchronized FLYWHEEL_WORKTREE_ROOT env-var race fixed in stop_lifecycle.rs (this plan) exists here unguarded from plan 02-01 — cargo test's default concurrent test execution can let a run fall through to the real ~/Flywheel default and leak a directory onto the dev machine. Not fixed here (out of this plan's file scope). | open |  | 2026-09-10T13:23:12.459Z |  |
-| 3 | 02 | unrun-verify | .planning/phases/02-one-agent-one-worktree-watched-live/02-02-PLAN.md |  | Plan 02-02's own manual verification step. PARTIALLY OBSERVED by a human at end-of-phase UAT 2026-09-11 (02-UAT.md test 4, result: pass): no orphaned process survived the Stop (pgrep for the Flywheel permission-gate argv returned nothing, nothing living under the worktree root) and both worktrees remained intact on disk. RE-RUN 2026-09-12, ACCEPTED AS PARTIAL: the agent's edit survived the Stop, but the agent had COMMITTED it first (`THRE-43`, `1a59dbe docs: add stop-test marker line to README`, one commit ahead of main; all worktrees still 0 dirty). A surviving commit does prove the stop path never reset, clobbered or rewound the branch, which is most of what T-02-12 asserts. What remains untested is narrower: whether the WORKING TREE specifically is ever touched by the kill. Accepted at the tester's call. Note also that UAT ran under `tauri dev`, not the packaged .app this row names. | open |  | 2026-09-10T13:23:12.599Z |  |
+| 3 | 02 | unrun-verify | .planning/phases/02-one-agent-one-worktree-watched-live/02-02-PLAN.md |  | Plan 02-02's own manual verification step. PARTIALLY OBSERVED by a human at end-of-phase UAT 2026-09-11 (02-UAT.md test 4, result: pass): no orphaned process survived the Stop (pgrep for the Flywheel permission-gate argv returned nothing, nothing living under the worktree root) and both worktrees remained intact on disk. FULLY OBSERVED 2026-09-12T00:34Z. Attempt 2 was partial — the agent committed its edit first (`THRE-43`, `1a59dbe`), so the tree was clean when the kill landed. Attempt 3 closed it: THRE-58's run reached `interrupted` at 00:34:36 and its worktree still carries an UNCOMMITTED ` M README.md` with the `+stop-test` line intact, and no orphaned process. The process-group kill demonstrably does not reach the working tree. T-02-12 moves from verified-by-code-only to observed. This row is satisfied. Note also that UAT ran under `tauri dev`, not the packaged .app this row names. | fixed |  | 2026-09-10T13:23:12.599Z | 2026-09-12T00:35:37.853Z |
 | 4 | 02 | deviation | packages/desktop/src/item-detail/ItemDetailPanel.tsx | 219 | hard-codes color: #ffffff on the Start Work button label instead of a token — pre-existing since plan 02-01, blocks 02-03 Task 1's own hex-literal verify gate but is outside 02-03's files_modified scope | open |  | 2026-09-10T13:38:00.146Z |  |
 | 5 | 02 | deviation | packages/desktop/src/legend/marks.ts |  | Task 2's verify gate grep -c 'export const MARKS' reports 2 (also matches the pre-existing export const MARKS_BY_ID substring) — false negative predating this plan; the real single-MARKS-array criterion is verified separately and holds | open |  | 2026-09-10T13:38:00.282Z |  |
 | 6 | 02 | deviation | packages/desktop/src/item-detail/WorktreeSummary.tsx |  | T-02-37 'missing from disk' clause not mitigated (no backend disk-existence signal); only the null-field case is implemented. Deferred to Phase 3 WORK-06 reconciliation. | open |  | 2026-09-11T02:15:22.725Z |  |
@@ -55,11 +55,11 @@ last_updated: 2026-09-12T00:29:05.383Z
     "phase": "02",
     "file": ".planning/phases/02-one-agent-one-worktree-watched-live/02-02-PLAN.md",
     "line": null,
-    "description": "Plan 02-02's own manual verification step. PARTIALLY OBSERVED by a human at end-of-phase UAT 2026-09-11 (02-UAT.md test 4, result: pass): no orphaned process survived the Stop (pgrep for the Flywheel permission-gate argv returned nothing, nothing living under the worktree root) and both worktrees remained intact on disk. RE-RUN 2026-09-12, ACCEPTED AS PARTIAL: the agent's edit survived the Stop, but the agent had COMMITTED it first (`THRE-43`, `1a59dbe docs: add stop-test marker line to README`, one commit ahead of main; all worktrees still 0 dirty). A surviving commit does prove the stop path never reset, clobbered or rewound the branch, which is most of what T-02-12 asserts. What remains untested is narrower: whether the WORKING TREE specifically is ever touched by the kill. Accepted at the tester's call. Note also that UAT ran under `tauri dev`, not the packaged .app this row names.",
-    "status": "open",
+    "description": "Plan 02-02's own manual verification step. PARTIALLY OBSERVED by a human at end-of-phase UAT 2026-09-11 (02-UAT.md test 4, result: pass): no orphaned process survived the Stop (pgrep for the Flywheel permission-gate argv returned nothing, nothing living under the worktree root) and both worktrees remained intact on disk. FULLY OBSERVED 2026-09-12T00:34Z. Attempt 2 was partial — the agent committed its edit first (`THRE-43`, `1a59dbe`), so the tree was clean when the kill landed. Attempt 3 closed it: THRE-58's run reached `interrupted` at 00:34:36 and its worktree still carries an UNCOMMITTED ` M README.md` with the `+stop-test` line intact, and no orphaned process. The process-group kill demonstrably does not reach the working tree. T-02-12 moves from verified-by-code-only to observed. This row is satisfied. Note also that UAT ran under `tauri dev`, not the packaged .app this row names.",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-10T13:23:12.599Z",
-    "resolved_at": null
+    "resolved_at": "2026-09-12T00:35:37.853Z"
   },
   {
     "id": 4,

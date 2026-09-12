@@ -75,7 +75,7 @@ converted to a rule.
 | T-02-04 | medium | The revoke path. |
 | T-02-45 | medium | The project-name column in the rules table. |
 | T-02-47 | medium | Skeleton-versus-empty-state in the rules table. |
-| T-02-12 | high | **Partially resolved 2026-09-12.** A human observed an agent's work survive a Stop, but the agent had committed it first (`THRE-43`, `1a59dbe`), so the tree was clean when the kill landed. A surviving commit proves the stop path never reset, clobbered or rewound the branch — most of what this threat asserts. Still untested, and narrower than before: whether the working tree specifically is ever touched. |
+| T-02-12 | high | **RESOLVED 2026-09-12T00:34Z — now verified by observed behaviour.** THRE-58's run reached `interrupted` at 00:34:36 and its worktree still carries an uncommitted ` M README.md` with the `+stop-test` line intact; no orphaned process. The process-group kill does not reach the working tree. Two earlier attempts fell short (clean tree; agent committed first), which is why this is recorded with its date and evidence rather than as a checkbox. |
 
 **Conversely, these were exercised by a human and corroborated against the board:** the permission
 gate blocking and resuming a real spawned process — and notably it fired on a *read-only* Bash
