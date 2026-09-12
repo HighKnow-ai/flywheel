@@ -280,8 +280,43 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: TBD
+**Plans**: 13 plans in 7 waves
 **UI hint**: yes
+
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Tracer: "Remove Worktree" end to end, and the refusal that guards it (WORK-03)
+- [ ] 03-02-PLAN.md — The watchdog: heartbeat file, per-session wrapper, kill record (PROC-03, PROC-04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-03-PLAN.md — Migration 0006 and launch-time worktree reconciliation (WORK-06)
+- [ ] 03-04-PLAN.md — One backoff policy, the PATH shim, and the spawn floor (WORK-04, WORK-05)
+- [ ] 03-05-PLAN.md — Deleting a task once its worktree is gone (WORK-03; blocking decision checkpoint)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-06-PLAN.md — Orphan detection at launch: classify, kill, abandon (PROC-05; package-legitimacy checkpoint)
+- [ ] 03-07-PLAN.md — The destructive-action gate's enforcement: classifier, shim block, PreToolUse hook (AGNT-07)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 03-08-PLAN.md — The stress run: ten concurrent commits keep every commit (WORK-04, WORK-05)
+- [ ] 03-09-PLAN.md — The missing-worktree decision banner (WORK-06)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 03-10-PLAN.md — The orphan recovery modal and the abandoned-run acknowledgment (PROC-04, PROC-05)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 03-11-PLAN.md — "Needs Decision": the row pill and the project-rail count (WORK-06, PROC-05)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 03-12-PLAN.md — The destructive-action gate card (AGNT-07)
+- [ ] 03-13-PLAN.md — The git-lock contention signals: transient feed row and exhaustion trail entry (WORK-04)
 
 **Notes**: This phase exists as its own slice because two of the four ranked project-killers live
 here and each deserves a dedicated plan with its own tests rather than being buried in Phase 2.
@@ -579,7 +614,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
-| 3. Nothing Lost, Nothing Left Running | 0/TBD | Not started | - |
+| 3. Nothing Lost, Nothing Left Running | 0/13 | Not started | - |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
