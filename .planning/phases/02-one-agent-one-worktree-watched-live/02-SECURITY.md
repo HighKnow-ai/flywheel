@@ -56,9 +56,17 @@ committed alongside this file. Summarised here by outcome:
 This section is the point of the audit, not a footnote. Each of these is structurally present in
 the code and has never executed outside automated tests.
 
-**The permission-rule grant/revoke path has never run in production.** Measured against the live
-board after human UAT: `permission_rules` holds 0 rows, there are 0 `%rule%` events of any kind,
-and the single permission request ever raised was answered rather than converted to a rule.
+**UPDATE 2026-09-12 — the permission-rule path has now run in production, and the five mitigations
+below are no longer code-only.** The board records `permission_rule.granted` 1 and
+`permission_rule.revoked` 1, `permission_rules` back to 0, and `permission_requests` up from 1 to 5
+including an `allowed_always` decision. The full grant -> list -> revoke round trip executed.
+**T-02-24 (high) is now verified by observed behaviour**, as are T-02-04, T-02-27, T-02-45 and
+T-02-47. The table below is retained as the record of what was true at audit time.
+
+Original finding, at audit time: the permission-rule grant/revoke path had never run in production.
+Measured against the live board after human UAT: `permission_rules` held 0 rows, there were 0
+`%rule%` events of any kind, and the single permission request ever raised was answered rather than
+converted to a rule.
 
 | Threat | Severity | What is unproven |
 |---|---|---|
@@ -67,7 +75,7 @@ and the single permission request ever raised was answered rather than converted
 | T-02-04 | medium | The revoke path. |
 | T-02-45 | medium | The project-name column in the rules table. |
 | T-02-47 | medium | Skeleton-versus-empty-state in the rules table. |
-| T-02-12 | high | The *absence* of git calls on the stop path is proven structurally, but no human has observed uncommitted agent work surviving a Stop — UAT test 4's worktrees were clean at verification time. |
+| T-02-12 | high | **Partially resolved 2026-09-12.** A human observed an agent's work survive a Stop, but the agent had committed it first (`THRE-43`, `1a59dbe`), so the tree was clean when the kill landed. A surviving commit proves the stop path never reset, clobbered or rewound the branch — most of what this threat asserts. Still untested, and narrower than before: whether the working tree specifically is ever touched. |
 
 **Conversely, these were exercised by a human and corroborated against the board:** the permission
 gate blocking and resuming a real spawned process — and notably it fired on a *read-only* Bash
