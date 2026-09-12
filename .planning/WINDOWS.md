@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 7
+open_count: 6
 waived_count: 0
-fixed_count: 0
+fixed_count: 1
 total_count: 7
-last_updated: 2026-09-11T02:41:59.616Z
+last_updated: 2026-09-12T00:29:05.383Z
 ---
 
 # Broken Windows Ledger
@@ -21,7 +21,7 @@ last_updated: 2026-09-11T02:41:59.616Z
 | 4 | 02 | deviation | packages/desktop/src/item-detail/ItemDetailPanel.tsx | 219 | hard-codes color: #ffffff on the Start Work button label instead of a token — pre-existing since plan 02-01, blocks 02-03 Task 1's own hex-literal verify gate but is outside 02-03's files_modified scope | open |  | 2026-09-10T13:38:00.146Z |  |
 | 5 | 02 | deviation | packages/desktop/src/legend/marks.ts |  | Task 2's verify gate grep -c 'export const MARKS' reports 2 (also matches the pre-existing export const MARKS_BY_ID substring) — false negative predating this plan; the real single-MARKS-array criterion is verified separately and holds | open |  | 2026-09-10T13:38:00.282Z |  |
 | 6 | 02 | deviation | packages/desktop/src/item-detail/WorktreeSummary.tsx |  | T-02-37 'missing from disk' clause not mitigated (no backend disk-existence signal); only the null-field case is implemented. Deferred to Phase 3 WORK-06 reconciliation. | open |  | 2026-09-11T02:15:22.725Z |  |
-| 7 | 02 | unrun-verify | .planning/phases/02-one-agent-one-worktree-watched-live/02-10-PLAN.md |  | Plan 02-10's own manual verification step. PARTIALLY OBSERVED by a human at end-of-phase UAT 2026-09-11 (02-UAT.md test 5, result: pass). Corroborated against the board: an API key was genuinely stored through the write-only Settings field (`settings` gained `api_key_configured_at` at 10:24:01Z), so the save-and-never-re-render clause held. FULLY OBSERVED 2026-09-12: the allow-always grant, its appearance in the Settings table, and its revocation all executed in production. The board records `permission_rule.granted` 1 and `permission_rule.revoked` 1, `permission_rules` back to 0, and `permission_requests` up from 1 to 5 including an `allowed_always` decision. Five permission-rule mitigations move from verified-by-code-only to observed: T-02-04, T-02-24 (high), T-02-27, T-02-45, T-02-47. This row is satisfied. | open |  | 2026-09-11T02:41:59.616Z |  |
+| 7 | 02 | unrun-verify | .planning/phases/02-one-agent-one-worktree-watched-live/02-10-PLAN.md |  | Plan 02-10's own manual verification step. PARTIALLY OBSERVED by a human at end-of-phase UAT 2026-09-11 (02-UAT.md test 5, result: pass). Corroborated against the board: an API key was genuinely stored through the write-only Settings field (`settings` gained `api_key_configured_at` at 10:24:01Z), so the save-and-never-re-render clause held. FULLY OBSERVED 2026-09-12: the allow-always grant, its appearance in the Settings table, and its revocation all executed in production. The board records `permission_rule.granted` 1 and `permission_rule.revoked` 1, `permission_rules` back to 0, and `permission_requests` up from 1 to 5 including an `allowed_always` decision. Five permission-rule mitigations move from verified-by-code-only to observed: T-02-04, T-02-24 (high), T-02-27, T-02-45, T-02-47. This row is satisfied. | fixed |  | 2026-09-11T02:41:59.616Z | 2026-09-12T00:29:05.383Z |
 
 ````json
 [
@@ -104,10 +104,10 @@ last_updated: 2026-09-11T02:41:59.616Z
     "file": ".planning/phases/02-one-agent-one-worktree-watched-live/02-10-PLAN.md",
     "line": null,
     "description": "Plan 02-10's own manual verification step. PARTIALLY OBSERVED by a human at end-of-phase UAT 2026-09-11 (02-UAT.md test 5, result: pass). Corroborated against the board: an API key was genuinely stored through the write-only Settings field (`settings` gained `api_key_configured_at` at 10:24:01Z), so the save-and-never-re-render clause held. FULLY OBSERVED 2026-09-12: the allow-always grant, its appearance in the Settings table, and its revocation all executed in production. The board records `permission_rule.granted` 1 and `permission_rule.revoked` 1, `permission_rules` back to 0, and `permission_requests` up from 1 to 5 including an `allowed_always` decision. Five permission-rule mitigations move from verified-by-code-only to observed: T-02-04, T-02-24 (high), T-02-27, T-02-45, T-02-47. This row is satisfied.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-11T02:41:59.616Z",
-    "resolved_at": null
+    "resolved_at": "2026-09-12T00:29:05.383Z"
   }
 ]
 ````
