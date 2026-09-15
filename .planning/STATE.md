@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-09-15T01:01:51.827Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-09-15T01:53:11.658Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 03 execution started
-state_head: 6540c12ff348308249a1f13b96473177daa365c6
+state_head: 243bc9a7d7d0786e61a72f2477e1940c25227e51
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 52
-  completed_plans: 40
+  completed_plans: 41
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 2 of 13
+Plan: 3 of 13
 Status: Ready to execute
 Last activity: 2026-09-15 — Phase 03 execution started
 
@@ -99,6 +99,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P17 | 20min | 4 tasks | 6 files |
 | Phase 02 P18 | 20min | 3 tasks | 9 files |
 | Phase 03 P01 | 55min | 3 tasks | 13 files |
+| Phase 03 P02 | 46min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,8 @@ Recent decisions affecting current work:
 - [Phase 02]: [Phase 02]: G-02-4 closed: apply_session_closed (packages/core/src/domain/agent_run.rs) is close_agent_run's missing production caller, dispatched from the sidecar reader loop's session_closed branch — an already-terminal run is backfilled (cost/tokens only) rather than overwritten, and close_agent_run's own body/signature are unchanged.
 - [Phase 02]: [Phase 02]: Token counts (tokens_in/tokens_out) are written ONCE from the terminal result event's summed usage block, never accumulated per message — tokens_in is the SUM of input_tokens + cache_creation_input_tokens + cache_read_input_tokens, measured against the real CLI to avoid recording the misleading plain-field value alone.
 - [Phase 03]: worktree_remove takes no boolean/option/flag parameter at any layer — the dirty-tree guard is unbypassable by construction, proven by a source-scanning test
+- [Phase 03]: PROC-03's referent is promoted to the session's process group, led by its watchdog wrapper — not the claude child process alone — interruptSession/killSession already signalled -child.pid (the group), so the wrapper becomes the group leader and claude becomes one member of it, with no change to either function's own code
+- [Phase 03]: The run descriptor is written by claude-code-adapter.ts with the watchdog wrapper's own pid, never by watchdog.ts itself — the adapter is the one process that knows the wrapper's pid immediately after spawn; watchdog.ts recomputes its own pid/start-time directly for its kill record instead of reading that file back
 
 ### Pending Todos
 
@@ -187,6 +190,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-15T01:01:51.760Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-09-15T01:53:11.591Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None

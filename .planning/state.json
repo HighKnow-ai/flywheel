@@ -16,7 +16,7 @@
     {
       "number": "3",
       "name": "Nothing Lost, Nothing Left Running",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "4",
@@ -69,5 +69,5 @@
     "label": "Advance to the next step",
     "reason": "Phase 03 of 12 · 0% · executing"
   },
-  "updated_at": "2026-09-15T01:01:39.023Z"
+  "updated_at": "2026-09-15T01:52:51.275Z"
 }

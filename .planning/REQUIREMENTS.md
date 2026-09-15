@@ -60,7 +60,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 - [x] **PROC-01**: Each agent session runs as a separate operating-system process in its own worktree directory
 - [x] **PROC-02**: The supervisor never reads its own current working directory; every filesystem and git operation is issued against an explicit absolute path
-- [ ] **PROC-03**: Agent processes are managed as process groups so that termination reliably kills the whole tree, not just the parent
+- [x] **PROC-03**: Agent processes are managed as process groups so that termination reliably kills the whole tree, not just the parent
 - [ ] **PROC-04**: No agent process survives application quit; a worker self-terminates if its supervisor disappears
 - [ ] **PROC-05**: On launch, orphaned agent processes and in-flight runs from a previous session are detected and surfaced to the user for a decision rather than silently resumed
 - [x] **PROC-06**: User can interrupt or stop a running agent session at any time and the worktree is left in a consistent, inspectable state
@@ -258,7 +258,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | LINK-11 | Phase 7 | Pending |
 | PROC-01 | Phase 2 | Complete |
 | PROC-02 | Phase 2 | Complete |
-| PROC-03 | Phase 3 | Pending |
+| PROC-03 | Phase 3 | Complete |
 | PROC-04 | Phase 3 | Pending |
 | PROC-05 | Phase 3 | Pending |
 | PROC-06 | Phase 2 | Complete |
