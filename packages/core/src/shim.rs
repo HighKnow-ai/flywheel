@@ -37,6 +37,17 @@ fn shadowed_git_entry_name() -> &'static str {
     }
 }
 
+/// The second shadowed name (plan 03-07, D-55/D-56) — installed through the EXACT SAME compiled
+/// `flywheel-shim` binary as [`shadowed_git_entry_name`], per that plan's own dispatch (`argv[0]`
+/// reads `rm` as well as `git`). Never a symlink, for the same `argv[0]`-resolution reason.
+fn shadowed_rm_entry_name() -> &'static str {
+    if cfg!(windows) {
+        "rm.exe"
+    } else {
+        "rm"
+    }
+}
+
 /// Resolve the compiled `flywheel-shim` binary: first next to the CURRENT executable (the
 /// packaged Tauri app layout), then at `<workspace>/target/{debug,release}/flywheel-shim`
 /// resolved from this crate's own `CARGO_MANIFEST_DIR` (the `tauri dev` layout). Fails loud,
@@ -104,54 +115,92 @@ pub fn resolve_real_git() -> anyhow::Result<PathBuf> {
     bail!("git executable not found on the supervisor's own PATH");
 }
 
+/// Resolve the system `rm` binary ONCE, mirroring [`resolve_real_git`] exactly (plan 03-07,
+/// D-55) — same PATH-walk, same never-shell-out-to-`which` discipline, same absolute-path result.
+pub fn resolve_real_rm() -> anyhow::Result<PathBuf> {
+    let path_var = std::env::var_os("PATH")
+        .context("PATH is not set in the supervisor's own environment")?;
+    let name = shadowed_rm_entry_name();
+
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Ok(candidate.canonicalize().unwrap_or(candidate));
+        }
+    }
+
+    bail!("rm executable not found on the supervisor's own PATH");
+}
+
 fn shim_dir_for_run(run_id: &str) -> anyhow::Result<PathBuf> {
     Ok(runtime_protocol::runtime_dir()?.join("shim").join(run_id))
 }
 
+/// Hard-link (falling back to a plain copy across a filesystem boundary) the compiled shim binary
+/// in at `dir.join(entry_name)`, then mark it executable on Unix — the shared install step both
+/// [`shadowed_git_entry_name`] and [`shadowed_rm_entry_name`] use. A no-op if the entry already
+/// exists.
+fn install_shadow_entry(dir: &Path, entry_name: &str, run_id: &str) -> anyhow::Result<()> {
+    let entry = dir.join(entry_name);
+    if entry.is_file() {
+        return Ok(());
+    }
+    let shim_bin = resolve_shim_binary()?;
+    if fs::hard_link(&shim_bin, &entry).is_err() {
+        fs::copy(&shim_bin, &entry).with_context(|| {
+            format!("failed to install the shim entry at {entry:?} for run {run_id:?}")
+        })?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&entry)
+            .with_context(|| format!("failed to read metadata for {entry:?}"))?
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&entry, perms)
+            .with_context(|| format!("failed to make {entry:?} executable"))?;
+    }
+
+    Ok(())
+}
+
 /// Create `<runtime>/shim/<run_id>/` containing an entry named exactly `git` (or `git.exe` on
-/// Windows), and return that directory's absolute path. Hard-links the compiled shim binary in
-/// (falling back to a plain copy across a filesystem boundary where hard-linking fails) — never a
-/// symlink, since a symlink's `argv[0]` resolution is platform-dependent and this dispatch reads
-/// `argv[0]`. Re-installing for the same run id is a no-op: if the entry already exists, nothing
-/// is re-copied or re-linked.
+/// Windows) AND an entry named exactly `rm` (or `rm.exe`) — plan 03-07 installs the SECOND
+/// shadowed name through the exact same compiled binary, never a second build target — and return
+/// that directory's absolute path. Neither entry is ever a symlink, since a symlink's `argv[0]`
+/// resolution is platform-dependent and this dispatch reads `argv[0]`. Re-installing for the same
+/// run id is a no-op per entry: if an entry already exists, nothing is re-copied or re-linked for
+/// it.
 pub fn install_for_run(run_id: &str) -> anyhow::Result<PathBuf> {
     let dir = shim_dir_for_run(run_id)?;
     fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create shim directory {dir:?} for run {run_id:?}"))?;
 
-    let entry = dir.join(shadowed_git_entry_name());
-    if !entry.is_file() {
-        let shim_bin = resolve_shim_binary()?;
-        if fs::hard_link(&shim_bin, &entry).is_err() {
-            fs::copy(&shim_bin, &entry).with_context(|| {
-                format!("failed to install the shim entry at {entry:?} for run {run_id:?}")
-            })?;
-        }
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&entry)
-                .with_context(|| format!("failed to read metadata for {entry:?}"))?
-                .permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&entry, perms)
-                .with_context(|| format!("failed to make {entry:?} executable"))?;
-        }
-    }
+    install_shadow_entry(&dir, shadowed_git_entry_name(), run_id)?;
+    install_shadow_entry(&dir, shadowed_rm_entry_name(), run_id)?;
 
     Ok(dir)
 }
 
-/// The env-var additions a spawned session's environment must carry so its OWN `git` resolves to
-/// the shim first: `PATH` prefixed with the per-run shim directory, and `FLYWHEEL_REAL_GIT` set to
-/// the ONE absolute real-git path [`resolve_real_git`] resolved. Installs the shim directory as a
-/// side effect (via [`install_for_run`]) — a failure here (an unresolvable shim binary, an
-/// unresolvable real git, an unwritable runtime directory) propagates as an `Err` rather than
-/// silently producing an unprotected session.
+/// The env-var additions a spawned session's environment must carry so its OWN `git` AND `rm`
+/// invocations resolve to the shim first: `PATH` prefixed with the per-run shim directory, plus
+/// `FLYWHEEL_REAL_GIT`/`FLYWHEEL_REAL_RM` set to the ONE absolute real-binary paths
+/// [`resolve_real_git`]/[`resolve_real_rm`] each resolved. Installs the shim directory as a side
+/// effect (via [`install_for_run`]) — a failure here (an unresolvable shim binary, an unresolvable
+/// real git/rm, an unwritable runtime directory) propagates as an `Err` rather than silently
+/// producing an unprotected session.
+///
+/// `FLYWHEEL_REAL_RM` is resolved here, alongside `FLYWHEEL_REAL_GIT`, rather than in
+/// `sidecar.rs::resolved_env_for_run` — it needs `run_id` (for [`install_for_run`]'s per-run
+/// directory), which does not exist at `resolved_env_for_run`'s own call time (D-39; see that
+/// function's own doc comment). This mirrors 03-04's own established precedent for
+/// `FLYWHEEL_REAL_GIT` exactly.
 pub fn shim_env_for_run(run_id: &str) -> anyhow::Result<HashMap<String, String>> {
     let shim_dir = install_for_run(run_id)?;
     let real_git = resolve_real_git()?;
+    let real_rm = resolve_real_rm()?;
 
     let existing_path = std::env::var("PATH").unwrap_or_default();
     let separator = if cfg!(windows) { ";" } else { ":" };
@@ -162,6 +211,10 @@ pub fn shim_env_for_run(run_id: &str) -> anyhow::Result<HashMap<String, String>>
     env.insert(
         "FLYWHEEL_REAL_GIT".to_string(),
         real_git.to_string_lossy().into_owned(),
+    );
+    env.insert(
+        "FLYWHEEL_REAL_RM".to_string(),
+        real_rm.to_string_lossy().into_owned(),
     );
     Ok(env)
 }

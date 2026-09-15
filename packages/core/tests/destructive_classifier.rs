@@ -504,3 +504,204 @@ fn answer_request_still_accepts_allowed_always_for_a_routine_non_destructive_req
         .expect("allowed_always must still work for a routine (non-destructive) request");
     assert_eq!(answered.status, "allowed_always");
 }
+
+// --- shim_gate (Task 2): the built shim binary's own indefinite-block, allow/deny and
+// no-cached-answer contract, driven against a real mock permission socket server. ---
+
+mod shim_gate {
+    use core::shim::resolve_shim_binary;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixListener;
+    use std::os::unix::process::CommandExt;
+    use std::path::PathBuf;
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    fn resolve_system_rm() -> PathBuf {
+        let path_var = std::env::var_os("PATH").expect("PATH should be set in the test environment");
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join("rm");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+        panic!("system rm not found on PATH");
+    }
+
+    /// A short, unique socket path — deliberately NOT under `std::env::temp_dir()`, whose
+    /// per-user macOS path (`/var/folders/.../T/`) plus any descriptive label routinely exceeds
+    /// `sockaddr_un`'s ~104-byte `SUN_LEN` limit. `/tmp` is short on every Unix this workspace
+    /// targets; a process id plus a monotonic counter is enough uniqueness across this file's own
+    /// concurrently-running tests.
+    fn scratch_socket_path(_label: &str) -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        PathBuf::from("/tmp").join(format!("fw-{}-{n}.sock", std::process::id()))
+    }
+
+    /// Spawn a background thread that accepts exactly ONE connection on `socket_path`, reads its
+    /// one request line, and — if `decision` is `Some` — writes that decision back immediately;
+    /// if `decision` is `None`, holds the connection open without ever answering, long past this
+    /// file's own multi-second "still alive" assertion window, so that window observes the shim
+    /// genuinely blocked rather than a socket that merely closed early.
+    fn spawn_mock_permission_server(
+        socket_path: PathBuf,
+        decision: Option<&'static str>,
+    ) -> std::thread::JoinHandle<String> {
+        let listener =
+            UnixListener::bind(&socket_path).expect("failed to bind the mock permission socket");
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("failed to accept the shim's connection");
+            let mut reader = BufReader::new(stream.try_clone().expect("failed to clone the socket"));
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .expect("failed to read the shim's request line");
+            let parsed: serde_json::Value =
+                serde_json::from_str(line.trim()).expect("the shim's request must be valid JSON");
+            let request_id = parsed["requestId"]
+                .as_str()
+                .expect("the request must carry a requestId")
+                .to_string();
+            assert_eq!(parsed["toolName"], "Bash", "the shim always names the tool Bash");
+
+            match decision {
+                Some(decision) => {
+                    let mut stream = stream;
+                    let response = format!("{{\"decision\":\"{decision}\"}}\n");
+                    stream
+                        .write_all(response.as_bytes())
+                        .expect("failed to write the mock decision");
+                }
+                None => {
+                    std::thread::sleep(Duration::from_secs(10));
+                }
+            }
+            request_id
+        })
+    }
+
+    fn run_shim_as_rm(
+        args: &[&str],
+        real_rm: &std::path::Path,
+        socket_path: &std::path::Path,
+    ) -> std::process::Child {
+        let bin = resolve_shim_binary()
+            .expect("the shim binary should be resolvable after `cargo build --workspace`");
+        let mut cmd = Command::new(&bin);
+        cmd.arg0("rm");
+        cmd.args(args);
+        cmd.env("FLYWHEEL_REAL_RM", real_rm);
+        cmd.env("FLYWHEEL_PERMISSION_SOCKET", socket_path);
+        cmd.env_remove("FLYWHEEL_REAL_GIT");
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        cmd.spawn().expect("the shim binary should be spawnable")
+    }
+
+    #[test]
+    fn an_allow_answer_executes_the_real_binary() {
+        let real_rm = resolve_system_rm();
+        let dir = tempfile::tempdir().expect("failed to create a scratch directory");
+        let target = dir.path().join("marker.txt");
+        std::fs::write(&target, b"delete me").expect("failed to write the marker file");
+
+        let socket_path = scratch_socket_path("allow");
+        let server = spawn_mock_permission_server(socket_path.clone(), Some("allow"));
+
+        let child = run_shim_as_rm(&["-r", target.to_str().unwrap()], &real_rm, &socket_path);
+        let output = child.wait_with_output().expect("the shim process should exit");
+
+        assert!(
+            output.status.success(),
+            "expected the shim to exit successfully on allow, stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!target.exists(), "an allowed recursive rm must actually have deleted the file");
+        server.join().expect("the mock server thread should not panic");
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    #[test]
+    fn a_deny_answer_never_executes_the_real_binary() {
+        let real_rm = resolve_system_rm();
+        let dir = tempfile::tempdir().expect("failed to create a scratch directory");
+        let target = dir.path().join("marker.txt");
+        std::fs::write(&target, b"do not delete me").expect("failed to write the marker file");
+
+        let socket_path = scratch_socket_path("deny");
+        let server = spawn_mock_permission_server(socket_path.clone(), Some("deny"));
+
+        let child = run_shim_as_rm(&["-r", target.to_str().unwrap()], &real_rm, &socket_path);
+        let output = child.wait_with_output().expect("the shim process should exit");
+
+        assert!(!output.status.success(), "expected a non-zero exit on deny");
+        assert!(
+            target.exists(),
+            "a denied recursive rm must never have touched the file — checked by the side effect's absence, not the exit code alone"
+        );
+        server.join().expect("the mock server thread should not panic");
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    #[test]
+    fn an_unanswered_socket_leaves_the_shim_blocked_with_no_side_effect() {
+        let real_rm = resolve_system_rm();
+        let dir = tempfile::tempdir().expect("failed to create a scratch directory");
+        let target = dir.path().join("marker.txt");
+        std::fs::write(&target, b"still here").expect("failed to write the marker file");
+
+        let socket_path = scratch_socket_path("never-answers");
+        let _server = spawn_mock_permission_server(socket_path.clone(), None);
+
+        let mut child = run_shim_as_rm(&["-r", target.to_str().unwrap()], &real_rm, &socket_path);
+
+        std::thread::sleep(Duration::from_secs(3));
+        match child.try_wait().expect("try_wait should not error") {
+            Some(status) => {
+                panic!("expected the shim to still be blocked after 3s, but it exited with {status:?}")
+            }
+            None => {
+                assert!(
+                    target.exists(),
+                    "the shim must not have executed anything while still waiting for an answer"
+                );
+            }
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    #[test]
+    fn two_consecutive_destructive_invocations_raise_two_distinct_request_ids() {
+        let real_rm = resolve_system_rm();
+        let dir = tempfile::tempdir().expect("failed to create a scratch directory");
+
+        let first_target = dir.path().join("first.txt");
+        std::fs::write(&first_target, b"one").expect("failed to write the first marker");
+        let socket_a = scratch_socket_path("first");
+        let server_a = spawn_mock_permission_server(socket_a.clone(), Some("allow"));
+        let child_a = run_shim_as_rm(&["-r", first_target.to_str().unwrap()], &real_rm, &socket_a);
+        let output_a = child_a.wait_with_output().expect("the first shim invocation should exit");
+        assert!(output_a.status.success());
+        let request_id_a = server_a.join().expect("server thread should not panic");
+
+        let second_target = dir.path().join("second.txt");
+        std::fs::write(&second_target, b"two").expect("failed to write the second marker");
+        let socket_b = scratch_socket_path("second");
+        let server_b = spawn_mock_permission_server(socket_b.clone(), Some("allow"));
+        let child_b = run_shim_as_rm(&["-r", second_target.to_str().unwrap()], &real_rm, &socket_b);
+        let output_b = child_b.wait_with_output().expect("the second shim invocation should exit");
+        assert!(output_b.status.success());
+        let request_id_b = server_b.join().expect("server thread should not panic");
+
+        assert_ne!(
+            request_id_a, request_id_b,
+            "two destructive invocations must each raise their own new request id — no cached prior answer (D-57)"
+        );
+
+        let _ = std::fs::remove_file(&socket_a);
+        let _ = std::fs::remove_file(&socket_b);
+    }
+}

@@ -77,6 +77,20 @@ pub fn resolved_env_for_run(
 ) -> anyhow::Result<HashMap<String, String>> {
     let mut env = flywheel_core::credentials::resolve_credential(conn, project_id)?.env;
 
+    // D-56 (plan 03-07): the ONLY external input `destructive::classify` accepts beyond the
+    // argv itself — resolved server-side from the project's own row, never from the agent or
+    // from a file. Read here (rather than in `merge_shim_env_for_run`) because this function
+    // already has `conn`/`project_id` in hand and this value needs neither `run_id` nor the
+    // per-run shim directory the way `FLYWHEEL_REAL_GIT`/`FLYWHEEL_REAL_RM` do.
+    let default_branch: String = conn
+        .query_row(
+            "SELECT default_branch FROM projects WHERE id = ?1",
+            rusqlite::params![project_id],
+            |row| row.get(0),
+        )
+        .context("failed to resolve the project's default_branch for a spawned session's environment")?;
+    env.insert("FLYWHEEL_DEFAULT_BRANCH".to_string(), default_branch);
+
     // D-47/D-50 (plan 03-02): the seam the watchdog wrapper (`packages/sidecar/src/watchdog.ts`)
     // reads its own configuration from. `FLYWHEEL_RUNTIME_DIR` is the SAME resolved value
     // `runtime_protocol::runtime_dir` uses on the Rust side, so the watchdog polls the exact

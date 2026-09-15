@@ -441,6 +441,16 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // already listening by the time the backend's first gated tool call could possibly arrive.
     let session!: LiveSession;
     const permissionServer = startPermissionServer((payload) => {
+      // D-56 (plan 03-07): the shim's own request carries its classified category nested inside
+      // `input.destructiveCategory` (its own wire shape, mirroring the MCP tool call's own
+      // `{tool_name, input}` payload). Lifted to a TOP-LEVEL field on the outgoing AgentEvent —
+      // one new optional field on an existing event, never a second event type — so the Rust
+      // core's inbound handler can branch on its presence without reaching into `input`'s
+      // otherwise-opaque `unknown` shape.
+      const destructiveCategory =
+        payload.input !== null && typeof payload.input === "object" && "destructiveCategory" in payload.input
+          ? (payload.input as { destructiveCategory?: unknown }).destructiveCategory
+          : undefined;
       session.onEvent({
         runId: options.runId,
         seq: session.nextSeq++,
@@ -450,6 +460,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         requestId: payload.requestId,
         toolName: payload.toolName,
         input: payload.input,
+        ...(typeof destructiveCategory === "string" ? { destructiveCategory } : {}),
       });
     });
 
@@ -469,7 +480,16 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     });
     const bin = resolveClaudeBin();
 
-    const env: NodeJS.ProcessEnv = { ...process.env, ...options.env, FLYWHEEL_RUN_ID: options.runId };
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...options.env,
+      FLYWHEEL_RUN_ID: options.runId,
+      // D-55 (plan 03-07): the socket path `startPermissionServer` already opened, ABOVE, before
+      // this spawn — the same channel the MCP permission-prompt tool call uses. The PATH-shim
+      // binary (`packages/shim/src/main.rs`) connects a fresh socket here per destructive
+      // invocation; it never opens its own second answering surface.
+      FLYWHEEL_PERMISSION_SOCKET: permissionServer.socketPath,
+    };
 
     // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the
     // wrapper becomes this session's own process-group leader (kept `detached: true` right here,

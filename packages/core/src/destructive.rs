@@ -150,7 +150,7 @@ const SAFE_GIT_SUBCOMMANDS: &[&str] = &[
     "status", "log", "diff", "add", "commit", "show", "fetch", "pull", "merge", "checkout",
     "switch", "tag", "remote", "config", "stash", "mv", "restore", "cherry-pick", "revert",
     "blame", "describe", "grep", "init", "clone", "reflog", "shortlog", "ls-files", "apply",
-    "am", "bisect", "submodule", "gc",
+    "am", "bisect", "submodule", "gc", "version", "--version", "help", "--help", "-h",
 ];
 
 fn classify_git(args: &[String], default_branch: Option<&str>) -> Verdict {

@@ -495,14 +495,16 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
     let input = event.get("input").cloned().unwrap_or(serde_json::Value::Null);
     let input_payload = input.to_string();
 
-    // D-56/D-57 (plan 03-07): the shim's socket request carries `input.destructiveCategory` when
-    // its own `destructive::classify` call found this command destructive
-    // (`packages/shim/src/main.rs`, relayed unchanged by `mcp-permission-server.ts`'s socket
-    // relay). An unrecognised string here (a version skew between the shim's compiled category
-    // set and this core's) falls back to `Uncategorized` rather than being silently dropped —
-    // the whole point of the field's presence is "the shim already decided this is destructive,"
-    // so a malformed value must still route to the destructive gate, never quietly to `None`.
-    let destructive_category = input
+    // D-56/D-57 (plan 03-07): a TOP-LEVEL `destructiveCategory` field on the event itself — lifted
+    // there by `claude-code-adapter.ts`'s `onRequest` handler from the shim's own
+    // `input.destructiveCategory` wire shape — present only when the shim's own
+    // `destructive::classify` call found this command destructive
+    // (`packages/shim/src/main.rs`). An unrecognised string here (a version skew between the
+    // shim's compiled category set and this core's) falls back to `Uncategorized` rather than
+    // being silently dropped — the whole point of the field's presence is "the shim already
+    // decided this is destructive," so a malformed value must still route to the destructive
+    // gate, never quietly to `None`.
+    let destructive_category = event
         .get("destructiveCategory")
         .and_then(|v| v.as_str())
         .map(|raw| {

@@ -55,6 +55,11 @@ export interface PermissionRequestEvent extends AgentEventBase {
   requestId: string;
   toolName: string;
   input: unknown;
+  /** D-56 (plan 03-07): the PATH-shim binary's own `destructive::classify` category name, when
+   * this request originated from the shim (`FLYWHEEL_PERMISSION_SOCKET`) rather than the routine
+   * MCP permission-prompt tool call. Absent entirely for the routine variant — never present-but-
+   * empty — so a consumer can branch on its presence alone. */
+  destructiveCategory?: string;
 }
 
 export interface CostUpdateEvent extends AgentEventBase {
