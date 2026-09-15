@@ -195,7 +195,8 @@ pub fn agent_run_start(
             |row| row.get(0),
         )
         .map_err(|e| e.to_string())?;
-    let env = crate::sidecar::resolved_env_for_run(&conn, &project_id).map_err(|e| e.to_string())?;
+    let mut env =
+        crate::sidecar::resolved_env_for_run(&conn, &project_id).map_err(|e| e.to_string())?;
 
     let run = flywheel_core::domain::agent_run::start_agent_run(
         &mut conn,
@@ -218,6 +219,11 @@ pub fn agent_run_start(
             |row| row.get(0),
         )
         .map_err(|e| e.to_string())?;
+
+    // D-51: the shim's per-run directory is keyed by `run.id`, which only exists from this point
+    // on — a shim-install failure here refuses the spawn (see `merge_shim_env_for_run`'s own doc
+    // comment for why this cannot live inside `resolved_env_for_run` above).
+    crate::sidecar::merge_shim_env_for_run(&mut env, &run.id).map_err(|e| e.to_string())?;
 
     drop(conn);
 

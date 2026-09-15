@@ -1,0 +1,24 @@
+[package]
+name = "flywheel-shim"
+version = "0.1.0"
+edition = "2021"
+description = "D-51's PATH shim binary: dispatches on argv[0], resolves the real binary by an absolute path supplied once by the supervisor, and retries git lock failures through the same policy git_at uses. Deliberately NOT named `git` at the cargo level — the entry that shadows git on PATH is created at install time (core::shim::install_for_run), not by cargo."
+
+[[bin]]
+name = "flywheel-shim"
+path = "src/main.rs"
+
+[dependencies]
+# Dependency-key renamed to `flywheel_core` (not `core`), mirroring
+# `packages/desktop/src-tauri/Cargo.toml`'s own documented fix for the identical collision: a
+# dependency literally named `core` shadows the sysroot `core` crate in the extern prelude of
+# this crate.
+flywheel_core = { path = "../core", package = "core" }
+anyhow = "1"
+serde_json = "1"
+# Only for the `at` timestamp field of the D-53 contention record, formatted RFC3339 to match
+# every other on-disk timestamp this workspace writes (runtime_protocol.rs's `started_at`/
+# `killed_at`) — not listed in the plan's own dependency triple, added because the exhaustion
+# record's own JSON shape names an `at` field this crate's chrono dependency already exists to
+# produce consistently.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

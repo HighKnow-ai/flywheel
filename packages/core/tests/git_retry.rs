@@ -176,3 +176,110 @@ fn exhaustion_event_payload_label_matches_the_copywriting_contract_sentence_exac
     assert_eq!(payload["command"], "git commit");
     assert_eq!(payload["attempts"], 5);
 }
+
+// --- shim (Task 2): install_for_run behaviours and the built binary's fail-closed resolution ---
+
+mod shim {
+    use core::shim::{install_for_run, resolve_real_git, resolve_shim_binary};
+    use std::process::Command;
+
+    /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `FLYWHEEL_RUNTIME_DIR`
+    /// is process-global mutable state and `cargo test` runs `#[test]` functions concurrently by
+    /// default. Mirrors `runtime_protocol.rs`'s own `RUNTIME_DIR_ENV_LOCK`/
+    /// `with_scratch_runtime_dir` pair — a `static` cannot be shared across separate test binaries,
+    /// so this binary needs its own.
+    static RUNTIME_DIR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_scratch_runtime_dir<T>(f: impl FnOnce() -> T) -> T {
+        let _guard = RUNTIME_DIR_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
+        // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads
+        // or mutates this var while it's set, and this helper always clears it before returning.
+        unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", dir.path()) };
+        let result = f();
+        unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
+        result
+    }
+
+    /// Runs the built shim binary AS `git` (setting `argv[0]` via `arg0`, never renaming or
+    /// copying the file — the compiled cargo artifact is deliberately named `flywheel-shim`, not
+    /// `git`) with the given `FLYWHEEL_REAL_GIT` value (`None` leaves it unset).
+    fn run_shim_as_git(args: &[&str], real_git: Option<&std::path::Path>) -> std::process::Output {
+        let bin = resolve_shim_binary()
+            .expect("the shim binary should be resolvable after `cargo build --workspace`");
+        let mut cmd = Command::new(&bin);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.arg0("git");
+        }
+        cmd.args(args);
+        cmd.env_remove("FLYWHEEL_REAL_GIT");
+        if let Some(real_git) = real_git {
+            cmd.env("FLYWHEEL_REAL_GIT", real_git);
+        }
+        cmd.output()
+            .expect("the built shim binary should be runnable")
+    }
+
+    #[test]
+    fn resolve_real_gits_result_is_absolute() {
+        let path = resolve_real_git().expect("resolve_real_git should find a real git on PATH");
+        assert!(path.is_absolute(), "expected {path:?} to be absolute");
+    }
+
+    #[test]
+    fn install_for_run_produces_a_directory_containing_an_entry_named_exactly_git() {
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-a", std::process::id());
+            let dir = install_for_run(&run_id).expect("install_for_run should succeed");
+            let expected_name = if cfg!(windows) { "git.exe" } else { "git" };
+            let entry = dir.join(expected_name);
+            assert!(entry.is_file(), "expected {entry:?} to exist and be a file");
+        });
+    }
+
+    #[test]
+    fn a_second_install_for_the_same_run_id_is_a_no_op_returning_the_same_path() {
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-b", std::process::id());
+            let first = install_for_run(&run_id).expect("first install should succeed");
+            let second = install_for_run(&run_id).expect("second install should succeed");
+            assert_eq!(first, second);
+        });
+    }
+
+    #[test]
+    fn the_built_shim_exits_non_zero_and_names_the_variable_when_flywheel_real_git_is_unset() {
+        let output = run_shim_as_git(&["--version"], None);
+        assert!(
+            !output.status.success(),
+            "expected a non-zero exit with FLYWHEEL_REAL_GIT unset"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("FLYWHEEL_REAL_GIT"),
+            "expected the stderr message to name the missing variable, got: {stderr}"
+        );
+    }
+
+    #[test]
+    fn the_built_shim_forwards_git_version_and_matches_real_gits_own_output() {
+        let real_git = resolve_real_git().expect("resolve_real_git should find a real git on PATH");
+        let expected = Command::new(&real_git)
+            .arg("--version")
+            .output()
+            .expect("the real git --version invocation should succeed");
+
+        let actual = run_shim_as_git(&["--version"], Some(&real_git));
+
+        assert!(
+            actual.status.success(),
+            "expected the shim to exit successfully, stderr: {}",
+            String::from_utf8_lossy(&actual.stderr)
+        );
+        assert_eq!(actual.stdout, expected.stdout);
+    }
+}

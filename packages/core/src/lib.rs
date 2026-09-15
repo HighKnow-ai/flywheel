@@ -15,4 +15,5 @@ pub mod marker;
 pub mod query;
 pub mod ranking;
 pub mod runtime_protocol;
+pub mod shim;
 pub mod session_log;

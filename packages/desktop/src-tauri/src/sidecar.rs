@@ -102,6 +102,26 @@ pub fn resolved_env_for_run(
     Ok(env)
 }
 
+/// D-51 (plan 03-04): merge the per-run PATH-shim entries into an already-resolved spawn
+/// environment. Called AFTER `start_agent_run` produces a real `run_id` — [`resolved_env_for_run`]
+/// above intentionally runs BEFORE the run/worktree row is created (D-39), so a credential
+/// resolution failure never orphans a running `agent_runs` row; the shim's own installed directory
+/// is keyed by `run_id`, which does not exist yet at that point, so this step cannot live inside
+/// that same function. A shim-install failure here still refuses the SPAWN itself —
+/// `agent_run_start` propagates the error and never sends the request to the sidecar — exactly as
+/// it already refuses on a credential failure, even though by this point the row and worktree
+/// already exist (closing that narrower gap would require making run ids predictable before
+/// creation, out of this plan's scope).
+pub fn merge_shim_env_for_run(
+    env: &mut HashMap<String, String>,
+    run_id: &str,
+) -> anyhow::Result<()> {
+    let shim_env = flywheel_core::shim::shim_env_for_run(run_id)
+        .context("failed to install the PATH shim for this session")?;
+    env.extend(shim_env);
+    Ok(())
+}
+
 /// The live sidecar process handle: its child (for kill-on-app-exit), its stdin request sender,
 /// the map of open per-run session-log writers the reader task appends through, and every
 /// still-outstanding request awaiting its ack, keyed by the request `id` (D-35 — `interrupt_run`
