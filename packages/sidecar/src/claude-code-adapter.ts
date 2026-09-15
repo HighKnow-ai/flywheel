@@ -89,6 +89,70 @@ export function watchdogEntryPath(): string {
   return fileURLToPath(new URL("./watchdog.js", import.meta.url));
 }
 
+/** The compiled standalone `PreToolUse` hook script's absolute path (plan 03-07, D-55) — resolved
+ * relative to THIS compiled module's own location, the same sibling-file idiom
+ * [`permissionServerScriptPath`]/[`watchdogEntryPath`] already use. */
+export function pretoolUseHookScriptPath(): string {
+  return fileURLToPath(new URL("./pretooluse-hook.js", import.meta.url));
+}
+
+/** Where a per-run `--settings` JSON injecting the `PreToolUse` hook is written (plan 03-07):
+ * `<runtimeDir>/settings/<runId>.json`, alongside `runtime_protocol.rs`'s own per-run file
+ * conventions (`runs/<runId>.json`, `shim/<runId>/`). */
+function permissionSettingsPath(runtimeDir: string, runId: string): string {
+  return path.join(runtimeDir, "settings", `${runId}.json`);
+}
+
+/** Derive `FLYWHEEL_SHIM_BIN` (plan 03-07) — the absolute path `pretooluse-hook.ts` shells out to
+ * in `--classify-command` mode — from the FIRST `PATH` segment `flywheel_core::shim::
+ * shim_env_for_run` already prefixed onto this spawn's environment (D-51). That directory holds a
+ * hard-linked/copied entry named `git`/`git.exe`, which IS the compiled shim binary — invoking it
+ * with `--classify-command` never dispatches through the `argv[0]`-stem match at all (checked
+ * first in `packages/shim/src/main.rs::main`), so this entry works identically to any other copy
+ * of the same binary. Deliberately reads the value back rather than re-resolving a second,
+ * independently-computed path to the same binary. Returns `undefined` — never throws — when `PATH`
+ * carries no shim prefix or the derived candidate does not exist on disk (a session spawned
+ * without the D-51 shim installed, e.g. some unit tests): the hook itself fails closed on a
+ * missing `FLYWHEEL_SHIM_BIN`, so an absent value here is a safe degradation, never a silent
+ * bypass of the destructive-action gate. */
+function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
+  const pathValue = env.PATH;
+  if (!pathValue) return undefined;
+  const firstSegment = pathValue.split(path.delimiter)[0];
+  if (!firstSegment) return undefined;
+  const entryName = process.platform === "win32" ? "git.exe" : "git";
+  const candidate = path.join(firstSegment, entryName);
+  return fs.existsSync(candidate) ? candidate : undefined;
+}
+
+/** Write `<runtimeDir>/settings/<runId>.json` — the exact `PreToolUse`/`matcher: "Bash"` shape
+ * RESEARCH.md confirmed working live against the real `claude` binary this session (§ "The hook
+ * mechanism verified working this session") — and return its path. A write failure here degrades
+ * to "no hook injected for this session" (logged, never thrown): the shim (D-51/D-58) is the
+ * load-bearing guarantee: `startSession` must not refuse an entire session over this
+ * defense-in-depth layer failing to write one file. */
+function writeHookSettings(runtimeDir: string, runId: string): string | undefined {
+  try {
+    const settingsPath = permissionSettingsPath(runtimeDir, runId);
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Bash",
+            hooks: [{ type: "command", command: `${process.execPath} ${pretoolUseHookScriptPath()}` }],
+          },
+        ],
+      },
+    };
+    fs.writeFileSync(settingsPath, JSON.stringify(settings));
+    return settingsPath;
+  } catch (err) {
+    console.error(`flywheel sidecar: failed to write PreToolUse hook settings for ${runId}: ${String(err)}`);
+    return undefined;
+  }
+}
+
 /** Best-effort OS-sourced process start time, in epoch milliseconds, for a pid this adapter just
  * spawned (PROC-03 pid-reuse safety, plan 03-06 consumes it). Shells out to `ps -o lstart=`,
  * mirroring `watchdog.ts`'s own identical helper — duplicated rather than imported, since
@@ -145,12 +209,19 @@ function writeRunDescriptor(runtimeDir: string, runId: string, wrapperPid: numbe
  * server, supplied explicitly on the command line rather than discovered from the worktree's own
  * configuration, T-02-02). Both are optional purely so this function's own unit tests (and any
  * future adapter that does not yet wire the gate) can call it with the bare two fields.
+ *
+ * `settingsPath` (plan 03-07, D-55) is independently optional — it injects the `PreToolUse` hook
+ * settings file `writeHookSettings` wrote, via the CLI's own `--settings <file>` flag (RESEARCH.md
+ * "The hook mechanism verified working this session"). Appended on its own, never paired with
+ * anything else, so a caller that has a permission-prompt-tool pair but no settings file (or vice
+ * versa) still gets a valid argv.
  */
 export function buildClaudeArgv(options: {
   prompt: string;
   permissionMode: string;
   permissionPromptToolName?: string;
   mcpConfig?: string;
+  settingsPath?: string;
 }): string[] {
   const argv = [
     "-p",
@@ -170,6 +241,9 @@ export function buildClaudeArgv(options: {
   ];
   if (options.permissionPromptToolName && options.mcpConfig) {
     argv.push("--permission-prompt-tool", options.permissionPromptToolName, "--mcp-config", options.mcpConfig);
+  }
+  if (options.settingsPath) {
+    argv.push("--settings", options.settingsPath);
   }
   return argv;
 }
@@ -464,6 +538,35 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       });
     });
 
+    const bin = resolveClaudeBin();
+
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...options.env,
+      FLYWHEEL_RUN_ID: options.runId,
+      // D-55 (plan 03-07): the socket path `startPermissionServer` already opened, ABOVE, before
+      // this spawn — the same channel the MCP permission-prompt tool call uses. The PATH-shim
+      // binary (`packages/shim/src/main.rs`) connects a fresh socket here per destructive
+      // invocation; it never opens its own second answering surface.
+      FLYWHEEL_PERMISSION_SOCKET: permissionServer.socketPath,
+    };
+
+    // plan 03-07 (D-55): FLYWHEEL_SHIM_BIN is how `pretooluse-hook.ts` finds a binary it can shell
+    // out to in `--classify-command` mode — reached from the SAME per-run shim directory
+    // `flywheel_core::shim::shim_env_for_run` already prefixed onto `PATH` (D-51), never a second,
+    // independently-resolved path to the compiled shim binary.
+    const shimBin = shimBinFromEnv(env);
+    if (shimBin) {
+      env.FLYWHEEL_SHIM_BIN = shimBin;
+    }
+
+    // plan 03-07 (D-55): write this run's `--settings` file BEFORE building argv, so the hook can
+    // be wired into the very first invocation — a write failure degrades to "no hook injected for
+    // this session" (writeHookSettings's own doc comment), never a refused spawn.
+    const settingsPath = env.FLYWHEEL_RUNTIME_DIR
+      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId)
+      : undefined;
+
     const mcpConfig = JSON.stringify({
       mcpServers: {
         [MCP_SERVER_NAME]: {
@@ -477,19 +580,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionMode: options.permissionMode,
       permissionPromptToolName: PERMISSION_TOOL_NAME,
       mcpConfig,
+      settingsPath,
     });
-    const bin = resolveClaudeBin();
-
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...options.env,
-      FLYWHEEL_RUN_ID: options.runId,
-      // D-55 (plan 03-07): the socket path `startPermissionServer` already opened, ABOVE, before
-      // this spawn — the same channel the MCP permission-prompt tool call uses. The PATH-shim
-      // binary (`packages/shim/src/main.rs`) connects a fresh socket here per destructive
-      // invocation; it never opens its own second answering surface.
-      FLYWHEEL_PERMISSION_SOCKET: permissionServer.socketPath,
-    };
 
     // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the
     // wrapper becomes this session's own process-group leader (kept `detached: true` right here,
