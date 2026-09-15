@@ -8,7 +8,9 @@
  * the environment the user's own `claude login` session lives in; Flywheel never reads, replays or
  * stores that OAuth token itself.
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
@@ -75,6 +77,62 @@ export function probeClaudeBinary(): Promise<{ available: boolean; version?: str
  * sibling-file lookup rather than a git operation). */
 export function permissionServerScriptPath(): string {
   return fileURLToPath(new URL("./mcp-permission-server.js", import.meta.url));
+}
+
+/** The compiled standalone watchdog wrapper's absolute path (plan 03-02, D-47) — resolved
+ * relative to THIS compiled module's own location, identically to
+ * [`permissionServerScriptPath`]'s own sibling-file lookup, never from `process.cwd()`. Every
+ * session is spawned through this wrapper rather than directly, so it becomes the session's own
+ * process-group leader and the backend binary becomes its child inside that same group (see the
+ * spawn call in {@link ClaudeCodeAdapter.startSession} and `watchdog.ts`'s own module doc). */
+export function watchdogEntryPath(): string {
+  return fileURLToPath(new URL("./watchdog.js", import.meta.url));
+}
+
+/** Best-effort OS-sourced process start time, in epoch milliseconds, for a pid this adapter just
+ * spawned (PROC-03 pid-reuse safety, plan 03-06 consumes it). Shells out to `ps -o lstart=`,
+ * mirroring `watchdog.ts`'s own identical helper — duplicated rather than imported, since
+ * `watchdog.ts` is a standalone entry point (`main()` runs unconditionally on load) and must
+ * never be imported as a library into this process. Falls back to the current time if `ps` is
+ * unavailable or its output does not parse; a start-time lookup failing must never abort a
+ * session that otherwise spawned successfully. */
+function readOsProcessStartTimeMs(pid: number): number {
+  try {
+    const output = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+      encoding: "utf8",
+      timeout: 2_000,
+    }).trim();
+    const parsed = Date.parse(output);
+    if (!Number.isNaN(parsed)) return parsed;
+  } catch {
+    // Fall through to the timestamp-at-spawn-time fallback below.
+  }
+  return Date.now();
+}
+
+/** Write `<runtime>/runs/<runId>.json` (PROC-03) recording the WATCHDOG wrapper's own pid — the
+ * process-group leader `interruptSession`/`killSession` already signal via `-child.pid` — and its
+ * OS-reported start time, immediately after {@link ClaudeCodeAdapter.startSession} spawns it.
+ * Field names are plain `snake_case`, matching `packages/core/src/runtime_protocol.rs`'s
+ * `RunDescriptor` shape byte-for-byte (both sides agree by convention, never a shared
+ * serializer). A write failure is logged and swallowed — a descriptor-write failure must not
+ * abort a session that is otherwise fine. */
+function writeRunDescriptor(runtimeDir: string, runId: string, wrapperPid: number): void {
+  try {
+    const descriptorPath = path.join(runtimeDir, "runs", `${runId}.json`);
+    fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
+    fs.writeFileSync(
+      descriptorPath,
+      JSON.stringify({
+        run_id: runId,
+        pid: wrapperPid,
+        start_time: readOsProcessStartTimeMs(wrapperPid),
+        started_at: new Date().toISOString(),
+      }),
+    );
+  } catch (err) {
+    console.error(`flywheel sidecar: failed to write run descriptor for ${runId}: ${String(err)}`);
+  }
 }
 
 /**
@@ -281,6 +339,11 @@ export const STDERR_DETAIL_MAX_CHARS = 2000;
  * for `interruptSession`/`killSession` to find the right child, know whether it already closed
  * (idempotency, D-35), and classify why it closed once it does. */
 interface LiveSession {
+  /** The session's own watchdog wrapper process (plan 03-02) — NOT the backend `claude` binary
+   * directly. The wrapper is the one spawned with its own process group here, and it spawns the
+   * backend as ITS OWN child inside that same group; `interruptSession`/`killSession`'s existing
+   * `-child.pid` signalling reaches both, unchanged, because the group — not any single process
+   * in it — was always the real referent (PROC-03's promoted noun). */
   child: ReturnType<typeof spawn>;
   /** Resolves once the terminal `session_closed` event has actually been emitted for this run —
    * not merely once the OS process has exited, so a caller awaiting this can trust the event is
@@ -406,13 +469,23 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     });
     const bin = resolveClaudeBin();
 
-    const child = spawn(bin, argv, {
+    const env: NodeJS.ProcessEnv = { ...process.env, ...options.env, FLYWHEEL_RUN_ID: options.runId };
+
+    // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the
+    // wrapper becomes this session's own process-group leader (kept `detached: true` right here,
+    // exactly where it always was) and spawns `bin`/`argv` as ITS OWN child inside that same
+    // group. D-35's "force" step (`interruptSession`/`killSession`, unchanged below) still
+    // signals the whole group via `-child.pid`, never just one PID (RESEARCH.md Pitfall 3) — it
+    // now reaches the wrapper AND the backend it spawned, through one process group.
+    const child = spawn(process.execPath, [watchdogEntryPath(), bin, ...argv], {
       cwd: options.worktreePath,
-      env: { ...process.env, ...options.env },
-      // Own process group, so D-35's "force" step can signal the whole group, never just this
-      // one PID (RESEARCH.md Pitfall 3).
+      env,
       detached: true,
     });
+
+    if (typeof child.pid === "number" && env.FLYWHEEL_RUNTIME_DIR) {
+      writeRunDescriptor(env.FLYWHEEL_RUNTIME_DIR, options.runId, child.pid);
+    }
 
     let resolveClosed!: () => void;
     const closed = new Promise<void>((resolve) => {
@@ -476,6 +549,25 @@ export class ClaudeCodeAdapter implements AgentAdapter {
           // A line that does not parse as JSON becomes a system_notice carrying the raw text —
           // nothing is silently dropped (AGNT-02's flagged assumption).
           options.onEvent({ runId: options.runId, seq, at, raw: line, type: "system_notice", text: line });
+          return;
+        }
+
+        // plan 03-02: this adapter's own `child` is the watchdog wrapper now, not the backend —
+        // a backend spawn failure (e.g. a missing `FLYWHEEL_CLAUDE_BIN`) is something only the
+        // WRAPPER observes, reported as this one sentinel-shaped line on its stdout (see
+        // `watchdog.ts`'s own `child.on("error", ...)`). Handled here, before this line is ever
+        // treated as real stream-json, so `startSession` still rejects naming the missing binary
+        // exactly as it did before the wrapper existed.
+        const maybeSpawnError = parsed as unknown as {
+          __flywheelWatchdogSpawnError?: boolean;
+          message?: string;
+        };
+        if (maybeSpawnError.__flywheelWatchdogSpawnError === true) {
+          const message = maybeSpawnError.message ?? "the backend failed to spawn";
+          session.stderrTail = message;
+          emitSessionClosed(options.runId, session, "failed");
+          resolveClosed();
+          reject(new Error(message));
           return;
         }
         const normalised = normaliseStreamEvent(parsed, line, options.runId, seq, at);
