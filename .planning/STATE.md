@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
-status: executing
-stopped_at: Completed 03-11-PLAN.md
-last_updated: "2026-09-15T08:56:03.249Z"
+status: verifying
+stopped_at: Completed 03-12-PLAN.md
+last_updated: "2026-09-15T09:15:30.177Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 03 execution started
-state_head: 465c63e128035308652f471153bc2fd9cf97a8a3
+state_head: 3e3f09e98e92f3a885bce858cb04962e820db9be
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 52
-  completed_plans: 51
+  completed_plans: 52
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
 Plan: 13 of 13
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-15 — Phase 03 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -110,6 +110,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P13 | 40min | 3 tasks | 14 files |
 | Phase 03 P10 | 22min | 3 tasks | 14 files |
 | Phase 03 P11 | 25min | 3 tasks | 15 files |
+| Phase 03 P12 | 25min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -189,6 +190,10 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03]: recovery.rs's rollup deliberately does not require the abandoned run to be the task's most recent run — a later clean run does not retroactively make an earlier, never-acknowledged abandonment seen.
 - [Phase 03]: [Phase 03]: the Needs Decision pill opens the item detail panel plainly rather than scrolled to a specific section — no target-section mechanism exists on the panel yet; named as a gap, not silently treated as covered.
 - [Phase 03]: [Phase 03]: ProjectRail's second recovery badge is positioned at the opposite corner (bottom-right) from the existing Blocked badge/Unreachable glyph (both top-right) so the two never visually collide.
+- [Phase 03]: [Phase 03]: Destructive-gate consequence sentences that need a branch name re-parse the same raw command text already shown in Mono, display-only, never used for gating — permission_requests.destructive_category never stores the branch itself.
+- [Phase 03]: [Phase 03]: recursive-delete (a real classifier category) falls back to the generic uncategorized consequence sentence, since 03-UI-SPEC.md's own six-row copy table does not cover it — implemented literally per the plan's own fallback instruction.
+- [Phase 03]: [Phase 03]: Shift+A is gated inert on the destructive permission-card variant inside the row's own handler (not via state/keyboard.ts), matching 03-UI-SPEC.md's 'has no effect' wording rather than letting the call silently reach a backend path that rejects it.
+- [Phase 03]: [Phase 03]: The destructive-gate card's 4px border stripe is new to that variant only — the routine permission card carries no stripe in the shipped code despite 03-UI-SPEC.md describing one, so no existing stripe was swapped.
 
 ### Pending Todos
 
@@ -220,6 +225,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-15T08:56:03.176Z
-Stopped at: Completed 03-11-PLAN.md
+Last session: 2026-09-15T09:15:30.101Z
+Stopped at: Completed 03-12-PLAN.md
 Resume file: None
