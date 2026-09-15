@@ -212,18 +212,29 @@ pub fn update_task(
 /// is set to NULL before the task row itself is removed, so a task deletion never fails with a
 /// foreign-key error when an issue references it (CR-01).
 ///
-/// **Decided deletion semantics for agent-run history (D-40, DATA-06, CR-01 gap 3):** a task that
-/// has ever had Start Work pressed on it holds rows in `triggers` (on `target_task_id`),
-/// `worktrees`, `agent_runs` and/or `permission_requests` (all `NOT NULL REFERENCES tasks(id)`
-/// with no `ON DELETE` clause, and `foreign_keys = ON` on every connection). This function BLOCKS
-/// the deletion in that case — it never cascades those rows away — and returns an `Err` whose
-/// `to_string()` is a human sentence naming what blocks it, never SQLite's raw `FOREIGN KEY
-/// constraint failed` message. This preserves the non-repudiable record of what an agent did on
-/// the task and can never orphan an on-disk worktree holding uncommitted changes. `events.task_id`
-/// is a plain column with no foreign key to `tasks` (`0002_board_schema.sql`), so the event log —
-/// including every `agent_run.*` and permission-decision entry — survives regardless: this
-/// function only ever blocks the *structured* rows, never the append-only stream. A task with NO
-/// agent-run history deletes exactly as it did before this decision existed.
+/// **Revised deletion semantics (D-44, plan `03-05` Task 1 checkpoint — Option A, superseding
+/// D-40): the guard is now WORKTREE-ONLY.** D-40 blocked deletion on ANY agent-run history
+/// because no path existed to clear a worktree holding uncommitted work; plan `03-01` added that
+/// path (`worktree::remove_worktree_for_task`, itself refusing a dirty tree per D-43), so a task
+/// with no `worktrees` row can never be deleted out from under uncommitted work regardless of
+/// what else is done here. The one condition that still makes deletion dangerous — a live
+/// `worktrees` row — still BLOCKS, with an actionable message naming the fix (see the
+/// Copywriting Contract string this function's `bail!` uses verbatim), never SQLite's raw
+/// `FOREIGN KEY constraint failed`.
+///
+/// Once that guard clears, this task's `triggers`, `agent_runs` and `permission_requests` rows
+/// are CASCADED — deleted in this same transaction, in foreign-key-safe order — rather than kept
+/// as permanently-undeletable history. The append-only `events` log is NEVER touched by this or
+/// any other path: `events.task_id` is a plain column with no foreign key to `tasks`
+/// (`0002_board_schema.sql`), so the full chronological record of what the agent did — every
+/// `agent_run.*` and permission-decision entry — survives this deletion untouched. That is the
+/// non-repudiable record the core value rests on; `agent_runs` etc. are a reconstructible
+/// projection over it, not the record itself. Session transcript files at
+/// `<app-data>/sessions/<agent-run-id>.jsonl` (D-34) are also LEFT ON DISK — they are named by
+/// run id, referenced by no surviving row, and deleting a user-inspectable transcript as a side
+/// effect of deleting a board item is exactly the silent destruction this phase exists to
+/// refuse. A task with no worktree, no triggers, no agent runs and no permission requests
+/// deletes exactly as it did before this decision existed.
 pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
@@ -242,16 +253,10 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
         return Ok(());
     };
 
-    // D-40: block the deletion if this task has any agent-run history, rather than let SQLite's
-    // implicit NO ACTION surface a raw FOREIGN KEY constraint error. Each count is a
-    // compile-time-literal SELECT with a single bound parameter (Phase 01's no-format!-SQL rule).
-    let trigger_count: i64 = tx
-        .query_row(
-            "SELECT COUNT(*) FROM triggers WHERE target_task_id = ?1",
-            params![task_id],
-            |row| row.get(0),
-        )
-        .context("failed to count triggers referencing this task")?;
+    // D-44 (plan 03-05, revising D-40): the guard is now WORKTREE-ONLY. A single condition means
+    // there is no longer a "name whichever count is nonzero" case to guard against — WR-01's
+    // priority-ordered wording is gone because the contradiction it protected against (naming a
+    // count that is itself zero) cannot occur with one check.
     let worktree_count: i64 = tx
         .query_row(
             "SELECT COUNT(*) FROM worktrees WHERE task_id = ?1",
@@ -259,46 +264,62 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
             |row| row.get(0),
         )
         .context("failed to count worktrees referencing this task")?;
-    let agent_run_count: i64 = tx
-        .query_row(
-            "SELECT COUNT(*) FROM agent_runs WHERE task_id = ?1",
-            params![task_id],
-            |row| row.get(0),
-        )
-        .context("failed to count agent runs referencing this task")?;
-    let permission_request_count: i64 = tx
-        .query_row(
-            "SELECT COUNT(*) FROM permission_requests WHERE task_id = ?1",
-            params![task_id],
-            |row| row.get(0),
-        )
-        .context("failed to count permission requests referencing this task")?;
 
-    if trigger_count > 0 || worktree_count > 0 || agent_run_count > 0 || permission_request_count > 0 {
-        // WR-01 (`02-REVIEW.md` gap-closure round): this block is gated on ANY of the four counts
-        // being nonzero, but the message must never NAME `agent_run_count` when it is the count
-        // that happens to be zero — e.g. a task with only a `worktrees` row (no `agent_runs` row
-        // yet, a state `start_agent_run` can leave behind if its own transaction fails after
-        // `ensure_worktree` already committed) would otherwise read "it has 0 recorded agent
-        // runs and a worktree exists for it," which contradicts itself. Name whichever count is
-        // actually nonzero, falling back in the same trigger/worktree/agent_run/permission_request
-        // priority order the gate above checks — the D-40 semantics (block, never cascade) are
-        // unchanged; only the wording changes.
-        let run_word = if agent_run_count == 1 { "run" } else { "runs" };
-        let reason = if agent_run_count > 0 {
-            format!("it has {agent_run_count} recorded agent {run_word}")
-        } else if worktree_count > 0 {
-            "a worktree has been created for it".to_string()
-        } else if trigger_count > 0 {
-            "a trigger has been recorded for it".to_string()
-        } else {
-            "a permission request has been recorded for it".to_string()
-        };
+    if worktree_count > 0 {
         anyhow::bail!(
-            "Cannot delete this task: {reason}. Flywheel does not delete an agent's recorded \
-             work as a side effect of deleting a task — leave the task on the board, or wait \
-             for the worktree-removal action a future release adds."
+            "Cannot delete this task: a worktree exists for it. Remove the worktree first, then delete."
         );
+    }
+
+    // D-44 Option A: once no worktree row exists, cascade this task's recorded agent history —
+    // `permission_requests` (references `agent_runs`), then `agent_runs`, then `triggers` — in
+    // this same transaction, in foreign-key-safe order. Each is its own compile-time-literal
+    // statement with a single bound parameter (Phase 01's no-format!-SQL rule). The row count
+    // comes directly from each DELETE's own affected-row return value, not a separate COUNT(*)
+    // query, since the count and the deletion are the same fact. `events` is never touched here
+    // (see the function doc comment) — a source-scanning verify gate asserts no `DELETE FROM
+    // events` exists anywhere in this file.
+    let permission_requests_deleted = tx
+        .execute("DELETE FROM permission_requests WHERE task_id = ?1", params![task_id])
+        .context("failed to delete permission requests referencing this task")?;
+    let agent_runs_deleted = tx
+        .execute("DELETE FROM agent_runs WHERE task_id = ?1", params![task_id])
+        .context("failed to delete agent runs referencing this task")?;
+    let triggers_deleted = tx
+        .execute("DELETE FROM triggers WHERE target_task_id = ?1", params![task_id])
+        .context("failed to delete triggers referencing this task")?;
+
+    // One summarising event, not one per deleted row (mirrors D-53's "count, do not narrate"
+    // instinct) — and only when there was history to summarise, so the ordinary case (a task
+    // that never started work) appends no extra event and is a no-op regression check.
+    if permission_requests_deleted > 0 || agent_runs_deleted > 0 || triggers_deleted > 0 {
+        let sequence = next_sequence(&tx, &project_id, "local")?;
+        let payload = serde_json::json!({
+            "field": "history",
+            "before": {
+                "agent_runs": agent_runs_deleted,
+                "triggers": triggers_deleted,
+                "permission_requests": permission_requests_deleted,
+            },
+            "after": null,
+            "label": format!(
+                "Deleted {agent_runs_deleted} recorded agent run(s), {triggers_deleted} trigger(s) and {permission_requests_deleted} permission request(s) for \"{title}\""
+            ),
+        });
+        append_event(
+            &tx,
+            &project_id,
+            "local",
+            sequence,
+            "task",
+            task_id,
+            Some(task_id),
+            epic_id.as_deref(),
+            actor_id,
+            "task.history_deleted",
+            &payload,
+            &now,
+        )?;
     }
 
     // Issues referencing this task must also be orphaned, not left dangling — `issues.task_id`

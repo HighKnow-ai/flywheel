@@ -272,6 +272,20 @@ pub fn remove_worktree_for_task(
 
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+
+    // `agent_runs.worktree_id` is a NULLABLE `REFERENCES worktrees(id)` (unlike
+    // `agent_runs.task_id`, which is NOT NULL) — a run's history belongs to its task forever, but
+    // its worktree is this function's own to reclaim. Decouple any run that pointed at this
+    // worktree BEFORE deleting the row, or SQLite's `foreign_keys = ON` raises a raw `FOREIGN KEY
+    // constraint failed` the moment a task has ever had Start Work pressed on it (found by plan
+    // 03-05's own two-step order test, not anticipated by plan 03-01: no prior test exercised
+    // worktree removal on a worktree an agent run had actually used).
+    tx.execute(
+        "UPDATE agent_runs SET worktree_id = NULL WHERE worktree_id = ?1",
+        params![worktree.id],
+    )
+    .context("failed to decouple agent runs from the worktree being removed")?;
+
     tx.execute("DELETE FROM worktrees WHERE id = ?1", params![worktree.id])
         .context("failed to delete worktree row")?;
 
@@ -500,6 +514,16 @@ pub fn forget_worktree_record(conn: &mut Connection, task_id: &str, actor_id: &s
 
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+
+    // Same FK hazard as `remove_worktree_for_task` above: `agent_runs.worktree_id` is nullable
+    // and must be decoupled before the `worktrees` row is deleted, or a task that ever had an
+    // agent run in this worktree raises a raw `FOREIGN KEY constraint failed` here too.
+    tx.execute(
+        "UPDATE agent_runs SET worktree_id = NULL WHERE worktree_id = ?1",
+        params![worktree.id],
+    )
+    .context("failed to decouple agent runs from the worktree record being forgotten")?;
+
     tx.execute("DELETE FROM worktrees WHERE id = ?1", params![worktree.id])
         .context("failed to delete worktree row")?;
 
