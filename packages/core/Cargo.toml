@@ -27,6 +27,18 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # crate starts a scheduler yet (`domain::trigger::cron_tick_trigger_unimplemented`).
 tokio-cron-scheduler = "0.15"
 keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
+# Pid-reuse-safe liveness for the launch reconciler (plan 03-06, PROC-05): pid alone is never
+# enough to identify "the same process" across a restart, since the OS recycles pids. Pinned to
+# an EXACT version (no caret, no wildcard) per this plan's Task 1 package-legitimacy checkpoint —
+# a human-approved crates.io identity/API-shape/license check, not floated deliberately.
+# RESEARCH.md's own "Don't Hand-Roll" table names this exact crate over a hand-rolled per-platform
+# pid-plus-start-time read.
+sysinfo = "=0.39.6"
+# `kill_orphan` (plan 03-06) signals a process GROUP via a negative pid (`libc::kill(-pid, ...)`),
+# mirroring `packages/sidecar/src/watchdog.ts`'s own `process.kill(-process.pid, "SIGKILL")` force
+# step on the Rust side. Already resolved transitively (via sysinfo); declared directly here
+# because this crate calls it by name.
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
