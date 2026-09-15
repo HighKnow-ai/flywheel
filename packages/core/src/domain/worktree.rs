@@ -379,3 +379,152 @@ pub fn reconcile_worktrees(conn: &mut Connection, actor_id: &str) -> anyhow::Res
     Ok(())
 }
 
+/// Re-run worktree creation on a `missing` row, against the SAME recorded `branch`/`base_branch`
+/// (D-45's Recreate decision, plan 03-UI-SPEC.md). Never allocates a new branch name and never
+/// calls [`base_ref_for_task`] — that function lazily CUTS an epic integration branch as a side
+/// effect, and recreating a worktree must reproduce the recorded topology rather than mint new git
+/// history.
+///
+/// Refuses (via `bail!`, naming the actual status) when no row exists for `task_id` or when the
+/// row's status is not `missing` — this can never be used as a second worktree-creation path for
+/// a healthy worktree. Probes with [`git::rev_parse_verify`] first: when the recorded branch still
+/// exists (the realistic case — only the working directory was deleted), checks it out with the
+/// existing-branch form of `git worktree add`; otherwise uses the `-b` form exactly as
+/// [`ensure_worktree`] would for a brand-new branch. Neither form bypasses `git::worktree_add`'s
+/// own adjacency refusals — both go through `git::git_at` (never a new `packages/core/src/git.rs`
+/// function, which is owned by other plans in earlier waves). On success, updates the row back to
+/// `active` and appends `worktree.recreated` in one transaction; a failed git call leaves the row
+/// at `missing` untouched — a failed recreate is not a decision made.
+pub fn recreate_worktree_for_task(
+    conn: &mut Connection,
+    task_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<Worktree> {
+    let worktree = worktree_for_task(conn, task_id)?
+        .ok_or_else(|| anyhow::anyhow!("no worktree exists for task {task_id:?}"))?;
+
+    if worktree.status != "missing" {
+        anyhow::bail!(
+            "recreate_worktree_for_task refused: worktree for task {task_id:?} has status \
+             {:?}, expected \"missing\"",
+            worktree.status
+        );
+    }
+
+    let repo_path: String = conn
+        .query_row(
+            "SELECT repo_path FROM projects WHERE id = ?1",
+            params![worktree.project_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("project {:?} not found", worktree.project_id))?;
+
+    let repo_path = Path::new(&repo_path);
+    let worktree_path = Path::new(&worktree.path);
+
+    // The directory this row names is confirmed gone (the row is `missing`), but git's own
+    // internal administrative record for it under `.git/worktrees/<name>` is NOT automatically
+    // cleared when the directory disappears out from under it (the whole scenario D-45 exists
+    // for — the user deleted it outside Flywheel). `git worktree add` on that exact same path
+    // fails with "is a missing but already registered worktree" until that stale record is
+    // pruned. Safe here specifically because reconciliation already confirmed the directory is
+    // genuinely absent — `git worktree prune` only clears administrative entries whose working
+    // directory is truly gone, never a live one.
+    git::git_at(repo_path, &["worktree", "prune"])
+        .with_context(|| format!("failed to prune stale worktree metadata in {repo_path:?}"))?;
+
+    let branch_exists = git::rev_parse_verify(repo_path, &worktree.branch)
+        .with_context(|| format!("failed to probe branch {:?} in {repo_path:?}", worktree.branch))?;
+
+    if branch_exists {
+        // The realistic case: only the working directory was deleted, the branch survives.
+        // Check it out rather than minting a new one — `git worktree add`'s `-b` form would
+        // refuse anyway, since `worktree_add`'s own guard rejects an already-existing branch.
+        let worktree_path_str = worktree_path.to_string_lossy().into_owned();
+        git::git_at(repo_path, &["worktree", "add", &worktree_path_str, &worktree.branch])
+            .with_context(|| format!("failed to recreate worktree for task {task_id:?}"))?;
+    } else {
+        git::worktree_add(repo_path, worktree_path, &worktree.branch, &worktree.base_branch)
+            .with_context(|| format!("failed to recreate worktree for task {task_id:?}"))?;
+    }
+
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute("UPDATE worktrees SET status = 'active' WHERE id = ?1", params![worktree.id])
+        .context("failed to update worktree status after recreate")?;
+
+    let sequence = next_sequence(&tx, &worktree.project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "status",
+        "before": "missing",
+        "after": "active",
+        "path": worktree.path,
+        "label": "Worktree recreated",
+    });
+    append_event(
+        &tx,
+        &worktree.project_id,
+        "local",
+        sequence,
+        "worktree",
+        &worktree.id,
+        Some(task_id),
+        None,
+        actor_id,
+        "worktree.recreated",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit().context("failed to commit recreate_worktree_for_task transaction")?;
+
+    Ok(Worktree { status: "active".to_string(), ..worktree })
+}
+
+/// Delete a `missing` row's record with no filesystem call of any kind (D-45's "Remove Record"
+/// decision) — there is nothing on disk to touch, since the directory is already gone. Refuses
+/// (via `bail!`, naming the actual status) when no row exists for `task_id` or when the row's
+/// status is not `missing`; the only removal path for a REAL, on-disk worktree remains
+/// [`remove_worktree_for_task`]'s porcelain-checked one.
+pub fn forget_worktree_record(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<()> {
+    let worktree = worktree_for_task(conn, task_id)?
+        .ok_or_else(|| anyhow::anyhow!("no worktree exists for task {task_id:?}"))?;
+
+    if worktree.status != "missing" {
+        anyhow::bail!(
+            "forget_worktree_record refused: worktree for task {task_id:?} has status {:?}, \
+             expected \"missing\"",
+            worktree.status
+        );
+    }
+
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM worktrees WHERE id = ?1", params![worktree.id])
+        .context("failed to delete worktree row")?;
+
+    let sequence = next_sequence(&tx, &worktree.project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "worktree",
+        "before": worktree.branch,
+        "after": null,
+        "label": "Worktree record forgotten",
+    });
+    append_event(
+        &tx,
+        &worktree.project_id,
+        "local",
+        sequence,
+        "worktree",
+        &worktree.id,
+        Some(task_id),
+        None,
+        actor_id,
+        "worktree.record_forgotten",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit().context("failed to commit forget_worktree_record transaction")?;
+    Ok(())
+}
