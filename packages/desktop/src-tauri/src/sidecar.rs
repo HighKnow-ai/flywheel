@@ -75,7 +75,31 @@ pub fn resolved_env_for_run(
     conn: &Connection,
     project_id: &str,
 ) -> anyhow::Result<HashMap<String, String>> {
-    Ok(flywheel_core::credentials::resolve_credential(conn, project_id)?.env)
+    let mut env = flywheel_core::credentials::resolve_credential(conn, project_id)?.env;
+
+    // D-47/D-50 (plan 03-02): the seam the watchdog wrapper (`packages/sidecar/src/watchdog.ts`)
+    // reads its own configuration from. `FLYWHEEL_RUNTIME_DIR` is the SAME resolved value
+    // `runtime_protocol::runtime_dir` uses on the Rust side, so the watchdog polls the exact
+    // heartbeat file `spawn_sidecar`'s heartbeat thread (below) touches. The run id is already
+    // carried in the spawn request's own `runId` field, so no fourth entry is needed here — the
+    // adapter (`claude-code-adapter.ts`) adds `FLYWHEEL_RUN_ID` itself at spawn time, from the
+    // one place that actually knows it.
+    let runtime_dir = flywheel_core::runtime_protocol::runtime_dir()
+        .context("failed to resolve the runtime directory for a spawned session's environment")?;
+    env.insert(
+        "FLYWHEEL_RUNTIME_DIR".to_string(),
+        runtime_dir.to_string_lossy().into_owned(),
+    );
+    env.insert(
+        "FLYWHEEL_HEARTBEAT_STALE_MS".to_string(),
+        flywheel_core::runtime_protocol::HEARTBEAT_STALE_MS.to_string(),
+    );
+    env.insert(
+        "FLYWHEEL_HEARTBEAT_POLL_MS".to_string(),
+        flywheel_core::runtime_protocol::HEARTBEAT_POLL_MS.to_string(),
+    );
+
+    Ok(env)
 }
 
 /// The live sidecar process handle: its child (for kill-on-app-exit), its stdin request sender,
@@ -105,6 +129,11 @@ pub struct SidecarHandle {
     /// ONE notice, not one per failing event, while still retrying the write itself on every
     /// event (T-02G-12-02).
     notified_persist_failures: Mutex<std::collections::HashSet<String>>,
+    /// Set to `true` by [`Self::kill`] so the heartbeat-writer thread `spawn_sidecar` starts
+    /// stops touching the heartbeat file promptly on a clean exit (D-47) — a stopped supervisor
+    /// SHOULD look stale to every live watchdog as soon as possible, not linger for one more
+    /// `HEARTBEAT_INTERVAL_MS` tick after the sidecar itself is already gone.
+    heartbeat_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// How long `interrupt_run` waits for the sidecar's ack before giving up — generous enough to
@@ -361,6 +390,8 @@ impl SidecarHandle {
     /// signal them. Called on app exit, after `shutdown_all_sessions`, so no orphaned sidecar
     /// process survives Flywheel closing.
     pub fn kill(&self) {
+        self.heartbeat_stop
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         if let Ok(mut guard) = self.child.lock() {
             if let Some(child) = guard.take() {
                 let _ = child.kill();
@@ -712,12 +743,45 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
         }
     }
 
+    // D-47 (plan 03-02): touch the heartbeat file on a fixed interval for as long as Flywheel is
+    // alive, so every live session's watchdog (`packages/sidecar/src/watchdog.ts`) has evidence
+    // the supervisor is still around. Started here, AFTER the readiness handshake succeeds, and
+    // stopped from `SidecarHandle::kill` on a clean exit — deliberately a plain `std::thread`,
+    // not a tokio task, so it keeps running even if the async runtime that drives the reader task
+    // below were ever torn down independently. A write failure is logged at most once per
+    // distinct message (mirroring `notified_persist_failures`'s own once-per-key discipline
+    // below) rather than spamming stderr on every tick; it can NEVER panic or stop the loop
+    // (CR-03) — a single missed heartbeat write is not fatal, the next tick tries again.
+    let heartbeat_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let stop_flag = heartbeat_stop.clone();
+        std::thread::spawn(move || {
+            let mut last_failure_message: Option<String> = None;
+            while !stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                if let flywheel_core::runtime_protocol::RuntimeIo::WriteFailed(message) =
+                    flywheel_core::runtime_protocol::touch_heartbeat()
+                {
+                    if last_failure_message.as_deref() != Some(message.as_str()) {
+                        eprintln!("flywheel heartbeat write failed: {message}");
+                        last_failure_message = Some(message);
+                    }
+                } else {
+                    last_failure_message = None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(
+                    flywheel_core::runtime_protocol::HEARTBEAT_INTERVAL_MS,
+                ));
+            }
+        });
+    }
+
     let handle = SidecarHandle {
         child: Mutex::new(Some(child)),
         writers: Mutex::new(HashMap::new()),
         pending_acks: Mutex::new(HashMap::new()),
         pending_permission_requests: Mutex::new(HashMap::new()),
         notified_persist_failures: Mutex::new(std::collections::HashSet::new()),
+        heartbeat_stop,
     };
 
     let app_for_reader = app.clone();
