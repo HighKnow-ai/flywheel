@@ -230,6 +230,11 @@ const SUPPRESSED_EVENT_TYPES = new Set([
   "result",
   "permission_request",
   "session_closed",
+  // D-53/plan 03-13: the exhaustion notice's own row is a hard no — see `buildFeedRows` below,
+  // which never even lets one of these reach `FeedRow.tsx`'s own (defense-in-depth) no-render
+  // case. Suppressed here for the same reason `session_closed` is: it is rendered elsewhere (the
+  // Activity Trail), never as a feed row at all.
+  "git_lock_exhausted",
 ]);
 
 /** A stable React/expand-tracking key for one raw log entry — `seq` (every normalised
@@ -301,6 +306,19 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
 
     if (type === "system_notice") {
       rows.push({ kind: "system_notice", key, text: typeof event.text === "string" ? event.text : "" });
+      return;
+    }
+
+    // D-53/plan 03-13: the shim's retry notice — routed to FeedRow.tsx's own "git_retry" case,
+    // which reuses the system/transient row kind's exact treatment. `git_lock_exhausted` is
+    // suppressed above (SUPPRESSED_EVENT_TYPES) and never reaches this point at all.
+    if (type === "git_retry") {
+      rows.push({
+        kind: "git_retry",
+        key,
+        attempt: typeof event.attempt === "number" ? event.attempt : 0,
+        max: typeof event.max === "number" ? event.max : 0,
+      });
       return;
     }
 

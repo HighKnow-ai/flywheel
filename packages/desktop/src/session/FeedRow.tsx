@@ -39,6 +39,15 @@ export type FeedRowData =
   | { kind: "assistant_text"; key: string; text: string }
   | { kind: "tool_call"; key: string; toolName: string; input: unknown; output?: unknown }
   | { kind: "system_notice"; key: string; text: string }
+  // D-53/plan 03-13 (03-UI-SPEC.md "Git lock-retry transient row"): the shim's retry notice,
+  // reusing the system/transient row kind's own treatment rather than defining a parallel one —
+  // `attempt`/`max` are the only interpolated values, per the Copywriting Contract.
+  | { kind: "git_retry"; key: string; attempt: number; max: number }
+  // D-53 (03-UI-SPEC.md "Git lock-exhaustion entry"): the event exists on the stream (the shim
+  // emits it, the Rust core consumes it into the Activity Trail), but the FEED renders nothing
+  // for it — exhaustion is a trail-only artifact, never a feed row, which is exactly the
+  // signal-to-noise ratio D-53 protects. Carries no fields: the no-render case needs none.
+  | { kind: "git_lock_exhausted"; key: string }
   | { kind: "raw"; key: string; raw: string };
 
 export interface FeedRowProps {
@@ -143,6 +152,12 @@ function expandableRowText(row: FeedRowData): string | undefined {
     case "assistant_text":
     case "system_notice":
       return row.text;
+    // The Copywriting Contract's fixed retry line, apart from the two interpolated integers
+    // (03-UI-SPEC.md's own wording, character for character) — computed here so `FeedRow`'s
+    // "git_retry" case below can route through the exact same `ExpandableTextRow` call the
+    // "system_notice" case already uses, rather than duplicating that JSX.
+    case "git_retry":
+      return `git: retrying after index lock (attempt ${row.attempt}/${row.max})…`;
     case "raw":
       return row.raw;
     default:
@@ -262,7 +277,12 @@ export function FeedRow({ row, expanded, onToggleExpand }: FeedRowProps) {
           onToggleExpand={onToggleExpand}
         />
       );
+    // D-53/plan 03-13: "git_retry" is routed through the SAME branch "system_notice" already
+    // uses — reusing the existing system/transient row kind, not a parallel one (03-UI-SPEC.md's
+    // own "no new visual component" instruction) — identical roleClassName/color, so a later
+    // change to the transient treatment reaches this row automatically.
     case "system_notice":
+    case "git_retry":
       return (
         <ExpandableTextRow
           row={row}
@@ -272,6 +292,11 @@ export function FeedRow({ row, expanded, onToggleExpand }: FeedRowProps) {
           onToggleExpand={onToggleExpand}
         />
       );
+    // D-53: an explicit no-render case, never a fallthrough to the unknown-event branch — a
+    // silent fallthrough would render this event's raw payload as an unknown row, which is
+    // exactly the noise D-53 protects against. Exhaustion surfaces in the Activity Trail only.
+    case "git_lock_exhausted":
+      return null;
     case "tool_call":
       return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} />;
     case "raw":

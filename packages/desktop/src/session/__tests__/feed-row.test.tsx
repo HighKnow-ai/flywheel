@@ -106,3 +106,50 @@ describe("feedRowEstimateSize never varies with content length", () => {
     expect(feedRowEstimateSize(shortRow, true)).toBe(FEED_ROW_HEIGHT);
   });
 });
+
+describe("git lock-retry transient row and the git-lock-exhaustion no-render case (D-53, plan 03-13)", () => {
+  it("renders the exact Copywriting Contract line with the two integers interpolated", () => {
+    const row: FeedRowData = { kind: "git_retry", key: "k1", attempt: 2, max: 5 };
+    render(<FeedRow row={row} expanded={false} onToggleExpand={() => {}} />);
+    expect(screen.getByText("git: retrying after index lock (attempt 2/5)…")).toBeInTheDocument();
+  });
+
+  it("computes the muted rack colour, never the destructive one", () => {
+    const row: FeedRowData = { kind: "git_retry", key: "k1", attempt: 1, max: 5 };
+    const { container } = render(<FeedRow row={row} expanded={false} onToggleExpand={() => {}} />);
+    const span = container.querySelector("span");
+    expect(span).not.toBeNull();
+    expect(span!.style.color).toBe("var(--text-muted-rack)");
+    expect(span!.style.color).not.toBe("var(--destructive-text-rack)");
+  });
+
+  it("routes through the SAME branch as system_notice — identical role className and colour treatment", () => {
+    const retryRow: FeedRowData = { kind: "git_retry", key: "k1", attempt: 1, max: 5 };
+    const noticeRow: FeedRowData = { kind: "system_notice", key: "k2", text: "some notice" };
+    const retry = render(<FeedRow row={retryRow} expanded={false} onToggleExpand={() => {}} />);
+    const notice = render(<FeedRow row={noticeRow} expanded={false} onToggleExpand={() => {}} />);
+    const retrySpan = retry.container.querySelector("span");
+    const noticeSpan = notice.container.querySelector("span");
+    expect(retrySpan!.className).toBe(noticeSpan!.className);
+    expect(retrySpan!.style.color).toBe(noticeSpan!.style.color);
+  });
+
+  it("a short retry row offers no expand control (no overflow/long-text case is reachable)", () => {
+    const row: FeedRowData = { kind: "git_retry", key: "k1", attempt: 1, max: 5 };
+    render(<FeedRow row={row} expanded={false} onToggleExpand={() => {}} />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(isRowExpandable(row)).toBe(false);
+  });
+
+  it("a git_lock_exhausted event renders nothing — the container's own text content is empty", () => {
+    const row: FeedRowData = { kind: "git_lock_exhausted", key: "k1" };
+    const { container } = render(<FeedRow row={row} expanded={false} onToggleExpand={() => {}} />);
+    expect(container.textContent).toBe("");
+  });
+
+  it("feedRowEstimateSize for git_lock_exhausted is the fixed collapsed constant, never the expanded one", () => {
+    const row: FeedRowData = { kind: "git_lock_exhausted", key: "k1" };
+    expect(feedRowEstimateSize(row, false)).toBe(FEED_ROW_HEIGHT);
+    expect(feedRowEstimateSize(row, true)).toBe(FEED_ROW_HEIGHT);
+  });
+});
