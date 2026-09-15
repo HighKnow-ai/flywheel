@@ -38,7 +38,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **WORK-03**: A worktree is never destroyed without first checking for uncommitted changes; if any exist, destruction is refused and surfaced to the user
 - [x] **WORK-04**: Concurrent git operations against the same repository retry with exponential backoff and jitter on index-lock contention rather than failing the task
 - [x] **WORK-05**: Agent spawn timing is desynchronised so that parallel starts do not collide on the same repository index
-- [ ] **WORK-06**: On launch, the application reconciles worktrees recorded in the database against those actually present on disk and surfaces any discrepancy to the user rather than silently repairing it
+- [x] **WORK-06**: On launch, the application reconciles worktrees recorded in the database against those actually present on disk and surfaces any discrepancy to the user rather than silently repairing it
 - [ ] **WORK-07**: User can see all worktrees across all projects, their disk usage, and reclaim stale ones
 - [x] **WORK-08**: A task's worktree persists across many agent sessions and is only removed on explicit completion or user action
 
@@ -62,7 +62,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **PROC-02**: The supervisor never reads its own current working directory; every filesystem and git operation is issued against an explicit absolute path
 - [x] **PROC-03**: Agent processes are managed as process groups so that termination reliably kills the whole tree, not just the parent
 - [x] **PROC-04**: No agent process survives application quit; a worker self-terminates if its supervisor disappears
-- [ ] **PROC-05**: On launch, orphaned agent processes and in-flight runs from a previous session are detected and surfaced to the user for a decision rather than silently resumed
+- [x] **PROC-05**: On launch, orphaned agent processes and in-flight runs from a previous session are detected and surfaced to the user for a decision rather than silently resumed
 - [x] **PROC-06**: User can interrupt or stop a running agent session at any time and the worktree is left in a consistent, inspectable state
 - [x] **PROC-07**: Agent output is streamed to the user live without unbounded memory growth on a long-running session
 
@@ -242,7 +242,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | WORK-03 | Phase 3 | Complete |
 | WORK-04 | Phase 3 | Complete |
 | WORK-05 | Phase 3 | Complete |
-| WORK-06 | Phase 3 | Pending |
+| WORK-06 | Phase 3 | Complete |
 | WORK-07 | Phase 10 | Pending |
 | WORK-08 | Phase 2 | Complete |
 | LINK-01 | Phase 2 | Complete |
@@ -260,7 +260,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PROC-02 | Phase 2 | Complete |
 | PROC-03 | Phase 3 | Complete |
 | PROC-04 | Phase 3 | Complete |
-| PROC-05 | Phase 3 | Pending |
+| PROC-05 | Phase 3 | Complete |
 | PROC-06 | Phase 2 | Complete |
 | PROC-07 | Phase 2 | Complete |
 | AGNT-01 | Phase 2 | Complete |

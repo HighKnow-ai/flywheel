@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 11/13 plans executed in 7 waves
+**Plans**: 12/13 plans executed in 7 waves
 **UI hint**: yes
 
 Plans:
@@ -311,7 +311,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 03-11-PLAN.md — "Needs Decision": the row pill and the project-rail count (WORK-06, PROC-05)
+- [x] 03-11-PLAN.md — "Needs Decision": the row pill and the project-rail count (WORK-06, PROC-05)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
@@ -614,7 +614,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
-| 3. Nothing Lost, Nothing Left Running | 11/13 | In Progress|  |
+| 3. Nothing Lost, Nothing Left Running | 12/13 | In Progress|  |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
