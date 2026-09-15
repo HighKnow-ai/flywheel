@@ -47,6 +47,12 @@ fn row_to_worktree(row: &rusqlite::Row) -> rusqlite::Result<Worktree> {
 const WORKTREE_SELECT_SQL: &str =
     "SELECT id, task_id, project_id, path, branch, base_branch, status FROM worktrees WHERE task_id = ?1";
 
+/// Every `worktrees` row currently `status = 'active'` — [`reconcile_worktrees`]'s own candidate
+/// set. Only `active` rows are ever examined (a row already `stale`/`merged`/`abandoned` is left
+/// alone), matching `<behavior>`'s "only active rows are candidates" rule.
+const ACTIVE_WORKTREES_SELECT_SQL: &str =
+    "SELECT id, task_id, project_id, path, branch, base_branch, status FROM worktrees WHERE status = 'active'";
+
 /// The existing worktree row for `task_id`, if one has ever been created — the existence check
 /// `ensure_worktree` performs BEFORE opening a transaction or touching git (RESEARCH.md Pitfall 2).
 pub fn worktree_for_task(conn: &Connection, task_id: &str) -> anyhow::Result<Option<Worktree>> {
@@ -294,3 +300,82 @@ pub fn remove_worktree_for_task(
     tx.commit().context("failed to commit remove_worktree_for_task transaction")?;
     Ok(())
 }
+
+/// Launch-time worktree reconciliation (WORK-06, D-45) — structurally identical to
+/// `domain::project::reconcile_projects`: detect a mismatch between the database and the
+/// filesystem, surface it, never silently repair it.
+///
+/// Selects every `status = 'active'` row through [`ACTIVE_WORKTREES_SELECT_SQL`] (a
+/// compile-time-literal constant, no `format!`), collecting them into a `Vec` before the loop so
+/// no statement is held open across the per-row transactions below. For each row, presence is
+/// `std::path::Path::new(&row.path).try_exists().unwrap_or(false)` — `try_exists` distinguishes
+/// "absent" from "could not tell" (a permissions error on the parent directory, say), and
+/// `.unwrap_or(false)` deliberately collapses "could not tell" into "missing", mirroring
+/// `reconcile_projects`'s own `.unwrap_or(false)` so one unreadable row never aborts the pass for
+/// every other row.
+///
+/// A row whose derived status equals its current status is skipped with no write and no event —
+/// this is what makes a second run over an unchanged filesystem a true no-op, and what keeps a
+/// worktree that went `missing` and then reappeared on disk at `missing`: reconciliation never
+/// moves a row back to `active` on its own (that is the user's Recreate decision,
+/// [`recreate_worktree_for_task`]). On a real change, one transaction updates `status` — and
+/// nothing else; `path`/`branch`/`base_branch` are structurally out of reach of this function's
+/// `UPDATE` statement — and appends one `worktree.missing` event whose payload carries a
+/// human-renderable `label` (D-19) for the activity trail.
+pub fn reconcile_worktrees(conn: &mut Connection, actor_id: &str) -> anyhow::Result<()> {
+    let active_worktrees: Vec<Worktree> = {
+        let mut stmt = conn
+            .prepare(ACTIVE_WORKTREES_SELECT_SQL)
+            .context("failed to prepare the active-worktrees reconciliation query")?;
+        let rows = stmt
+            .query_map([], row_to_worktree)
+            .context("failed to query active worktrees for reconciliation")?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .context("failed to read an active worktree row during reconciliation")?
+    };
+
+    let now = Utc::now().to_rfc3339();
+
+    for worktree in active_worktrees {
+        // Any read failure (a permissions error, a genuinely absent path) reads as "not present"
+        // here — one bad row must never abort reconciliation for every other worktree.
+        let present = Path::new(&worktree.path).try_exists().unwrap_or(false);
+        let new_status = if present { "active" } else { "missing" };
+        if new_status == worktree.status {
+            // No change: no row write, no event — the no-op contract.
+            continue;
+        }
+
+        let tx = conn.transaction()?;
+        tx.execute("UPDATE worktrees SET status = ?1 WHERE id = ?2", params![new_status, worktree.id])
+            .context("failed to update worktree status during reconciliation")?;
+
+        let sequence = next_sequence(&tx, &worktree.project_id, "local")?;
+        let payload = serde_json::json!({
+            "field": "status",
+            "before": worktree.status,
+            "after": new_status,
+            "path": worktree.path,
+            "label": "Worktree missing from disk",
+        });
+        append_event(
+            &tx,
+            &worktree.project_id,
+            "local",
+            sequence,
+            "worktree",
+            &worktree.id,
+            Some(&worktree.task_id),
+            None,
+            actor_id,
+            "worktree.missing",
+            &payload,
+            &now,
+        )?;
+
+        tx.commit().context("failed to commit reconcile_worktrees transaction")?;
+    }
+
+    Ok(())
+}
+

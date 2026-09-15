@@ -59,6 +59,14 @@ fn main() {
             flywheel_core::domain::project::reconcile_projects(&mut conn, &reconcile_actor_id)
                 .expect("failed to reconcile registered projects at launch");
 
+            // Launch-time reconciliation for worktrees (WORK-06, D-45): a `worktrees` row the
+            // database calls `active` that is no longer present on disk is written to `missing`
+            // and explained with one event — never repaired, never deleted, path/branch/
+            // base_branch never rewritten. Same expect-or-crash-loudly idiom and the same
+            // already-resolved `reconcile_actor_id` as `reconcile_projects` immediately above.
+            flywheel_core::domain::worktree::reconcile_worktrees(&mut conn, &reconcile_actor_id)
+                .expect("failed to reconcile recorded worktrees at launch");
+
             // Spawn the sidecar supervisor before any window is shown, with the same
             // expect-or-crash-loudly idiom the migration step above already uses — a sidecar
             // that fails to start means no agent run can ever be driven, so this never proceeds

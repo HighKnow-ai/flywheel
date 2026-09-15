@@ -354,7 +354,7 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
         return Ok(SessionClosedOutcome::UnknownRun);
     };
 
-    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted") {
+    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted" | "abandoned") {
         // `interrupt_agent_run` has already recorded the user's explicit Stop (D-35) — the
         // terminal event for that same run arrives afterwards. Overwriting the status or end time
         // here would both destroy the user-initiated outcome and append a second terminal event
@@ -440,7 +440,7 @@ pub fn interrupt_agent_run(conn: &mut Connection, agent_run_id: &str, actor_id: 
         return Ok(());
     };
 
-    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted") {
+    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted" | "abandoned") {
         // Already terminal — idempotent no-op, no second terminal event (D-35).
         tx.commit()
             .context("failed to commit no-op interrupt_agent_run transaction (already terminal)")?;
@@ -481,4 +481,82 @@ pub fn interrupt_agent_run(conn: &mut Connection, agent_run_id: &str, actor_id: 
 
     tx.commit().context("failed to commit interrupt_agent_run transaction")?;
     Ok(())
+}
+
+/// Mark a run `abandoned` (D-49) — the launch reconciler's own verb, never called by a live
+/// session. A run that was `running` when the app died is written here, not by the dying process
+/// itself: nothing observes a SIGKILL of the whole app tree from the inside.
+///
+/// Already-terminal is a no-op returning `Ok(false)` — extends the SAME terminal set
+/// [`apply_session_closed`] and [`interrupt_agent_run`] already guard against overwriting
+/// (`completed`/`failed`/`interrupted`/`abandoned`), so a second reconciliation pass over an
+/// already-`abandoned` run writes nothing and appends no second event (idempotent, matching
+/// `<behavior>`'s "a run that already reached a real terminal status is never overwritten by a
+/// reconciler"). An unknown `run_id` is also a harmless `Ok(false)` — there is nothing left to
+/// reconcile.
+///
+/// On a real transition: `UPDATE agent_runs SET status = 'abandoned', ended_at = ?` and appends
+/// `agent_run.abandoned`, carrying `reason` in the payload when the caller supplied one (the
+/// watchdog's own kill-record reason, plan 03-06). Returns `Ok(true)` only when it actually wrote.
+pub fn mark_abandoned(
+    conn: &mut Connection,
+    run_id: &str,
+    actor_id: &str,
+    reason: Option<&str>,
+) -> anyhow::Result<bool> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let existing: Option<(String, String, String)> = tx
+        .query_row(
+            "SELECT status, project_id, task_id FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .context("failed to read agent_runs row before marking abandoned")?;
+
+    let Some((current_status, project_id, task_id)) = existing else {
+        tx.commit().context("failed to commit no-op mark_abandoned transaction (run not found)")?;
+        return Ok(false);
+    };
+
+    if matches!(current_status.as_str(), "completed" | "failed" | "interrupted" | "abandoned") {
+        // Already terminal — idempotent no-op, no second terminal event.
+        tx.commit()
+            .context("failed to commit no-op mark_abandoned transaction (already terminal)")?;
+        return Ok(false);
+    }
+
+    tx.execute(
+        "UPDATE agent_runs SET status = 'abandoned', ended_at = ?1 WHERE id = ?2",
+        params![now, run_id],
+    )
+    .context("failed to mark agent run abandoned")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "agent_run",
+        "before": current_status,
+        "after": "abandoned",
+        "reason": reason,
+        "label": "Agent run abandoned",
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "agent_run",
+        run_id,
+        Some(&task_id),
+        None,
+        actor_id,
+        "agent_run.abandoned",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit().context("failed to commit mark_abandoned transaction")?;
+    Ok(true)
 }
