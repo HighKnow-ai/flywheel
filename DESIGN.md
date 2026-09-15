@@ -1352,3 +1352,53 @@ Rust-side change.
 - `launch-sheet/LaunchSheet.tsx`'s `PreviewSkeleton` as a stopgap until a shared skeleton-row
   component exists — a future plan building one for the board proper should consider migrating
   this local copy to it rather than leaving two independent implementations.
+
+# Phase 3, Plan 03-01 — Worktree Removal and the Refusal That Guards It
+
+## What was built
+
+- `WorktreeRemovalDialog.tsx` (new) reuses `board/DeleteConfirm.tsx`'s exact Radix
+  `FocusScope`/`DismissableLayer`/`createPortal` overlay pattern verbatim (same `role="alertdialog"`
+  scrim, `--surface-secondary` panel, `--radius-chrome` radius) and its destructive-button
+  treatment (`--destructive-strip` background/border, `--text-primary-rack` text) for the Clean
+  state's "Remove" button. **No new colour token, no new mark, and no new overlay mechanism** —
+  this plan's own `03-UI-SPEC.md` explicitly scopes this dialog to introduce zero new legend marks
+  (`legend/marks.ts` is untouched), so `packages/desktop/src/legend/marks.ts` does not appear in
+  this plan's `files_modified` at all.
+- The Dirty refusal state's single "OK" button reuses the Cancel button's secondary styling, never
+  the destructive treatment — matching `DeleteConfirm.tsx`'s own "the safe action, never the
+  destructive one, gets `autoFocus`" rule, applied here to the ONLY button the Dirty state renders.
+
+## Review against the direction contract
+
+- **Never colour alone:** the Dirty refusal's porcelain rows distinguish status by printed word
+  (`Modified`/`Added`/`Deleted`/`Untracked`/`Changed`), never by colour — the row's status label
+  uses the ambient `type-label` role with no colour override at all.
+- **60/30/10 unaffected:** the one destructive-red use (the Clean state's "Remove" button) is the
+  same button style Phase 1's `DeleteConfirm.tsx` already spends that budget on; this plan adds no
+  new claim on it.
+- **No new mark introduced** — confirmed above; `legend/marks.ts` is unmodified by this plan.
+
+## Craft floor review
+
+No live Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display
+available to this executor, matching most Phase 1/2 plans' own precedent). The Impeccable design
+hook ran automatically on every `Write`/`Edit` to `WorktreeRemovalDialog.tsx` and
+`WorktreeSummary.tsx` and reported no deterministic design-quality issues. `cargo test --workspace`
+and `npm --prefix packages/desktop run test`/`run build` are this plan's actual evidence.
+
+## Known Stubs
+
+None. The dialog's three states (Checking/Clean/Dirty) are all wired to the real
+`worktree_remove_check`/`worktree_remove` commands — no mock data path exists anywhere in this
+plan's production code.
+
+## What the next plan inherits
+
+- `WorktreeRemovalDialog.tsx`'s `PORCELAIN_STATUS_WORDS`/`PORCELAIN_FALLBACK_WORD` mapping — the
+  reference shape for any future surface that needs to render `git status --porcelain` codes as
+  human words (this plan's own copy is not extracted to a shared module, since only one surface
+  needs it today).
+- `remove_worktree_for_task`'s re-read-porcelain-inside-the-domain-function shape (packages/core) —
+  the pattern any future destructive git action in this codebase should copy: never trust a
+  renderer's earlier check as authorization to proceed.

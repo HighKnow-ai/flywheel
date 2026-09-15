@@ -82,6 +82,16 @@ describe("WorktreeRemovalDialog", () => {
     expect(screen.queryByText(/and \d+ more/i)).not.toBeInTheDocument();
   });
 
+  it("renders exactly one button in the Dirty state, and it is OK — D-43's structural no-escape-hatch", async () => {
+    worktreeRemovalCheckMock.mockResolvedValue(dirtyResponse([{ code: "M", path: "one.txt" }]));
+    renderDialog();
+
+    await screen.findByText("Can't remove — 1 uncommitted change");
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAccessibleName("OK");
+  });
+
   it("renders no Remove button when the check query settles in an error state", async () => {
     worktreeRemovalCheckMock.mockRejectedValue(new Error("boom"));
     renderDialog();
