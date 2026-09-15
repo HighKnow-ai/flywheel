@@ -20,3 +20,17 @@
   was updated to supply it, so no caller is left on the old 1-arg form. Out of scope to chase
   further here; flagging so a future session with different sandboxing doesn't miss it.
   status: open
+
+- The single required end-of-plan full `npm --prefix packages/sidecar test` run (55 tests) showed
+  38 passed / 16 failed / 1 cancelled. Every failure is in `shutdown.test.mjs`, `stop.test.mjs`,
+  `permission.test.mjs` or `destructive-gate.test.mjs` — files plan 03-13 never touches (verified
+  by grep: the only test file calling `startPermissionServer` directly is `adapter.test.mjs`'s own
+  new coverage, which passes) — and every one spawns a real cooperative child/grandchild process
+  and waits on a signal or a live MCP round trip (`waitForCondition timed out` in 15 of the 16; one
+  is a `stop.test.mjs` assertion mismatch on an already-timing-out fixture). Consistent with the
+  two smaller, independently-reproduced-on-a-clean-stash failures recorded above (adapter.test.mjs
+  and permission.test.mjs): this execution environment appears constrained around
+  grandchild-process spawning/signalling, not a code regression from this plan's diff. Not re-run
+  a second time (cost + the instruction to run the full suite at most once); a future session in a
+  different sandbox should re-verify with a clean checkout before assuming this list is exhaustive.
+  status: open
