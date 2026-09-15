@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-09-12T02:52:03.938Z"
-last_activity: 2026-09-12
-last_activity_desc: Phase 02 complete, transitioned to Phase 3
-state_head: 643b27402bba4c6376ae1f3fb62c8cb5c63e1310
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-09-15T01:01:51.827Z"
+last_activity: 2026-09-15
+last_activity_desc: Phase 03 execution started
+state_head: 6540c12ff348308249a1f13b96473177daa365c6
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 52
-  completed_plans: 39
+  completed_plans: 40
   percent: 0
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-10)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 02 — One Agent, One Worktree, Watched Live
+**Current focus:** Phase 03 — Nothing Lost, Nothing Left Running
 
 ## Current Position
 
-Phase: 03 (Nothing Lost, Nothing Left Running) — READY TO EXECUTE
-Plan: Not started
+Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
+Plan: 2 of 13
 Status: Ready to execute
-Last activity: 2026-09-12 — Phase 02 complete, transitioned to Phase 3
+Last activity: 2026-09-15 — Phase 03 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -98,6 +98,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P16 | 35min | 3 tasks | 4 files |
 | Phase 02 P17 | 20min | 4 tasks | 6 files |
 | Phase 02 P18 | 20min | 3 tasks | 9 files |
+| Phase 03 P01 | 55min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,7 @@ Recent decisions affecting current work:
 - [Phase 02]: Non-init system stream events now normalise to system_notice (terse 'system: <subtype>' text) instead of unknown, so the --verbose flag's session-lifecycle chatter reads as one short line per event; the fallthrough to unknown is narrowed, never deleted, and no renderer change was needed.
 - [Phase 02]: [Phase 02]: G-02-4 closed: apply_session_closed (packages/core/src/domain/agent_run.rs) is close_agent_run's missing production caller, dispatched from the sidecar reader loop's session_closed branch — an already-terminal run is backfilled (cost/tokens only) rather than overwritten, and close_agent_run's own body/signature are unchanged.
 - [Phase 02]: [Phase 02]: Token counts (tokens_in/tokens_out) are written ONCE from the terminal result event's summed usage block, never accumulated per message — tokens_in is the SUM of input_tokens + cache_creation_input_tokens + cache_read_input_tokens, measured against the real CLI to avoid recording the misleading plain-field value alone.
+- [Phase 03]: worktree_remove takes no boolean/option/flag parameter at any layer — the dirty-tree guard is unbypassable by construction, proven by a source-scanning test
 
 ### Pending Todos
 
@@ -185,6 +187,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-12T01:35:15.950Z
-Stopped at: Phase 3 UI-SPEC approved
-Resume file: .planning/phases/03-nothing-lost-nothing-left-running/03-UI-SPEC.md
+Last session: 2026-09-15T01:01:51.760Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
