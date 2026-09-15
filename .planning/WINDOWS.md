@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 7
+open_count: 4
 waived_count: 0
-fixed_count: 3
+fixed_count: 6
 total_count: 10
-last_updated: 2026-09-15T08:03:19.318Z
+last_updated: 2026-09-15T08:11:47.167Z
 ---
 
 # Broken Windows Ledger
@@ -22,9 +22,9 @@ last_updated: 2026-09-15T08:03:19.318Z
 | 5 | 02 | deviation | packages/desktop/src/legend/marks.ts |  | Task 2's verify gate grep -c 'export const MARKS' reports 2 (also matches the pre-existing export const MARKS_BY_ID substring) — false negative predating this plan; the real single-MARKS-array criterion is verified separately and holds | open |  | 2026-09-10T13:38:00.282Z |  |
 | 6 | 02 | deviation | packages/desktop/src/item-detail/WorktreeSummary.tsx |  | T-02-37 'missing from disk' clause not mitigated (no backend disk-existence signal); only the null-field case is implemented. Deferred to Phase 3 WORK-06 reconciliation. | fixed |  | 2026-09-11T02:15:22.725Z | 2026-09-15T07:18:56.270Z |
 | 7 | 02 | unrun-verify | .planning/phases/02-one-agent-one-worktree-watched-live/02-10-PLAN.md |  | Plan 02-10's own manual verification step. PARTIALLY OBSERVED by a human at end-of-phase UAT 2026-09-11 (02-UAT.md test 5, result: pass). Corroborated against the board: an API key was genuinely stored through the write-only Settings field (`settings` gained `api_key_configured_at` at 10:24:01Z), so the save-and-never-re-render clause held. FULLY OBSERVED 2026-09-12: the allow-always grant, its appearance in the Settings table, and its revocation all executed in production. The board records `permission_rule.granted` 1 and `permission_rule.revoked` 1, `permission_rules` back to 0, and `permission_requests` up from 1 to 5 including an `allowed_always` decision. Five permission-rule mitigations move from verified-by-code-only to observed: T-02-04, T-02-24 (high), T-02-27, T-02-45, T-02-47. This row is satisfied. | fixed |  | 2026-09-11T02:41:59.616Z | 2026-09-12T00:29:05.383Z |
-| 8 | 03 | deviation | packages/sidecar/test/adapter.test.mjs |  | normalised events for the fake CLI stream test fails deterministically on a clean baseline checkout (pre-existing, unrelated to 03-13) | open |  | 2026-09-15T08:03:19.010Z |  |
-| 9 | 03 | deviation | packages/sidecar/test/permission.test.mjs |  | 5/7 real-MCP-round-trip tests time out in this execution environment; reproduced on a clean baseline stash, likely a sandbox grandchild-process constraint | open |  | 2026-09-15T08:03:19.166Z |  |
-| 10 | 03 | deviation | packages/sidecar/test |  | Full sidecar suite (end-of-plan run): 38/55 pass; all 16 failures are in shutdown.test.mjs/stop.test.mjs/permission.test.mjs/destructive-gate.test.mjs, files plan 03-13 never touched; likely the same sandbox constraint, not re-run a second time due to cost | open |  | 2026-09-15T08:03:19.318Z |  |
+| 8 | 03 | deviation | packages/sidecar/test/adapter.test.mjs |  | ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Recorded by plan 03-13 as a deterministic clean-baseline failure, but the full sidecar suite was re-run twice by the execute-phase orchestrator at HEAD 4cb50f0 on a quiet machine and passed 55/55 both times. The original observation was transient (resource contention during concurrent test execution), not a defect. Closed as not-a-defect. | fixed |  | 2026-09-15T08:03:19.010Z | 2026-09-15T08:11:46.866Z |
+| 9 | 03 | deviation | packages/sidecar/test/permission.test.mjs |  | ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Recorded by plan 03-13 as reproducing on a clean baseline stash, but two consecutive quiet full-suite runs at HEAD 4cb50f0 passed 55/55 with no timeouts. The timeouts were load-dependent, not a sandbox constraint. Closed as not-a-defect. | fixed |  | 2026-09-15T08:03:19.166Z | 2026-09-15T08:11:47.015Z |
+| 10 | 03 | deviation | packages/sidecar/test |  | ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Plan 03-13 observed 38/55 and did not re-run. The execute-phase orchestrator re-ran the full sidecar suite twice at HEAD 4cb50f0: 55/55 pass, 0 fail, both times. The 16 failures were transient under concurrent load. Standing caveat kept for future readers: packages/sidecar/test/destructive-gate.test.mjs drives the real `claude` binary, so this suite spends real API budget per run and is sensitive to machine load. Closed as not-a-defect. | fixed |  | 2026-09-15T08:03:19.318Z | 2026-09-15T08:11:47.167Z |
 
 ````json
 [
@@ -118,11 +118,11 @@ last_updated: 2026-09-15T08:03:19.318Z
     "phase": "03",
     "file": "packages/sidecar/test/adapter.test.mjs",
     "line": null,
-    "description": "normalised events for the fake CLI stream test fails deterministically on a clean baseline checkout (pre-existing, unrelated to 03-13)",
-    "status": "open",
+    "description": "ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Recorded by plan 03-13 as a deterministic clean-baseline failure, but the full sidecar suite was re-run twice by the execute-phase orchestrator at HEAD 4cb50f0 on a quiet machine and passed 55/55 both times. The original observation was transient (resource contention during concurrent test execution), not a defect. Closed as not-a-defect.",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-15T08:03:19.010Z",
-    "resolved_at": null
+    "resolved_at": "2026-09-15T08:11:46.866Z"
   },
   {
     "id": 9,
@@ -130,11 +130,11 @@ last_updated: 2026-09-15T08:03:19.318Z
     "phase": "03",
     "file": "packages/sidecar/test/permission.test.mjs",
     "line": null,
-    "description": "5/7 real-MCP-round-trip tests time out in this execution environment; reproduced on a clean baseline stash, likely a sandbox grandchild-process constraint",
-    "status": "open",
+    "description": "ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Recorded by plan 03-13 as reproducing on a clean baseline stash, but two consecutive quiet full-suite runs at HEAD 4cb50f0 passed 55/55 with no timeouts. The timeouts were load-dependent, not a sandbox constraint. Closed as not-a-defect.",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-15T08:03:19.166Z",
-    "resolved_at": null
+    "resolved_at": "2026-09-15T08:11:47.015Z"
   },
   {
     "id": 10,
@@ -142,11 +142,11 @@ last_updated: 2026-09-15T08:03:19.318Z
     "phase": "03",
     "file": "packages/sidecar/test",
     "line": null,
-    "description": "Full sidecar suite (end-of-plan run): 38/55 pass; all 16 failures are in shutdown.test.mjs/stop.test.mjs/permission.test.mjs/destructive-gate.test.mjs, files plan 03-13 never touched; likely the same sandbox constraint, not re-run a second time due to cost",
-    "status": "open",
+    "description": "ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Plan 03-13 observed 38/55 and did not re-run. The execute-phase orchestrator re-ran the full sidecar suite twice at HEAD 4cb50f0: 55/55 pass, 0 fail, both times. The 16 failures were transient under concurrent load. Standing caveat kept for future readers: packages/sidecar/test/destructive-gate.test.mjs drives the real `claude` binary, so this suite spends real API budget per run and is sensitive to machine load. Closed as not-a-defect.",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-15T08:03:19.318Z",
-    "resolved_at": null
+    "resolved_at": "2026-09-15T08:11:47.167Z"
   }
 ]
 ````
