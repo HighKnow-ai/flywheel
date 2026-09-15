@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-09-15T03:17:55.507Z"
+stopped_at: Completed 03-06-PLAN.md
+last_updated: "2026-09-15T03:48:10.790Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 03 execution started
-state_head: 4492db222d02f42de24119e8bb4c27dca19dc59e
+state_head: 1967f88a0cbaab58068651e63a6586d0822a080e
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 52
-  completed_plans: 44
+  completed_plans: 45
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 6 of 13
+Plan: 7 of 13
 Status: Ready to execute
 Last activity: 2026-09-15 — Phase 03 execution started
 
@@ -103,6 +103,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P03 | 68min | 3 tasks | 8 files |
 | Phase 03 P04 | 35min | 3 tasks | 12 files |
 | Phase 03 P05 | 25min | 2 tasks | 3 files |
+| Phase 03 P06 | 55min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -168,6 +169,9 @@ Recent decisions affecting current work:
 - [Phase 03]: The shim's PATH/FLYWHEEL_REAL_GIT env additions are merged via a new sidecar.rs::merge_shim_env_for_run, called after run.id exists, not folded into resolved_env_for_run itself. — resolved_env_for_run intentionally runs BEFORE the run/worktree row is created (D-39) so a credential failure never orphans a running row; the shim's install directory is keyed by run_id, which does not exist that early.
 - [Phase 03]: D-44 (checkpoint, plan 03-05 Task 1): Option A -- once no worktrees row exists for a task, its triggers/agent_runs/permission_requests rows are cascaded in the same transaction, summarised by one task.history_deleted event. Supersedes D-40's permanent block. — Consistent with delete_task's existing acceptance-criteria cascade; leaves no unreachable rows; needs no migration. The append-only events log (no FK to tasks) is the durable non-repudiable record regardless and is never touched by the cascade. Session transcripts (<app-data>/sessions/*.jsonl) are left on disk. Options B (keep blocking) and C (soft-delete tombstone) were rejected: B contradicts D-44's own wording, C's query-layer blast radius is out of proportion to this plan.
 - [Phase 03]: [Phase 03]: remove_worktree_for_task and forget_worktree_record now null agent_runs.worktree_id before deleting the worktrees row. — agent_runs.worktree_id is a nullable REFERENCES worktrees(id); neither function decoupled it, so removing a worktree an agent run had used raised a raw FOREIGN KEY constraint error -- found by plan 03-05's own two-step order test, not anticipated by plan 03-01 or 03-03.
+- [Phase 03]: [Phase 03]: sysinfo=0.39.6 (exact-pinned) approved for pid-reuse-safe process liveness after independent crates.io re-verification (Task 1 checkpoint).
+- [Phase 03]: [Phase 03]: process_is_alive converts sysinfo's whole-seconds start_time() to milliseconds before comparing against RunDescriptor/KillRecord — both real on-disk writers (watchdog.ts, claude-code-adapter.ts) record milliseconds; a literal same-unit comparison would have classified every genuinely live orphan as dead.
+- [Phase 03]: [Phase 03]: kill_orphan signals the whole process GROUP via libc::kill(-pid, SIGKILL), always records abandoned regardless of signal outcome, and orphan_kill checks pending-orphan membership before calling it so a second kill returns a not-found error rather than a false success.
 
 ### Pending Todos
 
@@ -199,6 +203,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-15T03:17:55.439Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-09-15T03:48:10.723Z
+Stopped at: Completed 03-06-PLAN.md
 Resume file: None
