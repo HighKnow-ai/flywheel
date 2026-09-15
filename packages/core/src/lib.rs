@@ -9,6 +9,7 @@ pub mod credentials;
 pub mod db;
 pub mod domain;
 pub mod git;
+pub mod git_retry;
 pub mod ids;
 pub mod marker;
 pub mod query;

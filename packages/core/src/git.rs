@@ -30,6 +30,14 @@ pub fn worktree_root_from_env() -> std::path::PathBuf {
 /// Run `git -C <repo_path> <args>`, returning the raw [`Output`] on a zero exit status.
 /// Non-zero exit becomes an `Err` carrying git's own stderr — never a silently-ignored `Output`.
 /// Rejects an empty `repo_path` or an empty `args` slice before spawning (PROC-02 empty).
+///
+/// D-51/D-54 (plan 03-04): a lock-shaped failure (per `git_retry::is_lock_contention`) is retried
+/// through `git_retry::with_lock_retry` — the SAME policy the PATH shim binary uses — before ever
+/// surfacing as an error. The single `Command::new("git")` construction below is unchanged from
+/// before this plan and still runs exactly once per attempt; `packages/core/tests/supervisor_cwd.rs`
+/// asserts it is the only such construction in this crate. A non-lock failure (a real git error)
+/// is returned unchanged after exactly one invocation — its message reads as itself, unaffected by
+/// the retry wrapper.
 pub fn git_at(repo_path: &Path, args: &[&str]) -> anyhow::Result<Output> {
     if repo_path.as_os_str().is_empty() {
         bail!("git_at refused: repo_path must not be empty");
@@ -38,24 +46,29 @@ pub fn git_at(repo_path: &Path, args: &[&str]) -> anyhow::Result<Output> {
         bail!("git_at refused: args must not be empty");
     }
 
-    // `-C <repo_path>` is always the first two arguments, before any subcommand (PROC-02
-    // ordering) — this crate's one and only `Command::new("git")` construction.
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(args)
-        .output()
-        .with_context(|| format!("failed to spawn git -C {repo_path:?} {args:?}"))?;
+    let label = format!("git -C {repo_path:?} {args:?}");
+    let outcome = crate::git_retry::with_lock_retry(&label, |_attempt| {
+        // `-C <repo_path>` is always the first two arguments, before any subcommand (PROC-02
+        // ordering) — this crate's one and only `Command::new("git")` construction.
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .args(args)
+            .output()
+            .with_context(|| format!("failed to spawn git -C {repo_path:?} {args:?}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!(
-            "git -C {repo_path:?} {args:?} failed (exit {:?}): {stderr}",
-            output.status.code()
-        ));
-    }
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!(
+                "git -C {repo_path:?} {args:?} failed (exit {:?}): {stderr}",
+                output.status.code()
+            ));
+        }
 
-    Ok(output)
+        Ok(output)
+    })?;
+
+    Ok(outcome.value)
 }
 
 /// `true` if `ref_name` resolves to a real ref/commit in `repo_path`, `false` otherwise. Never
