@@ -11,6 +11,10 @@ name = "core"
 name = "crash_harness"
 path = "tests/bin/crash_harness.rs"
 
+[[bin]]
+name = "commit_stress_harness"
+path = "tests/bin/commit_stress_harness.rs"
+
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
 rusqlite_migration = "2.6"
