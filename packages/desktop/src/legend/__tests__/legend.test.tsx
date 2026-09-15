@@ -52,13 +52,14 @@ describe("MARKS registry", () => {
 });
 
 /**
- * The "agent" mark channel (02-03-PLAN.md Task 2, AGNT-06) — six new marks published before any
- * surface renders them: five run-status values plus the orthogonal blocked indicator.
+ * The "agent" mark channel (02-03-PLAN.md Task 2, AGNT-06; plan 03-09 Task 2, WORK-06) — seven
+ * marks published before any surface renders them: five run-status values, the orthogonal blocked
+ * indicator, and the missing-worktree decision banner's own glyph (D-45).
  */
 describe("agent channel", () => {
   const agentMarks = MARKS.filter((m) => m.channel === "agent");
 
-  it("has exactly six entries with the exact ids/glyphs/labels 02-UI-SPEC.md specifies", () => {
+  it("has exactly seven entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md specify", () => {
     const expected = [
       { id: "run-running", glyph: "Loader", label: "Running" },
       { id: "run-blocked", glyph: "ShieldAlert", label: "Blocked" },
@@ -66,8 +67,9 @@ describe("agent channel", () => {
       { id: "run-failed", glyph: "CircleX", label: "Failed" },
       { id: "run-interrupted", glyph: "CircleSlash", label: "Interrupted" },
       { id: "blocked-indicator", glyph: "ShieldAlert", label: "Blocked" },
+      { id: "worktree-missing", glyph: "TriangleAlert", label: "Missing" },
     ];
-    expect(agentMarks).toHaveLength(6);
+    expect(agentMarks).toHaveLength(7);
     for (const exp of expected) {
       const mark = agentMarks.find((m) => m.id === exp.id);
       expect(mark, `missing agent mark "${exp.id}"`).toBeDefined();
@@ -88,5 +90,12 @@ describe("Legend surface", () => {
     render(<Legend />);
     const rows = screen.getAllByRole("listitem");
     expect(rows).toHaveLength(MARKS.length);
+  });
+
+  it("renders the worktree-missing mark with its printed word (03-UI-SPEC.md, D-45) — no mark may exist that the legend does not define", () => {
+    render(<Legend />);
+    const rows = screen.getAllByRole("listitem");
+    const worktreeMissingRow = rows.find((row) => row.textContent?.includes("Missing"));
+    expect(worktreeMissingRow, "legend row for the worktree-missing mark not found").toBeDefined();
   });
 });

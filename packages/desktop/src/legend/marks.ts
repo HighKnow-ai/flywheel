@@ -339,6 +339,13 @@ export const MARKS: Mark[] = [
     meaning:
       "An orthogonal signal layered on the row's existing five-state status glyph — a blocked task is still visibly at its real workflow status, not a sixth state.",
   },
+  {
+    id: "worktree-missing",
+    channel: "agent",
+    glyph: "TriangleAlert",
+    label: "Missing",
+    meaning: "The worktree Flywheel recorded for this task is not on disk (D-45).",
+  },
 ];
 
 /**

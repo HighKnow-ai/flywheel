@@ -31,15 +31,154 @@
  *
  * **Remove Worktree** (WORK-03, D-41, plan 03-01 Task 1) — a text-style tertiary action appended
  * after the branch/path row, opening `WorktreeRemovalDialog`. Rendered only on the path where
- * `query.data` resolved to a real summary — this component's own early-return ladder above
- * already guarantees absence otherwise, so no additional guard is needed for the empty case.
+ * `query.data` resolved to a real summary AND the row's status is not `missing` — see
+ * `MissingWorktreeBanner` below, which this component renders instead of the branch/path row (and
+ * therefore instead of this action too) whenever the worktree is missing from disk.
+ *
+ * **Missing-worktree decision banner** (WORK-06, D-45, plan 03-09 Task 2) — inserted into the
+ * early-return ladder below, between the singleton-violation guard and the normal render. When
+ * `summary.status === "missing"` this REPLACES the branch/path row and the Remove Worktree action
+ * entirely (never renders alongside them — 03-UI-SPEC.md's "Missing-worktree decision banner"),
+ * offering exactly two equally-weighted actions: Recreate Worktree and Remove Record. Because the
+ * banner is an early return, the Remove Worktree action is structurally unreachable while the row
+ * is `missing` — there is no second guard anywhere in this file for that; the early return IS the
+ * guarantee.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { useWorktreeSummary } from "../board/useBoardQuery";
-import type { WorktreeSummaryDto } from "../adapters/tauri";
+import { worktreeForgetRecord, worktreeRecreate, type WorktreeSummaryDto } from "../adapters/tauri";
 import { WorktreeRemovalDialog } from "./WorktreeRemovalDialog";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+
+/** One banner action's own in-flight/error state (mirrors `session/PermissionRequestCard.tsx`'s
+ * `RowState` idiom) — ONE shared object for the whole banner, not one per button, so pressing
+ * either button disables both and a failure message has one home. */
+interface BannerState {
+  acting: boolean;
+  error: string | null;
+}
+
+const bannerActionButtonStyle = {
+  padding: "var(--space-xs) var(--space-md)",
+  borderRadius: "var(--radius-chrome)",
+  border: "1px solid var(--divider)",
+  background: "var(--surface-dominant)",
+  color: "var(--text-primary-rack)",
+  cursor: "pointer",
+} as const;
+
+/**
+ * D-45's missing-worktree decision banner. Exists only here (this component is not reused
+ * anywhere else) — following this file's own `MONO_STACK` precedent of a per-file constant rather
+ * than extracting a shared module for a single call site.
+ *
+ * The two actions carry IDENTICAL visual treatment (same border/background/text colour) —
+ * `03-UI-SPEC.md` is explicit this is a genuine either/or, not a safe-default/destructive pair, so
+ * `Remove Record` deliberately does NOT reuse `WorktreeRemovalDialog.tsx`'s destructive-fill
+ * button style: nothing is destroyed on disk by it, and destructive weight would misreport what it
+ * does.
+ *
+ * On success this component renders nothing new locally — the banner disappears only because
+ * `worktree_recreate`/`worktree_forget_record` both emit `board:changed`, `useWorktreeSummary`
+ * re-reads, and the row's `status` is no longer `"missing"`. A rejected call sets `error` and
+ * leaves `acting` false; the banner never unmounts and never clears itself (a failed recreate is
+ * not a decision made, 03-UI-SPEC.md E3 `error`).
+ */
+function MissingWorktreeBanner({ taskId, path }: { taskId: string; path: string }) {
+  const [state, setState] = useState<BannerState>({ acting: false, error: null });
+  // `state.acting` alone is not a sufficient guard against two clicks arriving in the same
+  // synchronous tick (React's state update has not necessarily flushed to the DOM, and the
+  // `disabled` attribute with it, before a second `.click()` fires) — a ref reads/writes
+  // synchronously with no such window, so it is the actual guard; `state.acting` remains the
+  // source of truth for what the UI renders (disabled/opacity).
+  const actingRef = useRef(false);
+
+  async function recreate() {
+    if (actingRef.current) return;
+    actingRef.current = true;
+    setState({ acting: true, error: null });
+    try {
+      await worktreeRecreate(taskId);
+      // No local success state to set: the board:changed emit above invalidates
+      // useWorktreeSummary, which re-reads and flips status away from "missing" — that re-render
+      // is what removes this banner, never a local optimistic flag.
+    } catch {
+      actingRef.current = false;
+      setState({ acting: false, error: "Couldn't recreate this worktree. Try again." });
+    }
+  }
+
+  async function forgetRecord() {
+    if (actingRef.current) return;
+    actingRef.current = true;
+    setState({ acting: true, error: null });
+    try {
+      await worktreeForgetRecord(taskId);
+    } catch {
+      actingRef.current = false;
+      setState({ acting: false, error: "Couldn't remove this record. Try again." });
+    }
+  }
+
+  return (
+    <div
+      role="group"
+      aria-label="Worktree missing from disk"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-sm)",
+        minWidth: 0,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
+        <span
+          aria-hidden="true"
+          style={{ color: "var(--destructive-text-rack)", flexShrink: 0, display: "inline-flex" }}
+        >
+          <TriangleAlert size={16} strokeWidth={2} />
+        </span>
+        <span className="type-label" style={{ color: "var(--text-primary-rack)" }}>
+          This worktree is missing from disk.
+        </span>
+      </div>
+
+      <p className="type-body" style={{ margin: 0, overflowWrap: "anywhere", color: "var(--text-primary-rack)" }}>
+        Flywheel expected it at {path}, but nothing is there. Recreate it to keep working, or
+        remove the record if you don&rsquo;t need it anymore.
+      </p>
+
+      <div style={{ display: "flex", gap: "var(--space-sm)" }}>
+        <button
+          type="button"
+          disabled={state.acting}
+          onClick={() => void recreate()}
+          className="type-body"
+          style={{ ...bannerActionButtonStyle, opacity: state.acting ? 0.6 : 1 }}
+        >
+          Recreate Worktree
+        </button>
+        <button
+          type="button"
+          disabled={state.acting}
+          onClick={() => void forgetRecord()}
+          className="type-body"
+          style={{ ...bannerActionButtonStyle, opacity: state.acting ? 0.6 : 1 }}
+        >
+          Remove Record
+        </button>
+      </div>
+
+      {state.error && (
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+          {state.error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export interface WorktreeSummaryProps {
   taskId: string;
@@ -51,6 +190,7 @@ export interface WorktreeSummaryProps {
 type PossiblyPartialSummary = {
   branch?: string | null;
   path?: string | null;
+  status?: string | null;
 };
 
 function isNonEmptyString(value: unknown): value is string {
@@ -89,6 +229,15 @@ export function WorktreeSummary({ taskId }: WorktreeSummaryProps) {
     | PossiblyPartialSummary
     | undefined;
   if (!summary) return null;
+
+  // Missing-worktree decision banner (WORK-06, D-45): an early return, inserted between the
+  // singleton-violation guard above and the normal branch/path render below — this REPLACES that
+  // render entirely rather than layering onto it (03-UI-SPEC.md "never rendered alongside the
+  // normal line"), and is what makes the Remove Worktree action below structurally unreachable
+  // while the row is missing.
+  if (summary.status === "missing" && isNonEmptyString(summary.path)) {
+    return <MissingWorktreeBanner taskId={taskId} path={summary.path} />;
+  }
 
   const hasBranch = isNonEmptyString(summary.branch);
   const hasPath = isNonEmptyString(summary.path);

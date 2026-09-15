@@ -5,17 +5,26 @@
  * in the DOM; the copy affordance copies the full, untruncated path; a null branch renders an
  * inline notice for the missing field while the path still renders; no editor/terminal affordance
  * is ever rendered.
+ *
+ * The "missing" describe block below (plan 03-09 Task 2, WORK-06/D-45, 03-UI-SPEC.md
+ * "Missing-worktree decision banner") also closes broken window #6
+ * (`.planning/WINDOWS.md` row 6, T-02-37's "missing from disk" clause, deferred from Phase 2 to
+ * WORK-06) — see the test named for it below.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorktreeSummary } from "../WorktreeSummary";
 import type { WorktreeSummaryDto } from "../../adapters/tauri";
 
 const worktreeSummaryMock = vi.fn();
+const worktreeRecreateMock = vi.fn();
+const worktreeForgetRecordMock = vi.fn();
 
 vi.mock("../../adapters/tauri", () => ({
   worktreeSummary: (taskId: string) => worktreeSummaryMock(taskId),
+  worktreeRecreate: (taskId: string) => worktreeRecreateMock(taskId),
+  worktreeForgetRecord: (taskId: string) => worktreeForgetRecordMock(taskId),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
 }));
 
@@ -116,5 +125,152 @@ describe("WorktreeSummary", () => {
     expect(screen.queryByRole("button", { name: /open in editor/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open in terminal/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /reveal in finder/i })).not.toBeInTheDocument();
+  });
+});
+
+const MISSING_PATH = "/Users/cyril/Flywheel/threadfin-project/FLY-42-missing-worktree";
+
+describe("WorktreeSummary — missing worktree (WORK-06, D-45)", () => {
+  // These three are module-level mocks the component calls directly (not props), so — unlike the
+  // per-test `vi.fn()` props `PermissionRequestCard`'s own test file uses — call counts and
+  // resolved/rejected values persist across tests in this file unless explicitly reset here.
+  beforeEach(() => {
+    worktreeSummaryMock.mockReset();
+    worktreeRecreateMock.mockReset();
+    worktreeForgetRecordMock.mockReset();
+  });
+
+  function missingSummary(overrides: Partial<WorktreeSummaryDto> = {}): WorktreeSummaryDto {
+    return { branch: "flywheel/fly-42", path: MISSING_PATH, status: "missing", ...overrides };
+  }
+
+  // Broken window #6 (.planning/WINDOWS.md row 6): T-02-37's "missing from disk" clause was
+  // deferred from Phase 2 to WORK-06 — this test is what closes it.
+  it("closes broken window #6: tells the user the worktree is not on disk", async () => {
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary();
+
+    expect(await screen.findByText("This worktree is missing from disk.")).toBeInTheDocument();
+  });
+
+  it("replaces the branch/path line entirely — no branch span, no copyable path button, no Remove Worktree action", async () => {
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary();
+
+    await screen.findByText("This worktree is missing from disk.");
+    expect(screen.queryByText("flywheel/fly-42")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy worktree path" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove Worktree" })).not.toBeInTheDocument();
+  });
+
+  it("renders the glyph, heading, body naming the path, and exactly two equally-weighted actions", async () => {
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary();
+
+    expect(await screen.findByText("This worktree is missing from disk.")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, node) => node?.textContent === `Flywheel expected it at ${MISSING_PATH}, but nothing is there. Recreate it to keep working, or remove the record if you don’t need it anymore.`),
+    ).toBeInTheDocument();
+
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Recreate Worktree" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Record" })).toBeInTheDocument();
+  });
+
+  it("gives both actions identical visual weight — same background and border colour", async () => {
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary();
+
+    const recreateButton = await screen.findByRole("button", { name: "Recreate Worktree" });
+    const removeButton = screen.getByRole("button", { name: "Remove Record" });
+
+    expect(getComputedStyle(recreateButton).backgroundColor).toBe(getComputedStyle(removeButton).backgroundColor);
+    expect(getComputedStyle(recreateButton).borderColor).toBe(getComputedStyle(removeButton).borderColor);
+  });
+
+  it("is absent by construction when the worktree row is not missing — the ordinary branch/path line renders instead", async () => {
+    worktreeSummaryMock.mockResolvedValue(missingSummary({ status: "active" }));
+    renderSummary();
+
+    await screen.findByText("flywheel/fly-42");
+    expect(screen.queryByText("This worktree is missing from disk.")).not.toBeInTheDocument();
+  });
+
+  it("Recreate Worktree calls worktreeRecreate with the task id", async () => {
+    worktreeRecreateMock.mockResolvedValue(undefined);
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary("task-missing-1");
+
+    const recreateButton = await screen.findByRole("button", { name: "Recreate Worktree" });
+    recreateButton.click();
+
+    await waitFor(() => expect(worktreeRecreateMock).toHaveBeenCalledWith("task-missing-1"));
+  });
+
+  it("Remove Record calls worktreeForgetRecord with the task id", async () => {
+    worktreeForgetRecordMock.mockResolvedValue(undefined);
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary("task-missing-2");
+
+    const removeButton = await screen.findByRole("button", { name: "Remove Record" });
+    removeButton.click();
+
+    await waitFor(() => expect(worktreeForgetRecordMock).toHaveBeenCalledWith("task-missing-2"));
+  });
+
+  it("pressing a button while its action is in flight does not issue a second call", async () => {
+    let resolveRecreate: () => void = () => {};
+    worktreeRecreateMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveRecreate = resolve;
+      }),
+    );
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary();
+
+    const recreateButton = await screen.findByRole("button", { name: "Recreate Worktree" });
+    recreateButton.click();
+    recreateButton.click();
+    recreateButton.click();
+
+    await waitFor(() => expect(worktreeRecreateMock).toHaveBeenCalledTimes(1));
+    resolveRecreate();
+  });
+
+  it("a rejected recreate leaves the banner mounted and renders an inline error, never unmounting or clearing", async () => {
+    worktreeRecreateMock.mockRejectedValue(new Error("git worktree add failed"));
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary();
+
+    const recreateButton = await screen.findByRole("button", { name: "Recreate Worktree" });
+    recreateButton.click();
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("This worktree is missing from disk.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Recreate Worktree" })).toBeInTheDocument();
+  });
+
+  it("a rejected forget-record leaves the banner mounted and renders an inline error", async () => {
+    worktreeForgetRecordMock.mockRejectedValue(new Error("worktree row not missing"));
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary();
+
+    const removeButton = await screen.findByRole("button", { name: "Remove Record" });
+    removeButton.click();
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("This worktree is missing from disk.")).toBeInTheDocument();
+  });
+
+  it("wraps the interpolated path rather than truncating (overflowWrap: anywhere)", async () => {
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary();
+
+    const bodyNode = await screen.findByText(
+      (_, node) => node?.textContent?.includes(MISSING_PATH) ?? false,
+      { selector: "p" },
+    );
+    expect(bodyNode.style.overflowWrap).toBe("anywhere");
   });
 });
