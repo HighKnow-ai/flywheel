@@ -1636,3 +1636,116 @@ mock data path exists anywhere in this plan's production code.
 - The item detail panel still has no target-section mechanism — the next surface that needs to open
   it scrolled to a specific section (this plan's own named gap, or any future one) will need to add
   that mechanism once, rather than each caller inventing its own.
+
+# Phase 3, Plan 03-12 — The Destructive-Action Gate Card (AGNT-07, D-55, D-56, D-57, D-58)
+
+## What was built
+
+- `destructive-gate` mark (`OctagonAlert`, agent channel, the tenth entry) — a stop-sign shape,
+  categorically different from the `ShieldAlert` shield used everywhere else in this product's
+  permission vocabulary. Published in `legend/marks.ts` before `PermissionRequestCard.tsx`
+  references it.
+- `PermissionRequestCard.tsx`'s `PermissionRequestRow` extends, rather than forks: one component,
+  one `useRegionBindings` call, one `answer()` function. A non-null `destructiveCategory` selects:
+  - the `destructive-gate` glyph in place of `blocked-indicator`'s shield;
+  - a 4px `--destructive-text-rack` left-border stripe (new on this card — the routine variant
+    carried no stripe of its own before this plan; see "Judgment calls" below);
+  - the heading "Destructive action — needs your OK" above the existing tool-name line;
+  - a per-category consequence sentence (`DESTRUCTIVE_CONSEQUENCE`, keyed by
+    `DestructiveCategory::as_str()`'s exact strings) rendered in the Body role between the heading
+    and the raw payload, with `overflowWrap: "anywhere"` so a long branch name wraps rather than
+    truncating;
+  - **reversed button emphasis** — Deny takes the filled/primary position (`DeleteConfirm.tsx`'s
+    destructive-button styling, its contrast comment reused verbatim), Allow takes the outline/
+    secondary position and reads "Allow, just this once";
+  - the tertiary allow-always button **conditionally absent** from the JSX tree (never rendered-
+    and-disabled) — D-57's "structurally absent," verified by a source gate rejecting any
+    `disabled={...destructive...}` pattern.
+- `Shift+A` (`answer-permission-allow-always`) is gated inert on the destructive variant inside
+  this row's own handler — `state/keyboard.ts` is unchanged (still exactly 3
+  `region: "permission-card"` entries), per the UI-SPEC's "same physical bindings, only which
+  button each key's action visually occupies differs."
+
+## The branch-name gap (flagged in the plan, resolved here)
+
+Three of the six named categories' consequence sentences interpolate a branch name
+(`force-push`, `branch-deletion`, `default-branch-push`), but `permission_requests
+.destructive_category` stores only the category string — 03-07's classifier never persists the
+matched branch alongside it. Rather than adding new plumbing, the renderer re-parses the SAME raw
+command text already shown in the Mono payload block beneath the sentence (`commandTokensFromPayload`
++ `pushDestinationBranch`/`branchDeleteTarget`, mirroring `destructive.rs`'s own positional argv
+parsing at display precision only). This parse is **never used for any gating decision** — the
+real classification already happened server-side before the card ever mounted — and a branch this
+parse cannot resolve falls back to a category-correct sentence that simply omits the name, never
+to the fully generic uncategorized sentence. This is the "known cost" the plan's own
+`flagged_assumptions` named in advance.
+
+## Fail-closed copy (D-56 applied to text, not just gating)
+
+`DESTRUCTIVE_CONSEQUENCE` covers the six categories `03-UI-SPEC.md`'s own copy table names.
+Looking up any OTHER category string — an unrecognised one, or `recursive-delete` (a category the
+Rust classifier genuinely produces but the UI-SPEC's own table does not cover) — falls back to the
+generic `UNCATEGORIZED_CONSEQUENCE` sentence. The variant selection itself keys off "category is
+non-null," never off a known-key match, so an unrecognised category still renders the full strong
+treatment (stop sign, reversed emphasis, no allow-always) with an honest generic sentence — it
+never falls through to the routine layout.
+
+## Judgment call: the border stripe is new, not swapped
+
+`03-UI-SPEC.md` describes the routine card as already carrying a "4px `--blocked-text-rack`/
+`-strip` stripe" that the destructive variant swaps to `--destructive-text-rack`. The shipped
+routine card (as of this plan's own `read_first`) carries no such stripe — only the glyph itself
+uses `--blocked-text-rack`. Rather than retrofitting a stripe onto the routine card (out of this
+plan's declared scope) or silently ignoring the spec's distinguishing axis, this plan adds the
+stripe ONLY to the destructive variant — a new visual element for this variant specifically,
+satisfying "a different border-stripe colour" as a real, testable distinction without changing the
+routine card's established appearance.
+
+## Review against the direction contract
+
+- **Never colour alone:** the destructive variant carries a different glyph (`OctagonAlert` vs.
+  `ShieldAlert`), a different heading, a full consequence sentence, and reversed button labels —
+  colour is one of five independent signals, never the only one.
+- **60/30/10 unaffected, zero new colour tokens:** reuses `--destructive-text-rack` and
+  `--destructive-strip`, the same destructive-family budget Phase 2's "Failed" status and this
+  phase's `run-abandoned`/`worktree-missing`/`recovery-needed` marks already spend.
+- **The load-bearing decision is structural/behavioural, not visual:** the reversed button
+  emphasis repurposes approve-by-muscle-memory as the safety mechanism — chosen over a typed
+  confirmation and a timed delay, both considered and rejected on the same "rigidity is the
+  feature, friction is not" reasoning that already settled D-43's worktree-removal refusal, and a
+  timed delay would contradict D-58's "no second timeout mechanism." This decision survives Phase
+  10.1's palette re-derivation untouched, since it claims no colour value of its own.
+- **Inherited-ratio dependency unchanged:** this plan adds no colour value, so
+  `theme/__tests__/contrast.test.ts` is byte-identical to its pre-plan state — re-confirmed passing
+  (14/14) after every other change in this plan.
+
+## Craft floor review
+
+The Impeccable detector (`detect.mjs --json`) was run directly against
+`PermissionRequestCard.tsx` and `legend/marks.ts` and reported zero findings for both. No live
+Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display available to
+this executor, matching every prior Phase 3 plan's own precedent) — `npm --prefix packages/desktop
+run test` (413/413) and `cargo test --workspace` (0 failed across every suite) are this plan's
+actual evidence; final visual confirmation is deferred to `/gsd-verify-work` per
+`workflow.human_verify_mode: end-of-phase`.
+
+## Known Stubs
+
+None. The destructive variant reads the real `destructiveCategory` field end to end — no mock data
+path exists anywhere in this plan's production code.
+
+## What the next plan inherits
+
+- `DESTRUCTIVE_CONSEQUENCE`'s fallback-to-generic pattern (key not in the record → the honest
+  generic sentence, never a silent blank or a routine-layout regression) is the reference shape
+  for any future per-category copy table that must fail closed the same way D-56's classifier
+  does.
+- The branch-name re-parse in the renderer is a duplication of logic that already lives in
+  `destructive.rs` — if a future plan needs MORE display-only detail out of a classified command
+  (not just the branch), carrying it through `permission_requests` as a structured field rather
+  than re-parsing raw command text a second time is the better-scoped fix; not built here since
+  this plan's own `files_modified` never scoped a schema change.
+- The routine permission-request card still carries no border stripe of its own — if a future
+  plan (Phase 10.1's re-derivation, or an earlier fix) wants the routine/destructive distinction to
+  read as a swap rather than an addition, that stripe needs to be added to the routine variant
+  first.

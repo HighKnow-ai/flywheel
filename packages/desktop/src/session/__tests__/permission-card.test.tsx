@@ -404,6 +404,29 @@ describe("destructive", () => {
       ).toBeInTheDocument();
     });
   });
+
+  // Task 3 — D-57's "structurally absent" turned into a test that fails the moment a future
+  // change makes the allow-always button conditional on something narrower than "there is a
+  // category at all": every category value the classifier can produce (the six named ones, the
+  // uncategorized one) plus one deliberately unknown string never produces a card offering it.
+  describe("exhaustive absence of the allow-always button (D-57, Task 3)", () => {
+    const categoryValues = [
+      "force-push",
+      "branch-deletion",
+      "default-branch-push",
+      "hard-reset",
+      "force-clean",
+      "history-rewrite",
+      "uncategorized",
+      "an-unknown-category-value",
+    ];
+
+    it.each(categoryValues)("category %s never renders an allow-always button", (category) => {
+      const request = destructiveRequest(category, "some-command --flag");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
