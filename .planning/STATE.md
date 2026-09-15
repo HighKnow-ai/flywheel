@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-13-PLAN.md
-last_updated: "2026-09-15T08:06:14.808Z"
+stopped_at: Completed 03-10-PLAN.md
+last_updated: "2026-09-15T08:37:38.215Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 03 execution started
-state_head: a9169030d42400ba2b64be7ac84a9af72ae99010
+state_head: 5ca0950ebeb26d865c934825f5d7a6ed660fbcfe
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 52
-  completed_plans: 49
+  completed_plans: 50
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 11 of 13
+Plan: 12 of 13
 Status: Ready to execute
 Last activity: 2026-09-15 — Phase 03 execution started
 
@@ -108,6 +108,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P08 | 45min | 3 tasks | 4 files |
 | Phase 03 P09 | 42min | 3 tasks | 11 files |
 | Phase 03 P13 | 40min | 3 tasks | 14 files |
+| Phase 03 P10 | 22min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,8 @@ Recent decisions affecting current work:
 - [Phase 03]: MIN_SUPPORTED_GIT pinned to (2, 54, 0), the version measured on this machine, replacing 03-RESEARCH.md's unbisected 2.44 assumption
 - [Phase 03]: MissingWorktreeBanner's concurrency guard uses a useRef checked synchronously before any await, not state.acting alone — two synchronous clicks in the same tick both observe the same stale React state before the first re-render flushes the disabled attribute. — Found by a real failing test (three synchronous clicks all issued the recreate call); a ref has no such flush-timing window.
 - [Phase 03]: Exhaustion trail entries attribute to the seeded system actor, not the agent actor, per 03-UI-SPEC.md/must_haves — Task 3's own action text named agent_actor_id, but the UI-SPEC and this plan's own must_haves.truths both said system actor/assignee-system mark, stated three times total
+- [Phase 03]: packages/desktop/src/recovery/ instead of 03-PATTERNS.md's suggested components/ -- no components/ directory exists anywhere in this codebase; every surface lives in a domain-named folder.
+- [Phase 03]: agent_run_acknowledge has no backing domain function, per the plan's own explicit instruction -- the UPDATE statement is a compile-time literal inline in the command handler, guarded to status = 'abandoned' in its own WHERE clause.
 
 ### Pending Todos
 
@@ -213,6 +216,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-15T08:06:14.733Z
-Stopped at: Completed 03-13-PLAN.md
+Last session: 2026-09-15T08:37:38.140Z
+Stopped at: Completed 03-10-PLAN.md
 Resume file: None
