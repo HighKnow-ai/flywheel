@@ -104,9 +104,18 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
             )
             .expect("worktree row should exist");
 
+        // plan 03-02: every session now runs under `watchdog.js`, which fails closed (refuses to
+        // spawn the backend at all) when `FLYWHEEL_RUNTIME_DIR` is absent — this real sidecar
+        // process needs one even though nothing in this test touches the heartbeat file itself.
+        // `FLYWHEEL_HEARTBEAT_STALE_MS` is set generously so the fixture's own sub-second natural
+        // completion can never race the watchdog's staleness check.
+        let runtime_dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
+
         let mut child = Command::new("node")
             .arg(&dist_entry)
             .env("FLYWHEEL_CLAUDE_BIN", &fake_claude)
+            .env("FLYWHEEL_RUNTIME_DIR", runtime_dir.path())
+            .env("FLYWHEEL_HEARTBEAT_STALE_MS", "120000")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
