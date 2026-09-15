@@ -1402,3 +1402,71 @@ plan's production code.
 - `remove_worktree_for_task`'s re-read-porcelain-inside-the-domain-function shape (packages/core) —
   the pattern any future destructive git action in this codebase should copy: never trust a
   renderer's earlier check as authorization to proceed.
+
+# Phase 3, Plan 03-09 — The Missing-Worktree Decision Banner (WORK-06, D-45)
+
+## What was built
+
+- `MissingWorktreeBanner` (new, inside `item-detail/WorktreeSummary.tsx`) — an early return in the
+  component's existing early-return ladder, inserted between the singleton-violation guard and the
+  normal branch/path render. It REPLACES the branch/path line and plan 03-01's Remove Worktree
+  action entirely whenever a task's worktree row reads `status === "missing"`; it never renders
+  alongside them. The early return itself is the structural guarantee — there is no second guard
+  anywhere in the file gating Remove Worktree against a missing row.
+- One new legend mark: `worktree-missing` (`TriangleAlert`, agent channel, word "Missing") —
+  `--destructive-text-rack` for the glyph, matching the existing `project-unreachable` precedent
+  (`ProjectUnreachable.tsx`) for a destructive-toned recovery notice.
+- **Zero new colour tokens.** The banner reuses `--destructive-text-rack` for the glyph, the
+  ambient `type-label`/`type-body` roles for heading/body, and `--divider`/`--surface-dominant`/
+  `--text-primary-rack` (the same trio `WorktreeRemovalDialog.tsx`'s own secondary-button style
+  already uses) for both actions.
+- **Both actions carry IDENTICAL visual treatment** — same border, background and text colour —
+  because `03-UI-SPEC.md` is explicit this is a genuine either/or (Recreate vs. Remove Record), not
+  a safe-default/destructive pair. `Remove Record` deliberately does NOT borrow
+  `WorktreeRemovalDialog.tsx`'s destructive-fill button: nothing is destroyed on disk by it (the
+  row being `missing` is exactly what means there is nothing there to destroy), and destructive
+  weight would misreport what the action does.
+- A shared `{ acting, error }` banner state (one object for the whole banner, not one per button)
+  guards both actions against a second concurrent call. The guard reads a `useRef` rather than
+  React state alone — two synchronous clicks in the same tick can both observe stale `state.acting`
+  before a re-render flushes the `disabled` attribute to the DOM, so the ref is the actual guard and
+  `state.acting` remains only the source of truth for what renders. On rejection the banner stays
+  mounted with an inline error; it never unmounts and never clears itself locally — it disappears
+  only when `worktree_recreate`/`worktree_forget_record`'s own `board:changed` emit invalidates
+  `useWorktreeSummary` and the re-read row's `status` is no longer `"missing"`.
+
+## Review against the direction contract
+
+- **Never colour alone:** the banner's heading carries the literal words "This worktree is missing
+  from disk," not a colour change alone; the glyph is paired with a printed legend word ("Missing"),
+  matching every other agent-channel mark's own discipline.
+- **60/30/10 unaffected:** the one destructive-toned use (the glyph) is the same
+  `--destructive-text-rack` token every other recovery surface in this phase already spends that
+  budget on; this plan adds no new claim on it and no new hex value anywhere in the file (verified
+  by a `<verify>` grep gate with zero matches).
+- **One new mark, published before any surface renders it a second way** — `worktree-missing` is
+  appended to the existing `"agent"` channel in `legend/marks.ts`, no new `MarkChannel` member.
+
+## Craft floor review
+
+No live Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display
+available to this executor, matching plan 03-01's own precedent). The Impeccable detector
+(`detect.mjs --json`) was run directly against `WorktreeSummary.tsx` and `legend/marks.ts` and
+reported zero findings for both. `cargo build --workspace` and
+`npm --prefix packages/desktop run build`/`run test` (full suite, 334/334) are this plan's actual
+evidence.
+
+## Known Stubs
+
+None. The banner's two actions are wired to the real `worktree_recreate`/`worktree_forget_record`
+commands (plan 03-09 Task 1), which delegate straight to plan 03-03's domain verbs — no mock data
+path exists anywhere in this plan's production code.
+
+## What the next plan inherits
+
+- `MissingWorktreeBanner`'s `{ acting, error }` + `useRef` guard shape — the reference pattern for
+  any future surface that needs to guard two async actions sharing one row against synchronous
+  double-clicks, where React state alone is not a fast-enough guard.
+- `WorktreeSummaryDto.status` is now on the wire end to end (Rust `commands/agent_run.rs` through
+  `adapters/tauri.ts`) — any future surface reading a task's worktree summary can branch on it
+  without a second call.
