@@ -11,6 +11,7 @@ import { LaunchSheet } from "./launch-sheet/LaunchSheet";
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
+import { OrphanRecoveryModal } from "./recovery/OrphanRecoveryModal";
 import { SessionSurface } from "./session/SessionSurface";
 import { SettingsSurface } from "./settings/SettingsSurface";
 import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
@@ -193,6 +194,7 @@ function AppShell() {
       <>
         <div id="app-root" className="rack-ground" />
         <CommandPalette />
+        <OrphanRecoveryModal />
         {registerNoticeNode}
       </>
     );
@@ -205,6 +207,7 @@ function AppShell() {
           <FirstRun />
         </div>
         <CommandPalette />
+        <OrphanRecoveryModal />
         {registerNoticeNode}
       </>
     );
@@ -241,6 +244,7 @@ function AppShell() {
         </div>
       </div>
       <CommandPalette />
+      <OrphanRecoveryModal />
       <LaunchSheet
         taskId={launchSheetTaskId}
         onClose={() => setLaunchSheetTaskId(null)}
