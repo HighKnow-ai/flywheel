@@ -27,7 +27,7 @@ affects: [03-06, 03-10]
 actuals:
   tokens: 15505
   tasks: 3
-  commits: 3
+  commits: 6
 plan_head_before: 9f65ec3
 
 tech-stack:
@@ -54,6 +54,7 @@ key-files:
     - packages/sidecar/test/watchdog.test.mjs
   modified:
     - packages/core/src/lib.rs
+    - packages/core/tests/session_close_lifecycle.rs
     - packages/desktop/src-tauri/src/sidecar.rs
     - packages/sidecar/src/claude-code-adapter.ts
     - packages/sidecar/package.json
@@ -170,7 +171,7 @@ coverage:
       <human-check> block names explicitly as untestable by any harness in this repository.
       Deferred to /gsd-verify-work per workflow.human_verify_mode: end-of-phase."
 
-duration: 46min
+duration: 53min
 completed: 2026-09-15
 status: complete
 ---
@@ -181,11 +182,11 @@ status: complete
 
 ## Performance
 
-- **Duration:** 46 min
+- **Duration:** 53 min
 - **Started:** 2026-09-15T01:03:00Z
-- **Completed:** 2026-09-15T01:49:09Z
+- **Completed:** 2026-09-15T01:56:36Z
 - **Tasks:** 3
-- **Files modified:** 9
+- **Files modified:** 10
 
 ## Accomplishments
 
@@ -242,6 +243,7 @@ phase._
 - `packages/sidecar/test/watchdog.test.mjs` - 5 real-process PROC-04 tests
 - `packages/sidecar/test/stop.test.mjs` - defensive cleanup net converted to scoped pid-group signalling
 - `packages/sidecar/package.json` - test script exports a scratch `FLYWHEEL_RUNTIME_DIR` and a generous `FLYWHEEL_HEARTBEAT_STALE_MS` for the existing (heartbeat-less) test suites
+- `packages/core/tests/session_close_lifecycle.rs` - gives its own real `dist/index.js` spawn a scratch `FLYWHEEL_RUNTIME_DIR`/generous stale window, for the same reason as the sidecar package.json fix
 
 ## Decisions Made
 
@@ -275,10 +277,18 @@ See `key-decisions` in frontmatter above.
 - **Verification:** `npm --prefix packages/sidecar test` run 5× total across this session (2 before the fix reproduced the flake, 3 after did not)
 - **Committed in:** `78a304d`
 
+**4. [Rule 3 - Blocking] `session_close_lifecycle.rs`'s own real sidecar spawn needed the same env fix, found after the initial SUMMARY**
+- **Found during:** post-completion `cargo test --workspace` sweep, run as an extra check beyond the plan's own `<verify>` commands
+- **Issue:** `packages/core/tests/session_close_lifecycle.rs` spawns the real `packages/sidecar/dist/index.js` directly (not through `npm test`, so deviation 1's `package.json` fix never reaches it) with no `FLYWHEEL_RUNTIME_DIR` set — the watchdog's fail-closed check correctly refused to spawn the fake backend, closing the session `failed` instead of `completed` and failing this test's own assertions.
+- **Fix:** the test's `Command::new("node")` builder now sets `FLYWHEEL_RUNTIME_DIR` to a scratch `tempfile::tempdir()` and `FLYWHEEL_HEARTBEAT_STALE_MS=120000`, mirroring deviation 1's reasoning exactly.
+- **Files modified:** packages/core/tests/session_close_lifecycle.rs
+- **Verification:** `cargo test -p core --test session_close_lifecycle` and the full `cargo test --workspace` both green, run twice
+- **Committed in:** `0271af0`
+
 ---
 
-**Total deviations:** 3 auto-fixed (1 blocking/missing-env-var, 2 bugs directly caused by this plan's own spawn-call-site change)
-**Impact on plan:** All three were necessary to keep the pre-existing test suite green while wiring the watchdog in, exactly as Task 2's own acceptance criteria required. No scope creep — every fix lives in a file the plan already touches or a sibling test file whose own collision risk this plan's change exposed.
+**Total deviations:** 4 auto-fixed (2 blocking/missing-env-var, 2 bugs directly caused by this plan's own spawn-call-site change)
+**Impact on plan:** All four were necessary to keep the pre-existing test suite (sidecar AND core) green while wiring the watchdog in, exactly as Task 2's own acceptance criteria required. No scope creep — every fix lives in a file the plan already touches or a sibling test file whose own collision/env-dependency risk this plan's change exposed.
 
 ## Issues Encountered
 
