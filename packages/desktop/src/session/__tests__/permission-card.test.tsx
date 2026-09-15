@@ -62,6 +62,7 @@ function makeRequest(overrides: Partial<PendingPermissionRequest> = {}): Pending
     id: "req-1",
     toolName: "Bash",
     inputPayload: '{"command":"rm -rf /tmp/scratch"}',
+    destructiveCategory: null,
     ...overrides,
   };
 }
@@ -193,6 +194,215 @@ describe('PermissionRequestCard variant="compact"', () => {
     const heading = screen.getByText(`${longName} wants to:`);
     expect(heading.style.textOverflow).toBe("ellipsis");
     expect(heading.style.whiteSpace).toBe("nowrap");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Task 2 — the destructive variant (03-12-PLAN.md, AGNT-07, D-55/D-56/D-57/D-58)
+// ---------------------------------------------------------------------------------------------
+
+function destructiveRequest(category: string, command: string): PendingPermissionRequest {
+  return makeRequest({
+    toolName: "Bash",
+    inputPayload: JSON.stringify({ command }),
+    destructiveCategory: category,
+  });
+}
+
+describe("destructive", () => {
+  it("with a null category renders exactly as the routine card: Allow filled, Deny outline, allow-always present", () => {
+    render(<PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Allow this tool for this project from now on" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Destructive action — needs your OK")).not.toBeInTheDocument();
+  });
+
+  it("with a category renders the stop-sign glyph, the destructive heading and the consequence sentence above the payload", () => {
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    const { container } = render(
+      <PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />,
+    );
+
+    expect(screen.getByText("Destructive action — needs your OK")).toBeInTheDocument();
+    expect(screen.getByText("Bash wants to:")).toBeInTheDocument();
+    expect(
+      screen.getByText("This would discard uncommitted changes in the worktree — permanently."),
+    ).toBeInTheDocument();
+    expect(screen.getByText('{"command":"git reset --hard"}')).toBeInTheDocument();
+    expect(container.querySelector(".lucide-octagon-alert")).not.toBeNull();
+    expect(container.querySelector(".lucide-shield-alert")).toBeNull();
+  });
+
+  it("with a category, no button with the allow-always label is in the document", () => {
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
+  });
+
+  it("swaps button emphasis: Deny carries the destructive strip background, Allow does not", () => {
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+
+    const deny = screen.getByRole("button", { name: "Deny" });
+    const allow = screen.getByRole("button", { name: "Allow, just this once" });
+    expect(deny.style.background).toContain("var(--destructive-strip)");
+    expect(allow.style.background).not.toContain("var(--destructive-strip)");
+  });
+
+  it("Allow's accessible name reads 'Allow, just this once' on the destructive variant", () => {
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Allow, just this once" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument();
+  });
+
+  it("reverses the reflex: the filled button on the destructive variant carries Deny, the filled button on the routine variant carries Allow", () => {
+    const { unmount } = render(
+      <PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={vi.fn()} />,
+    );
+    const routineFilled = screen.getByRole("button", { name: "Allow" });
+    expect(routineFilled.style.background).toBe("var(--accent-nontext)");
+    unmount();
+
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+    const destructiveFilled = screen.getByRole("button", { name: "Deny" });
+    expect(destructiveFilled.style.background).toContain("var(--destructive-strip)");
+  });
+
+  it("pressing d resolves through the shared binding table on the destructive variant; Shift+A is inert", () => {
+    const onAnswer = vi.fn().mockResolvedValue(undefined);
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={onAnswer} />);
+
+    fireEvent.keyDown(window, { key: "d" });
+    expect(onAnswer).toHaveBeenCalledWith("req-1", "deny");
+
+    fireEvent.keyDown(window, { key: "a", shiftKey: true });
+    // Shift+A has no allow-always button to trigger on this variant (03-UI-SPEC.md Keyboard Map
+    // Additions: "has no effect") — the answer spy sees no second call.
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("activating Deny twice in immediate succession calls the answer spy exactly once", () => {
+    let resolveAnswer: (() => void) | undefined;
+    const onAnswer = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAnswer = resolve;
+        }),
+    );
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={onAnswer} />);
+
+    const denyButton = screen.getByRole("button", { name: "Deny" });
+    fireEvent.click(denyButton);
+    fireEvent.click(denyButton);
+
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    resolveAnswer?.();
+  });
+
+  it("two destructive requests mounted at once each answer independently", () => {
+    const onAnswer = vi.fn().mockResolvedValue(undefined);
+    const first = destructiveRequest("hard-reset", "git reset --hard");
+    const second = { ...destructiveRequest("force-clean", "git clean -fdx"), id: "req-2", toolName: "Bash2" };
+    render(<PermissionRequestCard variant="feed" requests={[first, second]} onAnswer={onAnswer} />);
+
+    const secondGroup = screen.getByRole("group", { name: "Bash2 wants to:" });
+    fireEvent.click(within(secondGroup).getByRole("button", { name: "Deny" }));
+
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer).toHaveBeenCalledWith("req-2", "deny");
+    const firstGroup = screen.getByRole("group", { name: "Bash wants to:" });
+    expect(within(firstGroup).getByRole("button", { name: "Deny" })).toBeEnabled();
+  });
+
+  it("wraps a long interpolated branch name rather than truncating it", () => {
+    const longBranch = "feature/".padEnd(400, "x");
+    const request = destructiveRequest("force-push", `git push --force origin ${longBranch}`);
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+
+    const sentence = screen.getByText(new RegExp(`This would force-push to ${longBranch}`));
+    expect(sentence.style.overflowWrap).toBe("anywhere");
+  });
+
+  it("with an unrecognised category string renders the generic sentence and no shield glyph", () => {
+    const request = destructiveRequest("made-up-category", "some-unrecognised-command --flag");
+    const { container } = render(
+      <PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />,
+    );
+
+    expect(
+      screen.getByText("This command can destroy work, and Flywheel doesn't recognise exactly what it would do."),
+    ).toBeInTheDocument();
+    expect(container.querySelector(".lucide-shield-alert")).toBeNull();
+    expect(container.querySelector(".lucide-octagon-alert")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
+  });
+
+  it("with the recursive-delete category (recognised by the classifier but absent from the six-row copy table) also falls back to the generic sentence, never the routine layout", () => {
+    const request = destructiveRequest("recursive-delete", "rm -rf ./build");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+
+    expect(
+      screen.getByText("This command can destroy work, and Flywheel doesn't recognise exactly what it would do."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
+  });
+
+  describe("consequence copy — one test per named category (03-UI-SPEC.md D-56 table)", () => {
+    it("force-push", () => {
+      const request = destructiveRequest("force-push", "git push --force origin feature-x");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(
+        screen.getByText("This would force-push to feature-x, overwriting any commits already there."),
+      ).toBeInTheDocument();
+    });
+
+    it("branch-deletion", () => {
+      const request = destructiveRequest("branch-deletion", "git branch -D feature-x");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(screen.getByText("This would delete the branch feature-x.")).toBeInTheDocument();
+    });
+
+    it("default-branch-push", () => {
+      const request = destructiveRequest("default-branch-push", "git push origin main");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(
+        screen.getByText("This would push directly to main, the project's main branch."),
+      ).toBeInTheDocument();
+    });
+
+    it("hard-reset", () => {
+      const request = destructiveRequest("hard-reset", "git reset --hard");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(
+        screen.getByText("This would discard uncommitted changes in the worktree — permanently."),
+      ).toBeInTheDocument();
+    });
+
+    it("force-clean", () => {
+      const request = destructiveRequest("force-clean", "git clean -fdx");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(
+        screen.getByText("This would delete every untracked and ignored file in the worktree — permanently."),
+      ).toBeInTheDocument();
+    });
+
+    it("history-rewrite", () => {
+      const request = destructiveRequest("history-rewrite", "git rebase origin/main");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(
+        screen.getByText("This would rewrite commit history other work may depend on."),
+      ).toBeInTheDocument();
+    });
   });
 });
 

@@ -53,15 +53,16 @@ describe("MARKS registry", () => {
 
 /**
  * The "agent" mark channel (02-03-PLAN.md Task 2, AGNT-06; plan 03-09 Task 2, WORK-06; plan
- * 03-10 Task 2, D-49; plan 03-11 Task 2, D-46) — nine marks published before any surface renders
- * them: five run-status values, the orthogonal blocked indicator, the missing-worktree decision
- * banner's own glyph (D-45), the abandoned-run badge's own glyph (D-49), and the row-level
- * "Needs Decision" rollup pill's own glyph (D-46).
+ * 03-10 Task 2, D-49; plan 03-11 Task 2, D-46; plan 03-12 Task 2, D-56/D-57) — ten marks
+ * published before any surface renders them: five run-status values, the orthogonal blocked
+ * indicator, the missing-worktree decision banner's own glyph (D-45), the abandoned-run badge's
+ * own glyph (D-49), the row-level "Needs Decision" rollup pill's own glyph (D-46), and the
+ * destructive-action gate card's own stop-sign glyph (D-56).
  */
 describe("agent channel", () => {
   const agentMarks = MARKS.filter((m) => m.channel === "agent");
 
-  it("has exactly nine entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md specify", () => {
+  it("has exactly ten entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md specify", () => {
     const expected = [
       { id: "run-running", glyph: "Loader", label: "Running" },
       { id: "run-blocked", glyph: "ShieldAlert", label: "Blocked" },
@@ -72,8 +73,9 @@ describe("agent channel", () => {
       { id: "worktree-missing", glyph: "TriangleAlert", label: "Missing" },
       { id: "run-abandoned", glyph: "Unplug", label: "Abandoned" },
       { id: "recovery-needed", glyph: "TriangleAlert", label: "Needs Decision" },
+      { id: "destructive-gate", glyph: "OctagonAlert", label: "Destructive" },
     ];
-    expect(agentMarks).toHaveLength(9);
+    expect(agentMarks).toHaveLength(10);
     for (const exp of expected) {
       const mark = agentMarks.find((m) => m.id === exp.id);
       expect(mark, `missing agent mark "${exp.id}"`).toBeDefined();
@@ -108,5 +110,12 @@ describe("Legend surface", () => {
     const rows = screen.getAllByRole("listitem");
     const recoveryNeededRow = rows.find((row) => row.textContent?.includes("Needs Decision"));
     expect(recoveryNeededRow, "legend row for the recovery-needed mark not found").toBeDefined();
+  });
+
+  it("renders the destructive-gate mark with its printed word (03-UI-SPEC.md, D-56) — no mark may exist that the legend does not define", () => {
+    render(<Legend />);
+    const rows = screen.getAllByRole("listitem");
+    const destructiveGateRow = rows.find((row) => row.textContent?.includes("Destructive"));
+    expect(destructiveGateRow, "legend row for the destructive-gate mark not found").toBeDefined();
   });
 });

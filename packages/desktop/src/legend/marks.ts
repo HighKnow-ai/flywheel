@@ -361,6 +361,14 @@ export const MARKS: Mark[] = [
     meaning:
       "A previous session left something on this task for you to decide (D-46). Deliberately the same glyph as worktree-missing above — this row pill is a rollup of that same underlying fact, not a copy-paste slip, mirroring run-blocked/blocked-indicator's own shared-glyph precedent.",
   },
+  {
+    id: "destructive-gate",
+    channel: "agent",
+    glyph: "OctagonAlert",
+    label: "Destructive",
+    meaning:
+      "This tool call would destroy work; it needs an explicit answer and cannot be granted standing permission (D-56, D-57). A stop-sign shape, categorically different from the ShieldAlert shield used everywhere else in this product's permission vocabulary — the shape itself is part of the signal.",
+  },
 ];
 
 /**
