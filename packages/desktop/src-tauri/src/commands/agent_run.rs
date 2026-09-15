@@ -392,11 +392,20 @@ pub enum PermissionRequestOutcome {
 /// even though no `permission_requests` row exists to hang that event off. No match falls
 /// through to `permission_request::create_pending_request`, which blocks the run in the SAME
 /// transaction as the row's own insert (Task 1's own contract).
+///
+/// `destructive_category` (D-56/D-57, plan 03-07): when `Some`, the `matching_rule` check above
+/// is SKIPPED entirely and this request goes straight to `create_pending_request` — a project's
+/// existing "always allow {tool_name}" rule (D-38) is scoped to `(project_id, tool_name)`, the
+/// SAME tool name (`"Bash"`) a destructive command also arrives under, so without this bypass a
+/// routine standing grant earned for ordinary Bash calls would silently auto-approve a
+/// force-push or a `rm -rf` the very first time one arrived — exactly the standing-grant leak
+/// D-57 says must be structurally impossible, not merely absent from the answer UI.
 pub fn process_inbound_permission_request(
     conn: &mut Connection,
     run_id: &str,
     tool_name: &str,
     input_payload: Option<&str>,
+    destructive_category: Option<&str>,
 ) -> Result<PermissionRequestOutcome, String> {
     let lookup: Result<(String, String), rusqlite::Error> = conn.query_row(
         "SELECT project_id, task_id FROM agent_runs WHERE id = ?1",
@@ -411,8 +420,14 @@ pub fn process_inbound_permission_request(
     let agent_id =
         flywheel_core::domain::agent_run::agent_actor_id(conn).map_err(|e| e.to_string())?;
 
-    let rule = flywheel_core::domain::permission_rule::matching_rule(conn, &project_id, tool_name)
-        .map_err(|e| e.to_string())?;
+    // D-57: a destructive request never consults an existing per-project rule — see this
+    // function's own doc comment for why that bypass is load-bearing, not an optimisation.
+    let rule = if destructive_category.is_some() {
+        None
+    } else {
+        flywheel_core::domain::permission_rule::matching_rule(conn, &project_id, tool_name)
+            .map_err(|e| e.to_string())?
+    };
 
     if let Some(rule) = rule {
         let now = chrono::Utc::now().to_rfc3339();
@@ -456,6 +471,7 @@ pub fn process_inbound_permission_request(
         tool_name,
         input_payload,
         &agent_id,
+        destructive_category,
     )
     .map_err(|e| e.to_string())?;
 
@@ -479,15 +495,36 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
     let input = event.get("input").cloned().unwrap_or(serde_json::Value::Null);
     let input_payload = input.to_string();
 
+    // D-56/D-57 (plan 03-07): the shim's socket request carries `input.destructiveCategory` when
+    // its own `destructive::classify` call found this command destructive
+    // (`packages/shim/src/main.rs`, relayed unchanged by `mcp-permission-server.ts`'s socket
+    // relay). An unrecognised string here (a version skew between the shim's compiled category
+    // set and this core's) falls back to `Uncategorized` rather than being silently dropped —
+    // the whole point of the field's presence is "the shim already decided this is destructive,"
+    // so a malformed value must still route to the destructive gate, never quietly to `None`.
+    let destructive_category = input
+        .get("destructiveCategory")
+        .and_then(|v| v.as_str())
+        .map(|raw| {
+            flywheel_core::destructive::DestructiveCategory::from_str_name(raw)
+                .unwrap_or(flywheel_core::destructive::DestructiveCategory::Uncategorized)
+                .as_str()
+        });
+
     let Some(state) = app.try_state::<AppState>() else { return };
     let Some(sidecar) = state.sidecar.as_ref() else { return };
     let Ok(mut conn) = state.db.lock() else { return };
 
-    let outcome =
-        match process_inbound_permission_request(&mut conn, run_id, tool_name, Some(&input_payload)) {
-            Ok(outcome) => outcome,
-            Err(_) => return,
-        };
+    let outcome = match process_inbound_permission_request(
+        &mut conn,
+        run_id,
+        tool_name,
+        Some(&input_payload),
+        destructive_category,
+    ) {
+        Ok(outcome) => outcome,
+        Err(_) => return,
+    };
     drop(conn);
 
     match outcome {
@@ -1405,7 +1442,7 @@ mod tests {
         flywheel_core::domain::permission_rule::upsert_rule(&mut conn, &project_id, "Bash", "allow", &actor_id)
             .expect("upsert_rule should succeed");
 
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("process_inbound_permission_request should succeed");
         assert_eq!(outcome, PermissionRequestOutcome::AutoResolved { decision: "allow".to_string() });
 
@@ -1435,7 +1472,7 @@ mod tests {
     fn no_matching_rule_produces_a_pending_row_and_blocks_the_run() {
         let (mut conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
 
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("process_inbound_permission_request should succeed");
         let db_request_id = match outcome {
             PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
@@ -1462,7 +1499,7 @@ mod tests {
     #[test]
     fn an_unknown_run_id_is_a_harmless_no_op() {
         let (mut conn, _run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
-        let outcome = process_inbound_permission_request(&mut conn, "not-a-real-run-id", "Bash", None)
+        let outcome = process_inbound_permission_request(&mut conn, "not-a-real-run-id", "Bash", None, None)
             .expect("an unknown run_id must not error");
         assert_eq!(outcome, PermissionRequestOutcome::UnknownRun);
     }
@@ -1479,7 +1516,7 @@ mod tests {
     #[test]
     fn answer_permission_request_rejects_an_invalid_decision_before_touching_the_database() {
         let (mut conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("should succeed");
         let db_request_id = match outcome {
             PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
@@ -1505,7 +1542,7 @@ mod tests {
     #[test]
     fn answering_allow_always_writes_the_answered_row_and_exactly_one_permission_rule() {
         let (mut conn, run_id, _task_id, project_id) = seeded_conn_with_running_agent_run();
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("should succeed");
         let db_request_id = match outcome {
             PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
@@ -1540,7 +1577,7 @@ mod tests {
     #[test]
     fn answering_an_already_answered_request_returns_the_already_answered_error_with_nothing_left_to_relay() {
         let (mut conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None)
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("should succeed");
         let db_request_id = match outcome {
             PermissionRequestOutcome::Pending { db_request_id } => db_request_id,

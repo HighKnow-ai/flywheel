@@ -72,7 +72,7 @@ fn create_pending_request_blocks_the_run_and_raises_a_labeled_event() {
 
     assert_eq!(run_status(&conn, &run_id), "running", "the run must start out running");
 
-    let request = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"rm -rf /\"}"), &actor_id)
+    let request = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"rm -rf /\"}"), &actor_id, None)
         .expect("create_pending_request should succeed");
 
     // --- Behavior: the row is pending ---
@@ -104,7 +104,7 @@ fn create_pending_request_blocks_the_run_and_raises_a_labeled_event() {
 #[test]
 fn answer_request_allowed_clears_the_block_and_appends_exactly_one_event() {
     let (mut conn, actor_id, _project_id, _task_id, run_id) = seeded_running_run();
-    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id)
+    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id, None)
         .expect("create_pending_request should succeed");
 
     let answered = answer_request(&mut conn, &request.id, "allowed", &actor_id)
@@ -125,7 +125,7 @@ fn answer_request_allowed_clears_the_block_and_appends_exactly_one_event() {
 #[test]
 fn answering_an_already_answered_request_is_refused_and_resolves_nothing_a_second_time() {
     let (mut conn, actor_id, _project_id, _task_id, run_id) = seeded_running_run();
-    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id)
+    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id, None)
         .expect("create_pending_request should succeed");
 
     answer_request(&mut conn, &request.id, "allowed", &actor_id)
@@ -240,7 +240,7 @@ fn blocked_count_and_ids_reflect_only_tasks_whose_most_recent_run_is_blocked() {
             .expect("create_task should succeed");
         let blocked_run = start_agent_run(&mut conn, &blocked_task.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
-        create_pending_request(&mut conn, &blocked_run.id, "Bash", None, &actor_id)
+        create_pending_request(&mut conn, &blocked_run.id, "Bash", None, &actor_id, None)
             .expect("create_pending_request should succeed");
 
         let running_task = create_task(&mut conn, &project.id, &actor_id, "Still running task", None)
@@ -267,11 +267,11 @@ fn pending_requests_for_run_returns_every_pending_row_in_creation_order() {
         .expect("pending_requests_for_run should succeed")
         .is_empty());
 
-    let first = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id)
+    let first = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id, None)
         .expect("create_pending_request should succeed");
     // Two concurrent held calls (02-05-SUMMARY's own D4) can each raise their own pending row for
     // the SAME run — this query must surface BOTH, not just the latest.
-    let second = create_pending_request(&mut conn, &run_id, "Edit", Some("{\"path\":\"a.txt\"}"), &actor_id)
+    let second = create_pending_request(&mut conn, &run_id, "Edit", Some("{\"path\":\"a.txt\"}"), &actor_id, None)
         .expect("create_pending_request should succeed");
 
     let pending = pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");

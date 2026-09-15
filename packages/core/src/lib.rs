@@ -7,6 +7,7 @@ pub mod branch;
 pub mod context_packet;
 pub mod credentials;
 pub mod db;
+pub mod destructive;
 pub mod domain;
 pub mod git;
 pub mod git_retry;

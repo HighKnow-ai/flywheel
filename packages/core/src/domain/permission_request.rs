@@ -15,10 +15,11 @@
 //! means the row was already answered (or never existed), and that path writes nothing and
 //! appends no second event.
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
+use crate::destructive::DestructiveCategory;
 use crate::domain::agent_run::{clear_run_blocked, set_run_blocked};
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
@@ -37,6 +38,10 @@ pub struct PermissionRequest {
     pub resolved_by: Option<String>,
     pub resolved_at: Option<String>,
     pub created_at: String,
+    /// D-56's category name (`destructive::DestructiveCategory::as_str()`), or `None` for the
+    /// routine permission-request variant. Populated only via [`create_pending_request`]'s own
+    /// `destructive_category` parameter — never written anywhere else.
+    pub destructive_category: Option<String>,
 }
 
 /// Returned by [`answer_request`] when the target row is no longer `pending` — the once-only
@@ -62,6 +67,31 @@ impl std::fmt::Display for AlreadyAnsweredError {
 
 impl std::error::Error for AlreadyAnsweredError {}
 
+/// Returned by [`answer_request`] when a caller attempts to grant `allowed_always` against a
+/// request carrying a non-NULL `destructive_category` (D-57) — the persistable-grant decision is
+/// structurally absent from this path, not merely discouraged: this named error is the only
+/// outcome, there is no fallback that silently downgrades the decision to a one-time `allowed`
+/// instead. Downcastable via `anyhow::Error::downcast_ref::<DestructiveAllowAlwaysRejected>()`,
+/// mirroring [`AlreadyAnsweredError`]'s own pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DestructiveAllowAlwaysRejected {
+    pub request_id: String,
+    pub category: String,
+}
+
+impl std::fmt::Display for DestructiveAllowAlwaysRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "permission request {:?} is a destructive request ({:?}) — allowed_always can never \
+             be granted for a destructive category (D-57)",
+            self.request_id, self.category
+        )
+    }
+}
+
+impl std::error::Error for DestructiveAllowAlwaysRejected {}
+
 fn row_to_request(row: &Row) -> rusqlite::Result<PermissionRequest> {
     Ok(PermissionRequest {
         id: row.get(0)?,
@@ -74,15 +104,16 @@ fn row_to_request(row: &Row) -> rusqlite::Result<PermissionRequest> {
         resolved_by: row.get(7)?,
         resolved_at: row.get(8)?,
         created_at: row.get(9)?,
+        destructive_category: row.get(10)?,
     })
 }
 
 const REQUEST_SELECT_SQL: &str = "SELECT id, agent_run_id, task_id, project_id, tool_name, \
-    input_payload, status, resolved_by, resolved_at, created_at \
+    input_payload, status, resolved_by, resolved_at, created_at, destructive_category \
     FROM permission_requests WHERE id = ?1";
 
 const PENDING_FOR_RUN_SQL: &str = "SELECT id, agent_run_id, task_id, project_id, tool_name, \
-    input_payload, status, resolved_by, resolved_at, created_at \
+    input_payload, status, resolved_by, resolved_at, created_at, destructive_category \
     FROM permission_requests WHERE agent_run_id = ?1 AND status = 'pending' \
     ORDER BY created_at DESC LIMIT 1";
 
@@ -110,13 +141,32 @@ pub fn pending_for_run(conn: &Connection, agent_run_id: &str) -> anyhow::Result<
 /// append a `permission_request.raised` event carrying a human-renderable label — then commit
 /// once. Creating a pending request never happens without also blocking its run, and never the
 /// reverse, because both writes are one transaction.
+///
+/// `destructive_category` (D-56, plan 03-07) is `None` for the routine variant, or one of
+/// `destructive::DestructiveCategory::as_str()`'s eight names for the destructive-action gate.
+/// Validated against that exact set BEFORE the transaction opens — an out-of-set value is a
+/// programmer error in the caller (the shim/hook's classifier and this domain layer must agree by
+/// construction, since both reach the SAME `destructive::classify`), not something SQLite's own
+/// schema can reject (an `ALTER TABLE`-added column cannot carry a new CHECK constraint), so this
+/// function is the one place that vocabulary is enforced.
 pub fn create_pending_request(
     conn: &mut Connection,
     agent_run_id: &str,
     tool_name: &str,
     input_payload: Option<&str>,
     actor_id: &str,
+    destructive_category: Option<&str>,
 ) -> anyhow::Result<PermissionRequest> {
+    if let Some(category) = destructive_category {
+        if DestructiveCategory::from_str_name(category).is_none() {
+            bail!(
+                "create_pending_request refused: {category:?} is not a recognised \
+                 destructive_category (expected one of {:?})",
+                DestructiveCategory::all().map(DestructiveCategory::as_str)
+            );
+        }
+    }
+
     let now = Utc::now().to_rfc3339();
     let id = new_id();
 
@@ -133,9 +183,19 @@ pub fn create_pending_request(
     tx.execute(
         "INSERT INTO permission_requests (
             id, agent_run_id, task_id, project_id, tool_name, input_payload, status,
-            resolved_by, resolved_at, created_by, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', NULL, NULL, ?7, ?8)",
-        params![id, agent_run_id, task_id, project_id, tool_name, input_payload, actor_id, now],
+            resolved_by, resolved_at, created_by, created_at, destructive_category
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', NULL, NULL, ?7, ?8, ?9)",
+        params![
+            id,
+            agent_run_id,
+            task_id,
+            project_id,
+            tool_name,
+            input_payload,
+            actor_id,
+            now,
+            destructive_category
+        ],
     )
     .context("failed to insert permission_requests row")?;
 
@@ -177,6 +237,7 @@ pub fn create_pending_request(
         resolved_by: None,
         resolved_at: None,
         created_at: now,
+        destructive_category: destructive_category.map(|c| c.to_string()),
     })
 }
 
@@ -202,6 +263,29 @@ pub fn answer_request(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
+    // D-57 (plan 03-07): a destructive request can never be granted `allowed_always` — the
+    // persistable-grant decision is structurally absent from this path, not merely discouraged.
+    // Checked INSIDE this transaction, before the guarded UPDATE below, so this refusal and the
+    // once-only answer property can never race each other.
+    if decision == "allowed_always" {
+        let category: Option<String> = tx
+            .query_row(
+                "SELECT destructive_category FROM permission_requests WHERE id = ?1",
+                params![request_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .context("failed to check destructive_category before an allowed_always answer")?
+            .flatten();
+        if let Some(category) = category {
+            return Err(DestructiveAllowAlwaysRejected {
+                request_id: request_id.to_string(),
+                category,
+            }
+            .into());
+        }
+    }
+
     let affected = tx
         .execute(
             "UPDATE permission_requests SET status = ?1, resolved_by = ?2, resolved_at = ?3 \
@@ -215,11 +299,28 @@ pub fn answer_request(
         return Err(AlreadyAnsweredError { request_id: request_id.to_string() }.into());
     }
 
-    let (agent_run_id, task_id, project_id, tool_name, created_at): (String, String, String, String, String) = tx
+    let (agent_run_id, task_id, project_id, tool_name, created_at, answered_category): (
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+    ) = tx
         .query_row(
-            "SELECT agent_run_id, task_id, project_id, tool_name, created_at FROM permission_requests WHERE id = ?1",
+            "SELECT agent_run_id, task_id, project_id, tool_name, created_at, destructive_category \
+             FROM permission_requests WHERE id = ?1",
             params![request_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
         )
         .context("failed to read the permission_requests row after answering it")?;
 
@@ -267,5 +368,6 @@ pub fn answer_request(
         resolved_by: Some(actor_id.to_string()),
         resolved_at: Some(now),
         created_at,
+        destructive_category: answered_category,
     })
 }

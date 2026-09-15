@@ -90,7 +90,7 @@ fn deleting_a_task_with_agent_run_history_but_no_worktree_succeeds_and_cascades_
 
         let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
-        create_pending_request(&mut conn, &run.id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id)
+        create_pending_request(&mut conn, &run.id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id, None)
             .expect("create_pending_request should succeed");
 
         // Prove the fixture actually created agent-run history before asserting anything about

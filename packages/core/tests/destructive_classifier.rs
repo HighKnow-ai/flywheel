@@ -1,0 +1,506 @@
+//! D-56's classifier proof (AGNT-07, plan 03-07 Task 1): the category table, the fail-closed
+//! default, the migration wiring, and the write-path guards `create_pending_request`/
+//! `answer_request` carry for a destructive request. Task 2 extends this file with a `shim_gate`
+//! module driving the built shim binary's own socket behaviour.
+//!
+//! See `packages/sidecar/test/destructive-gate.test.mjs` for the hook's own real-binary
+//! measurement (Task 3).
+
+mod common;
+
+use core::destructive::{classify, DestructiveCategory, Verdict};
+use core::domain::agent_run::start_agent_run;
+use core::domain::permission_request::{
+    answer_request, create_pending_request, DestructiveAllowAlwaysRejected,
+};
+use core::domain::task::create_task;
+use rusqlite::Connection;
+
+/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — see
+/// `permission_gate.rs`'s identical helper and its own doc comment for why: `cargo test` runs a
+/// binary's `#[test]` fns concurrently by default, and `FLYWHEEL_WORKTREE_ROOT` is process-global
+/// mutable state. Each `tests/*.rs` file compiles to its own binary, so this cannot race with any
+/// other file's own, separate static.
+static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
+    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads
+    // or mutates this var while it's set, and this helper always clears it before returning.
+    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
+    let result = f();
+    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
+    result
+}
+
+/// Seed one project with one task and one `running` agent run — everything the two
+/// `permission_request` integration tests below need.
+fn seeded_running_run() -> (Connection, String, String) {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Gated task", None)
+            .expect("create_task should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        (conn, actor_id, run.id)
+    })
+}
+
+fn args(items: &[&str]) -> Vec<String> {
+    items.iter().map(|s| s.to_string()).collect()
+}
+
+// --- DestructiveCategory: exactly 8 variants, exact UI-SPEC key strings ---
+
+#[test]
+fn destructive_category_as_str_matches_the_ui_spec_consequence_copy_table_keys_exactly() {
+    let expected = [
+        "force-push",
+        "branch-deletion",
+        "default-branch-push",
+        "hard-reset",
+        "force-clean",
+        "history-rewrite",
+        "recursive-delete",
+        "uncategorized",
+    ];
+    let actual: Vec<&str> = DestructiveCategory::all().iter().map(|c| c.as_str()).collect();
+    assert_eq!(actual.len(), 8, "DestructiveCategory must have exactly 8 variants");
+    assert_eq!(actual, expected, "as_str() values must match the UI-SPEC's table keys exactly");
+}
+
+#[test]
+fn destructive_category_from_str_name_round_trips_every_variant() {
+    for category in DestructiveCategory::all() {
+        assert_eq!(DestructiveCategory::from_str_name(category.as_str()), Some(category));
+    }
+    assert_eq!(DestructiveCategory::from_str_name("not-a-real-category"), None);
+}
+
+// --- ForcePush: >=4 positive cases, varying flag form/position ---
+
+#[test]
+fn force_push_long_form_flag() {
+    let verdict = classify("git", &args(&["push", "--force", "origin", "feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
+}
+
+#[test]
+fn force_push_short_form_flag() {
+    let verdict = classify("git", &args(&["push", "-f", "origin", "feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
+}
+
+#[test]
+fn force_push_with_lease_long_form() {
+    let verdict = classify("git", &args(&["push", "--force-with-lease", "origin", "feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
+}
+
+#[test]
+fn force_push_flag_appearing_before_the_remote_and_refspec() {
+    let verdict = classify("git", &args(&["push", "-f", "origin", "feature"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
+}
+
+#[test]
+fn force_push_short_flag_clustered_with_set_upstream() {
+    // `-uf` clusters `-u` (set-upstream) and `-f` (force) — expand_short_clusters must explode
+    // this into `-u`, `-f` so the force detection still fires regardless of clustering.
+    let verdict = classify("git", &args(&["push", "-uf", "origin", "feature"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
+}
+
+// --- BranchDeletion: >=4 positive cases, long/short/capitalized-force forms ---
+
+#[test]
+fn branch_deletion_short_form_lowercase_d() {
+    let verdict = classify("git", &args(&["branch", "-d", "old-feature"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn branch_deletion_capitalized_force_delete_form() {
+    let verdict = classify("git", &args(&["branch", "-D", "old-feature"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn branch_deletion_long_form() {
+    let verdict = classify("git", &args(&["branch", "--delete", "old-feature"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn branch_deletion_long_form_combined_with_force() {
+    let verdict = classify("git", &args(&["branch", "--delete", "--force", "old-feature"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn branch_deletion_flag_appearing_after_the_branch_name() {
+    let verdict = classify("git", &args(&["branch", "old-feature", "-D"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+// --- DefaultBranchPush: >=4 positive cases, various refspec shapes ---
+
+#[test]
+fn default_branch_push_bare_branch_name() {
+    let verdict = classify("git", &args(&["push", "origin", "main"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::DefaultBranchPush));
+}
+
+#[test]
+fn default_branch_push_via_refspec_destination() {
+    let verdict = classify("git", &args(&["push", "origin", "HEAD:main"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::DefaultBranchPush));
+}
+
+#[test]
+fn default_branch_push_via_refs_heads_qualified_form() {
+    let verdict = classify("git", &args(&["push", "origin", "refs/heads/main"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::DefaultBranchPush));
+}
+
+#[test]
+fn default_branch_push_takes_priority_even_when_force_is_also_present() {
+    let verdict = classify("git", &args(&["push", "--force", "origin", "main"]), Some("main"));
+    assert_eq!(
+        verdict,
+        Verdict::Destructive(DestructiveCategory::DefaultBranchPush),
+        "a push naming the default branch is DefaultBranchPush regardless of --force"
+    );
+}
+
+#[test]
+fn default_branch_push_with_a_different_default_branch_name() {
+    let verdict = classify("git", &args(&["push", "origin", "trunk"]), Some("trunk"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::DefaultBranchPush));
+}
+
+// --- HardReset: >=4 positive cases ---
+
+#[test]
+fn hard_reset_bare() {
+    let verdict = classify("git", &args(&["reset", "--hard"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HardReset));
+}
+
+#[test]
+fn hard_reset_with_a_commit_ref() {
+    let verdict = classify("git", &args(&["reset", "--hard", "HEAD~1"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HardReset));
+}
+
+#[test]
+fn hard_reset_flag_after_other_flags() {
+    let verdict = classify("git", &args(&["reset", "-q", "--hard", "origin/main"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HardReset));
+}
+
+#[test]
+fn hard_reset_flag_appearing_last() {
+    let verdict = classify("git", &args(&["reset", "HEAD~1", "--hard"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HardReset));
+}
+
+// --- ForceClean: >=4 positive cases, order/combination variations ---
+
+#[test]
+fn force_clean_fdx_in_declared_order() {
+    let verdict = classify("git", &args(&["clean", "-f", "-d", "-x"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
+}
+
+#[test]
+fn force_clean_reordered_xdf() {
+    let verdict = classify("git", &args(&["clean", "-x", "-d", "-f"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
+}
+
+#[test]
+fn force_clean_long_force_flag_combined_with_short_dx() {
+    let verdict = classify("git", &args(&["clean", "--force", "-d", "-x"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
+}
+
+#[test]
+fn force_clean_clustered_short_flags() {
+    // `-fdx` is a single clustered token — expand_short_clusters must explode it into
+    // `-f`, `-d`, `-x` for the combination check to fire.
+    let verdict = classify("git", &args(&["clean", "-fdx"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
+}
+
+#[test]
+fn force_clean_using_capital_x_ignored_only_variant() {
+    let verdict = classify("git", &args(&["clean", "-f", "-d", "-X"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
+}
+
+// --- HistoryRewrite: >=4 positive cases ---
+
+#[test]
+fn history_rewrite_filter_branch_subcommand() {
+    let verdict = classify("git", &args(&["filter-branch", "--tree-filter", "rm secret"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
+}
+
+#[test]
+fn history_rewrite_rebase_onto_remote_tracking_branch() {
+    let verdict = classify("git", &args(&["rebase", "origin/main"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
+}
+
+#[test]
+fn history_rewrite_rebase_onto_explicit_refs_remotes_ref() {
+    let verdict = classify("git", &args(&["rebase", "refs/remotes/origin/main"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
+}
+
+#[test]
+fn history_rewrite_filter_branch_with_no_further_flags() {
+    let verdict = classify("git", &args(&["filter-branch"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
+}
+
+#[test]
+fn history_rewrite_interactive_rebase_onto_remote_tracking_branch() {
+    let verdict = classify("git", &args(&["rebase", "-i", "origin/develop"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
+}
+
+// --- RecursiveDelete: >=4 positive cases, spellings + clustering ---
+
+#[test]
+fn recursive_delete_short_flag_r() {
+    let verdict = classify("rm", &args(&["-r", "build/"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
+}
+
+#[test]
+fn recursive_delete_capital_r() {
+    let verdict = classify("rm", &args(&["-R", "build/"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
+}
+
+#[test]
+fn recursive_delete_long_form() {
+    let verdict = classify("rm", &args(&["--recursive", "build/"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
+}
+
+#[test]
+fn recursive_delete_combined_short_flag_cluster() {
+    let verdict = classify("rm", &args(&["-rf", "build/"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
+}
+
+#[test]
+fn recursive_delete_flag_after_the_path() {
+    let verdict = classify("rm", &args(&["build/", "-r"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
+}
+
+// --- Safe: the full named-in-spec Safe list ---
+
+#[test]
+fn safe_ordinary_read_and_write_git_operations() {
+    for subcommand in ["status", "log", "diff", "add", "commit"] {
+        let verdict = classify("git", &args(&[subcommand]), None);
+        assert_eq!(verdict, Verdict::Safe, "expected `git {subcommand}` to be Safe");
+    }
+}
+
+#[test]
+fn safe_plain_push_with_no_force_and_no_default_branch_target() {
+    let verdict = classify("git", &args(&["push", "origin", "feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Safe);
+}
+
+#[test]
+fn safe_bare_push_with_no_positional_arguments() {
+    let verdict = classify("git", &args(&["push"]), Some("main"));
+    assert_eq!(verdict, Verdict::Safe);
+}
+
+#[test]
+fn safe_plain_branch_listing_and_creation() {
+    assert_eq!(classify("git", &args(&["branch"]), None), Verdict::Safe);
+    assert_eq!(classify("git", &args(&["branch", "new-feature"]), None), Verdict::Safe);
+}
+
+#[test]
+fn safe_non_recursive_file_removal() {
+    let verdict = classify("rm", &args(&["file.txt"]), None);
+    assert_eq!(verdict, Verdict::Safe);
+}
+
+#[test]
+fn safe_reset_without_the_hard_flag() {
+    assert_eq!(classify("git", &args(&["reset"]), None), Verdict::Safe);
+    assert_eq!(classify("git", &args(&["reset", "--soft", "HEAD~1"]), None), Verdict::Safe);
+}
+
+#[test]
+fn safe_local_rebase_with_no_remote_tracking_upstream() {
+    assert_eq!(classify("git", &args(&["rebase", "main"]), None), Verdict::Safe);
+    assert_eq!(classify("git", &args(&["rebase", "--continue"]), None), Verdict::Safe);
+}
+
+#[test]
+fn safe_program_names_outside_git_and_rm_are_never_inspected() {
+    // Only `git` and `rm` carry a destructive form in this workspace's threat model — every
+    // other program name is Safe by construction (this module's own top doc comment).
+    assert_eq!(classify("npm", &args(&["install"]), None), Verdict::Safe);
+    assert_eq!(classify("ls", &args(&["-la"]), None), Verdict::Safe);
+}
+
+// --- Uncategorized: >=6 cases, the fail-closed default ---
+
+#[test]
+fn uncategorized_unknown_git_subcommand() {
+    let verdict = classify("git", &args(&["frobnicate", "--whatever"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
+}
+
+#[test]
+fn uncategorized_bare_git_with_no_subcommand_at_all() {
+    let verdict = classify("git", &args(&[]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
+}
+
+#[test]
+fn uncategorized_clean_with_only_the_force_flag() {
+    // Some, but not all, of D-56's named `-fdx` combination — not confidently Safe either.
+    let verdict = classify("git", &args(&["clean", "-f"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
+}
+
+#[test]
+fn uncategorized_clean_with_only_directory_and_ignored_flags() {
+    let verdict = classify("git", &args(&["clean", "-d", "-x"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
+}
+
+#[test]
+fn uncategorized_a_second_unrecognised_subcommand() {
+    let verdict = classify("git", &args(&["delete-everything"]), None);
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
+}
+
+#[test]
+fn uncategorized_deliberately_nonsensical_argument_vector() {
+    // A malformed argv this classifier cannot confidently parse: the "subcommand" position is
+    // itself a flag-shaped/injection-like token, matching no known git subcommand.
+    let verdict = classify("git", &args(&["--", "$(rm -rf /)", "???"]), None);
+    assert_eq!(
+        verdict,
+        Verdict::Destructive(DestructiveCategory::Uncategorized),
+        "a nonsensical argv must fail closed into Uncategorized, never Safe"
+    );
+}
+
+// --- migration wiring ---
+
+#[test]
+fn migration_source_list_registers_the_destructive_gate_column_exactly_once_and_last() {
+    let sources = core::db::migration_sources();
+    assert_eq!(sources.len(), 7, "expected exactly seven migrations registered");
+    let last = sources.last().expect("migration_sources() must be non-empty");
+    assert!(
+        last.contains("ALTER TABLE permission_requests ADD COLUMN destructive_category"),
+        "the seventh (last) migration must be 0007_destructive_gate.sql"
+    );
+    let occurrences = sources.iter().filter(|s| s.contains("ADD COLUMN destructive_category")).count();
+    assert_eq!(occurrences, 1, "destructive_category must be added by exactly one migration");
+}
+
+// --- create_pending_request: validates destructive_category against the enum's string set ---
+
+#[test]
+fn create_pending_request_accepts_every_valid_destructive_category() {
+    let (mut conn, actor_id, run_id) = seeded_running_run();
+    for category in DestructiveCategory::all() {
+        let request = create_pending_request(
+            &mut conn,
+            &run_id,
+            "Bash",
+            Some("{\"command\":\"git push --force\"}"),
+            &actor_id,
+            Some(category.as_str()),
+        )
+        .unwrap_or_else(|e| panic!("expected {category:?} to be accepted, got: {e}"));
+        assert_eq!(request.destructive_category.as_deref(), Some(category.as_str()));
+        // Answer it so the run is unblocked before the next iteration raises another request.
+        answer_request(&mut conn, &request.id, "denied", &actor_id)
+            .expect("answer_request should succeed for the routine denied path");
+    }
+}
+
+#[test]
+fn create_pending_request_rejects_a_destructive_category_outside_the_enum_set() {
+    let (mut conn, actor_id, run_id) = seeded_running_run();
+    let result = create_pending_request(
+        &mut conn,
+        &run_id,
+        "Bash",
+        None,
+        &actor_id,
+        Some("not-a-real-category"),
+    );
+    assert!(result.is_err(), "an out-of-set destructive_category must be rejected");
+}
+
+#[test]
+fn create_pending_request_with_no_destructive_category_is_the_routine_variant() {
+    let (mut conn, actor_id, run_id) = seeded_running_run();
+    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id, None)
+        .expect("create_pending_request should succeed for the routine variant");
+    assert_eq!(request.destructive_category, None);
+}
+
+// --- answer_request: D-57's allow-always guard ---
+
+#[test]
+fn answer_request_rejects_allowed_always_for_a_request_carrying_a_destructive_category() {
+    let (mut conn, actor_id, run_id) = seeded_running_run();
+    let request = create_pending_request(
+        &mut conn,
+        &run_id,
+        "Bash",
+        Some("{\"command\":\"git push --force\"}"),
+        &actor_id,
+        Some(DestructiveCategory::ForcePush.as_str()),
+    )
+    .expect("create_pending_request should succeed");
+
+    let result = answer_request(&mut conn, &request.id, "allowed_always", &actor_id);
+    let err = result.expect_err("allowed_always must be rejected for a destructive request");
+    err.downcast_ref::<DestructiveAllowAlwaysRejected>()
+        .expect("the error must be the typed DestructiveAllowAlwaysRejected, not a generic failure");
+
+    // The row must still be genuinely pending afterward — the rejected attempt must not have
+    // partially applied.
+    let status: String = conn
+        .query_row(
+            "SELECT status FROM permission_requests WHERE id = ?1",
+            rusqlite::params![request.id],
+            |row| row.get(0),
+        )
+        .expect("permission_requests row should exist");
+    assert_eq!(status, "pending", "a rejected allowed_always attempt must not change the row's status");
+}
+
+#[test]
+fn answer_request_still_accepts_allowed_always_for_a_routine_non_destructive_request() {
+    let (mut conn, actor_id, run_id) = seeded_running_run();
+    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id, None)
+        .expect("create_pending_request should succeed");
+
+    let answered = answer_request(&mut conn, &request.id, "allowed_always", &actor_id)
+        .expect("allowed_always must still work for a routine (non-destructive) request");
+    assert_eq!(answered.status, "allowed_always");
+}

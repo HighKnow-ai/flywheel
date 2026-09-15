@@ -25,6 +25,7 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0004_permission_gate.sql"),
         include_str!("migrations/0005_credentials.sql"),
         include_str!("migrations/0006_recovery_statuses.sql"),
+        include_str!("migrations/0007_destructive_gate.sql"),
     ]
 }
 
