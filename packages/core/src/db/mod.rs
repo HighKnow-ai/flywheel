@@ -7,7 +7,7 @@ pub mod backup;
 
 use anyhow::Context;
 use once_cell::sync::Lazy;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use rusqlite_migration::{Migrations, M};
 use std::path::{Path, PathBuf};
 
@@ -24,6 +24,7 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0003_agent_runtime.sql"),
         include_str!("migrations/0004_permission_gate.sql"),
         include_str!("migrations/0005_credentials.sql"),
+        include_str!("migrations/0006_recovery_statuses.sql"),
     ]
 }
 
@@ -86,14 +87,53 @@ pub fn open_and_migrate(db_path: &Path, backups_dir: &Path) -> anyhow::Result<Co
 
     apply_pragmas(&conn).context("failed to apply pragmas after opening the database")?;
 
-    if let Err(migration_err) = MIGRATIONS.to_latest(&mut conn) {
+    // Migration `0006_recovery_statuses.sql` rebuilds `worktrees` and `agent_runs` (SQLite
+    // cannot ALTER a CHECK constraint in place), and both are the parent side of a real foreign
+    // key that a sibling table declares against them (`agent_runs.worktree_id` -> `worktrees.id`,
+    // `permission_requests.agent_run_id` -> `agent_runs.id`). `DROP TABLE` on a table that is the
+    // parent of an existing foreign key with matching child rows fails under
+    // `PRAGMA foreign_keys = ON` — verified directly against a real `sqlite3` binary while writing
+    // this migration. Toggling the pragma from INSIDE a migration's own SQL is a documented
+    // no-op (`rusqlite_migration` runs every migration body inside its own transaction, and
+    // SQLite ignores `PRAGMA foreign_keys` once a transaction is already open), so it is toggled
+    // here instead, at the connection level, around the whole `to_latest()` call — exactly as
+    // `rusqlite_migration`'s own `foreign_key_check()` documentation recommends for a migration
+    // that rebuilds a referenced table.
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .context("failed to disable foreign_keys before migrating")?;
+
+    // A successful `to_latest()` is not yet trusted: re-enable enforcement and run
+    // `PRAGMA foreign_key_check` before deciding the migration truly succeeded. A rebuild that
+    // silently dropped or misdirected a foreign key must be treated exactly like a `to_latest`
+    // failure — routed through the SAME restore-and-refuse path below (D-18) — never surfaced as
+    // a late, un-recovered error after the connection has already been handed back.
+    let migration_result: anyhow::Result<()> = MIGRATIONS
+        .to_latest(&mut conn)
+        .map_err(anyhow::Error::from)
+        .and_then(|()| {
+            conn.pragma_update(None, "foreign_keys", "ON")
+                .context("failed to re-enable foreign_keys after migrating")?;
+            let fk_violation: Option<String> = conn
+                .query_row("SELECT * FROM pragma_foreign_key_check LIMIT 1", [], |row| row.get(0))
+                .optional()
+                .context("failed to run foreign_key_check after migrating")?;
+            if let Some(table) = fk_violation {
+                anyhow::bail!(
+                    "PRAGMA foreign_key_check reported a violation involving {table:?} for \
+                     {db_path:?} after migrating — a table rebuild left a dangling foreign key"
+                );
+            }
+            Ok(())
+        });
+
+    if let Err(migration_err) = migration_result {
         // Drop the connection before touching the file on disk — SQLite (and the OS, on
         // Windows in particular) will not let another process overwrite a file that is still
         // held open.
         drop(conn);
 
         let Some(backup_path) = backup_path else {
-            return Err(anyhow::Error::from(migration_err).context(format!(
+            return Err(migration_err.context(format!(
                 "failed to run pending migrations against {db_path:?}; no pre-migration backup \
                  existed to restore (this was a brand-new database)"
             )));
@@ -106,7 +146,7 @@ pub fn open_and_migrate(db_path: &Path, backups_dir: &Path) -> anyhow::Result<Co
             )
         })?;
 
-        return Err(anyhow::Error::from(migration_err).context(format!(
+        return Err(migration_err.context(format!(
             "failed to run pending migrations against {db_path:?}; restored the pre-migration \
              backup at {backup_path:?} and refused to open"
         )));

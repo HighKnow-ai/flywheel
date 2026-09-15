@@ -45,8 +45,8 @@ pub struct AgentRun {
     pub log_path: String,
 }
 
-/// The five values `agent_runs.status`'s CHECK constraint accepts (migration
-/// `0003_agent_runtime.sql`).
+/// The six values `agent_runs.status`'s CHECK constraint accepts (migration
+/// `0003_agent_runtime.sql`, `Abandoned` added by migration `0006_recovery_statuses.sql`, D-49).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentRunStatus {
     Running,
@@ -54,6 +54,10 @@ pub enum AgentRunStatus {
     Completed,
     Failed,
     Interrupted,
+    /// The run was `running` when the app died — written by the launch reconciler
+    /// ([`crate::domain::worktree::reconcile_worktrees`]'s sibling, `mark_abandoned` below) and
+    /// never by the dying process itself (D-49).
+    Abandoned,
 }
 
 impl AgentRunStatus {
@@ -64,6 +68,7 @@ impl AgentRunStatus {
             AgentRunStatus::Completed => "completed",
             AgentRunStatus::Failed => "failed",
             AgentRunStatus::Interrupted => "interrupted",
+            AgentRunStatus::Abandoned => "abandoned",
         }
     }
 }
