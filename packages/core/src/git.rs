@@ -171,3 +171,69 @@ pub fn worktree_remove(repo_path: &Path, worktree_path: &Path) -> anyhow::Result
     let worktree_path_str = worktree_path.to_string_lossy().into_owned();
     git_at(repo_path, &["worktree", "remove", &worktree_path_str])
 }
+
+/// The concrete git version plan 03-08's lock-contention reproduction
+/// (`packages/core/tests/lock_contention.rs`) was ACTUALLY executed against, rounded down to its
+/// minor line. 03-RESEARCH.md's own assumption A1 proposed an older, unbisected 2.44 floor; this
+/// constant deliberately replaces that guess with a measured one — this phase can only claim the
+/// floor it actually exercised, and claiming an unbisected older version would record an
+/// assumption as a guarantee. Lowering this constant requires re-running
+/// `cargo test -p core --test lock_contention` against the lower version first.
+pub const MIN_SUPPORTED_GIT: (u32, u32, u32) = (2, 54, 0);
+
+/// Parse the numeric `(major, minor, patch)` triple out of the FIRST whitespace-delimited token in
+/// `stdout` that looks like `<digits>.<digits>.<digits>...` — positional extraction, so a
+/// vendor-suffixed string ("git version 2.39.5 (Apple Git-154)") parses correctly without ever
+/// depending on splitting the whole line by whitespace count or parentheses.
+fn parse_git_version_str(stdout: &str) -> anyhow::Result<(u32, u32, u32)> {
+    for word in stdout.split_whitespace() {
+        let cleaned: String = word.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+        let parts: Vec<&str> = cleaned.split('.').collect();
+        if parts.len() >= 3 {
+            if let (Ok(major), Ok(minor), Ok(patch)) =
+                (parts[0].parse::<u32>(), parts[1].parse::<u32>(), parts[2].parse::<u32>())
+            {
+                return Ok((major, minor, patch));
+            }
+        }
+    }
+    bail!("could not parse a major.minor.patch triple out of git version output: {stdout:?}")
+}
+
+/// The installed git's version as a numeric `(major, minor, patch)` triple, routed through
+/// [`git_at`] (never a second `Command::new("git")` construction site) as `git -C . --version` —
+/// `--version` needs no real repository, so `.` is a valid `repo_path` regardless of this
+/// process's own working directory. Returns a named error when the version string's shape is
+/// unrecognised — never a default fallback, since silently defaulting would report a floor this
+/// call never actually checked.
+pub fn git_version() -> anyhow::Result<(u32, u32, u32)> {
+    let output = git_at(Path::new("."), &["--version"]).context("failed to run git --version")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_git_version_str(&stdout)
+}
+
+#[cfg(test)]
+mod git_version_tests {
+    use super::*;
+
+    #[test]
+    fn vendor_suffixed_version_string_parses_to_the_right_triple() {
+        let parsed = parse_git_version_str("git version 2.39.5 (Apple Git-154)")
+            .expect("a vendor-suffixed version string should parse");
+        assert_eq!(parsed, (2, 39, 5));
+    }
+
+    #[test]
+    fn min_supported_git_is_referenced_and_shaped_like_a_real_version() {
+        // Referenced here (not just declared above) so a change to MIN_SUPPORTED_GIT that breaks
+        // its own documented shape is caught by this suite, not just by inspection.
+        let (major, minor, _patch) = MIN_SUPPORTED_GIT;
+        assert!(major >= 2, "expected a modern git major version, got {major}");
+        assert!(minor <= 999, "expected a plausible minor version, got {minor}");
+    }
+
+    #[test]
+    fn git_version_succeeds_against_the_installed_git() {
+        git_version().expect("git_version should succeed against whatever git is installed");
+    }
+}

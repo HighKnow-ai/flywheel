@@ -14,9 +14,9 @@
 //! red (that outcome would just mean this machine did not reproduce the contention, not that the
 //! shim has no value).
 //!
-//! Plan 03-08 Task 3 layers a git-version floor guard on top of both tests below (reads
-//! `core::git::git_version`, prints the installed version, and SKIPs below
-//! `core::git::MIN_SUPPORTED_GIT`) — not yet present as of this task.
+//! Both tests read [`git_version`] first, print the installed version string, and SKIP (with a
+//! printed reason, never a panic) when the installed git is below [`MIN_SUPPORTED_GIT`] — a run on
+//! an unsupported git must never report a green guarantee this phase did not actually establish.
 
 mod common;
 
@@ -25,7 +25,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use core::git::{git_at, worktree_add, worktree_list, worktree_root_from_env};
+use core::git::{git_at, git_version, worktree_add, worktree_list, worktree_root_from_env, MIN_SUPPORTED_GIT};
 use core::git_retry::{RETRY_BASE_MS, RETRY_MAX_ATTEMPTS};
 use core::shim;
 
@@ -152,9 +152,28 @@ fn setup_repo_and_worktrees() -> (tempfile::TempDir, Vec<(String, PathBuf)>) {
     (repo_dir, branches_and_paths)
 }
 
+/// Print the installed git version and return `true` when it is below [`MIN_SUPPORTED_GIT`] — the
+/// caller must return early (with no further assertions) when this returns `true`. An early
+/// return with a printed reason, never a panic: a developer on an older git should be told the
+/// guarantee was not established on their machine, not handed a failure that looks like a real
+/// regression.
+fn print_version_and_should_skip() -> bool {
+    let installed = git_version().expect("git_version should succeed on a machine with git installed");
+    println!("INSTALLED_GIT={}.{}.{}", installed.0, installed.1, installed.2);
+    if installed < MIN_SUPPORTED_GIT {
+        println!("SKIPPED: installed git {installed:?} is below MIN_SUPPORTED_GIT {MIN_SUPPORTED_GIT:?}");
+        return true;
+    }
+    false
+}
+
 #[test]
 fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktree() {
     with_scratch_env(|| {
+        if print_version_and_should_skip() {
+            return;
+        }
+
         let (repo_dir, branches_and_paths) = setup_repo_and_worktrees();
 
         let run_id = format!("lock-contention-{}", std::process::id());
@@ -275,6 +294,10 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
 #[test]
 fn companion_no_shim_ten_concurrent_commits_is_evidence_only_and_never_a_gate() {
     with_scratch_env(|| {
+        if print_version_and_should_skip() {
+            return;
+        }
+
         let (_repo_dir, branches_and_paths) = setup_repo_and_worktrees();
         let started = Instant::now();
 
