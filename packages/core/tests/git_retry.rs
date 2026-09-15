@@ -6,8 +6,8 @@
 //! without ever appearing as a source-level literal).
 
 use core::git_retry::{
-    exhaustion_event_payload, is_lock_contention, with_lock_retry, CollisionCounter, LockExhausted,
-    RETRY_JITTER_MS, RETRY_MAX_ATTEMPTS,
+    exhaustion_event_payload, is_lock_contention, with_lock_retry, with_lock_retry_notify, CollisionCounter,
+    LockExhausted, RETRY_JITTER_MS, RETRY_MAX_ATTEMPTS,
 };
 
 // --- is_lock_contention -----------------------------------------------------------------------
@@ -140,6 +140,95 @@ fn a_full_exhaustion_completes_within_the_documented_worst_case_wall_clock() {
         "a fully exhausted retry budget must complete well within 10s, took {elapsed:?}"
     );
     let _ = RETRY_JITTER_MS; // referenced for documentation purposes in this test's own comment
+}
+
+// --- with_lock_retry_notify (plan 03-13) --------------------------------------------------------
+
+#[test]
+fn a_first_attempt_success_invokes_the_notify_hook_zero_times() {
+    let notify_calls = std::sync::atomic::AtomicU32::new(0);
+    let outcome = with_lock_retry_notify(
+        "test-label",
+        |_attempt| Ok::<_, anyhow::Error>("done"),
+        |_next_attempt, _max| {
+            notify_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        },
+    )
+    .expect("first-try success must return Ok");
+
+    assert_eq!(outcome.value, "done");
+    assert_eq!(
+        notify_calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "a collision that never happened must produce zero retry notices"
+    );
+}
+
+#[test]
+fn two_collisions_then_success_invokes_the_notify_hook_exactly_twice_with_the_upcoming_attempt_and_the_max() {
+    let calls = std::sync::atomic::AtomicU32::new(0);
+    let notified: std::sync::Mutex<Vec<(u32, u32)>> = std::sync::Mutex::new(Vec::new());
+    let outcome = with_lock_retry_notify(
+        "test-label",
+        |_attempt| {
+            let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n < 2 {
+                Err(anyhow::anyhow!(
+                    "fatal: Unable to create '/repo/.git/config.lock': File exists."
+                ))
+            } else {
+                Ok::<_, anyhow::Error>("done")
+            }
+        },
+        |next_attempt, max| {
+            notified.lock().unwrap().push((next_attempt, max));
+        },
+    )
+    .expect("eventual success must return Ok");
+
+    assert_eq!(outcome.value, "done");
+    assert_eq!(
+        *notified.lock().unwrap(),
+        vec![(2, RETRY_MAX_ATTEMPTS), (3, RETRY_MAX_ATTEMPTS)],
+        "the hook must fire once per backoff sleep, naming the UPCOMING attempt and the fixed max"
+    );
+}
+
+#[test]
+fn full_exhaustion_never_invokes_the_notify_hook_on_the_final_failed_attempt() {
+    let notified: std::sync::Mutex<Vec<(u32, u32)>> = std::sync::Mutex::new(Vec::new());
+    let result = with_lock_retry_notify(
+        "worktree-a",
+        |_attempt| {
+            Err::<(), _>(anyhow::anyhow!(
+                "fatal: Unable to create '/repo/.git/config.lock': File exists."
+            ))
+        },
+        |next_attempt, max| {
+            notified.lock().unwrap().push((next_attempt, max));
+        },
+    );
+
+    let err = result.expect_err("full exhaustion must return an Err");
+    assert!(err.downcast_ref::<LockExhausted>().is_some());
+    // RETRY_MAX_ATTEMPTS total attempts means RETRY_MAX_ATTEMPTS - 1 backoff sleeps, so the hook
+    // fires that many times — never once for the exhausting attempt itself, which returns the
+    // exhaustion error instead of sleeping again.
+    assert_eq!(notified.lock().unwrap().len(), (RETRY_MAX_ATTEMPTS - 1) as usize);
+}
+
+#[test]
+fn a_non_lock_error_never_invokes_the_notify_hook() {
+    let notify_calls = std::sync::atomic::AtomicU32::new(0);
+    let result = with_lock_retry_notify(
+        "test-label",
+        |_attempt| Err::<(), _>(anyhow::anyhow!("fatal: bad revision 'HEAD@{{u}}'")),
+        |_next_attempt, _max| {
+            notify_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        },
+    );
+    assert!(result.is_err());
+    assert_eq!(notify_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
 
 // --- CollisionCounter --------------------------------------------------------------------------

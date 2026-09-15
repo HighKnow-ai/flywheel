@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
+import net from "node:net";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { CapabilityUnsupportedError } from "../dist/adapter.js";
-import { buildClaudeArgv, ClaudeCodeAdapter, normaliseStreamEvent, STDERR_DETAIL_MAX_CHARS } from "../dist/claude-code-adapter.js";
+import {
+  buildClaudeArgv,
+  ClaudeCodeAdapter,
+  noticeToAgentEvent,
+  normaliseStreamEvent,
+  STDERR_DETAIL_MAX_CHARS,
+} from "../dist/claude-code-adapter.js";
+import { startPermissionServer } from "../dist/mcp-permission-server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
@@ -216,4 +225,148 @@ test("the stderr detail tail is bounded even by a single oversized line (T-02G-1
   tail = "";
   for (let i = 0; i < 500; i++) tail = accumulate(tail, `line ${i} ${"z".repeat(200)}`);
   assert.ok(tail.length <= CAP, `tail grew to ${tail.length}, past the ${CAP} cap`);
+});
+
+// --- startPermissionServer notice handling (plan 03-13, D-53) ----------------------------------
+
+/** Connects a fresh raw socket to `socketPath`, writes one JSON line, and returns the socket plus
+ * a promise resolving with the first line the server writes back (or `undefined` if the server
+ * closes the connection without ever writing a reply). */
+function sendRawLine(socketPath, payload) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath, () => {
+      socket.write(`${JSON.stringify(payload)}\n`);
+    });
+    socket.on("error", reject);
+    let repliedWith;
+    const rl = createInterface({ input: socket });
+    rl.on("line", (line) => {
+      repliedWith = line;
+    });
+    socket.on("close", () => resolve({ socket, repliedWith }));
+  });
+}
+
+test("a notice connection is closed by the server and never becomes a held request", async () => {
+  const requests = [];
+  const notices = [];
+  const handle = startPermissionServer(
+    (payload) => requests.push(payload),
+    (payload) => notices.push(payload),
+  );
+
+  const { repliedWith } = await Promise.race([
+    sendRawLine(handle.socketPath, { kind: "git_retry", runId: "run-1", attempt: 2, max: 5 }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("notice connection was not closed")), 2000)),
+  ]);
+
+  assert.equal(requests.length, 0, "a notice must never reach onRequest");
+  assert.equal(notices.length, 1, "a notice must reach onNotice exactly once");
+  assert.equal(notices[0].kind, "git_retry");
+  assert.equal(notices[0].runId, "run-1");
+  assert.equal(repliedWith, undefined, "a notice connection must be closed with no answer line written");
+
+  handle.close();
+});
+
+test("a permission request still holds open exactly as before — unaffected by notice handling", async () => {
+  const requests = [];
+  const handle = startPermissionServer(
+    (payload) => requests.push(payload),
+    () => {},
+  );
+
+  const socket = net.createConnection(handle.socketPath, () => {
+    socket.write(`${JSON.stringify({ requestId: "req-1", toolName: "Bash", input: { command: "echo hi" } })}\n`);
+  });
+  // Nothing here reads the eventual answer line's own content, but the stream must still be put
+  // into flowing mode (`resume()`) or Node will never emit 'end'/'close' for a paused Readable
+  // sitting on unread buffered bytes once the server writes its answer and calls `.end()`.
+  socket.resume();
+
+  await new Promise((resolve, reject) => {
+    const check = setInterval(() => {
+      if (requests.length > 0) {
+        clearInterval(check);
+        resolve();
+      }
+    }, 10);
+    setTimeout(() => {
+      clearInterval(check);
+      reject(new Error("onRequest was never called"));
+    }, 2000);
+  });
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].requestId, "req-1");
+
+  // Still held — no answer written back, and the socket must not have been closed by the server.
+  let closed = false;
+  socket.on("close", () => {
+    closed = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(closed, false, "a routine held request must stay open with no timer of its own");
+
+  handle.resolvePermission("req-1", "allow");
+  await new Promise((resolve, reject) => {
+    const check = setInterval(() => {
+      if (closed) {
+        clearInterval(check);
+        resolve();
+      }
+    }, 10);
+    setTimeout(() => {
+      clearInterval(check);
+      reject(new Error("connection never closed after resolvePermission answered it"));
+    }, 2000);
+  });
+
+  handle.close();
+});
+
+// --- noticeToAgentEvent (plan 03-13, D-53) --------------------------------------------------------
+
+test("noticeToAgentEvent maps a git_retry notice to a git_retry AgentEvent with a non-empty raw", () => {
+  const payload = { kind: "git_retry", runId: "run-1", attempt: 2, max: 5, repository: "/repo", command: "git commit" };
+  const event = noticeToAgentEvent(payload, "run-1", 3, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "git_retry");
+  assert.equal(event.runId, "run-1");
+  assert.equal(event.seq, 3);
+  assert.equal(event.attempt, 2);
+  assert.equal(event.max, 5);
+  assert.equal(event.repository, "/repo");
+  assert.equal(event.command, "git commit");
+  assert.ok(event.raw && event.raw.length > 0, "every notice-derived event must carry a non-empty raw field");
+});
+
+test("noticeToAgentEvent maps a git_lock_exhausted notice to a git_lock_exhausted AgentEvent with a non-empty raw", () => {
+  const payload = { kind: "git_lock_exhausted", runId: "run-1", repository: "/repo", command: "git commit", attempts: 5 };
+  const event = noticeToAgentEvent(payload, "run-1", 4, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "git_lock_exhausted");
+  assert.equal(event.attempts, 5);
+  assert.equal(event.repository, "/repo");
+  assert.equal(event.command, "git commit");
+  assert.ok(event.raw && event.raw.length > 0, "every notice-derived event must carry a non-empty raw field");
+});
+
+test("noticeToAgentEvent returns undefined for an unrecognised notice kind", () => {
+  const payload = { kind: "something_else", runId: "run-1" };
+  const event = noticeToAgentEvent(payload, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event, undefined);
+});
+
+test("a first-attempt success never produces a notice (no retry, no exhaustion)", () => {
+  // The shim's own retry loop calls send_notice() zero times when the closure succeeds on
+  // attempt 1 — proved at the Rust level (packages/core/tests/git_retry.rs's
+  // `a_first_attempt_success_invokes_the_notify_hook_zero_times`). This test documents the
+  // TypeScript-side converse: with no notice ever connecting, `notices` stays empty — the
+  // permission server itself never manufactures an event out of nothing.
+  const notices = [];
+  const handle = startPermissionServer(
+    () => {},
+    (payload) => notices.push(payload),
+  );
+  assert.equal(notices.length, 0, "no notice connection means no notice event");
+  handle.close();
 });

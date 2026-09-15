@@ -36,6 +36,17 @@
 //! same single-writer discipline `packages/sidecar/src/watchdog.ts` and
 //! `packages/core/src/runtime_protocol.rs` already hold to.
 //!
+//! **`send_notice` (plan 03-13, D-53): the shim's own "still retrying"/"I gave up" reports.**
+//! Fire-and-forget, over the SAME `FLYWHEEL_PERMISSION_SOCKET` the destructive-action gate above
+//! already opens a fresh connection to — 03-CONTEXT.md is explicit that the shim route through
+//! the existing permission channel rather than inventing a second answering surface, and a notice
+//! is the same shim talking to the same session. This is the ONE place in this binary where
+//! failure is swallowed by construction rather than surfaced: a notice is a feed nicety, and a
+//! broken or absent socket must never delay, fail or alter the git invocation it is reporting on
+//! (T-03-13-02). `send_notice` never blocks waiting for an answer either — unlike
+//! `request_permission` above, it writes its one line and returns without reading anything back,
+//! because a notice has no answer to wait for.
+//!
 //! **`--classify-command <text>` (plan 03-07 Task 3):** a pure, side-effect-free classification
 //! mode invoked directly by `packages/sidecar/src/pretooluse-hook.ts` — never through a shadowed
 //! `PATH` entry, so `argv[0]` is whatever this binary was actually built/copied as. Checked FIRST,
@@ -215,6 +226,36 @@ fn request_permission(program: &str, string_args: &[String], category: Destructi
     }
 }
 
+/// D-53/T-03-13-02: send ONE fire-and-forget notice line on the permission socket the session
+/// already has open — never a second answering surface, per this file's own module doc comment.
+/// `kind` is either `"git_retry"` (sent before each backoff sleep) or `"git_lock_exhausted"` (sent
+/// once, after the final failed attempt); `payload` carries that notice's own fields (attempt/max,
+/// or the total attempt count) alongside `repository`/`command`. This function's whole body is
+/// deliberately failure-swallowing by construction — no `?` operator and no `unwrap` appear
+/// anywhere below: every step that can fail returns early through a plain `let ... else { return
+/// }` guard instead, because a notice grants nothing and a broken or absent socket must never
+/// delay, fail or alter the git invocation it is reporting on.
+fn send_notice(kind: &str, mut payload: serde_json::Map<String, serde_json::Value>) {
+    let Some(socket_path) = env::var_os("FLYWHEEL_PERMISSION_SOCKET") else {
+        return;
+    };
+    let Some(run_id) = env::var_os("FLYWHEEL_RUN_ID") else {
+        return;
+    };
+    let Ok(mut stream) = UnixStream::connect(&socket_path) else {
+        return;
+    };
+
+    payload.insert("kind".to_string(), serde_json::Value::String(kind.to_string()));
+    payload.insert(
+        "runId".to_string(),
+        serde_json::Value::String(run_id.to_string_lossy().into_owned()),
+    );
+    let mut line = serde_json::Value::Object(payload).to_string();
+    line.push('\n');
+    let _ = stream.write_all(line.as_bytes());
+}
+
 fn print_denied(category: DestructiveCategory) {
     eprintln!(
         "flywheel-shim: {} was declined — refusing to run this command",
@@ -262,31 +303,53 @@ fn run_git(forwarded_args: &[OsString]) -> ExitCode {
     }
 
     let command_text = reconstruct_command_text("git", &string_args);
+    // Resolved ONCE and reused by both notices below (D-53) — the retry notice and the
+    // exhaustion notice/contention record must all name the exact same repository string.
+    let repository = env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "<unresolved cwd>".to_string());
 
     let mut last_output: Option<CapturedOutput> = None;
-    let retry_result = flywheel_core::git_retry::with_lock_retry(&command_text, |_attempt| {
-        let output = Command::new(&real_git)
-            .args(forwarded_args)
-            .output()
-            .map_err(|e| anyhow::anyhow!("failed to spawn real git at {real_git:?}: {e}"))?;
-        let stderr_text = String::from_utf8_lossy(&output.stderr).into_owned();
-        let succeeded = output.status.success();
-        last_output = Some(CapturedOutput::from(output));
-        if succeeded {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(stderr_text))
-        }
-    });
+    let retry_result = flywheel_core::git_retry::with_lock_retry_notify(
+        &command_text,
+        |_attempt| {
+            let output = Command::new(&real_git)
+                .args(forwarded_args)
+                .output()
+                .map_err(|e| anyhow::anyhow!("failed to spawn real git at {real_git:?}: {e}"))?;
+            let stderr_text = String::from_utf8_lossy(&output.stderr).into_owned();
+            let succeeded = output.status.success();
+            last_output = Some(CapturedOutput::from(output));
+            if succeeded {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(stderr_text))
+            }
+        },
+        |next_attempt, max_attempts| {
+            // D-53/UI-SPEC "Git lock-retry transient row": one fire-and-forget notice per
+            // backoff sleep, never on a first-attempt success (this hook is never called for
+            // one) and never on the final exhausting attempt (the exhaustion branch below sends
+            // its own, distinct notice instead).
+            let mut payload = serde_json::Map::new();
+            payload.insert("attempt".to_string(), serde_json::json!(next_attempt));
+            payload.insert("max".to_string(), serde_json::json!(max_attempts));
+            payload.insert("repository".to_string(), serde_json::json!(repository));
+            payload.insert("command".to_string(), serde_json::json!(command_text));
+            send_notice("git_retry", payload);
+        },
+    );
 
     match retry_result {
         Ok(_outcome) => forward_and_exit(last_output),
         Err(err) => {
             if let Some(exhausted) = err.downcast_ref::<flywheel_core::git_retry::LockExhausted>() {
-                let repository = env::current_dir()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_else(|_| "<unresolved cwd>".to_string());
                 write_contention_record(&repository, &command_text, exhausted.attempts);
+                let mut payload = serde_json::Map::new();
+                payload.insert("repository".to_string(), serde_json::json!(repository));
+                payload.insert("command".to_string(), serde_json::json!(command_text));
+                payload.insert("attempts".to_string(), serde_json::json!(exhausted.attempts));
+                send_notice("git_lock_exhausted", payload);
             }
             forward_and_exit(last_output)
         }

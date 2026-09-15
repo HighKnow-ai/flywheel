@@ -15,6 +15,16 @@
  *    the Rust core relays a decision. This role never imports the MCP SDK — it is a plain socket
  *    relay with no protocol awareness of MCP at all.
  *
+ *    Plan 03-13 (D-53): this SAME socket now carries a SECOND message kind — a fire-and-forget
+ *    NOTICE from the PATH shim binary (`packages/shim/src/main.rs`), reporting a git lock retry
+ *    in progress or a retry budget's exhaustion. `03-CONTEXT.md` is explicit that the shim route
+ *    through the existing permission channel rather than inventing a second answering surface,
+ *    and a notice is the same shim talking to the same session. A notice connection is
+ *    distinguished by a `kind` field the routine held-request payload never carries, and is
+ *    closed IMMEDIATELY once parsed — a notice has no answer, so it is never added to `pending`
+ *    (the held-connection map) at all. The held-request path below is otherwise byte-for-byte
+ *    unchanged: no timer, no default, no local cache, for either message kind.
+ *
  *  - The standalone MCP server (this module's own `main()`, run when the COMPILED file is
  *    invoked directly as `node mcp-permission-server.js <socketPath>`): this is the actual
  *    process the backend (`claude`, or `fake-claude.mjs` in tests) spawns per the `--mcp-config`
@@ -56,6 +66,26 @@ export interface PermissionRequestPayload {
   input: unknown;
 }
 
+/** Plan 03-13 (D-53): the shim's fire-and-forget notice shape — `kind` is what distinguishes this
+ * from {@link PermissionRequestPayload} on the wire (the routine payload never carries a `kind`
+ * field at all). `runId` is the shim's own `FLYWHEEL_RUN_ID`; every other field is notice-specific
+ * (`attempt`/`max`/`repository`/`command` for a retry, `repository`/`command`/`attempts` for an
+ * exhaustion) — carried through verbatim rather than typed per-kind here, since this module has no
+ * opinion on what a notice's payload means, only on routing it to `onNotice` unanswered. */
+export interface PermissionNoticePayload {
+  kind: "git_retry" | "git_lock_exhausted";
+  runId: string;
+  [field: string]: unknown;
+}
+
+function isNoticePayload(parsed: unknown): parsed is PermissionNoticePayload {
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    typeof (parsed as { kind?: unknown }).kind === "string"
+  );
+}
+
 export interface PermissionServerHandle {
   /** The Unix domain socket path the standalone server (spawned by the backend) connects to —
    * embedded verbatim into the `--mcp-config` JSON `buildClaudeArgv` builds. */
@@ -75,9 +105,14 @@ export interface PermissionServerHandle {
  * `AgentEvent` upstream. Nothing here decides an outcome: every connection stays open,
  * unresolved, until {@link PermissionServerHandle.resolvePermission} is called for its
  * `requestId` — there is no timer, no default and no allowlist anywhere in this function.
+ *
+ * `onNotice` (plan 03-13, D-53) is invoked once per incoming connection whose parsed line carries
+ * a `kind` field — a fire-and-forget message from the shim, never a held request. That
+ * connection is closed IMMEDIATELY after `onNotice` runs and is never added to `pending`.
  */
 export function startPermissionServer(
   onRequest: (payload: PermissionRequestPayload) => void,
+  onNotice: (payload: PermissionNoticePayload) => void,
 ): PermissionServerHandle {
   const socketPath = path.join(os.tmpdir(), `flywheel-permission-${randomUUID()}.sock`);
   // A stale socket file from a previous run that was killed without cleanup would make `listen`
@@ -95,16 +130,27 @@ export function startPermissionServer(
   const server = net.createServer((socket) => {
     const rl = createInterface({ input: socket });
     rl.once("line", (line) => {
-      let parsed: PermissionRequestPayload;
+      let parsed: unknown;
       try {
-        parsed = JSON.parse(line) as PermissionRequestPayload;
+        parsed = JSON.parse(line);
       } catch {
         socket.destroy();
         return;
       }
-      pending.set(parsed.requestId, socket);
-      socket.on("close", () => pending.delete(parsed.requestId));
-      onRequest(parsed);
+
+      // Plan 03-13 (D-53): a notice carries `kind`, the routine held-request payload never does.
+      // Closed IMMEDIATELY — never added to `pending` — because a notice has no answer; the
+      // held-connection path below is otherwise entirely unaffected by this branch's existence.
+      if (isNoticePayload(parsed)) {
+        onNotice(parsed);
+        socket.end();
+        return;
+      }
+
+      const request = parsed as PermissionRequestPayload;
+      pending.set(request.requestId, socket);
+      socket.on("close", () => pending.delete(request.requestId));
+      onRequest(request);
     });
   });
   server.listen(socketPath);

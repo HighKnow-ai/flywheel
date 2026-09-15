@@ -126,9 +126,32 @@ impl std::error::Error for LockExhausted {}
 /// next delay in the curve (see [`retry_delay_ms`]), and the attempt repeats until
 /// [`RETRY_MAX_ATTEMPTS`] is reached, at which point a [`LockExhausted`] error is returned instead
 /// of the underlying lock error, carrying `label` and the final attempt count.
-pub fn with_lock_retry<T, F>(label: &str, mut f: F) -> anyhow::Result<RetryOutcome<T>>
+///
+/// A thin wrapper over [`with_lock_retry_notify`] with a no-op notify hook — every EXISTING caller
+/// (`git::git_at`, this crate's own test suite) keeps this exact two-argument signature and
+/// behaviour, unchanged by plan 03-13's addition below.
+pub fn with_lock_retry<T, F>(label: &str, f: F) -> anyhow::Result<RetryOutcome<T>>
 where
     F: FnMut(u32) -> anyhow::Result<T>,
+{
+    with_lock_retry_notify(label, f, |_next_attempt, _max_attempts| {})
+}
+
+/// D-53/plan 03-13: the same contract as [`with_lock_retry`], with one additional hook —
+/// `on_retry(next_attempt, max_attempts)` is invoked exactly once per backoff sleep, immediately
+/// BEFORE the sleep begins. Never invoked on a first-attempt success (a collision that never
+/// happened produces no notice at all), never on a non-lock error, and never on the exhaustion
+/// path itself (the caller distinguishes that case from this function's own `Err` via the
+/// [`LockExhausted`] downcast, exactly as [`with_lock_retry`] already documents) — this hook fires
+/// ONLY on the "still retrying" transition, which is the ONE place [`with_lock_retry`] used to
+/// have no observable moment at all. The PATH shim (`packages/shim/src/main.rs`) is the one real
+/// caller that supplies a non-empty hook (a fire-and-forget permission-socket notice, per
+/// `03-UI-SPEC.md`'s "Git lock-retry transient row"); [`with_lock_retry`] itself passes a no-op,
+/// so every other caller in this workspace is unaffected by this addition.
+pub fn with_lock_retry_notify<T, F, N>(label: &str, mut f: F, mut on_retry: N) -> anyhow::Result<RetryOutcome<T>>
+where
+    F: FnMut(u32) -> anyhow::Result<T>,
+    N: FnMut(u32, u32),
 {
     let mut collisions: u32 = 0;
     for attempt in 1..=RETRY_MAX_ATTEMPTS {
@@ -146,6 +169,7 @@ where
                         attempts: attempt,
                     }));
                 }
+                on_retry(attempt + 1, RETRY_MAX_ATTEMPTS);
                 std::thread::sleep(Duration::from_millis(retry_delay_ms(attempt)));
             }
         }

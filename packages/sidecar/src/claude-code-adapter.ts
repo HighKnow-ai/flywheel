@@ -27,6 +27,7 @@ import {
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
   startPermissionServer,
+  type PermissionNoticePayload,
   type PermissionServerHandle,
 } from "./mcp-permission-server.js";
 
@@ -309,6 +310,47 @@ function summedInputTokens(usage: ClaudeStreamUsage | undefined): number | undef
 }
 
 /**
+ * D-53/plan 03-13: map one parsed shim NOTICE payload to exactly one {@link AgentEvent} —
+ * `git_retry` or `git_lock_exhausted` — or `undefined` for a `kind` this function does not
+ * recognise (dropped, never forwarded as `unknown`: this is reached ONLY from the shim's own
+ * notice wire shape, never the backend's stream-json, so there is no raw line worth preserving
+ * for an unrecognised notice kind). `raw` is always the serialised notice JSON itself — never
+ * empty — the same solution G-02-4's synthesised `session_closed` event already used rather than
+ * special-casing an exception into every consumer of the never-empty-`raw` invariant. Exported,
+ * mirroring {@link normaliseStreamEvent} below, so this mapping is unit-testable without a live
+ * session.
+ */
+export function noticeToAgentEvent(
+  payload: PermissionNoticePayload,
+  runId: string,
+  seq: number,
+  at: string,
+): AgentEvent | undefined {
+  const raw = JSON.stringify(payload);
+  const base = { runId, seq, at, raw };
+  if (payload.kind === "git_retry") {
+    return {
+      ...base,
+      type: "git_retry",
+      attempt: typeof payload.attempt === "number" ? payload.attempt : 0,
+      max: typeof payload.max === "number" ? payload.max : 0,
+      repository: typeof payload.repository === "string" ? payload.repository : "",
+      command: typeof payload.command === "string" ? payload.command : "",
+    };
+  }
+  if (payload.kind === "git_lock_exhausted") {
+    return {
+      ...base,
+      type: "git_lock_exhausted",
+      repository: typeof payload.repository === "string" ? payload.repository : "",
+      command: typeof payload.command === "string" ? payload.command : "",
+      attempts: typeof payload.attempts === "number" ? payload.attempts : 0,
+    };
+  }
+  return undefined;
+}
+
+/**
  * Map one parsed `stream-json` object to exactly one {@link AgentEvent}. A shape this function
  * does not recognise becomes `unknown` — still carrying the verbatim `raw` text, never dropped
  * (AGNT-02's flagged assumption).
@@ -536,6 +578,18 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         input: payload.input,
         ...(typeof destructiveCategory === "string" ? { destructiveCategory } : {}),
       });
+    }, (payload) => {
+      // D-53 (plan 03-13): the shim's fire-and-forget notice, mapped by the pure
+      // `noticeToAgentEvent` above and relayed onto this SAME session's event stream as its own
+      // event type. An unrecognised `kind` maps to `undefined` and is dropped here — this
+      // callback is reached ONLY from the shim's own notice wire shape (never the backend's
+      // stream-json), so a future notice kind not yet handled degrades to "no event," not a raw
+      // dump.
+      const event = noticeToAgentEvent(payload, options.runId, session.nextSeq, new Date().toISOString());
+      if (event) {
+        session.nextSeq += 1;
+        session.onEvent(event);
+      }
     });
 
     const bin = resolveClaudeBin();

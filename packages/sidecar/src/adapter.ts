@@ -122,6 +122,32 @@ export interface SessionClosedEvent extends AgentEventBase {
   detail?: string;
 }
 
+/** D-53/plan 03-13: the PATH shim's "still retrying" report, relayed over the SAME permission
+ * socket a destructive-action request uses (`FLYWHEEL_PERMISSION_SOCKET`) but as a fire-and-forget
+ * notice, never a held request. Sent once per backoff sleep — never for a call that succeeds on
+ * its first attempt, and never for the final, exhausting attempt (see {@link GitLockExhaustedEvent}
+ * for that case instead). `attempt` is the UPCOMING attempt number the shim is about to retry,
+ * `max` is the fixed retry budget (`git_retry::RETRY_MAX_ATTEMPTS`). */
+export interface GitRetryEvent extends AgentEventBase {
+  type: "git_retry";
+  attempt: number;
+  max: number;
+  repository: string;
+  command: string;
+}
+
+/** D-53/plan 03-13: the PATH shim's "I gave up" report — sent exactly once, after the final
+ * failed attempt exhausts the retry budget. `attempts` is the TOTAL attempt count (not the
+ * upcoming one, unlike {@link GitRetryEvent}'s `attempt`). This is the ONLY git-lock-contention
+ * artifact ever written to the board (D-53) — a resolved retry sequence never produces this
+ * event, only the transient {@link GitRetryEvent} notices along the way. */
+export interface GitLockExhaustedEvent extends AgentEventBase {
+  type: "git_lock_exhausted";
+  repository: string;
+  command: string;
+  attempts: number;
+}
+
 /**
  * The normalised event union every adapter emits, in exactly the order the backend process
  * produced them (AGNT-01 ordering) — no reordering, no batching, no coalescing.
@@ -136,7 +162,9 @@ export type AgentEvent =
   | SystemNoticeEvent
   | ResultEvent
   | UnknownEvent
-  | SessionClosedEvent;
+  | SessionClosedEvent
+  | GitRetryEvent
+  | GitLockExhaustedEvent;
 
 /** What an adapter declares it can do — gates which `AgentAdapter` methods are safe to call. */
 export interface AdapterCapabilities {
