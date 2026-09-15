@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use sysinfo::{Pid, ProcessesToUpdate, System};
 
 /// How often the Rust core's own heartbeat-writer thread (`packages/desktop/src-tauri/src/
 /// sidecar.rs`'s `spawn_sidecar`) touches the heartbeat file. Tunable in one place; see
@@ -137,6 +138,14 @@ fn runs_dir(dir: &Path) -> PathBuf {
 
 fn kills_dir(dir: &Path) -> PathBuf {
     dir.join(KILLS_DIR_NAME)
+}
+
+/// `<runtime>/contention/` — the PATH shim binary's own D-53 lock-contention log directory
+/// (`packages/shim/src/main.rs`'s `write_contention_record`), named here so
+/// [`clear_run_runtime_files`] can clean up a resolved orphan's contention log using the SAME
+/// `runtime_dir()`-relative path that binary already writes to, without duplicating its constant.
+fn contention_dir(dir: &Path) -> PathBuf {
+    dir.join("contention")
 }
 
 /// Write `contents` to `path` atomically: write to a sibling temp file in the SAME directory,
@@ -295,4 +304,67 @@ pub fn list_run_descriptors() -> Vec<RunDescriptor> {
         }
     }
     descriptors
+}
+
+/// Whether the process identified by `pid` is still the SAME process Flywheel recorded (plan
+/// 03-06, PROC-05, T-03-06-01) — the pid exists AND its own reported start time still matches
+/// `start_time`. A pid the OS has since recycled to an unrelated process reports a DIFFERENT
+/// start time and is therefore classified dead, never mistaken for a live orphan.
+///
+/// `start_time` is epoch MILLISECONDS — the unit both `packages/sidecar/src/watchdog.ts`'s
+/// `processStartTimeMs` and `claude-code-adapter.ts`'s `readOsProcessStartTimeMs` write into
+/// every real `RunDescriptor`/`KillRecord` on disk. `sysinfo::Process::start_time()` reports
+/// whole SECONDS since the epoch instead — a literal same-unit comparison would classify every
+/// genuinely live process as dead, since a seconds value can equal a milliseconds value only by
+/// astronomical coincidence. This function is the one place that reconciles the two units
+/// (multiplying sysinfo's seconds by 1000), so every caller compares like-for-like without
+/// needing to know either side's native unit.
+///
+/// Refreshes ONLY the single requested pid — never [`ProcessesToUpdate::All`] — so this never
+/// scans the whole process table before the window paints (T-03-06-06, this plan's own DoS
+/// mitigation). Any uncertainty (the pid does not exist, or is not a real positive OS process id)
+/// resolves to `false`: the fail-closed direction here is "assume it is dead," because presenting
+/// a modal offering to kill a process that does not exist is worse than missing a genuinely live
+/// one.
+pub fn process_is_alive(pid: i32, start_time: u64) -> bool {
+    if pid <= 0 {
+        return false;
+    }
+    let sys_pid = Pid::from_u32(pid as u32);
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
+    match system.process(sys_pid) {
+        Some(process) => process.start_time().saturating_mul(1000) == start_time,
+        None => false,
+    }
+}
+
+/// Remove `run_id`'s descriptor, kill record and lock-contention log (plan 03-06) — called by the
+/// launch reconciler at the exact moment a run reaches a terminal status, and nowhere else. This
+/// resolves 03-CONTEXT.md's own "who cleans stale files up" discretion item: the reconciler is
+/// the only writer of a terminal status for an orphaned run, so it is the only cleaner of that
+/// run's files, which is what keeps a resolved orphan from being re-detected on every subsequent
+/// launch.
+///
+/// A missing file is not a failure — idempotent by construction, since a run may already have
+/// had some or all of its files removed by an earlier call (or may simply never have had a
+/// contention log at all, the common case).
+pub fn clear_run_runtime_files(run_id: &str) -> RuntimeIo {
+    let dir = match runtime_dir() {
+        Ok(dir) => dir,
+        Err(err) => return RuntimeIo::WriteFailed(format!("{err:#}")),
+    };
+    let paths = [
+        runs_dir(&dir).join(format!("{run_id}.json")),
+        kills_dir(&dir).join(format!("{run_id}.json")),
+        contention_dir(&dir).join(format!("{run_id}.jsonl")),
+    ];
+    for path in paths {
+        if let Err(err) = fs::remove_file(&path) {
+            if err.kind() != std::io::ErrorKind::NotFound {
+                return RuntimeIo::WriteFailed(format!("failed to remove {path:?}: {err}"));
+            }
+        }
+    }
+    RuntimeIo::Written
 }

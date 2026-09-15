@@ -27,6 +27,7 @@ use crate::domain::event::{append_event, next_sequence};
 use crate::domain::trigger::create_user_action_trigger;
 use crate::domain::worktree::ensure_worktree;
 use crate::ids::{is_ulid, new_id};
+use crate::runtime_protocol::{self, KillRecordRead};
 use crate::session_log::session_log_path;
 
 /// One `agent_runs` row, as read back immediately after [`start_agent_run`] commits.
@@ -559,4 +560,218 @@ pub fn mark_abandoned(
 
     tx.commit().context("failed to commit mark_abandoned transaction")?;
     Ok(true)
+}
+
+/// Every `agent_runs` row still `running` or `blocked` when [`reconcile_agent_runs`] runs,
+/// joined to its task for the modal's key/title (plan 03-06) — one query rather than one round
+/// trip per row. Compile-time literal, no string interpolation (repository convention,
+/// `01-SECURITY.md`).
+const IN_FLIGHT_AGENT_RUNS_SELECT_SQL: &str = "
+    SELECT ar.id, ar.task_id, ar.project_id, ar.external_session_id, t.key, t.title
+    FROM agent_runs ar
+    JOIN tasks t ON t.id = ar.task_id
+    WHERE ar.status IN ('running', 'blocked')
+";
+
+/// One `agent_runs` row [`reconcile_agent_runs`] found genuinely alive at launch (PROC-05, D-46).
+/// Written to no status at all — a status write for a process that is still running would be the
+/// board lying about a live fact — so this is the ONLY record of it; the user's decision (kill,
+/// via [`kill_orphan`], the only verb offered per D-30 and `03-UI-SPEC.md`'s discretion item 1)
+/// is what resolves it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveOrphan {
+    pub run_id: String,
+    pub task_id: String,
+    pub task_key: String,
+    pub task_title: String,
+    pub project_id: String,
+    pub external_session_id: Option<String>,
+    pub pid: i32,
+    pub started_at: String,
+}
+
+/// The launch-time three-way classification (PROC-05, D-46, D-49, D-50): every `agent_runs` row
+/// still `running` or `blocked` when this runs is sorted into exactly one of killed-by-its-
+/// watchdog, dead-without-a-kill-record, or genuinely-still-alive — never resumed, never
+/// repaired, matching `domain::worktree::reconcile_worktrees`'s and `domain::project::
+/// reconcile_projects`'s own surface-never-repair shape.
+///
+/// For each in-flight row, in this order:
+/// 1. A kill record exists ([`runtime_protocol::read_kill_record`] returns `Found`): the
+///    watchdog already explained why it terminated this run's process group. Written to
+///    `abandoned` carrying the record's own `reason`, its runtime files cleared
+///    ([`runtime_protocol::clear_run_runtime_files`]), and NOT a live orphan.
+/// 2. No kill record (`Absent`) OR an unparseable one (`Malformed`) — a malformed record is
+///    deliberately treated exactly like an absent one rather than as a kill (D-50's own honesty
+///    contract: the copy this produces falls back to the weaker "dead, no reason known" claim
+///    instead of inventing one it cannot prove). Reads the run's own descriptor next. Missing,
+///    or its pid/start-time pair no longer alive per [`runtime_protocol::process_is_alive`]:
+///    written to `abandoned` with `None` (no reason), runtime files cleared, NOT a live orphan.
+/// 3. Otherwise the descriptor's own process is genuinely alive: nothing is written at all. The
+///    row stays exactly `running`/`blocked` in the database, and a [`LiveOrphan`] is pushed onto
+///    the returned vector instead.
+///
+/// Relies entirely on [`mark_abandoned`]'s own already-terminal guard for idempotency — this
+/// function never re-implements it. Combined with the SQL filter above (a row already
+/// `completed`/`failed`/`interrupted`/`abandoned` is never even selected), calling this twice
+/// over unchanged state writes nothing and appends no second event. One transaction per changed
+/// row, exactly as `reconcile_projects`/`reconcile_worktrees` both achieve, because
+/// [`mark_abandoned`] opens and commits its own transaction per call.
+///
+/// No function in this module (nor any it calls) starts, resumes, re-attaches to, or re-spawns
+/// any process — asserted structurally by this plan's own source-scanning `<verify>` gate over
+/// this function's body: nothing is silently resumed.
+pub fn reconcile_agent_runs(conn: &mut Connection, actor_id: &str) -> anyhow::Result<Vec<LiveOrphan>> {
+    let in_flight: Vec<(String, String, String, Option<String>, String, String)> = {
+        let mut stmt = conn
+            .prepare(IN_FLIGHT_AGENT_RUNS_SELECT_SQL)
+            .context("failed to prepare the in-flight agent_runs reconciliation query")?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })
+            .context("failed to query in-flight agent_runs for reconciliation")?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .context("failed to read an in-flight agent_runs row during reconciliation")?
+    };
+
+    // One listing of every descriptor on disk, up front — cheaper than one directory read per
+    // row, and `list_run_descriptors` already tolerates a malformed entry by skipping it.
+    let descriptors: std::collections::HashMap<String, runtime_protocol::RunDescriptor> =
+        runtime_protocol::list_run_descriptors()
+            .into_iter()
+            .map(|descriptor| (descriptor.run_id.clone(), descriptor))
+            .collect();
+
+    let mut live_orphans = Vec::new();
+
+    for (run_id, task_id, project_id, external_session_id, task_key, task_title) in in_flight {
+        match runtime_protocol::read_kill_record(&run_id) {
+            KillRecordRead::Found(record) => {
+                mark_abandoned(conn, &run_id, actor_id, Some(&record.reason))?;
+                runtime_protocol::clear_run_runtime_files(&run_id);
+                continue;
+            }
+            KillRecordRead::Absent | KillRecordRead::Malformed(_) => {
+                // Fall through to the descriptor-based liveness check below — a malformed
+                // record is read as "no evidence of a kill," never as "killed".
+            }
+        }
+
+        match descriptors.get(&run_id) {
+            Some(descriptor)
+                if runtime_protocol::process_is_alive(descriptor.pid, descriptor.start_time) =>
+            {
+                live_orphans.push(LiveOrphan {
+                    run_id,
+                    task_id,
+                    task_key,
+                    task_title,
+                    project_id,
+                    external_session_id,
+                    pid: descriptor.pid,
+                    started_at: descriptor.started_at.clone(),
+                });
+            }
+            _ => {
+                mark_abandoned(conn, &run_id, actor_id, None)?;
+                runtime_protocol::clear_run_runtime_files(&run_id);
+            }
+        }
+    }
+
+    Ok(live_orphans)
+}
+
+/// The short, bounded pause [`kill_orphan`] waits between sending its force signal and
+/// re-checking liveness — long enough for a SIGKILL to actually be reaped by the OS, short
+/// enough that a Tauri command handler never appears to hang.
+const ORPHAN_KILL_RECHECK_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// What one [`kill_orphan`] call did (plan 03-06, T-03-06-04). `killed: false` means the process
+/// was still alive after the signal and the bounded re-check — never a success this function did
+/// not actually observe; the caller (plan 03-10's modal) renders that failure honestly rather
+/// than dismissing the row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrphanKillOutcome {
+    pub killed: bool,
+    pub pid: i32,
+    pub detail: Option<String>,
+}
+
+/// Send a fatal, unignorable signal to the process GROUP led by `pid` — never the bare process
+/// alone. The process group is the referent here (plan 03-02's promoted identity: the watchdog
+/// wrapper leads its own group), mirroring `packages/sidecar/src/watchdog.ts`'s own D-48 force
+/// step, `process.kill(-process.pid, "SIGKILL")`, on the Rust side of this protocol.
+#[cfg(unix)]
+fn send_group_kill_signal(pid: i32) {
+    // SAFETY: `kill(2)` is a plain syscall wrapper taking a pid and a signal number; passing a
+    // NEGATIVE pid signals the whole process group rather than one process, exactly as
+    // documented by POSIX and exercised by `watchdog.ts`'s identical convention. Any error
+    // (ESRCH — the group is already gone, or EPERM) is deliberately ignored here: this is a
+    // best-effort force signal, and the liveness re-check immediately after this call is what
+    // tells the caller whether it actually worked.
+    unsafe {
+        libc::kill(-pid, libc::SIGKILL);
+    }
+}
+
+/// No process-group signal primitive is wired for this platform yet. The liveness re-check in
+/// [`kill_orphan`] still runs after this no-op, so a non-Unix build reports an honest
+/// `killed: false` rather than a success it never performed (T-03-06-04).
+#[cfg(not(unix))]
+fn send_group_kill_signal(_pid: i32) {}
+
+/// Kill one live orphan by `agent_run_id` (plan 03-06, D-48, T-03-06-04) — the only verb the
+/// orphan-recovery modal offers (D-30, `03-UI-SPEC.md` discretion item 1). Reads the run's own
+/// descriptor from disk — never a pid supplied by the caller (T-03-06-03) — re-checks liveness
+/// (the process may have exited on its own between launch and the user's press), sends a fatal
+/// signal to the process GROUP, waits a short bounded interval, then re-checks liveness again.
+///
+/// Writes the run to `abandoned` with reason `killed-by-user-at-launch` REGARDLESS of whether
+/// the signal succeeded, following `commands::agent_run::stop_agent_run_recording_first`'s own
+/// CR-04 shape: the domain write must be reachable even when the external operation failed. A
+/// run with no descriptor on disk at all has nothing left to signal — treated the same as an
+/// already-dead process, never as an error, since the abandoning write is still exactly correct.
+pub fn kill_orphan(
+    conn: &mut Connection,
+    run_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<OrphanKillOutcome> {
+    let descriptor = runtime_protocol::list_run_descriptors()
+        .into_iter()
+        .find(|descriptor| descriptor.run_id == run_id);
+
+    let (pid, still_alive) = match &descriptor {
+        Some(descriptor) => {
+            if runtime_protocol::process_is_alive(descriptor.pid, descriptor.start_time) {
+                send_group_kill_signal(descriptor.pid);
+                std::thread::sleep(ORPHAN_KILL_RECHECK_DELAY);
+            }
+            let still_alive =
+                runtime_protocol::process_is_alive(descriptor.pid, descriptor.start_time);
+            (descriptor.pid, still_alive)
+        }
+        None => (0, false),
+    };
+
+    mark_abandoned(conn, run_id, actor_id, Some("killed-by-user-at-launch"))?;
+    runtime_protocol::clear_run_runtime_files(run_id);
+
+    if still_alive {
+        Ok(OrphanKillOutcome {
+            killed: false,
+            pid,
+            detail: Some(format!("process {pid} is still alive after the kill signal")),
+        })
+    } else {
+        Ok(OrphanKillOutcome { killed: true, pid, detail: None })
+    }
 }
