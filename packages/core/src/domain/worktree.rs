@@ -7,7 +7,7 @@
 //! promoted-primary-noun decision (plan 02-01's `<assumption_delta_decision>`): a worktree is
 //! created once per task and reused by every subsequent run.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use chrono::Utc;
@@ -188,4 +188,109 @@ pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> 
         base_branch,
         status: "active".to_string(),
     })
+}
+
+/// One line of `git status --porcelain` output, split into its two-character status code and the
+/// path it describes. A line shorter than four characters (code + separating space + at least one
+/// path byte) is kept rather than dropped — its raw text becomes `path` and its `code` reads
+/// `"??"`, so a malformed/truncated porcelain line still surfaces as SOMETHING dirty rather than
+/// silently vanishing from the count (D-42/D-43's "never silently drop a would-be-lost change").
+#[derive(Debug, Clone, PartialEq)]
+pub struct PorcelainEntry {
+    pub code: String,
+    pub path: String,
+}
+
+/// Parse `git status --porcelain`'s raw stdout for `worktree_path` into one [`PorcelainEntry`]
+/// per line, preserving git's own ordering — no filtering, no sorting, no deduplication. This is
+/// the sole caller of `git::git_status_porcelain` (WORK-03's one-porcelain-read-site contract);
+/// every caller that needs a dirty-tree read (the desktop command's fresh-at-open-time check, and
+/// [`remove_worktree_for_task`]'s own re-read) goes through this function.
+pub fn porcelain_entries(worktree_path: &Path) -> anyhow::Result<Vec<PorcelainEntry>> {
+    let raw = git::git_status_porcelain(worktree_path)?;
+    Ok(raw
+        .lines()
+        .map(|line| {
+            if line.len() < 4 {
+                PorcelainEntry { code: "??".to_string(), path: line.to_string() }
+            } else {
+                PorcelainEntry { code: line[0..2].to_string(), path: line[3..].to_string() }
+            }
+        })
+        .collect())
+}
+
+/// Remove a task's worktree (WORK-03, D-41/D-42/D-43). Bails when no `worktrees` row exists for
+/// `task_id`. **Re-reads `git status --porcelain` itself** via [`porcelain_entries`] — never
+/// trusts a caller-supplied dirty check — and bails naming the dirty count on ANY non-empty
+/// result. This closes the check-then-act window between a renderer's earlier
+/// `worktree_remove_check` read and this call: the renderer's check is advisory UI only, this
+/// re-read is the actual guard, and there is no parameter anywhere in this call chain that could
+/// skip it (D-43). Only on a verified-clean tree does it call `git::worktree_remove`, then in ONE
+/// transaction deletes the `worktrees` row and appends a `worktree.removed` event shaped like
+/// `ensure_worktree`'s own `worktree.created` payload (`reconcile_projects`'s
+/// `field`/`before`/`after`/`label` idiom).
+pub fn remove_worktree_for_task(
+    conn: &mut Connection,
+    task_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<()> {
+    let worktree = worktree_for_task(conn, task_id)?
+        .ok_or_else(|| anyhow::anyhow!("no worktree exists for task {task_id:?}"))?;
+
+    let repo_path: String = conn
+        .query_row(
+            "SELECT repo_path FROM projects WHERE id = ?1",
+            params![worktree.project_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("project {:?} not found", worktree.project_id))?;
+
+    let task_key: String = conn
+        .query_row("SELECT key FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    // Re-read porcelain HERE, never trusting the renderer's own earlier check (D-43's "no
+    // check-then-act window" requirement) — a dirty tree refuses unconditionally.
+    let entries = porcelain_entries(Path::new(&worktree.path))?;
+    if !entries.is_empty() {
+        anyhow::bail!(
+            "worktree_remove refused: {} uncommitted change(s) in {:?}",
+            entries.len(),
+            worktree.path
+        );
+    }
+
+    git::worktree_remove(Path::new(&repo_path), Path::new(&worktree.path))
+        .with_context(|| format!("failed to remove worktree for task {task_id:?}"))?;
+
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM worktrees WHERE id = ?1", params![worktree.id])
+        .context("failed to delete worktree row")?;
+
+    let sequence = next_sequence(&tx, &worktree.project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "worktree",
+        "before": worktree.branch,
+        "after": null,
+        "label": format!("Removed worktree for {task_key}"),
+    });
+    append_event(
+        &tx,
+        &worktree.project_id,
+        "local",
+        sequence,
+        "worktree",
+        &worktree.id,
+        Some(task_id),
+        None,
+        actor_id,
+        "worktree.removed",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit().context("failed to commit remove_worktree_for_task transaction")?;
+    Ok(())
 }

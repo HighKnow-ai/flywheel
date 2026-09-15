@@ -216,6 +216,45 @@ export async function worktreeSummary(taskId: string): Promise<WorktreeSummaryDt
 }
 
 /**
+ * One `git status --porcelain` entry (WORK-03, plan 03-01 Task 1) — mirrors
+ * `commands/agent_run.rs`'s `PorcelainEntryDto` field-for-field.
+ */
+export interface PorcelainEntryDto {
+  code: string;
+  path: string;
+}
+
+/**
+ * The worktree-removal dialog's fresh-at-open-time read (WORK-03, D-41/D-42, plan 03-01 Task 1) —
+ * mirrors `commands/agent_run.rs`'s `WorktreeRemovalCheckDto` field-for-field. `null` when the
+ * task has no `worktrees` row at all.
+ */
+export interface WorktreeRemovalCheckDto {
+  taskKey: string;
+  path: string;
+  branch: string;
+  entries: PorcelainEntryDto[];
+  dirtyCount: number;
+}
+
+/**
+ * A fresh, never-cached `git status --porcelain` read for `taskId`'s worktree (WORK-03,
+ * D-41/D-42, plan 03-01 Task 1). Read-only. Thin typed wrapper over `worktree_remove_check`.
+ */
+export async function worktreeRemovalCheck(taskId: string): Promise<WorktreeRemovalCheckDto | null> {
+  return invokeCommand<WorktreeRemovalCheckDto | null>("worktree_remove_check", { taskId });
+}
+
+/**
+ * Remove `taskId`'s worktree (WORK-03, D-41/D-42/D-43, plan 03-01 Task 1). The backend re-reads
+ * porcelain itself and refuses on any uncommitted change — this call carries no force flag or
+ * override of any kind (D-43). Thin typed wrapper over `worktree_remove`.
+ */
+export async function worktreeRemove(taskId: string): Promise<void> {
+  await invokeCommand<void>("worktree_remove", { taskId });
+}
+
+/**
  * Subscribe to `agent:event`, the Rust core's live push of one normalised agent event at a time
  * (D-32) — the session surface invalidates its windowed read on this, never trusting a streamed
  * event as already-persisted (mirrors `subscribeBoardChanged`'s own D-04 discipline).

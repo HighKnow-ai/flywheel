@@ -28,9 +28,16 @@
  *
  * No "open in editor/terminal" affordance is rendered — that is `LINK-11`, Phase 7, out of scope
  * here (this file's own structural `<verify>` gate greps for it).
+ *
+ * **Remove Worktree** (WORK-03, D-41, plan 03-01 Task 1) — a text-style tertiary action appended
+ * after the branch/path row, opening `WorktreeRemovalDialog`. Rendered only on the path where
+ * `query.data` resolved to a real summary — this component's own early-return ladder above
+ * already guarantees absence otherwise, so no additional guard is needed for the empty case.
  */
+import { useState } from "react";
 import { useWorktreeSummary } from "../board/useBoardQuery";
 import type { WorktreeSummaryDto } from "../adapters/tauri";
+import { WorktreeRemovalDialog } from "./WorktreeRemovalDialog";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -63,6 +70,7 @@ async function copyToClipboard(text: string): Promise<void> {
 
 export function WorktreeSummary({ taskId }: WorktreeSummaryProps) {
   const query = useWorktreeSummary(taskId);
+  const [removalDialogOpen, setRemovalDialogOpen] = useState(false);
 
   // E6 `loading`: render nothing while the read is in flight — a transitional placeholder would
   // make the section's eventual appearance stop meaning "work has started" (State Inventory).
@@ -142,6 +150,27 @@ export function WorktreeSummary({ taskId }: WorktreeSummaryProps) {
         <span role="alert" className="type-label" style={{ color: "var(--destructive-text-rack)" }}>
           More than one worktree was recorded for this task — showing the first.
         </span>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setRemovalDialogOpen(true)}
+        className="type-label"
+        style={{
+          alignSelf: "flex-start",
+          background: "transparent",
+          border: "none",
+          color: "var(--text-muted-rack)",
+          textDecoration: "underline",
+          padding: 0,
+          cursor: "pointer",
+        }}
+      >
+        Remove Worktree
+      </button>
+
+      {removalDialogOpen && (
+        <WorktreeRemovalDialog taskId={taskId} onClose={() => setRemovalDialogOpen(false)} />
       )}
     </section>
   );

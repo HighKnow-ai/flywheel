@@ -14,6 +14,8 @@ import {
   pendingPermissionRequests,
   subscribeAgentEvent,
   subscribeBoardChanged,
+  worktreeRemovalCheck,
+  worktreeRemove,
   worktreeSummary,
   type LogWindowDto,
 } from "../adapters/tauri";
@@ -793,6 +795,45 @@ export function useWorktreeSummary(taskId: string | undefined) {
     queryKey,
     queryFn: () => worktreeSummary(taskId as string),
     enabled: Boolean(taskId),
+  });
+}
+
+/** `useWorktreeRemovalCheck`'s query key, keyed by `taskId` (WORK-03, plan 03-01 Task 1). */
+function worktreeRemovalCheckQueryKey(taskId: string) {
+  return ["worktree-removal-check", taskId] as const;
+}
+
+/**
+ * A fresh, never-cached `git status --porcelain` read for the worktree-removal dialog (WORK-03,
+ * D-41/D-42, plan 03-01 Task 1). `enabled` defaults `false` and the query carries `staleTime: 0`/
+ * `gcTime: 0` so the read is taken fresh every time the dialog opens and is never served from a
+ * stale cache entry — the UI-SPEC's own "never cached" rule for this surface.
+ */
+export function useWorktreeRemovalCheck(taskId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: taskId ? worktreeRemovalCheckQueryKey(taskId) : (["worktree-removal-check", "none"] as const),
+    queryFn: () => worktreeRemovalCheck(taskId as string),
+    enabled: Boolean(taskId) && enabled,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+/**
+ * Remove a task's worktree (WORK-03, D-41/D-42/D-43, plan 03-01 Task 1). The core also emits
+ * `board:changed` (D-04) after a successful removal — `subscribeBoardChanged` is the source of
+ * truth for every surface's freshness; this mutation's own invalidation is a courtesy immediate
+ * refetch for the tab that made the call.
+ */
+export function useRemoveWorktree(taskId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => worktreeRemove(taskId as string),
+    onSuccess: () => {
+      if (taskId) {
+        queryClient.invalidateQueries({ queryKey: worktreeSummaryQueryKey(taskId) });
+      }
+    },
   });
 }
 

@@ -947,6 +947,97 @@ pub fn worktree_summary(
     Ok(summary.map(WorktreeSummaryDto::from))
 }
 
+/// One `git status --porcelain` entry, projected for the renderer (WORK-03, D-42) — mirrors
+/// `flywheel_core::domain::worktree::PorcelainEntry` field-for-field.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PorcelainEntryDto {
+    pub code: String,
+    pub path: String,
+}
+
+impl From<flywheel_core::domain::worktree::PorcelainEntry> for PorcelainEntryDto {
+    fn from(entry: flywheel_core::domain::worktree::PorcelainEntry) -> Self {
+        Self { code: entry.code, path: entry.path }
+    }
+}
+
+/// The worktree-removal dialog's fresh-at-open-time read (WORK-03, D-41/D-42) — `null` when the
+/// task has no `worktrees` row at all (mirrors `worktree_summary`'s own "absence, never a row of
+/// empty strings" contract). `dirty_count` is `entries.len()`, denormalised here so the renderer
+/// never has to recompute it and so it stays honest even against a future partial-parse path.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeRemovalCheckDto {
+    pub task_key: String,
+    pub path: String,
+    pub branch: String,
+    pub entries: Vec<PorcelainEntryDto>,
+    pub dirty_count: usize,
+}
+
+/// A fresh, never-cached `git status --porcelain` read for `task_id`'s worktree (WORK-03,
+/// D-41/D-42) — the renderer calls this at dialog-open time, never from a cached query
+/// (`useWorktreeRemovalCheck`'s own `staleTime: 0`/`gcTime: 0`). Read-only: this command never
+/// removes anything and never mutates the database, so no actor resolution is needed here.
+#[tauri::command]
+pub fn worktree_remove_check(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<Option<WorktreeRemovalCheckDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let Some(summary) =
+        flywheel_core::query::agent_runs::worktree_summary_for_task(&conn, &task_id)
+            .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    // Drop the lock before the git spawn below — the porcelain read never needs the connection.
+    drop(conn);
+
+    let entries = flywheel_core::domain::worktree::porcelain_entries(std::path::Path::new(
+        &summary.path,
+    ))
+    .map_err(|e| e.to_string())?;
+    let dirty_count = entries.len();
+
+    Ok(Some(WorktreeRemovalCheckDto {
+        task_key: summary.task_key,
+        path: summary.path,
+        branch: summary.branch,
+        entries: entries.into_iter().map(PorcelainEntryDto::from).collect(),
+        dirty_count,
+    }))
+}
+
+/// Remove `task_id`'s worktree (WORK-03, D-41/D-42/D-43). `actor_id` is resolved server-side
+/// (T-01-04) — never accepted from the renderer. `remove_worktree_for_task` re-reads porcelain
+/// itself before ever touching git — this command never trusts `worktree_remove_check`'s earlier
+/// read as authorization to proceed (D-43's "no check-then-act window"). Emits `board:changed`
+/// with `{ entity: "worktree", id: task_id }` after a successful removal, the same shape every
+/// other state-changing command in this file uses (D-04).
+#[tauri::command]
+pub fn worktree_remove(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::worktree::remove_worktree_for_task(&mut conn, &task_id, &actor_id)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "worktree", "id": task_id }),
+    )
+    .ok();
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

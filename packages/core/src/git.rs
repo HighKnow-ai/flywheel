@@ -117,3 +117,44 @@ pub fn worktree_list(repo_path: &Path) -> anyhow::Result<String> {
     let output = git_at(repo_path, &["worktree", "list"])?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
+
+/// The raw stdout of `git status --porcelain` in `worktree_path`, one line per dirty entry — no
+/// parsing of its own (mirrors [`worktree_list`]'s "no parsing, caller's job" convention above).
+/// An empty string means a clean tree. This is the ONE porcelain read in the workspace
+/// (`domain::worktree::porcelain_entries` is the sole caller) — `WORK-03`'s ordering risk (D-43)
+/// is closed by re-invoking this function inside `remove_worktree_for_task` itself rather than
+/// trusting a caller's earlier read.
+pub fn git_status_porcelain(worktree_path: &Path) -> anyhow::Result<String> {
+    let output = git_at(worktree_path, &["status", "--porcelain"])?;
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Remove a worktree (WORK-03, D-41/D-42/D-43). Takes exactly two path parameters and no boolean,
+/// option or flag of any kind — there is no parameter a caller could set to skip the dirty-tree
+/// guard (D-43's "no escape hatch"). That guard itself lives one layer up, in
+/// `domain::worktree::remove_worktree_for_task`, which re-reads porcelain and refuses BEFORE ever
+/// calling this function — by the time this function runs, the caller has already verified the
+/// tree is clean. This function performs only the same adjacency refusals [`worktree_add`]
+/// already establishes, never a dirty-tree check of its own:
+/// - `worktree_path` equals `repo_path`, or either path is empty (PROC-02 adjacency/empty)
+/// - `worktree_path` is not under the Flywheel worktree root (PROC-02 adjacency)
+pub fn worktree_remove(repo_path: &Path, worktree_path: &Path) -> anyhow::Result<Output> {
+    if repo_path.as_os_str().is_empty() {
+        bail!("worktree_remove refused: repo_path must not be empty");
+    }
+    if worktree_path.as_os_str().is_empty() {
+        bail!("worktree_remove refused: worktree_path must not be empty");
+    }
+    if worktree_path == repo_path {
+        bail!("worktree_remove refused: worktree_path {worktree_path:?} equals repo_path");
+    }
+    let root = worktree_root_from_env();
+    if !worktree_path.starts_with(&root) {
+        bail!(
+            "worktree_remove refused: worktree_path {worktree_path:?} is not under the Flywheel worktree root {root:?}"
+        );
+    }
+
+    let worktree_path_str = worktree_path.to_string_lossy().into_owned();
+    git_at(repo_path, &["worktree", "remove", &worktree_path_str])
+}

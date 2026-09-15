@@ -72,13 +72,17 @@ pub fn runs_for_task(
 
 /// A task's worktree summary (02-UI-SPEC.md "Worktree summary") — `branch`/`path` as
 /// `ensure_worktree` recorded them at creation time (D-23/D-24), never re-derived at read time.
+/// `task_key` (plan 03-01 Task 1, WORK-03) is joined in from `tasks` so the worktree-removal
+/// dialog's heading can print the task key without a second query.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorktreeSummary {
     pub branch: String,
     pub path: String,
+    pub task_key: String,
 }
 
-const WORKTREE_SUMMARY_SQL: &str = "SELECT branch, path FROM worktrees WHERE task_id = ?1";
+const WORKTREE_SUMMARY_SQL: &str = "SELECT worktrees.branch, worktrees.path, tasks.key \
+    FROM worktrees JOIN tasks ON worktrees.task_id = tasks.id WHERE worktrees.task_id = ?1";
 
 /// `task_id`'s worktree summary, or `None` for a task with no worktree yet (one worktree per
 /// task, ever — LINK-01/WORK-08's own UNIQUE constraint) — never a row of empty strings standing
@@ -88,7 +92,7 @@ pub fn worktree_summary_for_task(
     task_id: &str,
 ) -> anyhow::Result<Option<WorktreeSummary>> {
     conn.query_row(WORKTREE_SUMMARY_SQL, params![task_id], |row| {
-        Ok(WorktreeSummary { branch: row.get(0)?, path: row.get(1)? })
+        Ok(WorktreeSummary { branch: row.get(0)?, path: row.get(1)?, task_key: row.get(2)? })
     })
     .optional()
     .context("failed to read worktree summary for task")
