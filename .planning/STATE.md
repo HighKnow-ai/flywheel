@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-06-PLAN.md
-last_updated: "2026-09-15T03:48:10.790Z"
+stopped_at: Completed 03-07-PLAN.md
+last_updated: "2026-09-15T06:09:24.636Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 03 execution started
-state_head: 1967f88a0cbaab58068651e63a6586d0822a080e
+state_head: 5b98442ba97948679254f9e8a5fe346993bae39d
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 52
-  completed_plans: 45
+  completed_plans: 46
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 7 of 13
+Plan: 8 of 13
 Status: Ready to execute
 Last activity: 2026-09-15 — Phase 03 execution started
 
@@ -104,6 +104,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P04 | 35min | 3 tasks | 12 files |
 | Phase 03 P05 | 25min | 2 tasks | 3 files |
 | Phase 03 P06 | 55min | 3 tasks | 11 files |
+| Phase 03 P07 | 121min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03]: sysinfo=0.39.6 (exact-pinned) approved for pid-reuse-safe process liveness after independent crates.io re-verification (Task 1 checkpoint).
 - [Phase 03]: [Phase 03]: process_is_alive converts sysinfo's whole-seconds start_time() to milliseconds before comparing against RunDescriptor/KillRecord — both real on-disk writers (watchdog.ts, claude-code-adapter.ts) record milliseconds; a literal same-unit comparison would have classified every genuinely live orphan as dead.
 - [Phase 03]: [Phase 03]: kill_orphan signals the whole process GROUP via libc::kill(-pid, SIGKILL), always records abandoned regardless of signal outcome, and orphan_kill checks pending-orphan membership before calling it so a second kill returns a not-found error rather than a false success.
+- [Phase 03]: The PreToolUse hook's wired decision value (deny) was measured live against the real claude 2.1.236 binary this session, not inherited from a stalled prior attempt's unverified claim; both deny and ask were independently confirmed to block execution and neither defers to a permission-prompt tool.
+- [Phase 03]: FLYWHEEL_SHIM_BIN is derived in claude-code-adapter.ts from the already-installed per-run shim PATH prefix (D-51), rather than adding a new Rust-side env var for the same compiled binary.
 
 ### Pending Todos
 
@@ -203,6 +206,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-15T03:48:10.723Z
-Stopped at: Completed 03-06-PLAN.md
+Last session: 2026-09-15T06:09:17.078Z
+Stopped at: Completed 03-07-PLAN.md
 Resume file: None
