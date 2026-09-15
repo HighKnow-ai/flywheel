@@ -792,6 +792,12 @@ function worktreeSummaryQueryKey(taskId: string) {
  * future worktree-summary data source (this plan builds the read path; a later plan renders it).
  * `null` for a task with no worktree yet. Invalidated on `subscribeBoardChanged` — never polled.
  * `undefined` disables the query entirely.
+ *
+ * The missing-worktree decision banner (plan 03-09, D-45) resolves through this SAME
+ * invalidation, not a second mechanism: `worktree_recreate`/`worktree_forget_record` both emit
+ * `board:changed` on success, so once either resolves this query re-reads and the row's `status`
+ * flips away from `"missing"` — the banner disappears because the data changed, never because of
+ * a local optimistic flag.
  */
 export function useWorktreeSummary(taskId: string | undefined) {
   const queryClient = useQueryClient();

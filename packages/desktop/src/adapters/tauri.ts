@@ -204,15 +204,36 @@ export async function agentRunsForTask(
 /**
  * A task's worktree summary line (02-UI-SPEC.md "Worktree summary", plan 02-07 Task 1) — `null`
  * for a task with no worktree yet. Mirrors `commands/agent_run.rs`'s `WorktreeSummaryDto`
- * field-for-field. Thin typed wrapper over `worktree_summary`. Read-only.
+ * field-for-field. Thin typed wrapper over `worktree_summary`. Read-only. `status` (plan 03-09,
+ * WORK-06/D-45) lets the renderer branch on `"missing"` — the missing-worktree decision banner —
+ * without a second call.
  */
 export interface WorktreeSummaryDto {
   branch: string;
   path: string;
+  status: string;
 }
 
 export async function worktreeSummary(taskId: string): Promise<WorktreeSummaryDto | null> {
   return invokeCommand<WorktreeSummaryDto | null>("worktree_summary", { taskId });
+}
+
+/**
+ * D-45's "Recreate Worktree" decision (plan 03-09, WORK-06). Re-runs worktree creation against
+ * the same recorded branch/base a `missing` row already carries. Refuses (rejects) on any
+ * non-`missing` row, naming the actual status. Thin typed wrapper over `worktree_recreate`.
+ */
+export async function worktreeRecreate(taskId: string): Promise<void> {
+  await invokeCommand<void>("worktree_recreate", { taskId });
+}
+
+/**
+ * D-45's "Remove Record" decision (plan 03-09, WORK-06). Drops the `worktrees` row only — there
+ * is nothing on disk to touch. Refuses (rejects) on any non-`missing` row. Thin typed wrapper
+ * over `worktree_forget_record`.
+ */
+export async function worktreeForgetRecord(taskId: string): Promise<void> {
+  await invokeCommand<void>("worktree_forget_record", { taskId });
 }
 
 /**

@@ -48,7 +48,7 @@ describe("WorktreeSummary", () => {
   });
 
   it("renders the branch and path, both in the Mono role", async () => {
-    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42" };
+    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42", status: "active" };
     worktreeSummaryMock.mockResolvedValue(summary);
     renderSummary();
 
@@ -59,7 +59,7 @@ describe("WorktreeSummary", () => {
   });
 
   it("renders a long path with left-truncation styling and never wraps to a second row", async () => {
-    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: LONG_PATH };
+    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: LONG_PATH, status: "active" };
     worktreeSummaryMock.mockResolvedValue(summary);
     renderSummary();
 
@@ -79,7 +79,7 @@ describe("WorktreeSummary", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
 
-    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: LONG_PATH };
+    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: LONG_PATH, status: "active" };
     worktreeSummaryMock.mockResolvedValue(summary);
     renderSummary();
 
@@ -108,7 +108,7 @@ describe("WorktreeSummary", () => {
   });
 
   it("renders no editor or terminal affordance", async () => {
-    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42" };
+    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42", status: "active" };
     worktreeSummaryMock.mockResolvedValue(summary);
     renderSummary();
 

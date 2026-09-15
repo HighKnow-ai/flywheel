@@ -144,6 +144,8 @@ fn main() {
             commands::agent_run::worktree_summary,
             commands::agent_run::worktree_remove_check,
             commands::agent_run::worktree_remove,
+            commands::agent_run::worktree_recreate,
+            commands::agent_run::worktree_forget_record,
             commands::agent_run::agent_run_stop,
             commands::agent_run::agent_run_answer_permission,
             commands::agent_run::permission_rules_list,

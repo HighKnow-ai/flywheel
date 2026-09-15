@@ -975,17 +975,19 @@ pub fn agent_runs_for_task(
 /// A task's worktree summary line (02-UI-SPEC.md "Worktree summary") — mirrors
 /// `flywheel_core::query::agent_runs::WorktreeSummary` field-for-field. Mirrors
 /// `worktree_summary_for_task`'s own contract: `None`/`null` for a task with no worktree yet,
-/// never a row of empty strings.
+/// never a row of empty strings. `status` (plan 03-09, WORK-06/D-45) lets the renderer branch on
+/// `"missing"` — the missing-worktree decision banner — without a second call.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeSummaryDto {
     pub branch: String,
     pub path: String,
+    pub status: String,
 }
 
 impl From<flywheel_core::query::agent_runs::WorktreeSummary> for WorktreeSummaryDto {
     fn from(summary: flywheel_core::query::agent_runs::WorktreeSummary) -> Self {
-        Self { branch: summary.branch, path: summary.path }
+        Self { branch: summary.branch, path: summary.path, status: summary.status }
     }
 }
 
@@ -1081,6 +1083,65 @@ pub fn worktree_remove(
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::worktree::remove_worktree_for_task(&mut conn, &task_id, &actor_id)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "worktree", "id": task_id }),
+    )
+    .ok();
+
+    Ok(())
+}
+
+/// D-45's "Recreate Worktree" decision (plan 03-09, WORK-06) — re-runs worktree creation against
+/// the SAME recorded branch/base a `missing` row already carries; never resolves a new base ref
+/// and mints no new branch. `actor_id` is resolved server-side (T-01-04) — never accepted from
+/// the renderer. Delegates straight to `recreate_worktree_for_task`, which itself refuses on any
+/// non-`missing` row (naming the actual status in the error) — this command carries no
+/// force/override parameter beyond `task_id`, so there is no second guard here and no way around
+/// the first. `recreate_worktree_for_task` shells out to git; the connection lock is dropped
+/// before that call so a slow git operation never holds `state.db` (mirrors `agent_run_start`'s
+/// own resolve-before-lock discipline for `send_spawn_request`, see the comment above it). Emits
+/// `board:changed` with `{ entity: "worktree", id: task_id }` on success — `useWorktreeSummary`'s
+/// existing invalidation is what makes the banner disappear once the row reads `active` again.
+#[tauri::command]
+pub fn worktree_recreate(state: State<AppState>, app: AppHandle, task_id: String) -> Result<(), String> {
+    let actor_id = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?
+    };
+
+    {
+        let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+        flywheel_core::domain::worktree::recreate_worktree_for_task(&mut conn, &task_id, &actor_id)
+            .map_err(|e| e.to_string())?;
+    }
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "worktree", "id": task_id }),
+    )
+    .ok();
+
+    Ok(())
+}
+
+/// D-45's "Remove Record" decision (plan 03-09, WORK-06) — drops the `worktrees` row only; there
+/// is nothing on disk to touch, since the row being `missing` is exactly what means nothing is
+/// there. `actor_id` is resolved server-side (T-01-04) — never accepted from the renderer.
+/// Delegates straight to `forget_worktree_record`, which itself refuses on any non-`missing` row
+/// and makes no filesystem call of any kind — the only removal path for a REAL, on-disk worktree
+/// remains plan 03-01's porcelain-checked `worktree_remove`. This command carries no
+/// force/override parameter beyond `task_id`, so there is no second guard here and no way around
+/// the first. Emits `board:changed` with `{ entity: "worktree", id: task_id }` on success.
+#[tauri::command]
+pub fn worktree_forget_record(state: State<AppState>, app: AppHandle, task_id: String) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::worktree::forget_worktree_record(&mut conn, &task_id, &actor_id)
         .map_err(|e| e.to_string())?;
     drop(conn);
 
