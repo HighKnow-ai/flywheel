@@ -43,6 +43,13 @@
  * ever target `field-*` classes) that already makes the criteria checked/total badge exempt from
  * the row's progressive-disclosure ladder — a blocked task must never silently lose its blocked
  * signal at a narrower window width (D-08's reasoning, applied here).
+ *
+ * Plan 03-11 Task 2 adds a second such pill, "Needs Decision" (D-46): trailing the Blocked pill
+ * when both are present, or trailing the status glyph alone otherwise. It carries the SAME no-
+ * `field-*`-class truncation exemption as the Blocked pill above — TWO pills are now structurally
+ * exempt from the row's progressive-disclosure ladder, not one, per 03-UI-SPEC.md's own rule that
+ * when a long title and both pills compete for row width, both pills hold their space and the
+ * title truncates instead.
  */
 import type { CSSProperties, ComponentType, MouseEvent } from "react";
 import * as icons from "lucide-react";
@@ -98,6 +105,11 @@ export interface BoardRowProps {
    * `BoardView`'s `useBlockedSummary(projectId)` read, never a per-row query of its own. Renders
    * the blocked pill layered onto the status glyph; absent (not a visible zero) when `false`. */
   blocked?: boolean;
+  /** True when this task has an outstanding recovery item — a missing worktree, or an
+   * unacknowledged abandoned run (D-46, plan 03-11) — `BoardView`'s `useRecoverySummary(projectId)`
+   * read, never a per-row query of its own. Renders the Needs Decision pill trailing the Blocked
+   * pill (or the status glyph alone); absent (not a visible zero) when `false`. */
+  needsDecision?: boolean;
   onSelect?: () => void;
   onOpenDetail?: () => void;
   onOpenStatusPicker?: () => void;
@@ -108,6 +120,11 @@ export interface BoardRowProps {
    * permission-request card automatically whenever a pending request exists, plan 02-06 Task 2),
    * the fastest path from "I see something needs me" to "I answered it." */
   onOpenBlocked?: () => void;
+  /** Activating the Needs Decision pill — opens the item detail panel for this task (D-46, plan
+   * 03-11). 03-UI-SPEC.md asks for the panel to scroll to whichever section holds the actionable
+   * content (worktree summary first, runs section otherwise); the panel exposes no target-section
+   * mechanism yet, so this opens the panel plainly — see this plan's SUMMARY.md for the named gap. */
+  onOpenRecovery?: () => void;
 }
 
 export function BoardRow({
@@ -119,6 +136,7 @@ export function BoardRow({
   posInSet,
   setSize,
   blocked = false,
+  needsDecision = false,
   onSelect,
   onOpenDetail,
   onOpenStatusPicker,
@@ -126,9 +144,11 @@ export function BoardRow({
   onOpenEstimatePicker,
   onOpenAssigneePicker,
   onOpenBlocked,
+  onOpenRecovery,
 }: BoardRowProps) {
   const statusMark = MARKS_BY_ID[statusMarkId(item.status)];
   const blockedMark = MARKS_BY_ID["blocked-indicator"];
+  const recoveryMark = MARKS_BY_ID["recovery-needed"];
   const priorityMark = MARKS_BY_ID[priorityMarkId(item.priority)];
   const epicMark = MARKS_BY_ID["epic-pill-none"];
   // Defence in depth (G-01-2, T-01-17-02): once `epicsById` is the project's full roster
@@ -161,7 +181,8 @@ export function BoardRow({
   // 01-UI-SPEC.md Accessibility: each row's accessible name concatenates key, title, status,
   // priority and the criteria checked/total count — virtualization must not silently break
   // linear screen-reader navigation. "Blocked" appends when set (D-37) — never colour alone.
-  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}${blocked ? ", Blocked" : ""}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked`;
+  // "Needs Decision" appends after it when set (D-46) — same discipline, never colour alone.
+  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}${blocked ? ", Blocked" : ""}${needsDecision ? ", Needs Decision" : ""}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked`;
 
   function handleRowClick() {
     onSelect?.();
@@ -170,6 +191,11 @@ export function BoardRow({
   function handleBlockedPillClick(event: MouseEvent<HTMLSpanElement>) {
     event.stopPropagation();
     onOpenBlocked?.();
+  }
+
+  function handleRecoveryPillClick(event: MouseEvent<HTMLSpanElement>) {
+    event.stopPropagation();
+    onOpenRecovery?.();
   }
 
   function handleStatusGlyphClick(event: MouseEvent<HTMLSpanElement>) {
@@ -262,6 +288,32 @@ export function BoardRow({
         >
           <Icon name={blockedMark?.glyph ?? "ShieldAlert"} size={12} />
           {blockedMark?.label ?? "Blocked"}
+        </span>
+      )}
+      {needsDecision && (
+        // No `field-*` class (see the module doc comment above) — the same truncation-exemption
+        // mechanism the Blocked pill above already uses, extended to a second pill (D-46). Trails
+        // the Blocked pill when both are present, or the status glyph alone otherwise.
+        <span
+          role="button"
+          aria-label={`${recoveryMark?.label ?? "Needs Decision"}. Press to view.`}
+          title={recoveryMark?.meaning}
+          onClick={handleRecoveryPillClick}
+          className="type-micro"
+          style={{
+            display: "inline-flex",
+            flexShrink: 0,
+            alignItems: "center",
+            gap: 2,
+            color: "var(--destructive-strip)",
+            border: "1px solid var(--destructive-strip)",
+            borderRadius: "var(--radius-chrome)",
+            padding: "1px var(--space-xs)",
+            cursor: "pointer",
+          }}
+        >
+          <Icon name={recoveryMark?.glyph ?? "TriangleAlert"} size={12} />
+          {recoveryMark?.label ?? "Needs Decision"}
         </span>
       )}
       <span

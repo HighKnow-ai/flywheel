@@ -353,6 +353,14 @@ export const MARKS: Mark[] = [
     label: "Abandoned",
     meaning: "Flywheel was not running to supervise this session; it did not reach a clean end (D-49).",
   },
+  {
+    id: "recovery-needed",
+    channel: "agent",
+    glyph: "TriangleAlert",
+    label: "Needs Decision",
+    meaning:
+      "A previous session left something on this task for you to decide (D-46). Deliberately the same glyph as worktree-missing above — this row pill is a rollup of that same underlying fact, not a copy-paste slip, mirroring run-blocked/blocked-indicator's own shared-glyph precedent.",
+  },
 ];
 
 /**

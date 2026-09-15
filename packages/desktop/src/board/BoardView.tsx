@@ -66,6 +66,7 @@ import {
   useCreateIssue,
   useDeleteItem,
   useEpics,
+  useRecoverySummary,
   useReorderItem,
   useSetAssignee,
   useSetEstimate,
@@ -312,6 +313,16 @@ export function BoardView({
   const blockedTaskIds = useMemo(
     () => new Set(blockedSummaryQuery.data?.blockedTaskIds ?? []),
     [blockedSummaryQuery.data],
+  );
+
+  // D-46's board-visible "recovery needed" signal (plan 03-11 Task 2) — one project-scoped read,
+  // mirroring `blockedSummaryQuery` above exactly, so `BoardRow`'s Needs Decision pill and the
+  // project rail's own read (`ProjectRail.tsx`) always agree on which tasks have an outstanding
+  // recovery item.
+  const recoverySummaryQuery = useRecoverySummary(projectId);
+  const recoveryTaskIds = useMemo(
+    () => new Set(recoverySummaryQuery.data?.recoveryTaskIds ?? []),
+    [recoverySummaryQuery.data],
   );
 
   // Item id -> {key, title, kind} for both epics and tasks — `IssuesLane.tsx` looks an issue's
@@ -785,6 +796,7 @@ export function BoardView({
                   posInSet={row.posInSet}
                   setSize={counts[BAND_COUNT_KEY[row.item.status as BandStatus]]}
                   blocked={blockedTaskIds.has(row.item.id)}
+                  needsDecision={recoveryTaskIds.has(row.item.id)}
                   onSelect={() => setSelectedId(row.item.id)}
                   onOpenDetail={() => {
                     setSelectedId(row.item.id);
@@ -811,6 +823,14 @@ export function BoardView({
                     // Task 2 already renders the compact permission-request card there whenever a
                     // pending request exists — this IS the fastest path from "I see something
                     // needs me" to "I answered it" (D-37).
+                    setSelectedId(row.item.id);
+                    setDetailItemId(row.item.id);
+                  }}
+                  onOpenRecovery={() => {
+                    // Same destination as the Blocked pill and double-clicking the row — opens
+                    // the item detail panel (D-46, plan 03-11). No target-section mechanism exists
+                    // on the panel yet to scroll straight to WorktreeSummary/RunsSection, so this
+                    // opens the panel plainly; see this plan's SUMMARY.md for the named gap.
                     setSelectedId(row.item.id);
                     setDetailItemId(row.item.id);
                   }}
