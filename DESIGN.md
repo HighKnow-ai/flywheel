@@ -1554,3 +1554,85 @@ path exists anywhere in this plan's production code.
 - The `packages/desktop/src/recovery/` directory now exists and holds this plan's one component; any
   future recovery-adjacent surface should land here rather than reopening the `components/` question
   `03-PATTERNS.md` raised and this plan declined.
+
+# Phase 3, Plan 03-11 — The Needs Decision Pill and the Rail's Second Badge (WORK-06, PROC-05, D-46)
+
+## What was built
+
+- `recovery_task_ids_for_project`/`recovery_count_for_project`
+  (`packages/core/src/query/recovery.rs`) — one `UNION` over `worktrees.status = 'missing'` and
+  `agent_runs.status = 'abandoned' AND acknowledged_at IS NULL`, structurally mirroring
+  `query::permissions::blocked_task_ids_for_project`/`blocked_count_for_project`. `UNION`, not
+  `UNION ALL`, is what de-duplicates a task carrying BOTH conditions to exactly one row — a source
+  gate proves the absence of `UNION ALL` the same way the module's own gate proves the absence of
+  `format!`. Deliberately does NOT require the abandoned run to be the task's most recent run: a
+  clean later run does not retroactively make an earlier, never-acknowledged abandonment seen.
+- `board_recovery_summary` (new Tauri command) + `RecoverySummaryDto`, `boardRecoverySummary`
+  (adapter) and `useRecoverySummary` (TanStack Query hook) — the same three-layer shape
+  `board_blocked_summary`/`BlockedSummaryDto`/`useBlockedSummary` already established. Invalidated
+  on `subscribeBoardChanged`, no polling: every command that resolves a recovery item
+  (`worktree_recreate`, `worktree_forget_record`, `agent_run_acknowledge`) already emits
+  `board:changed`, so the pill clears through the same push-invalidate path the rest of the board
+  uses.
+- `recovery-needed` mark (new, `TriangleAlert` glyph, agent channel) — deliberately the SAME glyph
+  as `worktree-missing`'s banner icon, since the row pill is a rollup of that same underlying fact;
+  mirrors `run-blocked`/`blocked-indicator`'s own shared-glyph precedent from Phase 2. Published in
+  `legend/marks.ts` before `BoardRow.tsx` references it.
+- `BoardRow.tsx`'s Needs Decision pill — trails the Blocked pill (or the status glyph alone) in the
+  same no-`field-*`-class structural position that already exempts Blocked from the row's
+  progressive-disclosure truncation ladder. Uses `--destructive-strip` for text/border on strip
+  material, mirroring the Blocked pill's own `--blocked-text-strip` treatment shape rather than
+  inventing a new one. Activating it opens the item detail panel via the same `onOpenDetail`
+  destination the Blocked pill already uses.
+- `ProjectRail.tsx`'s second count badge — `--destructive-text-rack` background, positioned at the
+  OPPOSITE corner (bottom-right) from the existing Blocked badge/Unreachable glyph (both top-right)
+  so the two never visually collide when both render on the same entry. Gated on
+  `isCurrent && recoveryCount > 0`, exactly like the Blocked badge; a source gate over
+  `ProjectRail.tsx` proves no `blockedCount + ` arithmetic combines the two counts.
+
+## Review against the direction contract
+
+- **Never colour alone:** the Needs Decision pill carries the literal words "Needs Decision" plus a
+  distinct glyph (`TriangleAlert`) from Blocked's `ShieldAlert`; the rail's second badge is
+  distinguished by its printed tooltip and its opposite-corner position, never colour alone.
+- **60/30/10 unaffected, zero new colour tokens:** the pill/badge both reuse
+  `--destructive-strip`/`--destructive-text-rack`, the same destructive-family budget Phase 2's
+  "Failed" status and this phase's `run-abandoned`/`worktree-missing` marks already spend. Zero raw
+  hex literals in `BoardRow.tsx` (verified by this plan's own `<verify>` grep gate, unchanged from
+  03-09/03-10's identical gate).
+- **Three independent distinguishing axes from Blocked** (03-UI-SPEC.md's own requirement): a
+  different glyph (`TriangleAlert` vs. `ShieldAlert`), a different printed word ("Needs Decision"
+  vs. "Blocked"), and a different colour family (destructive-red vs. blocked-amber).
+- **Truncation ladder:** `BoardRow.tsx`'s header comment now names TWO truncation-exempt pills, not
+  one — both hold their space and the title truncates instead, per 03-UI-SPEC.md's own rule.
+- **Named gap:** the pill's activation opens the item detail panel plainly rather than scrolled to
+  the worktree summary or runs section specifically — `03-CONTEXT.md`'s own flagged assumption
+  anticipated this: no target-section mechanism exists on the panel yet (`uiStore.ts` carries no
+  scroll target field), so Task 2 built the reachable half (open the panel) and named the gap here
+  rather than building a scroll mechanism this plan's `files_modified` never scoped.
+
+## Craft floor review
+
+No live Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display
+available to this executor, matching every prior Phase 3 plan's own precedent). The Impeccable
+detector (`detect.mjs --json`) was run directly against `BoardRow.tsx`, `ProjectRail.tsx` and
+`legend/marks.ts` and reported zero findings for all three. `cargo build --workspace`/`cargo test
+--workspace` and `npm --prefix packages/desktop run build`/`run test` (full suite) are this plan's
+actual evidence.
+
+## Known Stubs
+
+None. Both the pill and the rail badge are wired to the real `board_recovery_summary` read — no
+mock data path exists anywhere in this plan's production code.
+
+## What the next plan inherits
+
+- `query::recovery`'s `UNION`-over-two-tables shape is the reference pattern for any future rollup
+  that must merge two independent "needs attention" signals into one de-duplicated set without
+  double-counting a task that trips both.
+- `RecoverySummaryDto`/`useRecoverySummary` are on the wire end to end — any future surface needing
+  "does this task have something the user hasn't seen" can read the same summary without a second
+  query.
+- The item detail panel still has no target-section mechanism — the next surface that needs to open
+  it scrolled to a specific section (this plan's own named gap, or any future one) will need to add
+  that mechanism once, rather than each caller inventing its own.

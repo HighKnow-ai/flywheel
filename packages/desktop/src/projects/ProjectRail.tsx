@@ -21,11 +21,17 @@
  * real mechanism rather than a placeholder. Renders a numeral, never a raw dot, and renders
  * nothing at all at zero (never a visible "0") — only the CURRENT project's entry carries it, per
  * this plan's own scope (a rail-wide per-project count is FLEET-02's job).
+ *
+ * Plan 03-11 Task 3 adds a SECOND, visually distinct badge for D-46's "recovery needed" count —
+ * never summed with the blocked-count badge above, since the two carry different urgency (Blocked:
+ * a live agent is waiting on the user right now; Needs Decision: a past session left something to
+ * decide, with no live spend attached). Same zero-renders-nothing rule, same current-project-only
+ * scope, opposite corner so the two badges never visually collide.
  */
 import { useState, type CSSProperties } from "react";
 import { Plus, TriangleAlert } from "lucide-react";
 import type { Project } from "../board/useBoardQuery";
-import { useBlockedSummary } from "../board/useBoardQuery";
+import { useBlockedSummary, useRecoverySummary } from "../board/useBoardQuery";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 
 // 01-UI-SPEC.md "Project switcher (left rail)": "collapsed width ~56–72px" — 72 (the upper
@@ -106,6 +112,14 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   // entirely (no read at all) when no project is current.
   const blockedSummaryQuery = useBlockedSummary(currentProjectId);
   const blockedCount = blockedSummaryQuery.data?.blockedCount ?? 0;
+  // D-46's board-visible "recovery needed" count (plan 03-11 Task 3) — called unconditionally,
+  // immediately after the blocked-summary call above, for the same reason. A SEPARATE badge from
+  // blockedCount, never summed into it: Blocked means a live agent is waiting on the user right
+  // now; Needs Decision means a past session left something to decide with no live spend
+  // attached — different urgencies, so a single number would flatten the one distinction the rail
+  // exists to make at a glance.
+  const recoverySummaryQuery = useRecoverySummary(currentProjectId);
+  const recoveryCount = recoverySummaryQuery.data?.recoveryCount ?? 0;
 
   if (projects.length === 0) {
     // Not present pre-first-registration — `App.tsx` renders `FirstRun` instead, but this guard
@@ -157,6 +171,35 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                 }}
               >
                 {blockedCount}
+              </span>
+            )}
+            {isCurrent && recoveryCount > 0 && (
+              // A second, visually distinct badge (destructive-red family) — never merged with
+              // blockedCount above (D-46). Positioned at the opposite corner from the Blocked
+              // badge/Unreachable glyph so neither ever overlaps the other when both are present.
+              <span
+                aria-hidden="true"
+                title={
+                  recoveryCount === 1 ? "1 task needs a decision." : `${recoveryCount} tasks need a decision.`
+                }
+                className="type-micro tabular-nums"
+                style={{
+                  position: "absolute",
+                  bottom: -4,
+                  right: -4,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minWidth: 16,
+                  height: 16,
+                  padding: "0 3px",
+                  color: "var(--surface-dominant)",
+                  background: "var(--destructive-text-rack)",
+                  borderRadius: "50%",
+                  fontWeight: 600,
+                }}
+              >
+                {recoveryCount}
               </span>
             )}
             {isUnreachable && (

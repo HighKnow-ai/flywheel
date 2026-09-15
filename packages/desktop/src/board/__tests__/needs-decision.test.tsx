@@ -1,14 +1,27 @@
 /**
- * Behavior under test (03-11-PLAN.md Task 2, D-46): a task with an outstanding recovery item (a
- * missing worktree, or an unacknowledged abandoned run) renders a "Needs Decision" pill on its
- * board row — distinguishable from the existing Blocked pill by glyph, printed word and colour
- * family, structurally exempt from the row's progressive-disclosure truncation ladder. Task 3
- * extends this file with the project rail's own second count badge.
+ * Behavior under test (03-11-PLAN.md Tasks 2 and 3, D-46): a task with an outstanding recovery
+ * item (a missing worktree, or an unacknowledged abandoned run) renders a "Needs Decision" pill on
+ * its board row — distinguishable from the existing Blocked pill by glyph, printed word and colour
+ * family, structurally exempt from the row's progressive-disclosure truncation ladder — and the
+ * current project's rail gains a second, visually distinct count badge, never merged with the
+ * existing Blocked count.
  */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardRow } from "../BoardRow";
-import type { BoardItem } from "../useBoardQuery";
+import { ProjectRail } from "../../projects/ProjectRail";
+import type { BoardItem, Project } from "../useBoardQuery";
+
+const invokeCommandMock = vi.fn();
+
+vi.mock("../../adapters/tauri", () => ({
+  invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
+  subscribeBoardChanged: () => Promise.resolve(() => {}),
+  openFolderDialog: () => Promise.resolve(null),
+  blockedSummary: (projectId: string) => invokeCommandMock("board_blocked_summary", { projectId }),
+  boardRecoverySummary: (projectId: string) => invokeCommandMock("board_recovery_summary", { projectId }),
+}));
 
 function makeItem(overrides: Partial<BoardItem> = {}): BoardItem {
   return {
@@ -101,5 +114,74 @@ describe("BoardRow Needs Decision pill (D-46)", () => {
     const source = await import("../BoardRow.tsx?raw");
     const text: string = source.default;
     expect(text).toMatch(/recoveryMark\?\.glyph/);
+  });
+});
+
+describe("ProjectRail second count badge (D-46)", () => {
+  const PROJECT: Project = {
+    id: "proj-1",
+    keyPrefix: "FLY",
+    name: "Flywheel",
+    repoPath: "/repo",
+    defaultBranch: "main",
+    status: "reachable",
+  };
+
+  function renderRail(blockedCount: number, recoveryCount: number) {
+    invokeCommandMock.mockReset();
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "board_blocked_summary") {
+        return Promise.resolve({ blockedTaskIds: [], blockedCount });
+      }
+      if (command === "board_recovery_summary") {
+        return Promise.resolve({ recoveryTaskIds: [], recoveryCount });
+      }
+      return Promise.resolve(undefined);
+    });
+    const queryClient = new QueryClient();
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectRail projects={[PROJECT]} currentProjectId={PROJECT.id} onSelect={() => {}} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("renders no badge at all when both counts are zero", async () => {
+    renderRail(0, 0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByTitle(/need.*a decision/)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/waiting on you/)).not.toBeInTheDocument();
+  });
+
+  it("renders exactly one badge (the Blocked one) when the recovery count is zero but the blocked count is not", async () => {
+    renderRail(2, 0);
+    expect(await screen.findByTitle("2 tasks waiting on you")).toBeInTheDocument();
+    expect(screen.queryByTitle(/need.*a decision/)).not.toBeInTheDocument();
+  });
+
+  it("renders two badges with different background colours when both counts are non-zero", async () => {
+    renderRail(2, 3);
+    const blockedBadge = await screen.findByTitle("2 tasks waiting on you");
+    const recoveryBadge = await screen.findByTitle("3 tasks need a decision.");
+    expect(blockedBadge).toBeInTheDocument();
+    expect(recoveryBadge).toBeInTheDocument();
+    expect(getComputedStyle(blockedBadge).background).not.toBe(getComputedStyle(recoveryBadge).background);
+  });
+
+  it("renders the singular tooltip at exactly one task needing a decision", async () => {
+    renderRail(0, 1);
+    expect(await screen.findByTitle("1 task needs a decision.")).toBeInTheDocument();
+  });
+
+  it("renders the plural tooltip above one task needing a decision", async () => {
+    renderRail(0, 4);
+    expect(await screen.findByTitle("4 tasks need a decision.")).toBeInTheDocument();
+  });
+
+  it("never combines the two counts into one number", async () => {
+    renderRail(2, 3);
+    expect(await screen.findByText("2")).toBeInTheDocument();
+    expect(await screen.findByText("3")).toBeInTheDocument();
+    expect(screen.queryByText("5")).not.toBeInTheDocument();
   });
 });
