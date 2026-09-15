@@ -377,6 +377,10 @@ export interface PendingPermissionRequestDto {
   toolName: string;
   inputPayload: string | null;
   createdAt: string;
+  /** `null` for a routine request, or one of `DestructiveCategory::as_str()`'s kebab-case names
+   * (e.g. `"force-push"`, `"uncategorized"`) for a destructive one — selects the destructive-
+   * action gate card's variant (03-12, D-55/D-56). */
+  destructiveCategory: string | null;
 }
 
 /**

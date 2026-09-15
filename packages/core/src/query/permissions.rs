@@ -52,9 +52,15 @@ pub struct PendingPermissionRequest {
     pub tool_name: String,
     pub input_payload: Option<String>,
     pub created_at: String,
+    /// `None` for the routine variant, `Some(category)` for a destructive one — the exact
+    /// kebab-case string `destructive::DestructiveCategory::as_str()` produces (plan 03-07's
+    /// classifier is the ONE place these strings are minted). Lets the destructive-action gate
+    /// card (plan 03-12) select its variant without a second query.
+    pub destructive_category: Option<String>,
 }
 
-const PENDING_REQUESTS_FOR_RUN_SQL: &str = "SELECT id, tool_name, input_payload, created_at \
+const PENDING_REQUESTS_FOR_RUN_SQL: &str =
+    "SELECT id, tool_name, input_payload, created_at, destructive_category \
     FROM permission_requests WHERE agent_run_id = ?1 AND status = 'pending' \
     ORDER BY created_at ASC, id ASC";
 
@@ -66,6 +72,11 @@ const PENDING_REQUESTS_FOR_RUN_SQL: &str = "SELECT id, tool_name, input_payload,
 /// latest. `domain::permission_request::pending_for_run`'s `LIMIT 1` serves a different caller
 /// (the sidecar-answer round trip, which only ever settles one row per answer) and is unaffected
 /// by this addition.
+///
+/// Widened (plan 03-12) to also select `destructive_category` — this does NOT change the
+/// windowing or ordering above: this read still returns ALL pending rows for a run, never just
+/// the latest, per Phase 2's own fix for two concurrent tool calls each raising their own pending
+/// row. Do not reintroduce a `LIMIT` here.
 pub fn pending_requests_for_run(
     conn: &Connection,
     agent_run_id: &str,
@@ -78,6 +89,7 @@ pub fn pending_requests_for_run(
                 tool_name: row.get(1)?,
                 input_payload: row.get(2)?,
                 created_at: row.get(3)?,
+                destructive_category: row.get(4)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>();

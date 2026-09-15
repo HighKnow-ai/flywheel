@@ -735,11 +735,21 @@ pub struct PendingPermissionRequestDto {
     pub tool_name: String,
     pub input_payload: Option<String>,
     pub created_at: String,
+    /// `None` for a routine request, `Some(category)` (one of
+    /// `destructive::DestructiveCategory::as_str()`'s kebab-case names) for a destructive one —
+    /// selects the destructive-action gate card's variant (plan 03-12).
+    pub destructive_category: Option<String>,
 }
 
 impl From<flywheel_core::query::permissions::PendingPermissionRequest> for PendingPermissionRequestDto {
     fn from(r: flywheel_core::query::permissions::PendingPermissionRequest) -> Self {
-        Self { id: r.id, tool_name: r.tool_name, input_payload: r.input_payload, created_at: r.created_at }
+        Self {
+            id: r.id,
+            tool_name: r.tool_name,
+            input_payload: r.input_payload,
+            created_at: r.created_at,
+            destructive_category: r.destructive_category,
+        }
     }
 }
 
