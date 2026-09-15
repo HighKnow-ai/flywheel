@@ -550,6 +550,57 @@ fn emit_persistence_failure_notice(app: &AppHandle, run_id: &str, detail: &str) 
     let _ = app.emit("agent:event", &payload);
 }
 
+/// D-53 (plan 03-13): apply one `git_lock_exhausted` notice event to the database — resolves the
+/// seeded SYSTEM actor server-side (`flywheel_core::domain::actor::system_actor`, per
+/// `03-UI-SPEC.md`'s "Git lock-exhaustion entry") and calls
+/// `flywheel_core::domain::agent_run::record_lock_exhaustion`. Mirrors `persist_event_line`'s own
+/// discipline: a failure here is a logged value, never a panic and never an early return that
+/// abandons the shared reader loop (CR-03) — one run's failed exhaustion write can never silence
+/// every other run's feed.
+fn handle_inbound_git_lock_exhausted(app: &AppHandle, event: &serde_json::Value) {
+    let (Some(run_id), Some(repository), Some(command), Some(attempts)) = (
+        event.get("runId").and_then(|v| v.as_str()),
+        event.get("repository").and_then(|v| v.as_str()),
+        event.get("command").and_then(|v| v.as_str()),
+        event.get("attempts").and_then(|v| v.as_u64()),
+    ) else {
+        return;
+    };
+
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return;
+    };
+    let Ok(mut conn) = state.db.lock() else {
+        return;
+    };
+
+    let result = flywheel_core::domain::actor::system_actor(&conn)
+        .context("failed to resolve the seeded system actor")
+        .and_then(|actor| {
+            flywheel_core::domain::agent_run::record_lock_exhaustion(
+                &mut conn,
+                run_id,
+                repository,
+                command,
+                attempts as u32,
+                &actor.id,
+            )
+        });
+    drop(conn);
+
+    match result {
+        Ok(()) => {
+            let _ = app.emit(
+                "board:changed",
+                serde_json::json!({ "entity": "agent_run", "id": run_id }),
+            );
+        }
+        Err(err) => {
+            eprintln!("failed to record a git lock exhaustion for run {run_id}: {err:#}");
+        }
+    }
+}
+
 /// CR-03's exact failure mode, as falsifiable tests: force `SessionLogWriter::open` to fail for
 /// one run and prove — by bytes on disk, not just the return value — that another run's events
 /// keep flowing. Follows `packages/core/tests/session_log_window.rs`'s own precedent of writing
@@ -974,6 +1025,22 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                     &app_for_reader,
                                     &event,
                                 );
+                            }
+
+                            // D-53 (plan 03-13): the shim's exhaustion notice already reached the
+                            // renderer via the `agent:event` emit above (Task 2's FeedRow.tsx
+                            // renders nothing for it, by design — the notice is a feed event only,
+                            // never a database write). This branch is what makes an exhausted
+                            // retry budget a durable, human-rendered Activity Trail entry.
+                            //
+                            // Deliberately NO branch exists here for the shim's OTHER notice kind
+                            // (the "still retrying" one) — writing a row per individual collision
+                            // is exactly the noise D-53 rejects; only exhaustion is ever
+                            // persisted.
+                            if event.get("type").and_then(|v| v.as_str())
+                                == Some("git_lock_exhausted")
+                            {
+                                handle_inbound_git_lock_exhausted(&app_for_reader, &event);
                             }
                         }
                         Ok(SidecarStdoutLine::Ack {

@@ -70,3 +70,46 @@ describe("ActivityTrail", () => {
     expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
   });
 });
+
+describe("Git lock-exhaustion entry (D-53, plan 03-13)", () => {
+  const EXHAUSTION_SENTENCE = "Git lock contention: git commit in /repo/path failed after 5 attempts.";
+
+  function makeExhaustionEvent(i: number): ActivityEventDto {
+    return {
+      id: `exhaustion-${i}`,
+      projectId: "proj-1",
+      origin: "local",
+      sequence: i + 1,
+      actorId: "system-actor",
+      eventType: "git.lock_exhausted",
+      description: EXHAUSTION_SENTENCE,
+      occurredAt: "2026-01-01T00:00:00.000Z",
+    };
+  }
+
+  it("renders the Copywriting Contract sentence with the repository, command and attempt count interpolated", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "events_activity_trail") return Promise.resolve([makeExhaustionEvent(0)]);
+      if (command === "actor_list") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    renderTrail();
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+    expect(screen.getByText(EXHAUSTION_SENTENCE)).toBeInTheDocument();
+  });
+
+  it("renders two exhaustion entries as two ordinary separate trail entries", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "events_activity_trail") return Promise.resolve([makeExhaustionEvent(0), makeExhaustionEvent(1)]);
+      if (command === "actor_list") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    renderTrail();
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
+    expect(screen.getAllByText(EXHAUSTION_SENTENCE)).toHaveLength(2);
+  });
+});

@@ -275,6 +275,77 @@ pub fn close_agent_run(
     Ok(())
 }
 
+/// D-53/plan 03-13: append exactly ONE `git.lock_exhausted` event when a shimmed `git`
+/// invocation's retry budget is fully exhausted — never one event per individual collision,
+/// which is precisely the noise D-53 rejects (`git_retry::with_lock_retry`'s own "silent unless
+/// exhausted" contract). `actor_id` is resolved by the CALLER — the sidecar reader loop resolves
+/// the seeded SYSTEM actor (`crate::domain::actor::system_actor`), per `03-UI-SPEC.md`'s "Git
+/// lock-exhaustion entry": "attributed to the system actor... the `assignee-system` mark" — a git
+/// lock collision is Flywheel's own retry machinery giving up, not something the agent decided to
+/// do, and the trail's actor mark is exactly what visually distinguishes this failure class from
+/// an ordinary agent error (the objective's own framing: "an exhausted budget is a real failure
+/// that must not be indistinguishable from an ordinary agent error").
+///
+/// Writes NO row on `agent_runs` and changes no status — unlike every neighbouring function in
+/// this file, which all write a status alongside their event: an exhausted git lock is a fact
+/// about ONE command, not a verdict on the run's outcome. Calling this twice for two separate
+/// exhaustions appends two events; there is no de-duplication and no suppression.
+///
+/// A `run_id` matching no `agent_runs` row is a silent no-op (mirrors `close_agent_run`'s own
+/// "unknown run" handling) — the shared sidecar reader loop must never treat this as a hard
+/// failure that could abandon the loop for every other run (CR-03).
+pub fn record_lock_exhaustion(
+    conn: &mut Connection,
+    run_id: &str,
+    repository: &str,
+    command: &str,
+    attempts: u32,
+    actor_id: &str,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let existing: Option<(String, String)> = tx
+        .query_row(
+            "SELECT project_id, task_id FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .context("failed to read agent_runs row before recording a lock exhaustion")?;
+
+    let Some((project_id, task_id)) = existing else {
+        tx.commit()
+            .context("failed to commit no-op record_lock_exhaustion transaction")?;
+        return Ok(());
+    };
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    // The payload builder already holds the human-renderable `label` (D-19) — called here rather
+    // than constructing a second copy of the sentence, which is what keeps the event and the
+    // rendered Activity Trail entry (`render_description` reads `payload.label` verbatim) from
+    // ever drifting apart.
+    let payload = crate::git_retry::exhaustion_event_payload(repository, command, attempts);
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "agent_run",
+        run_id,
+        Some(&task_id),
+        None,
+        actor_id,
+        "git.lock_exhausted",
+        &payload,
+        &now,
+    )?;
+
+    tx.commit()
+        .context("failed to commit record_lock_exhaustion transaction")?;
+    Ok(())
+}
+
 /// What handling one `session_closed` event did to the run's row (G-02-4). Kept as an enum return
 /// value — mirroring `commands::agent_run::PermissionRequestOutcome`'s own reasoning — so this
 /// decision is unit-testable against a bare `Connection` without a real spawned sidecar.

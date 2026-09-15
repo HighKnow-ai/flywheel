@@ -352,3 +352,115 @@ fn companion_no_shim_ten_concurrent_commits_is_evidence_only_and_never_a_gate() 
         );
     });
 }
+
+// --- record_lock_exhaustion (plan 03-13, D-53) --------------------------------------------------
+
+/// Covers `record_lock_exhaustion`'s own `<behavior>` bullets: exactly one event per call,
+/// attributed to the seeded SYSTEM actor (03-UI-SPEC.md's "Git lock-exhaustion entry": "attributed
+/// to the system actor... the `assignee-system` mark" — not the human, not necessarily the agent),
+/// no de-duplication across repeated calls, and no change to the run's own status.
+mod record_lock_exhaustion_tests {
+    use crate::common;
+    use core::domain::actor::{local_human_actor_id, system_actor};
+    use core::domain::agent_run::{record_lock_exhaustion, start_agent_run, AgentRunStatus};
+    use core::domain::task::create_task;
+
+    fn event_count(conn: &rusqlite::Connection, run_id: &str) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type = 'git.lock_exhausted'",
+            rusqlite::params![run_id],
+            |row| row.get(0),
+        )
+        .expect("count query should succeed")
+    }
+
+    #[test]
+    fn appends_exactly_one_event_attributed_to_the_seeded_system_actor() {
+        crate::with_scratch_env(|| {
+            let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
+            let task = create_task(&mut conn, &project.id, &human_actor_id, "Lock exhaustion task", None)
+                .expect("create_task should succeed");
+            let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &human_actor_id)
+                .expect("start_agent_run should succeed");
+            let system = system_actor(&conn).expect("system actor should exist");
+
+            record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
+                .expect("record_lock_exhaustion should succeed");
+
+            assert_eq!(event_count(&conn, &run.id), 1);
+
+            let (actor_id, event_type, payload_text): (String, String, String) = conn
+                .query_row(
+                    "SELECT actor_id, event_type, payload FROM events WHERE stream_id = ?1 AND event_type = 'git.lock_exhausted'",
+                    rusqlite::params![run.id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .expect("the appended event should be readable back");
+            assert_eq!(actor_id, system.id, "the event must be attributed to the seeded SYSTEM actor");
+            assert_ne!(actor_id, human_actor_id, "never the human actor");
+            assert_eq!(event_type, "git.lock_exhausted");
+
+            let payload: serde_json::Value =
+                serde_json::from_str(&payload_text).expect("payload should be valid JSON");
+            assert_eq!(
+                payload["label"],
+                "Git lock contention: git commit in /repo/path failed after 5 attempts."
+            );
+        });
+    }
+
+    #[test]
+    fn calling_it_twice_appends_two_events_with_no_de_duplication() {
+        crate::with_scratch_env(|| {
+            let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
+            let task = create_task(&mut conn, &project.id, &human_actor_id, "Repeated exhaustion task", None)
+                .expect("create_task should succeed");
+            let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &human_actor_id)
+                .expect("start_agent_run should succeed");
+            let system = system_actor(&conn).expect("system actor should exist");
+
+            record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
+                .expect("first call should succeed");
+            record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
+                .expect("second call should succeed");
+
+            assert_eq!(event_count(&conn, &run.id), 2, "no de-duplication across repeated exhaustions");
+        });
+    }
+
+    #[test]
+    fn the_runs_status_is_unchanged_after_recording_an_exhaustion() {
+        crate::with_scratch_env(|| {
+            let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
+            let task = create_task(&mut conn, &project.id, &human_actor_id, "Status-neutral task", None)
+                .expect("create_task should succeed");
+            let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &human_actor_id)
+                .expect("start_agent_run should succeed");
+            assert_eq!(run.status, AgentRunStatus::Running);
+            let system = system_actor(&conn).expect("system actor should exist");
+
+            record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
+                .expect("record_lock_exhaustion should succeed");
+
+            let status: String = conn
+                .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run.id], |row| row.get(0))
+                .expect("status query should succeed");
+            assert_eq!(status, "running", "recording an exhaustion must never change the run's status");
+        });
+    }
+
+    #[test]
+    fn a_run_id_matching_no_agent_runs_row_is_a_silent_no_op() {
+        crate::with_scratch_env(|| {
+            let (mut conn, human_actor_id, _project, _repo_dir) = common::seeded_git_project();
+            let system = system_actor(&conn).expect("system actor should exist");
+            let _ = local_human_actor_id(&conn); // referenced for parity with the other tests' fixture shape
+
+            record_lock_exhaustion(&mut conn, "not-a-real-run-id", "/repo/path", "git commit", 5, &system.id)
+                .expect("an unknown run id must be a silent no-op, never an error");
+
+            assert_eq!(event_count(&conn, "not-a-real-run-id"), 0);
+            let _ = human_actor_id;
+        });
+    }
+}
