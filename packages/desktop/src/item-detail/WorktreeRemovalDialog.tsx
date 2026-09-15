@@ -68,11 +68,19 @@ export interface WorktreeRemovalDialogProps {
   onClose: () => void;
 }
 
+/** The Remove button's own answering/error state (`PermissionRequestCard.tsx`'s `RowState`
+ * pattern, copied here): guards a second press while `removing`, and on failure keeps the dialog
+ * mounted with an inline message rather than closing optimistically. */
+interface RemoveButtonState {
+  removing: boolean;
+  error: string | null;
+}
+
 export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const check = useWorktreeRemovalCheck(taskId, true);
   const removeWorktree = useRemoveWorktree(taskId);
-  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [removeState, setRemoveState] = useState<RemoveButtonState>({ removing: false, error: null });
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
@@ -82,13 +90,15 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
   }
 
   async function handleRemove() {
-    if (removeWorktree.isPending) return;
-    setRemoveError(null);
+    // A second activation while disabled invokes nothing — the guard the UI layer adds on top of
+    // the backend's own guarded removal.
+    if (removeState.removing) return;
+    setRemoveState({ removing: true, error: null });
     try {
       await removeWorktree.mutateAsync();
       onClose();
     } catch {
-      setRemoveError("Could not remove the worktree. Try again.");
+      setRemoveState({ removing: false, error: "Could not remove the worktree. Try again." });
     }
   }
 
@@ -139,9 +149,9 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
           Everything in it is committed — nothing will be lost. The directory at {path} will be
           deleted.
         </p>
-        {removeError && (
+        {removeState.error && (
           <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
-            {removeError}
+            {removeState.error}
           </p>
         )}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-sm)" }}>
@@ -156,13 +166,13 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
           </button>
           <button
             type="button"
-            disabled={removeWorktree.isPending}
+            disabled={removeState.removing}
             onClick={() => void handleRemove()}
             className="type-body"
             style={{
               ...destructiveButtonStyle,
-              opacity: removeWorktree.isPending ? 0.6 : 1,
-              cursor: removeWorktree.isPending ? "default" : "pointer",
+              opacity: removeState.removing ? 0.6 : 1,
+              cursor: removeState.removing ? "default" : "pointer",
             }}
           >
             Remove
@@ -173,6 +183,11 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
   } else {
     const { dirtyCount, entries } = check.data;
     const plural = dirtyCount === 1 ? "change" : "changes";
+    // E1 `partial` (backstop): a response that carries a dirty count but no entries, or entries
+    // whose `path` is empty, is a truncated/unparseable porcelain read — treated as dirty (never
+    // Clean) with a note that the list may be incomplete, rather than silently rendering a
+    // partial list as if it were the whole truth.
+    const looksPartial = (dirtyCount > 0 && entries.length === 0) || entries.some((entry) => entry.path === "");
     ariaLabel = `Can't remove — ${dirtyCount} uncommitted ${plural}`;
     body = (
       <>
@@ -205,6 +220,11 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
             </li>
           ))}
         </ul>
+        {looksPartial && (
+          <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+            This list may be incomplete.
+          </p>
+        )}
         <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
           Commit, stash, or discard these changes in a terminal, then try again. Flywheel
           won&apos;t remove a worktree that would lose work.
