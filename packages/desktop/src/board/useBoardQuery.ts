@@ -11,6 +11,7 @@ import {
   blockedSummary,
   invokeCommand,
   latestAgentRunIdForTask,
+  pendingOrphans,
   pendingPermissionRequests,
   subscribeAgentEvent,
   subscribeBoardChanged,
@@ -638,6 +639,27 @@ export function useBlockedSummary(projectId: string | undefined) {
     queryKey: blockedSummaryQueryKey(projectId),
     queryFn: () => blockedSummary(projectId as string),
     enabled: Boolean(projectId),
+  });
+}
+
+/** `usePendingOrphans`'s query key — one fixed key, no project scoping, since the launch
+ * classification (plan 03-06, PROC-05) runs once for the whole app, not per project. */
+export function pendingOrphansQueryKey() {
+  return ["pending-orphans"] as const;
+}
+
+/**
+ * The launch-time live-orphan list (plan 03-06, PROC-05, D-46) — the recovery modal's own data
+ * source. Deliberately `staleTime: Infinity` with NO `subscribeBoardChanged` invalidation: this
+ * is a launch-time fact resolved once before the window ever painted, not a live query, and
+ * re-fetching it on every board change would make the modal flicker as unrelated mutations land.
+ * Plan 03-10's kill action invalidates this query key explicitly, after each kill.
+ */
+export function usePendingOrphans() {
+  return useQuery({
+    queryKey: pendingOrphansQueryKey(),
+    queryFn: () => pendingOrphans(),
+    staleTime: Infinity,
   });
 }
 

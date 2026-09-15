@@ -371,6 +371,53 @@ export async function blockedSummary(projectId: string): Promise<BlockedSummaryD
 }
 
 /**
+ * One genuinely-alive orphaned run the launch reconciler found (plan 03-06, PROC-05, D-46) —
+ * mirrors `commands/agent_run.rs`'s `PendingOrphanDto` field-for-field. Carries no cost or token
+ * fields (those are AGNT-08, Phase 10) and no live stream handle — the process here is being
+ * killed, not observed.
+ */
+export interface PendingOrphanDto {
+  runId: string;
+  taskId: string;
+  taskKey: string;
+  taskTitle: string;
+  projectId: string;
+  externalSessionId: string | null;
+  pid: number;
+  startedAt: string;
+}
+
+/**
+ * The launch-time live-orphan list (plan 03-06). Read-only. Thin typed wrapper over
+ * `agent_runs_pending_orphans` — the same list `main.rs`'s `.setup()` resolved once at startup,
+ * before any window was shown.
+ */
+export async function pendingOrphans(): Promise<PendingOrphanDto[]> {
+  return invokeCommand<PendingOrphanDto[]>("agent_runs_pending_orphans");
+}
+
+/**
+ * What `orphan_kill` returns (plan 03-06, T-03-06-04) — mirrors `commands/agent_run.rs`'s
+ * `OrphanKillDto` field-for-field. `killed: false` means the process was still alive after the
+ * signal and the bounded re-check — never a success the backend did not actually observe.
+ */
+export interface OrphanKillDto {
+  killed: boolean;
+  pid: number;
+  detail: string | null;
+}
+
+/**
+ * Kill one live orphan by `agentRunId` (plan 03-06, D-30, D-48) — the only verb the
+ * orphan-recovery modal offers. Thin typed wrapper over `orphan_kill`. The run reaches
+ * `abandoned` in the database regardless of `killed`; a `false` result means the process itself
+ * survived the signal, which the modal renders rather than dismissing the row.
+ */
+export async function orphanKill(agentRunId: string): Promise<OrphanKillDto> {
+  return invokeCommand<OrphanKillDto>("orphan_kill", { agentRunId });
+}
+
+/**
  * One registered project's credential-mode override (D-39, plan 02-09) — mirrors
  * `commands/settings.rs`'s `ProjectCredentialOverrideDto` field-for-field. `credentialMode` is
  * `null` when the project has no override ("use the global default").

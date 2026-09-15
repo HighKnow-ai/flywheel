@@ -67,6 +67,20 @@ fn main() {
             flywheel_core::domain::worktree::reconcile_worktrees(&mut conn, &reconcile_actor_id)
                 .expect("failed to reconcile recorded worktrees at launch");
 
+            // Launch-time reconciliation for agent runs (PROC-05, D-46, D-49, D-50, plan 03-06):
+            // every `agent_runs` row still `running`/`blocked` when the app died is sorted into
+            // killed-by-its-watchdog, dead-without-a-record, or genuinely-still-alive — the first
+            // two are written to `abandoned` here; the third is NEVER written to any status
+            // (writing one would be the board lying about a live fact, D-46) and is instead
+            // returned as a live-orphan list stored on `AppState` below, for the first paint's
+            // recovery modal (plan 03-10) to offer the user a decision. Same expect-or-crash-
+            // loudly idiom, same already-resolved `reconcile_actor_id`, and runs BEFORE
+            // `spawn_sidecar` so the classification is already resolved before any new session
+            // could possibly start.
+            let pending_orphans =
+                flywheel_core::domain::agent_run::reconcile_agent_runs(&mut conn, &reconcile_actor_id)
+                    .expect("failed to reconcile in-flight agent runs at launch");
+
             // Spawn the sidecar supervisor before any window is shown, with the same
             // expect-or-crash-loudly idiom the migration step above already uses — a sidecar
             // that fails to start means no agent run can ever be driven, so this never proceeds
@@ -77,6 +91,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(conn),
                 sidecar: Some(sidecar_handle),
+                pending_orphans: Mutex::new(pending_orphans),
             });
 
             Ok(())
@@ -136,6 +151,8 @@ fn main() {
             commands::agent_run::agent_run_pending_permissions,
             commands::agent_run::task_latest_agent_run,
             commands::agent_run::board_blocked_summary,
+            commands::agent_run::agent_runs_pending_orphans,
+            commands::agent_run::orphan_kill,
             commands::settings::settings_get,
             commands::settings::settings_set_credential_mode,
             commands::settings::settings_store_api_key,

@@ -1054,9 +1054,160 @@ pub fn worktree_remove(
     Ok(())
 }
 
+/// One genuinely-alive orphaned run the launch reconciler found (plan 03-06, PROC-05, D-46) —
+/// mirrors `flywheel_core::domain::agent_run::LiveOrphan` field-for-field in camelCase, carrying
+/// nothing `03-UI-SPEC.md`'s orphan-recovery modal does not render: no cost, no token counts
+/// (those are AGNT-08, Phase 10) and no live stream handle — the process here is being killed,
+/// not observed.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingOrphanDto {
+    pub run_id: String,
+    pub task_id: String,
+    pub task_key: String,
+    pub task_title: String,
+    pub project_id: String,
+    pub external_session_id: Option<String>,
+    pub pid: i32,
+    pub started_at: String,
+}
+
+impl From<flywheel_core::domain::agent_run::LiveOrphan> for PendingOrphanDto {
+    fn from(orphan: flywheel_core::domain::agent_run::LiveOrphan) -> Self {
+        Self {
+            run_id: orphan.run_id,
+            task_id: orphan.task_id,
+            task_key: orphan.task_key,
+            task_title: orphan.task_title,
+            project_id: orphan.project_id,
+            external_session_id: orphan.external_session_id,
+            pid: orphan.pid,
+            started_at: orphan.started_at,
+        }
+    }
+}
+
+/// The launch-time live-orphan list (plan 03-06) — read-only, cloned out of
+/// `AppState.pending_orphans`, which `main.rs`'s `.setup()` populates exactly once from
+/// `reconcile_agent_runs`'s own return value. After every row has been resolved via
+/// [`orphan_kill`] this returns an empty list.
+#[tauri::command]
+pub fn agent_runs_pending_orphans(state: State<AppState>) -> Result<Vec<PendingOrphanDto>, String> {
+    let orphans = state.pending_orphans.lock().map_err(|e| e.to_string())?;
+    Ok(orphans.iter().cloned().map(PendingOrphanDto::from).collect())
+}
+
+/// What [`orphan_kill`] returns (plan 03-06, T-03-06-04) — mirrors
+/// `flywheel_core::domain::agent_run::OrphanKillOutcome` field-for-field in camelCase.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanKillDto {
+    pub killed: bool,
+    pub pid: i32,
+    pub detail: Option<String>,
+}
+
+/// Remove `agent_run_id` from `pending` ONLY when `killed` is true (plan 03-06, T-03-06-04) — a
+/// failed kill leaves the row mounted so the recovery modal keeps showing it, rather than
+/// dismissing a row this call never actually resolved. Factored out of [`orphan_kill`] so this
+/// decision is unit-testable against a bare `Vec`, mirroring
+/// `process_inbound_permission_request`'s own split from its Tauri-facing caller.
+fn retain_pending_orphan_unless_killed(
+    pending: &mut Vec<flywheel_core::domain::agent_run::LiveOrphan>,
+    agent_run_id: &str,
+    killed: bool,
+) {
+    if killed {
+        pending.retain(|orphan| orphan.run_id != agent_run_id);
+    }
+}
+
+/// Kill one live orphan (plan 03-06, D-30, D-48) — the only verb the orphan-recovery modal offers.
+/// `agent_run_id` is the ONLY input; the pid actually signalled is read from the descriptor this
+/// application itself wrote at spawn time, never supplied by the renderer (T-03-06-03). Rejects
+/// with a not-found error when `agent_run_id` no longer names an entry in `pending_orphans` —
+/// checked BEFORE the domain call runs, so a second kill for a run already resolved (by an
+/// earlier kill, or by never having been a real live orphan at all) reports that honestly rather
+/// than performing a redundant signal and claiming a success it did not observe.
+///
+/// `actor_id` is resolved server-side (T-01-04). Unlike `agent_run_stop`'s CR-01 sidecar wait
+/// (up to 30s), `kill_orphan`'s own post-signal wait is bounded at ~200ms
+/// (`domain::agent_run::ORPHAN_KILL_RECHECK_DELAY`) — short enough that holding `state.db` across
+/// it, for this one call, does not risk starving every other board command the way a wedged
+/// sidecar would; the CR-01 discipline of resolving an external wait before locking the database
+/// is honoured in spirit (a bounded, short wait) rather than by an unneeded split of the already
+/// tested domain function.
+///
+/// Emits `board:changed` with `{ entity: "agent_run", id: agent_run_id }` in BOTH outcomes — the
+/// run reaches `abandoned` in the database either way (`kill_orphan`'s own CR-04 shape), and the
+/// board must reflect that even when the process itself survived the signal.
+#[tauri::command]
+pub fn orphan_kill(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_id: String,
+) -> Result<OrphanKillDto, String> {
+    {
+        let pending = state.pending_orphans.lock().map_err(|e| e.to_string())?;
+        if !pending.iter().any(|orphan| orphan.run_id == agent_run_id) {
+            return Err(format!("no pending orphan found for agent_run_id {agent_run_id:?}"));
+        }
+    }
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let outcome = flywheel_core::domain::agent_run::kill_orphan(&mut conn, &agent_run_id, &actor_id)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    {
+        let mut pending = state.pending_orphans.lock().map_err(|e| e.to_string())?;
+        // Removed only on a genuine success (see retain_pending_orphan_unless_killed's own doc).
+        retain_pending_orphan_unless_killed(&mut pending, &agent_run_id, outcome.killed);
+    }
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
+    )
+    .ok();
+
+    Ok(OrphanKillDto { killed: outcome.killed, pid: outcome.pid, detail: outcome.detail })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_live_orphan(run_id: &str) -> flywheel_core::domain::agent_run::LiveOrphan {
+        flywheel_core::domain::agent_run::LiveOrphan {
+            run_id: run_id.to_string(),
+            task_id: "task-1".to_string(),
+            task_key: "FLY-1".to_string(),
+            task_title: "Sample task".to_string(),
+            project_id: "project-1".to_string(),
+            external_session_id: None,
+            pid: 4242,
+            started_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn retain_pending_orphan_unless_killed_leaves_the_row_mounted_on_a_failed_kill() {
+        let mut pending = vec![sample_live_orphan("run-a"), sample_live_orphan("run-b")];
+        retain_pending_orphan_unless_killed(&mut pending, "run-a", false);
+        assert_eq!(pending.len(), 2, "a failed kill must never dismiss the row");
+    }
+
+    #[test]
+    fn retain_pending_orphan_unless_killed_removes_only_the_matching_row_on_success() {
+        let mut pending = vec![sample_live_orphan("run-a"), sample_live_orphan("run-b")];
+        retain_pending_orphan_unless_killed(&mut pending, "run-a", true);
+        assert_eq!(pending.len(), 1);
+        assert!(pending.iter().all(|orphan| orphan.run_id != "run-a"));
+        assert!(pending.iter().any(|orphan| orphan.run_id == "run-b"));
+    }
 
     #[test]
     fn resolve_log_window_limit_clamps_any_requested_value_to_the_100_row_ceiling() {
