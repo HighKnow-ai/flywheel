@@ -188,11 +188,17 @@ pub fn agent_run_start(
     // (T-02-42) — that failure must never leave behind an already-`running` `agent_runs` row and
     // a freshly created worktree that will never actually be spawned into, so the project id is
     // looked up (read-only) and the credential resolved BEFORE `start_agent_run` runs.
-    let project_id: String = conn
+    // D-52 (plan 03-04): `repo_path` is read in this SAME `query_row` call, one extra column, no
+    // extra round trip — `agent_run_start`'s own spawn request needs it to key the per-repository
+    // spawn floor (`send_spawn_request`, below).
+    let (project_id, repo_path): (String, String) = conn
         .query_row(
-            "SELECT project_id FROM tasks WHERE id = ?1",
+            "SELECT tasks.project_id, projects.repo_path
+             FROM tasks
+             JOIN projects ON projects.id = tasks.project_id
+             WHERE tasks.id = ?1",
             rusqlite::params![task_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|e| e.to_string())?;
     let mut env =
@@ -237,8 +243,12 @@ pub fn agent_run_start(
             "permissionMode": permission_mode,
             "env": env,
         });
+        // D-52/WORK-05: the ONLY path a spawn request may take — enforces the per-repository
+        // spawn floor. Called after `drop(conn)` above, so the floor's sleep never runs while
+        // holding the SQLite mutex (T-03-04-05), mirroring `agent_run_stop`'s own
+        // resolve-before-lock discipline.
         sidecar
-            .send_request(&request.to_string())
+            .send_spawn_request(&repo_path, &request.to_string())
             .map_err(|e| e.to_string())?;
     }
 

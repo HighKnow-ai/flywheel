@@ -154,6 +154,10 @@ pub struct SidecarHandle {
     /// SHOULD look stale to every live watchdog as soon as possible, not linger for one more
     /// `HEARTBEAT_INTERVAL_MS` tick after the sidecar itself is already gone.
     heartbeat_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// D-52/WORK-05: one spawn floor for this handle's entire process lifetime, keyed by
+    /// repository path. [`Self::send_spawn_request`] is the ONLY path a spawn request may take —
+    /// see its own doc comment for the invariant this field exists to enforce.
+    spawn_floor: flywheel_core::git_retry::SpawnFloor,
 }
 
 /// How long `interrupt_run` waits for the sidecar's ack before giving up — generous enough to
@@ -205,6 +209,19 @@ impl SidecarHandle {
             .write(line.as_bytes())
             .context("failed to write request to the sidecar's stdin")?;
         Ok(())
+    }
+
+    /// D-52/WORK-05: the ONLY path a spawn request may take. Calls
+    /// `SpawnFloor::wait_turn(repo_path)` BEFORE ever writing to the sidecar's stdin, so no two
+    /// spawns against the SAME repository can begin within `SPAWN_FLOOR_MS` of each other — the
+    /// gate is unbypassable from the command layer precisely because there is no other way to
+    /// reach the sidecar's stdin for a spawn request. Callers MUST invoke this only after their
+    /// own database connection has already been dropped (`agent_run_start`'s own comment on its
+    /// call site names why): the floor's sleep must never run while holding the SQLite mutex
+    /// (T-03-04-05).
+    pub fn send_spawn_request(&self, repo_path: &str, request_json: &str) -> anyhow::Result<()> {
+        self.spawn_floor.wait_turn(repo_path);
+        self.send_request(request_json)
     }
 
     /// Send an `interrupt` request for `run_id` over the sidecar's stdin and block until its
@@ -802,6 +819,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
         pending_permission_requests: Mutex::new(HashMap::new()),
         notified_persist_failures: Mutex::new(std::collections::HashSet::new()),
         heartbeat_stop,
+        spawn_floor: flywheel_core::git_retry::SpawnFloor::new(),
     };
 
     let app_for_reader = app.clone();
