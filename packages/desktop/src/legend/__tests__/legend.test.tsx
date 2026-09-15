@@ -52,14 +52,15 @@ describe("MARKS registry", () => {
 });
 
 /**
- * The "agent" mark channel (02-03-PLAN.md Task 2, AGNT-06; plan 03-09 Task 2, WORK-06) — seven
- * marks published before any surface renders them: five run-status values, the orthogonal blocked
- * indicator, and the missing-worktree decision banner's own glyph (D-45).
+ * The "agent" mark channel (02-03-PLAN.md Task 2, AGNT-06; plan 03-09 Task 2, WORK-06; plan
+ * 03-10 Task 2, D-49) — eight marks published before any surface renders them: five run-status
+ * values, the orthogonal blocked indicator, the missing-worktree decision banner's own glyph
+ * (D-45), and the abandoned-run badge's own glyph (D-49).
  */
 describe("agent channel", () => {
   const agentMarks = MARKS.filter((m) => m.channel === "agent");
 
-  it("has exactly seven entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md specify", () => {
+  it("has exactly eight entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md specify", () => {
     const expected = [
       { id: "run-running", glyph: "Loader", label: "Running" },
       { id: "run-blocked", glyph: "ShieldAlert", label: "Blocked" },
@@ -68,8 +69,9 @@ describe("agent channel", () => {
       { id: "run-interrupted", glyph: "CircleSlash", label: "Interrupted" },
       { id: "blocked-indicator", glyph: "ShieldAlert", label: "Blocked" },
       { id: "worktree-missing", glyph: "TriangleAlert", label: "Missing" },
+      { id: "run-abandoned", glyph: "Unplug", label: "Abandoned" },
     ];
-    expect(agentMarks).toHaveLength(7);
+    expect(agentMarks).toHaveLength(8);
     for (const exp of expected) {
       const mark = agentMarks.find((m) => m.id === exp.id);
       expect(mark, `missing agent mark "${exp.id}"`).toBeDefined();

@@ -753,6 +753,11 @@ function agentRunsQueryKey(taskId: string) {
  * future Runs-section data source (this plan builds the read path; a later plan renders it).
  * Invalidated on `subscribeBoardChanged` (Start Work's own emit, D-04) — never polled.
  * `undefined` disables the query entirely.
+ *
+ * No second query for the abandoned-run acknowledgment (plan 03-10, D-49): `agent_run_acknowledge`
+ * emits `board:changed` exactly like every other state-changing command in this file, so this
+ * SAME invalidation is what makes the Acknowledge button disappear once the row re-reads a
+ * non-null `acknowledgedAt`.
  */
 export function useAgentRuns(taskId: string | undefined) {
   const queryClient = useQueryClient();

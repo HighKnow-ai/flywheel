@@ -28,18 +28,19 @@
  * 02-06's component — the ONE card, now living under the specific row it answers for rather than
  * as a generic panel-level mount (`ItemDetailPanel.tsx`'s prior compact mount, moved here).
  */
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
-import { answerPermissionRequest, type RunSummaryDto } from "../adapters/tauri";
+import { acknowledgeAgentRun, answerPermissionRequest, type RunSummaryDto } from "../adapters/tauri";
 import { useAgentRuns, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
-/** The five values `agent_runs.status` can hold (migration `0003_agent_runtime.sql`) — mirrors
- * `session/SessionSurface.tsx`'s own `RunStatus` type. */
-export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted";
+/** The six values `agent_runs.status` can hold (migration `0003_agent_runtime.sql`, `abandoned`
+ * added by migration `0006_recovery_statuses.sql`, D-49) — mirrors `session/SessionSurface.tsx`'s
+ * own `RunStatus` type. */
+export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted" | "abandoned";
 
 const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   running: "Running",
@@ -47,32 +48,48 @@ const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   completed: "Completed",
   failed: "Failed",
   interrupted: "Interrupted",
+  abandoned: "Abandoned",
 };
 
-const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "interrupted"];
+const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "interrupted", "abandoned"];
 
 function isRunStatus(value: string): value is RunStatus {
   return value in RUN_STATUS_LABELS;
 }
 
 /** `agent_runs.status` -> the matching published `agent`-channel mark id (`legend/marks.ts`,
- * plan 02-03) — mirrors `SessionSurface.tsx`'s own lookup, never a second hand-typed glyph. */
+ * plan 02-03; `abandoned` added plan 03-10, D-49) — mirrors `SessionSurface.tsx`'s own lookup,
+ * never a second hand-typed glyph. */
 const RUN_STATUS_MARK_ID: Record<RunStatus, string> = {
   running: "run-running",
   blocked: "run-blocked",
   completed: "run-completed",
   failed: "run-failed",
   interrupted: "run-interrupted",
+  abandoned: "run-abandoned",
 };
 
-/** 02-UI-SPEC.md's "Run Status" table — mirrors `SessionSurface.tsx`'s own colour lookup. */
+/** 02-UI-SPEC.md's "Run Status" table, extended by 03-UI-SPEC.md's "Color Additions" (`abandoned`
+ * reuses the same `--destructive-text-rack` token `failed` already spends this budget on — zero
+ * new colour tokens, distinguished by glyph and word alone) — mirrors `SessionSurface.tsx`'s own
+ * colour lookup. */
 const RUN_STATUS_COLOR: Record<RunStatus, string> = {
   running: "var(--accent-text-rack)",
   blocked: "var(--blocked-text-rack)",
   completed: "var(--success-text-rack)",
   failed: "var(--destructive-text-rack)",
   interrupted: "var(--text-muted-rack)",
+  abandoned: "var(--destructive-text-rack)",
 };
+
+/** The abandoned-run explanation + Acknowledge button's own answering/error state
+ * (`session/PermissionRequestCard.tsx`'s `RowState` pattern) — guards a second press while
+ * `acting`, and on failure leaves the button mounted with an inline message rather than clearing
+ * optimistically (03-UI-SPEC.md E4 `error`, decided as a backstop: "the button stays mounted"). */
+interface AcknowledgeState {
+  acting: boolean;
+  error: string | null;
+}
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
@@ -177,8 +194,35 @@ function RunRow({
   const status: RunStatus = isRunStatus(run.status) ? run.status : "running";
   const isTerminal = TERMINAL_STATUSES.includes(status);
   const isBlocked = status === "blocked";
+  const isAbandoned = status === "abandoned";
   const now = useNowTick(!isTerminal);
   const absolute = new Date(run.startedAt).toLocaleString();
+
+  // D-49/D-50's abandoned-run explanation and its one Acknowledge action — changes nothing about
+  // the underlying record (the run is already abandoned, already terminal, already exactly what
+  // it will remain); acknowledging is a statement that the user has seen it, not a repair.
+  const [ackState, setAckState] = useState<AcknowledgeState>({ acting: false, error: null });
+  // `ackState.acting` alone is not a sufficient guard against two clicks arriving in the same
+  // synchronous tick (React's state update has not necessarily flushed to the DOM, and the
+  // `disabled` attribute with it, before a second `.click()` fires) — mirrors
+  // `item-detail/WorktreeSummary.tsx`'s own `actingRef` fix (plan 03-09) for the identical bug,
+  // found here by this task's own failing test before it was anticipated by the plan.
+  const ackActingRef = useRef(false);
+
+  async function acknowledge() {
+    if (ackActingRef.current) return;
+    ackActingRef.current = true;
+    setAckState({ acting: true, error: null });
+    try {
+      await acknowledgeAgentRun(run.id);
+      // No local success state to set: the command's own board:changed emit invalidates
+      // useAgentRuns, which re-reads and the row's own acknowledgedAt flips non-null — that
+      // re-render is what removes this button, never a local optimistic flag.
+    } catch {
+      ackActingRef.current = false;
+      setAckState({ acting: false, error: "Couldn't acknowledge this run. Try again." });
+    }
+  }
 
   const durationLabel = isTerminal && run.endedAt ? formatSpan(run.startedAt, new Date(run.endedAt).getTime()) : formatSpan(run.startedAt, now);
 
@@ -251,6 +295,45 @@ function RunRow({
       {isBlocked && pendingRequests.length > 0 && (
         <div onClick={(event) => event.stopPropagation()}>
           <PermissionRequestCard variant="compact" requests={pendingRequests} onAnswer={handleAnswerPermission} />
+        </div>
+      )}
+      {isAbandoned && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+            {run.abandonedReason
+              ? `Flywheel wasn't running to supervise this session — it was stopped at ${new Date(
+                  run.abandonedReason,
+                ).toLocaleString()} because Flywheel had died.`
+              : "This run never finished, and Flywheel doesn't know why it stopped."}
+          </span>
+          {!run.acknowledgedAt && (
+            <button
+              type="button"
+              disabled={ackState.acting}
+              onClick={(event) => {
+                event.stopPropagation();
+                void acknowledge();
+              }}
+              className="type-body"
+              style={{
+                alignSelf: "flex-start",
+                background: "transparent",
+                border: "1px solid var(--divider)",
+                borderRadius: "var(--radius-chrome)",
+                color: "var(--text-primary-rack)",
+                padding: "var(--space-xs) var(--space-md)",
+                cursor: ackState.acting ? "default" : "pointer",
+                opacity: ackState.acting ? 0.6 : 1,
+              }}
+            >
+              Acknowledge
+            </button>
+          )}
+          {ackState.error && (
+            <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+              {ackState.error}
+            </p>
+          )}
         </div>
       )}
     </div>

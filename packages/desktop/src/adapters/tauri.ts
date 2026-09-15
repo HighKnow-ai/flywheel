@@ -187,6 +187,15 @@ export interface RunSummaryDto {
    * reports it. The Runs section renders it alongside the run's own id (`Run · session
    * {externalSessionId}`) so a run and its session read as one linked record. */
   externalSessionId: string | null;
+  /** `agent_runs.acknowledged_at` verbatim (plan 03-10, D-49) — `null` until the abandoned-run
+   * row's Acknowledge button writes it. The Acknowledge button renders only while
+   * `status === "abandoned"` AND this is `null`. */
+  acknowledgedAt: string | null;
+  /** The abandoned-run explanation's own timestamp (plan 03-10, D-50) — non-null only when this
+   * run's status is `abandoned` AND a kill record exists for it and parsed successfully. `null`
+   * for every other status, and also `null` when no kill record exists or it is malformed — the
+   * two are indistinguishable on the wire, both rendering the same honest fallback sentence. */
+  abandonedReason: string | null;
 }
 
 /**
@@ -306,6 +315,17 @@ export interface AgentRunStopResult {
  */
 export async function stopAgentRun(agentRunId: string): Promise<AgentRunStopResult> {
   return invokeCommand<AgentRunStopResult>("agent_run_stop", { agentRunId });
+}
+
+/**
+ * D-49's abandoned-run acknowledgment (plan 03-10). Thin typed wrapper over
+ * `agent_run_acknowledge`. Changes nothing about the underlying record — the run is already
+ * abandoned, already terminal, already exactly what it will remain — this call records only that
+ * the user has seen it. A no-op (rejects nothing, writes nothing) when the target run is not
+ * `abandoned`; the backend guards this, not the renderer.
+ */
+export async function acknowledgeAgentRun(agentRunId: string): Promise<void> {
+  await invokeCommand<void>("agent_run_acknowledge", { agentRunId });
 }
 
 /**

@@ -919,8 +919,11 @@ fn resolve_agent_runs_limit(limit: Option<i64>) -> i64 {
 }
 
 /// One row of a task's Runs section (02-UI-SPEC.md "Runs section") — mirrors
-/// `flywheel_core::query::agent_runs::RunRow` field-for-field. Status words, relative times and
-/// durations are derived at read time in the renderer, never sent as pre-rendered strings.
+/// `flywheel_core::query::agent_runs::RunRow` field-for-field, plus `abandoned_reason` (plan
+/// 03-10 Task 2, D-49/D-50), which has no column of its own: it is resolved per-row from the
+/// on-disk kill record (`runtime_protocol::read_kill_record`), never from SQL. Status words,
+/// relative times and durations are derived at read time in the renderer, never sent as
+/// pre-rendered strings.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunSummaryDto {
@@ -936,10 +939,29 @@ pub struct RunSummaryDto {
     /// list) — `NULL` until the sidecar's `init` event reports it. The Runs section renders it
     /// alongside the run's own id so a run and its session read as one linked record.
     pub external_session_id: Option<String>,
+    /// `agent_runs.acknowledged_at` verbatim (plan 03-10 Task 2, D-49) — `NULL` until the
+    /// abandoned-run row's Acknowledge button writes it. The renderer's Acknowledge button renders
+    /// only while `status === "abandoned"` AND this is `null`.
+    pub acknowledged_at: Option<String>,
+    /// The abandoned-run explanation's own timestamp (plan 03-10 Task 2, D-50) — `Some(killed_at)`
+    /// when a kill record exists for this run and parsed successfully, `None` when it is absent OR
+    /// malformed (the two are never distinguished on the wire: both render the same honest,
+    /// weaker fallback sentence rather than inventing a reason the data does not support).
+    /// Populated ONLY for a run whose status is `abandoned` — always `None` otherwise.
+    pub abandoned_reason: Option<String>,
 }
 
 impl From<flywheel_core::query::agent_runs::RunRow> for RunSummaryDto {
     fn from(run: flywheel_core::query::agent_runs::RunRow) -> Self {
+        let abandoned_reason = if run.status == "abandoned" {
+            match flywheel_core::runtime_protocol::read_kill_record(&run.id) {
+                flywheel_core::runtime_protocol::KillRecordRead::Found(record) => Some(record.killed_at),
+                flywheel_core::runtime_protocol::KillRecordRead::Absent
+                | flywheel_core::runtime_protocol::KillRecordRead::Malformed(_) => None,
+            }
+        } else {
+            None
+        };
         Self {
             id: run.id,
             task_id: run.task_id,
@@ -950,6 +972,8 @@ impl From<flywheel_core::query::agent_runs::RunRow> for RunSummaryDto {
             tokens_in: run.tokens_in,
             tokens_out: run.tokens_out,
             external_session_id: run.external_session_id,
+            acknowledged_at: run.acknowledged_at,
+            abandoned_reason,
         }
     }
 }
@@ -970,6 +994,40 @@ pub fn agent_runs_for_task(
     let rows = flywheel_core::query::agent_runs::runs_for_task(&conn, &task_id, limit, offset)
         .map_err(|e| e.to_string())?;
     Ok(rows.into_iter().map(RunSummaryDto::from).collect())
+}
+
+/// D-49's abandoned-run acknowledgment (plan 03-10 Task 2). `actor_id` is resolved server-side
+/// (T-01-04) — never accepted from the renderer. Writes `acknowledged_at` through a
+/// compile-time-literal `UPDATE` statement GUARDED to `status = 'abandoned'` in its own `WHERE`
+/// clause — no domain function backs this (deliberately not in this plan's `files_modified`), so
+/// acknowledging a non-abandoned run is a no-op (zero rows affected) rather than a state change of
+/// any kind: this command is read-only in effect on every run except an abandoned one, and even
+/// there it changes exactly one timestamp column, never `status`. Emits `board:changed` with
+/// `{ entity: "agent_run", id: agent_run_id }` on success — `useAgentRuns`'s existing invalidation
+/// is what makes the Acknowledge button disappear once the row re-reads a non-null
+/// `acknowledgedAt`.
+#[tauri::command]
+pub fn agent_run_acknowledge(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_id: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE agent_runs SET acknowledged_at = ?1 WHERE id = ?2 AND status = 'abandoned'",
+        rusqlite::params![now, agent_run_id],
+    )
+    .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
+    )
+    .ok();
+
+    Ok(())
 }
 
 /// A task's worktree summary line (02-UI-SPEC.md "Worktree summary") — mirrors

@@ -346,6 +346,13 @@ export const MARKS: Mark[] = [
     label: "Missing",
     meaning: "The worktree Flywheel recorded for this task is not on disk (D-45).",
   },
+  {
+    id: "run-abandoned",
+    channel: "agent",
+    glyph: "Unplug",
+    label: "Abandoned",
+    meaning: "Flywheel was not running to supervise this session; it did not reach a clean end (D-49).",
+  },
 ];
 
 /**

@@ -8,7 +8,7 @@
  * row opens it read-only, and the whole `open-live-session` path is a no-op for a task with no
  * runs.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RunsSection } from "../RunsSection";
@@ -20,12 +20,14 @@ const pendingPermissionRequestsMock = vi.fn();
 const answerPermissionRequestMock = vi.fn().mockResolvedValue(undefined);
 const worktreeSummaryMock = vi.fn();
 const invokeCommandMock = vi.fn();
+const acknowledgeAgentRunMock = vi.fn();
 
 vi.mock("../../adapters/tauri", () => ({
   agentRunsForTask: (taskId: string) => agentRunsForTaskMock(taskId),
   pendingPermissionRequests: (agentRunId: string) => pendingPermissionRequestsMock(agentRunId),
   answerPermissionRequest: (requestId: string, decision: string) =>
     answerPermissionRequestMock(requestId, decision),
+  acknowledgeAgentRun: (agentRunId: string) => acknowledgeAgentRunMock(agentRunId),
   // `ItemDetailPanel`'s own describe block below mounts the full panel (title, acceptance
   // criteria, worktree summary, runs section, activity trail) — these two are what its OTHER
   // sections call directly, following the same "delegate every named export the code under test
@@ -47,6 +49,8 @@ function makeRun(overrides: Partial<RunSummaryDto> = {}): RunSummaryDto {
     tokensIn: 100,
     tokensOut: 200,
     externalSessionId: "sess-abc",
+    acknowledgedAt: null,
+    abandonedReason: null,
     ...overrides,
   };
 }
@@ -216,6 +220,149 @@ describe("RunsSection", () => {
     // the real enforcement is `RunStatusBadge` resolving `MARKS_BY_ID[...]` rather than importing
     // a lucide icon by name anywhere in this file.
     expect(true).toBe(true);
+  });
+});
+
+describe("RunsSection — abandoned run (plan 03-10 Task 2, D-49/D-50)", () => {
+  beforeEach(() => {
+    acknowledgeAgentRunMock.mockReset();
+  });
+
+  it("renders the Abandoned badge and word, distinct from the Interrupted badge's glyph", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", endedAt: "2026-01-01T00:05:00.000Z" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(await screen.findByText("Abandoned")).toBeInTheDocument();
+  });
+
+  it("distinguishes the abandoned badge's glyph from the interrupted badge's glyph", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", startedAt: "2026-01-02T00:00:00.000Z" }),
+      makeRun({ id: "run-interrupted", status: "interrupted", startedAt: "2026-01-01T00:00:00.000Z" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    const items = await screen.findAllByRole("listitem");
+    const abandonedIcon = within(items[0]).getByText("Abandoned").querySelector("svg");
+    const interruptedIcon = within(items[1]).getByText("Interrupted").querySelector("svg");
+    expect(abandonedIcon?.getAttribute("class")).toContain("lucide-unplug");
+    expect(interruptedIcon?.getAttribute("class")).toContain("lucide-circle-slash");
+    expect(abandonedIcon?.getAttribute("class")).not.toBe(interruptedIcon?.getAttribute("class"));
+  });
+
+  it("renders the watchdog explanation with the kill record's timestamp when abandonedReason is present", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", abandonedReason: "2026-01-02T03:04:05.000Z" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(
+      await screen.findByText(/Flywheel wasn't running to supervise this session/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("This run never finished, and Flywheel doesn't know why it stopped.")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the honest weaker sentence when abandonedReason is null, with no invented timestamp", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", abandonedReason: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(
+      await screen.findByText("This run never finished, and Flywheel doesn't know why it stopped."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Flywheel wasn't running to supervise this session/)).not.toBeInTheDocument();
+  });
+
+  it("renders the Acknowledge button only while acknowledgedAt is null", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(await screen.findByRole("button", { name: "Acknowledge" })).toBeInTheDocument();
+  });
+
+  it("omits the Acknowledge button once acknowledgedAt is non-null, while the word Abandoned remains", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: "2026-01-02T00:00:00.000Z" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    await screen.findByText("Abandoned");
+    expect(screen.queryByRole("button", { name: "Acknowledge" })).not.toBeInTheDocument();
+  });
+
+  it("pressing Acknowledge calls the command with the run id", async () => {
+    acknowledgeAgentRunMock.mockResolvedValue(undefined);
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Acknowledge" }));
+
+    await waitFor(() => expect(acknowledgeAgentRunMock).toHaveBeenCalledWith("run-abandoned"));
+  });
+
+  it("pressing Acknowledge while the call is in flight does not issue a second call", async () => {
+    let resolveAck: () => void = () => {};
+    acknowledgeAgentRunMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveAck = resolve;
+      }),
+    );
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    const ackButton = await screen.findByRole("button", { name: "Acknowledge" });
+    ackButton.click();
+    ackButton.click();
+    ackButton.click();
+
+    await waitFor(() => expect(acknowledgeAgentRunMock).toHaveBeenCalledTimes(1));
+    resolveAck();
+  });
+
+  it("a rejected Acknowledge leaves the button and explanatory line in place with an inline message", async () => {
+    acknowledgeAgentRunMock.mockRejectedValue(new Error("write failed"));
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Acknowledge" }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("This run never finished, and Flywheel doesn't know why it stopped.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Acknowledge" })).toBeInTheDocument();
+  });
+
+  it("selecting an abandoned run row still invokes onOpenRun, read-only like any other terminal run", async () => {
+    const onOpenRun = vi.fn();
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", externalSessionId: "sess-abandoned" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection("task-1", onOpenRun);
+
+    const row = await screen.findByRole("listitem", { name: "Run · session sess-abandoned" });
+    fireEvent.click(row);
+
+    expect(onOpenRun).toHaveBeenCalledWith("run-abandoned");
   });
 });
 
