@@ -26,6 +26,7 @@ pub mod agent_runs;
 pub mod events;
 pub mod filter;
 pub mod permissions;
+pub mod recovery;
 pub mod search;
 
 use anyhow::Context;

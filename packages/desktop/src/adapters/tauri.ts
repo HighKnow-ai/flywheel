@@ -412,6 +412,22 @@ export async function blockedSummary(projectId: string): Promise<BlockedSummaryD
 }
 
 /**
+ * D-46's board-visible "recovery needed" signal for one project (plan 03-11): every task id with
+ * an outstanding recovery item (a missing worktree, or an unacknowledged abandoned run) plus the
+ * count, read together so the board row pill and the project-rail badge always agree. Read-only.
+ * Thin typed wrapper over `board_recovery_summary`. Mirrors `commands/agent_run.rs`'s
+ * `RecoverySummaryDto` field-for-field.
+ */
+export interface RecoverySummaryDto {
+  recoveryTaskIds: string[];
+  recoveryCount: number;
+}
+
+export async function boardRecoverySummary(projectId: string): Promise<RecoverySummaryDto> {
+  return invokeCommand<RecoverySummaryDto>("board_recovery_summary", { projectId });
+}
+
+/**
  * One genuinely-alive orphaned run the launch reconciler found (plan 03-06, PROC-05, D-46) —
  * mirrors `commands/agent_run.rs`'s `PendingOrphanDto` field-for-field. Carries no cost or token
  * fields (those are AGNT-08, Phase 10) and no live stream handle — the process here is being

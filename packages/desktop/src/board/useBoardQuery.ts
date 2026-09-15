@@ -9,6 +9,7 @@ import {
   agentRunLogWindow,
   agentRunsForTask,
   blockedSummary,
+  boardRecoverySummary,
   invokeCommand,
   latestAgentRunIdForTask,
   pendingOrphans,
@@ -638,6 +639,51 @@ export function useBlockedSummary(projectId: string | undefined) {
   return useQuery({
     queryKey: blockedSummaryQueryKey(projectId),
     queryFn: () => blockedSummary(projectId as string),
+    enabled: Boolean(projectId),
+  });
+}
+
+/** `useRecoverySummary`'s query key, keyed by `projectId` — D-46's board-visible "recovery
+ * needed" signal (plan 03-11): the board row's Needs Decision pill and the project-rail's second
+ * count badge read the SAME summary, so the two can never disagree at different moments. */
+export function recoverySummaryQueryKey(projectId: string | undefined) {
+  return ["recovery-summary", projectId] as const;
+}
+
+/**
+ * Every task id in `projectId` with an outstanding recovery item (a missing worktree, or an
+ * unacknowledged abandoned run) plus the count (D-46, plan 03-11) — feeds `BoardRow.tsx`'s Needs
+ * Decision pill and `ProjectRail.tsx`'s second count badge. Invalidated by
+ * `subscribeBoardChanged` — every command that resolves a recovery item
+ * (`worktree_recreate`/`worktree_forget_record`/`agent_run_acknowledge`) already emits
+ * `board:changed`, so the pill clears through the same push-invalidate path the rest of the board
+ * uses, with no second mechanism. `undefined` disables the query entirely (no project selected
+ * yet).
+ */
+export function useRecoverySummary(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: recoverySummaryQueryKey(projectId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [projectId, queryClient]);
+
+  return useQuery({
+    queryKey: recoverySummaryQueryKey(projectId),
+    queryFn: () => boardRecoverySummary(projectId as string),
     enabled: Boolean(projectId),
   });
 }

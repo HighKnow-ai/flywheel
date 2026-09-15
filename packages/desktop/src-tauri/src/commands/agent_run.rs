@@ -789,6 +789,31 @@ pub fn board_blocked_summary(state: State<AppState>, project_id: String) -> Resu
     Ok(BlockedSummaryDto { blocked_task_ids, blocked_count })
 }
 
+/// D-46's board-visible "recovery needed" signal for one project (plan 03-11): a task's worktree
+/// reading `missing` (D-45) or an unacknowledged abandoned run (D-49/D-50). The board row's Needs
+/// Decision pill and the project-rail's second count badge read this SAME summary, so the two can
+/// never disagree at different moments — mirrors `BlockedSummaryDto`'s own reasoning. A read: no
+/// mutation, no emit.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverySummaryDto {
+    pub recovery_task_ids: Vec<String>,
+    pub recovery_count: i64,
+}
+
+/// Every task id in `project_id` with an outstanding recovery item plus the count (D-46) — feeds
+/// `BoardRow.tsx`'s Needs Decision pill and `ProjectRail.tsx`'s second count badge, delegating
+/// straight to `query::recovery`. Read-only.
+#[tauri::command]
+pub fn board_recovery_summary(state: State<AppState>, project_id: String) -> Result<RecoverySummaryDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let recovery_task_ids = flywheel_core::query::recovery::recovery_task_ids_for_project(&conn, &project_id)
+        .map_err(|e| e.to_string())?;
+    let recovery_count = flywheel_core::query::recovery::recovery_count_for_project(&conn, &project_id)
+        .map_err(|e| e.to_string())?;
+    Ok(RecoverySummaryDto { recovery_task_ids, recovery_count })
+}
+
 fn resolve_log_window_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(LOG_WINDOW_DEFAULT_LIMIT).clamp(1, LOG_WINDOW_MAX_LIMIT)
 }

@@ -154,6 +154,7 @@ fn main() {
             commands::agent_run::agent_run_pending_permissions,
             commands::agent_run::task_latest_agent_run,
             commands::agent_run::board_blocked_summary,
+            commands::agent_run::board_recovery_summary,
             commands::agent_run::agent_runs_pending_orphans,
             commands::agent_run::orphan_kill,
             commands::settings::settings_get,
