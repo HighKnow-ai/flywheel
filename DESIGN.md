@@ -1470,3 +1470,87 @@ path exists anywhere in this plan's production code.
 - `WorktreeSummaryDto.status` is now on the wire end to end (Rust `commands/agent_run.rs` through
   `adapters/tauri.ts`) — any future surface reading a task's worktree summary can branch on it
   without a second call.
+
+# Phase 3, Plan 03-10 — The Orphan Recovery Modal and the Abandoned-Run Acknowledgment (PROC-04, PROC-05, D-46, D-49, D-50)
+
+## What was built
+
+- `OrphanRecoveryModal.tsx` (new, `packages/desktop/src/recovery/`) — the blocking launch-time
+  overlay. Reuses `board/DeleteConfirm.tsx`'s exact `FocusScope`/`createPortal` overlay shape at a
+  wider 560px fixed width (mirroring the launch sheet's own precedent of widening the same base
+  pattern for denser content), with **one deliberate divergence**: the dismissable-layer primitive
+  is never composed in at all — not mounted with no-op handlers, simply absent — so the modal has
+  no Escape binding, no click-outside dismissal and no close button (D-46, T-03-10-01). A source
+  gate (`grep -c 'DismissableLayer'` over non-comment lines, verified zero) makes this structural,
+  not a convention. It closes itself the instant its own row list becomes empty and never before —
+  a Kill All where every kill fails leaves all rows mounted with their own pid-naming failure copy,
+  proven by this plan's own criterion-2 honesty test (Task 3).
+- Each row's Kill action carries the `{ killing, failed }` local state
+  `session/PermissionRequestCard.tsx`'s `RowState` pattern establishes, with the ONE deliberate
+  divergence the UI-SPEC calls out: a permission card's failed answer clears back to answerable, a
+  failed kill row's failure is PERMANENT — no retry button, only a terminal failure message naming
+  the pid, because a process Flywheel could not kill needs a human at a terminal, not a second press
+  of the same control.
+- The leading glyph on every row reuses the existing `run-running` mark (`Loader`, its `agent-pulse`
+  animation gated on `prefers-reduced-motion` exactly as `RunsSection.tsx`'s own badge) with
+  different label copy ("Running (from a previous session)") — no new mark for this row, since it is
+  genuinely the same "running" fact wearing different context copy.
+- Mounted once in `App.tsx`, present across every app-shell branch (boot, first-run, main), self-
+  conditioned on a non-empty pending-orphan list — structurally absent from the DOM otherwise.
+- `run-abandoned` mark (new, `Unplug` glyph, agent channel) — deliberately a different glyph from
+  `run-interrupted`'s `CircleSlash`: an interrupted run was a normal, user-initiated Stop, while an
+  abandoned run is the product's own supervision failing to reach a clean end (D-49).
+- `RunsSection.tsx`'s `abandoned` row variant renders the badge, one explanatory line (the watchdog
+  sentence with the kill record's timestamp interpolated when a record exists and parsed, otherwise
+  the honest weaker fallback — never inventing a reason the data does not support), and a single
+  Acknowledge button guarded by the SAME `useRef` double-click fix plan 03-09's
+  `MissingWorktreeBanner` introduced for the identical bug (React state does not flush the
+  `disabled` attribute between two synchronous clicks).
+- `agent_run_acknowledge` (new Tauri command) writes `acknowledged_at` through a compile-time-
+  literal `UPDATE ... WHERE id = ?1 AND status = 'abandoned'` — no domain function backs it
+  (deliberately excluded from this plan's `files_modified`), so acknowledging a non-abandoned run is
+  a no-op rather than a state change of any kind.
+
+## Review against the direction contract
+
+- **Never colour alone:** the abandoned badge carries the literal word "Abandoned" plus a distinct
+  glyph from every other terminal status; the modal's failure copy names the pid in words, not by a
+  colour change.
+- **60/30/10 unaffected:** the abandoned badge and the modal's Kill/Kill All buttons all reuse
+  `--destructive-strip`/`--destructive-text-rack`, the same destructive-family budget Phase 2's
+  "Failed" status and `DeleteConfirm.tsx`'s "Delete" button already spend — this plan adds meaning
+  via glyph/word, not a new claim on the palette. Zero new colour tokens; zero raw hex literals
+  (verified by this plan's own `<verify>` grep gate).
+- **One new mark, published before any surface renders it** — `run-abandoned` is appended to the
+  existing `"agent"` channel in `legend/marks.ts` before `RunsSection.tsx` references it.
+- **Directory deviation from `03-PATTERNS.md`:** that document names
+  `packages/desktop/src/components/OrphanRecoveryModal.tsx`, but no `components/` directory exists
+  anywhere in this codebase — every surface lives in a domain-named folder (`board/`, `item-detail/`,
+  `session/`, `settings/`, `projects/`, `launch-sheet/`). This plan follows the codebase's own
+  convention and creates `packages/desktop/src/recovery/` instead, matching how every prior phase's
+  pattern map has been treated as a starting reference, never a literal path contract.
+
+## Craft floor review
+
+No live Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display
+available to this executor, matching every prior Phase 3 plan's own precedent). The Impeccable
+detector (`detect.mjs --json`) was run directly against `OrphanRecoveryModal.tsx` and
+`RunsSection.tsx` and reported zero findings for both. `cargo build --workspace`/`cargo test
+--workspace` and `npm --prefix packages/desktop run build`/`run test` (full suite) are this plan's
+actual evidence.
+
+## Known Stubs
+
+None. Both surfaces are wired to the real `orphanKill`/`acknowledgeAgentRun` commands — no mock data
+path exists anywhere in this plan's production code.
+
+## What the next plan inherits
+
+- `OrphanRecoveryModal.tsx`'s "compose the overlay shape, omit the dismissable-layer primitive
+  entirely" pattern — the reference shape for any future surface that must structurally guarantee it
+  cannot be dismissed while an unresolved state remains.
+- `RunSummaryDto.acknowledgedAt`/`abandonedReason` are now on the wire end to end — any future
+  surface reading a task's runs can branch on either without a second call.
+- The `packages/desktop/src/recovery/` directory now exists and holds this plan's one component; any
+  future recovery-adjacent surface should land here rather than reopening the `components/` question
+  `03-PATTERNS.md` raised and this plan declined.

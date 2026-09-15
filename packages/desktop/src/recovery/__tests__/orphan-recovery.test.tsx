@@ -212,6 +212,53 @@ describe("OrphanRecoveryModal — kill in flight and outcomes", () => {
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
     expect(screen.getByText(/Couldn't kill this process \(PID 3\)/)).toBeInTheDocument();
   });
+
+  it("a failed row presents no enabled control that looks retryable — no enabled button named Kill", async () => {
+    pendingOrphansMock.mockResolvedValue([makeOrphan({ pid: 7 })]);
+    orphanKillMock.mockResolvedValue(killDto({ killed: false, pid: 7, detail: "still running" }));
+    renderModal();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Kill" }));
+
+    await screen.findByText(/Couldn't kill this process \(PID 7\)/);
+    expect(screen.queryByRole("button", { name: "Kill" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Success criterion 2 (ROADMAP.md, quoted verbatim): "the application must never reach the board
+ * implying a clean launch it did not achieve." The application must not be able to lie about this
+ * — a Kill All where every single kill fails must leave the modal fully honest about it.
+ */
+describe("OrphanRecoveryModal — criterion 2 honesty (03-10 Task 3)", () => {
+  it("a Kill All where every kill fails leaves all three rows mounted, each naming its own distinct pid, with no way out", async () => {
+    pendingOrphansMock.mockResolvedValue([
+      makeOrphan({ runId: "run-a", pid: 101 }),
+      makeOrphan({ runId: "run-b", pid: 202 }),
+      makeOrphan({ runId: "run-c", pid: 303 }),
+    ]);
+    orphanKillMock.mockImplementation((runId: string) =>
+      Promise.resolve(killDto({ killed: false, pid: { "run-a": 101, "run-b": 202, "run-c": 303 }[runId], detail: "still running" })),
+    );
+    renderModal();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Kill All" }));
+
+    // (a) three rows remain
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+    // (b) each row's text contains its own distinct pid
+    expect(screen.getByText(/Couldn't kill this process \(PID 101\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Couldn't kill this process \(PID 202\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Couldn't kill this process \(PID 303\)/)).toBeInTheDocument();
+    // (c) the modal heading is still in the document
+    expect(
+      screen.getByText("Flywheel found 3 agent processes still running from a previous session."),
+    ).toBeInTheDocument();
+    // (d) no button whose accessible name matches a close, dismiss or continue word — the
+    // application must never reach the board implying a clean launch it did not achieve.
+    const buttons = screen.queryAllByRole("button", { name: /close|dismiss|continue/i });
+    expect(buttons).toHaveLength(0);
+  });
 });
 
 describe("OrphanRecoveryModal — focus (D-46)", () => {
