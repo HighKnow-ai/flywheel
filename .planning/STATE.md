@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-09-15T02:37:19.250Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-09-15T03:02:54.596Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 03 execution started
-state_head: f78e694a3201a808b9b732790711653537bf8a89
+state_head: 5a8762d19d8354830f0fb87d5a849845fc0c9161
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 52
-  completed_plans: 42
+  completed_plans: 43
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 4 of 13
+Plan: 5 of 13
 Status: Ready to execute
 Last activity: 2026-09-15 — Phase 03 execution started
 
@@ -101,6 +101,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P01 | 55min | 3 tasks | 13 files |
 | Phase 03 P02 | 53min | 3 tasks | 10 files |
 | Phase 03 P03 | 68min | 3 tasks | 8 files |
+| Phase 03 P04 | 35min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -162,6 +163,8 @@ Recent decisions affecting current work:
 - [Phase 03]: The run descriptor is written by claude-code-adapter.ts with the watchdog wrapper's own pid, never by watchdog.ts itself — the adapter is the one process that knows the wrapper's pid immediately after spawn; watchdog.ts recomputes its own pid/start-time directly for its kill record instead of reading that file back
 - [Phase 03]: [Phase 03]: open_and_migrate toggles PRAGMA foreign_keys OFF around MIGRATIONS.to_latest() (re-enabling plus running PRAGMA foreign_key_check before trusting success) — a full-table rebuild's DROP TABLE fails under foreign_keys=ON when a sibling table's real FK still has matching child rows, verified against a real sqlite3 binary; toggling inside the migration SQL itself is a documented rusqlite_migration no-op.
 - [Phase 03]: [Phase 03]: recreate_worktree_for_task runs git worktree prune before touching git — git's own worktree administration does not self-clear when a directory disappears out from under it, so a same-path git worktree add fails with "already registered worktree" without this; found by a real failing test, not anticipated by the plan.
+- [Phase 03]: packages/shim/Cargo.toml aliases the core dependency to flywheel_core (mirroring desktop's own documented fix) rather than depending on it literally as core, avoiding the sysroot core shadowing collision. — A dependency literally named core shadows the sysroot core crate in the extern prelude of the depending crate; the exact fix is already documented in packages/desktop/src-tauri/Cargo.toml for the same collision.
+- [Phase 03]: The shim's PATH/FLYWHEEL_REAL_GIT env additions are merged via a new sidecar.rs::merge_shim_env_for_run, called after run.id exists, not folded into resolved_env_for_run itself. — resolved_env_for_run intentionally runs BEFORE the run/worktree row is created (D-39) so a credential failure never orphans a running row; the shim's install directory is keyed by run_id, which does not exist that early.
 
 ### Pending Todos
 
@@ -193,6 +196,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-15T02:37:09.806Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-09-15T03:02:54.529Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
