@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-09-15T03:02:54.596Z"
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-09-15T03:17:55.507Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 03 execution started
-state_head: 5a8762d19d8354830f0fb87d5a849845fc0c9161
+state_head: 4492db222d02f42de24119e8bb4c27dca19dc59e
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 52
-  completed_plans: 43
+  completed_plans: 44
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 5 of 13
+Plan: 6 of 13
 Status: Ready to execute
 Last activity: 2026-09-15 — Phase 03 execution started
 
@@ -102,6 +102,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P02 | 53min | 3 tasks | 10 files |
 | Phase 03 P03 | 68min | 3 tasks | 8 files |
 | Phase 03 P04 | 35min | 3 tasks | 12 files |
+| Phase 03 P05 | 25min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -165,6 +166,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03]: recreate_worktree_for_task runs git worktree prune before touching git — git's own worktree administration does not self-clear when a directory disappears out from under it, so a same-path git worktree add fails with "already registered worktree" without this; found by a real failing test, not anticipated by the plan.
 - [Phase 03]: packages/shim/Cargo.toml aliases the core dependency to flywheel_core (mirroring desktop's own documented fix) rather than depending on it literally as core, avoiding the sysroot core shadowing collision. — A dependency literally named core shadows the sysroot core crate in the extern prelude of the depending crate; the exact fix is already documented in packages/desktop/src-tauri/Cargo.toml for the same collision.
 - [Phase 03]: The shim's PATH/FLYWHEEL_REAL_GIT env additions are merged via a new sidecar.rs::merge_shim_env_for_run, called after run.id exists, not folded into resolved_env_for_run itself. — resolved_env_for_run intentionally runs BEFORE the run/worktree row is created (D-39) so a credential failure never orphans a running row; the shim's install directory is keyed by run_id, which does not exist that early.
+- [Phase 03]: D-44 (checkpoint, plan 03-05 Task 1): Option A -- once no worktrees row exists for a task, its triggers/agent_runs/permission_requests rows are cascaded in the same transaction, summarised by one task.history_deleted event. Supersedes D-40's permanent block. — Consistent with delete_task's existing acceptance-criteria cascade; leaves no unreachable rows; needs no migration. The append-only events log (no FK to tasks) is the durable non-repudiable record regardless and is never touched by the cascade. Session transcripts (<app-data>/sessions/*.jsonl) are left on disk. Options B (keep blocking) and C (soft-delete tombstone) were rejected: B contradicts D-44's own wording, C's query-layer blast radius is out of proportion to this plan.
+- [Phase 03]: [Phase 03]: remove_worktree_for_task and forget_worktree_record now null agent_runs.worktree_id before deleting the worktrees row. — agent_runs.worktree_id is a nullable REFERENCES worktrees(id); neither function decoupled it, so removing a worktree an agent run had used raised a raw FOREIGN KEY constraint error -- found by plan 03-05's own two-step order test, not anticipated by plan 03-01 or 03-03.
 
 ### Pending Todos
 
@@ -196,6 +199,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-15T03:02:54.529Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-09-15T03:17:55.439Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None
