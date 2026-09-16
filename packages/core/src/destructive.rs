@@ -248,7 +248,14 @@ fn classify_push(rest: &[String], default_branch: Option<&str>) -> Verdict {
     if targets_default {
         return Verdict::Destructive(DestructiveCategory::DefaultBranchPush);
     }
-    if force {
+    // A leading `+` on a refspec (`+feature`, `+feature:feature`) is git's own per-refspec force
+    // syntax — a force push wearing different clothes, not a typo guard (T-03-14-02). This check
+    // stays AFTER the delete and default-branch checks, exactly where Task 1 left the force
+    // early-return: a plus-prefixed refspec naming the default branch with an explicit
+    // destination (`+main:main`) already resolves via `targets_default` above, and the delete
+    // family still wins over an irrelevant leading `+` on a deleted source (`--delete +feature`).
+    let plus_refspec = positional.iter().any(|p| p.starts_with('+'));
+    if force || plus_refspec {
         return Verdict::Destructive(DestructiveCategory::ForcePush);
     }
     Verdict::Safe
