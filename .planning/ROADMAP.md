@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 17/18 plans executed in 8 waves (5 gap-closure plans added after verification returned `gaps_found`)
+**Plans**: 18/18 plans executed in 8 waves (5 gap-closure plans added after verification returned `gaps_found`)
 **UI hint**: yes
 
 Plans:
@@ -324,7 +324,7 @@ Plans:
 - [x] 03-15-PLAN.md — One run-id predicate at the one join site, and a stderr tail that cuts on a character boundary (PROC-03, PROC-04)
 - [x] 03-16-PLAN.md — The destructive-gate card: one click one answer, and a deletion sentence that names the branch (AGNT-07)
 - [x] 03-17-PLAN.md — Kill once, stop once: synchronous guards on the process-termination controls (PROC-04, PROC-05)
-- [ ] 03-18-PLAN.md — Remove once, and a missing worktree is missing even with an empty path (WORK-03, WORK-06)
+- [x] 03-18-PLAN.md — Remove once, and a missing worktree is missing even with an empty path (WORK-03, WORK-06)
 
 **Notes**: This phase exists as its own slice because two of the four ranked project-killers live
 here and each deserves a dedicated plan with its own tests rather than being buried in Phase 2.
@@ -622,7 +622,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
-| 3. Nothing Lost, Nothing Left Running | 17/18 | In Progress|  |
+| 3. Nothing Lost, Nothing Left Running | 18/18 | In Progress|  |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
