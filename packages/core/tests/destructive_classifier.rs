@@ -112,6 +112,45 @@ fn force_push_short_flag_clustered_with_set_upstream() {
     assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
 }
 
+// --- ForcePush via a leading-plus refspec (T-03-14-02): git's own per-refspec force syntax,
+// the same fail-open class as the delete gap above, found in the same function. ---
+
+#[test]
+fn force_push_leading_plus_refspec_with_explicit_destination() {
+    let verdict = classify("git", &args(&["push", "origin", "+feature:feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
+}
+
+#[test]
+fn force_push_leading_plus_refspec_bare_branch_name() {
+    let verdict = classify("git", &args(&["push", "origin", "+feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
+}
+
+#[test]
+fn force_push_leading_plus_refspec_refs_heads_qualified() {
+    let verdict = classify(
+        "git",
+        &args(&["push", "origin", "+refs/heads/feature:refs/heads/feature"]),
+        Some("main"),
+    );
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
+}
+
+#[test]
+fn force_push_leading_plus_refspec_still_loses_to_branch_deletion() {
+    // The delete family wins even when the deleted source is also plus-prefixed — delete
+    // detection is not fooled by an irrelevant leading `+` on the positional it inspects.
+    let verdict = classify("git", &args(&["push", "origin", "--delete", "+feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn safe_refspec_with_no_leading_plus_is_not_a_force_push() {
+    let verdict = classify("git", &args(&["push", "origin", "feature:feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Safe);
+}
+
 // --- BranchDeletion: >=4 positive cases, long/short/capitalized-force forms ---
 
 #[test]
