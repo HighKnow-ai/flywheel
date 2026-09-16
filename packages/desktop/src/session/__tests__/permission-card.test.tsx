@@ -487,6 +487,45 @@ describe("destructive", () => {
       expect(screen.getByText("This would delete the branch feature-x.")).toBeInTheDocument();
     });
 
+    // Every push spelling of a remote branch deletion — plan 03-14 makes `classify_push` emit
+    // `branch-deletion` for these for the first time; the pre-existing resolver names the REMOTE
+    // (`origin`) here, which is the exact defect this task closes (03-16-PLAN.md Task 2).
+    it("branch-deletion via 'git push origin --delete feature-x' names the branch, not the remote", () => {
+      const request = destructiveRequest("branch-deletion", "git push origin --delete feature-x");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(screen.getByText("This would delete the branch feature-x.")).toBeInTheDocument();
+    });
+
+    it("branch-deletion via 'git push origin -d feature-x' names the branch, not the remote", () => {
+      const request = destructiveRequest("branch-deletion", "git push origin -d feature-x");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(screen.getByText("This would delete the branch feature-x.")).toBeInTheDocument();
+    });
+
+    it("branch-deletion via 'git push origin :feature-x' names the branch, not the remote", () => {
+      const request = destructiveRequest("branch-deletion", "git push origin :feature-x");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(screen.getByText("This would delete the branch feature-x.")).toBeInTheDocument();
+    });
+
+    it("branch-deletion via 'git push --delete origin feature-x' (flag before the remote) names the branch, not the remote", () => {
+      const request = destructiveRequest("branch-deletion", "git push --delete origin feature-x");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(screen.getByText("This would delete the branch feature-x.")).toBeInTheDocument();
+    });
+
+    it("branch-deletion via 'git push origin :refs/heads/feature-x' names the branch, not the remote", () => {
+      const request = destructiveRequest("branch-deletion", "git push origin :refs/heads/feature-x");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(screen.getByText("This would delete the branch feature-x.")).toBeInTheDocument();
+    });
+
+    it("branch-deletion via 'git push origin --delete' with no branch named falls back to the generic sentence", () => {
+      const request = destructiveRequest("branch-deletion", "git push origin --delete");
+      render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+      expect(screen.getByText("This would delete a branch on this remote.")).toBeInTheDocument();
+    });
+
     it("default-branch-push", () => {
       const request = destructiveRequest("default-branch-push", "git push origin main");
       render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
