@@ -513,6 +513,13 @@ const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }: SessionSurfaceProps) {
   const [status, setStatus] = useState<RunStatus>(initialStatus);
   const [stopping, setStopping] = useState(false);
+  // `stopping` alone is not a sufficient guard against two activations in one synchronous tick —
+  // React has not necessarily flushed the re-render that disables the Stop button before a
+  // second `.click()` fires — and a ref reads and writes synchronously with no such window
+  // (mirrors `item-detail/RunsSection.tsx`'s `ackActingRef` / `recovery/OrphanRecoveryModal.tsx`'s
+  // `killingRef`, 03-17-PLAN.md Task 1). `stopping` stays the source of truth for what renders;
+  // this ref only guards dispatch.
+  const stoppingRef = useRef(false);
   const [stopWarning, setStopWarning] = useState<string | null>(null);
   const [persistenceFailed, setPersistenceFailed] = useState(false);
   const [persistenceFailureText, setPersistenceFailureText] = useState<string | null>(null);
@@ -572,15 +579,24 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
   // ADDITIONAL source, guarded by `isRunStatus` so an unexpected string can never widen the
   // status union. `.catch` stays the genuine-failure path — the terminal write itself failed.
   function handleStop() {
+    // A second activation while the ref is set invokes nothing — the synchronous-tick guard.
+    if (stoppingRef.current) return;
+    stoppingRef.current = true;
     setStopping(true);
     stopAgentRun(agentRunId)
       .then((result) => {
+        // Never cleared here: a successful stop drives `status` to a terminal value, `showStop`
+        // goes false and the button unmounts — there is nothing left to guard.
         if (isRunStatus(result.status)) {
           setStatus(result.status);
         }
         setStopWarning(result.sidecarWarning);
       })
       .catch(() => {
+        // Clear the ref before re-enabling — a genuine failure must leave the control usable,
+        // which matters more here than on any other surface: the alternative is an agent that
+        // keeps spending.
+        stoppingRef.current = false;
         setStopping(false);
       });
   }
