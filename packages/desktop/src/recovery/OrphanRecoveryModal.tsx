@@ -94,6 +94,16 @@ export function OrphanRecoveryModal() {
   const queryClient = useQueryClient();
   const [rows, setRows] = useState<OrphanRowState[] | null>(null);
   const firstKillButtonRef = useRef<HTMLButtonElement>(null);
+  // The run ids currently in flight for a kill. A row's `killing` flag alone is not a sufficient
+  // guard against two activations in one synchronous tick — React has not necessarily flushed the
+  // re-render that replaces the Kill button with the "Killing…" label before a second `.click()`
+  // fires — and a ref reads and writes synchronously with no such window (mirrors
+  // `item-detail/RunsSection.tsx`'s `ackActingRef` / `session/PermissionRequestCard.tsx`'s
+  // `answeringRef`). Row state stays the source of truth for what renders; this ref only guards
+  // dispatch. A SET rather than a single boolean because this modal kills several runs
+  // concurrently by design — Kill All dispatches one call per row, and a single boolean would let
+  // the first dispatch suppress every sibling.
+  const killingRef = useRef<Set<string>>(new Set());
 
   // Seed exactly once, from the first list this component ever observes — never re-seed from a
   // later read (a re-seed would resurrect a row the user already resolved via a kill).
@@ -108,8 +118,15 @@ export function OrphanRecoveryModal() {
       const outcome = await orphanKill(runId);
       queryClient.invalidateQueries({ queryKey: pendingOrphansQueryKey() });
       if (outcome.killed) {
+        // The row is removed here — it can never be re-activated, so the guard entry is left in
+        // place deliberately (deleting would reopen the exact window this guard closes, for the
+        // brief span between the resolved promise and the row's removal from `rows`).
         setRows((prev) => (prev ?? []).filter((row) => row.orphan.runId !== runId));
       } else {
+        // The call is over and the row did not disappear (permanent failure) — release the guard
+        // entry, mirroring `RunsSection.tsx`'s `acknowledge()` catch-path reset. There is no retry
+        // affordance for a failed row, but the guard must not outlive the call it protected.
+        killingRef.current.delete(runId);
         setRows((prev) =>
           (prev ?? []).map((row) =>
             row.orphan.runId === runId
@@ -119,6 +136,7 @@ export function OrphanRecoveryModal() {
         );
       }
     } catch {
+      killingRef.current.delete(runId);
       setRows((prev) =>
         (prev ?? []).map((row) =>
           row.orphan.runId === runId ? { ...row, killing: false, failed: true, detail: null } : row,
@@ -128,12 +146,19 @@ export function OrphanRecoveryModal() {
   }
 
   function handleKill(runId: string) {
+    // A second activation while the ref already holds this run id invokes nothing — the
+    // synchronous-tick guard.
+    if (killingRef.current.has(runId)) return;
+    killingRef.current.add(runId);
     setRows((prev) => (prev ?? []).map((row) => (row.orphan.runId === runId ? { ...row, killing: true } : row)));
     void killOne(runId);
   }
 
   function handleKillAll() {
-    const targets = (rows ?? []).filter((row) => !row.killing && !row.failed);
+    const targets = (rows ?? []).filter((row) => !row.killing && !row.failed && !killingRef.current.has(row.orphan.runId));
+    for (const target of targets) {
+      killingRef.current.add(target.orphan.runId);
+    }
     setRows((prev) =>
       (prev ?? []).map((row) => (targets.some((t) => t.orphan.runId === row.orphan.runId) ? { ...row, killing: true } : row)),
     );
