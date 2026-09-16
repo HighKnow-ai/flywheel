@@ -81,6 +81,14 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
   const check = useWorktreeRemovalCheck(taskId, true);
   const removeWorktree = useRemoveWorktree(taskId);
   const [removeState, setRemoveState] = useState<RemoveButtonState>({ removing: false, error: null });
+  // `removeState.removing` alone is not a sufficient guard against two activations in one
+  // synchronous tick — React has not necessarily flushed the state update and the `disabled`
+  // attribute with it before a second click fires. A ref reads and writes synchronously and has
+  // no such window (mirrors `item-detail/WorktreeSummary.tsx`'s own `actingRef` /
+  // `item-detail/RunsSection.tsx`'s `ackActingRef`, both found by the same real failing-test class
+  // this file's own plan-03-18 test now proves against). `removeState.removing` stays the source
+  // of truth for what the UI renders (disabled/opacity); this ref only guards dispatch.
+  const removingRef = useRef(false);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
@@ -90,14 +98,19 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
   }
 
   async function handleRemove() {
-    // A second activation while disabled invokes nothing — the guard the UI layer adds on top of
-    // the backend's own guarded removal.
-    if (removeState.removing) return;
+    if (removingRef.current) return;
+    removingRef.current = true;
     setRemoveState({ removing: true, error: null });
     try {
       await removeWorktree.mutateAsync();
+      // The ref is deliberately NOT cleared here: `onClose()` unmounts the dialog on this path,
+      // and clearing would reopen the exact window this guard closes for the brief span between
+      // the resolved promise and the unmount actually taking effect.
       onClose();
     } catch {
+      // A failed removal must stay retryable — release the guard before setting the error state,
+      // mirroring `WorktreeSummary.tsx`'s `recreate()`/`forgetRecord()` catch-path reset.
+      removingRef.current = false;
       setRemoveState({ removing: false, error: "Could not remove the worktree. Try again." });
     }
   }

@@ -5,8 +5,15 @@
  * response still renders every row inside a scrollable region with no cap and no "and N more";
  * a failed check renders the read-failure state with no Remove button; and a partial/unparseable
  * porcelain response renders the Dirty refusal rather than the Clean confirm.
+ *
+ * The "re-entry guard" describe block below (plan 03-18 Task 1, T-03-18-01/T-03-18-04) closes the
+ * gap the phase's own gap-closure audit found: `handleRemove` guarded on `removeState.removing`
+ * alone, which two synchronous clicks in the same tick both observe as `false` before React
+ * flushes the first `setRemoveState` call. Raw `element.click()` (never `fireEvent.click`, which
+ * wraps each call in `act()` and flushes state between calls) is what reproduces this — mirrors
+ * `item-detail/__tests__/runs-section.test.tsx`'s own `ackButton.click()` idiom.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorktreeRemovalDialog } from "../WorktreeRemovalDialog";
@@ -125,5 +132,59 @@ describe("WorktreeRemovalDialog", () => {
 
     expect(await screen.findByText("Remove worktree for FLY-1?")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+  });
+});
+
+describe("WorktreeRemovalDialog — re-entry guard (plan 03-18, T-03-18-01/T-03-18-04)", () => {
+  beforeEach(() => {
+    worktreeRemovalCheckMock.mockReset();
+    worktreeRemoveMock.mockReset();
+  });
+
+  it("three synchronous Remove clicks, with the removal mutation never resolving, invoke the removal exactly once", async () => {
+    worktreeRemovalCheckMock.mockResolvedValue(dirtyResponse([]));
+    worktreeRemoveMock.mockReturnValue(new Promise(() => {})); // never resolves
+    renderDialog();
+
+    const removeButton = await screen.findByRole("button", { name: "Remove" });
+    // Raw `.click()`, not `fireEvent.click` — see the file's own doc comment above for why.
+    removeButton.click();
+    removeButton.click();
+    removeButton.click();
+
+    await waitFor(() => expect(worktreeRemoveMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("after a rejected removal settles, the Remove button re-enables, the inline error shows, and a further click invokes the removal a second time", async () => {
+    worktreeRemovalCheckMock.mockResolvedValue(dirtyResponse([]));
+    worktreeRemoveMock.mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce(undefined);
+    renderDialog();
+
+    const removeButton = await screen.findByRole("button", { name: "Remove" });
+    removeButton.click();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not remove the worktree. Try again.");
+    expect(removeButton).not.toBeDisabled();
+
+    removeButton.click();
+
+    await waitFor(() => expect(worktreeRemoveMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("a successful removal calls onClose exactly once", async () => {
+    worktreeRemovalCheckMock.mockResolvedValue(dirtyResponse([]));
+    worktreeRemoveMock.mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorktreeRemovalDialog taskId="task-1" onClose={onClose} />
+      </QueryClientProvider>,
+    );
+
+    const removeButton = await screen.findByRole("button", { name: "Remove" });
+    removeButton.click();
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });
