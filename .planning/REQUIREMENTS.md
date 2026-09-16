@@ -36,8 +36,8 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **WORK-01**: Starting work on a task creates a dedicated git worktree for that task
 - [x] **WORK-02**: Branches follow the fixed topology: a task branch merges into its epic integration branch, which merges into the trunk
 - [ ] **WORK-03**: A worktree is never destroyed without first checking for uncommitted changes; if any exist, destruction is refused and surfaced to the user
-- [ ] **WORK-04**: Concurrent git operations against the same repository retry with exponential backoff and jitter on index-lock contention rather than failing the task
-- [ ] **WORK-05**: Agent spawn timing is desynchronised so that parallel starts do not collide on the same repository index
+- [x] **WORK-04**: Concurrent git operations against the same repository retry with exponential backoff and jitter on index-lock contention rather than failing the task
+- [x] **WORK-05**: Agent spawn timing is desynchronised so that parallel starts do not collide on the same repository index
 - [ ] **WORK-06**: On launch, the application reconciles worktrees recorded in the database against those actually present on disk and surfaces any discrepancy to the user rather than silently repairing it
 - [ ] **WORK-07**: User can see all worktrees across all projects, their disk usage, and reclaim stale ones
 - [x] **WORK-08**: A task's worktree persists across many agent sessions and is only removed on explicit completion or user action
@@ -240,8 +240,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | WORK-01 | Phase 2 | Complete |
 | WORK-02 | Phase 2 | Complete |
 | WORK-03 | Phase 3 | Gaps Found |
-| WORK-04 | Phase 3 | Gaps Found |
-| WORK-05 | Phase 3 | Gaps Found |
+| WORK-04 | Phase 3 | Complete |
+| WORK-05 | Phase 3 | Complete |
 | WORK-06 | Phase 3 | Gaps Found |
 | WORK-07 | Phase 10 | Pending |
 | WORK-08 | Phase 2 | Complete |
