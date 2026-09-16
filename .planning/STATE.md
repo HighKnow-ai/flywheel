@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: verifying
-stopped_at: Completed 03-16-PLAN.md (gap closure)
-last_updated: "2026-09-16T05:24:21.031Z"
+stopped_at: Completed 03-17-PLAN.md (gap closure)
+last_updated: "2026-09-16T05:34:42.030Z"
 last_activity: 2026-09-15
 last_activity_desc: Phase 03 execution started
-state_head: 22e791091cba4ec64012b9eb8f3bb4282be8630b
+state_head: c0c5350fa20a017fb6d722273f3a630e22361c66
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 57
-  completed_plans: 55
+  completed_plans: 56
   percent: 0
 ---
 
@@ -114,6 +114,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P14 | 22min | 3 tasks | 2 files |
 | Phase 03 P15 | 16min | 2 tasks | 4 files |
 | Phase 03 P16 | 22min | 2 tasks | 2 files |
+| Phase 03 P17 | 22min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -202,6 +203,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] push_bounded_stderr_tail cuts the startup readiness handshake's stderr tail on a UTF-8 character boundary instead of a raw byte index — The old String::truncate panicked on a non-boundary cut inside a non-unwinding block_on under panic = abort, which would have aborted the app before a window was shown (T-03-15-04)
 - [Phase 03]: [Phase 03]: PermissionRequestCard.tsx's answer() now guards with a synchronous answeringRef (useRef), mirroring RunsSection.tsx's ackActingRef / WorktreeSummary.tsx's actingRef — the third sibling fix of the same double-click bug class, found by a real failing raw-.click() test (3 calls observed instead of 1).
 - [Phase 03]: [Phase 03]: The branch-deletion consequence resolver now dispatches on the git subcommand (push vs branch) — pushDeleteTarget resolves the colon-refspec and --delete/-d spellings, falling back to the generic sentence with a single positional (the remote alone) — fixing the wrong-object defect plan 03-14's classify_push made reachable.
+- [Phase 03]: [Phase 03]: killingRef is a Set<string> (not a boolean) on OrphanRecoveryModal so Kill All's per-row concurrent dispatch is never suppressed by the first row's guard entry; killOne releases the guard only on the not-killed/thrown branches, never on the killed branch (row is removed, can never re-activate). — Generalises the ackActingRef/answeringRef single-boolean pattern to the fan-out case Kill All requires.
+- [Phase 03]: [Phase 03]: stoppingRef on SessionSurface clears only in handleStop's .catch, never in .then — a successful stop drives status to terminal and unmounts the Stop button, so there is nothing left to guard on that path. — A failed stop must stay retryable since the alternative is an agent that keeps spending money.
 
 ### Pending Todos
 
@@ -233,6 +236,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-16T05:24:09.509Z
-Stopped at: Completed 03-16-PLAN.md (gap closure)
+Last session: 2026-09-16T05:34:41.956Z
+Stopped at: Completed 03-17-PLAN.md (gap closure)
 Resume file: None
