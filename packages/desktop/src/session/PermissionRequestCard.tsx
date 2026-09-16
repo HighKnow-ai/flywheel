@@ -21,7 +21,7 @@
  * listener lives in that module, not here, which is what keeps this file's own key/dismissal
  * surface at zero (this task's own structural verify gate).
  */
-import { useState, type ComponentType } from "react";
+import { useRef, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
 import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
@@ -179,16 +179,34 @@ function PermissionRequestRow({
     ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload)
     : null;
 
+  // `state.answering` alone is not a sufficient guard against two activations in the same
+  // synchronous tick, because React has not necessarily flushed the state update — and the
+  // `disabled` attribute with it — before a second click fires; a ref reads and writes
+  // synchronously and has no such window. `state.answering` stays the source of truth for what
+  // the UI renders. This is the destructive-gate card, so a double-click here would double-answer
+  // a destructive permission request (mirrors `item-detail/RunsSection.tsx`'s `ackActingRef`,
+  // which itself cites `item-detail/WorktreeSummary.tsx`'s `actingRef` as the original fix,
+  // 03-16-PLAN.md Task 1).
+  const answeringRef = useRef(false);
+
   async function answer(decision: PermissionDecision) {
-    // A second activation while disabled invokes nothing (T-02-29) — the guard the UI layer adds
-    // on top of the core's own guarded once-only write.
-    if (state.answering) return;
+    // A second activation while the ref is set invokes nothing — the synchronous-tick guard.
+    if (answeringRef.current) return;
+    answeringRef.current = true;
     setState({ answering: true, error: null });
     try {
       await onAnswer(request.id, decision);
       // On success this row disappears once the shared pending-set query re-reads (Task 2) — no
-      // local "answered" state to hold here.
+      // local "answered" state to hold here, and the ref is deliberately never reset: the row
+      // unmounts when that happens, which is what removes it. Resetting on success would reopen
+      // the same window this guard exists to close, for the brief span between the resolved
+      // promise and the unmount.
     } catch {
+      // Clear the ref before setting the error state (mirrors `acknowledge()` in
+      // `RunsSection.tsx`) — a rejected answer must re-enable the row so a retry is possible; a
+      // guard that is never cleared on failure would permanently disable the only affordance that
+      // unblocks a waiting agent.
+      answeringRef.current = false;
       setState({ answering: false, error: "Could not send your answer. Try again." });
     }
   }
