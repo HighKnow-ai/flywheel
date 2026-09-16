@@ -271,3 +271,101 @@ describe("OrphanRecoveryModal — focus (D-46)", () => {
     expect(screen.getByRole("button", { name: "Kill All" })).not.toHaveFocus();
   });
 });
+
+/**
+ * 03-17-PLAN.md Task 1 (T-03-17-01): `handleKill`/`handleKillAll` had NO synchronous re-entry
+ * guard at all — a row's `killing` flag is a React state update that has not necessarily flushed
+ * to the DOM before a second `.click()` fires in the same tick, so two synchronous clicks both
+ * read the same stale row and dispatch twice. Raw `element.click()` calls (never `fireEvent.click`,
+ * which flushes `act()` between calls) reproduce the bug; `orphanKillMock` returns a
+ * never-resolving promise so the row's `killing` state never settles mid-test.
+ */
+describe("OrphanRecoveryModal — synchronous double activation (03-17, T-03-17-01)", () => {
+  it("clicking a pending orphan's Kill button three times in one synchronous tick issues exactly one orphanKill call for that run", async () => {
+    pendingOrphansMock.mockResolvedValue([makeOrphan({ runId: "run-1" })]);
+    orphanKillMock.mockReturnValue(new Promise(() => {}));
+    renderModal();
+
+    const killButton = await screen.findByRole("button", { name: "Kill" });
+    killButton.click();
+    killButton.click();
+    killButton.click();
+
+    await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(1));
+    expect(orphanKillMock).toHaveBeenCalledWith("run-1");
+  });
+
+  it("clicking Kill All three times in one synchronous tick issues exactly one orphanKill call per row, never three per row", async () => {
+    pendingOrphansMock.mockResolvedValue([
+      makeOrphan({ runId: "run-a", pid: 1 }),
+      makeOrphan({ runId: "run-b", pid: 2 }),
+    ]);
+    orphanKillMock.mockReturnValue(new Promise(() => {}));
+    renderModal();
+
+    const killAllButton = await screen.findByRole("button", { name: "Kill All" });
+    killAllButton.click();
+    killAllButton.click();
+    killAllButton.click();
+
+    await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("two rows, each row's own Kill button clicked once in the same tick, each get their own independent call", async () => {
+    pendingOrphansMock.mockResolvedValue([
+      makeOrphan({ runId: "run-a", pid: 1 }),
+      makeOrphan({ runId: "run-b", pid: 2 }),
+    ]);
+    orphanKillMock.mockReturnValue(new Promise(() => {}));
+    renderModal();
+
+    const killButtons = await screen.findAllByRole("button", { name: "Kill" });
+    killButtons[0].click();
+    killButtons[1].click();
+
+    await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
+    const calledIds = orphanKillMock.mock.calls.map((call: unknown[]) => call[0]);
+    expect(calledIds).toEqual(expect.arrayContaining(["run-a", "run-b"]));
+  });
+
+  it("Kill All clicked, then a still-listed row's own Kill button clicked in the same tick, that row still receives exactly one call", async () => {
+    pendingOrphansMock.mockResolvedValue([
+      makeOrphan({ runId: "run-a", pid: 1 }),
+      makeOrphan({ runId: "run-b", pid: 2 }),
+    ]);
+    orphanKillMock.mockReturnValue(new Promise(() => {}));
+    renderModal();
+
+    const killButtons = await screen.findAllByRole("button", { name: "Kill" });
+    const firstRowKill = killButtons[0];
+    const killAllButton = screen.getByRole("button", { name: "Kill All" });
+
+    killAllButton.click();
+    firstRowKill.click();
+
+    await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
+    expect(orphanKillMock.mock.calls.filter((call: unknown[]) => call[0] === "run-a")).toHaveLength(1);
+  });
+
+  it("a rejected kill releases the guard without preventing Kill All from still reaching a still-pending sibling row", async () => {
+    pendingOrphansMock.mockResolvedValue([
+      makeOrphan({ runId: "run-a", pid: 1 }),
+      makeOrphan({ runId: "run-b", pid: 2 }),
+    ]);
+    orphanKillMock.mockImplementation((runId: string) =>
+      runId === "run-a" ? Promise.reject(new Error("ipc failure")) : new Promise(() => {}),
+    );
+    renderModal();
+
+    const killButtons = await screen.findAllByRole("button", { name: "Kill" });
+    killButtons[0].click();
+
+    await screen.findByText(/Couldn't kill this process \(PID 1\)/);
+
+    const killAllButton = screen.getByRole("button", { name: "Kill All" });
+    killAllButton.click();
+
+    await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
+    expect(orphanKillMock).toHaveBeenNthCalledWith(2, "run-b");
+  });
+});
