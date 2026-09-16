@@ -211,13 +211,31 @@ const READINESS_STDERR_TAIL_CAP: usize = 4096;
 /// Append one chunk of the sidecar's readiness-handshake stderr to `tail`, bounded at `cap`
 /// bytes (plan 03-15, T-03-15-04) — extracted out of the async closure in [`spawn_sidecar`] so it
 /// is unit-testable without spawning a process or entering a runtime.
+///
+/// Replaces a `String::truncate` at the raw byte minimum, which panics whenever the cut lands
+/// mid-character: `String::from_utf8_lossy` renders invalid UTF-8 as three-byte U+FFFD
+/// replacement characters, so a stderr burst whose decoded form straddles `cap` can very easily
+/// land the cut inside one. This frame runs inside `tauri::async_runtime::block_on` in
+/// `main.rs`'s `.setup()` closure, which CANNOT UNWIND, and the workspace release profile sets
+/// `panic = "abort"` — so an oversized multi-byte stderr burst during the five-second readiness
+/// handshake would have killed the app before a window was ever shown (`stderr_tail_tests`'s
+/// `..._invalid_utf8_positioned_to_straddle_the_cap_never_panics` is the falsifying test). Instead
+/// of cutting at the raw byte minimum, walk backwards from the candidate cut index using
+/// `str::is_char_boundary` (stable — no nightly boundary helper needed) until landing on one;
+/// index zero is always a boundary, so the loop always terminates.
 fn push_bounded_stderr_tail(tail: &mut String, bytes: &[u8], cap: usize) {
     if tail.len() >= cap {
         return;
     }
     tail.push_str(&String::from_utf8_lossy(bytes));
     tail.push('\n');
-    tail.truncate(tail.len().min(cap));
+    if tail.len() > cap {
+        let mut cut = cap;
+        while cut > 0 && !tail.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        tail.truncate(cut);
+    }
 }
 
 impl SidecarHandle {
@@ -876,11 +894,10 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                         }
                     }
                     Some(CommandEvent::Stderr(bytes)) => {
-                        if stderr_tail.len() < READINESS_STDERR_TAIL_CAP {
-                            stderr_tail.push_str(&String::from_utf8_lossy(&bytes));
-                            stderr_tail.push('\n');
-                            stderr_tail.truncate(stderr_tail.len().min(READINESS_STDERR_TAIL_CAP));
-                        }
+                        // See `push_bounded_stderr_tail`'s own doc comment (plan 03-15,
+                        // T-03-15-04): this frame cannot unwind and the release profile aborts
+                        // on panic, so the cut MUST land on a UTF-8 character boundary.
+                        push_bounded_stderr_tail(&mut stderr_tail, &bytes, READINESS_STDERR_TAIL_CAP);
                     }
                     Some(CommandEvent::Terminated(payload)) => {
                         return Err(anyhow::anyhow!(
