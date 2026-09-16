@@ -113,7 +113,11 @@ describe("PermissionRequestCard (standalone)", () => {
     expect(onAnswer).toHaveBeenCalledWith("req-1", "allow_always");
   });
 
-  it("activating Allow twice in immediate succession calls the answer spy exactly once", () => {
+  // `fireEvent.click` wraps each call in `act()` and flushes state between them, so this only
+  // proves the SECOND line of defence (the `disabled` attribute reaching the DOM before the next
+  // click). It does NOT prove the synchronous-tick guard — see the raw `.click()` test below,
+  // which is the one that actually reproduces the unflushed-state bug (03-16-PLAN.md Task 1).
+  it("activating Allow twice with a flushed re-render between clicks calls the answer spy exactly once (disabled-attribute guard)", () => {
     let resolveAnswer: (() => void) | undefined;
     const onAnswer = vi.fn(
       () =>
@@ -128,6 +132,28 @@ describe("PermissionRequestCard (standalone)", () => {
     fireEvent.click(allowButton);
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
+    resolveAnswer?.();
+  });
+
+  // Raw `element.click()` calls in one synchronous tick do NOT flush React state between them —
+  // this is the idiom that actually reproduces the bug (item-detail/__tests__/runs-section.test.tsx
+  // around line 331), unlike `fireEvent.click` above.
+  it("three synchronous native clicks on the routine Allow button call the answer spy exactly once", async () => {
+    let resolveAnswer: (() => void) | undefined;
+    const onAnswer = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAnswer = resolve;
+        }),
+    );
+    render(<PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={onAnswer} />);
+
+    const allowButton = screen.getByRole("button", { name: "Allow" });
+    allowButton.click();
+    allowButton.click();
+    allowButton.click();
+
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledTimes(1));
     resolveAnswer?.();
   });
 
@@ -306,6 +332,95 @@ describe("destructive", () => {
     fireEvent.click(denyButton);
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
+    resolveAnswer?.();
+  });
+
+  // This is the destructive-gate card — a double-click here double-answers a destructive
+  // permission request. Raw `.click()` calls in one synchronous tick do not flush React state
+  // between them, unlike `fireEvent.click` above (03-16-PLAN.md Task 1).
+  it("three synchronous native clicks on Deny call the answer spy exactly once, with the deny decision", async () => {
+    let resolveAnswer: (() => void) | undefined;
+    const onAnswer = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAnswer = resolve;
+        }),
+    );
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={onAnswer} />);
+
+    const denyButton = screen.getByRole("button", { name: "Deny" });
+    denyButton.click();
+    denyButton.click();
+    denyButton.click();
+
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledTimes(1));
+    expect(onAnswer).toHaveBeenCalledWith("req-1", "deny");
+    resolveAnswer?.();
+  });
+
+  it("three synchronous native clicks on 'Allow, just this once' call the answer spy exactly once", async () => {
+    let resolveAnswer: (() => void) | undefined;
+    const onAnswer = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAnswer = resolve;
+        }),
+    );
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={onAnswer} />);
+
+    const allowOnceButton = screen.getByRole("button", { name: "Allow, just this once" });
+    allowOnceButton.click();
+    allowOnceButton.click();
+    allowOnceButton.click();
+
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledTimes(1));
+    expect(onAnswer).toHaveBeenCalledWith("req-1", "allow");
+    resolveAnswer?.();
+  });
+
+  it("a rejected Deny answer clears the guard, so a second click issues a second call", async () => {
+    const onAnswer = vi.fn().mockRejectedValueOnce(new Error("network down")).mockResolvedValueOnce(undefined);
+    const request = destructiveRequest("hard-reset", "git reset --hard");
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={onAnswer} />);
+
+    const denyButton = screen.getByRole("button", { name: "Deny" });
+    fireEvent.click(denyButton);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(denyButton).toBeEnabled();
+
+    fireEvent.click(denyButton);
+
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledTimes(2));
+  });
+
+  it("two destructive requests mounted at once each answer independently under three synchronous clicks", async () => {
+    let resolveAnswer: (() => void) | undefined;
+    const onAnswer = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAnswer = resolve;
+        }),
+    );
+    const first = destructiveRequest("hard-reset", "git reset --hard");
+    const second = { ...destructiveRequest("force-clean", "git clean -fdx"), id: "req-2", toolName: "Bash2" };
+    render(<PermissionRequestCard variant="feed" requests={[first, second]} onAnswer={onAnswer} />);
+
+    const firstGroup = screen.getByRole("group", { name: "Bash wants to:" });
+    const secondGroup = screen.getByRole("group", { name: "Bash2 wants to:" });
+    const firstDeny = within(firstGroup).getByRole("button", { name: "Deny" });
+    const secondDeny = within(secondGroup).getByRole("button", { name: "Deny" });
+
+    firstDeny.click();
+    firstDeny.click();
+    secondDeny.click();
+    secondDeny.click();
+
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledTimes(2));
+    expect(onAnswer).toHaveBeenCalledWith("req-1", "deny");
+    expect(onAnswer).toHaveBeenCalledWith("req-2", "deny");
     resolveAnswer?.();
   });
 
