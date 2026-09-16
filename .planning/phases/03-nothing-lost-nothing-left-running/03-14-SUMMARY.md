@@ -258,6 +258,14 @@ None - no external service configuration required.
 - No frontend files were touched by this plan, per the parallel-sibling boundary note in this
   plan's own prompt.
 
+## Self-Check: PASSED
+
+- `packages/core/src/destructive.rs` — FOUND on disk
+- `packages/core/tests/destructive_classifier.rs` — FOUND on disk
+- `.planning/phases/03-nothing-lost-nothing-left-running/03-14-SUMMARY.md` — FOUND on disk
+- Commits `804c017`, `5fb2188`, `674e798`, `296fb5d`, `807fc44` — all FOUND in `git log --oneline --all`
+- All plan-level `<verification>` commands re-run and passing at SUMMARY time: `cargo build --workspace` (0), `cargo test --workspace` (every suite `ok`), all classify-command probes matching intended categories.
+
 ---
 *Phase: 03-nothing-lost-nothing-left-running*
 *Completed: 2026-09-16*
