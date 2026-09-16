@@ -369,6 +369,71 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
       unmount();
     }
   });
+
+  /**
+   * 03-17-PLAN.md Task 2 (T-03-17-03): `handleStop` had no synchronous re-entry guard beyond
+   * `disabled={stopping}` — a React state update that has not necessarily flushed to the DOM
+   * before a second `.click()` fires in the same tick. Raw `element.click()` calls (never
+   * `fireEvent.click`, which flushes `act()` between calls) reproduce the bug. Because every
+   * adapter call funnels through the single `invokeCommandMock`, the count is filtered to calls
+   * whose first argument is the stop command name rather than asserted via a bare
+   * `toHaveBeenCalledTimes` on the shared mock.
+   */
+  it("clicking Stop three times in one synchronous tick sends exactly one agent_run_stop command", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_stop") return new Promise(() => {}); // never resolves within the test
+      return Promise.resolve(undefined);
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+
+    const stopButton = await screen.findByRole("button", { name: "Stop" });
+    stopButton.click();
+    stopButton.click();
+    stopButton.click();
+
+    await waitFor(() => {
+      const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "agent_run_stop");
+      expect(stopCalls).toHaveLength(1);
+    });
+  });
+
+  it("re-enables Stop after a rejected stop, and a further click sends a second agent_run_stop command", async () => {
+    let stopCallCount = 0;
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_stop") {
+        stopCallCount += 1;
+        return stopCallCount === 1
+          ? Promise.reject(new Error("ipc failure"))
+          : Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      }
+      return Promise.resolve(undefined);
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+
+    const stopButton = await screen.findByRole("button", { name: "Stop" });
+    stopButton.click();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled());
+
+    screen.getByRole("button", { name: "Stop" }).click();
+
+    await waitFor(() => {
+      const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "agent_run_stop");
+      expect(stopCalls).toHaveLength(2);
+    });
+  });
 });
 
 describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)", () => {
