@@ -208,6 +208,18 @@ const STARTUP_READINESS_TIMEOUT: std::time::Duration = std::time::Duration::from
 /// process grow this function's memory use while startup is blocked waiting on it.
 const READINESS_STDERR_TAIL_CAP: usize = 4096;
 
+/// Append one chunk of the sidecar's readiness-handshake stderr to `tail`, bounded at `cap`
+/// bytes (plan 03-15, T-03-15-04) — extracted out of the async closure in [`spawn_sidecar`] so it
+/// is unit-testable without spawning a process or entering a runtime.
+fn push_bounded_stderr_tail(tail: &mut String, bytes: &[u8], cap: usize) {
+    if tail.len() >= cap {
+        return;
+    }
+    tail.push_str(&String::from_utf8_lossy(bytes));
+    tail.push('\n');
+    tail.truncate(tail.len().min(cap));
+}
+
 impl SidecarHandle {
     /// Send one newline-delimited JSON request to the sidecar's stdin (a `spawn`/`interrupt`/
     /// `kill` request, built by the caller).
@@ -748,6 +760,61 @@ mod persist_tests {
                 "session_log_path must refuse to build a path for a rejected run id {run_id:?}"
             );
         }
+    }
+}
+
+/// [`push_bounded_stderr_tail`]'s own behavior cases (plan 03-15, T-03-15-04): a `String::truncate`
+/// at a non-boundary byte index panics, and this frame runs inside `tauri::async_runtime::block_on`
+/// in `main.rs`'s `.setup()` closure, which cannot unwind, under a `panic = "abort"` release
+/// profile — so a panicking truncation here would kill the app before a window is ever shown.
+#[cfg(test)]
+mod stderr_tail_tests {
+    use super::*;
+
+    #[test]
+    fn stderr_tail_appending_bytes_whose_decoded_form_crosses_the_cap_keeps_at_most_the_cap_and_never_panics()
+    {
+        let mut tail = String::new();
+        push_bounded_stderr_tail(&mut tail, b"0123456789ABCDEF", 10);
+        assert!(tail.len() <= 10, "tail must never exceed the cap, got {} bytes", tail.len());
+    }
+
+    #[test]
+    fn stderr_tail_multi_byte_characters_overrunning_the_cap_stay_valid_utf8_with_no_partial_char() {
+        let mut tail = String::new();
+        // "é" is 2 bytes in UTF-8 — ten of them (20 bytes) comfortably overrun a 10-byte cap.
+        let multi_byte_line: String = std::iter::repeat_n('é', 10).collect();
+        push_bounded_stderr_tail(&mut tail, multi_byte_line.as_bytes(), 10);
+        assert!(tail.len() <= 10, "tail must never exceed the cap, got {} bytes", tail.len());
+        // `tail` is a `String` — if the cut had landed mid-character, this line is unreachable:
+        // `push_bounded_stderr_tail` would have already panicked before returning.
+        assert!(std::str::from_utf8(tail.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn stderr_tail_invalid_utf8_positioned_to_straddle_the_cap_never_panics() {
+        let mut tail = String::new();
+        // Three lone continuation bytes (0x80) are each invalid UTF-8 on their own;
+        // `from_utf8_lossy` renders each as its own 3-byte U+FFFD replacement character — 9 bytes
+        // total, straddling a 4-byte cap right through the middle of a replacement character.
+        let invalid_utf8: [u8; 3] = [0x80, 0x80, 0x80];
+        push_bounded_stderr_tail(&mut tail, &invalid_utf8, 4);
+        assert!(tail.len() <= 4, "tail must never exceed the cap, got {} bytes", tail.len());
+    }
+
+    #[test]
+    fn stderr_tail_a_short_ascii_line_is_left_intact_with_a_trailing_newline() {
+        let mut tail = String::new();
+        push_bounded_stderr_tail(&mut tail, b"hello", READINESS_STDERR_TAIL_CAP);
+        assert_eq!(tail, "hello\n");
+    }
+
+    #[test]
+    fn stderr_tail_once_at_the_cap_further_appends_leave_it_unchanged() {
+        let mut tail = "a".repeat(10);
+        let before = tail.clone();
+        push_bounded_stderr_tail(&mut tail, b"more text that should never be appended", 10);
+        assert_eq!(tail, before, "once the tail has reached the cap, further appends must be no-ops");
     }
 }
 
