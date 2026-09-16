@@ -144,6 +144,87 @@ fn branch_deletion_flag_appearing_after_the_branch_name() {
     assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
 }
 
+// --- BranchDeletion via `push` (T-03-14-01): a remote branch deletion destroys strictly MORE
+// than the local deletion above, and every spelling below is pinned so `classify_push`'s
+// fail-closed contract holds for pushes the same way it already holds for `git branch`. ---
+
+#[test]
+fn delete_shaped_push_long_form_flag_on_a_non_default_branch() {
+    let verdict = classify("git", &args(&["push", "origin", "--delete", "feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn delete_shaped_push_short_form_flag_on_a_non_default_branch() {
+    let verdict = classify("git", &args(&["push", "origin", "-d", "feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn delete_shaped_push_empty_source_colon_refspec_on_a_non_default_branch() {
+    let verdict = classify("git", &args(&["push", "origin", ":feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn delete_shaped_push_flag_appearing_before_the_remote() {
+    let verdict = classify("git", &args(&["push", "--delete", "origin", "feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn delete_shaped_push_long_form_flag_with_refs_heads_qualified_branch() {
+    let verdict =
+        classify("git", &args(&["push", "origin", "--delete", "refs/heads/feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn delete_shaped_push_colon_refspec_with_refs_heads_qualified_branch() {
+    let verdict = classify("git", &args(&["push", "origin", ":refs/heads/feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn delete_shaped_push_clustered_short_flags_still_wins_over_force() {
+    // `-fd` clusters `-f` (force) and `-d` (delete) — expand_short_clusters explodes this into
+    // `-f`, `-d`, and the delete check precedes the force check in classify_push, so the
+    // deletion category (not ForcePush) is the one that wins.
+    let verdict = classify("git", &args(&["push", "-fd", "origin", "feature"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
+#[test]
+fn delete_shaped_push_long_form_flag_takes_priority_over_default_branch_push_on_the_default_branch() {
+    let verdict = classify("git", &args(&["push", "origin", "--delete", "main"]), Some("main"));
+    assert_eq!(
+        verdict,
+        Verdict::Destructive(DestructiveCategory::BranchDeletion),
+        "a delete-shaped push naming the default branch is reported as a deletion, not a push, \
+         because the consequence sentence the user reads is selected by the category and \
+         describing a deletion as a push would be materially wrong"
+    );
+}
+
+#[test]
+fn delete_shaped_push_colon_refspec_takes_priority_over_default_branch_push_on_the_default_branch() {
+    let verdict = classify("git", &args(&["push", "origin", ":main"]), Some("main"));
+    assert_eq!(
+        verdict,
+        Verdict::Destructive(DestructiveCategory::BranchDeletion),
+        "a delete-shaped push naming the default branch is reported as a deletion, not a push, \
+         because the consequence sentence the user reads is selected by the category and \
+         describing a deletion as a push would be materially wrong"
+    );
+}
+
+#[test]
+fn delete_shaped_push_with_no_branch_named_still_classifies_as_branch_deletion() {
+    // Fail-closed (this module's own rule): the shape is recognised even when the target is not.
+    let verdict = classify("git", &args(&["push", "origin", "--delete"]), Some("main"));
+    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
+}
+
 // --- DefaultBranchPush: >=4 positive cases, various refspec shapes ---
 
 #[test]
