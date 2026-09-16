@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 13/13 plans executed in 7 waves
+**Plans**: 13/18 plans executed in 8 waves (5 gap-closure plans added after verification returned `gaps_found`)
 **UI hint**: yes
 
 Plans:
@@ -317,6 +317,14 @@ Plans:
 
 - [x] 03-12-PLAN.md — The destructive-action gate card (AGNT-07)
 - [x] 03-13-PLAN.md — The git-lock contention signals: transient feed row and exhaustion trail entry (WORK-04)
+
+**Wave 8 — gap closure** *(from `03-VERIFICATION.md`: Success Criterion 5 failed; two Critical review findings confirmed at HEAD. All five run in parallel — no shared files.)*
+
+- [ ] 03-14-PLAN.md — The destructive-push gate: remote branch deletion reaches the classifier, the shim and the socket (AGNT-07, WORK-04, WORK-05)
+- [ ] 03-15-PLAN.md — One run-id predicate at the one join site, and a stderr tail that cuts on a character boundary (PROC-03, PROC-04)
+- [ ] 03-16-PLAN.md — The destructive-gate card: one click one answer, and a deletion sentence that names the branch (AGNT-07)
+- [ ] 03-17-PLAN.md — Kill once, stop once: synchronous guards on the process-termination controls (PROC-04, PROC-05)
+- [ ] 03-18-PLAN.md — Remove once, and a missing worktree is missing even with an empty path (WORK-03, WORK-06)
 
 **Notes**: This phase exists as its own slice because two of the four ranked project-killers live
 here and each deserves a dedicated plan with its own tests rather than being buried in Phase 2.
