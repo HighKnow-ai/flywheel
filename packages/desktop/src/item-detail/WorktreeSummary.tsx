@@ -35,14 +35,18 @@
  * `MissingWorktreeBanner` below, which this component renders instead of the branch/path row (and
  * therefore instead of this action too) whenever the worktree is missing from disk.
  *
- * **Missing-worktree decision banner** (WORK-06, D-45, plan 03-09 Task 2) — inserted into the
- * early-return ladder below, between the singleton-violation guard and the normal render. When
- * `summary.status === "missing"` this REPLACES the branch/path row and the Remove Worktree action
- * entirely (never renders alongside them — 03-UI-SPEC.md's "Missing-worktree decision banner"),
- * offering exactly two equally-weighted actions: Recreate Worktree and Remove Record. Because the
- * banner is an early return, the Remove Worktree action is structurally unreachable while the row
- * is `missing` — there is no second guard anywhere in this file for that; the early return IS the
- * guarantee.
+ * **Missing-worktree decision banner** (WORK-06, D-45, plan 03-09 Task 2; gated on status alone
+ * since plan 03-18 Task 2) — inserted into the early-return ladder below, between the
+ * singleton-violation guard and the normal render. When `summary.status === "missing"` this
+ * REPLACES the branch/path row and the Remove Worktree action entirely (never renders alongside
+ * them — 03-UI-SPEC.md's "Missing-worktree decision banner"), offering exactly two
+ * equally-weighted actions: Recreate Worktree and Remove Record. The early return is gated on
+ * `status` alone — there is no `path` conjunct — so there is no value of `path` for which a
+ * missing row can reach the normal render, and the Remove Worktree action below is structurally
+ * unreachable while the row is `missing`; there is no second guard anywhere in this file for that,
+ * the early return IS the guarantee. `path` only selects which of the banner's two body sentences
+ * renders: the one naming a real path, or — when no usable path is recorded — the one that omits
+ * the location clause rather than interpolating an empty string.
  */
 import { useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
@@ -86,7 +90,7 @@ const bannerActionButtonStyle = {
  * leaves `acting` false; the banner never unmounts and never clears itself (a failed recreate is
  * not a decision made, 03-UI-SPEC.md E3 `error`).
  */
-function MissingWorktreeBanner({ taskId, path }: { taskId: string; path: string }) {
+function MissingWorktreeBanner({ taskId, path }: { taskId: string; path?: string | null }) {
   const [state, setState] = useState<BannerState>({ acting: false, error: null });
   // `state.acting` alone is not a sufficient guard against two clicks arriving in the same
   // synchronous tick (React's state update has not necessarily flushed to the DOM, and the
@@ -146,8 +150,17 @@ function MissingWorktreeBanner({ taskId, path }: { taskId: string; path: string 
       </div>
 
       <p className="type-body" style={{ margin: 0, overflowWrap: "anywhere", color: "var(--text-primary-rack)" }}>
-        Flywheel expected it at {path}, but nothing is there. Recreate it to keep working, or
-        remove the record if you don&rsquo;t need it anymore.
+        {isNonEmptyString(path) ? (
+          <>
+            Flywheel expected it at {path}, but nothing is there. Recreate it to keep working, or
+            remove the record if you don&rsquo;t need it anymore.
+          </>
+        ) : (
+          <>
+            Flywheel expected the worktree on disk and found nothing there. Recreate it to keep
+            working, or remove the record if you don&rsquo;t need it anymore.
+          </>
+        )}
       </p>
 
       <div style={{ display: "flex", gap: "var(--space-sm)" }}>
@@ -234,8 +247,11 @@ export function WorktreeSummary({ taskId }: WorktreeSummaryProps) {
   // singleton-violation guard above and the normal branch/path render below — this REPLACES that
   // render entirely rather than layering onto it (03-UI-SPEC.md "never rendered alongside the
   // normal line"), and is what makes the Remove Worktree action below structurally unreachable
-  // while the row is missing.
-  if (summary.status === "missing" && isNonEmptyString(summary.path)) {
+  // while the row is missing. Gated on `status` alone (plan 03-18 Task 2) — there is no `path`
+  // conjunct here, so no value of `path` (empty, null, or absent) can let a missing row fall
+  // through to the normal render below; the banner itself decides how to phrase a location it
+  // does not have.
+  if (summary.status === "missing") {
     return <MissingWorktreeBanner taskId={taskId} path={summary.path} />;
   }
 

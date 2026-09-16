@@ -273,4 +273,61 @@ describe("WorktreeSummary — missing worktree (WORK-06, D-45)", () => {
     );
     expect(bodyNode.style.overflowWrap).toBe("anywhere");
   });
+
+  // Plan 03-18 Task 2 (WORK-06, gap closure): the early return was gated on
+  // `summary.status === "missing" && isNonEmptyString(summary.path)` — a pathless missing row fell
+  // through to the ordinary render, exposing Remove Worktree on a row the screen just called
+  // missing. These three tests each drive a different pathless shape and must all reach the
+  // banner, never the ordinary render.
+  it.each([
+    ["empty string", ""],
+    ["null", null],
+    ["absent field", undefined],
+  ])("renders the missing-worktree banner (not Remove Worktree) when path is %s", async (_label, path) => {
+    worktreeSummaryMock.mockResolvedValue(missingSummary({ path } as Partial<WorktreeSummaryDto>));
+    renderSummary();
+
+    expect(await screen.findByText("This worktree is missing from disk.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Recreate Worktree" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Record" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove Worktree" })).not.toBeInTheDocument();
+  });
+
+  it("the pathless banner body omits the location clause and reads as a complete sentence — never 'at' followed by nothing, never an interpolated empty string", async () => {
+    worktreeSummaryMock.mockResolvedValue(missingSummary({ path: "" } as Partial<WorktreeSummaryDto>));
+    renderSummary();
+
+    await screen.findByText("This worktree is missing from disk.");
+    expect(
+      screen.getByText(
+        "Flywheel expected the worktree on disk and found nothing there. Recreate it to keep working, or remove the record if you don’t need it anymore.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/\bat\s*,/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\bat\.\s/)).not.toBeInTheDocument();
+  });
+
+  it("a missing row with a real path still renders the existing sentence naming that path, byte-identical to the populated case", async () => {
+    worktreeSummaryMock.mockResolvedValue(missingSummary());
+    renderSummary();
+
+    await screen.findByText("This worktree is missing from disk.");
+    expect(
+      screen.getByText(
+        (_, node) =>
+          node?.textContent ===
+          `Flywheel expected it at ${MISSING_PATH}, but nothing is there. Recreate it to keep working, or remove the record if you don’t need it anymore.`,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("does not reclassify an ordinary pathless ACTIVE row as missing — the hasPath inline-notice path still renders", async () => {
+    worktreeSummaryMock.mockResolvedValue(
+      missingSummary({ status: "active", path: "" } as Partial<WorktreeSummaryDto>),
+    );
+    renderSummary();
+
+    expect(await screen.findByText("Path unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("This worktree is missing from disk.")).not.toBeInTheDocument();
+  });
 });
