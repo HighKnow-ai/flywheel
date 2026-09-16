@@ -855,6 +855,10 @@ impl From<flywheel_core::session_log::LogWindow> for LogWindowDto {
     }
 }
 
+// The shape guard for `agent_run_id` lives in `flywheel_core::session_log::session_log_path`
+// (the single join site both this command and `agent_run_raw_window` funnel through) — NOT here.
+// Adding a second check in this command would be a second implementation of the same rule, the
+// exact drift plan 03-15 exists to prevent (see `session_log_path`'s own doc comment).
 #[tauri::command]
 pub fn agent_run_log_window(
     agent_run_id: String,
@@ -1436,6 +1440,21 @@ mod tests {
         let window =
             read_raw_line_window(std::path::Path::new("/nonexistent/path/to/a/log.jsonl"), 0, 50, 0);
         assert!(window.is_empty());
+    }
+
+    /// The shape guard lives in `session_log_path` (`packages/core/src/session_log.rs`), but this
+    /// command is one of the two IPC boundaries a renderer can actually reach (plan 03-15,
+    /// T-03-15-01) — this test proves the guard is inherited here, not that it is re-implemented.
+    #[test]
+    fn agent_run_log_window_rejects_a_run_id_that_is_not_ulid_shaped() {
+        let result = agent_run_log_window("../../../etc/passwd".to_string(), None, None);
+        assert!(result.is_err(), "a traversal-shaped agent_run_id must be rejected");
+    }
+
+    #[test]
+    fn agent_run_raw_window_rejects_a_run_id_that_is_not_ulid_shaped() {
+        let result = agent_run_raw_window("../../../etc/passwd".to_string(), None, None);
+        assert!(result.is_err(), "a traversal-shaped agent_run_id must be rejected");
     }
 
     /// A fresh migrated database with one project and one task (optionally under one epic) — no

@@ -9,7 +9,7 @@
 //! ULID-shaped run id so tests never collide, and removes its own file when it finishes.
 
 use core::ids::new_id;
-use core::session_log::{count_lines, read_window, session_log_path, LOG_WINDOW_MAX_LIMIT};
+use core::session_log::{count_lines, read_window, session_log_path, sessions_dir, LOG_WINDOW_MAX_LIMIT};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 
@@ -144,6 +144,34 @@ fn an_offset_beyond_the_end_of_the_file_returns_an_empty_window_with_the_true_to
     assert_eq!(window.total, 10, "an out-of-range offset must still report the true total, not an error");
 
     cleanup(&path);
+}
+
+/// The guard `session_log_path` itself carries (plan 03-15, T-03-15-01): an implausible
+/// `agent_run_id` must never become a path, before `sessions_dir()` is ever resolved. Each
+/// candidate below is a shape the old unvalidated `join(format!(...))` would have accepted.
+#[test]
+fn session_log_path_rejects_every_implausible_shape_and_accepts_a_real_ulid() {
+    assert!(session_log_path("../../../etc/passwd").is_err(), "traversal-shaped id must be rejected");
+    assert!(session_log_path("").is_err(), "an empty id must be rejected");
+    assert!(session_log_path(&"a".repeat(25)).is_err(), "a 25-character id must be rejected");
+    let separator_id = format!("{}/", "a".repeat(25));
+    assert!(session_log_path(&separator_id).is_err(), "a 26-character id containing a path separator must be rejected");
+
+    let real_id = new_id();
+    let path = session_log_path(&real_id).expect("a real ULID must resolve to a path");
+    let expected_dir = sessions_dir().expect("sessions_dir should resolve");
+    assert!(path.starts_with(&expected_dir), "the resolved path must live under sessions_dir()");
+}
+
+/// `count_lines` and `read_window` must not degrade a rejected id to the "missing file returns
+/// zero" path (plan 03-15) — a rejected id is a caller error, not an empty log.
+#[test]
+fn count_lines_and_read_window_return_err_for_every_rejected_id() {
+    let rejected_ids = ["../../../etc/passwd", "", &"a".repeat(25)];
+    for id in rejected_ids {
+        assert!(count_lines(id).is_err(), "count_lines must error for rejected id {id:?}");
+        assert!(read_window(id, 0, 10).is_err(), "read_window must error for rejected id {id:?}");
+    }
 }
 
 #[test]

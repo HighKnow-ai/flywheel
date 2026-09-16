@@ -22,7 +22,24 @@ pub fn sessions_dir() -> anyhow::Result<PathBuf> {
 }
 
 /// The path a given agent run's durable log lives at: `<app-data>/sessions/<agent_run_id>.jsonl`.
+///
+/// This is the fail-closed join site for the whole module — the ONE place a run id becomes a
+/// path. `count_lines`, `read_window` and `SessionLogWriter::open` all funnel through it, which is
+/// what makes the guard below structural rather than a convention every caller must remember.
+/// `agent_run_id` is rejected via [`crate::ids::is_ulid`] — the single shared shape predicate —
+/// BEFORE `sessions_dir()` is ever resolved: no app-data lookup, no directory creation and no
+/// `format!` join happens for an id that is not ULID-shaped. `packages/desktop/src-tauri/src/
+/// sidecar.rs`'s `is_plausible_run_id` is the other user of this same predicate (it delegates to
+/// `is_ulid` rather than re-implementing the shape check), so the sidecar-stdout boundary and the
+/// renderer-facing IPC boundary can never disagree about what a valid run id is. The rejected id
+/// is never echoed into the error message — the message describes the shape requirement only,
+/// never reflecting caller-controlled text into logs or the UI.
 pub fn session_log_path(agent_run_id: &str) -> anyhow::Result<PathBuf> {
+    if !crate::ids::is_ulid(agent_run_id) {
+        anyhow::bail!(
+            "agent run id must be a 26-character Crockford-base32 ULID; refusing to build a session log path"
+        );
+    }
     Ok(sessions_dir()?.join(format!("{agent_run_id}.jsonl")))
 }
 

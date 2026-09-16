@@ -470,14 +470,22 @@ pub(crate) enum PersistOutcome {
     AppendFailed(String),
 }
 
-/// Whether `run_id` has the shape of a real run id: exactly 26 ASCII alphanumeric characters —
-/// the shape the `CHECK (length(id) = 26)` constraint in `0003_agent_runtime.sql` already
-/// guarantees for every id this codebase mints via `flywheel_core::ids::new_id()`. This is the
-/// guard that stops a `runId` read off an untrusted sidecar stdout line from ever being joined
-/// into a filesystem path unchecked (T-02G-12-01) — called before [`SessionLogWriter::open`] /
-/// `session_log_path` on every path through [`persist_event_line`].
+/// Whether `run_id` has the shape of a real run id — delegates entirely to
+/// `flywheel_core::ids::is_ulid`, the single shared shape predicate this workspace defines. This
+/// function must never re-implement that shape itself: `session_log_path` (`packages/core/src/
+/// session_log.rs`) is the fail-closed join site guarded by the SAME predicate, so the
+/// sidecar-stdout boundary this function guards and the renderer-facing IPC boundary can never
+/// drift into disagreeing about what a valid run id is (plan 03-15). This is the guard that stops
+/// a `runId` read off an untrusted sidecar stdout line from ever being joined into a filesystem
+/// path unchecked (T-02G-12-01) — called before [`SessionLogWriter::open`] / `session_log_path` on
+/// every path through [`persist_event_line`].
+///
+/// Delegating to `is_ulid` TIGHTENS this check versus the previous hand-rolled "26 ASCII
+/// alphanumeric characters" test: Crockford base32 excludes I, L, O and U, which the old test
+/// accepted. This is safe because every run id in this codebase is minted by
+/// `flywheel_core::ids::new_id()`, which only ever produces genuine Crockford-base32 ULIDs.
 pub(crate) fn is_plausible_run_id(run_id: &str) -> bool {
-    run_id.len() == 26 && run_id.chars().all(|c| c.is_ascii_alphanumeric())
+    flywheel_core::ids::is_ulid(run_id)
 }
 
 /// The only place a session-log writer is opened from the shared sidecar reader loop (CR-03). Every
@@ -721,7 +729,9 @@ mod persist_tests {
         let separator_id = format!("{}/", "a".repeat(25));
         // A plausible-looking but one-character-short id.
         let short_id = "a".repeat(25);
-        let candidates = [separator_id.as_str(), short_id.as_str(), ""];
+        // A traversal-shaped id — the exact attack shape this guard exists to stop.
+        let traversal_id = "../../../etc/passwd";
+        let candidates = [separator_id.as_str(), short_id.as_str(), "", traversal_id];
 
         for run_id in candidates {
             assert_eq!(
@@ -729,15 +739,14 @@ mod persist_tests {
                 PersistOutcome::RejectedRunId,
                 "run id {run_id:?} should be rejected before any path is built"
             );
-            // Rejection happens before `session_log_path`/`SessionLogWriter::open` are ever
-            // called — computing the WOULD-BE path here (a pure string operation, never touching
-            // the filesystem) and asserting it does not exist proves nothing was created for it.
-            if let Ok(would_be_path) = flywheel_core::session_log::session_log_path(run_id) {
-                assert!(
-                    !would_be_path.exists(),
-                    "no file or directory should ever be created for a rejected run id, got {would_be_path:?}"
-                );
-            }
+            // Rejection now happens inside `session_log_path` itself, before `sessions_dir()` is
+            // ever resolved — so the call must return `Err`, not merely "a path that doesn't
+            // exist yet". This is the property this task's guard delivers: the path was never
+            // even CONSTRUCTIBLE for a rejected id, not just unpopulated.
+            assert!(
+                flywheel_core::session_log::session_log_path(run_id).is_err(),
+                "session_log_path must refuse to build a path for a rejected run id {run_id:?}"
+            );
         }
     }
 }
