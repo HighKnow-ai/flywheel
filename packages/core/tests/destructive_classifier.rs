@@ -528,6 +528,18 @@ mod shim_gate {
         panic!("system rm not found on PATH");
     }
 
+    /// Mirrors [`resolve_system_rm`] for `git` — used by `run_shim_as_git`'s `FLYWHEEL_REAL_GIT`.
+    fn resolve_system_git() -> PathBuf {
+        let path_var = std::env::var_os("PATH").expect("PATH should be set in the test environment");
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join("git");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+        panic!("system git not found on PATH");
+    }
+
     /// A short, unique socket path — deliberately NOT under `std::env::temp_dir()`, whose
     /// per-user macOS path (`/var/folders/.../T/`) plus any descriptive label routinely exceeds
     /// `sockaddr_un`'s ~104-byte `SUN_LEN` limit. `/tmp` is short on every Unix this workspace
@@ -547,7 +559,7 @@ mod shim_gate {
     fn spawn_mock_permission_server(
         socket_path: PathBuf,
         decision: Option<&'static str>,
-    ) -> std::thread::JoinHandle<String> {
+    ) -> std::thread::JoinHandle<serde_json::Value> {
         let listener =
             UnixListener::bind(&socket_path).expect("failed to bind the mock permission socket");
         std::thread::spawn(move || {
@@ -559,10 +571,6 @@ mod shim_gate {
                 .expect("failed to read the shim's request line");
             let parsed: serde_json::Value =
                 serde_json::from_str(line.trim()).expect("the shim's request must be valid JSON");
-            let request_id = parsed["requestId"]
-                .as_str()
-                .expect("the request must carry a requestId")
-                .to_string();
             assert_eq!(parsed["toolName"], "Bash", "the shim always names the tool Bash");
 
             match decision {
@@ -577,7 +585,7 @@ mod shim_gate {
                     std::thread::sleep(Duration::from_secs(10));
                 }
             }
-            request_id
+            parsed
         })
     }
 
@@ -594,6 +602,30 @@ mod shim_gate {
         cmd.env("FLYWHEEL_REAL_RM", real_rm);
         cmd.env("FLYWHEEL_PERMISSION_SOCKET", socket_path);
         cmd.env_remove("FLYWHEEL_REAL_GIT");
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        cmd.spawn().expect("the shim binary should be spawnable")
+    }
+
+    /// Mirrors [`run_shim_as_rm`] for `git` — Task 1's end-to-end proof that a delete-shaped push
+    /// reaches the gate through the REAL built shim binary, not just through `classify` directly.
+    fn run_shim_as_git(
+        args: &[&str],
+        real_git: &std::path::Path,
+        socket_path: &std::path::Path,
+        default_branch: &str,
+        cwd: &std::path::Path,
+    ) -> std::process::Child {
+        let bin = resolve_shim_binary()
+            .expect("the shim binary should be resolvable after `cargo build --workspace`");
+        let mut cmd = Command::new(&bin);
+        cmd.arg0("git");
+        cmd.args(args);
+        cmd.current_dir(cwd);
+        cmd.env("FLYWHEEL_REAL_GIT", real_git);
+        cmd.env("FLYWHEEL_PERMISSION_SOCKET", socket_path);
+        cmd.env("FLYWHEEL_DEFAULT_BRANCH", default_branch);
+        cmd.env_remove("FLYWHEEL_REAL_RM");
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         cmd.spawn().expect("the shim binary should be spawnable")
@@ -685,7 +717,11 @@ mod shim_gate {
         let child_a = run_shim_as_rm(&["-r", first_target.to_str().unwrap()], &real_rm, &socket_a);
         let output_a = child_a.wait_with_output().expect("the first shim invocation should exit");
         assert!(output_a.status.success());
-        let request_id_a = server_a.join().expect("server thread should not panic");
+        let request_a = server_a.join().expect("server thread should not panic");
+        let request_id_a = request_a["requestId"]
+            .as_str()
+            .expect("the request must carry a requestId")
+            .to_string();
 
         let second_target = dir.path().join("second.txt");
         std::fs::write(&second_target, b"two").expect("failed to write the second marker");
@@ -694,7 +730,11 @@ mod shim_gate {
         let child_b = run_shim_as_rm(&["-r", second_target.to_str().unwrap()], &real_rm, &socket_b);
         let output_b = child_b.wait_with_output().expect("the second shim invocation should exit");
         assert!(output_b.status.success());
-        let request_id_b = server_b.join().expect("server thread should not panic");
+        let request_b = server_b.join().expect("server thread should not panic");
+        let request_id_b = request_b["requestId"]
+            .as_str()
+            .expect("the request must carry a requestId")
+            .to_string();
 
         assert_ne!(
             request_id_a, request_id_b,
@@ -703,5 +743,63 @@ mod shim_gate {
 
         let _ = std::fs::remove_file(&socket_a);
         let _ = std::fs::remove_file(&socket_b);
+    }
+
+    /// Task 1's end-to-end proof (T-03-14-01): the REAL built shim binary, invoked as `git` with a
+    /// delete-shaped push, raises a real permission request over a real socket carrying
+    /// `destructiveCategory: "branch-deletion"`, and a `deny` answer means the real git binary
+    /// named by `FLYWHEEL_REAL_GIT` is never executed. The scratch repository needs no real
+    /// remote — the point is that the gate fires BEFORE git is ever reached, so the command never
+    /// has to be executable to prove the claim; that fact is established directly by asserting a
+    /// non-zero exit (the denial) rather than any git-specific failure, together with the
+    /// captured request line proving the gate is what actually fired.
+    #[test]
+    fn a_delete_shaped_push_raises_a_branch_deletion_request_and_is_never_executed_on_deny() {
+        let real_git = resolve_system_git();
+        let repo_dir = tempfile::tempdir().expect("failed to create a scratch repository");
+
+        let run = |args: &[&str]| {
+            Command::new(&real_git)
+                .args(args)
+                .current_dir(repo_dir.path())
+                .output()
+                .expect("real git should run for scratch repo setup")
+        };
+        assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "user.name", "Test User"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"]).status.success());
+        std::fs::write(repo_dir.path().join("README.md"), b"scratch\n")
+            .expect("failed to write scratch file");
+        assert!(run(&["add", "README.md"]).status.success());
+        assert!(run(&["commit", "-q", "-m", "initial commit"]).status.success());
+        assert!(run(&["checkout", "-q", "-b", "feature"]).status.success());
+        assert!(run(&["checkout", "-q", "main"]).status.success());
+
+        let socket_path = scratch_socket_path("git-delete-deny");
+        let server = spawn_mock_permission_server(socket_path.clone(), Some("deny"));
+
+        let child = run_shim_as_git(
+            &["push", "origin", "--delete", "feature"],
+            &real_git,
+            &socket_path,
+            "main",
+            repo_dir.path(),
+        );
+        let output = child.wait_with_output().expect("the shim process should exit");
+
+        assert!(
+            !output.status.success(),
+            "expected the shim to exit non-zero on deny, stdout: {}, stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let request = server.join().expect("the mock server thread should not panic");
+        assert_eq!(
+            request["input"]["destructiveCategory"], "branch-deletion",
+            "the wire payload's destructiveCategory must be branch-deletion for a delete-shaped push"
+        );
+
+        let _ = std::fs::remove_file(&socket_path);
     }
 }

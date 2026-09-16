@@ -183,8 +183,24 @@ fn refspec_targets_branch(refspec: &str, branch: &str) -> bool {
     dst == branch
 }
 
+/// `classify_push` recognises three remote-branch-deletion spellings, alongside its existing
+/// force and default-branch detection: the long flag (`--delete`), the short flag (`-d`), and the
+/// empty-source colon refspec (`:feature`, `:refs/heads/feature`, or a bare `:`) — git's own third
+/// way of saying "delete this ref on the remote." All three destroy the same thing
+/// `classify_branch` already gates for a LOCAL branch (`-d`/`-D`/`--delete`), and a push-shaped
+/// deletion destroys strictly MORE (the published ref, not just the local one), so leaving it
+/// unrecognised here was this module's most severe violation of its own fail-closed rule
+/// (T-03-14-01).
+///
+/// The delete check is the FIRST of this function's three early returns — ahead of
+/// `targets_default` and ahead of `force`. Deleting the default branch IS a branch deletion, and
+/// the consequence sentence the user reads is chosen by category, so the accurate sentence
+/// (`BranchDeletion`) must win over the less-accurate one (`DefaultBranchPush`): `git push origin
+/// :main` becomes `BranchDeletion`, not `DefaultBranchPush`. Both gate; this is the more honest of
+/// the two.
 fn classify_push(rest: &[String], default_branch: Option<&str>) -> Verdict {
     let mut force = false;
+    let mut delete = false;
     let mut positional: Vec<&str> = Vec::new();
     let mut iter = rest.iter();
     while let Some(arg) = iter.next() {
@@ -197,16 +213,32 @@ fn classify_push(rest: &[String], default_branch: Option<&str>) -> Verdict {
             if flag_name == "force" || flag_name == "force-with-lease" {
                 force = true;
             }
+            if flag_name == "delete" {
+                delete = true;
+            }
         } else if arg.starts_with('-') && arg.len() > 1 {
             // Already exploded into single-letter short flags by `expand_short_clusters`
-            // (called once, in `classify_git`, over the whole argv before dispatch) — `-f` is
-            // the only push short flag this classifier cares about.
+            // (called once, in `classify_git`, over the whole argv before dispatch) — `-f` and
+            // `-d` are the only push short flags this classifier cares about.
             if arg == "-f" {
                 force = true;
+            }
+            if arg == "-d" {
+                delete = true;
             }
         } else {
             positional.push(arg.as_str());
         }
+    }
+
+    // The empty-source colon refspec (`:feature`, `:refs/heads/feature`, or a bare `:`) is git's
+    // third spelling of a remote branch deletion — a `src:dst` refspec with a real source
+    // (`HEAD:main`, `feature:main`) never begins with a colon, so this cannot collide with the
+    // shapes `refspec_targets_branch` already handles above. A bare colon positional also
+    // matches, which is correct: a destructive-shaped nonsense argument fails closed here too.
+    let colon_delete_refspec = positional.iter().any(|p| p.starts_with(':'));
+    if delete || colon_delete_refspec {
+        return Verdict::Destructive(DestructiveCategory::BranchDeletion);
     }
 
     let targets_default = default_branch
