@@ -89,6 +89,27 @@ function branchDeleteTarget(tokens: string[]): string | undefined {
   return positionals[0];
 }
 
+/** `["git", "push", ...args]` — the push spelling of a remote branch deletion (D-56's
+ * "Branch deletion" category is reachable from a push as of plan 03-14's `classify_push`).
+ * `branchDeleteTarget`'s "first non-flag positional" rule is WRONG here: for `git push origin
+ * --delete feature-x` that positional is the REMOTE, not the branch — exactly the defect this
+ * resolver exists to fix (03-16-PLAN.md Task 2). Resolves in two steps, mirroring
+ * `destructive.rs::classify_push`'s own two spellings:
+ *
+ * 1. The empty-source colon refspec (`:feature-x`, `:refs/heads/feature-x`) — if any token
+ *    begins with a colon, `refspecTargetBranch` already strips everything up to the last colon
+ *    and the `refs/heads/` prefix, so this resolves correctly with no new parsing.
+ * 2. Otherwise, the `--delete`/`-d` flag spelling: take the non-flag positionals after the
+ *    subcommand and return the LAST one, but only when there is more than one — with a single
+ *    positional the only thing named is the remote, and returning it would reproduce the exact
+ *    wrong sentence this resolver exists to prevent. */
+function pushDeleteTarget(tokens: string[]): string | undefined {
+  const colonRefspec = tokens.find((token) => token.startsWith(":"));
+  if (colonRefspec) return refspecTargetBranch(colonRefspec);
+  const positionals = tokens.slice(2).filter((t) => !t.startsWith("-"));
+  return positionals.length > 1 ? positionals[positionals.length - 1] : undefined;
+}
+
 type ConsequenceResolver = (inputPayload: string | null) => string;
 
 const DESTRUCTIVE_CONSEQUENCE: Record<string, ConsequenceResolver> = {
@@ -99,7 +120,12 @@ const DESTRUCTIVE_CONSEQUENCE: Record<string, ConsequenceResolver> = {
       : "This would force-push, overwriting any commits already on the remote branch.";
   },
   "branch-deletion": (payload) => {
-    const branch = branchDeleteTarget(commandTokensFromPayload(payload));
+    const tokens = commandTokensFromPayload(payload);
+    // The subcommand token (index 1) dispatches which resolver applies: a push-shaped deletion
+    // resolves via `pushDeleteTarget`, everything else (namely `git branch -D <name>`) keeps the
+    // existing `branchDeleteTarget` — its "first non-flag positional" rule is correct there and
+    // this task changes nothing about that path.
+    const branch = tokens[1] === "push" ? pushDeleteTarget(tokens) : branchDeleteTarget(tokens);
     return branch ? `This would delete the branch ${branch}.` : "This would delete a branch on this remote.";
   },
   "default-branch-push": (payload) => {

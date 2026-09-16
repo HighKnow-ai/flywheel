@@ -524,6 +524,11 @@ describe("destructive", () => {
       const request = destructiveRequest("branch-deletion", "git push origin --delete");
       render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
       expect(screen.getByText("This would delete a branch on this remote.")).toBeInTheDocument();
+      // Regression guard for the exact defect this task closes: with only one positional (the
+      // remote) after the subcommand, the sentence must never name "origin" as if it were the
+      // branch — this is the case a "last non-flag positional" rule with no length check would
+      // get wrong.
+      expect(screen.queryByText(/This would delete the branch origin/)).not.toBeInTheDocument();
     });
 
     it("default-branch-push", () => {
