@@ -23,7 +23,27 @@
 
 use std::path::PathBuf;
 
+use std::os::unix::process::CommandExt as _;
+
 use core::domain::{actor, agent_run, permission_request, project, task};
+
+/// Whether `pid` leads its own process group — the property `kill_orphan`'s `kill(-pid, …)`
+/// depends on. Read from `ps` rather than a libc call so the check reports exactly what the OS
+/// would tell an operator inspecting the same process by hand.
+fn process_is_group_leader(pid: i32) -> bool {
+    let output = match std::process::Command::new("ps")
+        .args(["-o", "pgid=", "-p", &pid.to_string()])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return false,
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<i32>()
+        .map(|pgid| pgid == pid)
+        .unwrap_or(false)
+}
 
 /// OS-sourced process start time in epoch milliseconds, matching what `process_is_alive` compares
 /// against (`sysinfo`'s `start_time()` seconds, scaled to ms). Read through the same crate the
@@ -126,17 +146,34 @@ fn main() {
         // stdio MUST be detached. A child inheriting this process's stdout keeps the pipe open,
         // and the calling script's `SEED_OUTPUT="$(...)"` command substitution then blocks forever
         // waiting for every writer to close — the seeder appears to hang with no output at all.
+        // `process_group(0)` makes the stub its OWN process-group leader, exactly as
+        // `claude-code-adapter.ts` does for a real session (`detached: true`). This is not
+        // cosmetic: `kill_orphan` signals the GROUP via `libc::kill(-pid, SIGKILL)`, so a stub
+        // sharing this process's group means the signal is aimed at a group id that does not
+        // exist, the kill silently fails, and the modal reports "Couldn't kill this process" —
+        // a harness artefact indistinguishable from a real product defect.
         let child = match std::process::Command::new("/bin/sleep")
             .arg("86400")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
+            .process_group(0)
             .spawn()
         {
             Ok(child) => child,
             Err(err) => fail(&format!("could not spawn the stand-in orphan process: {err}")),
         };
         let pid = child.id() as i32;
+
+        // Assert the group-leader property rather than trusting it: if this ever regresses, the
+        // failure surfaces here as a refusal to seed, not later as a mysterious failed Kill.
+        if !process_is_group_leader(pid) {
+            fail(&format!(
+                "the stand-in orphan process {pid} is not its own process-group leader, so \
+                 kill_orphan's group signal would miss it — refusing to seed a modal whose Kill \
+                 button cannot work"
+            ));
+        }
 
         // Read the start time back from the OS through the same predicate the reconciler uses, so
         // the descriptor can never disagree with what `process_is_alive` will compute.
