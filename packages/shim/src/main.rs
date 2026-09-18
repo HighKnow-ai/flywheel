@@ -56,7 +56,22 @@
 //! `destructive::classify` — so this mode can also catch a destructive `git`/`rm` invocation by
 //! absolute path, which never resolves through this shim's own `PATH`-shadowed directory at all.
 //! Prints exactly one word to stdout (`safe`, or one of `DestructiveCategory::as_str()`'s seven
-//! destructive names) and never executes anything.
+//! destructive names) and never executes anything. **Its output is unchanged by plan 03-19** — see
+//! `--classify-invocation` below, which is that plan's replacement runtime caller.
+//!
+//! **`--classify-invocation <text>` (plan 03-19 Task 1):** checked alongside `--classify-command`,
+//! before the `argv[0]`-stem dispatch, and reaches the SAME `classify_raw_command_text`. Reports
+//! one thing more than `--classify-command` does: whether the destructive segment's own program was
+//! invoked by BARE NAME (no `/` in its raw token) rather than by path — the fact
+//! `pretooluse-hook.ts` needs to decide whether the shim's own `PATH`-shadowed directory could ever
+//! have intercepted this invocation itself. Emits one line of JSON on stdout
+//! (`{"category":"branch-deletion","program":"git","invokedBareName":true}`, or `{"category":
+//! "safe"}` for a safe command) rather than a single word, so the shape is self-describing and can
+//! gain fields later without breaking its reader. A missing or unreadable argument fails closed
+//! exactly as `--classify-command` does: `{"category":"uncategorized","invokedBareName":false}` and
+//! a non-zero exit, so a caller that cannot read a verdict treats the command as both destructive
+//! and un-interceptable — the most restrictive reading available. After plan 03-19,
+//! `pretooluse-hook.ts:112` calls this mode, not `--classify-command`.
 
 use std::env;
 use std::ffi::OsString;
@@ -90,10 +105,14 @@ impl From<Output> for CapturedOutput {
 fn main() -> ExitCode {
     let args: Vec<OsString> = env::args_os().collect();
 
-    // Task 3: checked BEFORE the argv[0]-stem dispatch below — a classify-command invocation
-    // never dispatches to a real binary at all, and is never routed through a shadowed name.
+    // Task 3 (plan 03-07) / Task 1 (plan 03-19): checked BEFORE the argv[0]-stem dispatch below —
+    // neither classify mode ever dispatches to a real binary, and neither is ever routed through a
+    // shadowed name.
     if args.get(1).and_then(|a| a.to_str()) == Some("--classify-command") {
         return run_classify_command(args.get(2));
+    }
+    if args.get(1).and_then(|a| a.to_str()) == Some("--classify-invocation") {
+        return run_classify_invocation(args.get(2));
     }
 
     let invoked_stem = args
@@ -545,14 +564,35 @@ fn tokenize_shell_words(segment: &str) -> Vec<String> {
     tokens
 }
 
+/// The result of classifying raw command text: the verdict itself, plus — when destructive — the
+/// program name and bare-name status of the segment that produced it (plan 03-19 Task 1). Computed
+/// together so `--classify-invocation` needs no second scan of the same text; `--classify-command`
+/// simply reads `.verdict` and ignores the rest, leaving its own output byte-for-byte unchanged.
+struct ClassifiedInvocation {
+    verdict: Verdict,
+    /// Present only when `verdict` is `Destructive`: the program stem of the destructive segment
+    /// (`program_stem(first)` — the same resolution the shadowed `argv[0]` dispatch uses).
+    program: Option<String>,
+    /// Present only when `verdict` is `Destructive`: whether that segment invoked its program by
+    /// BARE NAME — `!first.contains('/')` — rather than by path. A token with any separator names a
+    /// path and can never resolve through a `PATH`-shadowed directory, so a bare-name invocation is
+    /// exactly the class the shim's own shadow entry could intercept.
+    invoked_bare_name: bool,
+}
+
 /// Classify raw bash command TEXT: split into top-level segments, classify each through the SAME
 /// `destructive::classify` the shadowed dispatch uses, and return the first destructive verdict
 /// found — `Safe` only if every segment is Safe. Empty text fails closed into `Uncategorized`
-/// rather than being treated as trivially safe.
-fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Verdict {
+/// rather than being treated as trivially safe (with no program identified, since no segment was
+/// ever tokenized).
+fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> ClassifiedInvocation {
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        return Verdict::Destructive(DestructiveCategory::Uncategorized);
+        return ClassifiedInvocation {
+            verdict: Verdict::Destructive(DestructiveCategory::Uncategorized),
+            program: None,
+            invoked_bare_name: false,
+        };
     }
 
     for segment in split_top_level_segments(trimmed) {
@@ -567,11 +607,19 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Verdic
         let stem = program_stem(first);
         let rest: Vec<String> = tokens[1..].to_vec();
         if let verdict @ Verdict::Destructive(_) = classify(&stem, &rest, default_branch) {
-            return verdict;
+            return ClassifiedInvocation {
+                verdict,
+                program: Some(stem),
+                invoked_bare_name: !first.contains('/'),
+            };
         }
     }
 
-    Verdict::Safe
+    ClassifiedInvocation {
+        verdict: Verdict::Safe,
+        program: None,
+        invoked_bare_name: false,
+    }
 }
 
 /// The `--classify-command <text>` mode's own entry point (Task 3). Never executes anything,
@@ -587,9 +635,45 @@ fn run_classify_command(command_text_arg: Option<&OsString>) -> ExitCode {
     };
 
     let default_branch = env::var("FLYWHEEL_DEFAULT_BRANCH").ok();
-    match classify_raw_command_text(command_text, default_branch.as_deref()) {
+    match classify_raw_command_text(command_text, default_branch.as_deref()).verdict {
         Verdict::Safe => println!("safe"),
         Verdict::Destructive(category) => println!("{}", category.as_str()),
     }
+    ExitCode::SUCCESS
+}
+
+/// The `--classify-invocation <text>` mode's own entry point (plan 03-19 Task 1). Reaches the SAME
+/// `classify_raw_command_text` as `--classify-command`, but additionally reports what
+/// `pretooluse-hook.ts` needs in order to decide whether the shim can intercept the command: the
+/// program name of the destructive segment, and whether that segment invoked it by bare name.
+/// Never executes anything, never opens the permission socket, never writes any file — a pure
+/// function of its one string argument plus `FLYWHEEL_DEFAULT_BRANCH`, exactly like
+/// `--classify-command`. A missing/unreadable argument fails closed to
+/// `{"category":"uncategorized","invokedBareName":false}` and a non-zero exit — the caller treats a
+/// shim it cannot invoke as both destructive and un-interceptable, the most restrictive reading
+/// available.
+fn run_classify_invocation(command_text_arg: Option<&OsString>) -> ExitCode {
+    let Some(command_text) = command_text_arg.and_then(|s| s.to_str()) else {
+        println!(
+            "{}",
+            serde_json::json!({
+                "category": DestructiveCategory::Uncategorized.as_str(),
+                "invokedBareName": false,
+            })
+        );
+        return ExitCode::FAILURE;
+    };
+
+    let default_branch = env::var("FLYWHEEL_DEFAULT_BRANCH").ok();
+    let classified = classify_raw_command_text(command_text, default_branch.as_deref());
+    let output = match classified.verdict {
+        Verdict::Safe => serde_json::json!({ "category": "safe" }),
+        Verdict::Destructive(category) => serde_json::json!({
+            "category": category.as_str(),
+            "program": classified.program,
+            "invokedBareName": classified.invoked_bare_name,
+        }),
+    };
+    println!("{output}");
     ExitCode::SUCCESS
 }

@@ -255,6 +255,54 @@ test(
   },
 );
 
+// --- classify-invocation mode (plan 03-19 Task 1): same classifier, plus interception facts ---
+
+test(
+  "the shim's --classify-invocation mode reports program and bare-name status for a destructive verdict",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const runInvocation = (text) => {
+      const result = spawnSync(SHIM_BIN, ["--classify-invocation", text], { encoding: "utf8" });
+      return { status: result.status, parsed: JSON.parse(result.stdout.trim()) };
+    };
+
+    // Bare name — the class the shim's own PATH-shadowed directory could intercept.
+    const bareName = runInvocation("git push origin --delete x");
+    assert.equal(bareName.status, 0);
+    assert.deepEqual(bareName.parsed, { category: "branch-deletion", program: "git", invokedBareName: true });
+
+    // Absolute path — never resolves through a PATH-shadowed directory, so it cannot be intercepted.
+    const absolutePath = runInvocation("/usr/bin/git push --force");
+    assert.equal(absolutePath.status, 0);
+    assert.deepEqual(absolutePath.parsed, { category: "force-push", program: "git", invokedBareName: false });
+
+    // A safe command carries no program/invokedBareName fields.
+    const safe = runInvocation("git status");
+    assert.equal(safe.status, 0);
+    assert.deepEqual(safe.parsed, { category: "safe" });
+  },
+);
+
+test(
+  "the shim's --classify-invocation mode fails closed on a missing argument",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const result = spawnSync(SHIM_BIN, ["--classify-invocation"], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), { category: "uncategorized", invokedBareName: false });
+  },
+);
+
+test(
+  "--classify-command's output is unchanged by the --classify-invocation mode's addition",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const result = spawnSync(SHIM_BIN, ["--classify-command", "git push origin --delete x"], { encoding: "utf8" });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim(), "branch-deletion");
+  },
+);
+
 // --- the live measurement, against the real backend ---
 
 test(
