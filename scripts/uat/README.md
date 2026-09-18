@@ -94,8 +94,34 @@ bash scripts/uat/uat-ui-setup.sh destructive  # item 4
 Each builds what is missing, creates a scratch repository, seeds a scratch database into the exact
 state that forces the thing under inspection onto the screen, launches the real application against
 it, and prints the checklist to confirm. The seeding goes through the real domain functions
-(`create_project`, `create_task`, `start_agent_run`, `create_pending_request`), never hand-rolled
+(`register_project`, `create_task`, `start_agent_run`, `create_pending_request`), never hand-rolled
 SQL, so a seeded row is indistinguishable from one the application produced.
+
+Four things this script must keep doing, each of which cost a debugging round when it did not:
+
+- **Build the desktop binary, not merely check it exists.** A binary predating the
+  `FLYWHEEL_APP_DATA_DIR` seam ignores it and quietly opens the developer's **real** fleet database —
+  indistinguishable from working until you notice real projects in the rail. There is now also an
+  explicit guard that refuses to launch a binary without that symbol.
+- **Start the Vite dev server for a debug build.** A Tauri debug build loads its frontend from
+  `devUrl` (`http://localhost:1420`), not from the bundled `dist`, so launching one with nothing on
+  that port gives a blank white window. Release builds embed the frontend and skip this.
+  The detection uses `grep -c`, not `grep -q`: under `set -o pipefail` a matching `grep -q` kills
+  `strings` with SIGPIPE and the pipeline reports 141, so a match reads as a miss.
+- **Use `register_project`, not `create_project`.** The latter is the marker-free tracer-era fixture;
+  without a project marker, launch reconciliation flags the project `unreachable` and the board shows
+  "Can't find this project" instead of the thing you came to look at.
+- **Seed a genuinely LIVE orphan process.** `reconcile_agent_runs` only reports a live orphan when a
+  run descriptor's pid *and* start time still name a running process. A row that merely says
+  "running" is classified as abandoned and the board stays reachable. The seeder therefore spawns a
+  detached `sleep` and records it exactly as the adapter would — with its stdio detached, or the
+  calling script's command substitution blocks forever waiting for the inherited pipe to close.
+
+**Observed so far for item 2** (captured via screenshot, since the modal is portalled and does not
+appear in the accessibility tree): the modal appears naming exactly the live orphan, offers per-row
+**Kill** and **Kill All** with no resume/adopt affordance, carries the "every process above is
+spending tokens right now" copy, and **Escape does nothing**. Click-outside, board-unreachability,
+and the Abandoned/Acknowledge flow still need a human at the window.
 
 ## Safety and cost
 

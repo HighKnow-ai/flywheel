@@ -37,17 +37,73 @@ case "$MODE" in
   *) die "usage: uat-ui-setup.sh <orphan|destructive>" ;;
 esac
 
+# Build before launching, not merely check for existence. A STALE desktop binary is the worst
+# failure mode this script has: it starts, renders, and quietly opens the developer's REAL fleet
+# database, because a binary predating the FLYWHEEL_APP_DATA_DIR seam simply ignores it. That is
+# indistinguishable from working until you notice the project rail showing real projects. Cost one
+# debugging round; keep this build unconditional.
+if [ "${UAT_SKIP_BUILD:-0}" != "1" ]; then
+  step "building the seeder and the desktop app (set UAT_SKIP_BUILD=1 to skip)"
+  cargo build -p core --bin uat_seed_ui -p desktop 2>&1 | tail -3 | sed 's/^/     /'
+fi
+
 SEEDER=""
 for profile in debug release; do
   [ -x "${REPO_ROOT}/target/${profile}/uat_seed_ui" ] && SEEDER="${REPO_ROOT}/target/${profile}/uat_seed_ui" && break
 done
 [ -n "$SEEDER" ] || die "uat_seed_ui is not built — run \`cargo build -p core --bin uat_seed_ui\`"
 
+# Release first, then debug. The order matters: a Tauri DEBUG build loads its frontend from
+# `devUrl` (http://localhost:1420), not from the bundled dist — so launching a debug binary with
+# nothing serving that port gives a blank white window. A release build embeds the frontend and
+# needs no dev server.
 APP_BIN=""
-for profile in debug release; do
-  [ -x "${REPO_ROOT}/target/${profile}/desktop" ] && APP_BIN="${REPO_ROOT}/target/${profile}/desktop" && break
+APP_PROFILE=""
+for profile in release debug; do
+  if [ -x "${REPO_ROOT}/target/${profile}/desktop" ]; then
+    APP_BIN="${REPO_ROOT}/target/${profile}/desktop"
+    APP_PROFILE="$profile"
+    break
+  fi
 done
-[ -n "$APP_BIN" ] || die "the desktop binary is not built — run \`cargo build -p desktop\` (or \`npm --prefix packages/desktop run tauri dev\`)"
+[ -n "$APP_BIN" ] || die "the desktop binary is not built — run \`cargo build -p desktop\` (or \`npm --prefix packages/desktop run tauri build\`)"
+
+VITE_PID=""
+DEV_PORT=1420
+start_dev_server_if_needed() {
+  # Only a devUrl-loading binary needs this. Detect it from the binary itself rather than assuming
+  # by profile, so a release build configured unusually is still handled correctly.
+  #
+  # `grep -c`, not `grep -q`: under `set -o pipefail`, a `grep -q` that matches exits immediately,
+  # `strings` then dies of SIGPIPE, and the pipeline reports 141 — so the match reads as a MISS and
+  # the dev server is silently never started. `grep -c` consumes all of its input, so there is no
+  # SIGPIPE to misreport. This cost one blank-window debugging round; do not "simplify" it back.
+  local devurl_hits
+  devurl_hits=$(strings "$APP_BIN" 2>/dev/null | grep -c "localhost:${DEV_PORT}" || true)
+  if [ "${devurl_hits:-0}" -eq 0 ]; then
+    return 0
+  fi
+  if lsof -nP -iTCP:${DEV_PORT} -sTCP:LISTEN >/dev/null 2>&1; then
+    step "a dev server is already listening on ${DEV_PORT} — reusing it"
+    return 0
+  fi
+  step "this is a ${APP_PROFILE} build, which loads its frontend from http://localhost:${DEV_PORT} — starting the dev server"
+  npm --prefix "${REPO_ROOT}/packages/desktop" run dev >"${SCRATCH}/vite.log" 2>&1 &
+  VITE_PID=$!
+  for _ in $(seq 1 60); do
+    if lsof -nP -iTCP:${DEV_PORT} -sTCP:LISTEN >/dev/null 2>&1; then
+      step "dev server is up on ${DEV_PORT}"
+      return 0
+    fi
+    if ! kill -0 "$VITE_PID" 2>/dev/null; then
+      die "the dev server exited before it started listening:
+$(tail -20 "${SCRATCH}/vite.log" 2>/dev/null)"
+    fi
+    sleep 0.5
+  done
+  die "the dev server never started listening on ${DEV_PORT}:
+$(tail -20 "${SCRATCH}/vite.log" 2>/dev/null)"
+}
 
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/flywheel-uat-ui-${MODE}-XXXXXX")"
 APP_DATA="${SCRATCH}/appdata"
@@ -70,6 +126,15 @@ SEED_OUTPUT="$("$SEEDER" "$MODE" "$REPO")" || die "seeding failed:
 ${SEED_OUTPUT}"
 printf '%s\n' "$SEED_OUTPUT" | sed 's/^/   /'
 RUN_ID="$(printf '%s\n' "$SEED_OUTPUT" | awk '/^SEEDED /{print $3; exit}')"
+
+# Guard against the stale-binary failure above: prove the app binary actually honours the seam
+# before handing the window over, rather than letting it silently open the real fleet database.
+if ! strings "$APP_BIN" 2>/dev/null | grep -c "FLYWHEEL_APP_DATA_DIR" | grep -qv '^0$'; then
+  die "the desktop binary does not reference FLYWHEEL_APP_DATA_DIR — it predates that seam and
+would open your REAL fleet database instead of the scratch one. Rebuild it:
+  cargo build -p desktop"
+fi
+step "verified the app binary honours FLYWHEEL_APP_DATA_DIR"
 
 cat <<BANNER
 
@@ -104,6 +169,14 @@ UAT item 4 — what to confirm on screen:
   □ After answering Allow, the Settings permission-rules table still offers no standing grant.
 CHECKS
 fi
+
+start_dev_server_if_needed
+
+# The dev server is this script's child; it must not outlive the app window.
+cleanup_dev_server() {
+  [ -n "$VITE_PID" ] && kill "$VITE_PID" 2>/dev/null
+}
+trap cleanup_dev_server EXIT
 
 cat <<BANNER
 

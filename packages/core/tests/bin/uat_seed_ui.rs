@@ -8,7 +8,7 @@
 //! is remove every other obstacle: stand the real application up, against a scratch database that
 //! is already in the state that forces the thing under inspection onto the screen.
 //!
-//! Writes through the real domain functions — `project::create_project`, `task::create_task`,
+//! Writes through the real domain functions — `project::register_project`, `task::create_task`,
 //! `agent_run::start_agent_run`, `permission_request::create_pending_request` — never by hand-
 //! rolled SQL, so a seeded row is indistinguishable from one the application itself produced and
 //! cannot drift from the schema.
@@ -24,6 +24,20 @@
 use std::path::PathBuf;
 
 use core::domain::{actor, agent_run, permission_request, project, task};
+
+/// OS-sourced process start time in epoch milliseconds, matching what `process_is_alive` compares
+/// against (`sysinfo`'s `start_time()` seconds, scaled to ms). Read through the same crate the
+/// reconciler uses rather than shelling out to `ps`, so the two cannot disagree by a rounding.
+fn process_start_time_ms(pid: i32) -> u64 {
+    use sysinfo::{Pid, ProcessesToUpdate, System};
+    let sys_pid = Pid::from_u32(pid as u32);
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
+    system
+        .process(sys_pid)
+        .map(|process| process.start_time().saturating_mul(1000))
+        .unwrap_or(0)
+}
 
 fn fail(message: &str) -> ! {
     eprintln!("{message}");
@@ -68,16 +82,21 @@ fn main() {
         Err(err) => fail(&format!("could not resolve the local human actor: {err:#}")),
     };
 
-    let proj = match project::create_project(
+    // `register_project`, NOT `create_project`. `create_project` is the marker-free tracer-era
+    // fixture (see its own doc comment): it writes no project marker, so `reconcile_projects` at
+    // launch immediately flags the project `unreachable` and the board renders "Can't find this
+    // project" instead of whatever this seeding was supposed to put on screen. `register_project`
+    // writes the marker, which is what makes the seeded project behave like one the user
+    // registered themselves.
+    let proj = match project::register_project(
         &mut conn,
         &actor_id,
+        std::path::Path::new(&repo_path),
         "UAT Scratch Project",
-        &repo_path,
         "UAT",
-        "main",
     ) {
         Ok(proj) => proj,
-        Err(err) => fail(&format!("could not create the project: {err:#}")),
+        Err(err) => fail(&format!("could not register the project: {err:#}")),
     };
 
     let title = match mode {
@@ -97,6 +116,45 @@ fn main() {
         Ok(run) => run,
         Err(err) => fail(&format!("could not start the agent run: {err:#}")),
     };
+
+    if mode == "orphan" {
+        // The recovery modal blocks the board only for a LIVE orphan: `reconcile_agent_runs`
+        // requires a run descriptor on disk whose pid AND start time still name a running process
+        // (`process_is_alive` — pid-reuse-safe by design). A row that merely says "running" with
+        // nothing behind it is classified as abandoned instead, and the board stays reachable.
+        // So spawn a real, detached, long-lived process and record it exactly as the adapter would.
+        // stdio MUST be detached. A child inheriting this process's stdout keeps the pipe open,
+        // and the calling script's `SEED_OUTPUT="$(...)"` command substitution then blocks forever
+        // waiting for every writer to close — the seeder appears to hang with no output at all.
+        let child = match std::process::Command::new("/bin/sleep")
+            .arg("86400")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(err) => fail(&format!("could not spawn the stand-in orphan process: {err}")),
+        };
+        let pid = child.id() as i32;
+
+        // Read the start time back from the OS through the same predicate the reconciler uses, so
+        // the descriptor can never disagree with what `process_is_alive` will compute.
+        let start_time = process_start_time_ms(pid);
+        match core::runtime_protocol::write_run_descriptor(&run.id, pid, start_time) {
+            core::runtime_protocol::RuntimeIo::Written => {}
+            core::runtime_protocol::RuntimeIo::WriteFailed(err) => {
+                fail(&format!("could not write the run descriptor: {err}"))
+            }
+        }
+        if !core::runtime_protocol::process_is_alive(pid, start_time) {
+            fail(
+                "the stand-in orphan process did not read back as alive — the recovery modal \
+                 would not appear, so seeding is refused rather than silently useless",
+            );
+        }
+        println!("  orphan:  live stand-in process pid {pid} (sleep 86400)");
+    }
 
     if mode == "destructive" {
         // A push-shaped branch deletion specifically: 03-UI-SPEC's consequence sentence for this
