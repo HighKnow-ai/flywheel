@@ -4,18 +4,18 @@ phase: 03-nothing-lost-nothing-left-running
 source: [03-VERIFICATION.md]
 harness: scripts/uat/ (added by quick task 260918-nch)
 started: 2026-09-16T05:59:55.179Z
-updated: 2026-09-18T09:35:00Z
+updated: 2026-09-18T10:20:00Z
 ---
 
 ## Current Test
 
-number: 2
-name: Crash relaunch surfaces every orphan and repairs nothing silently
+number: 4
+name: Destructive card renders correctly in a live session
 expected: |
-  The orphan recovery modal blocks the board (no Escape, no click-outside dismissal),
-  per-row Kill resolves each row, Kill All resolves the rest, and the board becomes
-  reachable only once the list is empty.
-awaiting: user response (visual — run `bash scripts/uat/uat-ui-setup.sh orphan`)
+  Stop-sign glyph, a consequence sentence naming the deleted BRANCH (not the remote),
+  Deny filled/primary, Allow outline/secondary reading "just this once", and no
+  allow-always option anywhere.
+awaiting: user response (visual — run `bash scripts/uat/uat-ui-setup.sh destructive`)
 
 ## Tests
 
@@ -34,9 +34,22 @@ evidence: |
 
 ### 2. Crash relaunch surfaces every orphan and repairs nothing silently (SC3, PROC-05, WORK-06)
 expected: Force-quit Flywheel while a session runs, then relaunch. The orphan recovery modal blocks the board (no Escape, no click-outside dismissal), per-row Kill resolves each row, Kill All resolves the rest, and the board becomes reachable only once the list is empty. The run then shows Abandoned with the watchdog's own reason, and Acknowledge clears it.
-result: [pending]
-blocked_by: visual-judgement
-precondition: "bash scripts/uat/uat-ui-setup.sh orphan — stands the real app up against a scratch database already holding an orphaned run" 
+result: pass
+source: human + harness
+harness: scripts/uat/uat-ui-setup.sh orphan
+evidence: |
+  Confirmed against the real application, seeded with a genuinely live orphan.
+  - The recovery modal appeared naming exactly the live orphan, blocking the board.
+  - Escape did nothing (driven by the harness, screenshot-verified before and after).
+  - Only Kill and Kill All were offered — no resume or adopt affordance anywhere.
+  - Kill resolved the row; the board became reachable.
+  - Verified underneath the UI: the stand-in process is gone, agent_runs.status is
+    `abandoned`, and the recorded event reason is `killed-by-user-at-launch`.
+  - The run displayed Abandoned with its reason, and Acknowledge cleared it.
+  Not separately isolated: click-outside-to-dismiss was not exercised as its own step
+  apart from the general blocking behaviour, which did hold throughout.
+  Harness note: the modal is rendered through a portal and does NOT appear in the macOS
+  accessibility tree, so it must be confirmed from pixels, not from the tree.
 
 ### 3. Destructive gate stops a live auto-accept session (SC5, AGNT-07)
 expected: Start a real session on a scratch repository in an auto-accept permission mode and instruct the agent to force-push, or to delete a remote branch (`git push --delete`). The board shows a pending permission request, the session sits blocked rather than proceeding, and the remote branch/ref is unchanged. Denying it surfaces a clear refusal to the agent, not a bare non-zero exit.
@@ -70,9 +83,9 @@ evidence: |
 ## Summary
 
 total: 5
-passed: 2
+passed: 3
 issues: 1
-pending: 2
+pending: 1
 skipped: 0
 blocked: 0
 
