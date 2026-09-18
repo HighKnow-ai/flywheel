@@ -373,3 +373,19 @@ None — no external service configuration required.
 ---
 *Phase: 03-nothing-lost-nothing-left-running*
 *Completed: 2026-09-18*
+
+## Self-Check: PASSED
+
+- Files verified on disk: `packages/shim/src/main.rs`, `packages/sidecar/src/pretooluse-hook.ts`,
+  `packages/sidecar/test/destructive-gate.test.mjs`, `packages/sidecar/src/mcp-permission-server.ts`,
+  `scripts/uat/uat-03-destructive-gate.mjs`, this SUMMARY.
+- Commits verified in `git log`: `21be463` (Task 1), `6910aa1` (Task 2), `5e7f454` (Task 3
+  deviations), `210272e` (this SUMMARY).
+- `cargo build -p flywheel-shim`, `cargo build --workspace`: clean.
+- `npm --prefix packages/sidecar run test`: 64/64 pass (0 fail, 0 skip).
+- `cargo test -p core`: all suites pass (0 fail across the full workspace's `core` test binaries).
+- `npm --prefix packages/desktop test`: 440/440 pass (32/32 files).
+- `node scripts/uat/uat-03-destructive-gate.mjs`: Property A (safety) and Property B.1 (a
+  `permission_request` carrying `destructiveCategory: branch-deletion` IS raised for a live
+  agent-issued command) both verified PASS across multiple live runs; Property B.2/B.3 (sustained
+  block + deny-and-close) did not complete — see Issues Encountered.
