@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
 Plan: 13 of 13
 Status: Phase complete — ready for verification
-Last activity: 2026-09-15 — Phase 03 execution started
+Last activity: 2026-09-18 - Completed quick task 260918-nch: Automated UAT harness for phase 03's five deferred human-verification items
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -223,7 +223,14 @@ None yet.
 - ⚠️ **[Phase 01] The generic trigger abstraction was never built.** It is one of the three named extension-ready foundations (PROJECT.md), and the other two shipped — but no scheduler crate is vendored and no trigger type is stubbed, so schedule-as-trigger-source is still a structural retrofit, which is exactly what the architecture constraint forbids. Close it before the automations milestone, not at it.
 - ⚠️ **[Phase 01] `epic_roster` is unbounded by design.** It returns every epic in a project, deliberately exempt from the `DEFAULT_LIMIT`/`MAX_LIMIT` cap (`01-SECURITY.md` AR-01-04). Safe only while one human creates epics one at a time; it becomes an unbounded response the moment an agent gets that path in Phase 6.
 - ⚠️ **[Phase 01] The chosen visual direction has not yet been seen as designed.** `01-UI-REVIEW.md` (18/24) found two of Flight Progress Strips' own signature moves absent: sticky band headers (specified, asserted by three code comments, implemented nowhere) and the selected strip "breaking the plane" (tint overlay only). Tracked in Phase 10.1. Relevant because the owner's judgement that the direction "reads as dated" is currently a judgement on an incomplete execution of it.
+- ⚠️ **[Phase 03] The destructive gate refuses rather than asks, for every command an agent runs through Bash.** Measured live against `claude` 2.1.267 by `scripts/uat/uat-03-destructive-gate.mjs`: a `git push --delete` in an auto-accept session is blocked and explained (safety holds, remote unchanged), but no `permission_request` is ever raised and the session never blocks on a human — the tool result reads `non_execution_kind: "permission-rule"`. `writeHookSettings` wires the `PreToolUse` hook with `matcher: "Bash"` and `pretooluse-hook.ts` denies every non-`safe` verdict from the shim's own classifier, so the hook refuses precisely the set the shim's socket would have asked about and D-58's indefinite block is unreachable. `pretooluse-hook.ts` anticipates a residual gap but scopes it to absolute-path invocations only; the measured scope is every Bash command. Not a safety gap — a human-in-the-loop gap, and AGNT-07's "asks a human" claim does not currently hold.
 - ⚠️ **[Phase 01] Process defect, will recur every phase needing human verification.** The verifier's `human_needed` branch writes `{phase}-UAT.md`, but `UAT.md` is also declared in `covered_files` and hashed into `covered_digest` — so a verification that asks for human testing invalidates its own fingerprint and reads `stale` forever after. `/gsd-verify-work` then routes to itself, which cannot clear it. Broken this round by regenerating verification with `status: passed` after UAT passed; the durable fix is to stop fingerprinting verify-step *outputs* as verification *inputs*.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260918-nch | Automated UAT harness for phase 03's five deferred human-verification items | 2026-09-18 | 251ebef | [260918-nch-build-an-automated-uat-harness-for-phase](./quick/260918-nch-build-an-automated-uat-harness-for-phase/) |
 
 ### Roadmap Evolution
 
