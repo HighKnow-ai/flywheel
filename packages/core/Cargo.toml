@@ -19,6 +19,10 @@ path = "tests/bin/commit_stress_harness.rs"
 name = "uat_session_env"
 path = "tests/bin/uat_session_env.rs"
 
+[[bin]]
+name = "uat_seed_ui"
+path = "tests/bin/uat_seed_ui.rs"
+
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
 rusqlite_migration = "2.6"
