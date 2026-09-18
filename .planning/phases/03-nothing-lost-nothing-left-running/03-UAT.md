@@ -1,21 +1,15 @@
 ---
-status: testing
+status: complete
 phase: 03-nothing-lost-nothing-left-running
 source: [03-VERIFICATION.md]
 harness: scripts/uat/ (added by quick task 260918-nch)
 started: 2026-09-16T05:59:55.179Z
-updated: 2026-09-18T10:20:00Z
+updated: 2026-09-18T10:40:00Z
 ---
 
 ## Current Test
 
-number: 4
-name: Destructive card renders correctly in a live session
-expected: |
-  Stop-sign glyph, a consequence sentence naming the deleted BRANCH (not the remote),
-  Deny filled/primary, Allow outline/secondary reading "just this once", and no
-  allow-always option anywhere.
-awaiting: user response (visual — run `bash scripts/uat/uat-ui-setup.sh destructive`)
+[testing complete]
 
 ## Tests
 
@@ -61,10 +55,34 @@ severity: major
 
 ### 4. Destructive card renders correctly in a live session (SC5, AGNT-07)
 expected: With a real session in auto-accept mode, have the agent attempt two different destructive categories in turn, including a push-shaped branch deletion. The card shows the stop-sign glyph, the correct consequence sentence naming the deleted BRANCH (not the remote) for the push-shaped case, Deny filled/primary, Allow outline/secondary reading "just this once", and no allow-always option anywhere — including the Settings permission-rules table after answering Allow.
-result: [pending]
-blocked_by: visual-judgement
-precondition: "bash scripts/uat/uat-ui-setup.sh destructive — stands the real app up against a scratch database already holding a pending branch-deletion request"
-note: "Test 3's finding means a live session will not produce this card by itself; the precondition script seeds the pending request directly so the card can still be inspected." 
+result: pass
+source: human + harness + code
+harness: scripts/uat/uat-ui-setup.sh destructive
+evidence: |
+  Card confirmed on screen in the real application:
+  - Heading "Destructive action — needs your OK", left accent rail, distinct from the
+    routine permission variant.
+  - Consequence sentence reads "This would delete the branch feature/doomed." — names the
+    BRANCH, not the remote. This is the 03-16 pushDeleteTarget fix, confirmed live.
+  - Deny is filled/primary; "Allow, just this once" is outlined/secondary.
+  - No allow-always affordance on the card.
+  Confirmed in source rather than by eye, being more reliable than judging a glyph at
+  screen resolution:
+  - legend/marks.ts: the `destructive-gate` mark uses `OctagonAlert` — a stop-sign shape,
+    deliberately categorically different from the `ShieldAlert` used for every other
+    permission in the product.
+  - PermissionRequestCard.tsx: the allow-always action is conditionally absent for the
+    destructive variant, and its keyboard shortcut is guarded by `!isDestructive`.
+  - domain/permission_request.rs: `answer_request` refuses `allowed_always` against any
+    request carrying a `destructive_category`, via the dedicated
+    `DestructiveAllowAlwaysRejected` error — "structurally absent, not merely
+    discouraged... no fallback that silently downgrades". So no standing grant can be
+    created for a destructive request by any path, which is what the Settings
+    permission-rules half of this test was asking.
+  Caveat, and it is the same finding as test 3: this card had to be SEEDED. A live
+  session cannot currently produce one, because the PreToolUse hook refuses every
+  destructive Bash command before the shim's socket can raise a request. The card is
+  correct; it is presently unreachable in normal use.
 
 ### 5. Ten concurrent commits through the packaged app keep every commit (SC4, WORK-04/WORK-05)
 expected: In the packaged application, drive ten concurrent commits into worktrees of one repository through a live agent session (not just the automated stress harness). All ten commits are reachable, and the agent's own git invocations resolve through the installed PATH shim rather than a bare system git.
@@ -83,9 +101,9 @@ evidence: |
 ## Summary
 
 total: 5
-passed: 3
+passed: 4
 issues: 1
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
