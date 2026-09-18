@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
-status: verifying
-stopped_at: Completed 03-18-PLAN.md (gap closure, final plan of phase 03)
-last_updated: "2026-09-16T05:44:22.840Z"
-last_activity: 2026-09-15
-last_activity_desc: Phase 03 execution started
-state_head: 8379cfbef14e7cc98686ce149030df63ec0359a0
+status: executing
+stopped_at: Completed 03-19-PLAN.md (gap closure G-03-3, destructive-gate confirmation fix)
+last_updated: "2026-09-18T11:13:04.812Z"
+last_activity: 2026-09-18
+last_activity_desc: 03-19 executed — destructive gate now defers to the shim's permission socket instead of refusing outright
+state_head: f89fa30ab56f43fd23de7b849658b737aabda666
 progress:
   total_phases: 12
   completed_phases: 0
-  total_plans: 57
-  completed_plans: 57
+  total_plans: 58
+  completed_plans: 58
   percent: 0
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 ## Current Position
 
-Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 13 of 13
-Status: Phase complete — ready for verification
-Last activity: 2026-09-18 - Completed quick task 260918-nch: Automated UAT harness for phase 03's five deferred human-verification items
+Phase: 03 (Nothing Lost, Nothing Left Running) — 19/19 plans complete
+Plan: 19 of 19
+Status: All plans executed; see 03-19-SUMMARY.md for residual findings before treating the phase as fully closed
+Last activity: 2026-09-18 — 03-19 executed (gap closure G-03-3)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -116,6 +116,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P16 | 22min | 2 tasks | 2 files |
 | Phase 03 P17 | 22min | 2 tasks | 4 files |
 | Phase 03 P18 | 12min | 2 tasks | 4 files |
+| Phase 03 P19 | 95min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -208,6 +209,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03]: stoppingRef on SessionSurface clears only in handleStop's .catch, never in .then — a successful stop drives status to terminal and unmounts the Stop button, so there is nothing left to guard on that path. — A failed stop must stay retryable since the alternative is an agent that keeps spending money.
 - [Phase 03]: [Phase 03]: WorktreeRemovalDialog's handleRemove guarded by a synchronous removingRef, the sixth sibling of the same ackActingRef/actingRef/answeringRef/killingRef/stoppingRef re-entry-guard pattern in this codebase. — removeState.removing alone leaves a window where React has not flushed the disabled attribute before a second synchronous click fires; found by a real failing test (3 clicks issued 3 calls).
 - [Phase 03]: [Phase 03]: WorktreeSummary's missing-worktree early return is gated on status alone (not status && isNonEmptyString(path)) — the file's own doc comment already claimed this; the code did not. — An empty/null/absent recorded path on a missing row was falling through to the ordinary render, exposing Remove Worktree on a row the screen had just called missing.
+- [Phase 03]: [Phase 03]: The PreToolUse hook now defers to the shim's own permission socket for any destructive command it can PROVE the shim will intercept (shimWillIntercept: FLYWHEEL_SHIM_BIN set, its directory is literally PATH's first entry, that directory contains an executable file named exactly the program) -- refusing outright only for the class the shim structurally cannot see (absolute-path invocations) or any failure to establish the above. — G-03-3 found the hook denied every non-safe verdict unconditionally, so D-58's indefinite block was unreachable for anything the agent ran through Bash. Live-measured this session: a bare agent-issued git push --delete now raises a real permission_request carrying destructiveCategory: branch-deletion, which never happened before.
+- [Phase 03]: [Phase 03]: packages/sidecar/src/mcp-permission-server.ts now binds the permission socket under /tmp instead of os.tmpdir(), falling back to os.tmpdir() only if /tmp is unwritable. — On macOS, os.tmpdir() resolves to a long per-session sandboxed path; joined with the socket's own uuid-based filename it routinely exceeds sockaddr_un's ~104-byte SUN_LEN, so the socket was silently unreachable (a connection error the shim reads as a clean refusal, indistinguishable from deny) until this plan's own live measurement made the hook actually defer to it for the first time. Mirrors the identical fix already applied in packages/core/tests/destructive_classifier.rs::scratch_socket_path.
 
 ### Pending Todos
 
@@ -223,8 +226,9 @@ None yet.
 - ⚠️ **[Phase 01] The generic trigger abstraction was never built.** It is one of the three named extension-ready foundations (PROJECT.md), and the other two shipped — but no scheduler crate is vendored and no trigger type is stubbed, so schedule-as-trigger-source is still a structural retrofit, which is exactly what the architecture constraint forbids. Close it before the automations milestone, not at it.
 - ⚠️ **[Phase 01] `epic_roster` is unbounded by design.** It returns every epic in a project, deliberately exempt from the `DEFAULT_LIMIT`/`MAX_LIMIT` cap (`01-SECURITY.md` AR-01-04). Safe only while one human creates epics one at a time; it becomes an unbounded response the moment an agent gets that path in Phase 6.
 - ⚠️ **[Phase 01] The chosen visual direction has not yet been seen as designed.** `01-UI-REVIEW.md` (18/24) found two of Flight Progress Strips' own signature moves absent: sticky band headers (specified, asserted by three code comments, implemented nowhere) and the selected strip "breaking the plane" (tint overlay only). Tracked in Phase 10.1. Relevant because the owner's judgement that the direction "reads as dated" is currently a judgement on an incomplete execution of it.
-- ⚠️ **[Phase 03] The destructive gate refuses rather than asks, for every command an agent runs through Bash.** Measured live against `claude` 2.1.267 by `scripts/uat/uat-03-destructive-gate.mjs`: a `git push --delete` in an auto-accept session is blocked and explained (safety holds, remote unchanged), but no `permission_request` is ever raised and the session never blocks on a human — the tool result reads `non_execution_kind: "permission-rule"`. `writeHookSettings` wires the `PreToolUse` hook with `matcher: "Bash"` and `pretooluse-hook.ts` denies every non-`safe` verdict from the shim's own classifier, so the hook refuses precisely the set the shim's socket would have asked about and D-58's indefinite block is unreachable. `pretooluse-hook.ts` anticipates a residual gap but scopes it to absolute-path invocations only; the measured scope is every Bash command. Not a safety gap — a human-in-the-loop gap, and AGNT-07's "asks a human" claim does not currently hold.
+- ✅ **[Phase 03] RESOLVED by 03-19 (G-03-3).** The destructive gate previously refused rather than asked for every command an agent ran through Bash. `pretooluse-hook.ts` now defers to the shim's own permission socket whenever it can prove the shim will intercept the command (`shimWillIntercept`), denying outright only for the class the shim structurally cannot see. Live-measured this session: a bare `git push --delete` now raises a real `permission_request` carrying `destructiveCategory: branch-deletion`, which never happened before. See the NEW finding immediately below — the full sustained-block-then-deny flow surfaced a SEPARATE, unresolved issue during this same measurement.
 - ⚠️ **[Phase 01] Process defect, will recur every phase needing human verification.** The verifier's `human_needed` branch writes `{phase}-UAT.md`, but `UAT.md` is also declared in `covered_files` and hashed into `covered_digest` — so a verification that asks for human testing invalidates its own fingerprint and reads `stale` forever after. `/gsd-verify-work` then routes to itself, which cannot clear it. Broken this round by regenerating verification with `status: passed` after UAT passed; the durable fix is to stop fingerprinting verify-step *outputs* as verification *inputs*.
+- [Phase 03] NEW FINDING (03-19, not yet root-caused): across five live measurements, a real claude session is terminated (session_closed, reason: failed) roughly 15-16 seconds after a destructive-gate permission_request is raised and left unanswered -- well before a human could realistically be expected to answer a permission card. Ruled out by measurement, not assumption: the watchdog's own heartbeat-staleness kill (DEFAULT_HEARTBEAT_STALE_MS=15000) -- a run with FLYWHEEL_HEARTBEAT_STALE_MS=120000 explicitly set (confirmed to propagate down to the watchdog wrapper process) failed identically at the same ~15-16s mark. Root cause unconfirmed: may be an internal claude 2.1.267 behavior when a Bash tool call produces no output for an extended period, or some other session-lifecycle mechanism in claude-code-adapter.ts/watchdog.ts. Outside 03-19's three declared files; recommend a dedicated follow-up plan/spike in a clean environment before treating G-03-3/AGNT-07 as fully, reliably closed. See 03-19-SUMMARY.md Issues Encountered for full detail.
 
 ### Quick Tasks Completed
 
@@ -246,6 +250,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-16T05:44:22.768Z
-Stopped at: Completed 03-18-PLAN.md (gap closure, final plan of phase 03)
+Last session: 2026-09-18T11:13:04.721Z
+Stopped at: Completed 03-19-PLAN.md (gap closure G-03-3, destructive-gate confirmation fix)
 Resume file: None
