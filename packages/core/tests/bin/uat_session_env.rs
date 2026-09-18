@@ -16,16 +16,37 @@
 //! Claude Code credentials, which is exactly the execution model the phase-03 UAT items describe
 //! ("agents run on the developer's machine using their existing local agent credentials").
 //!
-//! Usage: `uat_session_env <run_id> [default_branch]` — writes a JSON object to stdout. Every
-//! failure is a plain non-zero exit with a message on stderr; this binary never panics its way
-//! out, because a harness reading its stdout deserves a diagnosis rather than a backtrace.
+//! Usage:
+//!   `uat_session_env <run_id> [default_branch]` — writes the spawn environment as JSON to stdout.
+//!   `uat_session_env --touch-heartbeat`         — touches the heartbeat file once and exits.
+//!
+//! The second mode exists for the supervisor-kill script (UAT item 1). What that item actually
+//! tests is what a session's watchdog does when the heartbeat STOPS being written, so the harness
+//! needs to write one on the production cadence beforehand — and it must be the production
+//! writer, `runtime_protocol::touch_heartbeat`, or the test would be proving that the harness's
+//! own idea of the heartbeat format agrees with the watchdog's, which is not the guarantee under
+//! test.
+//!
+//! Every failure is a plain non-zero exit with a message on stderr; this binary never panics its
+//! way out, because a harness reading its stdout deserves a diagnosis rather than a backtrace.
 
 use std::collections::BTreeMap;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
+    if args.get(1).map(String::as_str) == Some("--touch-heartbeat") {
+        match core::runtime_protocol::touch_heartbeat() {
+            core::runtime_protocol::RuntimeIo::Written => return,
+            core::runtime_protocol::RuntimeIo::WriteFailed(err) => {
+                eprintln!("failed to touch the heartbeat: {err}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let Some(run_id) = args.get(1) else {
-        eprintln!("usage: uat_session_env <run_id> [default_branch]");
+        eprintln!("usage: uat_session_env <run_id> [default_branch] | --touch-heartbeat");
         std::process::exit(2);
     };
     let default_branch = args.get(2).cloned().unwrap_or_else(|| "main".to_string());

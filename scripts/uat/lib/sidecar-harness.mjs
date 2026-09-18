@@ -28,6 +28,11 @@ export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
 export const SIDECAR_ENTRY = path.join(REPO_ROOT, "packages", "sidecar", "dist", "index.js");
 
+/** The cadence the production supervisor touches the heartbeat at, mirroring
+ * `runtime_protocol::HEARTBEAT_INTERVAL_MS`. Kept as a literal for the same reason `watchdog.ts`
+ * keeps its own fallback literals: this file has no dependency on the Rust crate. */
+export const HEARTBEAT_TICK_MS = 2_000;
+
 /** Crockford base32, matching `flywheel_core::ids`'s own alphabet — a run id that fails
  * `is_ulid` is rejected by the product before it reaches any interesting code path, so the
  * harness must mint ids of the real shape rather than convenient strings. */
