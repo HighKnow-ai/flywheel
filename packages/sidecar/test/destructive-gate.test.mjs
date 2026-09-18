@@ -303,6 +303,138 @@ test(
   },
 );
 
+// --- pretooluse-hook.ts (plan 03-19, G-03-3): defer when interception is provable, refuse when it is not ---
+
+/** A scratch shim directory containing an executable copy of the real compiled `flywheel-shim`
+ * binary under each name in `entries` — a real invocable classifier, so `FLYWHEEL_SHIM_BIN` set to
+ * one of these entries genuinely answers `--classify-invocation` calls, exactly as a production
+ * `shim_env_for_run`-installed directory would (minus the second real-binary env vars this hook
+ * never touches). */
+function makeShimDir(entries) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-shimdir-"));
+  for (const name of entries) {
+    const entryPath = path.join(dir, name);
+    fs.copyFileSync(SHIM_BIN, entryPath);
+    fs.chmodSync(entryPath, 0o755);
+  }
+  return dir;
+}
+
+/** Run the SHIPPED compiled hook script directly (never re-implemented), feeding it the same
+ * `tool_input.command` payload shape the backend writes to its stdin, under a caller-supplied env.
+ * Returns the exit status and the parsed JSON decision object (or `undefined` if stdout did not
+ * parse). */
+function runHook(command, env) {
+  const hookPath = pretoolUseHookScriptPath();
+  const payload = JSON.stringify({ tool_input: { command } });
+  const result = spawnSync(process.execPath, [hookPath], { input: payload, encoding: "utf8", env });
+  let decision;
+  try {
+    decision = JSON.parse(result.stdout);
+  } catch {
+    decision = undefined;
+  }
+  return { status: result.status, decision };
+}
+
+test(
+  "the hook defers (no opinion) to a bare destructive command when a correctly-shaped shim directory leads PATH",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    const { status, decision } = runHook("git push origin --delete x", env);
+    assert.equal(status, 0, "a provably-intercepted bare command must exit 0 (no opinion)");
+    assert.deepEqual(decision, {});
+  },
+);
+
+test(
+  "the hook denies a bare destructive command when FLYWHEEL_SHIM_BIN is unset",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git"]);
+    const env = { ...process.env, PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}` };
+    delete env.FLYWHEEL_SHIM_BIN;
+    const { status, decision } = runHook("git push origin --delete x", env);
+    assert.equal(status, 2);
+    assert.equal(decision?.hookSpecificOutput?.permissionDecision, "deny");
+  },
+);
+
+test(
+  "the hook denies a bare destructive command when the shim directory is NOT first on PATH",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git"]);
+    const decoyDir = "/nonexistent-decoy-directory-03-19";
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${decoyDir}${path.delimiter}${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    const { status, decision } = runHook("git push origin --delete x", env);
+    assert.equal(status, 2);
+    assert.equal(decision?.hookSpecificOutput?.permissionDecision, "deny");
+  },
+);
+
+test(
+  "the hook denies a bare destructive command when the shim directory is missing that program's shadow entry",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    // Installs `git` only, never `rm` — FLYWHEEL_SHIM_BIN itself resolves and classifies fine, but
+    // a bare `rm` invocation has no shadow entry in this directory to be caught by.
+    const shimDir = makeShimDir(["git"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    const { status, decision } = runHook("rm -rf /tmp/flywheel-03-19-missing-shadow-victim", env);
+    assert.equal(status, 2);
+    assert.equal(decision?.hookSpecificOutput?.permissionDecision, "deny");
+  },
+);
+
+test(
+  "the hook denies an absolute-path destructive command even with a perfectly good shim directory",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    // The shim cannot see this invocation — no `/`-free token ever resolves through a PATH-shadowed
+    // directory — so the hook must refuse it itself, even though the shim directory is well-formed.
+    const { status, decision } = runHook("/usr/bin/git push --force", env);
+    assert.equal(status, 2);
+    assert.equal(decision?.hookSpecificOutput?.permissionDecision, "deny");
+  },
+);
+
+test(
+  "the hook prints no opinion for a safe command regardless of shim directory shape",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    const { status, decision } = runHook("git status", env);
+    assert.equal(status, 0);
+    assert.deepEqual(decision, {});
+  },
+);
+
 // --- the live measurement, against the real backend ---
 
 test(
