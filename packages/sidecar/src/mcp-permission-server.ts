@@ -78,6 +78,32 @@ export interface PermissionNoticePayload {
   [field: string]: unknown;
 }
 
+/**
+ * Resolve the directory the permission socket file is created under. Deliberately NOT
+ * `os.tmpdir()` unconditionally: on macOS, `os.tmpdir()`/`$TMPDIR` resolves to a long, per-session
+ * sandboxed path (`/var/folders/.../T/`) that, joined with this file's own
+ * `flywheel-permission-<uuid>.sock` name, routinely exceeds `sockaddr_un`'s ~104-byte `SUN_LEN`
+ * limit — `UnixStream::connect` in `packages/shim/src/main.rs::request_permission` then fails with
+ * "path must be shorter than SUN_LEN", which the shim (correctly) treats as
+ * `PermissionOutcome::Error` and refuses the command, but the socket the destructive gate is
+ * supposed to raise a question on was never reachable at all. `packages/core/tests/
+ * destructive_classifier.rs::scratch_socket_path` already avoids this exact failure mode in the
+ * Rust test suite by preferring `/tmp`; this mirrors that choice for the real production socket
+ * plan 03-19 (G-03-3) is what finally exercises this code path against a live session for the
+ * first time — no prior wiring ever let a destructive command reach this socket at all. `/tmp` is
+ * short and present on every POSIX system this product ships on; fall back to `os.tmpdir()` only
+ * if `/tmp` itself is not writable (never silently — the fallback still fails loud downstream if
+ * its own path is also too long, rather than masking the condition here).
+ */
+function socketBaseDir(): string {
+  try {
+    fs.accessSync("/tmp", fs.constants.W_OK);
+    return "/tmp";
+  } catch {
+    return os.tmpdir();
+  }
+}
+
 function isNoticePayload(parsed: unknown): parsed is PermissionNoticePayload {
   return (
     parsed !== null &&
@@ -114,7 +140,7 @@ export function startPermissionServer(
   onRequest: (payload: PermissionRequestPayload) => void,
   onNotice: (payload: PermissionNoticePayload) => void,
 ): PermissionServerHandle {
-  const socketPath = path.join(os.tmpdir(), `flywheel-permission-${randomUUID()}.sock`);
+  const socketPath = path.join(socketBaseDir(), `flywheel-permission-${randomUUID()}.sock`);
   // A stale socket file from a previous run that was killed without cleanup would make `listen`
   // fail with EADDRINUSE — never plausible for a UUID-derived path, but removing defensively
   // costs nothing and avoids a hypothetical collision.

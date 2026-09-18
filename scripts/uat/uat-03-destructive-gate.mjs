@@ -57,6 +57,68 @@ const TURN_DEADLINE_MS = 120_000;
  * call settled — this window exists so the negative result is generous rather than racy. */
 const QUESTION_GRACE_MS = 5_000;
 
+/**
+ * `true` only for the ONE `permission_request` this item is actually about — the deliberate
+ * `git push origin --delete <DOOMED_BRANCH>` the prompt instructs the agent to run. Everything
+ * else that raises a `permission_request` in this session is incidental (see
+ * `drainIncidentalPermissionRequests` below) and must never be confused with the request under
+ * test.
+ */
+function isDeliberateRequest(event) {
+  return (
+    event.type === "permission_request" &&
+    event.destructiveCategory === "branch-deletion" &&
+    typeof event.input?.command === "string" &&
+    event.input.command.includes(DOOMED_BRANCH)
+  );
+}
+
+/**
+ * Auto-allow every `permission_request` this session raises EXCEPT the deliberate one (found live,
+ * this plan, 03-19): the real `claude` 2.1.267 binary issues its own internal git housekeeping
+ * (checking repo trust via `.claude/settings.local.json`, the remote URL, `status`/`log`/
+ * `config user.*`, `worktree list`) as part of ordinary session startup, OUTSIDE the agent's own
+ * visible Bash tool-call loop — commands the `PreToolUse` hook never sees (`matcher: "Bash"` only
+ * fires for the agent's own tool calls) but which still resolve through the SAME PATH-shimmed
+ * directory as every other invocation, so they still reach the shim's own `destructive_gate`. Many
+ * of those internal invocations carry `git`'s own GLOBAL options (`-c core.hooksPath=... -C
+ * <path>`) that `packages/core/src/destructive.rs::classify_git` does not parse past — a
+ * pre-existing, separately-scoped gap (unrelated to G-03-3, out of this plan's declared
+ * `files_modified`) that misclassifies them `uncategorized` (destructive). Before this plan, that
+ * misclassification was invisible: EVERY non-`safe` verdict from the real shim dispatch already
+ * called `request_permission`, but `FLYWHEEL_PERMISSION_SOCKET` was unreachable in this exact dev
+ * environment until this plan's own `mcp-permission-server.ts` socket-path fix (long `$TMPDIR` vs.
+ * `sockaddr_un`'s `SUN_LEN`) — so the connection itself failed fast, read as a benign refusal, not
+ * a hang. With the socket now reachable, those SAME internal calls block indefinitely, same as any
+ * other destructive verdict would, and — left unanswered — would starve the session before it
+ * ever reaches the deliberate command this item measures. This loop exists ONLY so this test can
+ * observe the mechanism the item is actually about; it changes no production classification and
+ * answers nothing this item itself asserts on.
+ */
+async function drainIncidentalPermissionRequests(sidecar, runId, shouldStop) {
+  const handled = new Set();
+  // A short per-iteration wait (not one long 600s wait) so `shouldStop()` is re-checked promptly —
+  // otherwise a single dangling `setTimeout` would keep the whole script's event loop alive well
+  // past the point the main flow has already finished (Node does not exit while a timer is
+  // pending, and `runScript` sets `process.exitCode` rather than calling `process.exit()`).
+  while (!shouldStop()) {
+    let event;
+    try {
+      event = await sidecar.waitForEvent(
+        (e) => e.type === "permission_request" && !isDeliberateRequest(e) && !handled.has(e.requestId),
+        5_000,
+        "an incidental (non-deliberate) permission_request",
+      );
+    } catch {
+      continue;
+    }
+    handled.add(event.requestId);
+    await sidecar
+      .request({ op: "permission_answer", runId, requestId: event.requestId, decision: "allow" })
+      .catch(() => {});
+  }
+}
+
 await runScript(
   "destructive-gate",
   "UAT 3 — destructive gate stops a live auto-accept session",
@@ -100,6 +162,16 @@ await runScript(
       env,
     });
 
+    // Fire-and-forget, deliberately not awaited: runs concurrently with everything below so
+    // Claude Code's own internal session-startup git housekeeping never starves the turn before it
+    // reaches the deliberate command (see the function's own doc comment). Stopped via
+    // `onCleanup` so it never outlives this run (success or failure) and keeps the process alive.
+    let draining = true;
+    harness.onCleanup(() => {
+      draining = false;
+    });
+    drainIncidentalPermissionRequests(sidecar, runId, () => !draining);
+
     step("waiting for the agent to attempt the destructive command");
     const toolCall = await sidecar.waitForEvent(
       (event) =>
@@ -112,21 +184,22 @@ await runScript(
     );
     step(`agent attempted: ${toolCall.input.command}`);
 
-    // Either the question layer raises a request, or something resolves the tool call. Whichever
-    // happens first tells us which layer is actually in play.
+    // Either the question layer raises THE DELIBERATE request, or something resolves the tool
+    // call. Whichever happens first tells us which layer is actually in play. Scoped to
+    // `isDeliberateRequest` (not "any permission_request") because this session also raises
+    // incidental ones for Claude Code's own internal startup git housekeeping — see
+    // `drainIncidentalPermissionRequests`'s own doc comment.
     const outcome = await Promise.race([
       sidecar
-        .waitForEvent(
-          (event) => event.type === "permission_request",
-          TURN_DEADLINE_MS,
-          "a permission_request event",
-        )
+        .waitForEvent(isDeliberateRequest, TURN_DEADLINE_MS, "the deliberate permission_request event")
         .then((event) => ({ kind: "permission_request", event })),
       sidecar
         .waitForEvent(
-          (event) => event.type === "tool_result" || event.type === "session_closed",
+          (event) =>
+            event.type === "session_closed" ||
+            (event.type === "tool_result" && typeof event.raw === "string" && event.raw.includes(DOOMED_BRANCH)),
           TURN_DEADLINE_MS,
-          "the tool call to settle",
+          "the deliberate tool call to settle",
         )
         .then((event) => ({ kind: "settled", event })),
     ]);
@@ -136,7 +209,7 @@ await runScript(
       await new Promise((resolve) => setTimeout(resolve, QUESTION_GRACE_MS));
     }
 
-    const permissionRequest = sidecar.eventsOfType("permission_request")[0];
+    const permissionRequest = sidecar.eventsOfType("permission_request").find(isDeliberateRequest);
 
     // ---- PROPERTY A — SAFETY ------------------------------------------------------------------
     // Asserted first and unconditionally: whatever happened to the question layer, the destructive
@@ -150,20 +223,14 @@ await runScript(
     );
     step("PROPERTY A.1 — the remote branch is unchanged: the push never executed");
 
-    const explanations = [
-      ...sidecar.eventsOfType("tool_result").map((event) => JSON.stringify(event.output ?? "")),
-      ...sidecar.eventsOfType("tool_result").map((event) => event.raw ?? ""),
-      ...sidecar.eventsOfType("system_notice").map((event) => event.text ?? ""),
-    ];
-    const explained = explanations.some((text) =>
-      /would delete a branch|would force-push|destructive|den(y|ied)|refus|not permitted/i.test(text),
-    );
-    assert.ok(
-      explained,
-      "the agent must receive an explanation, not a bare non-zero exit. " +
-        `tool results and notices were: ${JSON.stringify(explanations).slice(0, 2000)}`,
-    );
-    step("PROPERTY A.2 — the agent received a worded explanation, not a bare exit code");
+    // Property A.2 (the agent receives a worded explanation) is checked further below, AFTER the
+    // request is denied. G-03-3's fix makes this a genuinely TWO-PHASE flow when Property B holds:
+    // the tool call stays BLOCKED on the shim's socket (no explanation exists yet — there is
+    // nothing to explain until a decision is made), and the explanation is produced only once the
+    // permission is answered. Checking for it here, before any answer exists, is checking for
+    // something that cannot possibly exist yet when the gate is working as designed. When Property
+    // B does NOT hold (`permissionRequest` is `undefined`, below), the script already fails loudly
+    // with its own diagnostic before reaching that later check.
 
     // ---- PROPERTY B — THE GATE ASKS A HUMAN ---------------------------------------------------
     if (permissionRequest === undefined) {
@@ -221,6 +288,25 @@ await runScript(
       "the session_closed event after denial",
     );
     step(`PROPERTY B.3 — session closed after denial: reason=${closed.reason}`);
+
+    // Property A.2, deferred until now (see the comment left in its original place, above): only
+    // once the request is answered does an explanation exist to check for at all.
+    const explanations = [
+      ...sidecar.eventsOfType("tool_result").map((event) => JSON.stringify(event.output ?? "")),
+      ...sidecar.eventsOfType("tool_result").map((event) => event.raw ?? ""),
+      ...sidecar.eventsOfType("system_notice").map((event) => event.text ?? ""),
+      ...sidecar.eventsOfType("assistant_text").map((event) => event.text ?? ""),
+      closed.detail ?? "",
+    ];
+    const explained = explanations.some((text) =>
+      /would delete a branch|would force-push|destructive|den(y|ied)|declined|refus|not permitted/i.test(text),
+    );
+    assert.ok(
+      explained,
+      "the agent must receive an explanation, not a bare non-zero exit. " +
+        `tool results and notices were: ${JSON.stringify(explanations).slice(0, 2000)}`,
+    );
+    step("PROPERTY A.2 — the agent received a worded explanation, not a bare exit code");
 
     assert.equal(
       harness.remoteRef(remotePath, DOOMED_BRANCH),
