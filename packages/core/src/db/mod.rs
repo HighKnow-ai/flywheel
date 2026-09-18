@@ -183,7 +183,28 @@ pub fn default_backups_dir() -> anyhow::Result<PathBuf> {
     Ok(app_data_dir()?.join("backups"))
 }
 
+/// Resolve `<app-data>/Flywheel/` — the one directory holding the fleet-wide database, its
+/// backups, `runtime/` and `sessions/`. Overridable via `FLYWHEEL_APP_DATA_DIR`, mirroring
+/// `runtime_protocol::runtime_dir`'s own `FLYWHEEL_RUNTIME_DIR` pattern exactly: a test-only
+/// override that is ALSO a production seam, because it is what lets a harness drive the REAL
+/// application — the same binary, the same migrations, the same store of record — against a
+/// scratch directory instead of the developer's own data.
+///
+/// Without this seam the only way to isolate a harness run would be to override `HOME`, which
+/// would also move `~/.claude` out from under the agent binary a session spawns and so break the
+/// very credential resolution those sessions depend on. Overriding this one directory moves
+/// Flywheel's own state and nothing else.
+///
+/// Never reads or sets the process working directory (ARCHITECTURE.md Anti-Pattern 3): an empty
+/// override is ignored rather than resolving to a relative path, so a caller that exports the
+/// variable unset can never silently write the fleet database into whatever directory it happens
+/// to be standing in.
 fn app_data_dir() -> anyhow::Result<PathBuf> {
+    if let Some(over) = std::env::var_os("FLYWHEEL_APP_DATA_DIR") {
+        if !over.is_empty() {
+            return Ok(PathBuf::from(over));
+        }
+    }
     let base = dirs::data_dir().context("could not resolve the OS app-data directory")?;
     Ok(base.join("Flywheel"))
 }
