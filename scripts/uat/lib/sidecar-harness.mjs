@@ -28,6 +28,41 @@ export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
 export const SIDECAR_ENTRY = path.join(REPO_ROOT, "packages", "sidecar", "dist", "index.js");
 
+/** The developer's personal Claude Code configuration directory — the ONE value a config-isolated
+ * live run must never resolve to, directly or via prefix (plan 03-20, T-03-20-05). */
+export const PERSONAL_CLAUDE_CONFIG_DIR = path.join(os.homedir(), ".claude");
+
+/**
+ * Assert, at runtime and THROWING on violation, that a resolved spawn environment cannot reach
+ * the developer's personal Claude Code configuration — the isolation `must_haves.truths` requires
+ * "asserted by the harness rather than described in a comment" (plan 03-20).
+ *
+ * Two independent checks, both required:
+ * 1. `CLAUDE_CONFIG_DIR` is PRESENT and non-empty. Its absence is exactly as dangerous as a bad
+ *    value: `claude` silently falls back to the real `~/.claude` by default when the variable is
+ *    unset at all, so a merge-order bug that drops the key would otherwise leak nothing an
+ *    equality/prefix check could catch.
+ * 2. No value anywhere in `env` equals or starts with {@link PERSONAL_CLAUDE_CONFIG_DIR} —
+ *    defense in depth beyond the `CLAUDE_CONFIG_DIR` key alone, since a caller can merge in other
+ *    env after `cleanClaudeConfigEnv()` returns.
+ */
+export function assertClaudeConfigIsolated(env) {
+  assert.ok(
+    typeof env.CLAUDE_CONFIG_DIR === "string" && env.CLAUDE_CONFIG_DIR.length > 0,
+    "HARNESS FAILURE: CLAUDE_CONFIG_DIR is missing (or empty) from the resolved spawn " +
+      "environment — without it, Claude Code falls back to the developer's personal " +
+      `${PERSONAL_CLAUDE_CONFIG_DIR} by default, which is exactly the isolation this run requires.`,
+  );
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value !== "string") continue;
+    assert.ok(
+      value !== PERSONAL_CLAUDE_CONFIG_DIR && !value.startsWith(`${PERSONAL_CLAUDE_CONFIG_DIR}${path.sep}`),
+      `HARNESS FAILURE: spawn environment key "${key}" points at the developer's personal Claude ` +
+        `config directory (${PERSONAL_CLAUDE_CONFIG_DIR}): ${value}`,
+    );
+  }
+}
+
 /** The cadence the production supervisor touches the heartbeat at, mirroring
  * `runtime_protocol::HEARTBEAT_INTERVAL_MS`. Kept as a literal for the same reason `watchdog.ts`
  * keeps its own fallback literals: this file has no dependency on the Rust crate. */
@@ -177,6 +212,100 @@ export class Harness {
       throw new Error(`uat_session_env failed (status ${result.status}): ${result.stderr ?? ""}`);
     }
     return JSON.parse(result.stdout);
+  }
+
+  /**
+   * Resolve the `CLAUDE_CONFIG_DIR` a config-isolated live run spawns Claude Code against, and
+   * ASSERT (throwing on violation, via {@link assertClaudeConfigIsolated}) that the resolved value
+   * cannot reach the developer's personal Claude Code configuration.
+   *
+   * Honors `FLYWHEEL_UAT_CLAUDE_CONFIG_DIR` as a DURABLE override — a directory a human has
+   * already staged, outside this process, with a real login copied into it — and falls back to a
+   * fresh scratch directory under `this.root` when unset. This harness NEVER copies, moves, reads
+   * or writes `.credentials.json` itself; the override exists so a human can stage that file once,
+   * by hand, and every run points at the directory by reference instead.
+   *
+   * WHY `CLAUDE_CONFIG_DIR` and not `HOME`: plan 03-19 measured that overriding `HOME` breaks
+   * `claude`'s own resolution — it resolves through a `mise` shim keyed off the REAL `$HOME` and
+   * fails with a config-trust error, so `HOME` isolation produced a DIFFERENT failure rather than
+   * a clean room.
+   *
+   * MEASURED (plan 03-20 Task 2, corrects this comment's own earlier claim): `CLAUDE_CONFIG_DIR`
+   * isolates Claude Code's settings, hooks, plugins and MCP server registrations — AND
+   * authentication. A brand-new scratch `CLAUDE_CONFIG_DIR` reports `claude auth status` as
+   * `{"loggedIn": false}`, confirmed live: `CLAUDE_CONFIG_DIR=<scratch> claude auth status` versus
+   * the same command with the variable unset. This is why the override exists at all — without a
+   * pre-authenticated durable directory, a config-isolated live session cannot authenticate.
+   */
+  cleanClaudeConfigEnv() {
+    const override = process.env.FLYWHEEL_UAT_CLAUDE_CONFIG_DIR;
+    const configDir = override ?? path.join(this.root, "claude-config");
+    fs.mkdirSync(configDir, { recursive: true });
+    const result = { CLAUDE_CONFIG_DIR: configDir };
+    assertClaudeConfigIsolated(result);
+    return result;
+  }
+
+  /** `FLYWHEEL_UAT_ARTIFACT_DIR` when set, otherwise a `flywheel-uat-artifacts` directory under
+   * `os.tmpdir()` — created recursively. Deliberately NOT registered with `onCleanup()`: its whole
+   * purpose is to outlive `cleanup()`, since a timeline artifact proving what happened during a run
+   * must survive that run's own teardown or there is nothing left to inspect afterward. */
+  artifactDir() {
+    const dir = process.env.FLYWHEEL_UAT_ARTIFACT_DIR ?? path.join(os.tmpdir(), "flywheel-uat-artifacts");
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  /** Serialise `value` (two-space-indented JSON) to `<artifactDir()>/<label>-<timestamp>-<name>.json`
+   * and return its absolute path, printed through `step()` so it appears in the script's own
+   * stdout — an artifact nobody can find is as good as no artifact. */
+  writeArtifact(name, value) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filePath = path.join(this.artifactDir(), `${this.label}-${timestamp}-${name}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+    step(`wrote artifact: ${filePath}`);
+    return filePath;
+  }
+
+  /**
+   * Read back everything plan 03-20's close-provenance instrumentation wrote for `runId` under
+   * `runtimeDir` — the run descriptor, the kill record, and the lifecycle JSONL timeline
+   * (`packages/sidecar/src/watchdog.ts`'s own append-only file). Each is `null` — or, for
+   * `lifecycle`, an empty array — when the file is absent or unparseable. Never throws: this runs
+   * while diagnosing a failure, and an instrument that throws while diagnosing a failure is worse
+   * than no instrument (the same discipline `resolveCloseOrigin` itself follows).
+   */
+  snapshotRuntimeDir(runtimeDir, runId) {
+    const readJson = (filePath) => {
+      try {
+        return JSON.parse(fs.readFileSync(filePath, "utf8"));
+      } catch {
+        return null;
+      }
+    };
+    const readLifecycle = (filePath) => {
+      try {
+        const contents = fs.readFileSync(filePath, "utf8");
+        return contents
+          .split("\n")
+          .filter((line) => line.trim().length > 0)
+          .map((line) => {
+            try {
+              return JSON.parse(line);
+            } catch {
+              return null;
+            }
+          })
+          .filter((line) => line !== null);
+      } catch {
+        return [];
+      }
+    };
+    return {
+      runDescriptor: readJson(path.join(runtimeDir, "runs", `${runId}.json`)),
+      killRecord: readJson(path.join(runtimeDir, "kills", `${runId}.json`)),
+      lifecycle: readLifecycle(path.join(runtimeDir, "lifecycle", `${runId}.jsonl`)),
+    };
   }
 
   /**
@@ -337,6 +466,45 @@ export class SidecarClient {
         // Already gone — nothing to do.
       }
     }
+  }
+}
+
+/**
+ * Auto-allow every `permission_request` a session raises EXCEPT the one `isDeliberate` names —
+ * the SAME loop `uat-03-destructive-gate.mjs` keeps as its own local copy, DELIBERATELY not
+ * replaced by a call to this one: that script is a verified artifact of the previous verification
+ * round, and this gap-closure run does not perturb it. This is that same loop, generalised only by
+ * taking `isDeliberate` as a parameter instead of a hard-coded predicate, for
+ * `uat-06-permission-block-lifecycle.mjs` to reuse without duplicating the body a second time.
+ *
+ * See `uat-03-destructive-gate.mjs`'s own identical function for the full rationale: the real
+ * `claude` binary issues its own internal session-startup git housekeeping OUTSIDE the agent's
+ * visible Bash tool-call loop, which still resolves through the same PATH-shimmed directory as
+ * every other invocation and therefore still reaches the shim's own destructive gate — left
+ * unanswered, it would starve the session before it ever reaches the deliberate command a script
+ * is actually measuring. This loop exists ONLY so a script can observe the mechanism it is
+ * actually about; it changes no production classification and answers nothing a caller asserts on.
+ */
+export async function drainIncidentalPermissionRequests(sidecar, runId, isDeliberate, shouldStop) {
+  const handled = new Set();
+  // A short per-iteration wait (not one long wait) so `shouldStop()` is re-checked promptly —
+  // otherwise a single dangling `setTimeout` would keep the whole script's event loop alive well
+  // past the point the main flow has already finished.
+  while (!shouldStop()) {
+    let event;
+    try {
+      event = await sidecar.waitForEvent(
+        (e) => e.type === "permission_request" && !isDeliberate(e) && !handled.has(e.requestId),
+        5_000,
+        "an incidental (non-deliberate) permission_request",
+      );
+    } catch {
+      continue;
+    }
+    handled.add(event.requestId);
+    await sidecar
+      .request({ op: "permission_answer", runId, requestId: event.requestId, decision: "allow" })
+      .catch(() => {});
   }
 }
 

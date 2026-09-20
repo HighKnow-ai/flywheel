@@ -19,6 +19,7 @@ bash scripts/uat/run-all.sh          # add --no-build to skip the prerequisite b
 | 3 — Destructive gate stops a live auto-accept session (SC5, AGNT-07) | `uat-03-destructive-gate.mjs` | **Partial** — safety holds, the human-in-the-loop half does not |
 | 4 — Destructive card renders correctly (SC5, AGNT-07) | `uat-ui-setup.sh destructive` | **Manual** — needs a rendered window |
 | 5 — Ten concurrent commits keep every commit (SC4, WORK-04/05) | `uat-05-concurrent-commits.mjs` | **PASS** |
+| 6 — Session-lifecycle clean-room measurement (SC5/AGNT-07 gap closure, plan 03-20) | `uat-06-permission-block-lifecycle.mjs` | See `03-SESSION-LIFECYCLE-FINDINGS.md` |
 
 ### Item 1 — supervisor kill
 
@@ -84,6 +85,43 @@ Two classifier observations surfaced here, both fail-closed rather than unsafe:
 The fan-out therefore `cd`s rather than using `-C`, and the worktrees are pre-created by the harness:
 this item is about commits surviving contention, which is item 3's subject, not the gate.
 
+### Item 6 — session-lifecycle clean room
+
+`03-VERIFICATION.md` left one gap open after item 3: across five live measurements, a real `claude`
+session self-terminates roughly 15-16 seconds after the destructive-gate permission request is
+raised and left unanswered — before any human could realistically answer it. This script is the
+dedicated instrument plan 03-20 built to find out why, run with Claude Code's OWN configuration
+isolated from the developer's personal `~/.claude` (via `CLAUDE_CONFIG_DIR`, not `HOME` — see
+`lib/sidecar-harness.mjs::cleanClaudeConfigEnv`'s own doc comment for why `HOME` isolation breaks
+`claude`'s own credential resolution instead of producing a clean room).
+
+Two modes, run separately:
+
+```bash
+node scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=off  # reproduces uat-03's own unsupervised condition
+node scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=on   # adds a production-shaped heartbeat writer
+```
+
+Each run drives the identical `git push origin --delete uat-doomed-branch` scenario `uat-03-destructive-gate.mjs`
+does, but never answers the resulting permission request — it OBSERVES for up to 90 seconds instead,
+resolving early the moment the session closes on its own. Two legitimate outcomes, both exit 0:
+
+- `OUTCOME: session-terminated origin=<closeOrigin> elapsed_ms=<n> heartbeat=<mode>` — the session
+  ended on its own; `closeOrigin` (plan 03-20's close-provenance instrumentation) names which of
+  `supervisor-signal`, `watchdog-heartbeat-stale` or `backend-exit` did it.
+- `OUTCOME: sustained-block elapsed_ms=<n> heartbeat=<mode>` — the session stayed blocked for the
+  full observation window with nothing settling the request. "Does not reproduce" is a legitimate,
+  first-class result here, not a failure.
+
+Every run writes ONE durable timeline artifact — the sidecar's full event stream, the run
+descriptor, the kill record and the close-provenance lifecycle JSONL, plus the `claude --version`
+string and a directory listing of the scratch `CLAUDE_CONFIG_DIR` — to
+`$FLYWHEEL_UAT_ARTIFACT_DIR` (or a `flywheel-uat-artifacts` directory under the OS temp directory
+when unset), and prints its absolute path on stdout. That path is what `03-SESSION-LIFECYCLE-FINDINGS.md`
+cites as evidence for each hypothesis's disposition — never a recollection.
+
+Costs real tokens, same as items 3 and 5 — twice per full run-all.sh pass, once per heartbeat mode.
+
 ### Items 2 and 4 — the visual ones
 
 ```bash
@@ -128,7 +166,8 @@ and the Abandoned/Acknowledge flow still need a human at the window.
 - **Nothing touches your real data.** Every script points `FLYWHEEL_APP_DATA_DIR` at a scratch
   directory. That seam exists for this — see `core::db::app_data_dir`. `uat_seed_ui` *refuses to run*
   if the variable is unset, rather than defaulting to the real fleet database.
-- **Items 3 and 5 cost real tokens.** They drive real model turns.
+- **Items 3, 5 and 6 cost real tokens.** They drive real model turns (item 6 twice, once per
+  `--heartbeat` mode).
 - Scripts clean up their scratch directories, worktrees and child processes on every exit path. The
   exception is `uat-ui-setup.sh`, which deliberately leaves its directory in place because the app is
   still running in it; it prints the path to remove.
@@ -137,7 +176,7 @@ and the Abandoned/Acknowledge flow still need a human at the window.
 
 | File | Role |
 |---|---|
-| `lib/sidecar-harness.mjs` | Scratch repos, spawn-environment resolution, and a client for the sidecar's stdio JSON protocol |
+| `lib/sidecar-harness.mjs` | Scratch repos, spawn-environment resolution, a client for the sidecar's stdio JSON protocol, `CLAUDE_CONFIG_DIR` isolation, durable timeline artifacts, and the shared incidental-permission-request drain loop |
 | `lib/supervisor.mjs` | Stand-in supervisor for item 1: owns the sidecar, touches the heartbeat |
 | `lib/long-lived-backend.mjs` | Backend stub for item 1 only, so the leaf outlives the stale window |
 | `packages/core/tests/bin/uat_session_env.rs` | Builds the spawn environment from the **production** functions; also `--touch-heartbeat` |

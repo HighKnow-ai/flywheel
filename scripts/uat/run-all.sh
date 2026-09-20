@@ -50,6 +50,10 @@ run_item "UAT 3 — destructive gate stops a live auto-accept session" \
   node scripts/uat/uat-03-destructive-gate.mjs
 run_item "UAT 5 — ten concurrent commits keep every commit" \
   node scripts/uat/uat-05-concurrent-commits.mjs
+run_item "UAT 6a — unanswered destructive request, unsupervised (no heartbeat)" \
+  node scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=off
+run_item "UAT 6b — unanswered destructive request, production-shaped (heartbeat on)" \
+  node scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=on
 
 printf '\n\n┌─ Phase 03 UAT results ─────────────────────────────────────────────────────\n'
 FAILED=0
