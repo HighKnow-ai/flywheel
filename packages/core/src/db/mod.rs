@@ -198,11 +198,21 @@ pub fn default_backups_dir() -> anyhow::Result<PathBuf> {
 /// Never reads or sets the process working directory (ARCHITECTURE.md Anti-Pattern 3): an empty
 /// override is ignored rather than resolving to a relative path, so a caller that exports the
 /// variable unset can never silently write the fleet database into whatever directory it happens
-/// to be standing in.
+/// to be standing in. WR-02 (03-REVIEW.md): a non-empty override that is NOT absolute is rejected
+/// with a named error rather than silently resolving against the process's current directory —
+/// the same shape `packages/shim/src/main.rs::resolve_real_binary_from_env` already uses for
+/// `FLYWHEEL_REAL_GIT`/`FLYWHEEL_REAL_RM`. The empty-override and no-override branches are
+/// unchanged: an empty value is still ignored, and the OS app-data directory is still the
+/// fallback.
 fn app_data_dir() -> anyhow::Result<PathBuf> {
     if let Some(over) = std::env::var_os("FLYWHEEL_APP_DATA_DIR") {
         if !over.is_empty() {
-            return Ok(PathBuf::from(over));
+            let path = PathBuf::from(&over);
+            anyhow::ensure!(
+                path.is_absolute(),
+                "FLYWHEEL_APP_DATA_DIR does not name an absolute path: {path:?}"
+            );
+            return Ok(path);
         }
     }
     let base = dirs::data_dir().context("could not resolve the OS app-data directory")?;
