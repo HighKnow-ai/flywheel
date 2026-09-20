@@ -59,12 +59,24 @@
 //! destructive names) and never executes anything. **Its output is unchanged by plan 03-19** — see
 //! `--classify-invocation` below, which is that plan's replacement runtime caller.
 //!
-//! **`--classify-invocation <text>` (plan 03-19 Task 1):** checked alongside `--classify-command`,
-//! before the `argv[0]`-stem dispatch, and reaches the SAME `classify_raw_command_text`. Reports
-//! one thing more than `--classify-command` does: whether the destructive segment's own program was
-//! invoked by BARE NAME (no `/` in its raw token) rather than by path — the fact
-//! `pretooluse-hook.ts` needs to decide whether the shim's own `PATH`-shadowed directory could ever
-//! have intercepted this invocation itself. Emits one line of JSON on stdout
+//! **`--classify-invocation <text>` (plan 03-19 Task 1, narrowed by plan 03-20 Task 1):** checked
+//! alongside `--classify-command`, before the `argv[0]`-stem dispatch, and reaches the SAME
+//! `classify_raw_command_text`. Reports one thing more than `--classify-command` does:
+//! `invokedBareName`, which is now TWO facts ANDed together, not one — the fact `pretooluse-hook.ts`
+//! needs to decide whether the shim's own `PATH`-shadowed directory could ever have intercepted this
+//! invocation at all:
+//!
+//! 1. the destructive segment's own program token names no path (no `/` in its raw token, after
+//!    skipping any leading `NAME=VALUE` assignment tokens); AND
+//! 2. nothing ELSEWHERE in the raw command text can pre-empt bash's own `PATH` search before it
+//!    ever gets there — no shell function/alias/hash-table definition shadowing the name, and no
+//!    `PATH` reassignment (`text_can_shadow_path_resolution`, plan 03-20/CR-01).
+//!
+//! Fact 1 alone is what plan 03-19 shipped; CR-01 found bash resolves functions and aliases (and a
+//! `PATH=` prefix) BEFORE it ever performs a `PATH` search at all, so a token with no `/` can still
+//! never reach this shim's shadow entry. `invokedBareName` now means "this shim's own shadowed
+//! directory would actually be reached for this invocation", not merely "the token itself names no
+//! path". Emits one line of JSON on stdout
 //! (`{"category":"branch-deletion","program":"git","invokedBareName":true}`, or `{"category":
 //! "safe"}` for a safe command) rather than a single word, so the shape is self-describing and can
 //! gain fields later without breaking its reader. A missing or unreadable argument fails closed
@@ -564,19 +576,131 @@ fn tokenize_shell_words(segment: &str) -> Vec<String> {
     tokens
 }
 
+/// True when `token` is a leading `NAME=VALUE` shell assignment: its first `=` is preceded by a
+/// non-empty name matching `[A-Za-z_][A-Za-z0-9_]*`. `--flag=value` and `/usr/bin/x=y` are NOT
+/// assignments — a `-` or `/` cannot open (or appear in) a valid shell identifier — so this can
+/// never misclassify a real program token or flag as an assignment (plan 03-20 Task 1(b)).
+fn is_assignment_token(token: &str) -> bool {
+    let Some(eq_pos) = token.find('=') else {
+        return false;
+    };
+    let name = &token[..eq_pos];
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Resolve the index of a segment's own program token, skipping past constructs that shift where
+/// the "real" program name sits in `tokens` without themselves being that program:
+///
+/// - any leading run of `NAME=VALUE` shell assignment tokens (`PATH=/usr/bin git …` → `git`); and
+/// - a single leading `env` wrapper token, plus ITS OWN leading run of `NAME=VALUE` argument
+///   tokens (`env PATH=/usr/bin git …` → `git`) — `env`'s own PATH-search bypass (measured
+///   during 03-20 planning: `PATH=/usr/bin` alone does not defeat the shim, because the assignment
+///   is scoped to the single command that follows via a real `PATH` search, but `env` performs
+///   that same search itself over its OWN environment, and if `env`'s environment carries a
+///   `PATH=` override — via `env PATH=/usr/bin …` — the search bypasses this shim's shadowed
+///   directory exactly as a direct assignment does; `env` is unwrapped so `PATH=` inside its own
+///   argument list is visible to `classify` and `text_can_shadow_path_resolution` the same way a
+///   shell-level assignment is).
+///
+/// Returns `None` when the segment carries no program token at all (only assignments, or only
+/// `env` plus assignments, or empty).
+fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
+    let mut idx = 0;
+    while idx < tokens.len() && is_assignment_token(&tokens[idx]) {
+        idx += 1;
+    }
+    if tokens.get(idx).map(String::as_str) == Some("env") {
+        idx += 1;
+        while idx < tokens.len() && is_assignment_token(&tokens[idx]) {
+            idx += 1;
+        }
+    }
+    if idx < tokens.len() {
+        Some(idx)
+    } else {
+        None
+    }
+}
+
+/// True when the raw command TEXT contains any construct that can pre-empt bash's `PATH` search
+/// for a later bare-name invocation — a shell function definition, an alias, a hashed path, a
+/// pulled-in definition, or a `PATH` reassignment (plan 03-20/CR-01). Deliberately fires on
+/// PRESENCE anywhere in `text`, quoted or not, never on whether the construct precedes the
+/// destructive segment: `split_top_level_segments` is itself only a pragmatic approximation of
+/// shell grammar (see its own doc comment), so positional ordering is too weak a foundation for a
+/// security decision here, and over-triggering costs only a deny-instead-of-ask on a destructive
+/// command — the pre-03-19 behaviour — while under-triggering costs an ungated force-push.
+///
+/// Triggers, each naming the resolution step it defeats:
+/// - a `(` followed by optional whitespace then `)`, scanned over the raw characters — the shell
+///   function definition shape (`git() {` and `git () {` both match; `$(git ...)` and `(cd sub &&
+///   ...)` do not, because in both the character immediately after `(` is never `)`).
+/// - a token equal to `function` — the paren-less function-definition form.
+/// - a token equal to `alias` — alias expansion.
+/// - a token equal to `hash` — bash's own command hash table (`hash -p`).
+/// - a token equal to `eval`, `source`, or exactly `.` — arbitrary definitions pulled in from
+///   elsewhere.
+/// - the substring `PATH=` anywhere in the text — defeats the `PATH` search itself, whether via a
+///   leading assignment (`PATH=/usr/bin git …`) or `export PATH=…`.
+///
+/// Keyword triggers are whole-TOKEN equality over `split_top_level_segments`/`tokenize_shell_words`
+/// — never substring matching — so `unaliased-thing` or a path component containing `hash` never
+/// trips them. `command` and `builtin` are deliberately NOT triggers: both force resolution past
+/// functions/aliases into a real `PATH` search, which is exactly where the shim sits.
+fn text_can_shadow_path_resolution(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '(' {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j].is_whitespace() {
+                j += 1;
+            }
+            if j < chars.len() && chars[j] == ')' {
+                return true;
+            }
+        }
+        i += 1;
+    }
+
+    if text.contains("PATH=") {
+        return true;
+    }
+
+    const KEYWORD_TRIGGERS: [&str; 5] = ["function", "alias", "hash", "eval", "source"];
+    for segment in split_top_level_segments(text) {
+        for token in tokenize_shell_words(&segment) {
+            if token == "." || KEYWORD_TRIGGERS.contains(&token.as_str()) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// The result of classifying raw command text: the verdict itself, plus — when destructive — the
-/// program name and bare-name status of the segment that produced it (plan 03-19 Task 1). Computed
-/// together so `--classify-invocation` needs no second scan of the same text; `--classify-command`
-/// simply reads `.verdict` and ignores the rest, leaving its own output byte-for-byte unchanged.
+/// program name and bare-name status of the segment that produced it (plan 03-19 Task 1, narrowed
+/// by plan 03-20 Task 1). Computed together so `--classify-invocation` needs no second scan of the
+/// same text; `--classify-command` simply reads `.verdict` and ignores the rest, leaving its own
+/// output byte-for-byte unchanged.
 struct ClassifiedInvocation {
     verdict: Verdict,
     /// Present only when `verdict` is `Destructive`: the program stem of the destructive segment
-    /// (`program_stem(first)` — the same resolution the shadowed `argv[0]` dispatch uses).
+    /// (`program_stem(first)` — the same resolution the shadowed `argv[0]` dispatch uses, after
+    /// skipping any leading `NAME=VALUE` assignment tokens).
     program: Option<String>,
-    /// Present only when `verdict` is `Destructive`: whether that segment invoked its program by
-    /// BARE NAME — `!first.contains('/')` — rather than by path. A token with any separator names a
-    /// path and can never resolve through a `PATH`-shadowed directory, so a bare-name invocation is
-    /// exactly the class the shim's own shadow entry could intercept.
+    /// Present only when `verdict` is `Destructive`: whether that segment's program token names no
+    /// path (`!first.contains('/')`) AND nothing in the raw text can divert bash's name resolution
+    /// away from a `PATH` search before reaching it (`!text_can_shadow_path_resolution(..)`). Both
+    /// facts must hold for this to be `true` — the exact class the shim's own shadow entry could
+    /// actually intercept at runtime (plan 03-20/CR-01: a shadowed `git` function or an overridden
+    /// `PATH` never reaches the shim at all, even though the token itself has no `/`).
     invoked_bare_name: bool,
 }
 
@@ -595,22 +719,35 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         };
     }
 
+    // Computed ONCE over the whole trimmed text, not per-segment: the shadowing constructs this
+    // detects (a function definition, an alias, `PATH=`, …) affect name resolution for the REST of
+    // the command text they appear in, not just their own segment.
+    let shadowable = text_can_shadow_path_resolution(trimmed);
+
     for segment in split_top_level_segments(trimmed) {
         let segment = segment.trim();
         if segment.is_empty() {
             continue;
         }
         let tokens = tokenize_shell_words(segment);
-        let Some(first) = tokens.first() else {
+        // Skip leading `NAME=VALUE` assignment tokens (and, past them, a leading `env` wrapper plus
+        // ITS OWN leading assignment arguments) when choosing the segment's program token, so
+        // `PATH=/usr/bin git push --force` AND `env PATH=/usr/bin git push --force` both resolve
+        // their program as `git`, not the mis-stemmed `bin` or the wrapper `env` itself (plan 03-20
+        // Task 1(b), row 6 of CR-01, widened for the `env` form measured during this task). A
+        // segment carrying no program token at all is skipped, exactly as an empty segment already
+        // was.
+        let Some(prog_idx) = resolve_segment_program_index(&tokens) else {
             continue;
         };
+        let first = &tokens[prog_idx];
         let stem = program_stem(first);
-        let rest: Vec<String> = tokens[1..].to_vec();
+        let rest: Vec<String> = tokens[prog_idx + 1..].to_vec();
         if let verdict @ Verdict::Destructive(_) = classify(&stem, &rest, default_branch) {
             return ClassifiedInvocation {
                 verdict,
                 program: Some(stem),
-                invoked_bare_name: !first.contains('/'),
+                invoked_bare_name: !first.contains('/') && !shadowable,
             };
         }
     }
