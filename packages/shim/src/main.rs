@@ -597,27 +597,60 @@ fn is_assignment_token(token: &str) -> bool {
 /// the "real" program name sits in `tokens` without themselves being that program:
 ///
 /// - any leading run of `NAME=VALUE` shell assignment tokens (`PATH=/usr/bin git …` → `git`); and
-/// - a single leading `env` wrapper token, plus ITS OWN leading run of `NAME=VALUE` argument
-///   tokens (`env PATH=/usr/bin git …` → `git`) — `env`'s own PATH-search bypass (measured
-///   during 03-20 planning: `PATH=/usr/bin` alone does not defeat the shim, because the assignment
-///   is scoped to the single command that follows via a real `PATH` search, but `env` performs
-///   that same search itself over its OWN environment, and if `env`'s environment carries a
-///   `PATH=` override — via `env PATH=/usr/bin …` — the search bypasses this shim's shadowed
-///   directory exactly as a direct assignment does; `env` is unwrapped so `PATH=` inside its own
-///   argument list is visible to `classify` and `text_can_shadow_path_resolution` the same way a
-///   shell-level assignment is).
+/// - a leading `env` wrapper token, plus ITS OWN leading run of `NAME=VALUE` argument tokens
+///   (`env PATH=/usr/bin git …` → `git`) — `env`'s own PATH-search bypass (measured during 03-20
+///   planning: `PATH=/usr/bin` alone does not defeat the shim, because the assignment is scoped to
+///   the single command that follows via a real `PATH` search, but `env` performs that same search
+///   itself over its OWN environment, and if `env`'s environment carries a `PATH=` override — via
+///   `env PATH=/usr/bin …` — the search bypasses this shim's shadowed directory exactly as a
+///   direct assignment does; `env` is unwrapped so `PATH=` inside its own argument list is visible
+///   to `classify` and `text_can_shadow_path_resolution` the same way a shell-level assignment
+///   is); and
+/// - a leading `command` wrapper token, plus its own `-p`/`-v`/`-V` flags and any `NAME=VALUE`
+///   tokens that follow it (`command git push --force` → `git`; `command -p git push --force` →
+///   `git`) — `command`'s whole purpose is to force name resolution PAST shell functions/aliases,
+///   so the word `command` itself is never the program being run (03-REVIEW.md new CR-01, round
+///   2). `command`'s own flags never take a separate argument, so any run of `-`-prefixed tokens
+///   immediately following it is safe to skip; and
+/// - a leading `builtin` wrapper token (`builtin git push --force` → `git`) — same reasoning:
+///   `builtin` names a shell builtin to invoke, never the destructive program itself.
 ///
-/// Returns `None` when the segment carries no program token at all (only assignments, or only
-/// `env` plus assignments, or empty).
+/// These four constructs (assignments, `env`, `command`, `builtin`) can nest and repeat in any
+/// order and combination — `command env git …`, `env command git …`, `PATH=/tmp command git …` —
+/// so this loops until none of them match at the current position, rather than checking each
+/// exactly once. Each iteration MUST advance `idx` by at least one token (the loop only continues
+/// on a positive match), so this always terminates.
+///
+/// Returns `None` when the segment carries no program token at all (only assignments/wrappers, or
+/// empty).
 fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
     let mut idx = 0;
-    while idx < tokens.len() && is_assignment_token(&tokens[idx]) {
-        idx += 1;
-    }
-    if tokens.get(idx).map(String::as_str) == Some("env") {
-        idx += 1;
+    loop {
         while idx < tokens.len() && is_assignment_token(&tokens[idx]) {
             idx += 1;
+        }
+        match tokens.get(idx).map(String::as_str) {
+            Some("env") => {
+                idx += 1;
+                while idx < tokens.len() && is_assignment_token(&tokens[idx]) {
+                    idx += 1;
+                }
+            }
+            Some("command") => {
+                idx += 1;
+                // Skip `command`'s own flags (-p, -v, -V — none take a separate argument) and any
+                // NAME=VALUE assignment tokens that may follow, so the loop can continue past them
+                // to the next wrapper or the real program token.
+                while idx < tokens.len()
+                    && (tokens[idx].starts_with('-') || is_assignment_token(&tokens[idx]))
+                {
+                    idx += 1;
+                }
+            }
+            Some("builtin") => {
+                idx += 1;
+            }
+            _ => break,
         }
     }
     if idx < tokens.len() {
@@ -629,7 +662,8 @@ fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
 
 /// True when the raw command TEXT contains any construct that can pre-empt bash's `PATH` search
 /// for a later bare-name invocation — a shell function definition, an alias, a hashed path, a
-/// pulled-in definition, or a `PATH` reassignment (plan 03-20/CR-01). Deliberately fires on
+/// pulled-in definition, a `PATH` reassignment (plan 03-20/CR-01), a `builtin` wrapper, or a
+/// `command -p`/`-v`/`-V` invocation (03-REVIEW.md new CR-01, round 2). Deliberately fires on
 /// PRESENCE anywhere in `text`, quoted or not, never on whether the construct precedes the
 /// destructive segment: `split_top_level_segments` is itself only a pragmatic approximation of
 /// shell grammar (see its own doc comment), so positional ordering is too weak a foundation for a
@@ -645,13 +679,31 @@ fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
 /// - a token equal to `hash` — bash's own command hash table (`hash -p`).
 /// - a token equal to `eval`, `source`, or exactly `.` — arbitrary definitions pulled in from
 ///   elsewhere.
+/// - a token equal to `builtin` — MEASURED: `builtin <prog>` looks `<prog>` up ONLY among actual
+///   shell builtins, never performing a `PATH` search at all, so this shim's shadow entry can
+///   never be reached for it — unlike `command`/`env` (below), which still route through a real
+///   `PATH` search for anything that is not itself a builtin. `builtin` is unwrapped by
+///   `resolve_segment_program_index` (so the real target's category is still reported, never
+///   `Safe`), but is ALSO an unconditional trigger here, so `invokedBareName` is forced `false`
+///   regardless of environment correctness (03-REVIEW.md new CR-01, round 2 — property 3).
+/// - `command` immediately followed (among its own run of `-`-prefixed flag tokens) by a bare
+///   `-p` — MEASURED (`command -p git …`): `-p` forces bash to search a hardcoded default `PATH`
+///   (e.g. `/bin:/usr/bin`) that can never contain this shim's per-run shadow directory, an
+///   unconditional bypass independent of how correctly the shim's own environment is wired.
+///   Plain `command <prog>` (no `-p`) is deliberately NOT a trigger by itself: MEASURED, it still
+///   bypasses only shell functions/aliases and performs a genuine `PATH` search for anything that
+///   is not itself a builtin — exactly where this shim's shadow entry sits — so `invokedBareName`
+///   for a bare `command git …` still reflects the ordinary case once
+///   `resolve_segment_program_index` has unwrapped it to `git` (03-REVIEW.md new CR-01, round 2 —
+///   property 1). (`command <realbuiltin> …`, e.g. `command builtin git …`, is a rarer nested case
+///   this file does not attempt to special-case further; see the module's own residual-gap
+///   framing.)
 /// - the substring `PATH=` anywhere in the text — defeats the `PATH` search itself, whether via a
 ///   leading assignment (`PATH=/usr/bin git …`) or `export PATH=…`.
 ///
 /// Keyword triggers are whole-TOKEN equality over `split_top_level_segments`/`tokenize_shell_words`
 /// — never substring matching — so `unaliased-thing` or a path component containing `hash` never
-/// trips them. `command` and `builtin` are deliberately NOT triggers: both force resolution past
-/// functions/aliases into a real `PATH` search, which is exactly where the shim sits.
+/// trips them.
 fn text_can_shadow_path_resolution(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;
@@ -672,12 +724,25 @@ fn text_can_shadow_path_resolution(text: &str) -> bool {
         return true;
     }
 
-    const KEYWORD_TRIGGERS: [&str; 5] = ["function", "alias", "hash", "eval", "source"];
+    const KEYWORD_TRIGGERS: [&str; 6] = ["function", "alias", "hash", "eval", "source", "builtin"];
     for segment in split_top_level_segments(text) {
-        for token in tokenize_shell_words(&segment) {
+        let tokens = tokenize_shell_words(&segment);
+        let mut i = 0;
+        while i < tokens.len() {
+            let token = &tokens[i];
             if token == "." || KEYWORD_TRIGGERS.contains(&token.as_str()) {
                 return true;
             }
+            if token == "command" {
+                let mut j = i + 1;
+                while j < tokens.len() && tokens[j].starts_with('-') {
+                    if tokens[j] == "-p" {
+                        return true;
+                    }
+                    j += 1;
+                }
+            }
+            i += 1;
         }
     }
 
