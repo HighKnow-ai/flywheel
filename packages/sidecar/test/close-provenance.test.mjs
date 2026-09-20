@@ -10,12 +10,15 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
 import { ClaudeCodeAdapter, resolveCloseOrigin } from "../dist/claude-code-adapter.js";
+import { startPermissionServer } from "../dist/mcp-permission-server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
@@ -101,6 +104,24 @@ async function waitForWrapperPid(runtimeDir, runId) {
     message: "the run descriptor never appeared on disk",
   });
   return JSON.parse(fs.readFileSync(descriptorPath, "utf8")).pid;
+}
+
+/** List the permission-server socket files currently on disk under `/tmp`, matching
+ * `mcp-permission-server.ts::socketBaseDir`'s own preferred directory and
+ * `startPermissionServer`'s own `flywheel-permission-<uuid>.sock` naming exactly — used by Tests 8
+ * and 9 (plan 03-21) to detect a session's own socket without needing an internal accessor onto
+ * `ClaudeCodeAdapter`'s private `LiveSession.permissionServer`, which this suite deliberately does
+ * not add (out of this task's declared `<files>`). Falls back to an empty set, never throws, if
+ * `/tmp` itself is unreadable — mirrors this file's own `resolveCloseOrigin`-adjacent discipline of
+ * never letting a diagnostic read crash the test that depends on it. */
+function listPermissionSockets() {
+  try {
+    return new Set(
+      fs.readdirSync("/tmp").filter((name) => name.startsWith("flywheel-permission-") && name.endsWith(".sock")),
+    );
+  } catch {
+    return new Set();
+  }
 }
 
 /** Every wrapper pid a stubborn scenario in this file has spawned — force-killed by group in
@@ -283,4 +304,156 @@ test("resolveCloseOrigin never throws on missing evidence: a non-existent runtim
     runId,
   });
   assert.equal(unparseableOrigin, "unattributed");
+});
+
+// ---- PROC-04 regression guard (plan 03-21): a pending permission question buys no extra life ---
+//
+// The `deferred-items.md` entry for `permission.test.mjs` (5 of 7 tests, real MCP round trip via
+// `FLYWHEEL_FAKE_CALL_PERMISSION`) records a grandchild-process/stdio-transport sandbox constraint
+// in THIS execution environment. Per this task's own instruction, that history is reused as a
+// technique, not assumed as an outcome: Tests 7 and 8 below attempt the exact same
+// `ClaudeCodeAdapter.startSession` + `FLYWHEEL_FAKE_CALL_PERMISSION` mechanism `permission.test.mjs`
+// uses (the only way to raise a genuinely held request ON a real, watchdog-supervised session), and
+// only fall back to a named skip if that mechanism itself is what does not work here — never a
+// silent weakening of the assertion.
+
+test("a pending permission request does not extend the watchdog's stale window", async (t) => {
+  const runtimeDir = scratchRuntimeDir();
+  const runId = "cp-pending-request-stale-kill";
+  const events = [];
+
+  process.env.FLYWHEEL_RUNTIME_DIR = runtimeDir;
+  try {
+    const adapter = new ClaudeCodeAdapter();
+    // Heartbeat file deliberately never written, same as the no-request stale-kill scenario above
+    // — the only addition here is a genuinely held, deliberately unanswered permission_request.
+    const startPromise = startFakeSession(adapter, runId, events, {
+      FLYWHEEL_FAKE_CALL_PERMISSION: "1",
+      FLYWHEEL_RUNTIME_DIR: runtimeDir,
+      FLYWHEEL_HEARTBEAT_STALE_MS: "1500",
+      FLYWHEEL_HEARTBEAT_POLL_MS: "200",
+    });
+    trackedWrapperPids.push(await waitForWrapperPid(runtimeDir, runId));
+
+    try {
+      await waitForCondition(() => events.some((e) => e.type === "permission_request"), { timeoutMs: 5000 });
+    } catch (err) {
+      t.skip(
+        "the real MCP round trip (FLYWHEEL_FAKE_CALL_PERMISSION) did not raise a permission_request " +
+          "in this execution environment — see deferred-items.md's permission.test.mjs entry " +
+          `(grandchild-process/stdio-transport sandbox constraint). Underlying error: ${err}`,
+      );
+      return;
+    }
+    // Deliberately never answered — the whole point of this test.
+
+    await withTimeout(startPromise, 8000, "the pending-permission stale-heartbeat session did not close in time");
+
+    const closed = events.find((e) => e.type === "session_closed");
+    assert.ok(closed, "expected a session_closed event");
+    assert.equal(closed.closeOrigin, "watchdog-heartbeat-stale");
+    assert.equal(closed.exitSignal, "SIGKILL");
+    assert.equal(closed.exitCode, null);
+
+    const lines = readLifecycleLines(runtimeDir, runId);
+    assertWatchdogStartedFirstLine(lines);
+    assert.equal(lines[0].stale_ms, 1500);
+  } finally {
+    delete process.env.FLYWHEEL_RUNTIME_DIR;
+  }
+});
+
+test("exactly one session_closed event, and the permission socket is removed, when a session ends with a request pending", async (t) => {
+  const runtimeDir = scratchRuntimeDir();
+  const runId = "cp-pending-request-closes-once";
+  const events = [];
+  const socketsBefore = listPermissionSockets();
+
+  process.env.FLYWHEEL_RUNTIME_DIR = runtimeDir;
+  try {
+    const adapter = new ClaudeCodeAdapter();
+    // A stale window far larger than this test's own lifetime — the supervisor's own killSession
+    // call below must be what ends this session, not the watchdog.
+    const startPromise = startFakeSession(adapter, runId, events, {
+      FLYWHEEL_FAKE_CALL_PERMISSION: "1",
+      FLYWHEEL_RUNTIME_DIR: runtimeDir,
+      FLYWHEEL_HEARTBEAT_STALE_MS: "60000",
+    });
+    trackedWrapperPids.push(await waitForWrapperPid(runtimeDir, runId));
+
+    try {
+      await waitForCondition(() => events.some((e) => e.type === "permission_request"), { timeoutMs: 5000 });
+    } catch (err) {
+      t.skip(
+        "the real MCP round trip (FLYWHEEL_FAKE_CALL_PERMISSION) did not raise a permission_request " +
+          "in this execution environment — see deferred-items.md's permission.test.mjs entry " +
+          `(grandchild-process/stdio-transport sandbox constraint). Underlying error: ${err}`,
+      );
+      return;
+    }
+
+    const newSockets = [...listPermissionSockets()].filter((name) => !socketsBefore.has(name));
+    assert.equal(
+      newSockets.length,
+      1,
+      `expected exactly one new permission socket while the request is pending, got: ${JSON.stringify(newSockets)}`,
+    );
+    const socketPath = path.join("/tmp", newSockets[0]);
+    assert.ok(fs.existsSync(socketPath), "the socket file must exist while the request is pending");
+
+    // End the session via the supervisor WHILE the request is still unanswered — never resolved.
+    await withTimeout(adapter.killSession(runId), 8000, "killSession did not resolve in time");
+    await withTimeout(startPromise, 8000, "the session did not close in time after killSession");
+
+    const closedEvents = events.filter((e) => e.type === "session_closed");
+    assert.equal(closedEvents.length, 1, "exactly one session_closed event must be observed for the run");
+    assert.equal(closedEvents[0].closeOrigin, "supervisor-signal");
+    assert.ok(
+      !fs.existsSync(socketPath),
+      "the permission server's socket path must not exist on disk after the session closes",
+    );
+  } finally {
+    delete process.env.FLYWHEEL_RUNTIME_DIR;
+  }
+});
+
+test("answering a requestId twice settles it once — the AGNT-07 idempotency edge", async () => {
+  // Deliberately bypasses ClaudeCodeAdapter/fake-claude entirely and connects a raw socket to the
+  // handle's own socketPath, per this task's own sanctioned alternative ("the point of these tests
+  // is the lifecycle around a held request, not the shim's own wire format") — this exercises
+  // exactly the same `PermissionServerHandle.resolvePermission` idempotency
+  // `ClaudeCodeAdapter.resolvePermission` delegates to, with no dependency on any backend spawn.
+  const requests = [];
+  const handle = startPermissionServer(
+    (payload) => requests.push(payload),
+    () => {},
+  );
+  try {
+    const client = net.createConnection(handle.socketPath);
+    await new Promise((resolve, reject) => {
+      client.once("connect", resolve);
+      client.once("error", reject);
+    });
+    const answers = [];
+    createInterface({ input: client }).on("line", (line) => answers.push(JSON.parse(line)));
+
+    client.write(JSON.stringify({ requestId: "cp-idempotency-req", toolName: "Bash", input: { command: "echo hi" } }) + "\n");
+    await waitForCondition(() => requests.length === 1);
+    assert.equal(requests[0].requestId, "cp-idempotency-req");
+
+    handle.resolvePermission("cp-idempotency-req", "allow");
+    await waitForCondition(() => answers.length === 1);
+    assert.deepEqual(answers[0], { decision: "allow" });
+
+    // Resolve the SAME requestId again — must settle nothing else: no throw, no second answer.
+    handle.resolvePermission("cp-idempotency-req", "deny");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(
+      answers.length,
+      1,
+      "a second resolvePermission call for an already-answered requestId must produce no second answer",
+    );
+  } finally {
+    handle.close();
+  }
 });
