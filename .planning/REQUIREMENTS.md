@@ -74,7 +74,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **AGNT-04**: An explicit API-key credential path is supported as a first-class alternative to local subscription credentials
 - [ ] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
 - [x] **AGNT-06**: Permission requests raised by a running agent surface to the user and block that agent until answered
-- [ ] **AGNT-07**: Destructive actions (force-push, branch deletion, recursive delete) always require explicit confirmation, even when the session is running in an auto-accept permission mode
+- [x] **AGNT-07**: Destructive actions (force-push, branch deletion, recursive delete) always require explicit confirmation, even when the session is running in an auto-accept permission mode
 - [ ] **AGNT-08**: The adapter reports token usage and cost per session
 
 ### Context Reconstitution
@@ -269,7 +269,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | AGNT-04 | Phase 2 | Complete |
 | AGNT-05 | Phase 9 | Pending |
 | AGNT-06 | Phase 2 | Complete |
-| AGNT-07 | Phase 3 | Gaps Found |
+| AGNT-07 | Phase 3 | Complete |
 | AGNT-08 | Phase 10 | Pending |
 | CTX-01 | Phase 4 | Pending |
 | CTX-02 | Phase 4 | Pending |

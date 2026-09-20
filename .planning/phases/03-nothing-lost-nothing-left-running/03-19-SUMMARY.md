@@ -70,7 +70,7 @@ key-decisions:
     heartbeat-staleness kill (ruled out by measurement, not assumption -- see Deviations). This is
     filed as a new finding for a follow-up investigation, not patched by this plan."
 
-requirements-completed: [AGNT-07]
+requirements-completed: []
 
 coverage:
   - id: D1
@@ -145,6 +145,12 @@ duration: 95min
 completed: 2026-09-18
 status: complete
 ---
+
+Status note: This plan did not re-certify AGNT-07 as fully closed (see key-decisions below and
+`03-19-SUMMARY.md`'s own "Next Phase Readiness" at the time). Plan 03-20 root-caused the
+sustained-block termination (`03-SESSION-LIFECYCLE-FINDINGS.md`, disposition
+`root-cause-identified`, H1 CONFIRMED), and plan 03-21 closed the requirement with a repeatable
+acceptance command (`03-21-SUMMARY.md`); AGNT-07 is Complete as of 03-21, not this plan.
 
 # Phase 3 Plan 19: Destructive-gate confirmation fix (G-03-3) Summary
 
