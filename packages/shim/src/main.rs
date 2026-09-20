@@ -593,19 +593,60 @@ fn is_assignment_token(token: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Outcome of resolving a segment's own program token — used only by `classify_raw_command_text`.
+enum ProgramResolution {
+    /// No destructive program token at all in this segment — only assignments/wrappers with
+    /// nothing following, `command -v`/`-V` naming something to describe rather than run, or an
+    /// empty segment. Contributes nothing to classification, as if the segment were absent.
+    None,
+    /// The program token was found at this index.
+    Found(usize),
+    /// A wrapper's own argument shape makes it impossible to safely determine what (if anything)
+    /// this segment executes — MUST NOT be treated as `Safe`. The caller forces the WHOLE
+    /// invocation to `Destructive(Uncategorized)`, `program: None`, `invokedBareName: false`,
+    /// mirroring the pre-existing empty-text fail-closed path in `classify_raw_command_text`
+    /// (coordinator review, round 4). Two shapes produce this: `env -S STRING` (GNU) — `-S`
+    /// splits its single string argument into an entirely new argument list, shell-style,
+    /// including possible NAME=VALUE/`PATH=` assignments and even further flags, which this
+    /// pragmatic tokenizer cannot safely re-parse a second time — and any OTHER, unrecognised
+    /// `env` flag, which defaults to fail-closed rather than being silently skipped as though
+    /// harmless. That default is the point: three consecutive findings (CR-01, then
+    /// `command`/`builtin`, then this one) were each produced by a wrapper token this file had
+    /// not yet learned about being treated as harmless-by-omission. An unrecognised `env` flag
+    /// (BSD's `-P altpath`, `-C altwd`, `-0`, `-v`, or any future addition to either `env`
+    /// implementation) now fails closed instead of silently becoming the assumed program name.
+    Unresolvable,
+}
+
 /// Resolve the index of a segment's own program token, skipping past constructs that shift where
 /// the "real" program name sits in `tokens` without themselves being that program:
 ///
 /// - any leading run of `NAME=VALUE` shell assignment tokens (`PATH=/usr/bin git …` → `git`); and
-/// - a leading `env` wrapper token, plus ITS OWN leading run of `NAME=VALUE` argument tokens
-///   (`env PATH=/usr/bin git …` → `git`) — `env`'s own PATH-search bypass (measured during 03-20
-///   planning: `PATH=/usr/bin` alone does not defeat the shim, because the assignment is scoped to
-///   the single command that follows via a real `PATH` search, but `env` performs that same search
-///   itself over its OWN environment, and if `env`'s environment carries a `PATH=` override — via
-///   `env PATH=/usr/bin …` — the search bypasses this shim's shadowed directory exactly as a
-///   direct assignment does; `env` is unwrapped so `PATH=` inside its own argument list is visible
-///   to `classify` and `text_can_shadow_path_resolution` the same way a shell-level assignment
-///   is); and
+/// - a leading `env` wrapper token, plus its own recognised flags and leading `NAME=VALUE`
+///   argument tokens (`env PATH=/usr/bin git …` → `git`) — `env`'s own PATH-search bypass
+///   (measured during 03-20 planning: `PATH=/usr/bin` alone does not defeat the shim, because the
+///   assignment is scoped to the single command that follows via a real `PATH` search, but `env`
+///   performs that same search itself over its OWN environment, and if `env`'s environment
+///   carries a `PATH=` override — via `env PATH=/usr/bin …` — the search bypasses this shim's
+///   shadowed directory exactly as a direct assignment does; `env` is unwrapped so `PATH=` inside
+///   its own argument list is visible to `classify` and `text_can_shadow_path_resolution` the same
+///   way a shell-level assignment is). `env`'s own flags (coordinator review, round 4 — covers
+///   both BSD's and GNU's option sets, since this classifier runs on either):
+///     - `--` ends `env`'s own option processing; whatever follows is resolved exactly as if `--`
+///       were never there (`env -- git push --force` → `git`).
+///     - `-i`/`--ignore-environment` clears the ENTIRE environment (including `PATH`) before the
+///       target runs — the target may still be findable if `env`'s own remaining NAME=VALUE
+///       arguments re-add a `PATH`, but the shim's OWN shadow directory is never on that
+///       from-scratch `PATH` — `command -p`'s exact class. Unwrapped normally (the real program's
+///       category is still reported), but ALSO registered as a global
+///       `text_can_shadow_path_resolution` trigger (below) so `invokedBareName` is forced `false`.
+///     - `-u NAME`/`--unset=NAME` removes exactly one variable. When `NAME` is literally `PATH`
+///       this is `-i`-equivalent (same trigger, below) — cheap and exact to detect, since it is a
+///       plain token/exact-string comparison, not a guess. Any OTHER `NAME` leaves `PATH` intact,
+///       so the shim is still reached exactly as an unwrapped `env` would be — no trigger.
+///     - `-S STRING`/`--split-string(=STRING)` and any OTHER, unrecognised `-`-prefixed token
+///       produce [`ProgramResolution::Unresolvable`] immediately (see its own doc comment) rather
+///       than treating the flag or its argument as the program; and
 /// - a leading `command` wrapper token, plus its own `-p`/`-v`/`-V` flags and any `NAME=VALUE`
 ///   tokens that follow it (`command git push --force` → `git`; `command -p git push --force` →
 ///   `git`) — `command`'s whole purpose is to force name resolution PAST shell functions/aliases,
@@ -614,11 +655,11 @@ fn is_assignment_token(token: &str) -> bool {
 ///   immediately following it is safe to skip PURELY FOR TOKENIZATION — but `-v`/`-V` carry a
 ///   DIFFERENT security property than `-p` (and than no flag at all), handled specially below:
 ///   they make `command` a QUERY that never executes its argument at all, so this function
-///   returns `None` (no program token in this segment) the instant either is seen, rather than
-///   continuing on to treat the name being described as the program invoked (coordinator review,
-///   round 3: `command -v git` was misclassified as an invocation of `git` in the round-2 fix,
-///   which broke `scripts/uat/uat-05-concurrent-commits.mjs`'s own `command -v git` resolution
-///   probe — see that file and `scripts/uat/README.md`); and
+///   returns [`ProgramResolution::None`] (no program token in this segment) the instant either is
+///   seen, rather than continuing on to treat the name being described as the program invoked
+///   (coordinator review, round 3: `command -v git` was misclassified as an invocation of `git` in
+///   the round-2 fix, which broke `scripts/uat/uat-05-concurrent-commits.mjs`'s own
+///   `command -v git` resolution probe — see that file and `scripts/uat/README.md`); and
 /// - a leading `builtin` wrapper token (`builtin git push --force` → `git`) — same reasoning:
 ///   `builtin` names a shell builtin to invoke, never the destructive program itself.
 ///
@@ -626,11 +667,8 @@ fn is_assignment_token(token: &str) -> bool {
 /// order and combination — `command env git …`, `env command git …`, `PATH=/tmp command git …` —
 /// so this loops until none of them match at the current position, rather than checking each
 /// exactly once. Each iteration MUST advance `idx` by at least one token (the loop only continues
-/// on a positive match), so this always terminates.
-///
-/// Returns `None` when the segment carries no program token at all (only assignments/wrappers,
-/// only `command -v`/`-V` naming something to describe rather than run, or empty).
-fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
+/// on a positive match, or returns directly), so this always terminates.
+fn resolve_segment_program_index(tokens: &[String]) -> ProgramResolution {
     let mut idx = 0;
     loop {
         while idx < tokens.len() && is_assignment_token(&tokens[idx]) {
@@ -639,25 +677,50 @@ fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
         match tokens.get(idx).map(String::as_str) {
             Some("env") => {
                 idx += 1;
-                while idx < tokens.len() && is_assignment_token(&tokens[idx]) {
-                    idx += 1;
+                loop {
+                    while idx < tokens.len() && is_assignment_token(&tokens[idx]) {
+                        idx += 1;
+                    }
+                    match tokens.get(idx).map(String::as_str) {
+                        Some("--") => {
+                            idx += 1;
+                            break;
+                        }
+                        Some("-i") | Some("--ignore-environment") => {
+                            idx += 1;
+                        }
+                        Some("-u") | Some("--unset") => {
+                            idx += 1;
+                            if idx >= tokens.len() {
+                                // `-u`/`--unset` with no NAME argument at all — malformed, and
+                                // there is nothing left to classify as the program either.
+                                return ProgramResolution::Unresolvable;
+                            }
+                            idx += 1; // consume NAME itself (its identity is checked separately,
+                                      // by text_can_shadow_path_resolution, for the PATH case)
+                        }
+                        Some(t) if t.starts_with("--unset=") => {
+                            idx += 1;
+                        }
+                        Some(t) if t == "-S" || t.starts_with("--split-string") => {
+                            return ProgramResolution::Unresolvable;
+                        }
+                        Some(t) if t.starts_with('-') => {
+                            // Any other/unrecognised env flag (BSD's -P/-C/-0/-v, or a future
+                            // addition to either implementation) — do not guess what it does.
+                            return ProgramResolution::Unresolvable;
+                        }
+                        _ => break,
+                    }
                 }
             }
             Some("command") => {
                 idx += 1;
-                // Skip `command`'s own flags (-p, -v, -V — none take a separate argument) and any
-                // NAME=VALUE assignment tokens that may follow, so the loop can continue past them
-                // to the next wrapper or the real program token. `-v`/`-V` are a DIFFERENT case:
-                // `command -v NAME`/`command -V NAME` only print/describe how NAME would resolve
-                // and never execute it at all — regardless of any other flag present, before or
-                // after — so as soon as either is seen this whole segment carries no program
-                // token to classify, and the loop returns `None` immediately rather than treating
-                // NAME as an invocation.
                 while idx < tokens.len()
                     && (tokens[idx].starts_with('-') || is_assignment_token(&tokens[idx]))
                 {
                     if tokens[idx] == "-v" || tokens[idx] == "-V" {
-                        return None;
+                        return ProgramResolution::None;
                     }
                     idx += 1;
                 }
@@ -669,25 +732,28 @@ fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
         }
     }
     if idx < tokens.len() {
-        Some(idx)
+        ProgramResolution::Found(idx)
     } else {
-        None
+        ProgramResolution::None
     }
 }
 
 /// True when the raw command TEXT contains any construct that can pre-empt bash's `PATH` search
 /// for a later bare-name invocation — a shell function definition, an alias, a hashed path, a
-/// pulled-in definition, a `PATH` reassignment (plan 03-20/CR-01), a `builtin` wrapper, or a
-/// `command -p` invocation (03-REVIEW.md new CR-01, round 2). `command -v`/`-V` are deliberately
-/// NOT handled here — they never execute their argument at all, so `resolve_segment_program_index`
-/// already returns no program token for that segment before `classify` (or this function) is ever
-/// consulted about it (round 3: grouping `-v`/`-V` with `-p` here would have been the same
-/// tokenization-vs-security-property conflation that round 2 made in the OTHER function). Deliberately fires on
-/// PRESENCE anywhere in `text`, quoted or not, never on whether the construct precedes the
-/// destructive segment: `split_top_level_segments` is itself only a pragmatic approximation of
-/// shell grammar (see its own doc comment), so positional ordering is too weak a foundation for a
-/// security decision here, and over-triggering costs only a deny-instead-of-ask on a destructive
-/// command — the pre-03-19 behaviour — while under-triggering costs an ungated force-push.
+/// pulled-in definition, a `PATH` reassignment (plan 03-20/CR-01), a `builtin` wrapper, a
+/// `command -p` invocation (03-REVIEW.md new CR-01, round 2), or an `env -i`/`env -u PATH`
+/// invocation (coordinator review, round 4). `command -v`/`-V` and `env -S`/an unrecognised `env`
+/// flag are deliberately NOT handled here — they never execute their argument at all (or cannot be
+/// safely determined to), so `resolve_segment_program_index` already removes that segment from
+/// classification entirely before `classify` (or this function) is ever consulted about it (round
+/// 3: grouping a report-only or unparseable flag with an execution-defeating one here would repeat
+/// the exact tokenization-vs-security-property conflation round 2 made in the OTHER function).
+/// Deliberately fires on PRESENCE anywhere in `text`, quoted or not, never on whether the
+/// construct precedes the destructive segment: `split_top_level_segments` is itself only a
+/// pragmatic approximation of shell grammar (see its own doc comment), so positional ordering is
+/// too weak a foundation for a security decision here, and over-triggering costs only a
+/// deny-instead-of-ask on a destructive command — the pre-03-19 behaviour — while under-triggering
+/// costs an ungated force-push.
 ///
 /// Triggers, each naming the resolution step it defeats:
 /// - a `(` followed by optional whitespace then `)`, scanned over the raw characters — the shell
@@ -719,6 +785,15 @@ fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
 ///   classification entirely (round 3: they only ever describe, never execute). (`command
 ///   <realbuiltin> …`, e.g. `command builtin git …`, is a rarer nested case this file does not
 ///   attempt to special-case further; see the module's own residual-gap framing.)
+/// - `env` followed (before any program token, anywhere among its own recognised flags/assignments)
+///   by `-i`/`--ignore-environment` — MEASURED (`env -i git …`): clears the ENTIRE environment,
+///   including `PATH`, before the target runs, so the shim's own shadow directory can never be on
+///   whatever `PATH` (if any) the target ends up seeing — the exact same "double failure" class as
+///   `command -p` (coordinator review, round 4).
+/// - `env` followed by `-u PATH` or `--unset=PATH` (exact token match on the name, never a guess)
+///   — MEASURED: unsetting `PATH` specifically is `-i`-equivalent for this shim's purposes.
+///   `-u`/`--unset` naming any OTHER variable is deliberately NOT a trigger: `PATH` survives
+///   untouched, so the shim is reached exactly as a plain `env git …` would be.
 /// - the substring `PATH=` anywhere in the text — defeats the `PATH` search itself, whether via a
 ///   leading assignment (`PATH=/usr/bin git …`) or `export PATH=…`.
 ///
@@ -763,6 +838,33 @@ fn text_can_shadow_path_resolution(text: &str) -> bool {
                     j += 1;
                 }
             }
+            if token == "env" {
+                // Mirrors resolve_segment_program_index's own env-flag walk (including its
+                // two-token consumption of `-u NAME`/`--unset NAME`) closely enough to agree on
+                // where each flag's own argument ends — a scan that stopped at an unrecognised
+                // token here, mistaking a `-u`/`--unset` NAME argument for the program token,
+                // would silently miss a LATER `-u PATH` in the same flag run (e.g.
+                // `env -u FOO -u PATH git …`).
+                let mut j = i + 1;
+                loop {
+                    while j < tokens.len() && is_assignment_token(&tokens[j]) {
+                        j += 1;
+                    }
+                    match tokens.get(j).map(String::as_str) {
+                        Some("--") => break,
+                        Some("-i") | Some("--ignore-environment") => return true,
+                        Some("-u") | Some("--unset") => {
+                            if tokens.get(j + 1).map(String::as_str) == Some("PATH") {
+                                return true;
+                            }
+                            j += 2; // consume the flag AND its NAME argument together
+                        }
+                        Some(t) if t.strip_prefix("--unset=") == Some("PATH") => return true,
+                        Some(t) if t.starts_with('-') => j += 1,
+                        _ => break,
+                    }
+                }
+            }
             i += 1;
         }
     }
@@ -794,7 +896,11 @@ struct ClassifiedInvocation {
 /// `destructive::classify` the shadowed dispatch uses, and return the first destructive verdict
 /// found — `Safe` only if every segment is Safe. Empty text fails closed into `Uncategorized`
 /// rather than being treated as trivially safe (with no program identified, since no segment was
-/// ever tokenized).
+/// ever tokenized). An [`ProgramResolution::Unresolvable`] segment (a wrapper whose own argument
+/// shape this tokenizer cannot safely resolve — `env -S …`, an unrecognised `env` flag) fails
+/// closed the SAME way, immediately, without waiting to see whether a later segment is also
+/// destructive: the point of `Unresolvable` is precisely that we do not know what this segment
+/// does, so treating it as anything other than the most restrictive reading would defeat it.
 fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> ClassifiedInvocation {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -822,9 +928,18 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         // their program as `git`, not the mis-stemmed `bin` or the wrapper `env` itself (plan 03-20
         // Task 1(b), row 6 of CR-01, widened for the `env` form measured during this task). A
         // segment carrying no program token at all is skipped, exactly as an empty segment already
-        // was.
-        let Some(prog_idx) = resolve_segment_program_index(&tokens) else {
-            continue;
+        // was. A segment `resolve_segment_program_index` could not safely resolve at all fails the
+        // WHOLE invocation closed immediately (coordinator review, round 4).
+        let prog_idx = match resolve_segment_program_index(&tokens) {
+            ProgramResolution::None => continue,
+            ProgramResolution::Unresolvable => {
+                return ClassifiedInvocation {
+                    verdict: Verdict::Destructive(DestructiveCategory::Uncategorized),
+                    program: None,
+                    invoked_bare_name: false,
+                };
+            }
+            ProgramResolution::Found(index) => index,
         };
         let first = &tokens[prog_idx];
         let stem = program_stem(first);
