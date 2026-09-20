@@ -6,7 +6,7 @@ status: executing
 stopped_at: Completed 03-23-PLAN.md
 last_updated: "2026-09-20T10:30:07.004Z"
 last_activity: 2026-09-20
-last_activity_desc: Phase 03 execution started
+last_activity_desc: Phase 03 gap-closure wave (03-20 through 03-22) reconciled AGNT-07 and seven sibling requirements to Complete against verification evidence
 state_head: c75e6ca8bc7ba3f8021a763472297deb1ab30fc0
 progress:
   total_phases: 12
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
 Plan: 4 of 23
-Status: Ready to execute
+Status: Gap-closure wave complete (03-20 through 03-22) — AGNT-07 and seven sibling requirements reconciled to Complete against 03-VERIFICATION.md's own evidence
 Last activity: 2026-09-20 — Phase 03 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -238,7 +238,7 @@ None yet.
 - ⚠️ **[Phase 01] The chosen visual direction has not yet been seen as designed.** `01-UI-REVIEW.md` (18/24) found two of Flight Progress Strips' own signature moves absent: sticky band headers (specified, asserted by three code comments, implemented nowhere) and the selected strip "breaking the plane" (tint overlay only). Tracked in Phase 10.1. Relevant because the owner's judgement that the direction "reads as dated" is currently a judgement on an incomplete execution of it.
 - ✅ **[Phase 03] RESOLVED by 03-19 (G-03-3).** The destructive gate previously refused rather than asked for every command an agent ran through Bash. `pretooluse-hook.ts` now defers to the shim's own permission socket whenever it can prove the shim will intercept the command (`shimWillIntercept`), denying outright only for the class the shim structurally cannot see. Live-measured this session: a bare `git push --delete` now raises a real `permission_request` carrying `destructiveCategory: branch-deletion`, which never happened before. See the NEW finding immediately below — the full sustained-block-then-deny flow surfaced a SEPARATE, unresolved issue during this same measurement.
 - ⚠️ **[Phase 01] Process defect, will recur every phase needing human verification.** The verifier's `human_needed` branch writes `{phase}-UAT.md`, but `UAT.md` is also declared in `covered_files` and hashed into `covered_digest` — so a verification that asks for human testing invalidates its own fingerprint and reads `stale` forever after. `/gsd-verify-work` then routes to itself, which cannot clear it. Broken this round by regenerating verification with `status: passed` after UAT passed; the durable fix is to stop fingerprinting verify-step *outputs* as verification *inputs*.
-- [Phase 03] NEW FINDING (03-19, not yet root-caused): across five live measurements, a real claude session is terminated (session_closed, reason: failed) roughly 15-16 seconds after a destructive-gate permission_request is raised and left unanswered -- well before a human could realistically be expected to answer a permission card. Ruled out by measurement, not assumption: the watchdog's own heartbeat-staleness kill (DEFAULT_HEARTBEAT_STALE_MS=15000) -- a run with FLYWHEEL_HEARTBEAT_STALE_MS=120000 explicitly set (confirmed to propagate down to the watchdog wrapper process) failed identically at the same ~15-16s mark. Root cause unconfirmed: may be an internal claude 2.1.267 behavior when a Bash tool call produces no output for an extended period, or some other session-lifecycle mechanism in claude-code-adapter.ts/watchdog.ts. Outside 03-19's three declared files; recommend a dedicated follow-up plan/spike in a clean environment before treating G-03-3/AGNT-07 as fully, reliably closed. See 03-19-SUMMARY.md Issues Encountered for full detail.
+- ⚠️ **[Phase 03] Session-termination finding investigated — root-cause-identified (03-20/03-21).** 03-19's ~15-16s session-termination finding was root-caused by the dedicated follow-up spike it recommended: `03-SESSION-LIFECYCLE-FINDINGS.md` records **Disposition: root-cause-identified**, H1 CONFIRMED — the watchdog's own heartbeat-staleness kill (`DEFAULT_HEARTBEAT_STALE_MS=15000`) correctly reaped an unsupervised session (`--heartbeat=off`: terminated at `elapsed_ms=7397`, `closeOrigin: watchdog-heartbeat-stale`), while a production-shaped `--heartbeat=on` run sustained the block for the full 90s window with zero termination artifacts — the product was never at fault; the prior measurement harness was. Plan 03-21 took Branch B (harness-only doc fix; no change to `watchdog.ts`'s stale-kill condition) and added a repeatable acceptance command (`uat-06-permission-block-lifecycle.mjs --heartbeat=on --answer-after=60000 --decision=deny`, `honoured=true`) proving a supervised session survives a 60+ second unanswered destructive-gate block and honours the eventual answer — AGNT-07 is now Complete. Still genuinely open per the findings document's own "What this does not claim": reproduction inside a packaged `.app` (only the dev-mode sidecar bundle was driven), on a machine other than the one measured, and against a `claude` version other than 2.1.267 remain untested; H1a (whether 03-19's specific `FLYWHEEL_HEARTBEAT_STALE_MS=120000` override reached the watchdog) was not directly retested with a non-default value.
 
 ### Quick Tasks Completed
 
