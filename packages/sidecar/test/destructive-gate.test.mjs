@@ -303,6 +303,67 @@ test(
   },
 );
 
+// --- --classify-invocation shadow detection (quick task 260920-duy, CR-01): the classifier, not the
+// hook, refuses to call a shadowable invocation bare-name. Table A below is the structural proof
+// that this detection shipped in Rust: the hook is not in this call path at all. ---
+
+test(
+  "the shim's --classify-invocation mode reports invokedBareName:false for every text that can divert name resolution away from PATH",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const runInvocation = (text) => {
+      const result = spawnSync(SHIM_BIN, ["--classify-invocation", text], { encoding: "utf8" });
+      return JSON.parse(result.stdout.trim());
+    };
+    const FORCE_SHADOWED = { category: "force-push", program: "git", invokedBareName: false };
+
+    // Control: an ordinary bare invocation must STILL be deferrable, or the fix has simply
+    // destroyed the ask that 03-19 delivered rather than narrowing it.
+    assert.deepEqual(runInvocation("git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: true,
+    });
+    assert.deepEqual(runInvocation("git push origin --delete x"), {
+      category: "branch-deletion",
+      program: "git",
+      invokedBareName: true,
+    });
+
+    // The measured bypasses (CR-01).
+    assert.deepEqual(runInvocation('git() { /usr/bin/git "$@"; }; git push --force'), FORCE_SHADOWED);
+    assert.deepEqual(runInvocation('function git { /usr/bin/git "$@"; }; git push --force'), FORCE_SHADOWED);
+    // The space-before-parens spelling classifies on its FIRST segment instead (measured: `git ()`
+    // tokenizes as program `git` with subcommand `()`, which classify_git already calls
+    // uncategorized). Still destructive, still a deny — assert what it actually is, not what
+    // symmetry suggests.
+    assert.deepEqual(runInvocation('git () { /usr/bin/git "$@"; }; git push --force'), {
+      category: "uncategorized",
+      program: "git",
+      invokedBareName: false,
+    });
+    assert.deepEqual(runInvocation("alias git=/usr/bin/git; git push --force"), FORCE_SHADOWED);
+    assert.deepEqual(runInvocation("hash -p /usr/bin/git git; git push --force"), FORCE_SHADOWED);
+    assert.deepEqual(runInvocation("PATH=/usr/bin git push --force"), FORCE_SHADOWED);
+    assert.deepEqual(runInvocation('rm() { /bin/rm "$@"; }; rm -rf /tmp/x'), {
+      category: "recursive-delete",
+      program: "rm",
+      invokedBareName: false,
+    });
+
+    // Not triggers: these still reach a real PATH search, so the shim still catches them.
+    // (Both measured true today — they must stay true, or the detection has over-triggered.)
+    assert.deepEqual(runInvocation("(cd sub && git push --force )"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: true,
+    });
+    assert.equal(runInvocation("echo $(git rev-parse HEAD) && git push --force").invokedBareName, true);
+    assert.deepEqual(runInvocation("git status"), { category: "safe" });
+    assert.deepEqual(runInvocation("GIT_AUTHOR_NAME=x git status"), { category: "safe" });
+  },
+);
+
 // --- pretooluse-hook.ts (plan 03-19, G-03-3): defer when interception is provable, refuse when it is not ---
 
 /** A scratch shim directory containing an executable copy of the real compiled `flywheel-shim`
@@ -336,6 +397,68 @@ function runHook(command, env) {
   }
   return { status: result.status, decision };
 }
+
+// --- hook decision level (quick task 260920-duy, CR-01): the measured table, all rows in ONE shim
+// directory so the only variable between a defer row and a deny row is the command text. ---
+
+test(
+  "the hook denies the measured CR-01 bypass commands and still defers to the ordinary case, in the same shim directory",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    // Both `git` and `rm` shadowed in the SAME directory — the `rm` shadow matters: without it the
+    // `rm` row would deny for the wrong reason (missing shadow entry) and prove nothing.
+    const shimDir = makeShimDir(["git", "rm"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    const rows = [
+      // The falsifiability companion this file's own style requires: if this ever starts denying,
+      // the fix has destroyed the deferral rather than narrowed it, and AGNT-07's confirmation is
+      // gone again.
+      { command: "git push --force", expect: "defer" },
+      { command: 'git() { /usr/bin/git "$@"; }; git push --force', expect: "deny", pattern: /force-push/ },
+      { command: "alias git=/usr/bin/git; git push --force", expect: "deny", pattern: /force-push/ },
+      {
+        command: 'function git { /usr/bin/git "$@"; }; git push --force',
+        expect: "deny",
+        pattern: /force-push/,
+      },
+      { command: "PATH=/usr/bin git push --force", expect: "deny", pattern: /force-push/ },
+      {
+        command: 'rm() { /bin/rm "$@"; }; rm -rf /tmp/flywheel-260920-duy-victim',
+        expect: "deny",
+        pattern: /recursively delete/,
+      },
+      { command: "/usr/bin/git push --force", expect: "deny", pattern: /force-push/ },
+      { command: "git status", expect: "defer" },
+    ];
+
+    for (const row of rows) {
+      const { status, decision } = runHook(row.command, env);
+      if (row.expect === "defer") {
+        assert.equal(status, 0, `expected defer (status 0) for: ${row.command}`);
+        assert.deepEqual(decision, {}, `expected no opinion for: ${row.command}`);
+      } else {
+        assert.equal(status, 2, `expected deny (status 2) for: ${row.command}`);
+        assert.equal(
+          decision?.hookSpecificOutput?.permissionDecision,
+          "deny",
+          `expected permissionDecision "deny" for: ${row.command}`,
+        );
+        // Without this assertion, a deny arriving from the fail-closed path (an un-invokable shim,
+        // an unparseable verdict) would satisfy the test while proving nothing about this fix.
+        assert.match(
+          decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+          row.pattern,
+          `expected the classified-destructive consequence copy for: ${row.command}`,
+        );
+      }
+    }
+  },
+);
 
 test(
   "the hook defers (no opinion) to a bare destructive command when a correctly-shaped shim directory leads PATH",

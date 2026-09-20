@@ -17,10 +17,17 @@
  * category != "safe" && !shimWillIntercept(program)   → deny with consequence copy   [unchanged]
  * ```
  *
- * `shimWillIntercept` (below) PROVES interception before deferring — it does not assume it. This
- * is the single most important property in this file: the hook is trading its own refusal for the
- * shim's question, and it may only do that when it can show the shim is actually there to ask. Any
- * failure to establish that is a `deny`, not an allow.
+ * Deferring correctly requires TWO separate facts to both hold, proved by TWO separate pieces of
+ * code that can each only see their own half (plan 03-20/CR-01, closing a bypass this split left
+ * open): the shim's own `--classify-invocation` classifier proves the command TEXT can still reach
+ * a real `PATH` search at all — reported here as `invokedBareName` — since bash resolves shell
+ * functions, aliases and a `PATH` reassignment BEFORE ever performing that search, and a command
+ * that shadows the program name that way defeats it regardless of what this hook's own environment
+ * looks like. `shimWillIntercept` (below) proves the ENVIRONMENT: that the shim's shadow directory
+ * is actually installed and leads `PATH` right now. Only `invokedBareName === true` AND
+ * `shimWillIntercept(program)` together justify deferring; this hook checks `invokedBareName` itself
+ * (see `main()` below) precisely because `shimWillIntercept` alone cannot see the text half of the
+ * proof. Any failure to establish either half is a `deny`, not an allow.
  *
  * **This script NEVER waits.** It reads its own stdin (already fully written by the backend
  * before invoking this hook — not a wait on a human decision), shells out to the shim binary's
@@ -81,11 +88,23 @@ function printDecision(decision: Record<string, unknown>): void {
 }
 
 /**
- * PROVES — never assumes — that the shim (D-51) sits ahead of `program` on `PATH` and would
- * intercept a bare-name invocation of it. Returns `true` ONLY when ALL of the following hold, and
- * `false` the moment any cannot be established (plan 03-19's own most important property: this
- * hook is trading its own refusal for the shim's question, and it may only do that when it can
- * show the shim is actually there to ask):
+ * PROVES — never assumes — that the shim's (D-51) OWN SHADOW DIRECTORY is installed and leads
+ * `PATH` right now. This is only HALF of what "the shim will intercept this invocation" requires,
+ * and the caller must hold the other half too (plan 03-20/CR-01): the shim's own
+ * `--classify-invocation` classifier proves the TEXT property — that nothing in the raw command
+ * text (a shell function/alias/hash-table definition shadowing the name, an `eval`/`source` pulling
+ * in a definition, or a `PATH` reassignment) can pre-empt bash's name resolution before it ever
+ * reaches a `PATH` search at all — reported as `invokedBareName`. This function proves the
+ * ENVIRONMENT property — that if bash's resolution DOES reach a `PATH` search, the shim's shadow is
+ * actually sitting there to be found. Bash resolves shell functions and aliases BEFORE it ever
+ * performs a `PATH` search, so a command that defines a function or alias named `program` in the
+ * same text can satisfy this function's environment check and still never reach the shim at all —
+ * which is exactly why the caller must require BOTH facts, not just this one, before deferring
+ * (plan 03-19's own most important property, unchanged: the hook is trading its own refusal for the
+ * shim's question, and it may only do that when it can show the shim is actually there to ask).
+ *
+ * Returns `true` ONLY when ALL of the following hold, and `false` the moment any cannot be
+ * established:
  *
  * - `FLYWHEEL_SHIM_BIN` is set;
  * - its directory is the FIRST entry of `PATH` — `flywheel_core::shim::shim_env_for_run` prefixes
