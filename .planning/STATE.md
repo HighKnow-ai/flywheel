@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — READY TO EXECUTE
-Plan: 19 of 19
-Status: All plans executed; see 03-19-SUMMARY.md for residual findings before treating the phase as fully closed
+Plan: 19 of 23 (03-20..03-23 are gap-closure plans, not yet executed)
+Status: Gap closure planned for Success Criterion 5 / AGNT-07 — the "session stays blocked until a human answers" half remains unproven. Run: /gsd-execute-phase 03 --gaps-only
 Last activity: 2026-09-20 — Completed quick task 260920-duy: fix CR-01 (destructive-gate PATH-shadow bypass)
 
 Progress: [░░░░░░░░░░] 0%
