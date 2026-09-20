@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 19/19 plans executed in 8 waves (5 gap-closure plans added after verification returned `gaps_found`)
+**Plans**: 23 plans — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half
 **UI hint**: yes
 
 Plans:
@@ -328,6 +328,19 @@ Plans:
 - [x] 03-16-PLAN.md — The destructive-gate card: one click one answer, and a deletion sentence that names the branch (AGNT-07)
 - [x] 03-17-PLAN.md — Kill once, stop once: synchronous guards on the process-termination controls (PROC-04, PROC-05)
 - [x] 03-18-PLAN.md — Remove once, and a missing worktree is missing even with an empty path (WORK-03, WORK-06)
+
+**Wave 9 — gap closure** *(from the 2026-09-20 re-verification: Success Criterion 5 is PARTIAL. The request-raising half is verified closed by 03-19 + quick-260920-duy and is NOT reopened. The sustained-block half — "the session stays blocked until a human answers" — is unproven: five live runs saw the session self-terminate ~15-16s into an unanswered request, root cause unconfirmed.)*
+
+- [ ] 03-20-PLAN.md — Who ends the session? Close-provenance instrumentation, validated against three known killers, then a clean-room live measurement in both a supervised and an unsupervised condition (AGNT-07, PROC-04)
+
+**Wave 10** *(blocked on Wave 9 — branches on 03-20's recorded disposition)*
+
+- [ ] 03-21-PLAN.md — The sustained block survives a sixty-second answer: the acceptance test that closes the gap on either outcome, plus the PROC-04 guard that a pending question buys no extra life (AGNT-07, PROC-04)
+
+**Wave 11** *(blocked on Wave 10 — no file overlap between the two, they run in parallel)*
+
+- [ ] 03-22-PLAN.md — Reconcile AGNT-07's recorded status across REQUIREMENTS.md, 03-19-SUMMARY.md and STATE.md, and align the seven sibling statuses with the verification report (all 8 phase IDs)
+- [ ] 03-23-PLAN.md — The two open review warnings: an owner-only permission socket (WR-01), an absolute-path guard on FLYWHEEL_APP_DATA_DIR (WR-02), and the lifecycle timeline joining the runtime-file cleanup list (AGNT-07, PROC-05)
 
 **Notes**: This phase exists as its own slice because two of the four ranked project-killers live
 here and each deserves a dedicated plan with its own tests rather than being buried in Phase 2.
