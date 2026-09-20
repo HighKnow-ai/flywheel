@@ -364,6 +364,88 @@ test(
   },
 );
 
+// --- --classify-invocation `command`/`builtin` unwrap (03-REVIEW.md new CR-01, round 2): the
+// CR-01 fix above narrowed `invokedBareName` correctly but never taught
+// `resolve_segment_program_index` to see through a `command`/`builtin` prefix, so the segment's
+// program token resolved to the wrapper word itself (never `git`/`rm`), which `classify()` has no
+// opinion on and reports `Safe` — a silent, zero-verification bypass, not merely an
+// under-verified defer. Reproduced directly against the compiled binary before this fix:
+// `--classify-invocation "command git push --force"` returned `{"category":"safe"}`. ---
+
+test(
+  "the shim's --classify-invocation mode unwraps a leading command/builtin prefix instead of misclassifying the wrapper word as the program",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const runInvocation = (text) => {
+      const result = spawnSync(SHIM_BIN, ["--classify-invocation", text], { encoding: "utf8" });
+      return JSON.parse(result.stdout.trim());
+    };
+
+    // `command <prog>` still performs a real PATH search (only functions/aliases are bypassed),
+    // so this is exactly where the shim sits — invokedBareName stays true.
+    assert.deepEqual(runInvocation("command git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: true,
+    });
+
+    // `command -p <prog>` forces bash to search a hardcoded default PATH that can never contain
+    // this shim's per-run shadow directory — an unconditional, environment-independent bypass.
+    assert.deepEqual(runInvocation("command -p git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: false,
+    });
+
+    // `builtin <prog>` never performs a PATH search at all when <prog> is not itself a shell
+    // builtin (git is not), so the shim can never be reached — the category must still be
+    // reported (never "safe"), with invokedBareName forced false.
+    assert.deepEqual(runInvocation("builtin git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: false,
+    });
+
+    // Combinations: `command`/`env` nest in either order and still resolve to the real program,
+    // reaching a genuine PATH search (invokedBareName stays true) as long as nothing else in the
+    // text can divert resolution.
+    assert.deepEqual(runInvocation("command env git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: true,
+    });
+    assert.deepEqual(runInvocation("env command git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: true,
+    });
+
+    // Ambiguous/ill-formed combination: `command PATH=/tmp git …` is not how bash actually applies
+    // a temporary PATH override to `command`'s own target (measured: real bash tries to exec a
+    // literal program named "PATH=/tmp" and fails), but the pre-existing global `PATH=` substring
+    // trigger already fails this closed regardless of position — asserted here so a future change
+    // to that trigger cannot silently widen this gap back open.
+    assert.deepEqual(runInvocation("command PATH=/tmp git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: false,
+    });
+
+    // A function-shadow present ANYWHERE in the text still forces the conservative reading even
+    // though `command` itself would correctly bypass that specific shadow for its own target —
+    // over-triggering (deny-instead-of-ask) is the accepted cost, per this file's own documented
+    // philosophy, not a regression.
+    assert.deepEqual(
+      runInvocation('git() { /usr/bin/git "$@"; }; command git push --force'),
+      { category: "force-push", program: "git", invokedBareName: false },
+    );
+
+    // A `command`-wrapped safe command is still safe — the unwrap must not turn every `command`
+    // invocation destructive by construction.
+    assert.deepEqual(runInvocation("command git status"), { category: "safe" });
+  },
+);
+
 // --- pretooluse-hook.ts (plan 03-19, G-03-3): defer when interception is provable, refuse when it is not ---
 
 /** A scratch shim directory containing an executable copy of the real compiled `flywheel-shim`
@@ -434,6 +516,10 @@ test(
       },
       { command: "/usr/bin/git push --force", expect: "deny", pattern: /force-push/ },
       { command: "git status", expect: "defer" },
+      // 03-REVIEW.md new CR-01 (round 2): `command`/`builtin` prefixes.
+      { command: "command git push --force", expect: "defer" },
+      { command: "command -p git push --force", expect: "deny", pattern: /force-push/ },
+      { command: "builtin git push --force", expect: "deny", pattern: /force-push/ },
     ];
 
     for (const row of rows) {
