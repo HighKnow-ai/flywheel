@@ -182,6 +182,13 @@ None - no external service configuration required.
 - Plan 03-22 (the primary gap-closure plan) is unaffected: none of this plan's files overlap with 03-22's scope, and this plan ran in wave 3 specifically so it could not perturb the live measurements plans 03-20/03-21 already recorded.
 - Recommend a fresh interactive-session run of `cargo test -p core --test credentials` (or the full workspace suite) outside this harness to re-confirm the Keychain-dependent tests still pass end-to-end — not because this plan touched them, but because the interactive-prompt stall observed here is worth a human confirming is session-specific rather than a newly-introduced flake.
 
+## Self-Check: PASSED
+
+- `packages/sidecar/test/socket-permissions.test.mjs` exists on disk — FOUND.
+- All 7 commits (6a45062, 1b9bfb2, 106dd50, ae4196e, 01e46eb, 689dca7, a5e491e) exist in `git log --oneline --all` — FOUND.
+- `git diff --stat <plan-start-sha>..HEAD` names exactly the six files in the plan's `files_modified` frontmatter.
+- All three tasks' `<verify>` commands re-run clean immediately before this SUMMARY was written.
+
 ---
 *Phase: 03-nothing-lost-nothing-left-running*
 *Completed: 2026-09-20*
