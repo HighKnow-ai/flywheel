@@ -148,6 +148,14 @@ fn contention_dir(dir: &Path) -> PathBuf {
     dir.join("contention")
 }
 
+/// `<runtime>/lifecycle/` — `packages/sidecar/src/watchdog.ts`'s own per-run session-lifecycle
+/// timeline directory (plan 03-20, `lifecycleFilePath`), named here so
+/// [`clear_run_runtime_files`] can clean up a resolved run's lifecycle timeline using the SAME
+/// `runtime_dir()`-relative path that writer already uses, without duplicating its constant.
+fn lifecycle_dir(dir: &Path) -> PathBuf {
+    dir.join("lifecycle")
+}
+
 /// Write `contents` to `path` atomically: write to a sibling temp file in the SAME directory,
 /// then rename over `path` — so a reader ([`read_heartbeat_age`], [`read_kill_record`], or the
 /// watchdog's own file read) never observes a half-written file. The temp file's name is unique
@@ -339,16 +347,17 @@ pub fn process_is_alive(pid: i32, start_time: u64) -> bool {
     }
 }
 
-/// Remove `run_id`'s descriptor, kill record and lock-contention log (plan 03-06) — called by the
-/// launch reconciler at the exact moment a run reaches a terminal status, and nowhere else. This
-/// resolves 03-CONTEXT.md's own "who cleans stale files up" discretion item: the reconciler is
-/// the only writer of a terminal status for an orphaned run, so it is the only cleaner of that
-/// run's files, which is what keeps a resolved orphan from being re-detected on every subsequent
-/// launch.
+/// Remove `run_id`'s descriptor, kill record, lock-contention log and session-lifecycle timeline
+/// (plan 03-06; the lifecycle timeline added by plan 03-20, WR-02's sibling cleanup task 03-23) —
+/// called by the launch reconciler at the exact moment a run reaches a terminal status, and
+/// nowhere else. This resolves 03-CONTEXT.md's own "who cleans stale files up" discretion item:
+/// the reconciler is the only writer of a terminal status for an orphaned run, so it is the only
+/// cleaner of that run's files, which is what keeps a resolved orphan from being re-detected on
+/// every subsequent launch, and keeps no per-run diagnostic file outliving the run it describes.
 ///
 /// A missing file is not a failure — idempotent by construction, since a run may already have
 /// had some or all of its files removed by an earlier call (or may simply never have had a
-/// contention log at all, the common case).
+/// contention log or a lifecycle timeline at all, the common case).
 pub fn clear_run_runtime_files(run_id: &str) -> RuntimeIo {
     let dir = match runtime_dir() {
         Ok(dir) => dir,
@@ -358,6 +367,7 @@ pub fn clear_run_runtime_files(run_id: &str) -> RuntimeIo {
         runs_dir(&dir).join(format!("{run_id}.json")),
         kills_dir(&dir).join(format!("{run_id}.json")),
         contention_dir(&dir).join(format!("{run_id}.jsonl")),
+        lifecycle_dir(&dir).join(format!("{run_id}.jsonl")),
     ];
     for path in paths {
         if let Err(err) = fs::remove_file(&path) {
