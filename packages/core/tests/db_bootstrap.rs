@@ -223,6 +223,38 @@ fn absent_app_data_dir_override_leaves_the_os_app_data_location_in_use() {
     assert_eq!(db_path, expected);
 }
 
+/// WR-02 (03-REVIEW.md): a non-empty RELATIVE override must be rejected by name, mirroring
+/// `packages/shim/src/main.rs::resolve_real_binary_from_env`'s own absolute-path assertion for
+/// `FLYWHEEL_REAL_GIT`/`FLYWHEEL_REAL_RM` — before this task, `app_data_dir` returned
+/// `PathBuf::from(over)` verbatim for any non-empty value, silently resolving a relative path
+/// against whatever directory the process happened to be standing in.
+#[test]
+fn non_empty_relative_app_data_dir_override_is_rejected_by_name() {
+    let guard = APP_DATA_DIR_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // SAFETY: the mutex above serialises every caller in this binary.
+    unsafe { std::env::set_var("FLYWHEEL_APP_DATA_DIR", "relative/scratch/path") };
+
+    let result = core::db::default_db_path();
+
+    // SAFETY: see the set_var call above.
+    unsafe { std::env::remove_var("FLYWHEEL_APP_DATA_DIR") };
+    drop(guard);
+
+    let err = result.expect_err("a non-empty relative FLYWHEEL_APP_DATA_DIR must be rejected");
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("FLYWHEEL_APP_DATA_DIR"),
+        "error message must name the offending variable: {message:?}"
+    );
+    assert!(
+        message.contains("relative/scratch/path"),
+        "error message must name the offending value: {message:?}"
+    );
+}
+
 #[test]
 fn empty_app_data_dir_override_is_ignored_rather_than_resolving_relative() {
     let guard = APP_DATA_DIR_ENV_LOCK
