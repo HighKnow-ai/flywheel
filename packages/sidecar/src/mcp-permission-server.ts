@@ -179,7 +179,23 @@ export function startPermissionServer(
       onRequest(request);
     });
   });
-  server.listen(socketPath);
+  // WR-01 (03-REVIEW.md): `socketBaseDir` moved from the per-user, mode-0700 OS temp directory to
+  // the shared, world-listable `/tmp` to fit `sockaddr_un`'s SUN_LEN limit — the unguessable
+  // `randomUUID()` filename component no longer restricts who can find the path, since `/tmp` is
+  // listable by every local account. Set an explicit owner-only mode as soon as the socket exists
+  // so the reachable audience does not depend on the process umask. Wrapped in a `try`/`catch`
+  // whose catch body is deliberately empty apart from this comment: `listen` has already
+  // succeeded by this point, so a failed hardening call must degrade to "the socket is reachable
+  // but at the default mode" rather than throwing out of a function whose caller
+  // (`ClaudeCodeAdapter.startSession`) cannot recover from a throw here without refusing an
+  // entire session — a worse outcome than the warning this closes.
+  server.listen(socketPath, () => {
+    try {
+      fs.chmodSync(socketPath, 0o600);
+    } catch {
+      // See comment above — a failed chmod degrades to the previous (umask-derived) mode.
+    }
+  });
 
   return {
     socketPath,
