@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 22/23 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half
+**Plans**: 23/28 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 planned gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the destructive-gate bypass class per D-59 .. D-63
 **UI hint**: yes
 
 Plans:
@@ -341,6 +341,20 @@ Plans:
 
 - [ ] 03-22-PLAN.md — Reconcile AGNT-07's recorded status across REQUIREMENTS.md, 03-19-SUMMARY.md and STATE.md, and align the seven sibling statuses with the verification report (all 8 phase IDs)
 - [x] 03-23-PLAN.md — The two open review warnings: an owner-only permission socket (WR-01), an absolute-path guard on FLYWHEEL_APP_DATA_DIR (WR-02), and the lifecycle timeline joining the runtime-file cleanup list (AGNT-07, PROC-05)
+
+**Wave 12 — gap closure** *(from the open destructive-gate bypass class in `03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`: `destructive::classify` returns `Safe` for any program that is not literally `git`/`rm`, so eight ordinary launcher idioms defeat the text classifier. Closure approach decided as D-59 .. D-63. Both plans run in parallel — no shared files.)*
+
+- [ ] 03-24-PLAN.md — The hook's `safe` branch proves what its non-safe branch already proves (D-59, D-61) (AGNT-07)
+- [ ] 03-25-PLAN.md — A broken shim install fails loudly at spawn, never as a silently-denies-everything session (D-60's supervisor half) (AGNT-07)
+
+**Wave 13** *(blocked on Wave 12 — both depend on 03-24, and run in parallel with each other)*
+
+- [ ] 03-26-PLAN.md — The adversarial corpus, asserted through the real hook against the real shim binary (D-62 item 1) (AGNT-07)
+- [ ] 03-27-PLAN.md — One live `claude` run measuring the launcher-wrapped class, against a throwaway local bare remote only (D-62 item 2, D-63) (AGNT-07)
+
+**Wave 14** *(blocked on Wave 13 — needs both the corpus and the live run)*
+
+- [ ] 03-28-PLAN.md — The recorded trust boundary: what each layer proves and what it explicitly cannot see (D-62 item 3) (AGNT-07)
 
 **Notes**: This phase exists as its own slice because two of the four ranked project-killers live
 here and each deserves a dedicated plan with its own tests rather than being buried in Phase 2.
