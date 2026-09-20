@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 Phase: 03 (Nothing Lost, Nothing Left Running) — 19/19 plans complete
 Plan: 19 of 19
 Status: All plans executed; see 03-19-SUMMARY.md for residual findings before treating the phase as fully closed
-Last activity: 2026-09-18 — 03-19 executed (gap closure G-03-3)
+Last activity: 2026-09-20 — Completed quick task 260920-duy: fix CR-01 (destructive-gate PATH-shadow bypass)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -235,6 +235,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260918-nch | Automated UAT harness for phase 03's five deferred human-verification items | 2026-09-18 | 251ebef | [260918-nch-build-an-automated-uat-harness-for-phase](./quick/260918-nch-build-an-automated-uat-harness-for-phase/) |
+| 260920-duy | fix CR-01 — shimWillIntercept must not defer when the command text can shadow PATH resolution (shell function/alias); add the regression test | 2026-09-20 | 23c5b99 | [260920-duy-fix-cr-01-shimwillintercept-must-not-def](./quick/260920-duy-fix-cr-01-shimwillintercept-must-not-def/) |
 
 ### Roadmap Evolution
 
