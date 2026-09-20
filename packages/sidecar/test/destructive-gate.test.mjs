@@ -443,6 +443,24 @@ test(
     // A `command`-wrapped safe command is still safe — the unwrap must not turn every `command`
     // invocation destructive by construction.
     assert.deepEqual(runInvocation("command git status"), { category: "safe" });
+
+    // `command -v`/`command -V` are QUERY forms — they print/describe where `git` would resolve
+    // and never execute it, unlike every other shape above. Grouping them with `-p` (as an earlier
+    // pass here did, on the reasoning that neither takes a separate argument) conflated
+    // tokenization with the execute-vs-report security property and made a harmless lookup
+    // destructive. `scripts/uat/uat-05-concurrent-commits.mjs` and `scripts/uat/README.md` both
+    // rely on `command -v git` resolving to the shim directory as PROOF of shim installation
+    // (03-VERIFICATION.md Success Criterion 4) — that harness has nobody to answer a permission
+    // request, so this must stay `safe` or the harness breaks.
+    assert.deepEqual(runInvocation("command -v git"), { category: "safe" });
+    assert.deepEqual(runInvocation("command -V git"), { category: "safe" });
+
+    // `command -p` is unaffected: it still forces execution under a hardcoded default PATH.
+    assert.deepEqual(runInvocation("command -p git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: false,
+    });
   },
 );
 
