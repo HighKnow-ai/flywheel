@@ -1,7 +1,7 @@
 # Phase 3: Nothing Lost, Nothing Left Running - Context
 
 **Gathered:** 2026-09-12
-**Status:** Ready for planning
+**Status:** Ready for planning — decisions addendum 2026-09-20 (D-59 .. D-63, closing the destructive-gate bypass class)
 
 <domain>
 ## Phase Boundary
@@ -292,6 +292,103 @@ built in Phase 2 **cannot on its own** satisfy a requirement whose word is *alwa
   immediately without asking (zero unattended risk, but "require explicit confirmation" is not
   satisfied by never asking — it makes the action impossible rather than gated).
 
+### Closing the destructive-gate bypass class (addendum — 2026-09-20)
+
+Discussed after the phase's gap-closure waves, on the open finding recorded in
+`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`: eight ordinary launcher shapes (`sh -c`, `bash -c`, `nice`,
+`nohup`, `timeout`, `xargs`, `sudo`, `setsid`) classify `safe` and pass layer 1 untouched, because
+`destructive::classify` returns `Safe` for any program name that is not literally `git` or `rm`.
+Four rounds of fixes each taught the classifier one more wrapper token; none addressed the shape.
+
+The decisive observation, verified in the code rather than inferred: the hook's **non-safe** branch
+already demands a two-fact proof before it defers — `invokedBareName && shimWillIntercept(program)`
+(`packages/sidecar/src/pretooluse-hook.ts:219`). Its **safe** branch demands nothing
+(`pretooluse-hook.ts:213`). That asymmetry *is* the finding, and the machinery to close it already
+exists and is already trusted elsewhere in the same file.
+
+- **D-59:** **The hook's `safe` branch must prove what its non-safe branch already proves.** Closing
+  this class is a change to `pretooluse-hook.ts`, not a longer token list in the classifier:
+  `category === "safe"` may no longer short-circuit to `{}` without establishing that the layer-2
+  backstop is actually installed and leading `PATH`. This uses the shim interception the finding's
+  own "Exploitability" section identifies as the layer these eight shapes still reach.
+  Rejected: enumerating launcher tokens in `resolve_segment_program_index` and recursing into the
+  wrapped command (buildable, stays inside "only git/rm are gated", and would give the gate card an
+  accurate consequence sentence for a wrapped form — but it is round 5 of the same enumerate-and-hope
+  that produced rounds 1 through 4, with a shorter and slower-moving list; it moves the boundary
+  without closing the class) and doing both (two mechanisms to keep in sync, for a card-copy benefit
+  the deny path does not need).
+  — **Reversibility:** cheap. It is one branch in one file, and it reopens no cross-package contract.
+
+- **D-60:** **An environment the hook cannot prove denies — for every command, not only destructive
+  ones.** If `shimWillIntercept` cannot establish that the shim's shadow directory is installed and
+  is the first `PATH` segment, the hook denies, `npm test` and `cargo build` included. In a correctly
+  configured session this costs two synchronous `stat` calls and denies nothing. It fires only in the
+  misconfigured session `shimWillIntercept` was written to detect — which is exactly the session
+  where layer 1 is the only layer left standing, and where the finding says every one of the eight
+  shapes becomes a silent, total bypass. Fail-closed is already this hook's stated rule for an
+  unparseable payload, an uninvokable shim and an unreadable verdict; an unprovable environment is
+  the same kind of uncertainty and gets the same answer.
+  Rejected: allow-but-record-a-trail-entry (zero friction, visible after the fact — but it makes the
+  gate advisory in precisely the case where it is the sole point of failure) and denying only when
+  the command text names `git` or `rm` (keeps a broken session usable, but makes the text scan
+  load-bearing for the entire guarantee, which is the dependency this decision is trying to remove).
+
+  **Consequence the planner must handle — this is not only a hook change.** D-60 makes a working
+  shim installation a hard precondition for a usable session. A failed, partial or missing install
+  must surface as a named, visible supervisor error at or before spawn, never as a session that
+  silently denies every command the agent tries. That obligation lands on `install_for_run` /
+  `shim_env_for_run` (`packages/core/src/shim.rs`) and their spawn-side call site, and it needs its
+  own test: a run spawned with a deliberately broken shim directory must fail loudly, not quietly.
+
+- **D-61:** **A `PATH`-shadowing construct denies a `safe` verdict only when the text also names a
+  gated program.** `shimWillIntercept` proves the environment; it cannot see that bash resolves shell
+  functions, aliases and hashed paths *before* any `PATH` search happens. So
+  `sh -c 'git() { /usr/bin/git "$@"; }; git push --force'` satisfies the environment half and still
+  never reaches the shim. The existing `text_can_shadow_path_resolution` scan already detects that
+  class; it must gate the safe path too — but only when the text also names `git` or `rm`, the two
+  names `install_for_run` shadows.
+  This is deliberately not enumeration. The rule is a statement about provability: *the text can
+  pre-empt `PATH` resolution and it names a program we gate, therefore safety is unprovable.* It
+  leaves `source .venv/bin/activate && pytest` and `eval "$(direnv hook bash)"` alone, because
+  neither names a gated program.
+  Rejected: denying on any shadowing construct regardless of what the text names (strictest and
+  simplest to state, but it denies the ordinary `source`, `eval` and `PATH=` prefixes an agent runs
+  constantly — the highest-friction option by a wide margin) and leaving the safe path alone
+  (relies entirely on layer 2, which the function/alias shape defeats by construction).
+  — **Note for the planner:** "names `git` or `rm`" must over-trigger rather than under-trigger,
+  matching `text_can_shadow_path_resolution`'s own stated discipline of firing on presence anywhere
+  in the text, quoted or not, rather than on position. A false positive costs one deny on a
+  destructive-looking command; a false negative costs an ungated force-push.
+
+- **D-62:** **AGNT-07 closes on an end-to-end adversarial corpus and a recorded trust boundary, not
+  on a classifier unit test.** Three things together, and the requirement stays at `Gaps Found`
+  until all three exist:
+  1. A checked-in corpus of launcher and shadow shapes — at minimum the eight from the finding, the
+     four wrapper families from rounds 1-4 (`env`, `command`, `builtin`, `PATH=`), and the
+     function/alias/`hash`/`eval`/`source` shapes — asserted **through the real hook against the real
+     shim binary**, not against `destructive::classify` in isolation. Classifier-only coverage is
+     what let every one of the four rounds ship.
+  2. One live `claude` run, in the shape `scripts/uat/uat-03-destructive-gate.mjs` already
+     establishes. The live half is what caught the last two gaps.
+  3. A short recorded trust boundary: what each layer is trusted to prove, and what it explicitly
+     cannot see. The finding's own diagnosis is that each round was found by someone looking, never
+     by the enumeration catching itself — a written boundary gives round 5 a spec to fail against
+     instead of a list to extend.
+  Rejected: an invariant test alone (assert the hook can never return `{}` without a recorded proof —
+  cheap, and it catches the shape rather than the tokens, but it proves nothing about how a real
+  session behaves) and corpus-plus-invariant with no live run (strong automated coverage, but it
+  drops the half with the best track record here).
+
+- **D-63:** **Verification of this gate never executes the destructive command.** Classification is
+  the deliverable. Any brief that asks an agent to determine empirically whether a destructive
+  command is gated must state that the command itself must never run against a real remote or a real
+  worktree; if execution is genuinely required, the brief names a throwaway remote. This is recorded
+  as a decision rather than a lesson because a real, unauthorized `git push` to
+  `git@github.com:cymarechal/highknow-harness.git` happened during this investigation, under a brief
+  that fenced live `claude` sessions but did not fence real destructive git commands — see the
+  "Incident recorded during this investigation" section of `03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`.
+  It binds every plan in this phase and every future plan that touches AGNT-07.
+
 ### Claude's Discretion
 
 The following were **not** discussed. The researcher and planner should resolve them against the
@@ -422,6 +519,28 @@ decisions above and the canonical references — not re-ask the user.
   vocabulary (four contrast-proven colour roles, six legend marks, eight keyboard actions). A
   `missing` worktree state and an `abandoned` run state must join this vocabulary rather than inventing
   a parallel one.
+
+### The destructive-gate bypass class (D-59 .. D-63 — read all of these before planning the closure)
+- `.planning/phases/03-nothing-lost-nothing-left-running/03-DESTRUCTIVE-GATE-BYPASS-CLASS.md` — the
+  open finding itself: the eight shapes, the root cause, the four-round history, the two-layer
+  exploitability analysis, and the recorded incident D-63 comes from. **Start here.**
+- `packages/sidecar/src/pretooluse-hook.ts` — the file D-59, D-60 and D-61 all change. Line 213 is
+  the unproven `safe` short-circuit; line 219 is the two-fact proof the safe branch must adopt.
+  Its module doc comment records why this hook must never wait, and why the wired decision value is
+  `"deny"` — both measured, neither to be re-litigated.
+- `packages/core/src/destructive.rs` — `classify` (line 137) returns `Safe` for any program that is
+  not `git`/`rm`. D-59 deliberately does **not** change this dispatch; the module's own top doc
+  comment already flags widening it as a separate, future decision.
+- `packages/shim/src/main.rs` — `--classify-invocation`, `resolve_segment_program_index` (the
+  `env`/`command`/`builtin`/assignment unwrapping from rounds 2-4) and
+  `text_can_shadow_path_resolution` (the scan D-61 extends to the safe path).
+- `packages/core/src/shim.rs` — `install_for_run` / `shim_env_for_run`: the two shadowed names
+  (`git`, `rm`) D-61's text check keys off, and the install path D-60's new loud-failure obligation
+  lands on.
+- Existing coverage D-62's corpus must extend rather than duplicate:
+  `packages/core/tests/destructive_classifier.rs` (classifier-only — the level of coverage that let
+  all four rounds ship), `packages/sidecar/test/destructive-gate.test.mjs`, and
+  `scripts/uat/uat-03-destructive-gate.mjs` (the live-run shape D-62 item 2 reuses).
 
 </canonical_refs>
 
@@ -575,6 +694,17 @@ seam).
   `packages/core/tests/worktree_lifecycle.rs`, which can leak a directory into the developer's real
   `~/Flywheel`. This phase touches that file; fixing it is in scope for whichever plan does, but it is
   not a phase requirement.
+
+- **Inverting the classifier's default to a known-inert allowlist** — option 1 of the bypass-class
+  finding, and the only one of the three that closes the class permanently rather than making it
+  provable. Declined in D-59 because it turns a narrow `git`/`rm` gate into general command
+  allowlisting: nearly every command a coding agent runs (`npm`, `cargo`, `ls`, `grep`, `python`,
+  `curl`) is neither `git` nor `rm` and passes today with zero friction. It is a product-scope
+  decision, not a code fix, and it belongs with the still-open question of whether the shim
+  intercepts more than `git` (already recorded under "Claude's Discretion"). **Named trigger for
+  revisiting it:** a sixth round — any new bypass shape that D-59 through D-62 do not catch. If the
+  provability approach needs its own round of patches, the enumeration premise has failed and the
+  allowlist is the answer.
 
 </deferred>
 

@@ -1,6 +1,6 @@
 # Destructive-gate bypass class — open finding
 
-**Status:** OPEN
+**Status:** OPEN — closure approach DECIDED 2026-09-20 (see `03-CONTEXT.md` D-59 .. D-63); not yet planned or built
 **Requirement:** AGNT-07 — "Destructive actions (force-push, branch deletion, recursive delete)
 always require explicit confirmation, even when the session is running in an auto-accept
 permission mode"
@@ -99,6 +99,27 @@ Three options, assessed by the executor that did rounds 2-4 and carried into thi
 
 Recommended next step: carry this into a dedicated planning conversation rather than a quick task.
 Option 3 is the most likely correct answer and is the one that needs a decision, not a patch.
+
+### Decision taken — 2026-09-20
+
+That conversation happened (`/gsd-discuss-phase 03`). **Option 3 was chosen** and is recorded in
+`03-CONTEXT.md` as **D-59 .. D-63**, alongside three decisions the option itself did not settle:
+
+- **D-59** — the closure is a change to `pretooluse-hook.ts`, not a longer list in the classifier.
+  Its `safe` branch must establish the same layer-2 proof its non-safe branch already demands at
+  line 219. Option 2 rejected as round 5 of enumerate-and-hope; option 1 deferred with a named
+  trigger.
+- **D-60** — an environment the hook cannot prove denies, for every command, not only destructive
+  ones. Consequence: a broken shim install must fail loudly at spawn rather than producing a session
+  that silently denies everything.
+- **D-61** — a `PATH`-shadowing construct denies a `safe` verdict only when the text also names
+  `git` or `rm`, so the function/alias shape is closed without denying ordinary `source`/`eval`.
+- **D-62** — AGNT-07 stays `Gaps Found` until an adversarial corpus runs end-to-end through the real
+  hook against the real shim, a live run passes, and the trust boundary is written down.
+- **D-63** — verification of this gate never executes the destructive command (from the incident
+  below).
+
+Still to do: plan and build it. Nothing in this file has been fixed in code yet.
 
 ## Incident recorded during this investigation
 

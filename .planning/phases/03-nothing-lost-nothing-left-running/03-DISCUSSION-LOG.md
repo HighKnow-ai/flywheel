@@ -243,3 +243,65 @@ Recorded in full in `03-CONTEXT.md` §Claude's Discretion. Summary:
 ## Deferred Ideas
 
 Recorded in full in `03-CONTEXT.md` §Deferred Ideas. Summary: a project-scoped Worktrees list (Phase 9/10); supervisor-level serialization of git-mutating operations (Phase 9); tool-call-layer file-set enforcement (Phase 9, PLAN-04/05); adopting a live orphan instead of killing it; an idle-output timeout for a blocked session (pairs with FLEET-04 in Phase 10); worktree disk reclamation (WORK-07, Phase 10); correcting `RLAY-01` (milestone boundary, carried from Phase 1 D-21); closing broken-window #2 in `packages/core/tests/worktree_lifecycle.rs`.
+
+---
+
+# Addendum session — 2026-09-20
+
+**Date:** 2026-09-20
+**Trigger:** `/gsd-discuss-phase 03 — decide how to close the bypass class before planning it`
+**Areas discussed:** Which layer closes it, What an unprovable `safe` does, Shadowing constructs in safe text, Proof the class is closed
+**Source finding:** `03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`
+**Outcome:** D-59 .. D-63 in `03-CONTEXT.md`
+
+## Which layer closes the bypass class?
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Hook proves before trusting `safe` | Apply the two-fact proof the non-safe branch already runs (`pretooluse-hook.ts:219`) to the `safe` branch. No new token enumeration; uses the layer-2 backstop that already exists. Smallest diff; closes the asymmetry that is the finding. | ✓ |
+| Enumerate launchers in the classifier | Teach `resolve_segment_program_index` about `sh -c`, `bash -c`, `nice`, `nohup`, `timeout`, `setsid`, `xargs`, `sudo` and recurse into the wrapped command. Buildable and stays inside git/rm-only — but it is round 5 of enumerate-and-hope with a shorter list. | |
+| Both — proof in the hook, launchers in the classifier | Belt and braces; the gate card would also show an accurate consequence sentence for a wrapped form. More surface, two mechanisms to keep in sync. | |
+| Invert the default — allowlist inert programs | Closes the class completely and permanently, but turns a narrow git/rm gate into general command allowlisting: a product-scope change with a much larger prompt surface. | |
+
+Recorded as **D-59**. The rejected allowlist option is carried to §Deferred Ideas with a named
+trigger (a sixth round) rather than dropped.
+
+## When the hook cannot prove the shim backstop is installed, what happens to `npm test`?
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Deny, fail closed | Matches every other uncertainty path in this hook. In a correctly configured session it costs two `stat` calls and denies nothing; it fires only in the misconfigured session `shimWillIntercept` exists to detect. | ✓ |
+| Allow, but record a trail entry | Zero friction and visible after the fact — but it makes the gate advisory exactly where it is the sole point of failure. | |
+| Deny only when the text mentions `git` or `rm` | Keeps a broken session usable, at the cost of making the text scan load-bearing for the whole guarantee. | |
+
+Recorded as **D-60**. Follow-on obligation noted for the planner: a failed or missing shim install
+must surface as a loud supervisor error at spawn, never as a session that silently denies
+everything.
+
+## Should a PATH-shadowing construct deny a command that classifies safe?
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Only when the text also names `git` or `rm` | Closes `sh -c 'git() { ... }; git push --force'` while leaving `source .venv/bin/activate && pytest` and `eval "$(direnv hook bash)"` alone. Framed as provability, not enumeration. | ✓ |
+| Yes, on any shadowing construct | Strictest and simplest to state; denies the ordinary `source`, `eval` and `PATH=` prefixes an agent runs constantly. | |
+| No — leave the safe path alone | Relies entirely on layer 2, which the function/alias shape defeats by construction (bash resolves those before any `PATH` search). | |
+
+Recorded as **D-61**.
+
+## What makes this the last round, and what lets AGNT-07 go back to Complete?
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Adversarial corpus end-to-end, plus a recorded trust boundary | Corpus of launcher and shadow shapes asserted through the real hook against the real shim, plus one live `claude` run, plus a written statement of what each layer is trusted to prove. AGNT-07 closes only when all three exist. | ✓ |
+| Invariant test only | Assert the hook can never return `{}` without a recorded proof — cheap, catches the shape, proves nothing about a real session. | |
+| Corpus and invariant, no live run | Strong automated coverage without the cost of a real session; drops the half that caught the last two gaps. | |
+| Leave AGNT-07 at Gaps Found and defer | Honest about the state; leaves the phase's own success criterion 5 unmet. | |
+
+Recorded as **D-62**.
+
+## Locked without being asked
+
+**D-63 — verification of this gate never executes the destructive command.** Taken directly from the
+incident recorded in `03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`, where testing a force-push bypass by
+running a force-push published a real branch to the real remote. Not a preference; a standing
+constraint on every brief that touches AGNT-07.
