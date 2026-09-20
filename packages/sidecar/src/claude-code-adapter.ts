@@ -492,6 +492,16 @@ interface LiveSession {
    * handler assigns it, and `null` forever when the wrapper exited with a code rather than being
    * killed by signal. */
   exitSignal: string | null;
+  /** THIS RUN's own resolved `FLYWHEEL_RUNTIME_DIR` (plan 03-20) — captured from the per-run
+   * spawn `env` object `startSession` already builds for the watchdog child, the SAME value
+   * `writeHookSettings`/`writeRunDescriptor` below already key off (`env.FLYWHEEL_RUNTIME_DIR`).
+   * Deliberately NOT `process.env.FLYWHEEL_RUNTIME_DIR` (the adapter/sidecar's OWN ambient
+   * environment): neither this harness nor production ever sets that variable on the sidecar
+   * process itself — only per-run, on the child each session spawns — so reading the adapter's
+   * own `process.env` here would silently resolve to `undefined` in exactly the shape a real
+   * `uat-06-permission-block-lifecycle.mjs` run surfaced (closeOrigin reported `unattributed`
+   * despite a real, on-disk `heartbeat-stale` kill record for the run). */
+  runtimeDir: string | undefined;
   onEvent: (event: AgentEvent) => void;
   nextSeq: number;
   /** This run's own permission-prompt MCP server handle (AGNT-06) — started BEFORE `child` is
@@ -595,13 +605,13 @@ function emitSessionClosed(
   // show — a session that closed cleanly having written nothing to stderr must not carry a
   // meaningless `detail: ""`.
   const trimmedDetail = session.stderrTail.trim();
-  // Plan 03-20: read from THIS process's own environment (the sidecar's, not the per-run spawn
-  // env) — production sets FLYWHEEL_RUNTIME_DIR identically for the whole app's lifetime, so this
-  // is the same directory the per-run spawn env also carries, but reading it here rather than
-  // threading it through keeps resolveCloseOrigin callable with exactly the three fields it needs.
+  // Plan 03-20 (fixed after a real live run surfaced the bug, see LiveSession.runtimeDir's own
+  // doc comment): read THIS RUN's own captured `runtimeDir`, never the adapter/sidecar's ambient
+  // `process.env.FLYWHEEL_RUNTIME_DIR` — neither this harness nor production ever sets that
+  // variable on the sidecar's own process, only per-run on the watchdog child each session spawns.
   const closeOrigin = resolveCloseOrigin({
     interruptionRequested: session.interruptionRequested,
-    runtimeDir: process.env.FLYWHEEL_RUNTIME_DIR,
+    runtimeDir: session.runtimeDir,
     runId,
   });
   session.onEvent({
@@ -761,6 +771,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       stderrTail: "",
       exitCode: null,
       exitSignal: null,
+      runtimeDir: env.FLYWHEEL_RUNTIME_DIR,
       onEvent: options.onEvent,
       nextSeq: 0,
       permissionServer,
