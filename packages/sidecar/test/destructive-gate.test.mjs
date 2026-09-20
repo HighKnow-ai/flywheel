@@ -464,6 +464,118 @@ test(
   },
 );
 
+// --- --classify-invocation `env` flag audit (coordinator review, round 4): the round-2 `env`
+// unwrap only ever skipped NAME=VALUE assignments, never env's OWN flags, so `env -i git push
+// --force` (clears PATH entirely — the shim's shadow directory can never be reached, exactly the
+// `command -p` double-failure class) and `env -S "…"` (embeds an entire, separately-parsed
+// argument list, including possible `PATH=` overrides, inside one opaque string this tokenizer
+// cannot safely re-parse) both silently classified as `{"category":"safe"}` before this fix. ---
+
+test(
+  "the shim's --classify-invocation mode handles env's own flags — -i/-u PATH force invokedBareName:false, -S and unknown flags fail closed, -u <other> is unaffected",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const runInvocation = (text) => {
+      const result = spawnSync(SHIM_BIN, ["--classify-invocation", text], { encoding: "utf8" });
+      return JSON.parse(result.stdout.trim());
+    };
+
+    // `env -i` clears the ENTIRE environment (including PATH) before the target runs — the shim's
+    // shadow directory can never be on whatever PATH (if any) the target ends up seeing. Still
+    // classified on the real program (never "safe"), with invokedBareName forced false.
+    assert.deepEqual(runInvocation("env -i git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: false,
+    });
+
+    // `env -u PATH` unsets PATH specifically — the same effective bypass as `-i`.
+    assert.deepEqual(runInvocation("env -u PATH git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: false,
+    });
+    assert.deepEqual(runInvocation("env --unset=PATH git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: false,
+    });
+
+    // `env -u <anything else>` leaves PATH untouched — the shim is reached exactly as a plain
+    // `env git …` would be. This is the case that must NOT regress to a blanket "any -u is unsafe"
+    // over-trigger: the whole point of distinguishing the NAME is that most -u usage is harmless.
+    assert.deepEqual(runInvocation("env -u FOO git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: true,
+    });
+
+    // Multiple -u flags: PATH anywhere in the run triggers, regardless of position, and a run with
+    // no PATH among them does not.
+    assert.deepEqual(runInvocation("env -u FOO -u PATH git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: false,
+    });
+    assert.deepEqual(runInvocation("env -u PATH -u FOO git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: false,
+    });
+    assert.deepEqual(runInvocation("env -u FOO -u BAR git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: true,
+    });
+
+    // `env -S`/`--split-string` embeds an entire, separately-parsed argument list (including
+    // possible PATH= overrides) inside one opaque string — this tokenizer cannot safely re-parse
+    // it a second time, so the whole invocation fails closed to Uncategorized/un-interceptable
+    // rather than being treated as either "safe" or a confidently-identified "git" invocation.
+    assert.deepEqual(runInvocation('env -S "git push --force"'), {
+      category: "uncategorized",
+      program: null,
+      invokedBareName: false,
+    });
+    assert.deepEqual(runInvocation('env --split-string="git push --force"'), {
+      category: "uncategorized",
+      program: null,
+      invokedBareName: false,
+    });
+
+    // Any other/unrecognised env flag (BSD's -P altpath, -C altwd, -0, -v; a hypothetical future
+    // addition to either implementation) fails closed the same way — never silently "safe" merely
+    // because this file has not enumerated that exact flag (the CR-01 -> command/builtin -> env
+    // pattern this round explicitly closes the door on).
+    assert.deepEqual(runInvocation("env -P /tmp git push --force"), {
+      category: "uncategorized",
+      program: null,
+      invokedBareName: false,
+    });
+    assert.deepEqual(runInvocation("env -C /tmp git push --force"), {
+      category: "uncategorized",
+      program: null,
+      invokedBareName: false,
+    });
+
+    // `--` ends env's own option processing; a plain PATH= assignment after it is still an
+    // assignment (unaffected either way), and the real program is still resolved correctly.
+    assert.deepEqual(runInvocation("env -- git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: true,
+    });
+
+    // Bare `env` (no flags at all) is unaffected by any of the above — still the ordinary,
+    // reachable case.
+    assert.deepEqual(runInvocation("env git push --force"), {
+      category: "force-push",
+      program: "git",
+      invokedBareName: true,
+    });
+  },
+);
+
 // --- pretooluse-hook.ts (plan 03-19, G-03-3): defer when interception is provable, refuse when it is not ---
 
 /** A scratch shim directory containing an executable copy of the real compiled `flywheel-shim`
