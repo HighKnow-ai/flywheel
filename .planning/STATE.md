@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-19-PLAN.md (gap closure G-03-3, destructive-gate confirmation fix)
-last_updated: "2026-09-20T08:17:13.890Z"
+stopped_at: "Completed 03-20-PLAN.md (gap closure: session-lifecycle investigation, disposition root-cause-identified/Branch B)"
+last_updated: "2026-09-20T09:18:33.904Z"
 last_activity: 2026-09-20
-last_activity_desc: 03-19 executed — destructive gate now defers to the shim's permission socket instead of refusing outright
-state_head: 8c6f2618ec61a10030302e093e34915eeb854a11
+last_activity_desc: Phase 03 execution started
+state_head: 7e76953132d8e07edcb9cebe991f6816095770e9
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 62
-  completed_plans: 58
+  completed_plans: 59
   percent: 0
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 ## Current Position
 
-Phase: 03 (Nothing Lost, Nothing Left Running) — READY TO EXECUTE
-Plan: 19 of 23 (03-20..03-23 are gap-closure plans, not yet executed)
-Status: Gap closure planned for Success Criterion 5 / AGNT-07 — the "session stays blocked until a human answers" half remains unproven. Run: /gsd-execute-phase 03 --gaps-only
-Last activity: 2026-09-20 — Completed quick task 260920-duy: fix CR-01 (destructive-gate PATH-shadow bypass)
+Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
+Plan: 2 of 23
+Status: Ready to execute
+Last activity: 2026-09-20 — Phase 03 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -117,6 +117,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P17 | 22min | 2 tasks | 4 files |
 | Phase 03 P18 | 12min | 2 tasks | 4 files |
 | Phase 03 P19 | 95min | 3 tasks | 5 files |
+| Phase 03 P20 | 70min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -211,6 +212,9 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03]: WorktreeSummary's missing-worktree early return is gated on status alone (not status && isNonEmptyString(path)) — the file's own doc comment already claimed this; the code did not. — An empty/null/absent recorded path on a missing row was falling through to the ordinary render, exposing Remove Worktree on a row the screen had just called missing.
 - [Phase 03]: [Phase 03]: The PreToolUse hook now defers to the shim's own permission socket for any destructive command it can PROVE the shim will intercept (shimWillIntercept: FLYWHEEL_SHIM_BIN set, its directory is literally PATH's first entry, that directory contains an executable file named exactly the program) -- refusing outright only for the class the shim structurally cannot see (absolute-path invocations) or any failure to establish the above. — G-03-3 found the hook denied every non-safe verdict unconditionally, so D-58's indefinite block was unreachable for anything the agent ran through Bash. Live-measured this session: a bare agent-issued git push --delete now raises a real permission_request carrying destructiveCategory: branch-deletion, which never happened before.
 - [Phase 03]: [Phase 03]: packages/sidecar/src/mcp-permission-server.ts now binds the permission socket under /tmp instead of os.tmpdir(), falling back to os.tmpdir() only if /tmp is unwritable. — On macOS, os.tmpdir() resolves to a long per-session sandboxed path; joined with the socket's own uuid-based filename it routinely exceeds sockaddr_un's ~104-byte SUN_LEN, so the socket was silently unreachable (a connection error the shim reads as a clean refusal, indistinguishable from deny) until this plan's own live measurement made the hook actually defer to it for the first time. Mirrors the identical fix already applied in packages/core/tests/destructive_classifier.rs::scratch_socket_path.
+- [Phase 03]: [Phase 03]: resolveCloseOrigin must read a per-run-captured LiveSession.runtimeDir, never the adapter/sidecar's own ambient process.env.FLYWHEEL_RUNTIME_DIR — Neither this harness's startSidecar() nor production's spawn_sidecar() ever sets that variable on the sidecar's own process; it is only ever passed per-run to the watchdog child. Found live: a real heartbeat-stale kill (real on-disk kill record) still reported closeOrigin: unattributed until this fix landed.
+- [Phase 03]: [Phase 03]: CLAUDE_CONFIG_DIR isolation isolates Claude Code's authentication too, not only settings/hooks/plugins/MCP registrations as first assumed — Confirmed live via the zero-cost claude auth status diagnostic. cleanClaudeConfigEnv() now honours a FLYWHEEL_UAT_CLAUDE_CONFIG_DIR override pointing at a durable, human-staged, already-authenticated directory; this harness never copies, reads or writes .credentials.json itself.
+- [Phase 03]: [Phase 03]: 03-20's disposition is root-cause-identified, H1 confirmed: the watchdog's own heartbeat-staleness kill ends an unsupervised destructive-gate-blocked session exactly as designed, and does not reproduce under a production-shaped (heartbeat=on) supervised run — Two live measurements (--heartbeat=off: terminated at elapsed_ms=7397, closeOrigin=watchdog-heartbeat-stale; --heartbeat=on: sustained-block for the full 90s window, zero termination artifacts). Selects plan 03-21's Branch B -- a harness-only correction, no change to watchdog.ts's stale-kill condition.
 
 ### Pending Todos
 
@@ -251,6 +255,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-18T11:13:04.721Z
-Stopped at: Completed 03-19-PLAN.md (gap closure G-03-3, destructive-gate confirmation fix)
+Last session: 2026-09-20T09:18:33.827Z
+Stopped at: Completed 03-20-PLAN.md (gap closure: session-lifecycle investigation, disposition root-cause-identified/Branch B)
 Resume file: None
