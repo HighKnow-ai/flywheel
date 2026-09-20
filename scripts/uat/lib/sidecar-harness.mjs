@@ -311,6 +311,21 @@ export class Harness {
   /**
    * Spawn the real sidecar and complete its readiness handshake — the same `ping` request
    * `spawn_sidecar` sends before it is allowed to return. Returns a {@link SidecarClient}.
+   *
+   * STALE-WINDOW HAZARD (plan 03-21, disposition `root-cause-identified`/H1 CONFIRMED): any
+   * caller measuring a spawned session that outlives `watchdog.ts`'s own heartbeat-staleness
+   * window (`DEFAULT_HEARTBEAT_STALE_MS` = 15000ms, or a caller-supplied
+   * `FLYWHEEL_HEARTBEAT_STALE_MS` override) MUST run a heartbeat writer on the production cadence
+   * (`HEARTBEAT_TICK_MS`, above — see `uat-06-permission-block-lifecycle.mjs`'s `--heartbeat=on`
+   * path for the exact pattern: `uat_session_env --touch-heartbeat` touched once before spawn,
+   * then on an interval) or the watchdog will correctly, and by design, SIGKILL the whole session
+   * group as an unsupervised orphan (D-47/D-48, PROC-04) — this is the watchdog doing its job
+   * against a caller that never touched the heartbeat file, not a product defect. Two live
+   * measurements (03-20) confirmed this directly: the identical scenario terminated at ~15-16s
+   * under `--heartbeat=off` with `closeOrigin: "watchdog-heartbeat-stale"`, and sustained a full
+   * 90s observation window with zero termination artifacts under `--heartbeat=on`. This function
+   * itself never touches the heartbeat file — that is the caller's responsibility, by design,
+   * because only the caller knows how long its own measurement window needs to last.
    */
   async startSidecar({ env = {} } = {}) {
     if (!fs.existsSync(SIDECAR_ENTRY)) {
