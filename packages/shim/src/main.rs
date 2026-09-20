@@ -610,8 +610,15 @@ fn is_assignment_token(token: &str) -> bool {
 ///   tokens that follow it (`command git push --force` → `git`; `command -p git push --force` →
 ///   `git`) — `command`'s whole purpose is to force name resolution PAST shell functions/aliases,
 ///   so the word `command` itself is never the program being run (03-REVIEW.md new CR-01, round
-///   2). `command`'s own flags never take a separate argument, so any run of `-`-prefixed tokens
-///   immediately following it is safe to skip; and
+///   2). `command`'s own flags never take a separate argument, so a run of `-`-prefixed tokens
+///   immediately following it is safe to skip PURELY FOR TOKENIZATION — but `-v`/`-V` carry a
+///   DIFFERENT security property than `-p` (and than no flag at all), handled specially below:
+///   they make `command` a QUERY that never executes its argument at all, so this function
+///   returns `None` (no program token in this segment) the instant either is seen, rather than
+///   continuing on to treat the name being described as the program invoked (coordinator review,
+///   round 3: `command -v git` was misclassified as an invocation of `git` in the round-2 fix,
+///   which broke `scripts/uat/uat-05-concurrent-commits.mjs`'s own `command -v git` resolution
+///   probe — see that file and `scripts/uat/README.md`); and
 /// - a leading `builtin` wrapper token (`builtin git push --force` → `git`) — same reasoning:
 ///   `builtin` names a shell builtin to invoke, never the destructive program itself.
 ///
@@ -621,8 +628,8 @@ fn is_assignment_token(token: &str) -> bool {
 /// exactly once. Each iteration MUST advance `idx` by at least one token (the loop only continues
 /// on a positive match), so this always terminates.
 ///
-/// Returns `None` when the segment carries no program token at all (only assignments/wrappers, or
-/// empty).
+/// Returns `None` when the segment carries no program token at all (only assignments/wrappers,
+/// only `command -v`/`-V` naming something to describe rather than run, or empty).
 fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
     let mut idx = 0;
     loop {
@@ -640,10 +647,18 @@ fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
                 idx += 1;
                 // Skip `command`'s own flags (-p, -v, -V — none take a separate argument) and any
                 // NAME=VALUE assignment tokens that may follow, so the loop can continue past them
-                // to the next wrapper or the real program token.
+                // to the next wrapper or the real program token. `-v`/`-V` are a DIFFERENT case:
+                // `command -v NAME`/`command -V NAME` only print/describe how NAME would resolve
+                // and never execute it at all — regardless of any other flag present, before or
+                // after — so as soon as either is seen this whole segment carries no program
+                // token to classify, and the loop returns `None` immediately rather than treating
+                // NAME as an invocation.
                 while idx < tokens.len()
                     && (tokens[idx].starts_with('-') || is_assignment_token(&tokens[idx]))
                 {
+                    if tokens[idx] == "-v" || tokens[idx] == "-V" {
+                        return None;
+                    }
                     idx += 1;
                 }
             }
@@ -663,7 +678,11 @@ fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
 /// True when the raw command TEXT contains any construct that can pre-empt bash's `PATH` search
 /// for a later bare-name invocation — a shell function definition, an alias, a hashed path, a
 /// pulled-in definition, a `PATH` reassignment (plan 03-20/CR-01), a `builtin` wrapper, or a
-/// `command -p`/`-v`/`-V` invocation (03-REVIEW.md new CR-01, round 2). Deliberately fires on
+/// `command -p` invocation (03-REVIEW.md new CR-01, round 2). `command -v`/`-V` are deliberately
+/// NOT handled here — they never execute their argument at all, so `resolve_segment_program_index`
+/// already returns no program token for that segment before `classify` (or this function) is ever
+/// consulted about it (round 3: grouping `-v`/`-V` with `-p` here would have been the same
+/// tokenization-vs-security-property conflation that round 2 made in the OTHER function). Deliberately fires on
 /// PRESENCE anywhere in `text`, quoted or not, never on whether the construct precedes the
 /// destructive segment: `split_top_level_segments` is itself only a pragmatic approximation of
 /// shell grammar (see its own doc comment), so positional ordering is too weak a foundation for a
@@ -695,9 +714,11 @@ fn resolve_segment_program_index(tokens: &[String]) -> Option<usize> {
 ///   is not itself a builtin — exactly where this shim's shadow entry sits — so `invokedBareName`
 ///   for a bare `command git …` still reflects the ordinary case once
 ///   `resolve_segment_program_index` has unwrapped it to `git` (03-REVIEW.md new CR-01, round 2 —
-///   property 1). (`command <realbuiltin> …`, e.g. `command builtin git …`, is a rarer nested case
-///   this file does not attempt to special-case further; see the module's own residual-gap
-///   framing.)
+///   property 1). `-v`/`-V` are NOT triggers here — see this function's own doc comment above and
+///   `resolve_segment_program_index`'s handling of them, which removes the segment from
+///   classification entirely (round 3: they only ever describe, never execute). (`command
+///   <realbuiltin> …`, e.g. `command builtin git …`, is a rarer nested case this file does not
+///   attempt to special-case further; see the module's own residual-gap framing.)
 /// - the substring `PATH=` anywhere in the text — defeats the `PATH` search itself, whether via a
 ///   leading assignment (`PATH=/usr/bin git …`) or `export PATH=…`.
 ///
