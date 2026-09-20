@@ -1,10 +1,12 @@
 ---
 phase: 03-nothing-lost-nothing-left-running
-verified: 2026-09-16T14:05:00Z
-status: human_needed
-score: 3/5 must-haves verified
+verified: 2026-09-20T10:50:00Z
+status: gaps_found
+score: 4/5 must-haves verified
 covered_files:
   - ".planning/REQUIREMENTS.md"
+  - ".planning/ROADMAP.md"
+  - ".planning/STATE.md"
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-01-PLAN.md"
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-01-SUMMARY.md"
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-02-PLAN.md"
@@ -41,6 +43,17 @@ covered_files:
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-17-SUMMARY.md"
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-18-PLAN.md"
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-18-SUMMARY.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-19-PLAN.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-19-SUMMARY.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-REVIEW-part-core.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-REVIEW-part-frontend.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-REVIEW-part-sidecar.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-REVIEW-part-tauri.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-REVIEW.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-UAT.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/deferred-items.md"
+  - ".planning/quick/260920-duy-fix-cr-01-shimwillintercept-must-not-def/260920-duy-PLAN.md"
+  - ".planning/quick/260920-duy-fix-cr-01-shimwillintercept-must-not-def/260920-duy-SUMMARY.md"
   - "Cargo.toml"
   - "DESIGN.md"
   - "packages/core/Cargo.toml"
@@ -64,6 +77,9 @@ covered_files:
   - "packages/core/src/session_log.rs"
   - "packages/core/src/shim.rs"
   - "packages/core/tests/bin/commit_stress_harness.rs"
+  - "packages/core/tests/bin/uat_seed_ui.rs"
+  - "packages/core/tests/bin/uat_session_env.rs"
+  - "packages/core/tests/db_bootstrap.rs"
   - "packages/core/tests/destructive_classifier.rs"
   - "packages/core/tests/git_retry.rs"
   - "packages/core/tests/launch_reconciliation.rs"
@@ -115,59 +131,66 @@ covered_files:
   - "packages/sidecar/test/adapter.test.mjs"
   - "packages/sidecar/test/destructive-gate.test.mjs"
   - "packages/sidecar/test/watchdog.test.mjs"
-covered_digest: "v1:sha256:9e92f58272b7e1af4cab433adb0b0962361afb4339e0044ffbbaee5cdd79ef90"
-behavior_unverified: 2
+  - "scripts/uat/README.md"
+  - "scripts/uat/lib/long-lived-backend.mjs"
+  - "scripts/uat/lib/sidecar-harness.mjs"
+  - "scripts/uat/lib/supervisor.mjs"
+  - "scripts/uat/run-all.sh"
+  - "scripts/uat/uat-01-supervisor-kill.sh"
+  - "scripts/uat/uat-03-destructive-gate.mjs"
+  - "scripts/uat/uat-05-concurrent-commits.mjs"
+  - "scripts/uat/uat-ui-setup.sh"
+covered_digest: "v1:sha256:4e52e046bdefce409f5acead30ac0cc3858cba868b61c6e77c582205879f5961"
+behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: 2/5
+  previous_status: human_needed
+  previous_score: 3/5
   gaps_closed:
-    - "Success Criterion 5 / AGNT-07: classify_push now detects the delete family (--delete, -d, empty-source colon refspec) and the leading-plus force refspec, and no longer returns Verdict::Safe for any remote branch-deletion shape (03-14)."
-    - "Blocker: unvalidated agent_run_id path join in agent_run.rs's log-window commands — now fail-closed at the single session_log_path join site via a shared is_ulid predicate (03-15)."
-    - "Blocker: reachable non-UTF-8-boundary panic in sidecar.rs's readiness-handshake stderr-tail truncation, inside a non-unwinding block_on — replaced with a char-boundary-safe push_bounded_stderr_tail (03-15)."
-    - "Warning: destructive-gate card's Allow/Deny path had a state-only double-click guard, no useRef — closed with answeringRef (03-16), plus the push-shaped branch-deletion consequence sentence now names the branch, not the remote (pushDeleteTarget)."
-    - "Warning: OrphanRecoveryModal's Kill/Kill All had no re-entry guard at all — closed with a per-run killingRef Set (03-17)."
-    - "Warning: SessionSurface's Stop had a state-only guard, no ref — closed with stoppingRef (03-17)."
-    - "Warning: WorktreeRemovalDialog's Remove had a state-only guard, no ref — closed with removingRef (03-18)."
-    - "Warning: WorktreeSummary's missing-worktree early return required a non-empty path in addition to status === 'missing', letting a pathless missing row expose Remove Worktree — now gated on status alone (03-18)."
-  gaps_remaining: []
+    - "SC2 (PROC-03/PROC-04, whole-application kill -9 proof): now measured live via scripts/uat/uat-01-supervisor-kill.sh (03-UAT.md test 1, pass) — the previous verification's PRESENT_BEHAVIOR_UNVERIFIED status for this truth is closed."
+    - "SC3 (WORK-06/PROC-05, crash-relaunch orphan recovery proof): now measured live, human + harness, against the real running application with a genuinely live orphan (03-UAT.md test 2, pass) — the previous verification's PRESENT_BEHAVIOR_UNVERIFIED status for this truth is closed."
+    - "SC5/AGNT-07 destructive-card rendering: now produced by a live, unprompted session rather than only a seeded database row (03-UAT.md test 4, pass; 03-19-SUMMARY retires the seeding caveat)."
+    - "SC4/WORK-04/WORK-05 packaged-app concurrent-commit proof: now measured through a live agent session, not only the stress harness (03-UAT.md test 5, pass)."
+    - "CR-01 (03-REVIEW.md, Critical): shimWillIntercept's deferral branch could be bypassed by any command text that shadows bash's own name resolution ahead of PATH search (shell function, alias, hash -p, PATH= reassignment, env PATH=) — allowing a destructive command through with ZERO gating. Fixed by quick task 260920-duy: the shim's classifier now computes text_can_shadow_path_resolution and refuses to report invokedBareName: true for any of these shapes; confirmed by direct source read and by re-running the shipped hook's own CR-01 regression test in this session (2/2 pass)."
+  gaps_remaining:
+    - "G-03-3 half 2 (sustained block until a human answers, SC5/AGNT-07): still open. See gaps below."
   regressions: []
 advisory: []
-behavior_unverified_items:
-  - truth: "User quits the application while a session is running and no agent process survives — confirmed in the OS process table — including when the supervisor is killed rather than closed cleanly (Success Criterion 2, PROC-03/PROC-04)."
-    test: "With Flywheel running and one agent session live, find the app's process id and run `kill -9 <pid>` from a terminal (not the Quit menu item). Within ~20 seconds, confirm with `ps -ax | grep claude` that no `claude` process from that session survives, and confirm a kill-record file exists under `<app-data>/runtime/kills/` naming that run."
-    expected: "No agent process (or its subprocesses) from the killed session remains in the OS process table; a kill record naming the run id, pid, reason and timestamp exists on disk."
-    why_human: "The watchdog's own unit tests (watchdog.test.mjs) exercise heartbeat staleness with real spawned processes and pass, which proves the mechanism in isolation, but proving the WHOLE application (Rust supervisor + Node sidecar + watchdog process-group tree) survives a hard `kill -9` of the supervisor itself requires a packaged, running app — no harness in this repository stands that up. Unchanged since the initial verification; no gap-closure plan touched this."
-  - truth: "User relaunches after a crash and is shown every orphaned process, every in-flight run and every worktree that disagrees with the database, and decides what happens to each; nothing is silently resumed and nothing is silently repaired (Success Criterion 3, WORK-06/PROC-05)."
-    test: "With a session running, force-quit Flywheel with a kill signal rather than the Quit menu item, then relaunch. Confirm the orphan recovery modal blocks the board if any process survived, that Escape/click-outside do nothing, that Kill resolves each row, and the board becomes reachable only once the list is empty. Open the affected task and confirm its run reads Abandoned with an explanation, and Acknowledge clears the item."
-    expected: "The blocking overlay appears exactly when a live orphan exists, offers only Kill (never resume/adopt), and the board is unreachable until the list is empty; abandoned runs show their kill-record reason and clear only on Acknowledge."
-    why_human: "The launch classification logic itself (reconcile_worktrees, reconcile_agent_runs's three-way split, pid-reuse-safe liveness) is exercised by passing cargo tests against a real DB and real process rows — code-verified, and the modal's Kill/Kill-All re-entry guard is now additionally closed and tested (03-17). What remains unverified is the full live-application UX: the modal actually blocking paint, Escape/click-outside truly doing nothing, and the recovery flow completing in a packaged app rather than jsdom. Unchanged since the initial verification."
+behavior_unverified_items: []
 coincidental_reliance_items: []
-human_verification:
-  - test: "With Flywheel running and one agent session live, kill the supervisor with `kill -9 <pid>` (not Quit) and confirm within ~20s that no `claude` process from that session survives in `ps -ax`, and a kill record exists under `<app-data>/runtime/kills/`."
-    expected: "No orphaned agent process in the OS process table; a kill record naming run id, pid, reason and timestamp exists."
-    why_human: "Requires a packaged, running app and a real OS process table check; plan 03-02 deferred this explicitly."
-  - test: "Force-quit Flywheel while a session runs, relaunch, and confirm the orphan recovery modal blocks the board (no Escape/click-outside dismissal), Kill resolves each row, and the board is reachable only once the list is empty; then confirm the run shows Abandoned with the watchdog's own reason and Acknowledge clears it."
-    expected: "Blocking overlay behavior, per-row Kill, Kill All, and the abandoned-run badge/Acknowledge flow all work as specified in the real application."
-    why_human: "Plan 03-10 explicitly deferred this — no jsdom test can stand up the real modal-blocks-paint guarantee."
-  - test: "Start a real session on a scratch repository in an auto-accept permission mode and instruct the agent to force-push, or to delete a remote branch (git push --delete). Confirm the board shows a pending permission request, the session sits blocked rather than proceeding, and the remote branch/ref is unchanged. Deny it and confirm the agent receives an explanation naming the refusal."
-    expected: "The destructive gate stops the agent and asks a human before the force-push or branch deletion executes; denial surfaces a clear refusal to the agent, not a bare non-zero exit."
-    why_human: "Plan 03-07 explicitly deferred this — it requires a real session against the real installed backend binary in auto-accept mode, which no harness in this repository stands up. The classifier gap that previously made this specific scenario (remote branch deletion via push) fail at the code level is now closed and covered by a real end-to-end shim+socket test (03-14), but a live agent session driving the real LLM has still not been observed by any executor."
-  - test: "With a real session running in auto-accept permission mode, have the agent attempt two different destructive categories in turn, including a push-shaped branch deletion. Confirm the card shows the stop-sign glyph, the correct consequence sentence (naming the deleted branch, not the remote, for the push-shaped case), Deny filled/primary and Allow outline/secondary reading \"just this once,\" and that no allow-always option is offered anywhere, including in the Settings permission-rules table after answering Allow."
-    expected: "Destructive-variant card renders correctly with reversed button emphasis, the branch-not-remote consequence sentence for push-shaped deletions, and no standing-grant affordance in the real application."
-    why_human: "Plan 03-12 explicitly deferred this — requires a live session and visual confirmation of the card's rendered state. The consequence-copy fix (pushDeleteTarget) and the card's own re-entry guard are now unit-tested (03-16), but visual/live confirmation has not been observed."
-  - test: "In the packaged application, drive ten concurrent commits into worktrees of one repository through a live agent session (not just the automated stress harness) and confirm every commit lands and the agent's own git invocations resolve through the installed PATH shim."
-    expected: "All ten commits are reachable; the shim (not a bare system git) is what resolved the agent's own commits."
-    why_human: "The automated `lock_contention.rs`/`commit_stress_harness.rs` suite drives the shim directly and passes (WORK-04/WORK-05 code-verified), and 03-08's own SUMMARY records a manual by-hand run confirming a real commit through the shim — but neither is the full packaged app driving a real agent session end to end. No packaged app was available to any executor in this phase; noted for end-of-phase confirmation per project convention."
+gaps:
+  - truth: "An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete, and the session stays blocked until a human answers (Success Criterion 5, AGNT-07; 03-UAT.md gap G-03-3's own compound truth statement)."
+    status: partial
+    reason: "The 'raises a pending permission request' half is now measured true (plan 03-19 + quick task 260920-duy fixed the classifier-bypass regression CR-01 introduced). The 'blocks the session until a human answers' half remains unproven: across five independent live measurements (03-19-SUMMARY.md 'Issues Encountered'; STATE.md line 231), a real claude 2.1.267 session self-terminates (session_closed, reason: 'failed') roughly 15-16 seconds after the deliberate permission_request is raised and left unanswered — before any human could realistically answer, and before the request is ever resolved. The watchdog's own heartbeat-staleness kill was explicitly ruled out by measurement (a run with FLYWHEEL_HEARTBEAT_STALE_MS=120000, confirmed to propagate to the watchdog process, failed identically at the same ~15-16s mark). Root cause is unconfirmed: it may be an internal claude 2.1.267 behavior when a Bash tool call produces no output for an extended period, or some other session-lifecycle mechanism in claude-code-adapter.ts/watchdog.ts neither plan 03-19 nor the CR-01 fix touched. No work has landed against packages/sidecar/src/watchdog.ts or packages/sidecar/src/claude-code-adapter.ts since this was discovered (confirmed: no commits touch either file since 03-18)."
+    artifacts:
+      - path: "packages/sidecar/src/watchdog.ts"
+        issue: "Ruled out as the direct cause (heartbeat-staleness override did not change the ~15-16s termination), but the actual mechanism terminating the session under a pending, unanswered permission_request has not been identified in this file or elsewhere."
+      - path: "packages/sidecar/src/claude-code-adapter.ts"
+        issue: "Named as a candidate location for the unidentified session-lifecycle mechanism; not yet investigated."
+    missing:
+      - "A dedicated follow-up plan/spike, run in a clean environment (no inherited personal ~/.claude/ configuration), that identifies why the session terminates ~15-16s into an unanswered destructive-gate block and either fixes it or proves it does not reproduce in a packaged, production-shaped run."
+      - "A reconciled statement of AGNT-07's status: REQUIREMENTS.md marks AGNT-07 'Complete' and 03-19-SUMMARY.md's own frontmatter claims requirements-completed: [AGNT-07], but that same SUMMARY's key-decisions section explicitly states 'AGNT-07 is NOT re-certified as fully closed by this plan.' This verifier's read is that AGNT-07's core defect (refusal instead of confirmation) is fixed, but the requirement's own wording ('always require explicit confirmation') is not yet demonstrated to survive realistic answer latency — the two documents should not both claim 'Complete' without qualifying this."
 ---
 
-# Phase 03: Nothing Lost, Nothing Left Running — Verification Report (Re-Verification)
+# Phase 3: Nothing Lost, Nothing Left Running — Verification Report (Re-Verification)
 
 **Phase Goal:** "Cyril can quit, crash or interrupt Flywheel at any moment and know that no
 uncommitted work was destroyed and no agent is still spending his money."
-**Verified:** 2026-09-16T14:05:00Z
-**Status:** human_needed
-**Re-verification:** Yes — after gap closure (5 gap-closure plans: 03-14 through 03-18)
+**Verified:** 2026-09-20T10:50:00Z
+**Status:** gaps_found
+**Re-verification:** Yes — against the current tree, superseding a stale 2026-09-16 report that
+predates plans 03-14 through 03-19, code review 03-REVIEW.md, and quick task 260920-duy (the CR-01
+fix). This report does not carry forward the prior report's conclusions; every truth below was
+re-derived from source, tests run in this session, and the phase's own dated artifacts.
+
+**A note on ROADMAP mode:** Phase 3's ROADMAP entry is tagged `Mode: mvp`, but its goal text
+("Cyril can quit, crash or interrupt Flywheel...") is not in the `As a ... I want ... so that ...`
+User Story shape the MVP verification path requires (`user-story.validate` returns `valid: false`
+against it). The prior verification round already treated this phase under the standard
+Success-Criteria goal-backward method, not MVP User Flow Coverage, and produced a report the project
+accepted; this report follows that same precedent rather than halting on a tagging inconsistency
+that predates both verification rounds. Flagging this as an `info`-level note, not a blocker — the
+ROADMAP's `Mode: mvp` tag on this phase should be corrected or the goal reworded in a future pass.
 
 ## Goal Achievement
 
@@ -175,107 +198,127 @@ uncommitted work was destroyed and no agent is still spending his money."
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | User tries to remove a worktree holding uncommitted changes; Flywheel refuses, shows exactly what would have been lost, and leaves the worktree alone. | ✓ VERIFIED | Unchanged from initial verification: `remove_worktree_for_task` re-reads `git status --porcelain` unconditionally; `worktree_removal.rs` (8 tests) proves the refusal. Additionally closed since last round: `WorktreeRemovalDialog.tsx`'s `handleRemove` now guards with a synchronous `removingRef` (03-18), confirmed present at source and proven by 3 new raw-`.click()` tests in `worktree-removal.test.tsx`, run directly (`worktree-removal.test.tsx`: 11/11 pass). |
-| 2 | User quits the application while a session is running and no agent process survives — confirmed in the OS process table — including when the supervisor is killed rather than closed cleanly. | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | Unchanged. Watchdog mechanism (`packages/sidecar/src/watchdog.ts`) is present, wired as process-group leader, force-kills its own group with no grace window on heartbeat staleness, exercised with real spawned processes in `watchdog.test.mjs`. The whole-application `kill -9` proof against a packaged app remains deferred to end-of-phase human verification. See `behavior_unverified_items`. |
-| 3 | User relaunches after a crash and is shown every orphaned process, every in-flight run and every worktree that disagrees with the database, and decides what happens to each; nothing is silently resumed and nothing is silently repaired. | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | Unchanged in substance. `reconcile_worktrees`/`reconcile_agent_runs` remain present, wired, and cargo-tested against a real DB. Newly closed since last round: `OrphanRecoveryModal.tsx`'s `handleKill`/`handleKillAll` now carry a per-run `killingRef` (`Set<string>`) re-entry guard (03-17), confirmed at source (`killingRef.current.has/.add/.delete`) and proven by 5 new raw-`.click()` tests, run directly (`orphan-recovery.test.tsx`: 23/23 pass). The full live-application blocking-overlay UX still requires a packaged app. See `behavior_unverified_items`. |
-| 4 | A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place. | ✓ VERIFIED | Unchanged. `lock_contention.rs` (7 tests) and `spawn_stagger.rs` (5 tests) exercise real concurrent commits through the built shim binary via `CARGO_BIN_EXE`. `git_retry.rs`'s shared backoff/jitter/budget module confirmed as the one retry policy both `git_at` and the shim call into. Re-confirmed unaffected by the classify_push change (03-14's own SUMMARY records `lock_contention.rs` 6/6 and `spawn_stagger.rs` 5/5 still green post-change). |
-| 5 | An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete. | ✓ VERIFIED | **Gap closed (was FAILED).** Read `classify_push` directly in `packages/core/src/destructive.rs` (lines 201-262): it now detects the delete family (`--delete`, `-d`, and the empty-source colon refspec `positional.iter().any(|p| p.starts_with(':'))`) as the FIRST early return, ahead of the default-branch and force checks — confirmed `git push origin :main` now classifies `BranchDeletion`, not `DefaultBranchPush`. Ran the exact named unit test `delete_shaped_push_long_form_flag_takes_priority_over_default_branch_push_on_the_default_branch` directly: `1 passed`. Ran the real end-to-end proof `shim_gate::a_delete_shaped_push_raises_a_branch_deletion_request_and_is_never_executed_on_deny` directly (spawns the real built shim binary as `git` against a real mock permission socket, asserts `destructiveCategory: "branch-deletion"` on the wire and that `FLYWHEEL_REAL_GIT` is never invoked on deny): `1 passed`. Force-push, default-branch-push, hard-reset, force-clean, history-rewrite, and recursive-delete were already correctly gated and unaffected by this change (measured-state CLI reproduction in the orchestrator's brief confirms the full command matrix). The one narrow, previously-unguarded shape (remote branch deletion via `git push`) is closed at the source, tested at both the unit and real-binary-integration level, and the frontend's own push-shaped consequence-copy bug this made reachable (naming the remote instead of the branch) is separately closed by `pushDeleteTarget` (03-16). No remaining code-level gap against this truth's literal wording. A live session against the real installed backend binary in auto-accept mode has still not been observed by any executor — carried forward as human verification (unchanged in kind from the initial round, now with a materially stronger code proof underneath it). |
+| 1 | User tries to remove a worktree holding uncommitted changes; Flywheel refuses, shows exactly what would have been lost, and leaves the worktree alone. | ✓ VERIFIED | `remove_worktree_for_task` re-reads `git status --porcelain` unconditionally before every removal; `worktree_removal.rs` and `WorktreeRemovalDialog.tsx`'s `removingRef` guard (03-18) are exercised by the full `cargo test --workspace` and `npx vitest run` runs I executed directly this session — both fully green (see Behavioral Spot-Checks). No live UAT harness targets SC1 specifically; code-level proof is what this truth has always rested on, unchanged in kind from the initial verification. |
+| 2 | User quits the application while a session is running and no agent process survives — confirmed in the OS process table — including when the supervisor is killed rather than closed cleanly. | ✓ VERIFIED | **Upgraded from PRESENT_BEHAVIOR_UNVERIFIED.** `03-UAT.md` test 1 (`scripts/uat/uat-01-supervisor-kill.sh`, automated, pass): the watchdog force-kills the session's whole process group within one stale window and writes a kill record naming run id, pid, reason and timestamp under `<app-data>/runtime/kills/`. Documented scope note in the UAT record itself: the leaf of the process tree is a long-lived stub rather than a real `claude` process, because `claude` 2.1.267's own turns end (~16s) before the 15s stale window under its tool policy — a defensible test-design necessity, not a gap in the product, since everything above the leaf (the watchdog, process-group signalling, kill-record write) is the real product code. |
+| 3 | User relaunches after a crash and is shown every orphaned process, every in-flight run and every worktree that disagrees with the database, and decides what happens to each; nothing is silently resumed and nothing is silently repaired. | ✓ VERIFIED | **Upgraded from PRESENT_BEHAVIOR_UNVERIFIED.** `03-UAT.md` test 2 (human + harness, pass): confirmed against the real running application with a genuinely live orphan — modal blocked the board, Escape did nothing (screenshot-verified before/after), only Kill/Kill All were offered, Kill resolved the row, the run showed Abandoned with reason `killed-by-user-at-launch`, and Acknowledge cleared it. |
+| 4 | A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place. | ✓ VERIFIED | `03-UAT.md` test 5 (automated, pass): all ten commits reachable through a real `claude` session (not just the stress harness), zero shim retry-budget exhaustions, shim resolution proven by the agent's own `command -v git` resolving to the per-run shim directory. `lock_contention.rs`/`spawn_stagger.rs` also pass in my own `cargo test --workspace` run this session. |
+| 5 | An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete — and the session stays blocked until a human answers (SC5, AGNT-07; the compound truth `03-UAT.md`'s own gap G-03-3 was filed against). | ◐ PARTIAL — see gap | **Half 1 (raises a pending permission request): VERIFIED.** Plan 03-19 rewrote `pretooluse-hook.ts` to defer to the shim's own permission socket instead of refusing every non-safe verdict outright, closing the original G-03-3 defect (03-UAT.md test 3, `non_execution_kind: "permission-rule"` refusal with zero `permission_request`s raised, ever). A subsequent code review (03-REVIEW.md CR-01, Critical) found the new deferral branch could itself be bypassed by any command text that shadows bash's own PATH resolution (a shell function/alias/`PATH=` reassignment ahead of the destructive segment) — allowing the destructive command through with **zero** gating, worse than pre-03-19 behaviour. Quick task 260920-duy fixed this: `packages/shim/src/main.rs`'s classifier now computes `text_can_shadow_path_resolution` and reports `invokedBareName: false` for every shape CR-01 named (function def, alias, `function` keyword, `hash -p`, `PATH=`, `env PATH=`), forcing the hook's deny path instead. Confirmed directly this session: source read of `pretooluse-hook.ts`/`main.rs` shows the fix present and documented; I re-ran the shipped hook's own CR-01 regression test (`the hook denies the measured CR-01 bypass commands and still defers to the ordinary case, in the same shim directory`) — **1/1 pass** — and the companion missing-shadow-entry test — **1/1 pass**. The card-render truth this same SC references (03-UAT.md test 4: stop-sign glyph, branch-not-remote consequence copy, no allow-always affordance anywhere including Settings) is also now produced by a live, unprompted session rather than a seeded row, and passes. **Half 2 (blocks the session until a human answers): NOT VERIFIED — open gap.** See Gaps below. |
 
-**Score:** 3/5 truths verified (2 present, behavior-unverified — Truths 2 and 3 — excluded from the numerator per the behavior_unverified metric)
+**Score:** 4/5 truths verified (0 present-behavior-unverified; 1 partial, blocking — Truth 5's
+"sustained block" half remains an open, measured, unresolved finding).
 
 ### Requirements Coverage
 
 | Requirement | Source Plan(s) | Description | Status | Evidence |
 |---|---|---|---|---|
-| WORK-03 | 03-01, 03-05, 03-18 | Worktree never destroyed without checking for uncommitted changes; refused and surfaced if any exist | ✓ SATISFIED | `remove_worktree_for_task`, `WorktreeRemovalDialog.tsx` (now with `removingRef`), `worktree_removal.rs` (8 tests), `worktree-removal.test.tsx` (11 tests). REQUIREMENTS.md: Complete. |
-| WORK-04 | 03-04, 03-08, 03-13, 03-14 | Concurrent git operations retry with exponential backoff/jitter on lock contention | ✓ SATISFIED | `git_retry.rs`'s single shared policy; `lock_contention.rs` (7 tests, zero commits lost); confirmed unaffected by 03-14's classifier change. REQUIREMENTS.md: Complete. |
-| WORK-05 | 03-04, 03-08, 03-14 | Agent spawn timing desynchronised to avoid index collisions | ✓ SATISFIED | `SpawnFloor`/`wait_turn` in `git_retry.rs`; `spawn_stagger.rs` (5 tests), confirmed unaffected. REQUIREMENTS.md: Complete. |
-| WORK-06 | 03-03, 03-09, 03-11, 03-18 | Launch reconciles worktrees on disk vs database, surfaces discrepancy rather than repairing | ✓ SATISFIED | `reconcile_worktrees`, CHECK-constrained `missing` status, `MissingWorktreeBanner` now gated on `status` alone (03-18, closing the empty-path bypass). Live end-to-end confirmation still deferred to human verification (SC3). REQUIREMENTS.md: Complete. |
-| PROC-03 | 03-02, 03-15 | Agent processes managed as process groups so termination kills the whole tree | ✓ SATISFIED | `watchdog.ts` process-group leader; negative-pid signalling; run-id validation at the process-log boundary now delegates to the single shared `is_ulid` predicate (03-15). REQUIREMENTS.md: Complete. |
-| PROC-04 | 03-02, 03-10, 03-15, 03-17 | No agent process survives application quit; worker self-terminates if supervisor disappears | ✓ SATISFIED (code-verified; live proof deferred) | Watchdog heartbeat/force-kill mechanism present and unit-tested with real processes; `sidecar.rs`'s readiness-handshake stderr-tail panic closed (03-15); `OrphanRecoveryModal`'s Kill/Kill-All re-entry guard closed (03-17). Whole-application `kill -9` proof still deferred to human verification (SC2). REQUIREMENTS.md: Complete. |
-| PROC-05 | 03-06, 03-10, 03-11, 03-17 | Orphaned processes/in-flight runs detected and surfaced on launch, never silently resumed | ✓ SATISFIED (code-verified; live proof deferred) | `reconcile_agent_runs`'s three-way classification, `pending_orphans` state, `OrphanRecoveryModal` re-entry-guarded; `SessionSurface`'s Stop control re-entry-guarded (03-17). Full live UX still deferred to human verification (SC3). REQUIREMENTS.md: Complete. |
-| AGNT-07 | 03-07, 03-12, 03-14, 03-16 | Destructive actions always require confirmation, even in auto-accept mode | ✓ SATISFIED | **Gap closed.** `classify_push`'s remote-branch-deletion hole is closed and tested end-to-end through the real shim binary (03-14); `PermissionRequestCard`'s re-entry guard and push-aware consequence copy are closed and tested (03-16). REQUIREMENTS.md: Complete. |
+| WORK-03 | 03-01, 03-05, 03-18 | Worktree never destroyed without checking for uncommitted changes; refused and surfaced if any exist | ✓ SATISFIED | Unchanged from prior round; re-confirmed by a fully green `cargo test --workspace`/`npx vitest run` this session. |
+| WORK-04 | 03-04, 03-08, 03-13, 03-14 | Concurrent git operations retry with exponential backoff/jitter on lock contention | ✓ SATISFIED | `git_retry.rs`'s single shared policy; `lock_contention.rs` (green); now additionally live-proven through a real agent session (03-UAT.md test 5). |
+| WORK-05 | 03-04, 03-08, 03-14 | Agent spawn timing desynchronised to avoid index collisions | ✓ SATISFIED | `SpawnFloor`/`wait_turn`; `spawn_stagger.rs` (green); live-proven alongside WORK-04 (03-UAT.md test 5). |
+| WORK-06 | 03-03, 03-09, 03-11, 03-18 | Launch reconciles worktrees on disk vs database, surfaces discrepancy rather than repairing | ✓ SATISFIED | `reconcile_worktrees`; `MissingWorktreeBanner` gated on `status` alone (03-18); live crash-relaunch proof now closed (03-UAT.md test 2). |
+| PROC-03 | 03-02, 03-15 | Agent processes managed as process groups so termination kills the whole tree | ✓ SATISFIED | `watchdog.ts` process-group leader, negative-pid signalling; live-proven (03-UAT.md test 1). |
+| PROC-04 | 03-02, 03-10, 03-15, 03-17 | No agent process survives application quit; worker self-terminates if supervisor disappears | ✓ SATISFIED | Watchdog heartbeat/force-kill mechanism, unit-tested and now live-proven (03-UAT.md test 1). |
+| PROC-05 | 03-06, 03-10, 03-11, 03-17 | Orphaned processes/in-flight runs detected and surfaced on launch, never silently resumed | ✓ SATISFIED | `reconcile_agent_runs`, `OrphanRecoveryModal` re-entry-guarded; live-proven (03-UAT.md test 2). |
+| AGNT-07 | 03-07, 03-12, 03-14, 03-16, 03-19, quick-260920-duy | Destructive actions always require confirmation, even in auto-accept mode | ◐ PARTIAL (see gap) | The refusal-instead-of-confirmation defect (G-03-3's original filing) is fixed and live-proven (03-19); the classifier-bypass regression that fix introduced (CR-01) is fixed and regression-tested (260920-duy). The requirement's own wording — "always require explicit confirmation" — is not yet demonstrated to hold when a human takes longer than ~15-16s to answer: five independent live measurements show the session self-terminating before that point, unanswered. **REQUIREMENTS.md marks this Complete; this verifier does not consider that fully accurate without a qualifier**, and 03-19-SUMMARY.md's own key-decisions section agrees ("AGNT-07 is NOT re-certified as fully closed by this plan"). |
 
-All 8 requirement IDs read `Complete` in `.planning/REQUIREMENTS.md`, confirmed by direct grep, not by trusting the SUMMARYs' own claims. No orphaned requirements.
+All 8 requirement IDs are present in REQUIREMENTS.md and mapped to a phase-03 plan; no orphaned
+requirement IDs found (direct grep, not SUMMARY trust). AGNT-07's REQUIREMENTS.md status line reads
+`Complete` — this verifier flags that as premature pending the gap below, not as a fabrication (the
+underlying defect this requirement was originally filed against genuinely is fixed).
 
-### Required Artifacts (Gap-Closure Deltas Only — see initial 03-VERIFICATION.md history for the full inventory)
+### Required Artifacts (Delta Since Stale 2026-09-16 Verification)
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `packages/core/src/destructive.rs` (`classify_push`) | Delete-family + plus-refspec detection | ✓ VERIFIED | Lines 201-262 confirmed: `delete` flag (`--delete`, `-d`), `colon_delete_refspec` (positional starting with `:`), checked FIRST, ahead of `targets_default` and `force`; `plus_refspec` folded into the existing force check. |
-| `packages/core/tests/destructive_classifier.rs` | Delete-shape + shim_gate coverage | ✓ VERIFIED | 15 new named tests confirmed present (`delete_shaped_push_*`, `force_push_leading_plus_*`, `safe_refspec_with_no_leading_plus_is_not_a_force_push`, `shim_gate::a_delete_shaped_push_raises_a_branch_deletion_request_and_is_never_executed_on_deny`). Two representative tests re-run directly: both pass. |
-| `packages/core/src/session_log.rs` (`session_log_path`) | Single fail-closed join site | ✓ VERIFIED | Guards with `crate::ids::is_ulid(agent_run_id)` as its first statement; `count_lines`/`read_window` both call through it, so every read/write path inherits the guard. |
-| `packages/core/src/ids.rs` (`is_ulid`) | The one shared shape predicate | ✓ VERIFIED | Single definition; `session_log_path` and `sidecar.rs`'s `is_plausible_run_id` both delegate to it — no second, divergent implementation found anywhere in the workspace. |
-| `packages/desktop/src-tauri/src/sidecar.rs` (`push_bounded_stderr_tail`) | Char-boundary-safe stderr-tail cut | ✓ VERIFIED | Walks back to `is_char_boundary` before the one remaining `tail.truncate(cut)` call; the previous raw-byte-index `String::truncate` no longer exists anywhere in the readiness path. 5 named `stderr_tail_tests` re-run directly: all pass. |
-| `packages/desktop/src/session/PermissionRequestCard.tsx` (`answeringRef`, `pushDeleteTarget`) | Re-entry guard + push-aware consequence copy | ✓ VERIFIED | `answeringRef` (`useRef(false)`) checked/set before any `await`, cleared only in `catch`; `pushDeleteTarget` dispatched when `tokens[1] === "push"`. |
-| `packages/desktop/src/recovery/OrphanRecoveryModal.tsx` (`killingRef`) | Per-run re-entry guard for Kill/Kill All | ✓ VERIFIED | `useRef<Set<string>>`, checked/added before dispatch, deleted only on the non-terminal (`not-killed`/`thrown`) outcome branches, never on the terminal `killed` branch. |
-| `packages/desktop/src/session/SessionSurface.tsx` (`stoppingRef`) | Re-entry guard for Stop | ✓ VERIFIED | `useRef(false)`, checked/set before dispatch, cleared only in `.catch`. |
-| `packages/desktop/src/item-detail/WorktreeRemovalDialog.tsx` (`removingRef`) | Re-entry guard for Remove | ✓ VERIFIED | `useRef(false)`, checked/set before any `await`, cleared only in `catch`. |
-| `packages/desktop/src/item-detail/WorktreeSummary.tsx` (missing-worktree early return) | Gated on `status` alone | ✓ VERIFIED | `if (summary.status === "missing")` — the `isNonEmptyString(summary.path)` conjunct is gone; `MissingWorktreeBanner`'s `path` prop widened to `string | null | undefined` and the banner itself picks between two complete sentences. |
+| `packages/shim/src/main.rs` (`--classify-invocation`, `text_can_shadow_path_resolution`) | Reports whether a destructive invocation is reachable by the shim's shadow PATH entry, refusing to call it "bare" if the text itself can pre-empt PATH resolution | ✓ VERIFIED | Confirmed present at source (`resolve_segment_program_index`, `text_can_shadow_path_resolution`, `invoked_bare_name` field on `ClassifiedInvocation`). |
+| `packages/sidecar/src/pretooluse-hook.ts` (`shimWillIntercept`, two-branch decision) | Defers to the shim's socket only when interception is provable; denies otherwise, including the CR-01 shadow-bypass class | ✓ VERIFIED | Confirmed present at source; doc comment explicitly documents the two-fact split (TEXT property via the shim classifier, ENVIRONMENT property via `shimWillIntercept`) added by the CR-01 fix. Regression test for the exact CR-01 bypass commands re-run directly: 1/1 pass. |
+| `packages/sidecar/src/mcp-permission-server.ts` (`socketBaseDir`) | Permission socket binds under `/tmp` to fit `SUN_LEN`, falling back to `os.tmpdir()` | ✓ VERIFIED | Confirmed present at source. **Not hardened**: no `fs.chmodSync` call anywhere in this file — WR-01 from 03-REVIEW.md (socket left at default umask permissions under the now-shared `/tmp`) remains open; see Anti-Patterns. |
+| `packages/core/src/db/mod.rs` (`app_data_dir`, `FLYWHEEL_APP_DATA_DIR`) | Test/production seam for the fleet database directory | ✓ VERIFIED (present, functions) | Present and functioning for its stated purpose. **Not hardened**: no `is_absolute()` check — WR-02 from 03-REVIEW.md (a non-empty relative override silently resolves against CWD, contrary to the function's own doc comment) remains open; see Anti-Patterns. |
+| `scripts/uat/uat-03-destructive-gate.mjs` | Live E2E measurement of the destructive gate against a real session | ✓ VERIFIED present and current | Retargeted in 03-19 to the two-phase flow; not re-run live in this verification session (see Behavioral Spot-Checks for why) — relies on the orchestrator's own fresh measurement table plus my own regression-test confirmation of the underlying code fix. |
 
-### Key Link Verification (Gap-Closure Deltas Only)
+### Key Link Verification (Delta)
 
 | From | To | Via | Status | Details |
 |---|---|---|---|---|
-| `packages/shim/src/main.rs` | `packages/core/src/destructive.rs` (`classify_push`) | shim classifies argv before executing | ✓ WIRED | Confirmed via the passing `shim_gate::a_delete_shaped_push_raises_a_branch_deletion_request_and_is_never_executed_on_deny` integration test — the real built shim binary invokes the fixed classifier and raises a real request over a real socket. |
-| `packages/desktop/src-tauri/src/commands/agent_run.rs` (`agent_run_log_window`/`agent_run_raw_window`) | `packages/core/src/session_log.rs` (`session_log_path`) | direct call, no local re-implementation of the shape guard | ✓ WIRED | Confirmed by reading both command bodies — neither re-implements a guard; both funnel through `session_log::read_window`/`count_lines`/`session_log_path`, all of which reject via the single `is_ulid` check. Two dedicated rejection tests re-run directly: both pass. |
-| `packages/desktop/src-tauri/src/sidecar.rs` (readiness handshake) | `push_bounded_stderr_tail` | stderr accumulation during the 5s startup handshake | ✓ WIRED | Confirmed at the call site (line ~900): `push_bounded_stderr_tail(&mut stderr_tail, &bytes, READINESS_STDERR_TAIL_CAP)`, replacing the prior unguarded `truncate`. |
+| `packages/shim/src/main.rs` (`--classify-invocation`) | `packages/sidecar/src/pretooluse-hook.ts` (`shimWillIntercept` + `invokedBareName` check) | hook shells out to the shim's classify-invocation mode and requires BOTH the text proof and the environment proof before deferring | ✓ WIRED | Confirmed via the passing shipped-hook regression test exercising both the shim binary and the hook script together, not a mock of either. |
+| `packages/sidecar/src/pretooluse-hook.ts` (deny branch) | `packages/sidecar/src/mcp-permission-server.ts` (permission socket) | shim's `request_permission` connects to the socket ONLY when the hook defers | ✓ WIRED (per 03-19-SUMMARY's live measurement) | A live agent-issued `git push origin --delete <branch>` produced a genuine `permission_request` carrying `destructiveCategory: "branch-deletion"` — not re-measured live by this verifier (see Behavioral Spot-Checks), taken from the orchestrator's directly-reported, fresh (this-session) measurement. |
+| `packages/sidecar/src/mcp-permission-server.ts` (held request) | a human's Allow/Deny answer | the session is expected to remain blocked, unresolved, until `resolvePermission` is called | ✗ NOT CONFIRMED SUSTAINED | This is the crux of the open gap: the connection/request is real and raised, but the session terminates on its own before this link is ever exercised to completion in any of five live measurements. |
 
-### Behavioral Spot-Checks
+### Behavioral Spot-Checks (Run Directly, This Session)
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| `classify_push` delete-priority-over-default-branch (D2) | `cargo test -p core --test destructive_classifier delete_shaped_push_long_form_flag_takes_priority_over_default_branch_push_on_the_default_branch -- --exact` | `1 passed; 0 failed` | ✓ PASS |
-| `classify_push` end-to-end through the real shim + real permission socket (D3) | `cargo test -p core --test destructive_classifier "shim_gate::a_delete_shaped_push_raises_a_branch_deletion_request_and_is_never_executed_on_deny" -- --exact` | `1 passed; 0 failed` | ✓ PASS |
-| `session_log_path` rejects every implausible run-id shape | `cargo test -p core --test session_log_window session_log_path_rejects_every_implausible_shape_and_accepts_a_real_ulid -- --exact` | `1 passed; 0 failed` | ✓ PASS |
-| `count_lines`/`read_window` reject every rejected id | `cargo test -p core --test session_log_window count_lines_and_read_window_return_err_for_every_rejected_id -- --exact` | `1 passed; 0 failed` | ✓ PASS |
-| `agent_run_log_window`/`agent_run_raw_window` reject a traversal-shaped run id | `cargo test -p desktop "commands::agent_run::tests::agent_run_log_window_rejects_a_run_id_that_is_not_ulid_shaped" -- --exact` and the `raw_window` counterpart | `1 passed` each | ✓ PASS |
-| `push_bounded_stderr_tail` never panics on non-UTF-8/multi-byte boundary straddling | `cargo test stderr_tail` (in `packages/desktop/src-tauri`) | `5 passed; 0 failed` | ✓ PASS |
-| Re-entry guards close the double-click windows on all 4 named surfaces, using raw `.click()` (not `fireEvent.click`) | `npx vitest run` on `permission-card.test.tsx`, `orphan-recovery.test.tsx`, `session-surface.test.tsx`, `worktree-removal.test.tsx`, `worktree-summary.test.tsx` | `Test Files 5 passed (5)`, `Tests 149 passed (149)` | ✓ PASS |
-| New re-entry tests genuinely use raw `element.click()` in one synchronous tick, not `fireEvent.click` | `grep` for `.click()` vs `fireEvent.click` inside each new "synchronous"-named test/describe block across all 4 files | Every new re-entry assertion found calling `.click()` directly (e.g. `denyButton.click(); denyButton.click(); denyButton.click();`); the pre-existing `fireEvent.click` double-click tests were kept and relabeled to document why they do NOT prove the guard, not deleted or repurposed to falsely claim proof | ✓ PASS |
-| `classify_git` still misclassifies a leading global flag (e.g. `git -C <dir> status`) as `Uncategorized` | Source inspection of `packages/core/src/destructive.rs:156-174` | `subcommand = expanded.first()`, no global-flag skip — unchanged | ✓ CONFIRMED (still open, deliberately out of scope per phase decision — fails closed, degrades usability only) |
-| No debt markers (`TBD`/`FIXME`/`XXX`) introduced in any of the 16 files touched by the 5 gap-closure plans | `grep -nE "TBD|FIXME|XXX"` across all 16 changed files | No matches | ✓ CONFIRMED clean |
+| CR-01 shadow-bypass commands are denied; ordinary bare command still defers | `node --test --test-name-pattern 'shadow\|CR-01\|bypass' packages/sidecar/test/destructive-gate.test.mjs` | `# tests 2`, `# pass 2`, `# fail 0` | ✓ PASS |
+| Full Rust workspace suite | `cargo test --workspace` | every `test result: ok` line, 0 failed across all binaries (core, shim, desktop, relay_client) | ✓ PASS |
+| Full sidecar suite (Node) | `npm --prefix packages/sidecar run test` | first run: `65 pass / 1 fail` (a timing-sensitive watchdog stale-window test); clean re-run: `66 pass / 0 fail` | ✓ PASS (flaky on cold run, deterministic on rerun — noted, not a code defect this verifier could attribute to any phase-03 change) |
+| Full desktop suite (Vitest) | `npx vitest run` (packages/desktop) | `Test Files 32 passed (32)`, `Tests 440 passed (440)` | ✓ PASS |
+| Live E2E destructive-gate measurement (`scripts/uat/uat-03-destructive-gate.mjs`) | not re-run this session | N/A | ? SKIP — spawns a real `claude` session against live credentials; the orchestrator's own fresh measurement (reported in this task's briefing) plus this session's source-level and unit-test confirmation of the underlying fix were judged sufficient without repeating a slow, costly live run that the SUMMARY/STATE.md already document exhaustively (5 independent runs) |
+| No debt markers introduced in any file touched since the stale verification | `grep -nE "TBD\|FIXME\|XXX\|TODO\|HACK\|PLACEHOLDER"` across all 13 files 03-19 + quick-260920-duy touched | no matches | ✓ CONFIRMED clean |
 
 ### Probe Execution
 
-Not applicable — this phase has no `scripts/*/tests/probe-*.sh` convention and none is declared in any PLAN/SUMMARY.
+Not applicable — no `scripts/*/tests/probe-*.sh` convention exists in this repository. This project
+uses `scripts/uat/*.sh`/`*.mjs` harnesses instead, covered under Behavioral Spot-Checks and
+Requirements Coverage above.
 
-### Anti-Patterns Found (Status Update from Initial Verification)
+### Anti-Patterns Found (Status Update)
 
-| File | Line | Pattern (from initial verification) | Resolution |
+| File | Pattern | Severity | Resolution |
 |---|---|---|---|
-| `packages/core/src/destructive.rs` | 186-220 (now 201-262) | `classify_push` fails open for non-default-branch delete pushes | 🛑 Blocker → **RESOLVED** (03-14, confirmed by source read + 2 re-run tests) |
-| `packages/desktop/src-tauri/src/commands/agent_run.rs` | 858-870, 896-911 | Unvalidated `agent_run_id` path join | 🛑 Blocker (security) → **RESOLVED** (03-15, confirmed by source read + 2 re-run tests) |
-| `packages/desktop/src-tauri/src/sidecar.rs` | 802-808 | `stderr_tail.truncate(...)` panics on non-char-boundary cut inside a non-unwinding frame | ⚠️ Warning → **RESOLVED** (03-15, confirmed by source read + 5 re-run tests) |
-| `packages/core/src/destructive.rs` (via shim) | 156-175 | `classify_git` treats a leading global flag as the subcommand | ⚠️ Warning → **STILL OPEN, deliberately out of scope** — per the orchestrator's brief, not planned for this phase. Fails closed (never unsafe), only degrades usability. Not a Success Criterion blocker. |
-| `PermissionRequestCard.tsx`, `WorktreeRemovalDialog.tsx` | Allow/Deny, Remove | State-only guard, no `useRef` | ⚠️ Warning → **RESOLVED** (03-16 / 03-18, confirmed by source read + tests) |
-| `OrphanRecoveryModal.tsx` | `handleKill`/`handleKillAll` | No re-entry guard whatsoever | ⚠️ Warning → **RESOLVED** (03-17, confirmed by source read + tests) |
-| `SessionSurface.tsx` | `handleStop` | State-only guard, no ref | ⚠️ Warning → **RESOLVED** (03-17, confirmed by source read + tests) |
-| `WorktreeSummary.tsx` | 238-240 | Missing-worktree banner gate bypassed by empty `path` | ⚠️ Warning → **RESOLVED** (03-18, confirmed by source read + tests) |
+| `packages/sidecar/src/pretooluse-hook.ts` (`shimWillIntercept`) | CR-01: deferral branch provable-reachable but not provable-actually-reached (shadow-bypass) | 🛑 Critical (03-REVIEW.md) | **RESOLVED** — quick task 260920-duy, confirmed by source read + re-run regression test this session. |
+| `packages/sidecar/src/mcp-permission-server.ts` (`socketBaseDir`) | WR-01: permission socket now binds under shared `/tmp` (widened from per-user `os.tmpdir()`) with no explicit `chmod` hardening | ⚠️ Warning (03-REVIEW.md) | **STILL OPEN.** Confirmed via source read: no `fs.chmodSync` call exists in this file. Lower severity per the review's own assessment (requires a second local account on the same single-developer machine — outside this product's stated threat model), but unresolved. Not touched by 260920-duy. |
+| `packages/core/src/db/mod.rs` (`app_data_dir`) | WR-02: `FLYWHEEL_APP_DATA_DIR` accepts a non-empty relative value without rejecting it, contrary to its own doc comment's claim | ⚠️ Warning (03-REVIEW.md) | **STILL OPEN.** Confirmed via source read: no `is_absolute()` check exists. Low blast radius (test/harness-only env var in practice), unresolved. Not touched by 260920-duy. |
+| `packages/desktop/src-tauri/src/sidecar.rs` (`push_bounded_stderr_tail`) | IN-01: doc comment overstates the peak-memory guarantee (whole chunk is decoded before truncation) | ℹ️ Info (03-REVIEW.md) | Not a defect — informational only, explicitly low-urgency per the review itself. Unchanged. |
+| `packages/core/src/destructive.rs` (`classify_git`) | Leading global git flag (`-C`, `-c`) misclassifies as `Uncategorized` (destructive), fails closed | ⚠️ Warning (pre-existing, carried since initial verification) | **STILL OPEN, deliberately out of scope.** Newly observed to fire on `claude`'s own internal session-startup housekeeping now that the gate can block real commands (03-19-SUMMARY "Blockers/concerns for follow-up"). Degrades usability, never compromises safety. |
 
-Only one item from the original review remains open (the `classify_git` global-flag usability warning), and it was explicitly scoped out of this gap-closure round by the orchestrator's brief — it is a fail-closed usability defect, not a safety regression, and does not falsify any Success Criterion. No new anti-patterns were introduced by the 5 gap-closure plans: all 16 touched files were grepped for `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` with no matches.
+No new debt markers (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) in any file touched since the
+last verification round.
 
 ### Human Verification Required
 
-See `behavior_unverified_items` and `human_verification` in frontmatter for full detail. Summary — **all 5 items are carried forward unchanged in kind from the initial verification**, per `workflow.human_verify_mode: end-of-phase`. No packaged Tauri app has been available to any executor across either verification round, so none of these have been directly observed; each is verified-by-code only until a human confirms it live:
-
-1. **Whole-application `kill -9` proof (SC2 / PROC-04)** — deferred by plan 03-02; unchanged.
-2. **Live orphan-recovery / crash-relaunch proof (SC3 / WORK-06 / PROC-05)** — deferred by plan 03-10; the underlying classification logic AND the modal's re-entry guard are now both code-verified, but the full blocking-overlay UX still needs a real running app.
-3. **Live force-push/branch-deletion-in-auto-accept-session proof (SC5 / AGNT-07)** — deferred by plan 03-07; the specific classifier gap this scenario previously exposed at the code level is now closed and proven end-to-end through the real shim binary and a real permission socket (03-14), materially strengthening the evidence underneath this item, but a live agent session driving the real LLM backend has still not been observed.
-4. **Live destructive-card UI proof (AGNT-07)** — deferred by plan 03-12; the card's re-entry guard and push-aware consequence copy are now unit-tested (03-16), but visual/live confirmation of the rendered card has not been observed.
-5. **Live shim PATH-resolution proof through a real agent session (WORK-04/WORK-05)** — unchanged; the automated stress harness and a manual by-hand run both confirm the mechanism, but no packaged app driving a real agent session end to end has been available to any executor.
+None beyond what's captured as the open gap above. Every item the prior (2026-09-16) verification
+round deferred to end-of-phase human sign-off (whole-app `kill -9`, crash-relaunch orphan recovery,
+live destructive-card rendering, packaged-app concurrent commits) is now closed by the
+`scripts/uat/` harness suite recorded in `03-UAT.md` — genuine live measurement, not code-only
+inference. The one remaining open item (sustained block under G-03-3) is not a "needs a human to
+look at pixels" item; it is an unresolved engineering root-cause investigation, and is therefore
+carried as a **gap**, not a human-verification checklist item.
 
 ### Gaps Summary
 
-**All gaps from the initial verification are closed.** The previously FAILED Success Criterion 5 (`classify_push` returning `Verdict::Safe` for `git push origin --delete <branch>`/`-d`/`:<branch>` on any non-default branch) is now fixed at the source, confirmed by direct code reading (not by trusting 03-14-SUMMARY.md's prose) and by re-running two of the new tests directly, including a real end-to-end proof through the actual built shim binary and a real permission socket. Both Critical/Blocker security and reliability findings from the independent code review (the unvalidated `agent_run_id` path join, and the reachable non-UTF-8-boundary panic in the sidecar's startup handshake) are also closed, confirmed the same way. All five Warning-level double-click/bypass findings are closed and covered by new raw-`.click()` tests that were specifically verified NOT to be the false-negative `fireEvent.click` idiom the initial verification flagged as insufficient.
+**Four of five Success Criteria are now fully, live-verified** — a materially stronger evidentiary
+position than the stale 2026-09-16 report, which left SC2 and SC3 as code-only, behavior-unverified.
+The `scripts/uat/` harness built in this phase's tail (03-15, 03-19) closed both of those gaps with
+real measurements against the real application, not just unit tests.
 
-One Warning remains deliberately open by design: `classify_git` still treats a leading global flag (e.g. `git -C <dir> status`) as the subcommand, degrading usability (an indefinite permission-gate block on a harmless read) without ever compromising safety (it fails closed). This was explicitly out of scope for this gap-closure round per the orchestrator's brief and does not block phase completion.
+**SC5/AGNT-07 remains genuinely open**, though not for the reason the stale report's own predecessor
+(03-UAT.md's G-03-3) originally named. The original defect — the hook refusing every destructive
+command outright, so the shim's socket (and any human confirmation) was structurally unreachable —
+is fixed and live-proven by plan 03-19. A regression that same plan introduced (CR-01: a shell
+function/alias/`PATH=` shadow ahead of the destructive segment could bypass BOTH the hook's refusal
+and the shim's socket, executing with zero gating — objectively worse than the pre-03-19 behaviour)
+is fixed and regression-tested by quick task 260920-duy, confirmed directly in this session.
 
-Two Success Criteria (2 and 3) remain in the same state as the initial verification: their underlying mechanisms are code-verified via passing automated tests (now strengthened — 2's watchdog mechanism unchanged, 3's orphan-recovery modal additionally re-entry-guarded and tested), but their full live-application behavior remains explicitly deferred to end-of-phase human verification by the plans themselves (03-02, 03-10). This is expected under this project's `end-of-phase` human-verify mode and is not itself a gap — it is the phase's UAT list, unchanged in scope from the initial round, now carrying stronger evidence underneath two of its five items (3 and 4, which pertain to Success Criterion 5's now-fixed classifier).
+What remains unresolved is a **newly discovered, unrelated, and still-uninvestigated** finding: in
+every one of five live measurements, a real session self-terminates roughly 15-16 seconds after
+raising the destructive-gate's permission request, before it is ever answered. The watchdog's own
+heartbeat-staleness mechanism was explicitly ruled out by measurement. No commit since 03-18 has
+touched `watchdog.ts` or `claude-code-adapter.ts` — the two files named as candidate locations for
+the responsible mechanism — so this is not resolved by any work landed after 03-19. This is a real,
+open risk to the phase's own goal statement: if a real user takes longer than ~15 seconds to look at
+and answer a destructive-action permission card, their session may die before their answer is ever
+read, undermining the "know that ... no agent is still spending his money" confidence the phase
+promises (the destructive command itself does not execute in this failure mode — the remote/local
+state stays safe — but the confirmation mechanism AGNT-07 requires does not reliably complete).
 
-**Overall determination:** with the one FAILED must-have now VERIFIED and no new gaps introduced, and given five outstanding human-verification items (all pre-existing, all explicitly deferred by the plans themselves to end-of-phase per project convention, none newly introduced by this gap-closure round), the phase status moves from `gaps_found` to `human_needed`. All 8 requirement IDs read `Complete`. The phase goal — "no uncommitted work was destroyed and no agent is still spending his money" — is now fully code-verified across every Success Criterion; what remains is the standard end-of-phase live-application sign-off this project's workflow always requires before a phase closes.
+**Overall determination:** `gaps_found`. This is not a request to reopen the whole destructive-gate
+mechanism — the request-raising half of G-03-3 is solidly fixed and tested, and the shadow-bypass
+regression CR-01 found is closed. It is a request for a dedicated, scoped follow-up (a session-
+lifecycle investigation, ideally in a clean environment) before AGNT-07 and Success Criterion 5 are
+marked fully, reliably closed — consistent with 03-19-SUMMARY.md's own explicit recommendation and
+STATE.md's own "before treating G-03-3/AGNT-07 as fully, reliably closed" framing, neither of which
+this verifier is overriding.
 
 ---
 
-_Verified: 2026-09-16T14:05:00Z_
+_Verified: 2026-09-20T10:50:00Z_
 _Verifier: Claude (gsd-verifier)_
