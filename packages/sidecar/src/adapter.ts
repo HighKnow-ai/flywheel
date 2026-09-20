@@ -120,6 +120,19 @@ export interface SessionClosedEvent extends AgentEventBase {
    * appear — the child's own stderr is text produced by a process the user's agent controls, not
    * a channel this adapter writes secrets onto. */
   detail?: string;
+  /** Plan 03-20 (close provenance): which of three mechanisms ended the session, derived by
+   * `claude-code-adapter.ts`'s exported `resolveCloseOrigin`. Always present on a real
+   * `session_closed` event — optional here only because other adapters' terminal events do not
+   * yet populate it. */
+  closeOrigin?: "supervisor-signal" | "watchdog-heartbeat-stale" | "backend-exit" | "unattributed";
+  /** The wrapper process's own reported exit code (plan 03-20) — `number` when it exited with a
+   * code, `null` when it was killed by signal instead. Absent for an adapter that has not wired
+   * this field yet. */
+  exitCode?: number | null;
+  /** The wrapper process's own reported exit signal (plan 03-20) — a signal name string when it
+   * was killed by signal, `null` when it exited with a code instead. Absent for an adapter that
+   * has not wired this field yet. */
+  exitSignal?: string | null;
 }
 
 /** D-53/plan 03-13: the PATH shim's "still retrying" report, relayed over the SAME permission

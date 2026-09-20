@@ -93,6 +93,44 @@ function writeJsonFile(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(value));
 }
 
+/** Plan 03-20 (close provenance): `<FLYWHEEL_RUNTIME_DIR>/lifecycle/<runId>.jsonl` — the
+ * append-only timeline this file writes and `claude-code-adapter.ts`'s `resolveCloseOrigin`
+ * reads back, so a terminal `session_closed` event can name which of three mechanisms ended the
+ * session instead of guessing from the exit code alone. */
+function lifecycleFilePath(runtimeDir: string, runId: string): string {
+  return path.join(runtimeDir, "lifecycle", `${runId}.jsonl`);
+}
+
+/** Append one JSON line to this run's lifecycle timeline. Mirrors `writeJsonFile`'s own failure
+ * discipline exactly: wrapped so a failed write reports on stderr and is swallowed, never thrown
+ * — a diagnostic write must never kill a session. A no-op when `runId` is absent (this file's own
+ * test suite spawns the watchdog directly without one in a few cases, same as the existing kill
+ * record's own `if (runId)` guard). Records ONLY the fields named at each call site below — no
+ * command text, no environment values, no credential material (T-03-20-01). */
+function appendLifecycleLine(runtimeDir: string, runId: string | undefined, fields: Record<string, unknown>): void {
+  if (!runId) return;
+  try {
+    const filePath = lifecycleFilePath(runtimeDir, runId);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.appendFileSync(filePath, `${JSON.stringify({ at: new Date().toISOString(), ...fields })}\n`);
+  } catch (err) {
+    process.stderr.write(`flywheel watchdog: failed to append lifecycle line: ${String(err)}\n`);
+  }
+}
+
+/** Whether `FLYWHEEL_HEARTBEAT_STALE_MS` actually propagated to THIS watchdog process — the
+ * load-bearing field of the `watchdog_started` lifecycle line (plan 03-20, H1a). Turns "the
+ * override propagated" into a checkable fact about the watchdog's own record rather than about
+ * whatever process exported the variable: `env` only when the variable is present AND parses as
+ * a finite positive number (the same predicate `readPositiveIntEnv` itself applies), `default` in
+ * every other case, including a present-but-unusable value. */
+function resolveStaleMsSource(): "env" | "default" {
+  const raw = process.env.FLYWHEEL_HEARTBEAT_STALE_MS;
+  if (raw === undefined) return "default";
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? "env" : "default";
+}
+
 function main(): void {
   const backendBin = process.argv[2];
   const backendArgv = process.argv.slice(3);
@@ -118,6 +156,17 @@ function main(): void {
   const pollMs = readPositiveIntEnv("FLYWHEEL_HEARTBEAT_POLL_MS", DEFAULT_HEARTBEAT_POLL_MS);
   const watchdogStartedAt = Date.now();
 
+  // Plan 03-20: written immediately after staleMs/pollMs are resolved and BEFORE the backend is
+  // spawned — source order is the guarantee here, exactly as it already is for the kill record.
+  appendLifecycleLine(runtimeDir, runId, {
+    event: "watchdog_started",
+    watchdog_pid: process.pid,
+    backend_bin: backendBin,
+    stale_ms: staleMs,
+    poll_ms: pollMs,
+    stale_ms_source: resolveStaleMsSource(),
+  });
+
   // This process already leads its own process group (established by its own parent's spawn
   // options in `claude-code-adapter.ts`) — spawning the backend with a second, separate group of
   // its own would fork an UNREACHABLE second group, the exact failure 03-RESEARCH.md's Pitfall 4
@@ -125,6 +174,7 @@ function main(): void {
   // stdin this wrapper itself has, while stdout/stderr are piped so they can be forwarded
   // byte-for-byte below.
   const child = spawn(backendBin, backendArgv, { stdio: ["inherit", "pipe", "pipe"] });
+  appendLifecycleLine(runtimeDir, runId, { event: "backend_spawned", backend_pid: child.pid });
 
   // Forward the backend's own stdout/stderr byte-for-byte, so the adapter's existing readline and
   // stderr-drain paths see EXACTLY what they saw before this wrapper existed.
@@ -155,6 +205,15 @@ function main(): void {
   }
 
   const forceKillGroup = (reason: string): void => {
+    // Plan 03-20: recomputed here (rather than threaded through from the poll body) and written
+    // BEFORE the kill record and the kill signal — source order is the guarantee, same as the
+    // kill record's own write-before-signal contract below.
+    const heartbeatAge = heartbeatAgeMs(runtimeDir);
+    appendLifecycleLine(runtimeDir, runId, {
+      event: "stale_kill",
+      heartbeat_age_ms: heartbeatAge === undefined ? null : heartbeatAge,
+      since_start_ms: Date.now() - watchdogStartedAt,
+    });
     if (runId) {
       try {
         // This process IS the process-group leader (PROC-03's promoted noun) — its OWN pid is
@@ -204,7 +263,8 @@ function main(): void {
   }, pollMs);
   heartbeatTimer.unref();
 
-  child.on("exit", (code) => {
+  child.on("exit", (code, signal) => {
+    appendLifecycleLine(runtimeDir, runId, { event: "backend_exit", code, signal });
     stopPolling();
     process.exit(code ?? 1);
   });
@@ -214,8 +274,16 @@ function main(): void {
   // process's exit above, so the existing sequence still produces exactly one clean
   // `session_closed`. A single loop over both signal names, rather than two separate
   // registrations, so no grace-window sequence of its own can creep into this file.
+  //
+  // Plan 03-20: `forwardedSignals` bounds the lifecycle write to at most ONCE per distinct signal
+  // name, so a signal storm cannot grow this file without bound (T-03-20-02).
+  const forwardedSignals = new Set<string>();
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
+      if (!forwardedSignals.has(signal)) {
+        forwardedSignals.add(signal);
+        appendLifecycleLine(runtimeDir, runId, { event: "signal_forwarded", signal });
+      }
       child.kill(signal);
     });
   }

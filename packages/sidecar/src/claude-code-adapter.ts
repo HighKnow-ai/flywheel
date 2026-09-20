@@ -483,6 +483,15 @@ interface LiveSession {
    * it is read (G-02-2) — exists so a failed session can say why it failed. Also set directly (to
    * the spawn error's message) when the child could never be spawned at all. */
   stderrTail: string;
+  /** The wrapper process's own reported exit code (plan 03-20, close provenance) — `null` until
+   * the `close` handler assigns it, and `null` forever when the wrapper was killed by signal
+   * rather than exiting with a code. Assigned BEFORE `emitSessionClosed` is called, so the
+   * terminal event always carries the freshest value. */
+  exitCode: number | null;
+  /** The wrapper process's own reported exit signal (plan 03-20) — `null` until the `close`
+   * handler assigns it, and `null` forever when the wrapper exited with a code rather than being
+   * killed by signal. */
+  exitSignal: string | null;
   onEvent: (event: AgentEvent) => void;
   nextSeq: number;
   /** This run's own permission-prompt MCP server handle (AGNT-06) — started BEFORE `child` is
@@ -496,6 +505,79 @@ interface LiveSession {
  * is what lets a call against an already-finished run resolve as a safe no-op instead of throwing
  * (D-35), as distinct from a `runId` this sidecar never spawned at all ({@link UnknownRunError}). */
 const liveSessions = new Map<string, LiveSession>();
+
+/** Plan 03-20 (close provenance): the single, exported source-of-truth for deciding which of
+ * three mechanisms ended a session, checked in this fixed order (first match wins):
+ *
+ * 1. `interruptionRequested` true — the supervisor (`interruptSession`/`killSession`) asked for
+ *    this ending itself, so it is `supervisor-signal` regardless of what any on-disk record says.
+ * 2. A kill record at the run's `kills` path that parses as JSON and whose `reason` field equals
+ *    the literal string `heartbeat-stale` — `watchdog-heartbeat-stale`.
+ * 3. The lifecycle file's LAST parseable line (skipping any trailing unparseable ones) having
+ *    `event` equal to `stale_kill` — `watchdog-heartbeat-stale`.
+ * 4. That same last line having `event` equal to `backend_exit` — `backend-exit`.
+ * 5. That same last line having `event` equal to `signal_forwarded` — `supervisor-signal`.
+ * 6. Anything else — an absent `runtimeDir`, an absent lifecycle file, an unreadable file, zero
+ *    parseable lines, or a last line whose `event` matches none of the above — `unattributed`.
+ *
+ * Every filesystem read and every `JSON.parse` is wrapped so this function can never throw: an
+ * instrument that throws while diagnosing a failure is worse than no instrument. Exported so the
+ * test suite can call it directly without spawning anything.
+ */
+export function resolveCloseOrigin(options: {
+  interruptionRequested: boolean;
+  runtimeDir: string | undefined;
+  runId: string;
+}): "supervisor-signal" | "watchdog-heartbeat-stale" | "backend-exit" | "unattributed" {
+  if (options.interruptionRequested) return "supervisor-signal";
+
+  const runtimeDir = options.runtimeDir;
+  if (!runtimeDir) return "unattributed";
+
+  try {
+    const killRecordContents = fs.readFileSync(
+      path.join(runtimeDir, "kills", `${options.runId}.json`),
+      "utf8",
+    );
+    const parsedKillRecord = JSON.parse(killRecordContents) as { reason?: unknown };
+    if (parsedKillRecord && parsedKillRecord.reason === "heartbeat-stale") {
+      return "watchdog-heartbeat-stale";
+    }
+  } catch {
+    // No kill record for this run, or it did not parse — fall through to the lifecycle file.
+  }
+
+  const lastEvent = lastParseableLifecycleEvent(runtimeDir, options.runId);
+  if (lastEvent === "stale_kill") return "watchdog-heartbeat-stale";
+  if (lastEvent === "backend_exit") return "backend-exit";
+  if (lastEvent === "signal_forwarded") return "supervisor-signal";
+  return "unattributed";
+}
+
+/** Read `<runtimeDir>/lifecycle/<runId>.jsonl` (the timeline `watchdog.ts` appends to) and return
+ * the `event` field of its LAST parseable line — walking backward past any trailing lines that do
+ * not parse as JSON, per {@link resolveCloseOrigin}'s own documented order. Returns `undefined`,
+ * never throws, for an absent file, an unreadable file, a file with zero parseable lines, or a
+ * last parseable line with no string `event` field. */
+function lastParseableLifecycleEvent(runtimeDir: string, runId: string): string | undefined {
+  let contents: string;
+  try {
+    contents = fs.readFileSync(path.join(runtimeDir, "lifecycle", `${runId}.jsonl`), "utf8");
+  } catch {
+    return undefined;
+  }
+  const lines = contents.split("\n").filter((line) => line.trim().length > 0);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    try {
+      const parsed = JSON.parse(lines[i]) as { event?: unknown };
+      return typeof parsed.event === "string" ? parsed.event : undefined;
+    } catch {
+      // This particular line did not parse — keep walking backward for the previous one.
+      continue;
+    }
+  }
+  return undefined;
+}
 
 /** Emit the terminal `session_closed` event for `runId` exactly once — a second call for a
  * session whose event has already been emitted is a silent no-op (D-35 idempotency). */
@@ -513,6 +595,15 @@ function emitSessionClosed(
   // show — a session that closed cleanly having written nothing to stderr must not carry a
   // meaningless `detail: ""`.
   const trimmedDetail = session.stderrTail.trim();
+  // Plan 03-20: read from THIS process's own environment (the sidecar's, not the per-run spawn
+  // env) — production sets FLYWHEEL_RUNTIME_DIR identically for the whole app's lifetime, so this
+  // is the same directory the per-run spawn env also carries, but reading it here rather than
+  // threading it through keeps resolveCloseOrigin callable with exactly the three fields it needs.
+  const closeOrigin = resolveCloseOrigin({
+    interruptionRequested: session.interruptionRequested,
+    runtimeDir: process.env.FLYWHEEL_RUNTIME_DIR,
+    runId,
+  });
   session.onEvent({
     runId,
     seq: session.nextSeq++,
@@ -524,6 +615,9 @@ function emitSessionClosed(
     type: "session_closed",
     reason,
     result: session.lastResult,
+    exitCode: session.exitCode,
+    exitSignal: session.exitSignal,
+    closeOrigin,
     ...(trimmedDetail.length > 0 ? { detail: trimmedDetail } : {}),
   });
 }
@@ -665,6 +759,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       interruptionRequested: false,
       lastResult: undefined,
       stderrTail: "",
+      exitCode: null,
+      exitSignal: null,
       onEvent: options.onEvent,
       nextSeq: 0,
       permissionServer,
@@ -759,7 +855,11 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         reject(err);
       });
 
-      child.on("close", (code) => {
+      child.on("close", (code, signal) => {
+        // Plan 03-20: assigned BEFORE emitSessionClosed, so the terminal event always carries the
+        // freshest wrapper exit facts — "killed by signal" vs. "exited with a code," never guessed.
+        session.exitCode = code;
+        session.exitSignal = signal;
         const reason = session.interruptionRequested ? "interrupted" : code === 0 ? "completed" : "failed";
         emitSessionClosed(options.runId, session, reason);
         resolveClosed();
