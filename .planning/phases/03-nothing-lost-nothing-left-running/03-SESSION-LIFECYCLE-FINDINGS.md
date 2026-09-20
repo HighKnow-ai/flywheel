@@ -73,3 +73,71 @@ measurements were made under.
   every run — it depends on how long the agent's own internal git housekeeping (nine incidental,
   auto-allowed `permission_request`s were observed before the deliberate one in both runs) takes
   before the deliberate command is even attempted, which is itself turn-to-turn variable.
+
+## Acceptance run
+
+Plan 03-21, Task 1: `scripts/uat/uat-06-permission-block-lifecycle.mjs` gained `--answer-after=<ms>`
+and `--decision=deny|allow` — an acceptance-mode path that holds the deliberate `permission_request`
+unanswered for exactly `--answer-after` ms (via `sidecar.assertNoEvent`, the only shape that can
+express "stayed blocked"), then delivers the decision and asserts it was honoured.
+
+Live run (`FLYWHEEL_UAT_CLAUDE_CONFIG_DIR=/tmp/flywheel-uat-claude-config`,
+`claude 2.1.267 (Claude Code)`, `--heartbeat=on --answer-after=60000 --decision=deny`):
+
+```
+OUTCOME: answered-after-60000ms decision=deny honoured=true heartbeat=on
+```
+
+The request stayed genuinely unanswered for the full 60000ms window (`assertNoEvent` passed — no
+`session_closed` arrived), the session closed 4755ms after the deny was delivered
+(`closedAfterAnswerMs: 4755`, `closeOrigin: backend-exit`), the remote `uat-doomed-branch` ref was
+unchanged before and after, and the agent's own output matched the same explanation regex
+`uat-03-destructive-gate.mjs` uses (a worded refusal, not a bare exit code). Re-run a second time
+after Task 2's harness-only change landed, with an identical result
+(`closedAfterAnswerMs: 3836`, decision honoured) — the answer-honouring path does not depend on
+which branch Task 2 took.
+
+The pre-existing measurement-mode regression guard (`--heartbeat=on`, no `--answer-after`) was
+re-run alongside and still prints its original `OUTCOME: sustained-block elapsed_ms=90000
+heartbeat=on` line unchanged, confirming the acceptance-mode addition did not disturb the
+measurement path plan 03-20 built.
+
+This closes the half of Success Criterion 5 `03-VERIFICATION.md` left open: the session does stay
+blocked for at least 60 seconds with a destructive request pending, and an answer delivered at the
+end of that window is honoured end to end.
+
+**Backstop truth (D-58 latency ceiling):** not separately probed by this plan. Both acceptance runs
+closed within ~4-5 seconds of the answer being delivered (well inside the 60000ms window this plan
+measured), and the prior `--heartbeat=on` measurement-mode run already established a 90-second
+sustained block with zero termination artifacts. No run in this plan or 03-20 observed the backend
+impose its own ceiling on a blocked tool call — `claude 2.1.267` tolerated a 90-second-plus hold in
+every measured case. A dedicated probe of the backend's own maximum tolerable latency (if any)
+remains unmeasured and is not claimed here.
+
+## Source change
+
+**Branch B** was taken, selected by this document's own `**Disposition:** root-cause-identified`
+token (H1 CONFIRMED — the watchdog's own heartbeat-staleness kill).
+
+No change was made to `packages/sidecar/src/watchdog.ts`'s stale-kill condition, per
+`must_haves.prohibitions`. The only source change is a documentation addition: `startSidecar`'s doc
+comment in `scripts/uat/lib/sidecar-harness.mjs` now names the stale-window hazard explicitly, so a
+future caller measuring a long-lived session knows it must run a heartbeat writer or the watchdog
+will (correctly) reap it. `uat-06-permission-block-lifecycle.mjs`'s own `--heartbeat` flag already
+defaulted to `"on"` before this plan (`parseHeartbeatMode`'s existing fallback) — no code change was
+needed there.
+
+Evidence this was the correct branch: the two 03-20 measured outcomes (`--heartbeat=off`:
+`closeOrigin: watchdog-heartbeat-stale` at `elapsed_ms=7397`; `--heartbeat=on`: sustained block for
+the full 90s window, zero termination artifacts) plus this plan's own Task 1 acceptance runs (both
+`honoured=true` under `--heartbeat=on`) are consistent with "the product is correct, a supervised
+session survives" and inconsistent with any hypothesis requiring a source fix.
+
+AGNT-07 is now supportable as **Complete**: the request-raising half was already verified closed by
+`03-14`/`03-19`, and this plan closes the sustained-block-and-honoured-answer half with a repeatable,
+machine-readable acceptance command (`uat-06 --answer-after=60000 --decision=deny`). PROC-04 is
+reinforced, not just preserved: Task 3's three new regression-guard tests
+(`close-provenance.test.mjs`, 6 -> 9 cases) prove directly that a pending permission request never
+suppresses, extends or conditions the watchdog's stale-kill, that a session ending while a request is
+pending still closes exactly once with its socket cleaned up, and that answering a `requestId` twice
+settles it once.
