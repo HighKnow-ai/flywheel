@@ -7,8 +7,9 @@ use std::fs;
 use std::time::Duration;
 
 use core::runtime_protocol::{
-    list_run_descriptors, read_heartbeat_age, read_kill_record, runtime_dir, touch_heartbeat,
-    write_kill_record, write_run_descriptor, KillRecordRead, RuntimeIo,
+    clear_run_runtime_files, list_run_descriptors, read_heartbeat_age, read_kill_record,
+    runtime_dir, touch_heartbeat, write_kill_record, write_run_descriptor, KillRecordRead,
+    RuntimeIo,
 };
 
 /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `FLYWHEEL_RUNTIME_DIR`
@@ -160,6 +161,65 @@ fn run_descriptor_round_trips_and_lists_every_descriptor_on_disk() {
         assert_eq!(descriptors[1].run_id, "run-two");
         assert_eq!(descriptors[1].pid, 200);
         assert_eq!(descriptors[1].start_time, 222);
+    });
+}
+
+/// Plan 03-23 Task 3: `clear_run_runtime_files` gains a fourth entry — the run's lifecycle
+/// timeline `packages/sidecar/src/watchdog.ts` writes at `<runtime>/lifecycle/<run_id>.jsonl`
+/// (added by plan 03-20). Written first, before the source change: with all four per-run runtime
+/// files present, the resolved run must leave nothing behind.
+#[test]
+fn clear_run_runtime_files_removes_the_lifecycle_timeline_alongside_the_other_three_files() {
+    with_scratch_runtime_dir(|dir| {
+        assert_eq!(write_run_descriptor("run-lifecycle", 100, 111), RuntimeIo::Written);
+        assert_eq!(
+            write_kill_record("run-lifecycle", 100, 111, "heartbeat-stale"),
+            RuntimeIo::Written
+        );
+        let contention_dir = dir.join("contention");
+        fs::create_dir_all(&contention_dir).expect("failed to create contention dir");
+        fs::write(contention_dir.join("run-lifecycle.jsonl"), b"{}\n")
+            .expect("failed to write contention log");
+        let lifecycle_dir = dir.join("lifecycle");
+        fs::create_dir_all(&lifecycle_dir).expect("failed to create lifecycle dir");
+        fs::write(lifecycle_dir.join("run-lifecycle.jsonl"), b"{}\n")
+            .expect("failed to write lifecycle timeline");
+
+        let outcome = clear_run_runtime_files("run-lifecycle");
+        assert_eq!(outcome, RuntimeIo::Written);
+
+        assert!(matches!(
+            read_kill_record("run-lifecycle"),
+            KillRecordRead::Absent
+        ));
+        assert!(
+            list_run_descriptors()
+                .iter()
+                .all(|d| d.run_id != "run-lifecycle"),
+            "the run descriptor must be removed"
+        );
+        assert!(
+            !contention_dir.join("run-lifecycle.jsonl").exists(),
+            "the contention log must be removed"
+        );
+        assert!(
+            !lifecycle_dir.join("run-lifecycle.jsonl").exists(),
+            "the lifecycle timeline must be removed"
+        );
+    });
+}
+
+/// A missing lifecycle file is not an error — matching how the three existing entries already
+/// behave (the not-found tolerance in `clear_run_runtime_files`'s loop).
+#[test]
+fn clear_run_runtime_files_succeeds_when_the_lifecycle_file_is_absent() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(
+            write_run_descriptor("run-no-lifecycle", 200, 222),
+            RuntimeIo::Written
+        );
+        let outcome = clear_run_runtime_files("run-no-lifecycle");
+        assert_eq!(outcome, RuntimeIo::Written);
     });
 }
 
