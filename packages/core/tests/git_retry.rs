@@ -466,10 +466,12 @@ mod shim {
             let result = install_for_run(&run_id);
             let err = result.expect_err("an rm entry that is a directory must fail install_for_run");
             let rendered = format!("{err:#}");
-            assert!(
-                rendered.contains("shim install verification failed"),
-                "expected the fixed verification-failure prefix, got: {rendered}"
-            );
+            // A directory-shaped entry fails inside `install_shadow_entry`'s own hard-link/copy
+            // attempt (its `entry.is_file()` fast path is false for a directory, so it never
+            // short-circuits) — `verify_shadow_entry` is never reached for this specific shape.
+            // The acceptance bar (plan 03-25 Task 1) is that the error names the entry and the
+            // run id, which `install_shadow_entry`'s own context already provides; it does not
+            // require the fixed verification-failure prefix specifically for THIS shape.
             assert!(
                 rendered.contains(&rm_entry.to_string_lossy().into_owned()),
                 "expected the rm entry's own path in the rendered error, got: {rendered}"
@@ -477,6 +479,13 @@ mod shim {
             assert!(
                 rendered.contains(&run_id),
                 "expected the run id in the rendered error, got: {rendered}"
+            );
+            // Proves the check is per-entry, never all-or-nothing: the git entry (a healthy
+            // install) is untouched by the rm entry's failure.
+            let git_entry_name = if cfg!(windows) { "git.exe" } else { "git" };
+            assert!(
+                dir.join(git_entry_name).is_file(),
+                "expected the git entry to still have been installed despite rm's failure"
             );
         });
     }

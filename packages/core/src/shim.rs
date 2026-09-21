@@ -166,6 +166,55 @@ fn install_shadow_entry(dir: &Path, entry_name: &str, run_id: &str) -> anyhow::R
     Ok(())
 }
 
+/// Verify that `dir.join(entry_name)` is actually usable as a shadowed shim entry: it exists, it
+/// is a regular file (never a directory or a dangling path), it is non-empty, and — on Unix — it
+/// carries at least one execute bit. Every failure `anyhow::bail!`s with the fixed, greppable
+/// prefix `shim install verification failed` (a test can assert on it and a future reader can
+/// find every site at once) plus the entry's full path, the run id, and which expectation was not
+/// met, so the message is actionable wherever it eventually surfaces (the launch sheet, per
+/// D-60).
+///
+/// Placed immediately after [`install_shadow_entry`] and called only from [`install_for_run`],
+/// AFTER both `install_shadow_entry` calls have already returned. The ordering matters:
+/// `install_shadow_entry` deliberately returns early when the entry already exists, so a
+/// pre-existing broken entry is never re-installed and would otherwise be inherited silently by
+/// this run. This verification pass is what makes that fast path safe to keep.
+fn verify_shadow_entry(dir: &Path, entry_name: &str, run_id: &str) -> anyhow::Result<()> {
+    let entry = dir.join(entry_name);
+
+    if !entry.exists() {
+        anyhow::bail!(
+            "shim install verification failed: entry {entry:?} for run {run_id:?} does not exist"
+        );
+    }
+    if !entry.is_file() {
+        anyhow::bail!(
+            "shim install verification failed: entry {entry:?} for run {run_id:?} is not a regular file"
+        );
+    }
+    let metadata = fs::metadata(&entry).with_context(|| {
+        format!("failed to read metadata for shadow entry {entry:?} for run {run_id:?}")
+    })?;
+    if metadata.len() == 0 {
+        anyhow::bail!(
+            "shim install verification failed: entry {entry:?} for run {run_id:?} is zero bytes"
+        );
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = metadata.permissions().mode();
+        if mode & 0o111 == 0 {
+            anyhow::bail!(
+                "shim install verification failed: entry {entry:?} for run {run_id:?} carries no execute bit (mode {mode:o})"
+            );
+        }
+    }
+
+    Ok(())
+}
+
 /// Create `<runtime>/shim/<run_id>/` containing an entry named exactly `git` (or `git.exe` on
 /// Windows) AND an entry named exactly `rm` (or `rm.exe`) — plan 03-07 installs the SECOND
 /// shadowed name through the exact same compiled binary, never a second build target — and return
@@ -173,6 +222,17 @@ fn install_shadow_entry(dir: &Path, entry_name: &str, run_id: &str) -> anyhow::R
 /// resolution is platform-dependent and this dispatch reads `argv[0]`. Re-installing for the same
 /// run id is a no-op per entry: if an entry already exists, nothing is re-copied or re-linked for
 /// it.
+///
+/// **D-60 (plan 03-25):** after plan 03-24, `pretooluse-hook.ts`'s PreToolUse hook denies EVERY
+/// command — `npm test` and `cargo build` included — in a session whose shadow directory it
+/// cannot prove (`shimShadowDirectoryProven`), not only destructive ones. Before this function
+/// verified anything, `install_shadow_entry`'s `entry.is_file()` fast path meant a zero-byte
+/// file, a non-executable file, or a stale binary all passed silently — a partial or corrupt
+/// install would hand a session a shadow directory the hook could never prove, producing exactly
+/// the silently-denying session D-60 forbids. [`verify_shadow_entry`] below closes that: a broken
+/// entry now stops the install with a named, actionable error at spawn time rather than being
+/// inherited. See `.planning/phases/03-nothing-lost-nothing-left-running/
+/// 03-DESTRUCTIVE-GATE-BYPASS-CLASS.md` for the finding this responds to.
 pub fn install_for_run(run_id: &str) -> anyhow::Result<PathBuf> {
     let dir = shim_dir_for_run(run_id)?;
     fs::create_dir_all(&dir)
@@ -180,6 +240,9 @@ pub fn install_for_run(run_id: &str) -> anyhow::Result<PathBuf> {
 
     install_shadow_entry(&dir, shadowed_git_entry_name(), run_id)?;
     install_shadow_entry(&dir, shadowed_rm_entry_name(), run_id)?;
+
+    verify_shadow_entry(&dir, shadowed_git_entry_name(), run_id)?;
+    verify_shadow_entry(&dir, shadowed_rm_entry_name(), run_id)?;
 
     Ok(dir)
 }
