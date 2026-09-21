@@ -371,4 +371,125 @@ mod shim {
         );
         assert_eq!(actual.stdout, expected.stdout);
     }
+
+    // --- install_for_run post-install verification (plan 03-25 Task 1, D-60) --------------------
+
+    /// The exact per-run shim directory `install_for_run` targets — computed independently of
+    /// `shim_dir_for_run` (private to `core::shim`) so this test constructs its broken-entry
+    /// fixtures BEFORE `install_for_run` ever runs, exercising `install_shadow_entry`'s
+    /// exists-already fast path.
+    fn shim_dir_for_test_run(run_id: &str) -> std::path::PathBuf {
+        core::runtime_protocol::runtime_dir()
+            .expect("runtime_dir should resolve inside a scratch runtime dir")
+            .join("shim")
+            .join(run_id)
+    }
+
+    #[test]
+    fn t2_a_pre_created_non_executable_git_entry_makes_install_for_run_fail_naming_the_entry_and_run() {
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-t2", std::process::id());
+            let dir = shim_dir_for_test_run(&run_id);
+            std::fs::create_dir_all(&dir).expect("failed to pre-create the shim dir");
+            let git_entry = dir.join(if cfg!(windows) { "git.exe" } else { "git" });
+            std::fs::write(&git_entry, b"not a real binary").expect("failed to write broken git entry");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&git_entry).unwrap().permissions();
+                perms.set_mode(0o644);
+                std::fs::set_permissions(&git_entry, perms).unwrap();
+            }
+
+            let result = install_for_run(&run_id);
+            let err = result.expect_err("a non-executable pre-existing git entry must fail install_for_run");
+            let rendered = format!("{err:#}");
+            assert!(
+                rendered.contains("shim install verification failed"),
+                "expected the fixed verification-failure prefix, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&git_entry.to_string_lossy().into_owned()),
+                "expected the entry path in the rendered error, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&run_id),
+                "expected the run id in the rendered error, got: {rendered}"
+            );
+        });
+    }
+
+    #[test]
+    fn t3_a_pre_created_zero_byte_git_entry_makes_install_for_run_fail_naming_the_entry_and_run() {
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-t3", std::process::id());
+            let dir = shim_dir_for_test_run(&run_id);
+            std::fs::create_dir_all(&dir).expect("failed to pre-create the shim dir");
+            let git_entry = dir.join(if cfg!(windows) { "git.exe" } else { "git" });
+            std::fs::write(&git_entry, b"").expect("failed to write zero-byte git entry");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&git_entry).unwrap().permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&git_entry, perms).unwrap();
+            }
+
+            let result = install_for_run(&run_id);
+            let err = result.expect_err("a zero-byte pre-existing git entry must fail install_for_run");
+            let rendered = format!("{err:#}");
+            assert!(
+                rendered.contains("shim install verification failed"),
+                "expected the fixed verification-failure prefix, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&git_entry.to_string_lossy().into_owned()),
+                "expected the entry path in the rendered error, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&run_id),
+                "expected the run id in the rendered error, got: {rendered}"
+            );
+        });
+    }
+
+    #[test]
+    fn t4_a_pre_created_rm_entry_that_is_a_directory_makes_install_for_run_fail_naming_that_entry() {
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-t4", std::process::id());
+            let dir = shim_dir_for_test_run(&run_id);
+            std::fs::create_dir_all(&dir).expect("failed to pre-create the shim dir");
+            let rm_entry_name = if cfg!(windows) { "rm.exe" } else { "rm" };
+            let rm_entry = dir.join(rm_entry_name);
+            std::fs::create_dir_all(&rm_entry).expect("failed to pre-create the rm entry as a directory");
+
+            let result = install_for_run(&run_id);
+            let err = result.expect_err("an rm entry that is a directory must fail install_for_run");
+            let rendered = format!("{err:#}");
+            assert!(
+                rendered.contains("shim install verification failed"),
+                "expected the fixed verification-failure prefix, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&rm_entry.to_string_lossy().into_owned()),
+                "expected the rm entry's own path in the rendered error, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&run_id),
+                "expected the run id in the rendered error, got: {rendered}"
+            );
+        });
+    }
+
+    #[test]
+    fn t5_a_clean_install_for_run_still_succeeds_and_creates_both_entries() {
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-t5", std::process::id());
+            let dir = install_for_run(&run_id).expect("a clean install_for_run should succeed");
+            let git_name = if cfg!(windows) { "git.exe" } else { "git" };
+            let rm_name = if cfg!(windows) { "rm.exe" } else { "rm" };
+            assert!(dir.join(git_name).is_file(), "expected the git entry to exist");
+            assert!(dir.join(rm_name).is_file(), "expected the rm entry to exist");
+        });
+    }
 }
