@@ -1125,6 +1125,93 @@ test(
   },
 );
 
+// --- WR-01 (plan 03-30 Task 3): a missing fact cannot be absorbed by a present one. Drives the
+// REAL compiled hook against a STUB `git` shim entry (never the real compiled flywheel-shim) whose
+// `--classify-invocation` output is fully controlled via FLYWHEEL_STUB_PAYLOAD — isolating the
+// hook's OWN field-composition logic from the shim's classification behaviour, which Tasks 1/2's
+// rows above already cover end to end. Needs neither the shim binary nor the backend, so this test
+// carries NO skip condition (mirrors the trust-boundary structural gate below). ---
+
+/** A scratch shim directory containing a STUB `git` entry — a plain shell script that ignores its
+ * own argv and prints exactly `$FLYWHEEL_STUB_PAYLOAD` to stdout, exiting 0. Satisfies
+ * `shimShadowDirectoryProven` (an executable file named exactly `git`, first on PATH) so the ONLY
+ * variable under test is the classification payload's own field composition. */
+function makeStubShimDir() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-stubshimdir-"));
+  const entryPath = path.join(dir, "git");
+  fs.writeFileSync(entryPath, '#!/bin/sh\nprintf \'%s\' "$FLYWHEEL_STUB_PAYLOAD"\n');
+  fs.chmodSync(entryPath, 0o755);
+  return dir;
+}
+
+test(
+  "the hook denies a partially-reporting shim by field name, before the two-genuine-booleans AND is ever evaluated (WR-01)",
+  () => {
+    const stubDir = makeStubShimDir();
+    const baseEnv = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(stubDir, "git"),
+      PATH: `${stubDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    const runStub = (payload) => runHook("git status", { ...baseEnv, FLYWHEEL_STUB_PAYLOAD: payload });
+
+    // Payload 1: textCanShadowPathResolution entirely absent.
+    const p1 = runStub(JSON.stringify({ category: "safe", namesGatedProgram: false }));
+    assert.equal(p1.status, 2, "an absent textCanShadowPathResolution must deny, not be silently absorbed");
+    assert.equal(p1.decision?.hookSpecificOutput?.permissionDecision, "deny");
+    assert.match(
+      p1.decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+      /textCanShadowPathResolution/,
+      "the deny reason must name the field the shim never reported",
+    );
+
+    // Payload 2: namesGatedProgram entirely absent.
+    const p2 = runStub(JSON.stringify({ category: "safe", textCanShadowPathResolution: false }));
+    assert.equal(p2.status, 2, "an absent namesGatedProgram must deny, not be silently absorbed");
+    assert.equal(p2.decision?.hookSpecificOutput?.permissionDecision, "deny");
+    assert.match(
+      p2.decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+      /namesGatedProgram/,
+      "the deny reason must name the field the shim never reported",
+    );
+
+    // Payload 3: textCanShadowPathResolution reported as a non-boolean (a string) — "present and
+    // false" is a measurement; a string is neither that nor a genuine absence, and must deny by
+    // the same rule.
+    const p3 = runStub(
+      JSON.stringify({ category: "safe", textCanShadowPathResolution: "true", namesGatedProgram: true }),
+    );
+    assert.equal(p3.status, 2, "a non-boolean textCanShadowPathResolution must deny");
+    assert.equal(p3.decision?.hookSpecificOutput?.permissionDecision, "deny");
+    assert.match(
+      p3.decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+      /textCanShadowPathResolution/,
+      "the deny reason must name the unestablished field even when it is a non-boolean value",
+    );
+
+    // Payload 4: both fields genuine booleans, both true — the EXISTING both-true reason, never a
+    // field-name-specific one, since both facts ARE established here.
+    const p4 = runStub(
+      JSON.stringify({ category: "safe", textCanShadowPathResolution: true, namesGatedProgram: true }),
+    );
+    assert.equal(p4.status, 2, "two genuinely-true facts must still deny");
+    assert.equal(p4.decision?.hookSpecificOutput?.permissionDecision, "deny");
+    assert.match(
+      p4.decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+      /pre-empt PATH resolution/,
+      "two genuine booleans must produce the pre-existing both-true reason, not a field-name deny",
+    );
+
+    // Payload 5: falsifiability companion — both fields genuine booleans, one a real false, must
+    // still defer. Proves the tri-state fix did not simply make the safe branch deny unconditionally.
+    const p5 = runStub(
+      JSON.stringify({ category: "safe", textCanShadowPathResolution: false, namesGatedProgram: true }),
+    );
+    assert.equal(p5.status, 0, "two genuine booleans with one real false must still defer");
+    assert.deepEqual(p5.decision, {});
+  },
+);
+
 // --- LAUNCHER_CORPUS (plan 03-26, D-62 item 1): the checked-in adversarial corpus this closure's
 // own decision record (03-DESTRUCTIVE-GATE-BYPASS-CLASS.md) requires — the eight launcher shapes
 // from the finding, the four wrapper families from rounds 1-4, the shadow shapes (function-,
