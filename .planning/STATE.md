@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Phase 03 bypass-class closure planned as 03-24 .. 03-28 (waves 12-14); not yet executed
-last_updated: "2026-09-20T13:09:38.435Z"
-last_activity: 2026-09-20
-last_activity_desc: Phase 03 destructive-gate bypass class planned — 5 gap-closure plans (03-24 .. 03-28) created in waves 12-14 implementing D-59 .. D-63; plan-checker passed on iteration 1
-state_head: 95cddf73448a2be6645e53a79173493f47e82c57
+stopped_at: Completed 03-24-PLAN.md (destructive-gate bypass-class closure, tracer slice)
+last_updated: "2026-09-21T00:42:27.558Z"
+last_activity: 2026-09-21
+last_activity_desc: Phase 03 execution started
+state_head: d6e5f33503198d75cadc620c3301ee8f98fc2bb6
 progress:
   total_phases: 12
   completed_phases: 0
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 ## Current Position
 
-Phase: 03 (Nothing Lost, Nothing Left Running) — READY TO EXECUTE
-Plan: 23 of 28
-Status: Ready to execute. The destructive-gate bypass class (AGNT-07, still at Gaps Found — see 03-DESTRUCTIVE-GATE-BYPASS-CLASS.md) is now planned as 5 gap-closure plans, 03-24 .. 03-28 in waves 12-14, implementing D-59 .. D-63. Plans 03-01 .. 03-23 are unchanged and shipped.
-Last activity: 2026-09-20 — Phase 03 bypass-class closure planned (03-24 .. 03-28)
+Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
+Plan: 2 of 28
+Status: Ready to execute
+Last activity: 2026-09-21 — Phase 03 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -121,6 +121,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P21 | 33min | 3 tasks | 4 files |
 | Phase 03 P23 | 38 min | 3 tasks | 6 files |
 | Phase 03 P22 | 20min | 2 tasks | 3 files |
+| Phase 03 P24 | 40 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -224,6 +225,8 @@ Recent decisions affecting current work:
 - [Phase 03]: gsd_run check tdd-red-evidence is TAP-specific and cannot parse cargo test output, so Task 2 and 3's RED phases were verified manually against the same INVALID_RED criteria. — No cargo-test-compatible RED evidence tool exists yet; manual verification confirmed a real, distinctly-named assertion failure in both cases.
 - [Phase 03]: [Phase 03] SUPERSEDED by db18b0e (AGNT-07 walked back to Gaps Found — see 03-DESTRUCTIVE-GATE-BYPASS-CLASS.md). As recorded at the time: AGNT-07 reconciled to Complete: 03-21's acceptance run (uat-06 --answer-after=60000 --decision=deny, honoured=true) plus 03-20's root-cause-identified/H1-CONFIRMED disposition settle the sustained-block half Success Criterion 5 left open; REQUIREMENTS.md and 03-19-SUMMARY.md now agree.
 - [Phase 03]: [Phase 03] The other seven phase-3 requirements (WORK-03/04/05/06, PROC-03/04/05) were ledger-only mismatches -- 03-VERIFICATION.md's Requirements Coverage table already read SATISFIED for all seven; REQUIREMENTS.md's Gaps Found cells were stale, not disputed evidence.
+- [Phase 03]: 03-24: the safe branch's environment proof reuses shimWillIntercept with git/git.exe as the witness entry (never rm), so the proof holds independent of which program the safe command names — install_for_run always installs the git shadow entry; rm's presence is not guaranteed to be checked by an ordinary safe command's text, so anchoring the witness on git keeps the proof meaningful for every safe verdict
+- [Phase 03]: 03-24: text_can_shadow (the OR of the token-level and raw-text shadow scans) deliberately does NOT feed invoked_bare_name, which keeps its pre-existing, narrower, destructive-arm-only meaning — the destructive verdict's JSON must stay byte-for-byte unchanged so roughly thirty shipped assertions about it keep their present meaning; only the safe verdict gets the blunter, over-triggering raw scan
 
 ### Pending Todos
 
@@ -264,6 +267,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-20T12:22:13.529Z
-Stopped at: Phase 03 bypass-class closure approach decided (D-59..D-63); not yet planned
-Resume file: .planning/phases/03-nothing-lost-nothing-left-running/03-CONTEXT.md
+Last session: 2026-09-21T00:42:27.480Z
+Stopped at: Completed 03-24-PLAN.md (destructive-gate bypass-class closure, tracer slice)
+Resume file: None

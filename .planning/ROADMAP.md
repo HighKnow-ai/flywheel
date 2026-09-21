@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 23/28 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 planned gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the destructive-gate bypass class per D-59 .. D-63
+**Plans**: 24/28 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 planned gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the destructive-gate bypass class per D-59 .. D-63
 **UI hint**: yes
 
 Plans:
@@ -339,12 +339,12 @@ Plans:
 
 **Wave 11** *(blocked on Wave 10 — no file overlap between the two, they run in parallel)*
 
-- [ ] 03-22-PLAN.md — Reconcile AGNT-07's recorded status across REQUIREMENTS.md, 03-19-SUMMARY.md and STATE.md, and align the seven sibling statuses with the verification report (all 8 phase IDs)
+- [x] 03-22-PLAN.md — Reconcile AGNT-07's recorded status across REQUIREMENTS.md, 03-19-SUMMARY.md and STATE.md, and align the seven sibling statuses with the verification report (all 8 phase IDs)
 - [x] 03-23-PLAN.md — The two open review warnings: an owner-only permission socket (WR-01), an absolute-path guard on FLYWHEEL_APP_DATA_DIR (WR-02), and the lifecycle timeline joining the runtime-file cleanup list (AGNT-07, PROC-05)
 
 **Wave 12 — gap closure** *(from the open destructive-gate bypass class in `03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`: `destructive::classify` returns `Safe` for any program that is not literally `git`/`rm`, so eight ordinary launcher idioms defeat the text classifier. Closure approach decided as D-59 .. D-63. Both plans run in parallel — no shared files.)*
 
-- [ ] 03-24-PLAN.md — The hook's `safe` branch proves what its non-safe branch already proves (D-59, D-61) (AGNT-07)
+- [x] 03-24-PLAN.md — The hook's `safe` branch proves what its non-safe branch already proves (D-59, D-61) (AGNT-07)
 - [ ] 03-25-PLAN.md — A broken shim install fails loudly at spawn, never as a silently-denies-everything session (D-60's supervisor half) (AGNT-07)
 
 **Wave 13** *(blocked on Wave 12 — both depend on 03-24, and run in parallel with each other)*
@@ -652,7 +652,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
-| 3. Nothing Lost, Nothing Left Running | 22/23 | In Progress|  |
+| 3. Nothing Lost, Nothing Left Running | 24/28 | In Progress|  |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
