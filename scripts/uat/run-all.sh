@@ -54,6 +54,8 @@ run_item "UAT 6a — unanswered destructive request, unsupervised (no heartbeat)
   node scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=off
 run_item "UAT 6b — unanswered destructive request, production-shaped (heartbeat on)" \
   node scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=on
+run_item "UAT 7 — launcher-wrapped destructive command, measured live (D-62 item 2)" \
+  node scripts/uat/uat-07-launcher-shape-gate.mjs
 
 printf '\n\n┌─ Phase 03 UAT results ─────────────────────────────────────────────────────\n'
 FAILED=0
