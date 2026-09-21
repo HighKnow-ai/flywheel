@@ -610,6 +610,105 @@ function runHook(command, env) {
   return { status: result.status, decision };
 }
 
+// --- D-59/D-60/D-61 (plan 03-24, T-03-24-01/T-03-24-02): the safe branch now proves what the
+// non-safe branch already proves — an unprovable environment refuses every command, and a quoted
+// function shadow is refused even in a proven one. ---
+
+test(
+  "the shim's --classify-invocation mode reports textCanShadowPathResolution and namesGatedProgram on every safe verdict",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const runInvocation = (text) => {
+      const result = spawnSync(SHIM_BIN, ["--classify-invocation", text], { encoding: "utf8" });
+      return { status: result.status, parsed: JSON.parse(result.stdout.trim()) };
+    };
+
+    // B1: an ordinary bare git invocation names a gated program and shadows nothing.
+    const b1 = runInvocation("git status");
+    assert.equal(b1.status, 0);
+    assert.deepEqual(b1.parsed, { category: "safe", textCanShadowPathResolution: false, namesGatedProgram: true });
+
+    // B2: a command naming neither gated program and shadowing nothing.
+    const b2 = runInvocation("npm test");
+    assert.equal(b2.status, 0);
+    assert.deepEqual(b2.parsed, { category: "safe", textCanShadowPathResolution: false, namesGatedProgram: false });
+
+    // B3: the quoted function-shadow payload the token-level scan cannot see inside — requires the
+    // raw-text scan, since `sh -c '...'` classifies safe on its own leading "sh" program token and
+    // tokenize_shell_words returns the whole single-quoted payload as ONE token.
+    const b3 = runInvocation('sh -c \'function git { /usr/bin/git "$@"; }; git push --force\'');
+    assert.equal(b3.status, 0);
+    assert.deepEqual(b3.parsed, { category: "safe", textCanShadowPathResolution: true, namesGatedProgram: true });
+
+    // B4: a shadowing construct that names neither gated program — must stay ungated by D-61.
+    const b4 = runInvocation("source .venv/bin/activate && pytest");
+    assert.equal(b4.status, 0);
+    assert.deepEqual(b4.parsed, { category: "safe", textCanShadowPathResolution: true, namesGatedProgram: false });
+  },
+);
+
+test(
+  "the hook defers a safe verdict only when the shim shadow directory is proven AND the text cannot both shadow PATH resolution and name a gated program",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git", "rm"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    // B5: falsifiability companion — an ordinary harmless command must still defer, or the change
+    // has destroyed the deferral rather than narrowed it.
+    const b5 = runHook("npm test", env);
+    assert.equal(b5.status, 0, "npm test must defer in a proven environment");
+    assert.deepEqual(b5.decision, {});
+
+    // B6: a bare destructive command wrapped in sh -c must still defer — nothing in the text can
+    // pre-empt PATH resolution here, so the inner bare git still reaches the shadow entry.
+    const b6 = runHook('sh -c "git push --force"', env);
+    assert.equal(b6.status, 0, 'sh -c "git push --force" must defer in a proven environment');
+    assert.deepEqual(b6.decision, {});
+
+    // B7: the quoted function-shadow payload must be refused even though the environment is
+    // perfectly proven — the text half of the proof fails.
+    const b7 = runHook('sh -c \'function git { /usr/bin/git "$@"; }; git push --force\'', env);
+    assert.equal(b7.status, 2, "a quoted function shadow naming git must be denied even in a proven environment");
+    assert.equal(b7.decision?.hookSpecificOutput?.permissionDecision, "deny");
+    assert.match(
+      b7.decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+      /verify|safe|shadow|PATH/i,
+      "the deny reason should name that safety could not be verified",
+    );
+  },
+);
+
+test(
+  "the hook denies every command, safe ones included, when the shim environment cannot be proven",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git", "rm"]);
+
+    // B8: the shadow directory exists but is NOT first on PATH — a harmless command is refused.
+    const decoyDir = "/nonexistent-decoy-directory-03-24";
+    const unprovenPathEnv = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${decoyDir}${path.delimiter}${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    const b8 = runHook("npm test", unprovenPathEnv);
+    assert.equal(b8.status, 2, "npm test must be denied when the shim directory is not first on PATH");
+    assert.equal(b8.decision?.hookSpecificOutput?.permissionDecision, "deny");
+
+    // B9: FLYWHEEL_SHIM_BIN is unset entirely — an ordinary safe git command is refused.
+    const noBinEnv = { ...process.env, PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}` };
+    delete noBinEnv.FLYWHEEL_SHIM_BIN;
+    const b9 = runHook("git status", noBinEnv);
+    assert.equal(b9.status, 2, "git status must be denied when FLYWHEEL_SHIM_BIN is unset");
+    assert.equal(b9.decision?.hookSpecificOutput?.permissionDecision, "deny");
+  },
+);
+
 // --- hook decision level (quick task 260920-duy, CR-01): the measured table, all rows in ONE shim
 // directory so the only variable between a defer row and a deny row is the command text. ---
 
