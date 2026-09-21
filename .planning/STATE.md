@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-24-PLAN.md (destructive-gate bypass-class closure, tracer slice)
-last_updated: "2026-09-21T00:42:27.558Z"
+stopped_at: Completed 03-25-PLAN.md (install verifies what it installed, and the spawn refusal says why)
+last_updated: "2026-09-21T01:06:34.816Z"
 last_activity: 2026-09-21
 last_activity_desc: Phase 03 execution started
-state_head: d6e5f33503198d75cadc620c3301ee8f98fc2bb6
+state_head: 536a00e64264faa1f0f0ad39915cbedc51c84a6e
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 67
-  completed_plans: 62
+  completed_plans: 64
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 2 of 28
+Plan: 3 of 28
 Status: Ready to execute
 Last activity: 2026-09-21 — Phase 03 execution started
 
@@ -122,6 +122,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P23 | 38 min | 3 tasks | 6 files |
 | Phase 03 P22 | 20min | 2 tasks | 3 files |
 | Phase 03 P24 | 40 min | 2 tasks | 3 files |
+| Phase 03 P25 | 23min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -227,6 +228,9 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] The other seven phase-3 requirements (WORK-03/04/05/06, PROC-03/04/05) were ledger-only mismatches -- 03-VERIFICATION.md's Requirements Coverage table already read SATISFIED for all seven; REQUIREMENTS.md's Gaps Found cells were stale, not disputed evidence.
 - [Phase 03]: 03-24: the safe branch's environment proof reuses shimWillIntercept with git/git.exe as the witness entry (never rm), so the proof holds independent of which program the safe command names — install_for_run always installs the git shadow entry; rm's presence is not guaranteed to be checked by an ordinary safe command's text, so anchoring the witness on git keeps the proof meaningful for every safe verdict
 - [Phase 03]: 03-24: text_can_shadow (the OR of the token-level and raw-text shadow scans) deliberately does NOT feed invoked_bare_name, which keeps its pre-existing, narrower, destructive-arm-only meaning — the destructive verdict's JSON must stay byte-for-byte unchanged so roughly thirty shipped assertions about it keep their present meaning; only the safe verdict gets the blunter, over-triggering raw scan
+- [Phase 03]: [Phase 03] 03-25: verify_shadow_entry_speaks_classification is called from shim_env_for_run only, never install_for_run -- one extra process per session spawn, zero for install-only callers (lock_contention.rs).
+- [Phase 03]: [Phase 03] 03-25: the rm-entry-as-directory case fails inside install_shadow_entry's own hard-link/copy attempt, not verify_shadow_entry -- entry.is_file() is false for a directory so the fast path never short-circuits; install_shadow_entry's existing context already names the entry and run id, satisfying the plan's acceptance bar.
+- [Phase 03]: [Phase 03] 03-25: git status is the fixed, non-destructive probe text for the classification-contract probe, reached only through --classify-invocation (pure classification, D-63).
 
 ### Pending Todos
 
@@ -267,6 +271,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-21T00:42:27.480Z
-Stopped at: Completed 03-24-PLAN.md (destructive-gate bypass-class closure, tracer slice)
+Last session: 2026-09-21T01:06:34.737Z
+Stopped at: Completed 03-25-PLAN.md (install verifies what it installed, and the spawn refusal says why)
 Resume file: None
