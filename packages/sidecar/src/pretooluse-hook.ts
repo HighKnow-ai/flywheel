@@ -6,28 +6,53 @@
  * shim's own permission socket (D-58) rather than pre-empting it. The question layer is the shim's
  * socket, never this hook.
  *
- * Before this plan, this hook denied every non-`safe` verdict unconditionally — refusing precisely
- * the set the shim's socket would otherwise have asked a human about, so D-58's indefinite block
- * was unreachable for anything the agent ran through Bash (G-03-3, measured live by
- * `scripts/uat/uat-03-destructive-gate.mjs`). It now has two branches instead of one:
+ * Before plan 03-19, this hook denied every non-`safe` verdict unconditionally — refusing
+ * precisely the set the shim's socket would otherwise have asked a human about, so D-58's
+ * indefinite block was unreachable for anything the agent ran through Bash (G-03-3, measured live
+ * by `scripts/uat/uat-03-destructive-gate.mjs`). Before plan 03-24, the `safe` arm below traded
+ * NOTHING for that trust — it printed the empty decision unconditionally, while the non-safe arm
+ * already demanded a two-fact proof before deferring. That asymmetry let eight ordinary launcher
+ * shapes (`sh -c`, `nice`, `nohup`, `timeout`, `xargs`, `sudo`, `setsid`, `bash -c`) receive
+ * STRICTLY LESS scrutiny than a bare `git push --force`
+ * (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`, D-59). This hook now has four branches instead of two:
  *
  * ```
- * category == "safe"                                → no opinion, exit 0   [unchanged]
- * category != "safe" && shimWillIntercept(program)   → no opinion, exit 0   [NEW — defers to the shim]
- * category != "safe" && !shimWillIntercept(program)   → deny with consequence copy   [unchanged]
+ * category == "safe" && !shimShadowDirectoryProven()                    → deny   [NEW, D-59/D-60]
+ * category == "safe" && textCanShadow && namesGatedProgram              → deny   [NEW, D-61]
+ * category == "safe" && !(textCanShadow && namesGatedProgram)           → no opinion, exit 0
+ * category != "safe" && shimWillIntercept(program)                      → no opinion, exit 0
+ * category != "safe" && !shimWillIntercept(program)                     → deny with consequence copy
  * ```
  *
- * Deferring correctly requires TWO separate facts to both hold, proved by TWO separate pieces of
- * code that can each only see their own half (plan 03-20/CR-01, closing a bypass this split left
- * open): the shim's own `--classify-invocation` classifier proves the command TEXT can still reach
- * a real `PATH` search at all — reported here as `invokedBareName` — since bash resolves shell
- * functions, aliases and a `PATH` reassignment BEFORE ever performing that search, and a command
- * that shadows the program name that way defeats it regardless of what this hook's own environment
- * looks like. `shimWillIntercept` (below) proves the ENVIRONMENT: that the shim's shadow directory
- * is actually installed and leads `PATH` right now. Only `invokedBareName === true` AND
- * `shimWillIntercept(program)` together justify deferring; this hook checks `invokedBareName` itself
- * (see `main()` below) precisely because `shimWillIntercept` alone cannot see the text half of the
- * proof. Any failure to establish either half is a `deny`, not an allow.
+ * The FIRST row applies regardless of `category` in spirit but is only reachable from the `safe`
+ * arm here — the non-safe arm's own `shimWillIntercept` call below is the environment proof for
+ * ITS branch. An unproven shim shadow directory therefore denies every command that reaches
+ * either branch, harmless ones included (D-60): a broken/missing shim install is a hard
+ * precondition failure, not a session that silently denies everything with no named cause — the
+ * spawn-side loud-failure obligation that goes with this lives in `packages/core/src/shim.rs`.
+ *
+ * **An unreported or non-boolean-`false` field is read as `true` (unsafe).** A shim binary older
+ * than plan 03-24 that never emits `textCanShadowPathResolution`/`namesGatedProgram` therefore
+ * denies rather than silently defers — the same fail-closed discipline this file already applies
+ * to every other unparseable or absent fact.
+ *
+ * Deferring on a NON-safe verdict correctly requires TWO separate facts to both hold, proved by
+ * TWO separate pieces of code that can each only see their own half (plan 03-20/CR-01, closing a
+ * bypass this split left open): the shim's own `--classify-invocation` classifier proves the
+ * command TEXT can still reach a real `PATH` search at all — reported here as `invokedBareName` —
+ * since bash resolves shell functions, aliases and a `PATH` reassignment BEFORE ever performing
+ * that search, and a command that shadows the program name that way defeats it regardless of what
+ * this hook's own environment looks like. `shimWillIntercept` (below) proves the ENVIRONMENT: that
+ * the shim's shadow directory is actually installed and leads `PATH` right now. Only
+ * `invokedBareName === true` AND `shimWillIntercept(program)` together justify deferring; this
+ * hook checks `invokedBareName` itself (see `main()` below) precisely because `shimWillIntercept`
+ * alone cannot see the text half of the proof. Any failure to establish either half is a `deny`,
+ * not an allow. This function proves the SAME kind of environment fact, `shimShadowDirectoryProven`
+ * above, for the SAFE arm (D-59) — two call sites, one underlying check.
+ *
+ * This hook still never waits: the environment proof costs two synchronous `stat` calls in a
+ * correctly configured session (`shimWillIntercept`'s own doc comment) — no socket, no poll, no
+ * sleep, in either arm.
  *
  * **This script NEVER waits.** It reads its own stdin (already fully written by the backend
  * before invoking this hook — not a wait on a human decision), shells out to the shim binary's

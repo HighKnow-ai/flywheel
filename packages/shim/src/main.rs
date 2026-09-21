@@ -77,13 +77,40 @@
 //! never reach this shim's shadow entry. `invokedBareName` now means "this shim's own shadowed
 //! directory would actually be reached for this invocation", not merely "the token itself names no
 //! path". Emits one line of JSON on stdout
-//! (`{"category":"branch-deletion","program":"git","invokedBareName":true}`, or `{"category":
-//! "safe"}` for a safe command) rather than a single word, so the shape is self-describing and can
-//! gain fields later without breaking its reader. A missing or unreadable argument fails closed
-//! exactly as `--classify-command` does: `{"category":"uncategorized","invokedBareName":false}` and
-//! a non-zero exit, so a caller that cannot read a verdict treats the command as both destructive
+//! (`{"category":"branch-deletion","program":"git","invokedBareName":true}` for a destructive
+//! verdict) rather than a single word, so the shape is self-describing and can gain fields later
+//! without breaking its reader. A missing or unreadable argument fails closed exactly as
+//! `--classify-command` does: `{"category":"uncategorized","invokedBareName":false}` and a
+//! non-zero exit, so a caller that cannot read a verdict treats the command as both destructive
 //! and un-interceptable — the most restrictive reading available. After plan 03-19,
-//! `pretooluse-hook.ts:112` calls this mode, not `--classify-command`.
+//! `pretooluse-hook.ts:112` calls this mode, not `--classify-command`. **The destructive arm above
+//! is deliberately UNCHANGED by plan 03-24** — same three keys, same values — so every shipped
+//! assertion about a destructive verdict keeps its present meaning.
+//!
+//! **The `safe` verdict (plan 03-24 Task 1, D-59/D-60/D-61):** `{"category":"safe"}` alone used to
+//! be the whole shape — `pretooluse-hook.ts`'s safe branch trusted it unconditionally, with no
+//! proof at all, while its non-safe branch already demanded a two-fact proof. That asymmetry let
+//! eight ordinary launcher shapes (`sh -c`, `bash -c`, `nice`, `nohup`, `timeout`, `xargs`, `sudo`,
+//! `setsid`) pass with strictly less scrutiny than a bare `git push --force`
+//! (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`). The safe verdict now ALSO carries
+//! `textCanShadowPathResolution` and `namesGatedProgram`:
+//!
+//! - `textCanShadowPathResolution` is the boolean OR of `text_can_shadow_path_resolution` (the
+//!   pre-existing, whole-TOKEN scan `invoked_bare_name` already relies on) and
+//!   `raw_text_can_shadow_path_resolution` (new: the SAME six keywords, matched against the RAW
+//!   text instead) — the raw form exists because `tokenize_shell_words` returns an entire
+//!   single-quoted `sh -c '…'` payload as ONE token, so a whole-token comparison can never see a
+//!   `function`/`alias`/`eval`/… keyword hiding inside it.
+//! - `namesGatedProgram` is `text_names_gated_program`: does the raw text name one of the two
+//!   programs `install_for_run` shadows (`git`, `rm`)? Not enumeration — that pair is closed and
+//!   owned by another module entirely.
+//!
+//! `pretooluse-hook.ts`'s safe branch denies only when BOTH are true — text that can shadow PATH
+//! resolution AND names a program this shim gates — so `source .venv/bin/activate && pytest`
+//! (shadows, names neither) still defers, while a shell-function shadow naming `git` does not,
+//! wherever it sits in the text, quoted or not (D-61). Both fail-closed early returns of
+//! `classify_raw_command_text` (empty text, an `Unresolvable` segment) report both fields `true` —
+//! the most restrictive reading, same discipline as the destructive arm's own fail-closed shape.
 
 use std::env;
 use std::ffi::OsString;

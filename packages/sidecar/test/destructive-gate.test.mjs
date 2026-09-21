@@ -671,6 +671,49 @@ test(
   },
 );
 
+// --- invariance assertions (plan 03-24 Task 2): "nothing else moved" is a test, not a claim. ---
+
+test(
+  "the destructive --classify-invocation verdict's key set is unchanged by this plan",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const result = spawnSync(SHIM_BIN, ["--classify-invocation", "git push origin --delete x"], { encoding: "utf8" });
+    assert.equal(result.status, 0);
+    const parsed = JSON.parse(result.stdout.trim());
+    assert.deepEqual(
+      Object.keys(parsed).sort(),
+      ["category", "invokedBareName", "program"],
+      "the destructive arm must carry exactly the same three keys it carried before this plan — no new keys leaked in",
+    );
+  },
+);
+
+test(
+  "--classify-command's one-word output is unchanged by this plan, for both a destructive and a safe input",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const destructive = spawnSync(SHIM_BIN, ["--classify-command", "git push origin --delete x"], { encoding: "utf8" });
+    assert.equal(destructive.status, 0);
+    assert.equal(destructive.stdout.trim(), "branch-deletion");
+
+    const safe = spawnSync(SHIM_BIN, ["--classify-command", "git status"], { encoding: "utf8" });
+    assert.equal(safe.status, 0);
+    assert.equal(safe.stdout.trim(), "safe");
+  },
+);
+
+test(
+  "--classify-invocation with no argument still fails closed to the two-key uncategorized line",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const result = spawnSync(SHIM_BIN, ["--classify-invocation"], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    const parsed = JSON.parse(result.stdout.trim());
+    assert.deepEqual(Object.keys(parsed).sort(), ["category", "invokedBareName"]);
+    assert.deepEqual(parsed, { category: "uncategorized", invokedBareName: false });
+  },
+);
+
 test(
   "the hook defers a safe verdict only when the shim shadow directory is proven AND the text cannot both shadow PATH resolution and name a gated program",
   { skip: SHIM_SKIP_REASON },
@@ -882,7 +925,7 @@ test(
 );
 
 test(
-  "the hook prints no opinion for a safe command regardless of shim directory shape",
+  "the hook defers a safe command only when the shim shadow directory is proven — the proven-side companion to the B8/B9 unprovable-environment rows",
   { skip: SHIM_SKIP_REASON },
   () => {
     const shimDir = makeShimDir(["git"]);
