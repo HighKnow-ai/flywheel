@@ -276,10 +276,11 @@ test(
     assert.equal(absolutePath.status, 0);
     assert.deepEqual(absolutePath.parsed, { category: "force-push", program: "git", invokedBareName: false });
 
-    // A safe command carries no program/invokedBareName fields.
+    // A safe command carries no program/invokedBareName fields — it now carries the two D-61 text
+    // facts instead (plan 03-24).
     const safe = runInvocation("git status");
     assert.equal(safe.status, 0);
-    assert.deepEqual(safe.parsed, { category: "safe" });
+    assert.deepEqual(safe.parsed, { category: "safe", textCanShadowPathResolution: false, namesGatedProgram: true });
   },
 );
 
@@ -359,8 +360,16 @@ test(
       invokedBareName: true,
     });
     assert.equal(runInvocation("echo $(git rev-parse HEAD) && git push --force").invokedBareName, true);
-    assert.deepEqual(runInvocation("git status"), { category: "safe" });
-    assert.deepEqual(runInvocation("GIT_AUTHOR_NAME=x git status"), { category: "safe" });
+    assert.deepEqual(runInvocation("git status"), {
+      category: "safe",
+      textCanShadowPathResolution: false,
+      namesGatedProgram: true,
+    });
+    assert.deepEqual(runInvocation("GIT_AUTHOR_NAME=x git status"), {
+      category: "safe",
+      textCanShadowPathResolution: false,
+      namesGatedProgram: true,
+    });
   },
 );
 
@@ -442,7 +451,11 @@ test(
 
     // A `command`-wrapped safe command is still safe — the unwrap must not turn every `command`
     // invocation destructive by construction.
-    assert.deepEqual(runInvocation("command git status"), { category: "safe" });
+    assert.deepEqual(runInvocation("command git status"), {
+      category: "safe",
+      textCanShadowPathResolution: false,
+      namesGatedProgram: true,
+    });
 
     // `command -v`/`command -V` are QUERY forms — they print/describe where `git` would resolve
     // and never execute it, unlike every other shape above. Grouping them with `-p` (as an earlier
@@ -451,9 +464,20 @@ test(
     // destructive. `scripts/uat/uat-05-concurrent-commits.mjs` and `scripts/uat/README.md` both
     // rely on `command -v git` resolving to the shim directory as PROOF of shim installation
     // (03-VERIFICATION.md Success Criterion 4) — that harness has nobody to answer a permission
-    // request, so this must stay `safe` or the harness breaks.
-    assert.deepEqual(runInvocation("command -v git"), { category: "safe" });
-    assert.deepEqual(runInvocation("command -V git"), { category: "safe" });
+    // request, so this must stay `safe` or the harness breaks. `namesGatedProgram` is still `true`
+    // (plan 03-24) — the raw-text scan is text-based, not execution-aware, and the hook only
+    // denies a safe verdict when BOTH text facts hold, so a mention with no shadow construct still
+    // defers.
+    assert.deepEqual(runInvocation("command -v git"), {
+      category: "safe",
+      textCanShadowPathResolution: false,
+      namesGatedProgram: true,
+    });
+    assert.deepEqual(runInvocation("command -V git"), {
+      category: "safe",
+      textCanShadowPathResolution: false,
+      namesGatedProgram: true,
+    });
 
     // `command -p` is unaffected: it still forces execution under a hardcoded default PATH.
     assert.deepEqual(runInvocation("command -p git push --force"), {

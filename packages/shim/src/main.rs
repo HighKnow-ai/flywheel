@@ -872,6 +872,74 @@ fn text_can_shadow_path_resolution(text: &str) -> bool {
     false
 }
 
+/// True when `word` appears anywhere in `chars` with a non-identifier character (or a text
+/// boundary — start/end of the slice) on BOTH sides, where an identifier character is ASCII
+/// alphanumeric or `_`. The shared raw-text matching primitive [`text_names_gated_program`] and
+/// [`raw_text_can_shadow_path_resolution`] both build on: unlike the whole-TOKEN equality
+/// `text_can_shadow_path_resolution` uses, this scans the RAW characters directly, so it can see
+/// inside a single-quoted payload `tokenize_shell_words` would otherwise return as one opaque
+/// token (plan 03-24, D-61).
+fn raw_text_contains_word(chars: &[char], word: &str) -> bool {
+    let word_chars: Vec<char> = word.chars().collect();
+    let word_len = word_chars.len();
+    if word_len == 0 || chars.len() < word_len {
+        return false;
+    }
+    let is_identifier_char = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    for start in 0..=(chars.len() - word_len) {
+        if chars[start..start + word_len] != word_chars[..] {
+            continue;
+        }
+        let before_ok = start == 0 || !is_identifier_char(chars[start - 1]);
+        let after_idx = start + word_len;
+        let after_ok = after_idx == chars.len() || !is_identifier_char(chars[after_idx]);
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
+
+/// D-59/D-61 (plan 03-24): does the raw command TEXT name one of the two programs
+/// `flywheel_core::shim::install_for_run` shadows — `git` or `rm`, fixed by
+/// `shadowed_git_entry_name`/`shadowed_rm_entry_name`? This is NOT enumeration: the pair is
+/// closed and defined by another module entirely, which is why D-59's ban on lengthening the
+/// launcher token list in `resolve_segment_program_index` does not reach it.
+///
+/// Matching discipline, chosen to over-trigger rather than under-trigger per D-61's own note:
+/// scans the RAW text, quoted regions included, case-sensitively, via [`raw_text_contains_word`]
+/// — a match requires a non-identifier character (or a text boundary) on both sides of the name.
+/// That boundary rule is what keeps `digit`, `legitimate`, `format` and `warm` from matching
+/// while `sh -c 'git push'`, `.gitignore`, `/usr/bin/git`, `git-lfs` and `xargs rm` all do. A
+/// false positive costs one deny on a command that mentions a gated program; a false negative
+/// costs an ungated force-push.
+fn text_names_gated_program(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    ["git", "rm"].iter().any(|name| raw_text_contains_word(&chars, name))
+}
+
+/// D-59/D-61 (plan 03-24): a raw-text companion to [`text_can_shadow_path_resolution`], used ONLY
+/// by the safe verdict's reported `textCanShadowPathResolution` field — never by
+/// `invoked_bare_name`, which keeps exactly its pre-existing token-based meaning. Applies the SAME
+/// six shadow-construct keywords the existing scan uses — `function`, `alias`, `hash`, `eval`,
+/// `source` and `builtin` — but matches them against the RAW text via [`raw_text_contains_word`]
+/// instead of as whole tokens over `split_top_level_segments`/`tokenize_shell_words`. Deliberately
+/// EXCLUDES the bare `.` trigger: unbounded in raw text it would match every path and every
+/// version number, over-triggering past the point of usefulness. The existing `()`-character scan
+/// and the `PATH=` substring check inside `text_can_shadow_path_resolution` already fire on raw
+/// text and need no raw-text companion here.
+///
+/// This function exists because of a measured tokenizer property: `tokenize_shell_words` strips
+/// quotes and only splits on whitespace OUTSIDE them, so the entire single-quoted payload of
+/// `sh -c '…'` arrives as ONE token, and no whole-token keyword comparison can ever see inside it.
+/// D-61's stated discipline is to fire on presence anywhere in the text, quoted or not, so the
+/// safe branch needs this raw form.
+fn raw_text_can_shadow_path_resolution(text: &str) -> bool {
+    const KEYWORD_TRIGGERS: [&str; 6] = ["function", "alias", "hash", "eval", "source", "builtin"];
+    let chars: Vec<char> = text.chars().collect();
+    KEYWORD_TRIGGERS.iter().any(|kw| raw_text_contains_word(&chars, kw))
+}
+
 /// The result of classifying raw command text: the verdict itself, plus — when destructive — the
 /// program name and bare-name status of the segment that produced it (plan 03-19 Task 1, narrowed
 /// by plan 03-20 Task 1). Computed together so `--classify-invocation` needs no second scan of the
@@ -890,6 +958,18 @@ struct ClassifiedInvocation {
     /// actually intercept at runtime (plan 03-20/CR-01: a shadowed `git` function or an overridden
     /// `PATH` never reaches the shim at all, even though the token itself has no `/`).
     invoked_bare_name: bool,
+    /// Reported only on the `Safe` verdict (plan 03-24, D-59/D-61): the boolean OR of
+    /// `text_can_shadow_path_resolution` and `raw_text_can_shadow_path_resolution` — whether
+    /// ANYTHING in the raw command text, token-level or raw-quoted-payload, can pre-empt bash's
+    /// own `PATH` search before it happens. Both fail-closed early returns below (empty text, an
+    /// `Unresolvable` segment) set this `true` — the most restrictive reading. Deliberately NOT
+    /// fed by `invoked_bare_name`'s own `shadowable` computation, which keeps exactly its
+    /// pre-existing, narrower, token-only meaning.
+    text_can_shadow: bool,
+    /// Reported only on the `Safe` verdict (plan 03-24, D-59/D-61): whether the raw command text
+    /// names one of the two programs `install_for_run` shadows (`text_names_gated_program`). Both
+    /// fail-closed early returns below set this `true` as well.
+    names_gated_program: bool,
 }
 
 /// Classify raw bash command TEXT: split into top-level segments, classify each through the SAME
@@ -908,6 +988,8 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
             verdict: Verdict::Destructive(DestructiveCategory::Uncategorized),
             program: None,
             invoked_bare_name: false,
+            text_can_shadow: true,
+            names_gated_program: true,
         };
     }
 
@@ -915,6 +997,10 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
     // detects (a function definition, an alias, `PATH=`, …) affect name resolution for the REST of
     // the command text they appear in, not just their own segment.
     let shadowable = text_can_shadow_path_resolution(trimmed);
+    // Safe-verdict-only facts (plan 03-24, D-59/D-61) — computed once here so a `Safe` return
+    // below and every fail-closed early return above/below can report them without a second scan.
+    let text_can_shadow = shadowable || raw_text_can_shadow_path_resolution(trimmed);
+    let names_gated_program = text_names_gated_program(trimmed);
 
     for segment in split_top_level_segments(trimmed) {
         let segment = segment.trim();
@@ -937,6 +1023,8 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
                     verdict: Verdict::Destructive(DestructiveCategory::Uncategorized),
                     program: None,
                     invoked_bare_name: false,
+                    text_can_shadow: true,
+                    names_gated_program: true,
                 };
             }
             ProgramResolution::Found(index) => index,
@@ -949,6 +1037,8 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
                 verdict,
                 program: Some(stem),
                 invoked_bare_name: !first.contains('/') && !shadowable,
+                text_can_shadow,
+                names_gated_program,
             };
         }
     }
@@ -957,6 +1047,8 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         verdict: Verdict::Safe,
         program: None,
         invoked_bare_name: false,
+        text_can_shadow,
+        names_gated_program,
     }
 }
 
@@ -1005,7 +1097,14 @@ fn run_classify_invocation(command_text_arg: Option<&OsString>) -> ExitCode {
     let default_branch = env::var("FLYWHEEL_DEFAULT_BRANCH").ok();
     let classified = classify_raw_command_text(command_text, default_branch.as_deref());
     let output = match classified.verdict {
-        Verdict::Safe => serde_json::json!({ "category": "safe" }),
+        // plan 03-24 (D-59/D-61): the safe verdict now carries the two text facts the hook's safe
+        // branch needs to establish its own D-61 deny rule. The Destructive arm below is
+        // deliberately UNCHANGED — same three keys, same values, as before this plan.
+        Verdict::Safe => serde_json::json!({
+            "category": "safe",
+            "textCanShadowPathResolution": classified.text_can_shadow,
+            "namesGatedProgram": classified.names_gated_program,
+        }),
         Verdict::Destructive(category) => serde_json::json!({
             "category": category.as_str(),
             "program": classified.program,

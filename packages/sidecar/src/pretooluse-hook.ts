@@ -139,6 +139,25 @@ function shimWillIntercept(program: string): boolean {
   }
 }
 
+/** The shadow witness entry name the safe branch's environment proof stats — mirrors
+ * `shimBinFromEnv`'s own platform convention in `claude-code-adapter.ts` exactly, so both files
+ * agree on which name a correctly-installed shim directory must carry (plan 03-24, D-59). */
+const SHADOW_WITNESS_ENTRY_NAME = process.platform === "win32" ? "git.exe" : "git";
+
+/**
+ * D-59/D-60 (plan 03-24): PROVES — never assumes — that the shim's (D-51) own shadow directory is
+ * installed and leads `PATH` right now, for the SAFE branch. A thin named wrapper over
+ * `shimWillIntercept(SHADOW_WITNESS_ENTRY_NAME)` — introduces no new mechanism: it is the SAME two
+ * synchronous `accessSync`/`statSync` calls the non-safe branch already pays, applied to the safe
+ * branch for the first time. `git`/`git.exe` is used as the witness entry because
+ * `install_for_run` always installs it (unlike `rm`, which the safe branch's own command text may
+ * never mention), so its presence proves the shadow directory itself, independent of which
+ * program (if any) the safe command names.
+ */
+function shimShadowDirectoryProven(): boolean {
+  return shimWillIntercept(SHADOW_WITNESS_ENTRY_NAME);
+}
+
 /** Fail closed: print the destructive decision, naming why this hook could not confirm safety,
  * and exit non-zero (mirrors the shipped shape RESEARCH.md's own verified session observed for a
  * genuine denial). */
@@ -195,7 +214,13 @@ async function main(): Promise<void> {
     failClosed("the shim produced no classification verdict");
   }
 
-  let classification: { category?: unknown; program?: unknown; invokedBareName?: unknown };
+  let classification: {
+    category?: unknown;
+    program?: unknown;
+    invokedBareName?: unknown;
+    textCanShadowPathResolution?: unknown;
+    namesGatedProgram?: unknown;
+  };
   try {
     classification = JSON.parse(stdout);
   } catch {
@@ -208,6 +233,27 @@ async function main(): Promise<void> {
   }
 
   if (category === "safe") {
+    // Step 1 (D-59/D-60): the safe branch now proves the SAME environment fact the non-safe
+    // branch already proves below, before it trusts a "safe" verdict at all. An unprovable
+    // environment denies EVERY command, harmless ones included — the misconfigured-session case
+    // is exactly where this refusal layer is the only one left standing.
+    if (!shimShadowDirectoryProven()) {
+      failClosed("the shim's shadow directory could not be proven installed and leading PATH");
+    }
+
+    // Step 2 (D-61): a value that is not the boolean `false` is read as `true` — an older shim
+    // that does not report a field must be treated as unprovable, never as safe. Only when the
+    // text can BOTH pre-empt PATH resolution AND name a program this shim gates is safety
+    // unprovable; deny only then, so ordinary `source`/`eval` that name neither stay deferrable.
+    const textCanShadow = classification.textCanShadowPathResolution !== false;
+    const namesGatedProgram = classification.namesGatedProgram !== false;
+    if (textCanShadow && namesGatedProgram) {
+      failClosed(
+        "this command's text can pre-empt PATH resolution and names a program Flywheel gates, so its safety cannot be proven",
+      );
+    }
+
+    // Step 3: both facts clear — defer.
     printDecision({});
     process.exit(0);
   }
