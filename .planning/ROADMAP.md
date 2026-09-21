@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 27/28 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 planned gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the destructive-gate bypass class per D-59 .. D-63
+**Plans**: 28/28 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 planned gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the destructive-gate bypass class per D-59 .. D-63
 **UI hint**: yes
 
 Plans:
@@ -354,7 +354,7 @@ Plans:
 
 **Wave 14** *(blocked on Wave 13 — needs both the corpus and the live run)*
 
-- [ ] 03-28-PLAN.md — The recorded trust boundary: what each layer proves and what it explicitly cannot see (D-62 item 3) (AGNT-07)
+- [x] 03-28-PLAN.md — The recorded trust boundary: what each layer proves and what it explicitly cannot see (D-62 item 3) (AGNT-07)
 
 **Notes**: This phase exists as its own slice because two of the four ranked project-killers live
 here and each deserves a dedicated plan with its own tests rather than being buried in Phase 2.
@@ -652,7 +652,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
-| 3. Nothing Lost, Nothing Left Running | 27/28 | In Progress|  |
+| 3. Nothing Lost, Nothing Left Running | 28/28 | In Progress|  |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
