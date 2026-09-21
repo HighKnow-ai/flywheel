@@ -1173,6 +1173,228 @@ test(
   },
 );
 
+// --- plan 03-26 Task 2: the same corpus in three broken environments, and the invariant that no
+// row escapes. Each broken environment is constructed to defeat exactly ONE condition of
+// `shimShadowDirectoryProven`/`shimWillIntercept`'s own proof
+// (packages/sidecar/src/pretooluse-hook.ts): FLYWHEEL_SHIM_BIN being set at all, its directory
+// being PATH's literal first segment, and that directory holding the witness entry
+// (SHADOW_WITNESS_ENTRY_NAME = "git"). A regression here therefore tells you WHICH condition
+// stopped being checked, not merely that something broke. ---
+
+/** The four harmless controls Task 2(a) adds beyond LAUNCHER_CORPUS itself — D-60 says an
+ * environment the hook cannot prove denies for every command, not only destructive ones; a matrix
+ * that only proved the dangerous rows deny would be satisfied by the pre-D-60 behaviour. */
+const HARMLESS_CONTROLS = ["npm test", "cargo build", "ls -la", "git status"];
+
+/** Run `text` through the hook under `env` and return BOTH the parsed decision and the RAW stdout
+ * string — `runHook` above only keeps the parsed form, but the idempotency test (d) needs to
+ * compare stdout byte-for-byte, not merely structurally equal after JSON round-tripping. */
+function runHookRaw(text, env) {
+  const hookPath = pretoolUseHookScriptPath();
+  const payload = JSON.stringify({ tool_input: { command: text } });
+  const result = spawnSync(process.execPath, [hookPath], { input: payload, encoding: "utf8", env });
+  return { status: result.status, stdout: result.stdout };
+}
+
+/** Run `text` through the hook under `env` as a genuinely ASYNCHRONOUS child process (`spawn`,
+ * never `spawnSync`) — used only by the concurrency test (e), which needs two invocations that
+ * actually overlap in wall-clock time, not merely two calls issued back-to-back. */
+function runHookAsync(text, env) {
+  return new Promise((resolvePromise, reject) => {
+    const hookPath = pretoolUseHookScriptPath();
+    const payload = JSON.stringify({ tool_input: { command: text } });
+    const child = spawn(process.execPath, [hookPath], { env, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      let decision;
+      try {
+        decision = JSON.parse(stdout);
+      } catch {
+        decision = undefined;
+      }
+      resolvePromise({ status: code, decision });
+    });
+    child.stdin.write(payload);
+    child.stdin.end();
+  });
+}
+
+test(
+  "the unprovable matrix: every LAUNCHER_CORPUS row plus the harmless controls denies under three separately-broken environments, no decision anywhere in that matrix is a no-opinion decision, and the same corpus in the proven environment still produces at least one",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const commands = [...LAUNCHER_CORPUS.map((row) => row.command), ...HARMLESS_CONTROLS];
+
+    // Condition 1: FLYWHEEL_SHIM_BIN unset entirely — the hook cannot even locate a classifier,
+    // and main()'s own top-level check denies before the shim is ever invoked to classify.
+    const shimDirForNoBin = makeShimDir(["git", "rm"]);
+    const noBinEnv = {
+      ...process.env,
+      PATH: `${shimDirForNoBin}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    delete noBinEnv.FLYWHEEL_SHIM_BIN;
+
+    // Condition 2: a correct shim directory exists and classifies fine, but is NOT PATH's first
+    // entry — something else would win the PATH search first.
+    const shimDirForNotFirst = makeShimDir(["git", "rm"]);
+    const decoyDir = "/nonexistent-decoy-directory-03-26";
+    const notFirstEnv = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDirForNotFirst, "git"),
+      PATH: `${decoyDir}${path.delimiter}${shimDirForNotFirst}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    // Condition 3: a directory leads PATH and holds only `rm` — the witness entry (`git`) the
+    // environment proof stats is absent — while FLYWHEEL_SHIM_BIN points at a SEPARATE real copy
+    // of the compiled shim binary (installed under the `rm` name, in that SAME directory), so
+    // classification itself still works and only the witness stat fails.
+    const missingWitnessDir = makeShimDir(["rm"]);
+    const missingWitnessEnv = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(missingWitnessDir, "rm"),
+      PATH: `${missingWitnessDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    const BROKEN_ENVIRONMENTS = [
+      { name: "FLYWHEEL_SHIM_BIN unset", env: noBinEnv },
+      { name: "shim directory present but not first on PATH", env: notFirstEnv },
+      { name: "shim directory leading PATH but missing the git witness entry", env: missingWitnessEnv },
+    ];
+
+    const allDecisions = [];
+    for (const { name, env } of BROKEN_ENVIRONMENTS) {
+      for (const command of commands) {
+        const { status, decision } = runHook(command, env);
+        allDecisions.push({ name, command, status, decision });
+        assert.equal(status, 2, `expected deny (status 2) under "${name}" for: ${command}`);
+        assert.equal(
+          decision?.hookSpecificOutput?.permissionDecision,
+          "deny",
+          `expected permissionDecision "deny" under "${name}" for: ${command}`,
+        );
+      }
+    }
+
+    // (b) The invariant this whole closure rests on (D-60): not ONE decision anywhere in the
+    // matrix above — destructive rows, safe rows and the four harmless controls alike — may be a
+    // no-opinion decision (an empty object at exit status 0). This is the assertion that goes red
+    // the instant a future change reintroduces an unproven short-circuit on ANY branch, for ANY
+    // category.
+    const noOpinionEscapes = allDecisions.filter(
+      (d) => d.status === 0 && d.decision !== undefined && Object.keys(d.decision).length === 0,
+    );
+    assert.deepEqual(
+      noOpinionEscapes,
+      [],
+      "an environment the hook cannot prove must deny EVERY command, not only destructive ones (D-60) — " +
+        "this invariant is what catches a future unproven short-circuit on any branch, for any category",
+    );
+
+    // (c) The falsifiability companion: the SAME corpus, run in the PROVEN environment, must
+    // still produce at least one no-opinion decision — without this, a harness that silently
+    // failed to build a usable environment at all would pass the whole matrix above vacuously,
+    // which is precisely how an unmeasured backstop claim gets recorded as coverage.
+    const provenDir = makeShimDir(["git", "rm"]);
+    const provenEnv = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(provenDir, "git"),
+      PATH: `${provenDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    const provenResults = commands.map((command) => runHook(command, provenEnv));
+    assert.ok(
+      provenResults.some((r) => r.status === 0 && r.decision !== undefined && Object.keys(r.decision).length === 0),
+      "the same corpus in the proven environment must produce at least one no-opinion decision — " +
+        "otherwise a broken harness could pass the unprovable matrix above vacuously",
+    );
+  },
+);
+
+test(
+  "idempotency: running the hook twice on an identical payload under an identical environment produces byte-identical stdout and the same exit status (AGNT-07's idempotency edge)",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git", "rm"]);
+    const provenEnv = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    const unprovenEnv = { ...process.env, PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}` };
+    delete unprovenEnv.FLYWHEEL_SHIM_BIN;
+
+    // One representative row of each kind, per the plan's own instruction: one that defers, one
+    // denied by the D-61 text rule (a proven environment, but the text itself is unprovable), and
+    // one denied by the D-60 environment rule (an ordinary safe command, but the environment
+    // itself is unprovable).
+    const REPRESENTATIVE_ROWS = [
+      { command: "npm test", env: provenEnv, label: "defers" },
+      {
+        command: 'sh -c \'function git { /usr/bin/git "$@"; }; git push --force\'',
+        env: provenEnv,
+        label: "denied by the D-61 text rule",
+      },
+      { command: "git status", env: unprovenEnv, label: "denied by the D-60 environment rule" },
+    ];
+
+    for (const { command, env, label } of REPRESENTATIVE_ROWS) {
+      const first = runHookRaw(command, env);
+      const second = runHookRaw(command, env);
+      assert.equal(
+        second.stdout,
+        first.stdout,
+        `two hook runs on the same payload/env must produce byte-identical stdout (${label}): ${command}`,
+      );
+      assert.equal(
+        second.status,
+        first.status,
+        `two hook runs on the same payload/env must produce the same exit status (${label}): ${command}`,
+      );
+    }
+  },
+);
+
+test(
+  "concurrency: two hook invocations running in parallel against two different shim directories — one proven, one missing the witness entry — each receive their own verdict (AGNT-07's concurrency edge, D-57's no-local-cache-by-construction)",
+  { skip: SHIM_SKIP_REASON },
+  async () => {
+    const provenDir = makeShimDir(["git", "rm"]);
+    const provenEnv = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(provenDir, "git"),
+      PATH: `${provenDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+    // The SAME "witness entry missing" construction as condition 3 above — a separate real copy
+    // of the shim, installed under `rm` in a directory that never got a `git` entry.
+    const missingWitnessDir = makeShimDir(["rm"]);
+    const missingWitnessEnv = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(missingWitnessDir, "rm"),
+      PATH: `${missingWitnessDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    // Both invocations classify the SAME command text — only the environment differs — and both
+    // are launched together via Promise.all so they genuinely overlap in time. Neither this
+    // binary nor the hook script holds any map, file or record of a prior answer between
+    // invocations (D-57): each is a brand-new OS process, so nothing here could let one
+    // invocation observe or weaken the other's proof even if it tried.
+    const command = "git status";
+    const [provenResult, unprovenResult] = await Promise.all([
+      runHookAsync(command, provenEnv),
+      runHookAsync(command, missingWitnessEnv),
+    ]);
+
+    assert.equal(provenResult.status, 0, "the proven directory's invocation must defer (no opinion)");
+    assert.deepEqual(provenResult.decision, {});
+
+    assert.equal(unprovenResult.status, 2, "the directory missing its witness entry must deny");
+    assert.equal(unprovenResult.decision?.hookSpecificOutput?.permissionDecision, "deny");
+  },
+);
+
 // --- the live measurement, against the real backend ---
 
 test(
