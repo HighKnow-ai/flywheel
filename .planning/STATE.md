@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-30-PLAN.md (round-five quote/backslash-split shadow closed C1-C4, WR-01 tri-state composition fix; continuation executor finished Task 3 after prior executor died mid-task)
-last_updated: "2026-09-21T08:37:18.180Z"
+stopped_at: Completed 03-31-PLAN.md (WR-02 generator built and found a genuine round-six bypass — env -S backslash-split — reported per D-62/D-63, AGNT-07 kept Gaps Found; ORDINARY_USAGE_CORPUS and de-flaked absolute-path test also delivered)
+last_updated: "2026-09-21T12:46:56.933Z"
 last_activity: 2026-09-21
 last_activity_desc: Phase 03 execution started
-state_head: 4c606b3265d0b8f3e9a08a28059e795c3c1e1c65
+state_head: 928fb99bde805dd151982a8dc2a4d9434543195a
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 70
-  completed_plans: 69
+  completed_plans: 70
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 2 of 31
+Plan: 3 of 31
 Status: Ready to execute
 Last activity: 2026-09-21 — Phase 03 execution started
 
@@ -126,6 +126,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P26 | 27min | 2 tasks | 1 files |
 | Phase 03 P27 | 14min | 2 tasks | 3 files |
 | Phase 03 P30 | 140min | 3 tasks | 4 files |
+| Phase 03 P31 | ~2h | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -240,6 +241,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-27: uat-07-launcher-shape-gate.mjs always runs with a production-cadence heartbeat writer (uat_session_env --touch-heartbeat on HEARTBEAT_TICK_MS) -- its two-command sequential prompt plus incidental-permission draining measurably needs it, unlike item 3's single-command turn; the first live attempt was killed by watchdog-heartbeat-stale before reaching the destructive command.
 - [Phase 03]: 03-30: C4 forbids carrying C3's indeterminacy into the bare-name fact (invokedBareName) -- only C1's quote removal widens it, so an ordinary force-push naming its branch through a variable still reaches layer 2's human question instead of a layer 1 refusal.
 - [Phase 03]: 03-30: readProvenBoolean's tri-state deny-before-AND ordering closes WR-01 -- an unestablished D-61 field denies by name before the AND, rather than being defaulted-unsafe and fed into it (the shape that produced the latent bug).
+- [Phase 03]: obfuscationVariants generates decision-invariance adversaries over LAUNCHER_CORPUS mechanically (WR-02); the sweep found a genuine round-six bypass (env -S opaque-reparse defeated by a backslash-split env), reported prominently per D-62/D-63 rather than patched, AGNT-07 kept Gaps Found
+- [Phase 03]: The one decision-invariance break found is carried as a single falsifiability-checked exception (KNOWN_OPEN_BOUNDARY_FAILURES) rather than narrowing the sweep or the word list to avoid it
 
 ### Pending Todos
 
@@ -258,6 +261,7 @@ None yet.
 - ✅ **[Phase 03] RESOLVED by 03-19 (G-03-3).** The destructive gate previously refused rather than asked for every command an agent ran through Bash. `pretooluse-hook.ts` now defers to the shim's own permission socket whenever it can prove the shim will intercept the command (`shimWillIntercept`), denying outright only for the class the shim structurally cannot see. Live-measured this session: a bare `git push --delete` now raises a real `permission_request` carrying `destructiveCategory: branch-deletion`, which never happened before. See the NEW finding immediately below — the full sustained-block-then-deny flow surfaced a SEPARATE, unresolved issue during this same measurement.
 - ⚠️ **[Phase 01] Process defect, will recur every phase needing human verification.** The verifier's `human_needed` branch writes `{phase}-UAT.md`, but `UAT.md` is also declared in `covered_files` and hashed into `covered_digest` — so a verification that asks for human testing invalidates its own fingerprint and reads `stale` forever after. `/gsd-verify-work` then routes to itself, which cannot clear it. Broken this round by regenerating verification with `status: passed` after UAT passed; the durable fix is to stop fingerprinting verify-step *outputs* as verification *inputs*.
 - ⚠️ **[Phase 03] Session-termination finding investigated — root-cause-identified (03-20/03-21).** 03-19's ~15-16s session-termination finding was root-caused by the dedicated follow-up spike it recommended: `03-SESSION-LIFECYCLE-FINDINGS.md` records **Disposition: root-cause-identified**, H1 CONFIRMED — the watchdog's own heartbeat-staleness kill (`DEFAULT_HEARTBEAT_STALE_MS=15000`) correctly reaped an unsupervised session (`--heartbeat=off`: terminated at `elapsed_ms=7397`, `closeOrigin: watchdog-heartbeat-stale`), while a production-shaped `--heartbeat=on` run sustained the block for the full 90s window with zero termination artifacts — the product was never at fault; the prior measurement harness was. Plan 03-21 took Branch B (harness-only doc fix; no change to `watchdog.ts`'s stale-kill condition) and added a repeatable acceptance command (`uat-06-permission-block-lifecycle.mjs --heartbeat=on --answer-after=60000 --decision=deny`, `honoured=true`) proving a supervised session survives a 60+ second unanswered destructive-gate block and honours the eventual answer. **AGNT-07 is NOT Complete**: a separate, broader bypass class was found afterwards (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`) and the requirement was walked back to Gaps Found in `db18b0e`. Still genuinely open per the findings document's own "What this does not claim": reproduction inside a packaged `.app` (only the dev-mode sidecar bundle was driven), on a machine other than the one measured, and against a `claude` version other than 2.1.267 remain untested; H1a (whether 03-19's specific `FLYWHEEL_HEARTBEAT_STALE_MS=120000` override reached the watchdog) was not directly retested with a non-default value.
+- AGNT-07 open: round-six destructive-gate bypass found live and non-destructively (env -S opaque-reparse defeated by backslash-split env, zero human confirmation for a nested altpath payload). See 03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md. Needs a round-seven plan before AGNT-07 can close.
 
 ### Quick Tasks Completed
 
@@ -280,6 +284,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-21T08:37:18.094Z
-Stopped at: Completed 03-30-PLAN.md (round-five quote/backslash-split shadow closed C1-C4, WR-01 tri-state composition fix; continuation executor finished Task 3 after prior executor died mid-task)
+Last session: 2026-09-21T12:46:49.330Z
+Stopped at: Completed 03-31-PLAN.md (WR-02 generator built and found a genuine round-six bypass — env -S backslash-split — reported per D-62/D-63, AGNT-07 kept Gaps Found; ORDINARY_USAGE_CORPUS and de-flaked absolute-path test also delivered)
 Resume file: None

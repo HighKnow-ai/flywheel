@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 30/31 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the launcher-shape bypass class per D-59 .. D-63, plus 3 planned gap-closure plans (03-29 .. 03-31) in waves 15-17 closing round five of that class — the reproduced quote/backslash obfuscation of the D-61 raw-text scan (CR-01), plus WR-01 and WR-02
+**Plans**: 31/31 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the launcher-shape bypass class per D-59 .. D-63, plus 3 planned gap-closure plans (03-29 .. 03-31) in waves 15-17 closing round five of that class — the reproduced quote/backslash obfuscation of the D-61 raw-text scan (CR-01), plus WR-01 and WR-02
 **UI hint**: yes
 
 Plans:
@@ -366,7 +366,7 @@ Plans:
 
 **Wave 17** *(blocked on Wave 16 — adversarial rows may only follow the corrected and implemented boundary)*
 
-- [ ] 03-31-PLAN.md — The corpus manufactures its own adversaries: decision invariance under obfuscation (WR-02), the recorded friction table, and a live measurement whose failures mean what they say (all 8 phase IDs)
+- [x] 03-31-PLAN.md — The corpus manufactures its own adversaries: decision invariance under obfuscation (WR-02), the recorded friction table, and a live measurement whose failures mean what they say (all 8 phase IDs)
 
 **Notes**: This phase exists as its own slice because two of the four ranked project-killers live
 here and each deserves a dedicated plan with its own tests rather than being buried in Phase 2.
@@ -664,7 +664,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
-| 3. Nothing Lost, Nothing Left Running | 30/31 | In Progress|  |
+| 3. Nothing Lost, Nothing Left Running | 31/31 | In Progress|  |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
