@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-25-PLAN.md (install verifies what it installed, and the spawn refusal says why)
-last_updated: "2026-09-21T01:06:34.816Z"
+stopped_at: Completed 03-26-PLAN.md (the checked-in adversarial corpus -- D-62 item 1)
+last_updated: "2026-09-21T01:30:13.623Z"
 last_activity: 2026-09-21
 last_activity_desc: Phase 03 execution started
-state_head: 536a00e64264faa1f0f0ad39915cbedc51c84a6e
+state_head: 9620b14dde71cb8289da0be8cd56b0f239b0868f
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 67
-  completed_plans: 64
+  completed_plans: 65
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 3 of 28
+Plan: 4 of 28
 Status: Ready to execute
 Last activity: 2026-09-21 — Phase 03 execution started
 
@@ -123,6 +123,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P22 | 20min | 2 tasks | 3 files |
 | Phase 03 P24 | 40 min | 2 tasks | 3 files |
 | Phase 03 P25 | 23min | 2 tasks | 3 files |
+| Phase 03 P26 | 27min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -231,6 +232,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-25: verify_shadow_entry_speaks_classification is called from shim_env_for_run only, never install_for_run -- one extra process per session spawn, zero for install-only callers (lock_contention.rs).
 - [Phase 03]: [Phase 03] 03-25: the rm-entry-as-directory case fails inside install_shadow_entry's own hard-link/copy attempt, not verify_shadow_entry -- entry.is_file() is false for a directory so the fast path never short-circuits; install_shadow_entry's existing context already names the entry and run id, satisfying the plan's acceptance bar.
 - [Phase 03]: [Phase 03] 03-25: git status is the fixed, non-destructive probe text for the classification-contract probe, reached only through --classify-invocation (pure classification, D-63).
+- [Phase 03]: [Phase 03] 03-26: LAUNCHER_CORPUS is 29 rows asserted through runHook/makeShimDir -- extends the existing CR-01/D-59..D-61 tables in destructive-gate.test.mjs rather than a parallel mechanism, satisfying D-62 item 1
+- [Phase 03]: [Phase 03] 03-26: the rm-witness-missing broken environment installs a separate real shim copy under the rm name in the same directory so classification still works while the git witness entry genuinely stays absent
 
 ### Pending Todos
 
@@ -271,6 +274,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-21T01:06:34.737Z
-Stopped at: Completed 03-25-PLAN.md (install verifies what it installed, and the spawn refusal says why)
+Last session: 2026-09-21T01:30:13.544Z
+Stopped at: Completed 03-26-PLAN.md (the checked-in adversarial corpus -- D-62 item 1)
 Resume file: None
