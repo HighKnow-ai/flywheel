@@ -96,21 +96,29 @@
 //! `textCanShadowPathResolution` and `namesGatedProgram`:
 //!
 //! - `textCanShadowPathResolution` is the boolean OR of `text_can_shadow_path_resolution` (the
-//!   pre-existing, whole-TOKEN scan `invoked_bare_name` already relies on) and
-//!   `raw_text_can_shadow_path_resolution` (new: the SAME six keywords, matched against the RAW
-//!   text instead) — the raw form exists because `tokenize_shell_words` returns an entire
-//!   single-quoted `sh -c '…'` payload as ONE token, so a whole-token comparison can never see a
-//!   `function`/`alias`/`eval`/… keyword hiding inside it.
-//! - `namesGatedProgram` is `text_names_gated_program`: does the raw text name one of the two
-//!   programs `install_for_run` shadows (`git`, `rm`)? Not enumeration — that pair is closed and
-//!   owned by another module entirely.
+//!   pre-existing, whole-TOKEN scan `invoked_bare_name` already relies on, evaluated over both the
+//!   raw text and its C1 quote-removed form), `raw_text_can_shadow_path_resolution` (the SAME six
+//!   keywords, matched against the RAW text and its quote-removed form instead — the raw form
+//!   exists because `tokenize_shell_words` returns an entire single-quoted `sh -c '…'` payload as
+//!   ONE token, so a whole-token comparison can never see a `function`/`alias`/`eval`/… keyword
+//!   hiding inside it), and `raw_text_word_formation_is_indeterminate` (plan 03-30's C3). **After
+//!   plan 03-30's round-five correction, this field's `true` means one of two different things:**
+//!   a shadow construct is genuinely PRESENT in the text (quote-removed or not), OR the scan
+//!   CANNOT DETERMINE what words the text forms (a `$`, a backtick, or a letter-adjacent glob) and
+//!   therefore refuses to report an absence it cannot prove. Its `false` is a claim of PROVEN
+//!   absence, and that claim is sound only for DETERMINATE text — see
+//!   `docs/destructive-gate-trust-boundary.md`'s C1-C4 contract for the exact scope.
+//! - `namesGatedProgram` is `text_names_gated_program`: does the raw text (or its C1 quote-removed
+//!   form) name one of the two programs `install_for_run` shadows (`git`, `rm`)? Not enumeration —
+//!   that pair is closed and owned by another module entirely.
 //!
 //! `pretooluse-hook.ts`'s safe branch denies only when BOTH are true — text that can shadow PATH
-//! resolution AND names a program this shim gates — so `source .venv/bin/activate && pytest`
-//! (shadows, names neither) still defers, while a shell-function shadow naming `git` does not,
-//! wherever it sits in the text, quoted or not (D-61). Both fail-closed early returns of
-//! `classify_raw_command_text` (empty text, an `Unresolvable` segment) report both fields `true` —
-//! the most restrictive reading, same discipline as the destructive arm's own fail-closed shape.
+//! resolution (or whose word formation cannot be determined) AND names a program this shim gates —
+//! so `source .venv/bin/activate && pytest` (shadows, names neither) still defers, while a
+//! shell-function shadow naming `git` does not, wherever it sits in the text, quoted or not (D-61).
+//! Both fail-closed early returns of `classify_raw_command_text` (empty text, an `Unresolvable`
+//! segment) report both fields `true` — the most restrictive reading, same discipline as the
+//! destructive arm's own fail-closed shape.
 //!
 //! **What this binary is trusted to prove, and what it structurally cannot see, is recorded in
 //! `docs/destructive-gate-trust-boundary.md`** (D-62 item 3) — read it before changing this file's
@@ -931,20 +939,27 @@ fn shell_quote_removed(text: &str) -> String {
     result
 }
 
+/// True when `c` counts as an identifier character for this scanner's word-boundary checks — ASCII
+/// alphanumeric or `_`. Shared by [`raw_text_contains_word`] (word-boundary checks) and
+/// [`raw_text_word_formation_is_indeterminate`] (glob-adjacency checks, C3) so the two scanners
+/// agree on what counts as a "letter run" rather than drifting apart.
+fn is_identifier_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
 /// True when `word` appears anywhere in `chars` with a non-identifier character (or a text
 /// boundary — start/end of the slice) on BOTH sides, where an identifier character is ASCII
-/// alphanumeric or `_`. The shared raw-text matching primitive [`text_names_gated_program`] and
-/// [`raw_text_can_shadow_path_resolution`] both build on: unlike the whole-TOKEN equality
-/// `text_can_shadow_path_resolution` uses, this scans the RAW characters directly, so it can see
-/// inside a single-quoted payload `tokenize_shell_words` would otherwise return as one opaque
-/// token (plan 03-24, D-61).
+/// alphanumeric or `_` ([`is_identifier_char`]). The shared raw-text matching primitive
+/// [`text_names_gated_program`] and [`raw_text_can_shadow_path_resolution`] both build on: unlike
+/// the whole-TOKEN equality `text_can_shadow_path_resolution` uses, this scans the RAW characters
+/// directly, so it can see inside a single-quoted payload `tokenize_shell_words` would otherwise
+/// return as one opaque token (plan 03-24, D-61).
 fn raw_text_contains_word(chars: &[char], word: &str) -> bool {
     let word_chars: Vec<char> = word.chars().collect();
     let word_len = word_chars.len();
     if word_len == 0 || chars.len() < word_len {
         return false;
     }
-    let is_identifier_char = |c: char| c.is_ascii_alphanumeric() || c == '_';
     for start in 0..=(chars.len() - word_len) {
         if chars[start..start + word_len] != word_chars[..] {
             continue;
@@ -1017,6 +1032,37 @@ fn raw_text_can_shadow_path_resolution(text: &str) -> bool {
     KEYWORD_TRIGGERS.iter().any(|kw| {
         raw_text_contains_word(&chars, kw) || raw_text_contains_word(&quote_removed, kw)
     })
+}
+
+/// **C3 — indeterminate word formation reports "can shadow"**
+/// (`docs/destructive-gate-trust-boundary.md`): operates on [`shell_quote_removed`]'s output and
+/// returns `true` when that text contains a `$` or a backtick anywhere, or contains a `*`, `?` or
+/// `[` with an ASCII alphanumeric character or `_` ([`is_identifier_char`], shared with
+/// [`raw_text_contains_word`] so the two scanners agree on what counts as a letter run) immediately
+/// before it or immediately after it.
+///
+/// This function never claims a shadow construct was FOUND — it reports that the scan CANNOT
+/// DETERMINE what words the shell will form, and the field it feeds answers "cannot prove" rather
+/// than "absent", which is the correction round five forced. The adjacency rule's purpose: a glob
+/// that interrupts a run of letters can be completed into a keyword by a filename in the working
+/// directory, while a glob sitting next to a dot or a slash is an ordinary path pattern and must
+/// stay deferrable — or the gate would refuse `git add` on a wildcard.
+fn raw_text_word_formation_is_indeterminate(text: &str) -> bool {
+    let quote_removed: Vec<char> = shell_quote_removed(text).chars().collect();
+    if quote_removed.contains(&'$') || quote_removed.contains(&'`') {
+        return true;
+    }
+    for (i, &c) in quote_removed.iter().enumerate() {
+        if c != '*' && c != '?' && c != '[' {
+            continue;
+        }
+        let before_is_letter = i > 0 && is_identifier_char(quote_removed[i - 1]);
+        let after_is_letter = i + 1 < quote_removed.len() && is_identifier_char(quote_removed[i + 1]);
+        if before_is_letter || after_is_letter {
+            return true;
+        }
+    }
+    false
 }
 
 /// The result of classifying raw command text: the verdict itself, plus — when destructive — the
@@ -1097,9 +1143,12 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         || text_can_shadow_path_resolution(&quote_removed);
     // Safe-verdict-only facts (plan 03-24, D-59/D-61) — computed once here so a `Safe` return
     // below and every fail-closed early return above/below can report them without a second scan.
+    // C3's indeterminacy predicate is folded in HERE ONLY, never into `shadowable` — see
+    // `ClassifiedInvocation::invoked_bare_name`'s own doc comment for why C4 keeps it out.
     let text_can_shadow = shadowable
         || raw_text_can_shadow_path_resolution(trimmed)
-        || text_can_shadow_path_resolution(&quote_removed);
+        || text_can_shadow_path_resolution(&quote_removed)
+        || raw_text_word_formation_is_indeterminate(trimmed);
     let names_gated_program = text_names_gated_program(trimmed);
 
     for segment in split_top_level_segments(trimmed) {
