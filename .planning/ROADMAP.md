@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 28/31 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the launcher-shape bypass class per D-59 .. D-63, plus 3 planned gap-closure plans (03-29 .. 03-31) in waves 15-17 closing round five of that class — the reproduced quote/backslash obfuscation of the D-61 raw-text scan (CR-01), plus WR-01 and WR-02
+**Plans**: 29/31 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the launcher-shape bypass class per D-59 .. D-63, plus 3 planned gap-closure plans (03-29 .. 03-31) in waves 15-17 closing round five of that class — the reproduced quote/backslash obfuscation of the D-61 raw-text scan (CR-01), plus WR-01 and WR-02
 **UI hint**: yes
 
 Plans:
@@ -358,7 +358,7 @@ Plans:
 
 **Wave 15 — gap closure** *(round five of the destructive-gate bypass class, from `03-VERIFICATION.md` and `03-REVIEW.md` CR-01: D-61's raw-text scan matches keywords as literal contiguous substrings, so ordinary shell quote/backslash splitting — `e""val`, `e\val`, `g""it` — defeats both conjuncts of the hook's deny rule independently, and the hidden `eval` resolves before any PATH search so layer 2 never sees it either. Reproduced independently three times against the compiled binary using only `--classify-invocation`. Per the trust-boundary document's own rule for round five, the boundary is amended BEFORE any code or corpus change — that ordering is the wave structure below.)*
 
-- [ ] 03-29-PLAN.md — Layer 1 cannot prove absence: amend the boundary, name the C1-C4 contract, gate it (AGNT-07)
+- [x] 03-29-PLAN.md — Layer 1 cannot prove absence: amend the boundary, name the C1-C4 contract, gate it (AGNT-07)
 
 **Wave 16** *(blocked on Wave 15 — implements the contract the boundary now specifies)*
 
@@ -664,7 +664,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
-| 3. Nothing Lost, Nothing Left Running | 28/28 | In Progress|  |
+| 3. Nothing Lost, Nothing Left Running | 29/31 | In Progress|  |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
