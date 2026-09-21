@@ -940,6 +940,239 @@ test(
   },
 );
 
+// --- LAUNCHER_CORPUS (plan 03-26, D-62 item 1): the checked-in adversarial corpus this closure's
+// own decision record (03-DESTRUCTIVE-GATE-BYPASS-CLASS.md) requires — the eight launcher shapes
+// from the finding, the four wrapper families from rounds 1-4, the shadow shapes (function-,
+// `function`-keyword-, alias-, `hash`-, `eval`- and `source`-shadow, each wrapped in a launcher so
+// the verdict lands on the SAFE branch), and the non-trigger/harmless controls D-61 protects.
+// Every row is driven through `runHook` -> the REAL compiled hook -> the REAL compiled shim's own
+// `--classify-invocation` mode, never `destructive::classify` in isolation (D-62's own binding
+// level). Overlap with the CR-01/D-59..D-61 tables above is deliberate (03-26-PLAN.md): one
+// readable table beats scattering the same shapes across the file, and a future reader must not
+// delete either copy as redundant. ---
+
+const LAUNCHER_CORPUS = [
+  // --- Group 1: the eight launcher shapes from the finding
+  // (03-DESTRUCTIVE-GATE-BYPASS-CLASS.md). All defer: the program TOKEN is the launcher itself
+  // (never git/rm), so `classify()` reports Safe; nothing in the text can pre-empt PATH
+  // resolution, so in a proven environment the inner bare `git` still reaches the shadow entry
+  // and the shim's OWN permission socket is the layer that asks (D-59) — not a gap, the design.
+  {
+    command: 'sh -c "git push --force"',
+    expect: "defer",
+    why: "sh is the Safe program token; no shadow construct in the text; a proven env lets the inner bare git reach the shim's own socket",
+  },
+  {
+    command: 'bash -c "git push --force"',
+    expect: "defer",
+    why: "bash is the Safe program token; same reasoning as sh -c — no shadow construct anywhere in the text",
+  },
+  {
+    command: "nice git push --force",
+    expect: "defer",
+    why: "nice is the Safe program token; no shadow construct; the inner bare git reaches the shim in a proven env",
+  },
+  {
+    command: "nohup git push --force",
+    expect: "defer",
+    why: "nohup is the Safe program token; no shadow construct; same reasoning as nice",
+  },
+  {
+    command: "timeout 5 git push --force",
+    expect: "defer",
+    why: "timeout is the Safe program token; no shadow construct; same reasoning",
+  },
+  {
+    command: "xargs git push --force",
+    expect: "defer",
+    why: "xargs is the Safe program token; no shadow construct; same reasoning",
+  },
+  {
+    command: "sudo git push --force",
+    expect: "defer",
+    why:
+      "sudo is the Safe program token in THIS proven environment, but sudo's own secure_path can replace PATH before the inner git " +
+      "resolves — a case layer 2 (shimWillIntercept) can lose that this row does NOT close. Recorded as a named residual pointed at " +
+      "the trust boundary plan 03-28 writes, never claimed as covered here (D-59 rejected enumerating sudo further).",
+  },
+  {
+    command: "setsid git push --force",
+    expect: "defer",
+    why: "setsid is the Safe program token; no shadow construct; same reasoning as nice/nohup/timeout/xargs",
+  },
+
+  // --- Group 2: the four wrapper families from rounds 1-4. Deliberately overlaps existing
+  // hook-level assertions above (the CR-01 measured table, the env-flag-audit invocation tests) —
+  // one readable table is worth the duplication (03-26-PLAN.md's own instruction).
+  {
+    command: "env git push --force",
+    expect: "defer",
+    why: "env unwraps to git on the non-safe branch; invokedBareName is true; shimWillIntercept(git) is true in a proven env",
+  },
+  {
+    command: "command git push --force",
+    expect: "defer",
+    why: "command unwraps to git on the non-safe branch and still performs a real PATH search; invokedBareName stays true",
+  },
+  {
+    command: "builtin git push --force",
+    expect: "deny",
+    why: "builtin never performs a PATH search for a non-builtin program, so the shim can never be reached; invokedBareName forced false",
+  },
+  {
+    command: "PATH=/usr/bin git push --force",
+    expect: "deny",
+    why: "a leading PATH= assignment defeats PATH resolution before it ever reaches the shim; invokedBareName forced false",
+  },
+  {
+    command: "env -i git push --force",
+    expect: "deny",
+    why: "env -i clears the whole environment, PATH included, before the target runs; invokedBareName forced false",
+  },
+  {
+    command: "env -u PATH git push --force",
+    expect: "deny",
+    why: "env -u PATH removes PATH specifically — the same effective bypass class as -i; invokedBareName forced false",
+  },
+  {
+    command: "env -S 'git push --force'",
+    expect: "deny",
+    why: "env -S embeds an opaque, separately-parsed argument list this tokenizer cannot safely re-parse — fails closed to Uncategorized/un-interceptable, program null",
+  },
+  {
+    command: "command -p git push --force",
+    expect: "deny",
+    why: "command -p forces bash to search a hardcoded default PATH that can never contain the shim's shadow directory; invokedBareName forced false",
+  },
+
+  // --- Group 3: the shadow shapes, each wrapped in a launcher so the verdict lands on the SAFE
+  // branch — the set only D-61 catches, and the set no prior round covered at all. All deny: the
+  // raw-text scan sees the shadow keyword (or the "()"-adjacent function-definition shape) inside
+  // the single-quoted sh -c payload the tokenizer treats as one opaque token
+  // (textCanShadowPathResolution), AND the raw text names a gated program (git or rm)
+  // (namesGatedProgram) — D-61's hook rule denies on that AND even though the environment is
+  // perfectly proven.
+  {
+    command: 'sh -c \'git() { /usr/bin/git "$@"; }; git push --force\'',
+    expect: "deny",
+    why: "the ()-immediately-adjacent parens fire text_can_shadow_path_resolution; raw text names git; D-61 denies even in a proven env",
+  },
+  {
+    command: 'sh -c \'function git { /usr/bin/git "$@"; }; git push --force\'',
+    expect: "deny",
+    why: "the raw-text scan sees 'function' inside the quoted payload the token-level scan cannot see into; raw text names git; D-61 denies",
+  },
+  {
+    command: "sh -c 'alias git=/usr/bin/git; git push --force'",
+    expect: "deny",
+    why: "the raw-text scan sees 'alias' inside the quoted payload; raw text names git; D-61 denies",
+  },
+  {
+    command: "sh -c 'hash -p /usr/bin/git git; git push --force'",
+    expect: "deny",
+    why: "the raw-text scan sees 'hash' inside the quoted payload; raw text names git; D-61 denies",
+  },
+  {
+    command: 'sh -c \'eval "$(cat ./defs.sh)"; git push --force\'',
+    expect: "deny",
+    why:
+      "the raw-text scan sees 'eval' inside the quoted payload; raw text names git; D-61 denies. " +
+      "./defs.sh is a string inside the classification payload only — never read from disk by this test",
+  },
+  {
+    command: "sh -c 'source ./defs.sh; git push --force'",
+    expect: "deny",
+    why:
+      "the raw-text scan sees 'source' inside the quoted payload; raw text names git; D-61 denies. " +
+      "./defs.sh is a string inside the classification payload only — never read from disk by this test",
+  },
+  {
+    command: 'sh -c \'rm() { /bin/rm "$@"; }; rm -rf ./scratch\'',
+    expect: "deny",
+    why: "the rm counterpart: the ()-adjacent parens fire the shadow scan; raw text names rm; D-61 denies",
+  },
+
+  // --- Group 4: the non-triggers D-61 explicitly protects, plus harmless controls. All defer —
+  // the falsifiability companions of this whole table: if any of these starts denying, the rule
+  // has become general command-refusal and the gate's usability is gone.
+  {
+    command: "source .venv/bin/activate && pytest",
+    expect: "defer",
+    why: "a shadow construct (source) is present, but the text names neither git nor rm — D-61's own protected non-trigger",
+  },
+  {
+    command: 'eval "$(direnv hook bash)"',
+    expect: "defer",
+    why: "a shadow construct (eval) is present, but the text names neither git nor rm — the same D-61 protection",
+  },
+  {
+    command: "npm test",
+    expect: "defer",
+    why: "npm is the Safe program token; no shadow construct; names neither gated program",
+  },
+  {
+    command: "cargo build",
+    expect: "defer",
+    why: "cargo is the Safe program token; no shadow construct; names neither gated program",
+  },
+  {
+    command: "git status",
+    expect: "defer",
+    why: "an ordinary bare safe git command; no shadow construct; names git but shadows nothing, so D-61's AND never fires",
+  },
+  {
+    command: "command -v git",
+    expect: "defer",
+    why:
+      "a query form that never executes git, so it must stay safe/defer — scripts/uat/uat-05-concurrent-commits.mjs uses this exact " +
+      "form as its shim-installation proof and has nobody to answer a permission request",
+  },
+];
+
+test(
+  "LAUNCHER_CORPUS: every launcher shape, wrapper family, shadow shape and non-trigger control, asserted through the real hook against the real shim in a proven environment",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    // Both git and rm shadowed in the SAME directory, leading PATH — the only variable between a
+    // defer row and a deny row is the command text (03-26-PLAN.md's own instruction, mirroring
+    // the CR-01 table's discipline above).
+    const shimDir = makeShimDir(["git", "rm"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    for (const row of LAUNCHER_CORPUS) {
+      assert.ok(
+        typeof row.why === "string" && row.why.length > 0,
+        `every LAUNCHER_CORPUS row must carry a non-empty why: ${row.command}`,
+      );
+      const { status, decision } = runHook(row.command, env);
+      if (row.expect === "defer") {
+        assert.equal(status, 0, `expected defer (status 0) for: ${row.command} — ${row.why}`);
+        assert.deepEqual(decision, {}, `expected no opinion for: ${row.command} — ${row.why}`);
+      } else {
+        assert.equal(status, 2, `expected deny (status 2) for: ${row.command} — ${row.why}`);
+        assert.equal(
+          decision?.hookSpecificOutput?.permissionDecision,
+          "deny",
+          `expected permissionDecision "deny" for: ${row.command} — ${row.why}`,
+        );
+        // Without this assertion, a deny arriving from an unrelated fail-closed path (an
+        // un-invokable shim, an unparseable verdict) would satisfy the row while proving nothing
+        // about this fix — the same trap the existing CR-01 table already guards with its
+        // `pattern` field.
+        assert.ok(
+          typeof decision?.hookSpecificOutput?.permissionDecisionReason === "string" &&
+            decision.hookSpecificOutput.permissionDecisionReason.length > 0,
+          `expected a non-empty deny reason for: ${row.command} — ${row.why}`,
+        );
+      }
+    }
+  },
+);
+
 // --- the live measurement, against the real backend ---
 
 test(
