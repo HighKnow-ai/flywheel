@@ -962,7 +962,10 @@ test(
       {
         command: 'sh -c \'e""val "$(cat ./defs.sh)"; git push --force\'',
         expect: "deny",
-        pattern: /force-push/,
+        // A safe-verdict denial (Step 2 of the hook's safe branch) — the reason is the
+        // could-not-verify-safety text, not a destructive-category consequence sentence (B7's own
+        // pattern, mirrored here).
+        pattern: /verify|safe|shadow|PATH/i,
         why:
           "round five: an empty-quote pair splits eval; C1's context-free quote removal resolves it " +
           "back to eval, which the union match (C2) then catches",
@@ -970,13 +973,13 @@ test(
       {
         command: 'sh -c \'e\\val "$(cat ./defs.sh)"; git push --force\'',
         expect: "deny",
-        pattern: /force-push/,
+        pattern: /verify|safe|shadow|PATH/i,
         why: "round five: a backslash splits eval the same way; C1 resolves the escape and the same union match fires",
       },
       {
         command: 'sh -c \'eval "$(cat ./defs.sh)"; g""it push --force\'',
         expect: "deny",
-        pattern: /force-push/,
+        pattern: /verify|safe|shadow|PATH/i,
         why:
           "round five variant: the empty-quote pair instead splits git itself, defeating " +
           "namesGatedProgram alone; C1/C2 resolve it",
@@ -1010,7 +1013,7 @@ test(
         assert.match(
           decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
           row.pattern,
-          `expected the classified-destructive consequence copy for: ${row.command} — ${row.why}`,
+          `expected a non-empty deny reason naming why safety could not be verified for: ${row.command} — ${row.why}`,
         );
       }
     }

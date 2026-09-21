@@ -903,6 +903,34 @@ fn text_can_shadow_path_resolution(text: &str) -> bool {
     false
 }
 
+/// Removes shell quoting and backslash-escaping from `text` with NO quoting-context tracking at
+/// all — every `'` and every `"` character is dropped outright, and every backslash `\` is dropped
+/// along with the character immediately following it, which is pushed verbatim (a trailing
+/// backslash at the end of input is dropped with nothing following it). **C1 — quote removal,
+/// performed context-free** (`docs/destructive-gate-trust-boundary.md`): this is deliberately
+/// unfaithful to any single shell's grammar. The text handed to this scanner may be re-parsed by a
+/// NESTED shell at a depth this function has no way to know — inside an outer `sh -c '…'` payload,
+/// for example — so a context-sensitive removal that correctly left a backslash literal inside
+/// single quotes would MISS exactly the nested case round five reproduced (`e\val` splitting
+/// `eval` inside an outer single-quoted payload). Over-triggering is the intended direction,
+/// consistent with D-61's own recorded discipline.
+fn shell_quote_removed(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' | '"' => continue,
+            '\\' => {
+                if let Some(next) = chars.next() {
+                    result.push(next);
+                }
+            }
+            _ => result.push(c),
+        }
+    }
+    result
+}
+
 /// True when `word` appears anywhere in `chars` with a non-identifier character (or a text
 /// boundary — start/end of the slice) on BOTH sides, where an identifier character is ASCII
 /// alphanumeric or `_`. The shared raw-text matching primitive [`text_names_gated_program`] and
@@ -944,9 +972,20 @@ fn raw_text_contains_word(chars: &[char], word: &str) -> bool {
 /// while `sh -c 'git push'`, `.gitignore`, `/usr/bin/git`, `git-lfs` and `xargs rm` all do. A
 /// false positive costs one deny on a command that mentions a gated program; a false negative
 /// costs an ungated force-push.
+///
+/// **C2 — union matching over the raw text and the quote-removed text**
+/// (`docs/destructive-gate-trust-boundary.md`): the name is matched against BOTH the raw
+/// characters and [`shell_quote_removed`]'s output, and a match in either form is a match — round
+/// five's `g""it` splits the name only in the raw form, and the quote-removed form is what catches
+/// it. `raw_text_contains_word`'s own boundary rule is preserved over BOTH forms, since deleting
+/// quote/backslash characters can only join a word, never split one — the union never loses a
+/// match the raw form already had.
 fn text_names_gated_program(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
-    ["git", "rm"].iter().any(|name| raw_text_contains_word(&chars, name))
+    let quote_removed: Vec<char> = shell_quote_removed(text).chars().collect();
+    ["git", "rm"].iter().any(|name| {
+        raw_text_contains_word(&chars, name) || raw_text_contains_word(&quote_removed, name)
+    })
 }
 
 /// D-59/D-61 (plan 03-24): a raw-text companion to [`text_can_shadow_path_resolution`], used ONLY
@@ -965,10 +1004,19 @@ fn text_names_gated_program(text: &str) -> bool {
 /// `sh -c '…'` arrives as ONE token, and no whole-token keyword comparison can ever see inside it.
 /// D-61's stated discipline is to fire on presence anywhere in the text, quoted or not, so the
 /// safe branch needs this raw form.
+///
+/// **C2 — union matching over the raw text and the quote-removed text**
+/// (`docs/destructive-gate-trust-boundary.md`): each keyword is matched against BOTH the raw
+/// characters and [`shell_quote_removed`]'s output, and a match in either form is a match — round
+/// five's `e""val`/`e\val` split the keyword only in the raw form, and the quote-removed form is
+/// what catches it.
 fn raw_text_can_shadow_path_resolution(text: &str) -> bool {
     const KEYWORD_TRIGGERS: [&str; 6] = ["function", "alias", "hash", "eval", "source", "builtin"];
     let chars: Vec<char> = text.chars().collect();
-    KEYWORD_TRIGGERS.iter().any(|kw| raw_text_contains_word(&chars, kw))
+    let quote_removed: Vec<char> = shell_quote_removed(text).chars().collect();
+    KEYWORD_TRIGGERS.iter().any(|kw| {
+        raw_text_contains_word(&chars, kw) || raw_text_contains_word(&quote_removed, kw)
+    })
 }
 
 /// The result of classifying raw command text: the verdict itself, plus — when destructive — the
@@ -984,18 +1032,31 @@ struct ClassifiedInvocation {
     program: Option<String>,
     /// Present only when `verdict` is `Destructive`: whether that segment's program token names no
     /// path (`!first.contains('/')`) AND nothing in the raw text can divert bash's name resolution
-    /// away from a `PATH` search before reaching it (`!text_can_shadow_path_resolution(..)`). Both
-    /// facts must hold for this to be `true` — the exact class the shim's own shadow entry could
-    /// actually intercept at runtime (plan 03-20/CR-01: a shadowed `git` function or an overridden
-    /// `PATH` never reaches the shim at all, even though the token itself has no `/`).
+    /// away from a `PATH` search before reaching it (`!shadowable`). Both facts must hold for this
+    /// to be `true` — the exact class the shim's own shadow entry could actually intercept at
+    /// runtime (plan 03-20/CR-01: a shadowed `git` function or an overridden `PATH` never reaches
+    /// the shim at all, even though the token itself has no `/`).
+    ///
+    /// **C4 — the bare-name fact resolves quoting but never refuses on indeterminacy**
+    /// (`docs/destructive-gate-trust-boundary.md`): `shadowable` is widened by C1's quote removal
+    /// — `text_can_shadow_path_resolution` applied to BOTH the raw text and its quote-removed form
+    /// — because a shadow keyword that survives quote removal genuinely defeats the `PATH` search
+    /// Layer 2 depends on. It is deliberately NOT widened by C3's indeterminacy (a
+    /// `$`/backtick/letter-adjacent glob): an expansion sitting in an ARGUMENT does not defeat a
+    /// `PATH` search, and carrying indeterminacy into this fact would convert Layer 2's "ask a
+    /// human" into Layer 1's "refuse" for an ordinary destructive command such as a force-push
+    /// naming a branch through a variable — weakening the exact sentence AGNT-07 is written on.
     invoked_bare_name: bool,
     /// Reported only on the `Safe` verdict (plan 03-24, D-59/D-61): the boolean OR of
-    /// `text_can_shadow_path_resolution` and `raw_text_can_shadow_path_resolution` — whether
-    /// ANYTHING in the raw command text, token-level or raw-quoted-payload, can pre-empt bash's
-    /// own `PATH` search before it happens. Both fail-closed early returns below (empty text, an
-    /// `Unresolvable` segment) set this `true` — the most restrictive reading. Deliberately NOT
-    /// fed by `invoked_bare_name`'s own `shadowable` computation, which keeps exactly its
-    /// pre-existing, narrower, token-only meaning.
+    /// `text_can_shadow_path_resolution` (over the raw text AND — since plan 03-30's C1 — its
+    /// quote-removed form) and `raw_text_can_shadow_path_resolution` — whether ANYTHING in the raw
+    /// command text, token-level or raw-quoted-payload, can pre-empt bash's own `PATH` search
+    /// before it happens. Both fail-closed early returns below (empty text, an `Unresolvable`
+    /// segment) set this `true` — the most restrictive reading. `shadowable` (used for
+    /// `invoked_bare_name`, above) is ALSO widened by C1's quote removal, but this field alone is
+    /// further widened by C3's indeterminate-word-formation predicate — see
+    /// `ClassifiedInvocation::invoked_bare_name`'s own doc comment for why C4 keeps that predicate
+    /// out of `shadowable`.
     text_can_shadow: bool,
     /// Reported only on the `Safe` verdict (plan 03-24, D-59/D-61): whether the raw command text
     /// names one of the two programs `install_for_run` shadows (`text_names_gated_program`). Both
@@ -1026,11 +1087,19 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
 
     // Computed ONCE over the whole trimmed text, not per-segment: the shadowing constructs this
     // detects (a function definition, an alias, `PATH=`, …) affect name resolution for the REST of
-    // the command text they appear in, not just their own segment.
-    let shadowable = text_can_shadow_path_resolution(trimmed);
+    // the command text they appear in, not just their own segment. `quote_removed` is C1's
+    // context-free quote/backslash removal (`docs/destructive-gate-trust-boundary.md`), computed
+    // exactly once here and reused by both the `shadowable` and `text_can_shadow` bindings below.
+    let quote_removed = shell_quote_removed(trimmed);
+    // C4: widened by quote removal (a shadow keyword surviving it genuinely defeats a real `PATH`
+    // search), never by C3's indeterminacy — see `ClassifiedInvocation::invoked_bare_name`.
+    let shadowable = text_can_shadow_path_resolution(trimmed)
+        || text_can_shadow_path_resolution(&quote_removed);
     // Safe-verdict-only facts (plan 03-24, D-59/D-61) — computed once here so a `Safe` return
     // below and every fail-closed early return above/below can report them without a second scan.
-    let text_can_shadow = shadowable || raw_text_can_shadow_path_resolution(trimmed);
+    let text_can_shadow = shadowable
+        || raw_text_can_shadow_path_resolution(trimmed)
+        || text_can_shadow_path_resolution(&quote_removed);
     let names_gated_program = text_names_gated_program(trimmed);
 
     for segment in split_top_level_segments(trimmed) {
