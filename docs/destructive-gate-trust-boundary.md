@@ -56,7 +56,11 @@ form (`textCanShadowPathResolution`, D-61). The second is whether that text name
 programs the shim shadows (`namesGatedProgram`). A `safe` verdict defers only when the environment
 is proven AND the two text facts are not both true; a non-`safe` verdict defers only when the
 invocation is by bare name AND the environment proves the shim will intercept that exact program.
-Every other combination — including any field this hook cannot parse — denies.
+Every other combination — including any field this hook cannot parse — denies. **WR-01 (plan
+03-30):** the two safe-verdict facts are combined only AFTER each is independently established as a
+genuine boolean — a fact the shim did not report (or reported as something other than a boolean)
+denies by itself, by name, before the AND is ever evaluated, so it can never be silently absorbed by
+the other field's genuine `false`.
 
 ### Explicitly cannot see
 
@@ -176,7 +180,9 @@ C1-C4 do NOT prove anything about text the scan never receives; nothing on Windo
 about a determinate text whose keyword is assembled by a mechanism outside C1 and outside C3's named
 characters.
 
-**C-contract status:** specified, not yet implemented — plan 03-30 implements C1, C2, C3 and C4 in packages/shim/src/main.rs.
+**C-contract status:** implemented by plan 03-30 in packages/shim/src/main.rs — C1 and C2 in
+shell_quote_removed and its two callers, C3 in raw_text_word_formation_is_indeterminate, C4 in
+classify_raw_command_text's shadowable binding.
 
 The four functions the contract binds: `raw_text_contains_word`, `text_names_gated_program`,
 `raw_text_can_shadow_path_resolution` and `text_can_shadow_path_resolution` — a reader landing on

@@ -31,10 +31,16 @@
  * precondition failure, not a session that silently denies everything with no named cause — the
  * spawn-side loud-failure obligation that goes with this lives in `packages/core/src/shim.rs`.
  *
- * **An unreported or non-boolean-`false` field is read as `true` (unsafe).** A shim binary older
- * than plan 03-24 that never emits `textCanShadowPathResolution`/`namesGatedProgram` therefore
- * denies rather than silently defers — the same fail-closed discipline this file already applies
- * to every other unparseable or absent fact.
+ * **The composition rule, corrected by plan 03-30 (WR-01):** an unreported or non-boolean field
+ * denies ON ITS OWN ACCOUNT, before the two established facts are ever combined — a fact the shim
+ * did not report can never be cancelled by the other field's genuine `false`. The two D-61 fields
+ * used to be read with `!== false` and then ANDed together; that let a genuinely-absent
+ * `textCanShadowPathResolution` (defaulting to unsafe in isolation) be absorbed into a `defer` the
+ * moment `namesGatedProgram` happened to be a real `false` — re-creating, one level down, the exact
+ * asymmetric-trust shape the original D-59 finding named. `readProvenBoolean` (below) makes
+ * "present and a genuine boolean" a distinct, checkable state from "absent or malformed", and the
+ * safe branch denies on the latter for either field BEFORE evaluating the AND for the former. See
+ * `docs/destructive-gate-trust-boundary.md`'s Layer 1 section for the same rule recorded there.
  *
  * Deferring on a NON-safe verdict correctly requires TWO separate facts to both hold, proved by
  * TWO separate pieces of code that can each only see their own half (plan 03-20/CR-01, closing a
@@ -200,6 +206,20 @@ function failClosed(reason: string): never {
   process.exit(2);
 }
 
+/**
+ * WR-01 (plan 03-30): the tri-state read the safe branch's field composition depends on. Returns
+ * `value` when it is a genuine `boolean`, and `undefined` for anything else — absent, `null`, a
+ * string, a number. The distinction this function exists to preserve: "present and `false`" is a
+ * MEASUREMENT the shim made about this specific command text, while "absent or not a boolean" is a
+ * fact the shim never established at all. The two must never meet inside a single boolean
+ * expression where one can cancel the other — that collapse is exactly what let a genuinely-absent
+ * field be absorbed by the other field's real `false` before this fix (see this module's own doc
+ * comment).
+ */
+function readProvenBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function readStdin(): Promise<string> {
   return new Promise((resolve) => {
     let data = "";
@@ -269,12 +289,24 @@ async function main(): Promise<void> {
       failClosed("the shim's shadow directory could not be proven installed and leading PATH");
     }
 
-    // Step 2 (D-61): a value that is not the boolean `false` is read as `true` — an older shim
-    // that does not report a field must be treated as unprovable, never as safe. Only when the
-    // text can BOTH pre-empt PATH resolution AND name a program this shim gates is safety
-    // unprovable; deny only then, so ordinary `source`/`eval` that name neither stay deferrable.
-    const textCanShadow = classification.textCanShadowPathResolution !== false;
-    const namesGatedProgram = classification.namesGatedProgram !== false;
+    // Step 2 (D-61, corrected by WR-01/plan 03-30): each D-61 field is read through the tri-state
+    // helper FIRST. Either field being absent or non-boolean is a fact the shim never established
+    // and denies ON ITS OWN, by name, BEFORE the AND for the genuine-values case is ever reached —
+    // an unestablished field must never be silently absorbed by the other field's real `false`.
+    const textCanShadow = readProvenBoolean(classification.textCanShadowPathResolution);
+    if (textCanShadow === undefined) {
+      failClosed(
+        "the shim's classification did not establish textCanShadowPathResolution as a boolean",
+      );
+    }
+    const namesGatedProgram = readProvenBoolean(classification.namesGatedProgram);
+    if (namesGatedProgram === undefined) {
+      failClosed("the shim's classification did not establish namesGatedProgram as a boolean");
+    }
+
+    // Only now — with BOTH facts genuinely established — evaluate the existing AND. Deny only
+    // when the text can BOTH pre-empt PATH resolution AND name a program this shim gates, so
+    // ordinary `source`/`eval` that name neither stay deferrable.
     if (textCanShadow && namesGatedProgram) {
       failClosed(
         "this command's text can pre-empt PATH resolution and names a program Flywheel gates, so its safety cannot be proven",
