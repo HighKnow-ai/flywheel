@@ -247,6 +247,88 @@ pub fn install_for_run(run_id: &str) -> anyhow::Result<PathBuf> {
     Ok(dir)
 }
 
+/// The fixed probe text `verify_shadow_entry_speaks_classification` classifies — CLASSIFIED,
+/// never run: `--classify-invocation` is a pure mode (`packages/shim/src/main.rs`'s own module
+/// doc comment) that never executes anything, never opens the permission socket and never writes
+/// a file, so no `git` process is ever created here, no repository is read and no remote is
+/// contacted (D-63). A safe, ordinary command is chosen deliberately over a destructive one
+/// (planner_assumptions #3, plan 03-25): a destructive probe text would read, to any future
+/// maintainer, as licence to run destructive commands during verification — the exact reading
+/// that produced 03-DESTRUCTIVE-GATE-BYPASS-CLASS.md's recorded unauthorized push — and a safe
+/// text is also the only one that exercises the two fields this probe actually checks.
+const CLASSIFICATION_PROBE_TEXT: &str = "git status";
+
+/// Run the installed shadow entry at `entry` ONCE, through its own `--classify-invocation` mode
+/// (never through the shadowed dispatch — this is a direct invocation of the compiled binary,
+/// naming the flag itself, exactly like `packages/sidecar/src/pretooluse-hook.ts`'s own caller
+/// does), and require its answer to speak plan 03-24's CURRENT classification contract: a `safe`
+/// verdict carrying both `textCanShadowPathResolution` and `namesGatedProgram` as booleans.
+///
+/// This proves three things the structural checks in [`verify_shadow_entry`] cannot: the entry is
+/// genuinely the compiled shim (not merely a same-sized executable that happens to sit there), it
+/// runs on this machine, and it speaks the CURRENT contract rather than an older one. That third
+/// property is the one that matters most (D-59/D-60/T-03-25-03): `pretooluse-hook.ts` reads an
+/// unreported field as the unsafe value, so a stale shim binary — every structural check green —
+/// would otherwise produce exactly the silently-denying session D-60 forbids. A non-zero exit, no
+/// parseable output, a category other than `safe`, or either field absent all `anyhow::bail!` with
+/// the same fixed `shim install verification failed` prefix [`verify_shadow_entry`] uses, naming
+/// the entry path, the run id, and which expectation was not met.
+fn verify_shadow_entry_speaks_classification(entry: &Path, run_id: &str) -> anyhow::Result<()> {
+    let output = std::process::Command::new(entry)
+        .arg("--classify-invocation")
+        .arg(CLASSIFICATION_PROBE_TEXT)
+        .output()
+        .with_context(|| {
+            format!(
+                "shim install verification failed: could not run the classification-contract probe against entry {entry:?} for run {run_id:?}"
+            )
+        })?;
+
+    if !output.status.success() {
+        bail!(
+            "shim install verification failed: entry {entry:?} for run {run_id:?} exited non-zero ({:?}) answering the classification-contract probe",
+            output.status.code()
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let Some(first_line) = stdout.lines().find(|line| !line.trim().is_empty()) else {
+        bail!(
+            "shim install verification failed: entry {entry:?} for run {run_id:?} printed no output answering the classification-contract probe"
+        );
+    };
+
+    let parsed: serde_json::Value = serde_json::from_str(first_line.trim()).map_err(|e| {
+        anyhow::anyhow!(
+            "shim install verification failed: entry {entry:?} for run {run_id:?} printed unparseable output ({e}) answering the classification-contract probe"
+        )
+    })?;
+
+    if parsed.get("category").and_then(|v| v.as_str()) != Some("safe") {
+        bail!(
+            "shim install verification failed: entry {entry:?} for run {run_id:?} did not answer the classification-contract probe with category \"safe\""
+        );
+    }
+    if !parsed
+        .get("textCanShadowPathResolution")
+        .is_some_and(|v| v.is_boolean())
+    {
+        bail!(
+            "shim install verification failed: entry {entry:?} for run {run_id:?} is missing the textCanShadowPathResolution field — it predates plan 03-24's classification contract"
+        );
+    }
+    if !parsed
+        .get("namesGatedProgram")
+        .is_some_and(|v| v.is_boolean())
+    {
+        bail!(
+            "shim install verification failed: entry {entry:?} for run {run_id:?} is missing the namesGatedProgram field — it predates plan 03-24's classification contract"
+        );
+    }
+
+    Ok(())
+}
+
 /// The env-var additions a spawned session's environment must carry so its OWN `git` AND `rm`
 /// invocations resolve to the shim first: `PATH` prefixed with the per-run shim directory, plus
 /// `FLYWHEEL_REAL_GIT`/`FLYWHEEL_REAL_RM` set to the ONE absolute real-binary paths
@@ -260,8 +342,19 @@ pub fn install_for_run(run_id: &str) -> anyhow::Result<PathBuf> {
 /// directory), which does not exist at `resolved_env_for_run`'s own call time (D-39; see that
 /// function's own doc comment). This mirrors 03-04's own established precedent for
 /// `FLYWHEEL_REAL_GIT` exactly.
+///
+/// **D-59/D-60 (plan 03-25):** immediately after [`install_for_run`] returns and before
+/// [`resolve_real_git`], this also runs [`verify_shadow_entry_speaks_classification`] against the
+/// installed git entry — the ONE extra process this function pays per session spawn.
+/// Deliberately NOT called from [`install_for_run`] itself: that keeps the cost at one process per
+/// spawn and zero for callers that merely install a directory without ever spawning a session
+/// (`packages/core/tests/lock_contention.rs` is the live example). A shim whose structural checks
+/// all pass but that does not speak the CURRENT classification contract — a stale build predating
+/// plan 03-24 — is refused here, at spawn time, rather than becoming the silently-denying session
+/// D-60 forbids.
 pub fn shim_env_for_run(run_id: &str) -> anyhow::Result<HashMap<String, String>> {
     let shim_dir = install_for_run(run_id)?;
+    verify_shadow_entry_speaks_classification(&shim_dir.join(shadowed_git_entry_name()), run_id)?;
     let real_git = resolve_real_git()?;
     let real_rm = resolve_real_rm()?;
 

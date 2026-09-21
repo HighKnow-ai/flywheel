@@ -126,12 +126,24 @@ pub fn resolved_env_for_run(
 /// it already refuses on a credential failure, even though by this point the row and worktree
 /// already exist (closing that narrower gap would require making run ids predictable before
 /// creation, out of this plan's scope).
+///
+/// **D-59/D-60 (plan 03-25):** `flywheel_core::shim::shim_env_for_run` now verifies both that it
+/// installed a structurally sound shadow directory (Task 1) AND that the installed entry speaks
+/// plan 03-24's current classification contract (Task 2) — a broken or stale install refuses the
+/// spawn here rather than producing a session `pretooluse-hook.ts`'s PreToolUse hook can never
+/// prove and therefore denies every command in, safe ones included (D-60). The `.context(...)`
+/// string below is what `agent_run_start` turns into `Err(String)` and what
+/// `LaunchSheet.tsx`'s existing `handleSubmit` catch renders in the launch sheet's error slot — the
+/// one sentence a human actually reads when a session cannot be protected.
 pub fn merge_shim_env_for_run(
     env: &mut HashMap<String, String>,
     run_id: &str,
 ) -> anyhow::Result<()> {
-    let shim_env = flywheel_core::shim::shim_env_for_run(run_id)
-        .context("failed to install the PATH shim for this session")?;
+    let shim_env = flywheel_core::shim::shim_env_for_run(run_id).context(
+        "failed to install the PATH shim for this session — a session cannot be spawned without \
+         a verified shim, because the PreToolUse hook denies every command in a session whose \
+         shadow directory it cannot prove (D-60)",
+    )?;
     env.extend(shim_env);
     Ok(())
 }
