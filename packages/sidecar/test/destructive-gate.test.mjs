@@ -1856,14 +1856,24 @@ test(
       );
     }
 
+    // Plan 03-30 (Task 3e) flips this line from "specified, not yet implemented" to the
+    // implemented form, once C1-C4 actually land in packages/shim/src/main.rs. The gate now pins
+    // the IMPLEMENTED wording, naming all four clauses and the functions that satisfy them, so a
+    // future rewrite cannot quietly claim implementation without naming what backs it — the same
+    // honesty discipline this line has always enforced, updated to match the code's own state.
+    // Whitespace (including markdown's own soft line-wraps) is normalized before comparison so a
+    // reflow of this paragraph's line breaks alone does not trip this gate.
+    const normalizedContent = content.replace(/\s+/g, " ");
     assert.ok(
-      content.includes(
-        "**C-contract status:** specified, not yet implemented — plan 03-30 implements C1, C2, C3 " +
-          "and C4 in packages/shim/src/main.rs.",
+      normalizedContent.includes(
+        "**C-contract status:** implemented by plan 03-30 in packages/shim/src/main.rs — C1 and " +
+          "C2 in shell_quote_removed and its two callers, C3 in " +
+          "raw_text_word_formation_is_indeterminate, C4 in classify_raw_command_text's shadowable " +
+          "binding.",
       ),
-      "docs/destructive-gate-trust-boundary.md no longer carries the literal C-contract status " +
-        "line — the honest signal that the corrected claim is not yet backed by code has been " +
-        "lost or reworded",
+      "docs/destructive-gate-trust-boundary.md no longer carries the literal, implemented " +
+        "C-contract status line — the honest signal that the corrected claim IS now backed by " +
+        "code, naming exactly what backs it, has been lost or reworded",
     );
 
     // The "Named residuals" table: every row between that heading and the next "## " heading,
