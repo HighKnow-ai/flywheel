@@ -949,7 +949,11 @@ test(
 // `--classify-invocation` mode, never `destructive::classify` in isolation (D-62's own binding
 // level). Overlap with the CR-01/D-59..D-61 tables above is deliberate (03-26-PLAN.md): one
 // readable table beats scattering the same shapes across the file, and a future reader must not
-// delete either copy as redundant. ---
+// delete either copy as redundant.
+//
+// This corpus is EVIDENCE for the trust boundary recorded in `docs/destructive-gate-trust-boundary.md`
+// (D-62 item 3), not a replacement for it — a new bypass shape means amending that boundary first and
+// adding a row here second. ---
 
 const LAUNCHER_CORPUS = [
   // --- Group 1: the eight launcher shapes from the finding
@@ -1488,6 +1492,89 @@ test(
       fs.existsSync(victimDir),
       "the shipped PreToolUse hook must have blocked the absolute-path rm — the victim directory " +
         `must still exist. stdout=${JSON.stringify(outcome.stdout)}`,
+    );
+  },
+);
+
+// --- plan 03-28 Task 2 (D-62 item 3): the structural gate over the recorded trust boundary. This
+// test needs neither the shim binary nor the backend, so it carries NO skip condition and runs
+// everywhere this suite runs — the corpus above and this boundary document are two halves of D-62,
+// and failing them in the same run is what keeps each honest about the other. A failure here means
+// the boundary has been narrowed or has rotted, and whoever narrowed it owes an explanation. ---
+
+/** Resolve the trust-boundary document, relative to the workspace root, the SAME way
+ * `resolveShimBinaryForTest` above resolves the compiled shim binary — never a hand-built relative
+ * path of its own. */
+function resolveTrustBoundaryDocForTest() {
+  const workspaceRoot = path.resolve(__dirname, "..", "..", "..");
+  return path.join(workspaceRoot, "docs", "destructive-gate-trust-boundary.md");
+}
+
+test(
+  "the recorded trust boundary (docs/destructive-gate-trust-boundary.md) still names all three layers, their residuals and the files that implement them — D-62 item 3's structural gate",
+  () => {
+    const docPath = resolveTrustBoundaryDocForTest();
+    assert.ok(
+      fs.existsSync(docPath),
+      `docs/destructive-gate-trust-boundary.md is missing at ${docPath} — the recorded trust ` +
+        "boundary D-62 item 3 requires has been deleted or moved; restore it before this class " +
+        "can be considered closed",
+    );
+
+    const content = fs.readFileSync(docPath, "utf8");
+    assert.ok(
+      content.trim().length > 0,
+      "docs/destructive-gate-trust-boundary.md exists but is empty — the boundary has been " +
+        "emptied out; it must record what each layer is trusted to prove and what it cannot see",
+    );
+
+    const explicitlyCannotSeeHeadings = content
+      .split("\n")
+      .filter((line) => line.trim().startsWith("#") && line.includes("Explicitly cannot see")).length;
+    assert.ok(
+      explicitlyCannotSeeHeadings >= 3,
+      `expected at least 3 "Explicitly cannot see" headings (one per layer), found ` +
+        `${explicitlyCannotSeeHeadings} — a layer has lost its own "cannot see" section, which is ` +
+        "exactly how this document rots into a paragraph that says nothing",
+    );
+
+    const implementingFiles = [
+      "packages/core/src/shim.rs",
+      "packages/sidecar/src/pretooluse-hook.ts",
+      "packages/shim/src/main.rs",
+    ];
+    for (const file of implementingFiles) {
+      assert.ok(
+        content.includes(file),
+        `docs/destructive-gate-trust-boundary.md no longer names ${file} — a reader landing on ` +
+          "that file can no longer find the spec that describes what it is trusted to prove; the " +
+          "boundary has been narrowed",
+      );
+    }
+
+    // The "Named residuals" table: every row between that heading and the next "## " heading,
+    // excluding the header row itself and the "---" separator row markdown tables require.
+    const residualsHeadingIndex = content.indexOf("## Named residuals");
+    assert.ok(
+      residualsHeadingIndex !== -1,
+      'docs/destructive-gate-trust-boundary.md no longer has a "## Named residuals" section — the ' +
+        "knowingly-open cases this closure records have been dropped",
+    );
+    const afterHeading = content.slice(residualsHeadingIndex + "## Named residuals".length);
+    const nextHeadingIndex = afterHeading.indexOf("\n## ");
+    const residualsSection = nextHeadingIndex === -1 ? afterHeading : afterHeading.slice(0, nextHeadingIndex);
+    const residualRows = residualsSection
+      .split("\n")
+      .filter((line) => line.trim().startsWith("|") && line.trim().endsWith("|"))
+      // Drop the header row and the "---"-separator row every markdown table carries.
+      .filter((line) => !/^\|\s*-+\s*\|/.test(line.trim()))
+      .slice(1); // the first remaining "|...|" row is the table's own header row.
+    assert.ok(
+      residualRows.length >= 4,
+      `expected at least 4 rows in the "Named residuals" table, found ${residualRows.length} — the ` +
+        "residuals table has shrunk below the bar D-62 item 3 requires (sudo's secure_path, an " +
+        "indirection-hidden shadow construct, internal git housekeeping outside the Bash matcher, " +
+        "and macOS-only measurement, at minimum)",
     );
   },
 );

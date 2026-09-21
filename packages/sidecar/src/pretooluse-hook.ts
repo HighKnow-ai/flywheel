@@ -80,6 +80,9 @@
  * **Fail-closed.** A payload this script cannot parse, a shim it cannot invoke, a verdict it
  * cannot read from the shim's stdout, or any uncertainty about whether the shim will intercept the
  * command all produce the destructive (`deny`) decision — never the permissive one.
+ *
+ * **What this hook is trusted to prove, and what it structurally cannot see, is recorded in
+ * `docs/destructive-gate-trust-boundary.md`** (D-62 item 3) — this file's own half of the proof.
  */
 import { spawnSync } from "node:child_process";
 import { accessSync, constants as fsConstants, statSync } from "node:fs";

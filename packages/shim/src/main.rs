@@ -111,6 +111,10 @@
 //! wherever it sits in the text, quoted or not (D-61). Both fail-closed early returns of
 //! `classify_raw_command_text` (empty text, an `Unresolvable` segment) report both fields `true` —
 //! the most restrictive reading, same discipline as the destructive arm's own fail-closed shape.
+//!
+//! **What this binary is trusted to prove, and what it structurally cannot see, is recorded in
+//! `docs/destructive-gate-trust-boundary.md`** (D-62 item 3) — read it before changing this file's
+//! dispatch or classification behaviour.
 
 use std::env;
 use std::ffi::OsString;
