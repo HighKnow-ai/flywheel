@@ -1020,6 +1020,111 @@ test(
   },
 );
 
+// --- determinacy (plan 03-30 Task 2, C3): the scanner refuses to answer "absent" for text whose
+// words it cannot compute — a parameter expansion, a whole-word expansion, a command substitution
+// inside a word, a backtick, or a glob interrupting a run of letters. Defer cases (including the
+// full LAUNCHER_CORPUS group 4 style controls) are the falsifiability companions proving this stays
+// a narrow correction, not general command refusal. ---
+
+test(
+  "the hook denies when the text's word formation is indeterminate (C3) and still defers to every ordinary agent command, including one accepted-friction row",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git", "rm"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    const rows = [
+      {
+        command: 'sh -c \'X=eva; ${X}l "$(cat d.sh)"; git push --force\'',
+        expect: "deny",
+        pattern: /verify|safe|shadow|PATH/i,
+        why: "a parameter expansion spells the keyword — the scan cannot compute what word ${X}l forms, so it cannot prove absence",
+      },
+      {
+        command: 'sh -c \'$X "$(cat d.sh)"; git push --force\'',
+        expect: "deny",
+        pattern: /verify|safe|shadow|PATH/i,
+        why: "a whole-word parameter expansion could spell any keyword at all — indeterminate by construction",
+      },
+      {
+        command: "sh -c 'e`echo v`al \"$(cat d.sh)\"; git push --force'",
+        expect: "deny",
+        pattern: /verify|safe|shadow|PATH/i,
+        why: "a command substitution inside a word — the backtick alone makes word formation indeterminate",
+      },
+      {
+        command: 'sh -c \'e*al "$(cat d.sh)"; git push --force\'',
+        expect: "deny",
+        pattern: /verify|safe|shadow|PATH/i,
+        why: "a glob interrupting a run of letters (e*al) can be completed into a keyword by a filename in the working directory",
+      },
+      {
+        command: "git add *.rs",
+        expect: "defer",
+        why: "the glob is adjacent to a space and a dot, not to letters — an ordinary path pattern, must stay deferrable (C3's own protected non-trigger)",
+      },
+      {
+        command: 'git commit -m "fix: thing"',
+        expect: "defer",
+        why: "an ordinary quoted commit message carries no $, backtick, or letter-adjacent glob",
+      },
+      {
+        command: "git status",
+        expect: "defer",
+        why: "an ordinary bare safe git command — no indeterminate construct anywhere",
+      },
+      {
+        command: "command -v git",
+        expect: "defer",
+        why: "a query form that never executes git — no indeterminate construct present",
+      },
+      {
+        command: "npm test",
+        expect: "defer",
+        why: "names neither gated program and carries no indeterminate construct",
+      },
+      {
+        command: "cargo build",
+        expect: "defer",
+        why: "names neither gated program and carries no indeterminate construct",
+      },
+      {
+        command: 'git commit -m "$(date +%F)"',
+        expect: "deny",
+        pattern: /verify|safe|shadow|PATH/i,
+        why:
+          "the accepted friction C3 buys, recorded in docs/destructive-gate-trust-boundary.md's own " +
+          "paragraph: a command substitution in an otherwise-ordinary commit message denies, because " +
+          "the scan cannot prove what words it forms",
+      },
+    ];
+
+    for (const row of rows) {
+      const { status, decision } = runHook(row.command, env);
+      if (row.expect === "defer") {
+        assert.equal(status, 0, `expected defer (status 0) for: ${row.command} — ${row.why}`);
+        assert.deepEqual(decision, {}, `expected no opinion for: ${row.command} — ${row.why}`);
+      } else {
+        assert.equal(status, 2, `expected deny (status 2) for: ${row.command} — ${row.why}`);
+        assert.equal(
+          decision?.hookSpecificOutput?.permissionDecision,
+          "deny",
+          `expected permissionDecision "deny" for: ${row.command} — ${row.why}`,
+        );
+        assert.match(
+          decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+          row.pattern,
+          `expected a non-empty deny reason naming why safety could not be verified for: ${row.command} — ${row.why}`,
+        );
+      }
+    }
+  },
+);
+
 // --- LAUNCHER_CORPUS (plan 03-26, D-62 item 1): the checked-in adversarial corpus this closure's
 // own decision record (03-DESTRUCTIVE-GATE-BYPASS-CLASS.md) requires — the eight launcher shapes
 // from the finding, the four wrapper families from rounds 1-4, the shadow shapes (function-,
