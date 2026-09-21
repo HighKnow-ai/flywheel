@@ -269,7 +269,7 @@ fn exhaustion_event_payload_label_matches_the_copywriting_contract_sentence_exac
 // --- shim (Task 2): install_for_run behaviours and the built binary's fail-closed resolution ---
 
 mod shim {
-    use core::shim::{install_for_run, resolve_real_git, resolve_shim_binary};
+    use core::shim::{install_for_run, resolve_real_git, resolve_shim_binary, shim_env_for_run};
     use std::process::Command;
 
     /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `FLYWHEEL_RUNTIME_DIR`
@@ -499,6 +499,133 @@ mod shim {
             let rm_name = if cfg!(windows) { "rm.exe" } else { "rm" };
             assert!(dir.join(git_name).is_file(), "expected the git entry to exist");
             assert!(dir.join(rm_name).is_file(), "expected the rm entry to exist");
+        });
+    }
+
+    // --- shim_env_for_run's classification-contract probe (plan 03-25 Task 2, D-59/D-60) --------
+
+    /// Write a minimal, inert `/bin/sh` script at `path` and mark it executable (plan 03-25 Task
+    /// 2's own instruction: "The stub must be inert ... executing nothing"). `body` is the
+    /// script's one statement.
+    ///
+    /// CRITICAL: `install_shadow_entry` HARD-LINKS the compiled `flywheel-shim` binary in at this
+    /// path when a healthy install ran first (as every T7/T8-shaped test does, to obtain a
+    /// realistic directory before corrupting one entry) — `path` and the compiled binary under
+    /// `target/{debug,release}/flywheel-shim` are the SAME inode. Writing through that path with
+    /// `std::fs::write` (open-truncate-in-place) would corrupt the shared inode's content, which
+    /// is the compiled binary itself, breaking every other test in this binary that resolves and
+    /// runs it. `remove_file` FIRST unlinks this directory entry only — decrementing the link
+    /// count without touching the inode's data through any of its OTHER links — so the
+    /// subsequent `write` creates a brand-new, unrelated file at the same path.
+    #[cfg(unix)]
+    fn write_inert_stub_script(path: &std::path::Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::remove_file(path);
+        let script = format!("#!/bin/sh\n{body}\n");
+        std::fs::write(path, script).expect("failed to write the stub script");
+        let mut perms = std::fs::metadata(path)
+            .expect("failed to read the stub script's metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(path, perms).expect("failed to make the stub script executable");
+    }
+
+    #[test]
+    fn t6_a_healthy_install_still_produces_a_working_environment() {
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-t6", std::process::id());
+            let env = shim_env_for_run(&run_id)
+                .expect("a healthy install should still produce a working environment");
+            let dir = shim_dir_for_test_run(&run_id);
+            let path = env.get("PATH").expect("PATH should be present in the returned environment");
+            assert!(
+                path.starts_with(&dir.to_string_lossy().into_owned()),
+                "expected PATH to lead with the per-run shim directory {dir:?}, got: {path}"
+            );
+            assert!(
+                env.contains_key("FLYWHEEL_REAL_GIT"),
+                "expected FLYWHEEL_REAL_GIT to be present"
+            );
+            assert!(
+                env.contains_key("FLYWHEEL_REAL_RM"),
+                "expected FLYWHEEL_REAL_RM to be present"
+            );
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn t7_an_inert_stub_at_the_installed_git_entry_makes_shim_env_for_run_fail() {
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-t7", std::process::id());
+            install_for_run(&run_id).expect("a clean install should succeed before corrupting it");
+            let dir = shim_dir_for_test_run(&run_id);
+            let git_entry = dir.join("git");
+            // An inert stub that prints nothing and exits 0 — structurally a perfectly valid
+            // shadow entry (exists, is a file, non-empty, executable), so Task 1's structural
+            // checks alone cannot catch it. Only the classification-contract probe can.
+            write_inert_stub_script(&git_entry, "exit 0");
+
+            let result = shim_env_for_run(&run_id);
+            let err = result.expect_err("an inert stub at the git entry must fail shim_env_for_run");
+            let rendered = format!("{err:#}");
+            assert!(
+                rendered.contains("shim install verification failed"),
+                "expected the fixed verification-failure prefix, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&git_entry.to_string_lossy().into_owned()),
+                "expected the entry path in the rendered error, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&run_id),
+                "expected the run id in the rendered error, got: {rendered}"
+            );
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn t8_a_stale_shim_reporting_only_category_safe_makes_shim_env_for_run_fail() {
+        with_scratch_runtime_dir(|| {
+            let run_id = format!("test-run-{}-t8", std::process::id());
+            install_for_run(&run_id).expect("a clean install should succeed before corrupting it");
+            let dir = shim_dir_for_test_run(&run_id);
+            let git_entry = dir.join("git");
+            // The pre-03-24 shape: a safe verdict with no textCanShadowPathResolution/
+            // namesGatedProgram fields at all — a binary that predates plan 03-24's contract.
+            write_inert_stub_script(&git_entry, r#"echo '{"category":"safe"}'"#);
+
+            let result = shim_env_for_run(&run_id);
+            let err =
+                result.expect_err("a stale shim reporting only category:safe must fail shim_env_for_run");
+            let rendered = format!("{err:#}");
+            assert!(
+                rendered.contains("shim install verification failed"),
+                "expected the fixed verification-failure prefix, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&git_entry.to_string_lossy().into_owned()),
+                "expected the entry path in the rendered error, got: {rendered}"
+            );
+            assert!(
+                rendered.contains(&run_id),
+                "expected the run id in the rendered error, got: {rendered}"
+            );
+        });
+    }
+
+    #[test]
+    fn t9_install_for_run_alone_still_succeeds_on_a_healthy_directory_without_the_probes_requirements() {
+        with_scratch_runtime_dir(|| {
+            // Pins the split (plan 03-25 Task 2(b)): install_for_run pays only the structural
+            // checks Task 1 added, never the classification-contract probe, which lives on
+            // shim_env_for_run only. Kept simple per the plan's own instruction — this exists to
+            // pin the split, not to instrument process creation.
+            let run_id = format!("test-run-{}-t9", std::process::id());
+            let dir = install_for_run(&run_id).expect("install_for_run alone should still succeed");
+            let git_name = if cfg!(windows) { "git.exe" } else { "git" };
+            assert!(dir.join(git_name).is_file(), "expected the git entry to exist");
         });
     }
 }
