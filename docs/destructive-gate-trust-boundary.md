@@ -199,6 +199,8 @@ concrete trigger that should reopen it.
 | A shadow construct reached through an indirection the raw-text scan cannot see — for example, a shell function definition sourced from a file whose own name carries no shadow keyword | Layer 1's `textCanShadowPathResolution` scan loses it: `raw_text_can_shadow_path_resolution` matches literal keywords (`function`, `alias`, `hash`, `eval`, `source`, `builtin`) against the text this hook is handed, and cannot follow a `source ./somefile.sh` into the file it names to see what that file itself defines | A corpus row that defers today and, on inspection of what it actually invokes, should not — i.e. a future audit of a deferred `source`/`eval` row finds it pulls in a shadow definition the text itself never named |
 | Claude Code's own internal git housekeeping (trust checks, `status`/`log`/`config user.*`, `worktree list`) runs outside the agent's own visible `Bash` tool-call loop and therefore never reaches layer 1's `Bash` matcher at all — it reaches only layer 2 | Layer 1 loses it entirely, by construction (the matcher only fires for the agent's own tool calls); layer 2 still sees it, because it still resolves through the shimmed `PATH` | Already recorded, not restated here — see `drainIncidentalPermissionRequests`'s doc comment in `scripts/uat/uat-03-destructive-gate.mjs`, which names the exact internal invocations observed live and the pre-existing `classify_git`-global-flag gap this exposes |
 | The whole closure — corpus (03-26), live run (03-27), this boundary — is measured on macOS only | All three layers: the shadowed entry names (`git`/`rm` vs. `git.exe`/`rm.exe`) and the hook's own witness-entry convention (`SHADOW_WITNESS_ENTRY_NAME`) differ on Windows, and nothing in this closure has been run there | A Windows build target becoming real — at that point every claim in this document must be re-measured, not assumed to transfer |
+| A gated keyword assembled by a mechanism that is neither C1's quote removal nor one of C3's named expansion characters | Layer 1 loses it: C1 resolves only quoting and backslashes, and C3 only refuses to answer when it sees `$`, a backtick, or a letter-adjacent `*`/`?`/`[` — a mechanism outside both leaves the raw-text scan with no signal at all | Any bypass shape whose raw text carries none of those characters and still installs a shadow — which would mean the character set C3 names is not the closed set the contract claims it is, and the contract, not the corpus, is what must change |
+| A shadow definition installed by an EARLIER `Bash` tool call in the same session | Layer 1 loses it, by construction: each hook invocation is a fresh OS process holding no cache and no memory of any previous tool call, so it classifies one command's text in isolation and can never see a function or alias a prior call left behind in a shell profile or a sourced file | An observed two-call shadow in which the FIRST call's own text was itself deferrable — today every single-call shadow shape the corpus covers denies on its own text, so a deferrable first call is the signal that this residual has become reachable |
 
 ## The layer-to-corpus map
 
@@ -249,7 +251,7 @@ claim above made a measured fact for this one shape, on this one machine, agains
 version — not an inference, and not a claim that generalises to every shape in the corpus without
 its own live run.
 
-## The rule for round five
+## The rule for round six
 
 A newly found bypass shape is a **boundary failure**, not a missing corpus row. The first move is
 to name which layer above was trusted to see it and did not, and to amend this document — its
@@ -259,3 +261,10 @@ residual belongs in the table above. Only after this document is corrected does 
 failure mode of rounds one through four: each of those rounds taught the classifier one more token
 without ever writing down what the gate as a whole was supposed to prove, so nothing forced the next
 round to check its own claims against the last one's.
+
+Round five adds its own, distinct lesson: a scanner field whose `false` is read as proof is a
+**claim**, not a measurement, and any such field must name in this document the exact class for
+which its negative is sound. Round five happened because `textCanShadowPathResolution: false` was
+read as "no shadow construct" when it only ever meant "no literal contiguous match" — a narrower
+fact than the name promised. The test a future author must apply: if you cannot write down the class
+for which the negative is sound, the field must report the unprovable case as unsafe instead.

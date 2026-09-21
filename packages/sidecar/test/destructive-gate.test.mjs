@@ -1612,11 +1612,19 @@ test(
       .filter((line) => !/^\|\s*-+\s*\|/.test(line.trim()))
       .slice(1); // the first remaining "|...|" row is the table's own header row.
     assert.ok(
-      residualRows.length >= 4,
-      `expected at least 4 rows in the "Named residuals" table, found ${residualRows.length} — the ` +
-        "residuals table has shrunk below the bar D-62 item 3 requires (sudo's secure_path, an " +
-        "indirection-hidden shadow construct, internal git housekeeping outside the Bash matcher, " +
-        "and macOS-only measurement, at minimum)",
+      residualRows.length >= 6,
+      `expected at least 6 rows in the "Named residuals" table, found ${residualRows.length} — the ` +
+        "residuals table has shrunk below the bar D-62 item 3 (as widened by plan 03-29, round " +
+        "five) requires: sudo's secure_path, an indirection-hidden shadow construct, internal git " +
+        "housekeeping outside the Bash matcher, macOS-only measurement, a keyword assembled outside " +
+        "C1 and C3, and a shadow installed by an earlier tool call, at minimum",
+    );
+
+    assert.ok(
+      content.includes("## The rule for round six"),
+      'docs/destructive-gate-trust-boundary.md no longer has a "## The rule for round six" heading ' +
+        "— the discipline forcing the next round to check its own claims against this document has " +
+        "been dropped",
     );
   },
 );
