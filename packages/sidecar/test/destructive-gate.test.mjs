@@ -940,6 +940,83 @@ test(
   },
 );
 
+// --- round five (plan 03-30, D-62 item 3 follow-up): the exact quote/backslash-split shadow
+// keyword shapes 03-VERIFICATION.md and 03-REVIEW.md reproduced against the compiled binary,
+// driven through the REAL hook against the REAL shim (D-62 item 1's own binding level — the four
+// rounds this closure survived all shipped undetected behind classifier-only coverage). Deny cases
+// prove C1 (quote removal)/C2 (union matching) close the reproduced bypass; defer cases are the
+// falsifiability companions proving the fix did not become general command refusal. ---
+
+test(
+  "the hook denies round five's quote/backslash-split shadow-keyword shapes and still defers to the plain launcher and an ordinary quoted commit",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git", "rm"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    const rows = [
+      {
+        command: 'sh -c \'e""val "$(cat ./defs.sh)"; git push --force\'',
+        expect: "deny",
+        pattern: /force-push/,
+        why:
+          "round five: an empty-quote pair splits eval; C1's context-free quote removal resolves it " +
+          "back to eval, which the union match (C2) then catches",
+      },
+      {
+        command: 'sh -c \'e\\val "$(cat ./defs.sh)"; git push --force\'',
+        expect: "deny",
+        pattern: /force-push/,
+        why: "round five: a backslash splits eval the same way; C1 resolves the escape and the same union match fires",
+      },
+      {
+        command: 'sh -c \'eval "$(cat ./defs.sh)"; g""it push --force\'',
+        expect: "deny",
+        pattern: /force-push/,
+        why:
+          "round five variant: the empty-quote pair instead splits git itself, defeating " +
+          "namesGatedProgram alone; C1/C2 resolve it",
+      },
+      {
+        command: 'sh -c "git push --force"',
+        expect: "defer",
+        why:
+          "falsifiability companion: the eight launcher shapes must still defer — no shadow " +
+          "construct anywhere in this text, so the fix must not have become general refusal",
+      },
+      {
+        command: 'git commit -m "fix: thing"',
+        expect: "defer",
+        why: "falsifiability companion: an ordinary quoted commit message must still defer",
+      },
+    ];
+
+    for (const row of rows) {
+      const { status, decision } = runHook(row.command, env);
+      if (row.expect === "defer") {
+        assert.equal(status, 0, `expected defer (status 0) for: ${row.command} — ${row.why}`);
+        assert.deepEqual(decision, {}, `expected no opinion for: ${row.command} — ${row.why}`);
+      } else {
+        assert.equal(status, 2, `expected deny (status 2) for: ${row.command} — ${row.why}`);
+        assert.equal(
+          decision?.hookSpecificOutput?.permissionDecision,
+          "deny",
+          `expected permissionDecision "deny" for: ${row.command} — ${row.why}`,
+        );
+        assert.match(
+          decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+          row.pattern,
+          `expected the classified-destructive consequence copy for: ${row.command} — ${row.why}`,
+        );
+      }
+    }
+  },
+);
+
 // --- LAUNCHER_CORPUS (plan 03-26, D-62 item 1): the checked-in adversarial corpus this closure's
 // own decision record (03-DESTRUCTIVE-GATE-BYPASS-CLASS.md) requires — the eight launcher shapes
 // from the finding, the four wrapper families from rounds 1-4, the shadow shapes (function-,
