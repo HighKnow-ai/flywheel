@@ -1,6 +1,6 @@
 ---
 phase: 03-nothing-lost-nothing-left-running
-verified: 2026-09-21T00:00:00Z
+verified: 2026-09-22T00:00:00Z
 status: gaps_found
 score: 4/5 must-haves verified
 covered_files:
@@ -17,8 +17,15 @@ covered_files:
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-27-SUMMARY.md"
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-28-PLAN.md"
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-28-SUMMARY.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-29-PLAN.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-29-SUMMARY.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-30-PLAN.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-30-SUMMARY.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-31-PLAN.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-31-SUMMARY.md"
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-DESTRUCTIVE-GATE-BYPASS-CLASS.md"
   - ".planning/phases/03-nothing-lost-nothing-left-running/03-REVIEW.md"
+  - ".planning/phases/03-nothing-lost-nothing-left-running/03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md"
   - "docs/destructive-gate-trust-boundary.md"
   - "packages/core/src/shim.rs"
   - "packages/core/tests/git_retry.rs"
@@ -28,124 +35,237 @@ covered_files:
   - "scripts/uat/README.md"
   - "scripts/uat/run-all.sh"
   - "scripts/uat/uat-07-launcher-shape-gate.mjs"
-covered_digest: "v1:sha256:fbd75d57de58d90b4492560c0d08cc135d69839241173b107194336a617de2b1"
+covered_digest: "v1:sha256:e4aa69cee4759973a92ed2b84db435783b7228c154a268f835366421b873c404"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
   previous_score: 4/5
   gaps_closed:
-    - "The launcher-shape class recorded in 03-DESTRUCTIVE-GATE-BYPASS-CLASS.md (sh -c, bash -c, nice, nohup, timeout, xargs, sudo, setsid all classifying `safe` with no hook-level check): CLOSED as designed, not merely claimed. Plan 03-24's D-59/D-60/D-61 changes make the hook's `safe` branch call shimShadowDirectoryProven() before trusting any safe verdict; I independently reproduced all eight forms classifying `{\"category\":\"safe\",\"namesGatedProgram\":true,\"textCanShadowPathResolution\":false}` against the compiled binary, confirmed the hook's AND-gate correctly defers these to layer 2 (no shadow construct present), and confirmed by direct source read + a live D-62 item 2 measurement (uat-07-launcher-shape-gate.mjs, PASS, properties A/B/C all held) that layer 2's runtime PATH-shadow interception genuinely catches this class end to end — not merely inferred from reading shim_env_for_run."
+    - "Round five's CR-01 (quote/backslash-split obfuscation of `eval`/`git` inside a raw-text scan — `sh -c 'e\"\"val \"$(cat ./defs.sh)\"; git push --force'` and its `e\\val`/`g\"\"it` siblings) is CLOSED as designed, not merely claimed. I independently rebuilt the workspace and reproduced against the compiled `flywheel-shim` binary at HEAD: the control (unobfuscated `eval`) and all three obfuscated forms now report BOTH `namesGatedProgram:true` AND `textCanShadowPathResolution:true` (previously the split forms reported one or the other field `false`, which made the hook's AND defer). The eight launcher shapes (`sh -c \"git push --force\"` etc.) and `git commit -m \"fix: thing\"` still correctly report `textCanShadowPathResolution:false` and defer to layer 2 — confirmed directly, not inherited."
   gaps_remaining:
-    - "AGNT-07 / Success Criterion 5 stays open under a NEW bypass, independently reproduced this round (see gaps below)."
+    - "AGNT-07 / Success Criterion 5 stays open. A NEW, different, live bypass (round six: `env -S`'s opaque-reparse wrapper detection, defeated by a backslash-split `env`) was found by plan 03-31's own obfuscation generator during this round's work and is independently reproduced below. It is not the same bypass round five closed — it is an adjacent mechanism (`resolve_segment_program_index`'s wrapper-token recognition) that the C1-C4 contract was never designed to reach."
+    - "A second, separate finding (this session's code review's CR-01 — bash brace expansion, an unaddressed word-formation mechanism) reopens a documentation-soundness question the trust-boundary document has not yet answered. I independently reproduced it and judged it myself rather than inheriting the reviewer's characterization: see 'Independent judgment on CR-01 (brace expansion)' below."
   regressions: []
 gaps:
   - truth: "An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete (Success Criterion 5 / AGNT-07)."
     status: failed
     reason: >
-      CR-01 from 03-REVIEW.md is real and independently reproduced against the compiled
-      `flywheel-shim` binary and a real `/bin/sh`, using only `--classify-invocation` (no destructive
-      command executed, per D-63). The raw-text shadow scan D-61 introduced
-      (`raw_text_contains_word`, consumed by `text_names_gated_program` and
-      `raw_text_can_shadow_path_resolution`, `packages/shim/src/main.rs:906-972`) matches a keyword
-      as a literal, contiguous substring. A real POSIX shell resolves an adjacent empty-quote pair or
-      a backslash escape inside a word back into the plain word (`e""val` -> `eval`), but this scanner
-      does not perform that normalization, so it sees a different, non-matching string.
+      Two independent problems keep this truth false, both reproduced by me this session against the
+      compiled binary and a real shell, using only `--classify-invocation` and harmless payloads
+      (never a real git/rm invocation, per D-63):
 
-      Independent reproduction (this session, direct binary invocation):
-      `sh -c 'e""val "$(cat ./defs.sh)"; git push --force'` classifies
-      `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}` — the control
-      (unobfuscated `eval` in the same position) correctly reports `textCanShadowPathResolution:
-      true`. I also confirmed, with a harmless `echo` payload only (never git), that a real shell
-      genuinely resolves the obfuscated form: `sh -c 'e""val "echo RESOLVED_BY_EMPTY_QUOTES"'` prints
-      `RESOLVED_BY_EMPTY_QUOTES`. I further confirmed the AND-gate's other input is independently
-      defeatable the same way (`g""it push --force` at top level tokenizes correctly via
-      `tokenize_shell_words` and IS classified `force-push`, but the same obfuscation applied to `git`
-      INSIDE a quoted `sh -c` payload collapses `namesGatedProgram` to `false` too:
-      `sh -c 'eval "$(cat ./defs.sh)"; g""it push --force'` ->
-      `{"namesGatedProgram":false,"textCanShadowPathResolution":true}`).
+      **1. Round six (primary blocker, already known and documented as OPEN by plan 03-31 itself).**
+      `packages/shim/src/main.rs`'s `resolve_segment_program_index` recognises the wrapper token
+      `env` by exact string equality over `tokenize_shell_words`'s RAW, un-normalized output — never
+      retried against `shell_quote_removed`'s output the way the C1-C4 contract's own two safe-verdict
+      facts are. `tokenize_shell_words` resolves quote-toggling but performs zero backslash-escape
+      resolution, so a backslash-split `env` (`e\nv`) is never recognised as the wrapper token at all.
+      Independent reproduction:
+      ```
+      $ target/debug/flywheel-shim --classify-invocation "env -S 'git push --force'"
+      {"category":"uncategorized","invokedBareName":false,"program":null}     # correctly denies
+      $ target/debug/flywheel-shim --classify-invocation "e\nv -S \"-P /tmp git push --force\""
+      {"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}  # DEFERS
+      $ sh -c 'e\nv -S "echo REAL_ENV_RESOLVED"'
+      REAL_ENV_RESOLVED    # confirms a real shell resolves e\nv to env identically
+      ```
+      For a nested payload carrying a PATH-defeating flag `text_can_shadow_path_resolution` does not
+      independently re-check (BSD `env`'s `-P` altpath is the proven case; the unobfuscated `env -i`/
+      `env -u PATH`/`command -p`/`builtin` wrapper cases ARE independently caught by a second scan
+      pass over the quote-removed text, per the code review's own verification — `-S`/`-P` are the
+      exception because `text_can_shadow_path_resolution` deliberately excludes them from its own
+      trigger set and delegates entirely to the wrapper-token check that this obfuscation defeats).
+      Zero human confirmation is reached at either layer for `sh -c 'e\nv -S "-P <altpath> git …"'`
+      once `env` is backslash-split: Layer 1 defers (shown above) and Layer 2 never runs, because
+      `env -P` performs its own alternate-PATH search that never consults the shim's shadow directory
+      at all. This is not carried in `03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`'s residual list as closed;
+      it is the single, precisely-scoped, falsifiability-checked exception plan 03-31 itself added to
+      `KNOWN_OPEN_BOUNDARY_FAILURES` and to `docs/destructive-gate-trust-boundary.md`'s Named
+      residuals table and new "Round six" section — correctly reported prominently rather than
+      quietly patched or silently excluded from the sweep. `AGNT-07` cannot read "always require
+      explicit confirmation" while this shape reaches zero confirmation, and I confirm the finding
+      is real rather than accepting the SUMMARY's own claim of it.
 
-      `pretooluse-hook.ts`'s safe branch (`packages/sidecar/src/pretooluse-hook.ts:263-286`) denies
-      only when `textCanShadow && namesGatedProgram` are BOTH true (read verbatim from source). A
-      false on either conjunct — trivially reachable via ordinary quote-splitting of either the
-      shadow keyword or the gated-program name — makes the AND false, so the hook prints `{}` (defers)
-      unconditionally. Because the shadow construct (the hidden `eval`) executes and redefines `git`
-      as a shell function BEFORE any `PATH` search ever runs in the same shell, layer 2
-      (`packages/shim/src/main.rs`'s `argv[0]`/`execvp` dispatch) never sees this invocation either —
-      unlike the eight plain launcher forms (`sh -c "git push --force"` etc.) that this round's D-59
-      fix correctly defers to layer 2's runtime interception because those forms perform a genuine
-      `PATH` search. CR-01's shape performs no such search at all. Zero human confirmation is reached
-      at any layer for this shape, which is exactly the wording AGNT-07 is written on ("always require
-      explicit confirmation").
+      **2. A second, independently-found finding from this session's own code review (CR-01 in
+      `03-REVIEW.md`, dated 2026-09-22 — NOT the same CR-01 that round five closed): bash brace
+      expansion is a real word-formation mechanism that C1 (quote/backslash removal) and C3
+      (indeterminate word formation: `$`, backtick, letter-adjacent glob) do not model at all.**
+      Independently reproduced:
+      ```
+      $ echo {gi,}t push --force
+      git t push --force
+      $ target/debug/flywheel-shim --classify-invocation '{gi,}t push --force'
+      {"category":"safe","namesGatedProgram":false,"textCanShadowPathResolution":false}
+      ```
+      `text_names_gated_program`'s own doc comment claims to answer whether the raw text names `git`
+      or `rm`; for this text it answers `false`, while a real shell resolves the first word to the
+      literal program name via ordinary brace expansion the scanner never models. Grep confirms the
+      string "brace" appears zero times in `docs/destructive-gate-trust-boundary.md` — the document's
+      own "rule for round six" ("a newly found bypass shape is a boundary failure... amend this
+      document first, only then a corpus row") has not yet been honored for this finding, because the
+      review that found it ran after plan 03-31 closed. **I did not inherit the reviewer's
+      characterization; I reproduced and extended it myself.** I confirmed with a harmless local PATH
+      stub that `{gi,}t push --force` resolves through a REAL, ordinary `PATH` search (argv0 =
+      `/tmp/…/git`, argv = `git t push --force` — broken git syntax, `t` is not a git subcommand) and
+      that `{git,} push --force` (the empty alternative elides cleanly under word splitting) resolves
+      to a clean `git push --force` invocation whose raw text DOES already trip `namesGatedProgram`
+      (the literal substring "git" survives the `{`/`,` boundary) — so this specific two-alternative
+      construction is NOT itself a live zero-confirmation bypass in either form I could construct: the
+      first is syntactically broken, the second is still caught by the raw-text scan and, even where
+      it were not, would only ever reach an ordinary `PATH` search Layer 2's own shadow directory
+      still intercepts (confirmed: `--classify-command 'rm m -rf /tmp/x'` → `recursive-delete`, i.e.
+      Layer 2's own argv-based classifier still flags the forwarded argv as destructive). I also
+      independently tried brace-obfuscating one of the six shadow KEYWORDS the way round five
+      obfuscated `eval` (`{ev,}al "echo …"`, `PA{T,}H=/tmp …`) and, like the reviewer, could not make
+      either work: bash decides a leading word is an assignment lexically BEFORE brace expansion runs
+      (confirmed live, harmless payload only: `PA{T,}H=/tmp …` errors "command not found", it is never
+      treated as `PATH=/tmp`), and `{ev,}al` produces two separate words (`eval` and `al`), not one
+      reassembled `eval` token, so no working shadow-keyword construction was found. **My own
+      independent judgment on the severity, since the orchestrator asked me not to inherit the
+      reviewer's framing: CR-01 (brace expansion) is a genuine documentation-soundness defect —
+      `text_names_gated_program`'s claimed soundness is false for text using brace expansion — but it
+      is NOT, on the evidence I could construct, an independent full zero-confirmation bypass the way
+      round six is. It should still block a `passed`/`human_needed` verdict on its own terms (an
+      unsound claim in a security-load-bearing function, undocumented, is itself a gap under this
+      phase's own stated discipline — 'a scanner field whose false is read as proof is a claim, not a
+      measurement, and any such field must name in this document the exact class for which its
+      negative is sound', which `text_names_gated_program`'s current doc comment does not for brace
+      expansion) — but round six alone is already sufficient to fail this truth, so CR-01's exact
+      severity does not change the verdict, only what the next closure plan must also cover.**
 
-      This is judged, independently of the reviewer, to be genuinely outside the residual
-      `docs/destructive-gate-trust-boundary.md` already names for Layer 1's text scan ("A shadow
-      construct reached through an indirection the raw-text scan cannot see — for example, a shell
-      function definition sourced from a file whose own name carries no shadow keyword"). That
-      residual is specifically about content the scanner cannot access at all (a definition living in
-      a file the text only names). CR-01 needs no external file — the keyword is present in the exact
-      text the scanner was handed, merely reassembled by ordinary shell word-formation the scanner
-      never performs. Per the document's own "rule for round five" (lines 156-165): this is a
-      BOUNDARY failure, not a missing corpus row. The layer whose claim is wrong: Layer 1
-      (`pretooluse-hook.ts`, via the shim's `--classify-invocation` text facts) is documented as
-      "Trusted to prove... whether the raw command text can pre-empt PATH resolution before it
-      happens" (trust-boundary doc, lines 45-55) — demonstrably false as written; the scanner cannot
-      prove this for any text containing ordinary shell quote/backslash splitting of the keyword.
-      `docs/destructive-gate-trust-boundary.md` must be corrected (its Layer 1 "Trusted to prove"
-      claim amended, and this shape added to "Named residuals" only if a decision is made to accept
-      it as a residual rather than fix it) before any new `LAUNCHER_CORPUS` row is added, per the
-      document's own stated discipline — appending a row first is the exact failure mode the document
-      says produced rounds one through four.
+      **On the question I was asked to judge independently — is C3 a genuine inversion, or an
+      enumeration of three construct classes wearing an inversion's clothes?** I read
+      `raw_text_word_formation_is_indeterminate` directly (`packages/shim/src/main.rs`). Its
+      prose calls itself a refusal to "report absence it cannot prove," which is inversion language —
+      but the implementation is a closed, positive list of exactly three trigger shapes: a literal `$`
+      or backtick anywhere, or a `*`/`?`/`[` adjacent to a letter/digit/`_`. A genuine inversion would
+      need some means of recognizing "this text's word formation is NOT fully determined by literal
+      characters" for the general case and default to `true` unless positively proven determinate;
+      what exists instead defaults to `true` only for the three shapes its authors already knew about
+      (which happen to cover parameter expansion, command/arithmetic substitution, ANSI-C `$'...'`
+      quoting — all `$`-prefixed — and pathname globbing) and defaults to `false` for everything else,
+      including brace expansion, tilde expansion, and any future shell construct. This matches WR-03's
+      own characterization in `03-REVIEW.md` almost exactly, and I concur with it independently: **C3
+      is an enumeration of three specific, named mechanisms wearing an inversion's rhetorical clothes,
+      not a genuine inversion.** The distinction matters because the document's own "rule for round
+      six" is written against the inversion framing ("if you cannot write down the class for which the
+      negative is sound, the field must report the unprovable case as unsafe") — and for brace
+      expansion specifically, the class was never written down, which is exactly the failure mode that
+      rule exists to prevent.
     artifacts:
       - path: "packages/shim/src/main.rs"
-        issue: "raw_text_contains_word (lines 906-932), consumed by text_names_gated_program and raw_text_can_shadow_path_resolution, does no shell-quote/backslash normalization before matching — an adjacent empty-quote pair or backslash inside a keyword defeats the match while a real shell resolves it to the plain word."
-      - path: "packages/sidecar/src/pretooluse-hook.ts"
-        issue: "Lines 276-282: the safe-branch deny rule is `textCanShadow && namesGatedProgram`; a false on either conjunct (independently reachable via quote-splitting of either input) makes the whole expression false and the hook defers unconditionally, with no fallback proof and no reliance on layer 2 (which cannot see this shape either, because the shadow function resolves before any PATH search)."
+        issue: "resolve_segment_program_index's env-wrapper token-equality check runs only over tokenize_shell_words's raw, non-backslash-resolved output and is never retried against shell_quote_removed's output — the one mechanism among this closure's several text-normalization passes that the C1-C4 contract does not reach. A backslash-split env (e\\nv) escapes wrapper recognition entirely, and for env -S with a nested PATH-defeating flag (BSD -P altpath), this is a proven, live, zero-human-confirmation bypass."
+      - path: "packages/shim/src/main.rs"
+        issue: "text_names_gated_program (and, by the same gap, raw_text_can_shadow_path_resolution and raw_text_word_formation_is_indeterminate/C3) has no model of bash brace expansion ({alt1,alt2}) at all — a real, unconditional word-formation mechanism, distinct from the six mechanisms C1-C3 already cover. text_names_gated_program's false claim is unsound for text using it; independently reproduced this session and judged NOT to constitute a full bypass on its own (Layer 2's argv-based classifier still backstops the constructions found), but it is an undocumented, unresolved soundness gap in a security-load-bearing scanner."
       - path: "docs/destructive-gate-trust-boundary.md"
-        issue: "Layer 1's 'Trusted to prove' claim (lines 45-55) states this layer proves whether raw command text can pre-empt PATH resolution; CR-01 is a reproduced counterexample where it does not. The document has not yet been corrected to reflect this, and per its own stated rule for round five, correction must precede any new corpus row."
+        issue: "Zero mentions of 'brace' anywhere in the document. The document's own 'rule for round six' requires a newly found bypass shape to be named and the document corrected before any corpus row addresses it; this has been done for round six (env -S) but not yet for the brace-expansion finding, which was found by a review that ran after 03-31 closed."
     missing:
-      - "A shell-word-normalization pass (or, per the review's suggested interim mitigation, a deliberately over-triggering scan on any quote/backslash adjacent to letters that could spell a gated keyword) applied to the raw text before raw_text_contains_word runs, mirroring the quote-concatenation handling tokenize_shell_words already performs for the top-level non-opaque case."
-      - "LAUNCHER_CORPUS rows exercising both the \"\"-split and \\-split forms of the shadow keyword AND of the gated-program name, each asserting expect: deny, added only after the boundary document is corrected (per the document's own stated sequencing)."
-      - "docs/destructive-gate-trust-boundary.md's Layer 1 'Trusted to prove' claim corrected to state what the raw-text scan actually proves today, plus a decision on whether CR-01's shape becomes a fixed case or a newly named residual."
-      - "A decision on the two secondary findings from 03-REVIEW.md (WR-01, WR-02) — see Anti-Patterns Found below — at minimum WR-02's missing adversarial-obfuscation corpus coverage, which is the same test-coverage gap that let four prior rounds and this one ship undetected by the enumeration itself."
+      - "A round-seven plan implementing one of the two candidate fix directions 03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md already names: retry resolve_segment_program_index's env/command/builtin wrapper-token recognition against shell_quote_removed's output, OR deliberately over-deny on any quote/backslash adjacent to env/command/builtin."
+      - "A Named-residuals row (or a fix) for bash brace expansion in docs/destructive-gate-trust-boundary.md, per the document's own round-six-onward discipline, before any new LAUNCHER_CORPUS row addresses it — whether the eventual fix folds brace-alternative expansion into C1's normalization (computing every alternative and re-scanning each) or C3's indeterminacy trigger (treating letter-adjacent {/}/, as indeterminate the way letter-adjacent globs already are)."
+      - "WR-01 (03-REVIEW.md): an explicit null payload in the readProvenBoolean regression test, matching its own doc comment's enumerated cases."
+      - "WR-02 (03-REVIEW.md): GROUP_3_COMMANDS derived by a stable marker (e.g. a group field on each LAUNCHER_CORPUS row) rather than a fixed index range guarded only by a total-length assertion, which a same-length reorder would defeat silently."
+    deferred_items_note: "No later phase in ROADMAP.md addresses git/rm destructive-action gating or the shell-text scanner; nothing here is deferred to future roadmap phases."
 ---
 
 # Phase 3: Nothing Lost, Nothing Left Running — Verification Report (Re-Verification)
 
 **Phase Goal:** "Cyril can quit, crash or interrupt Flywheel at any moment and know that no
 uncommitted work was destroyed and no agent is still spending his money."
-**Verified:** 2026-09-21T00:00:00Z
+**Verified:** 2026-09-22T00:00:00Z
 **Status:** gaps_found
-**Re-verification:** Yes — this report supersedes the 2026-09-20T12:09:41Z report (`gaps_found`,
-4/5), which was itself a re-verification. That report's single recorded gap (the launcher-shape
-class — `sh -c`, `bash -c`, `nice`, `nohup`, `timeout`, `xargs`, `sudo`, `setsid` all classifying
-`safe` with no hook-level check at all) is CLOSED by plans 03-24..03-28's D-59..D-63 changes, and I
-independently confirmed the closure rather than trusting the SUMMARYs. But `03-REVIEW.md`'s CR-01
-finding — surfaced independently by the code review that ran immediately before this verification —
-is a NEW, different bypass in the same raw-text scan D-61 introduced to close the prior gap, and I
-independently reproduced it end to end against the compiled binary and a real shell using only
-`--classify-invocation` (never executing a destructive command, per D-63). AGNT-07 / Success
-Criterion 5 therefore remains open, on a different and narrower shape than before.
+**Re-verification:** Yes — this report supersedes the prior `03-VERIFICATION.md` (`gaps_found`, 4/5),
+whose single recorded gap (round five's quote/backslash-split obfuscation of `eval`/`git`) is CLOSED
+by plans 03-29/03-30, independently confirmed below. But two further findings — one already known
+and reported by plan 03-31 itself (round six, `env -S` backslash-split, OPEN), one found by the code
+review that ran immediately before this verification (this session's own CR-01, bash brace
+expansion) — keep AGNT-07 / Success Criterion 5 failing, on different and narrower shapes than
+before.
 
-**On the two questions the orchestrator asked me to weigh independently (not inherited from the
-reviewer or the orchestrator):**
+## Independent reproduction: round five is genuinely closed
 
-1. **Is CR-01 genuinely outside the residual `docs/destructive-gate-trust-boundary.md` already
-   names?** Yes. The document's second named residual is specifically about an indirection the raw
-   scan cannot follow — content living in a *file the text only names* (`source ./somefile.sh`
-   whose own contents the scanner never reads). CR-01 needs no external file: the keyword `eval` (or
-   `git`) is present in the exact string the scanner receives, merely split by an empty quote pair or
-   backslash that a real shell reassembles and the scanner does not. This is a different mechanism —
-   a false negative in the scanner's own matching discipline on text it already has, not a blind spot
-   about text it never sees.
-2. **Per the document's own rule for round five, is this a boundary failure, and which layer's claim
-   is wrong?** Yes, a boundary failure. Layer 1 (`pretooluse-hook.ts`, via the shim's
-   `--classify-invocation` text facts) is documented as "Trusted to prove... whether the raw command
-   text can pre-empt PATH resolution before it happens." CR-01 is a reproduced, concrete counterexample
-   where it does not: the reported `textCanShadowPathResolution: false` is wrong for a string that,
-   when handed to a real shell, does pre-empt PATH resolution. That "Trusted to prove" claim is false
-   as written and needs correction before a new corpus row is added — appending a row first is exactly
-   the failure mode the document itself names as having produced rounds one through four.
+Rebuilt the workspace (`cargo build --workspace`, no recompilation needed — binary already at HEAD)
+and drove the exact commands the prior verification's gap was built on directly against
+`target/debug/flywheel-shim`:
+
+| Command | Result | Verdict |
+|---|---|---|
+| `sh -c 'eval "$(cat ./defs.sh)"; git push --force'` (control) | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}` | denies (as before) |
+| `sh -c 'e""val "$(cat ./defs.sh)"; git push --force'` | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}` | **now denies — was `false` before** |
+| `sh -c 'e\val "$(cat ./defs.sh)"; git push --force'` | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}` | **now denies — was `false` before** |
+| `sh -c 'eval "$(cat ./defs.sh)"; g""it push --force'` | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}` | **now denies — was `false` before** |
+| `sh -c "git push --force"` (launcher-shape control) | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}` | still defers to layer 2, unchanged |
+| `git commit -m "fix: thing"` (ordinary-command control) | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}` | still defers, unchanged |
+
+Full workspace suites, run once each this session: `cargo test --workspace` — all crates pass;
+`npm --prefix packages/sidecar test` — 96/96 pass, 0 fail; `npm --prefix packages/desktop test` —
+440/440 pass across 32 files. No `TBD`/`FIXME`/`XXX` debt markers in any file this round's plans
+(03-29..03-31) touched.
+
+## Independent reproduction: round six (`env -S` backslash-split) is a real, open bypass
+
+```
+$ target/debug/flywheel-shim --classify-invocation "env -S 'git push --force'"
+{"category":"uncategorized","invokedBareName":false,"program":null}
+$ target/debug/flywheel-shim --classify-invocation "e\nv -S \"-P /tmp git push --force\""
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}
+$ sh -c 'e\nv -S "echo REAL_ENV_RESOLVED"'
+REAL_ENV_RESOLVED
+```
+The unobfuscated form correctly denies (`uncategorized`/`invokedBareName:false` routes to the hook's
+non-safe deny branch, since `shimWillIntercept` is never reached without `invokedBareName === true`).
+The backslash-split form is classified `safe` with the AND-gate's two facts `true`/`false`, so the
+hook defers unconditionally — and a real shell resolves `e\nv` to `env` identically, confirmed with a
+harmless `echo` payload (D-63). Layer 2 provides no backstop for this shape specifically because BSD
+`env -P` performs its own alternate-PATH search that never touches the shim's shadow directory — this
+was proven live and non-destructively by plan 03-31 itself (a harmless stub named `git` at the
+altpath ran instead of the shim). I did not re-run the live-shell proof (it requires constructing a
+throwaway altpath directory and is already documented with full reproduction steps in
+`03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md`); the `--classify-invocation` half above, which is the
+part that determines the hook's decision, I reproduced directly myself.
+
+## Independent reproduction and judgment: this session's CR-01 (brace expansion)
+
+```
+$ echo {gi,}t push --force
+git t push --force
+$ target/debug/flywheel-shim --classify-invocation '{gi,}t push --force'
+{"category":"safe","namesGatedProgram":false,"textCanShadowPathResolution":false}
+```
+Confirmed `namesGatedProgram`'s `false` is unsound for this text — a real shell resolves the first
+word to `git` via ordinary brace expansion, which neither C1 (quote/backslash removal) nor C3
+(`$`/backtick/letter-adjacent-glob indeterminacy) models. I extended the reviewer's own testing with a
+local harmless PATH stub to check whether this reaches a genuine bypass:
+```
+$ PATH="/tmp/cr01test:$PATH" sh -c '{gi,}t push --force'
+ARGV: /tmp/cr01test/git t push --force        # broken: "t" is not a valid git subcommand
+$ PATH="/tmp/cr01test:$PATH" sh -c '{git,} push --force'
+ARGV: /tmp/cr01test/git push --force            # clean, but namesGatedProgram is ALREADY true for
+$ target/debug/flywheel-shim --classify-invocation '{git,} push --force'                # this text
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}
+$ target/debug/flywheel-shim --classify-command 'rm m -rf /tmp/x'
+recursive-delete                                # Layer 2's own argv classifier still flags it
+```
+I also independently tried brace-obfuscating one of the six shadow keywords, the way round five
+obfuscated `eval` (`{ev,}al "echo …"`) and a brace-split `PATH=` assignment (`PA{T,}H=/tmp …`) —
+both, like the reviewer's own attempts, produced broken shell syntax rather than a working shadow
+construct (bash decides a leading word is an assignment BEFORE brace expansion runs; `{ev,}al`
+produces two separate words, not a reassembled `eval` token).
+
+**My own judgment, not inherited from the reviewer:** brace expansion is a genuine, undocumented
+soundness gap in `text_names_gated_program`'s claim (the string "brace" appears zero times in
+`docs/destructive-gate-trust-boundary.md`, confirmed by grep), and on the question the orchestrator
+asked me to weigh — whether C3 is a genuine inversion or an enumeration of three construct classes
+wearing an inversion's clothes — **I judge it to be the latter: an enumeration.** Its own doc comment
+uses inversion language ("refuses to report absence it cannot prove"), but the code is a closed,
+positive list of exactly three trigger shapes (`$`, backtick, letter-adjacent glob), which happens to
+cover parameter/command/arithmetic expansion and ANSI-C quoting (all `$`-prefixed) and pathname
+globbing, but has no representation at all for brace expansion, tilde expansion, or any future
+mechanism. This is not, on the evidence I could construct, an independent full zero-confirmation
+bypass the way round six is — every construction I found either produces broken shell syntax or is
+still caught by the raw-text scan or Layer 2's own argv classifier — but it is a real gap the trust
+boundary document's own stated discipline requires naming before any further corpus work proceeds,
+and it does not change this truth's already-failing status (round six alone is sufficient).
 
 ## Goal Achievement
 
@@ -153,65 +273,102 @@ reviewer or the orchestrator):**
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | User tries to remove a worktree holding uncommitted changes; Flywheel refuses, shows exactly what would have been lost, and leaves the worktree alone. | ✓ VERIFIED | Unchanged by this round's diff (plans 03-24..03-28 touch only `packages/shim/src/main.rs`, `packages/sidecar/src/pretooluse-hook.ts`, `packages/core/src/shim.rs`, `packages/sidecar/test/destructive-gate.test.mjs`, `docs/destructive-gate-trust-boundary.md`, `scripts/uat/*`). Regression-only check per re-verification mode: no file on this truth's path (WORK-03) was modified. Previously verified via `03-UAT.md` test 1. |
-| 2 | User quits the application while a session is running and no agent process survives. | ✓ VERIFIED | Unchanged by this round's diff. No file on the PROC-03/PROC-04 path (`watchdog.ts`, supervisor kill logic) was modified by plans 03-24..03-28. Previously verified via `03-UAT.md` test 1. |
-| 3 | User relaunches after a crash and is shown every orphaned process, every in-flight run and every worktree that disagrees with the database. | ✓ VERIFIED | Unchanged by this round's diff. No file on the PROC-05/WORK-06 path was modified by plans 03-24..03-28. Previously verified via `03-UAT.md` test 2. |
-| 4 | A stress run driving ten concurrent commits into one repository keeps every commit — retry and spawn-stagger. | ✓ VERIFIED | Unchanged by this round's diff. `git_retry.rs`'s lock-retry logic and `shim.rs`'s `shim_env_for_run` structure were touched by plan 03-25 only for the NEW post-install verification checks (additive, does not alter retry/stagger paths). Previously verified via `03-UAT.md` test 5. |
-| 5 | An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete (compound truth this SC and AGNT-07 share). | ✗ FAILED | **The specific bypass this round's plans (03-24..03-28) targeted — the eight-launcher-shape class with zero hook-level check — is CLOSED, independently confirmed (see gaps_closed).** But a NEW bypass in the very mechanism built to close it (D-61's raw-text scan) is real and independently reproduced this session: `sh -c 'e""val "$(cat ./defs.sh)"; git push --force'` classifies `safe` with `textCanShadowPathResolution: false` (control with unobfuscated `eval` correctly reports `true`); a real shell resolves the obfuscated form to the exact same word. Zero human confirmation is reached at any layer for this shape. See Gaps below for the full independently-reproduced trace. |
+| 1 | User tries to remove a worktree holding uncommitted changes; Flywheel refuses, shows exactly what would have been lost, and leaves the worktree alone. | ✓ VERIFIED | Unchanged by plans 03-29..03-31 (`git diff --stat` confirms only `docs/destructive-gate-trust-boundary.md`, `packages/shim/src/main.rs`, `packages/sidecar/src/pretooluse-hook.ts`, `packages/sidecar/test/destructive-gate.test.mjs`, and one new findings doc were touched — no `packages/core/src` or `packages/desktop/src` file). Regression-only check per re-verification mode. Previously verified via `03-UAT.md` test 1. |
+| 2 | User quits the application while a session is running and no agent process survives. | ✓ VERIFIED | Unchanged; no watchdog/supervisor file touched this round. `npm --prefix packages/sidecar test` (96/96, includes the watchdog/heartbeat/kill-record suite, confirmed passing this session) provides fresh regression evidence beyond a stale-file check. Previously verified via `03-UAT.md` test 1. |
+| 3 | User relaunches after a crash and is shown every orphaned process, every in-flight run and every worktree that disagrees with the database. | ✓ VERIFIED | Unchanged; no reconciliation file touched this round. `npm --prefix packages/desktop test` (440/440, confirmed passing this session) provides fresh regression evidence. Previously verified via `03-UAT.md` test 2. |
+| 4 | A stress run driving ten concurrent commits into one repository keeps every commit — retry and spawn-stagger. | ✓ VERIFIED | Unchanged; `git_retry.rs` and `shim.rs`'s `shim_env_for_run` untouched this round. `cargo test --workspace` (confirmed passing this session, all crates including `flywheel-core`'s retry tests) provides fresh regression evidence. Previously verified via `03-UAT.md` test 5. |
+| 5 | An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete (compound truth this SC and AGNT-07 share). | ✗ FAILED | **Round five's specific bypass (quote/backslash-split `eval`/`git`) is CLOSED, independently confirmed above.** But round six (`env -S` backslash-split, a proven live zero-confirmation bypass for BSD `env -P`) remains open, and this session's own code review found a second, distinct, undocumented soundness gap (brace expansion) that the boundary document has not yet named. Both independently reproduced above. |
 
 **Score:** 4/5 truths verified (0 present-behavior-unverified; 1 failed, blocking).
+
+## Requirements state — my ruling (per the orchestrator's explicit question)
+
+`REQUIREMENTS.md` currently reads (confirmed by direct `grep`, not trusted from any verb's report):
+`WORK-03`, `WORK-04`, `WORK-05`, `WORK-06`, `PROC-03`, `PROC-04`, `PROC-05` = `Complete`; `AGNT-07` =
+`Gaps Found`.
+
+**I consider the seven non-AGNT-07 requirements genuinely delivered**, not merely "blocked by the
+phase-level verdict." Their implementations are in files plans 03-29..03-31 never touched (confirmed
+by `git diff --stat` against the pre-03-29 commit: only `docs/destructive-gate-trust-boundary.md`,
+`packages/shim/src/main.rs`, `packages/sidecar/src/pretooluse-hook.ts`,
+`packages/sidecar/test/destructive-gate.test.mjs`, plus planning/tracking files, changed), and the
+full workspace suites that prove them — `cargo test --workspace`, `npm --prefix packages/sidecar
+test`, `npm --prefix packages/desktop test` — all pass, confirmed by me this session rather than
+taken from the SUMMARY. Per the #2388 rule this orchestrator named, this `gaps_found` verdict will
+revert those seven to non-`Complete` in `REQUIREMENTS.md` — that reversion is a bookkeeping
+consequence of AGNT-07 sharing a phase with them, not a finding that their own work is incomplete or
+should be redone. Whoever picks this phase back up should re-mark them `Complete` once the phase as a
+whole clears, without re-verifying their underlying implementation.
+
+**AGNT-07 is genuinely incomplete**, not a process artifact. Round six is a proven, live,
+zero-human-confirmation bypass for a real, executable shell construct — independently reproduced by
+me above, not merely inherited from the SUMMARY's claim. AGNT-07's own text — "Destructive actions
+… always require explicit confirmation, even when the session is running in an auto-accept permission
+mode" — is false as long as `env -S "-P <altpath> git push --force"` reaches zero confirmation once
+`env` is backslash-split.
 
 ## Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |---|---|---|---|---|
-| `packages/shim/src/main.rs` | 906-972 | `raw_text_contains_word` performs no shell-quote/backslash normalization before literal substring matching | 🛑 Blocker | CR-01: defeats the D-61 raw-text shadow scan via ordinary quote-splitting; independently reproduced (see Gaps). |
-| `packages/sidecar/src/pretooluse-hook.ts` | 276-282 | The safe branch's "missing field → unsafe" per-field discipline is ANDed, collapsing the whole expression to `false` (defer) if either field is unprovable/false | ⚠️ Warning | WR-01 from `03-REVIEW.md`: latent fail-open composition bug. Not currently reachable — every `ClassifiedInvocation` return path in the shipped binary sets both fields together as real booleans, so this cannot fire against the current binary. Recorded for visibility; does not block this verification's status determination on its own (CR-01 already blocks), but should be fixed alongside CR-01 since the fix touches the same code. |
-| `packages/sidecar/test/destructive-gate.test.mjs` | 943-1153 (`LAUNCHER_CORPUS`) | No corpus row exercises keyword obfuscation via quote-splitting or backslash-escaping inside a quoted payload | ⚠️ Warning | WR-02 from `03-REVIEW.md`: the same test-coverage gap that let four prior rounds and this one ship without the enumeration catching itself. Independently confirmed by grep — no `e""val`, `e\val`, `g""it`, or `g\it` style row exists anywhere in the corpus. |
-| `docs/destructive-gate-trust-boundary.md` | 45-55 | Layer 1's "Trusted to prove" claim is now factually false, per the document's own rule for round five | 🛑 Blocker (same gap as CR-01, different artifact) | The document has not yet been corrected to reflect CR-01's counterexample. Per its own stated discipline, correction must happen before a new corpus row is added. |
+| `packages/shim/src/main.rs` | `resolve_segment_program_index`'s `env`-wrapper token check (main.rs:1154 segment loop) | Wrapper-token recognition runs only over raw, non-backslash-resolved tokens, never retried against `shell_quote_removed`'s output | 🛑 Blocker | Round six: `e\nv -S "-P <altpath> …"` reaches zero human confirmation at either layer. Already reported by plan 03-31 in `docs/destructive-gate-trust-boundary.md` and `03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md` — not a new finding, but independently re-confirmed live this session, not merely inherited. |
+| `packages/shim/src/main.rs` | `text_names_gated_program` / C1 / C3 (main.rs:977-1066) | No model of bash brace expansion (`{alt1,alt2}`) anywhere in the C1-C4 contract | ⚠️ Warning | This session's own CR-01: `text_names_gated_program`'s `false` claim is unsound for brace-expanded text naming `git`/`rm`. Not, on the evidence constructed (by the reviewer or independently by me), a full bypass on its own — Layer 2's argv classifier and the raw-text scan still catch every construction found — but an undocumented soundness gap in a security-load-bearing function. |
+| `docs/destructive-gate-trust-boundary.md` | whole document | Zero mentions of "brace" anywhere (confirmed by grep) | ⚠️ Warning | The document's own "rule for round six" requires naming a newly found bypass shape and correcting the document before any corpus row addresses it. This has been done for round six (`env -S`) but not yet for brace expansion, because the review that found it ran after plan 03-31 closed — expected sequencing, not a violation, but still an open item. |
+| `packages/sidecar/test/destructive-gate.test.mjs` | `readProvenBoolean` regression (`destructive-gate.test.mjs:1147-1213`) | No explicit `null`-valued payload tested, though the function's own doc comment enumerates `null` as a case it collapses | ⚠️ Warning | WR-01 from `03-REVIEW.md`: the current implementation is correct for `null` by inspection (`typeof null === "object"`), so this is a coverage gap, not a live bug — but a future refactor could reintroduce the exact WR-01-shaped bug this test exists to catch. |
+| `packages/sidecar/test/destructive-gate.test.mjs` | `GROUP_3_START_INDEX`/`GROUP_3_END_INDEX` (`destructive-gate.test.mjs:1420-1430`) | Fixed index range guarded only by a total-length assertion, not a content check | ⚠️ Warning | WR-02 from `03-REVIEW.md`: a same-length reorder of `LAUNCHER_CORPUS` would silently mistag which rows receive Group 3's extra obfuscation coverage, with no test failure to flag it. |
 
-No `TBD`/`FIXME`/`XXX` debt markers were found in any file this phase's plans 03-24..03-28 touched.
+No `TBD`/`FIXME`/`XXX` debt markers found in any file this phase's plans 03-29..03-31 touched
+(confirmed by direct grep, this session).
 
 ## Behavioral Spot-Checks
 
-All commands below were run directly against the compiled `target/debug/flywheel-shim` binary using
-only `--classify-invocation` (pure classification, never executes anything, per D-63). Where shell
-resolution needed confirming, only a harmless `echo` payload was used — no destructive git command
-was executed against any remote or worktree at any point during this verification.
+All commands below were run directly against the compiled `target/debug/flywheel-shim` binary at
+HEAD (rebuilt this session via `cargo build --workspace`) using only `--classify-invocation`/
+`--classify-command` (pure classification, never executes anything) or a harmless `echo`/stub-`git`
+payload where real-shell resolution needed confirming — never a destructive command against a real
+remote or worktree (D-63).
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| Control: unobfuscated `eval` inside `sh -c` is correctly caught | `flywheel-shim --classify-invocation "sh -c 'eval \"\$(cat ./defs.sh)\"; git push --force'"` | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}` | ✓ PASS (correctly denies via hook AND) |
-| CR-01: empty-quote-split `eval` defeats the scan | `flywheel-shim --classify-invocation "sh -c 'e\"\"val \"\$(cat ./defs.sh)\"; git push --force'"` | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}` | ✗ FAIL (hook AND is false, defers — bypass confirmed) |
-| CR-01 variant: quote-split `git` also defeats `namesGatedProgram` | `flywheel-shim --classify-invocation "sh -c 'eval \"\$(cat ./defs.sh)\"; g\"\"it push --force'"` | `{"category":"safe","namesGatedProgram":false,"textCanShadowPathResolution":true}` | ✗ FAIL (AND is false, defers — confirms the AND-gate is defeatable via either conjunct) |
-| Shell genuinely resolves the obfuscated form (harmless payload only) | `sh -c 'e""val "echo RESOLVED_BY_EMPTY_QUOTES"'` | `RESOLVED_BY_EMPTY_QUOTES` | ✓ PASS (confirms the obfuscation is not a scanner-only artifact — a real shell really does resolve it) |
-| Launcher-shape class (this round's target) still correctly defers to layer 2, unobfuscated | `flywheel-shim --classify-invocation "sh -c \"git push --force\""` (and the same for `bash -c`, `nice`, `nohup`, `timeout`, `xargs`, `sudo`, `setsid`) | All eight: `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}` | ✓ PASS (as designed — no shadow construct present, so layer 2's real PATH search still catches these; confirmed also by the live D-62 item 2 UAT, `uat-07-launcher-shape-gate.mjs`, PASS) |
-| Existing adversarial corpus is fully green (does not contradict CR-01 — it has no row that would catch it) | `node --test packages/sidecar/test/destructive-gate.test.mjs` (single file, run once) | 27/27 subtests `ok`, 0 `not ok` | ✓ PASS (confirms WR-02: green suite, real bypass — the enumeration does not catch itself, exactly as the review and the bypass-class document both predict) |
+| Round five control: unobfuscated `eval` inside `sh -c` | `--classify-invocation "sh -c 'eval ...; git push --force'"` | `{"...":true,"...":true}` | ✓ PASS (denies) |
+| Round five: `e""val` now closed | `--classify-invocation "sh -c 'e\"\"val ...; git push --force'"` | both fields `true` | ✓ PASS (denies — was FAIL in prior round) |
+| Round five: `e\val` now closed | `--classify-invocation "sh -c 'e\\val ...; git push --force'"` | both fields `true` | ✓ PASS (denies — was FAIL in prior round) |
+| Round five: `g""it` now closed | `--classify-invocation "sh -c 'eval ...; g\"\"it push --force'"` | both fields `true` | ✓ PASS (denies — was FAIL in prior round) |
+| Launcher-shape control still defers | `--classify-invocation 'sh -c "git push --force"'` | `namesGatedProgram:true, textCanShadow:false` | ✓ PASS (defers to layer 2, unchanged) |
+| Round six: unobfuscated `env -S` correctly denies | `--classify-invocation "env -S 'git push --force'"` | `{"category":"uncategorized","invokedBareName":false}` | ✓ PASS (denies) |
+| Round six: backslash-split `env` bypasses | `--classify-invocation "e\\nv -S \"-P /tmp git push --force\""` | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}` | ✗ FAIL (defers — bypass confirmed) |
+| Round six: real shell resolves `e\nv` (harmless payload) | `sh -c 'e\nv -S "echo REAL_ENV_RESOLVED"'` | `REAL_ENV_RESOLVED` | ✓ PASS (confirms obfuscation is real, not scanner-only) |
+| CR-01: brace-expansion unsound claim | `--classify-invocation '{gi,}t push --force'` | `namesGatedProgram:false` | ✗ FAIL (claim unsound — real shell resolves to `git t ...`, confirmed via harmless PATH stub) |
+| CR-01: Layer 2 backstop check | `--classify-command 'rm m -rf /tmp/x'` | `recursive-delete` | ✓ PASS (Layer 2's argv classifier still flags the forwarded argv even with the extra token) |
+| Full sidecar suite | `npm --prefix packages/sidecar test` (run once) | 96/96 `ok`, 0 fail | ✓ PASS |
+| Full desktop suite | `npm --prefix packages/desktop test` (run once) | 440/440 pass, 32 files | ✓ PASS |
+| Full Rust suite | `cargo test --workspace` (run once) | all crates pass | ✓ PASS |
 
 ## Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |---|---|---|---|---|
-| WORK-03 | 03-01, 03-05, 03-18 | Worktree never destroyed without checking for uncommitted changes | ✓ SATISFIED | Unchanged this round; `REQUIREMENTS.md` correctly marks `Complete`. |
-| WORK-04 | 03-04, 03-08, 03-13, 03-14 | Concurrent git ops retry with backoff/jitter on index-lock contention | ✓ SATISFIED | Unchanged this round; `REQUIREMENTS.md` correctly marks `Complete`. |
-| WORK-05 | 03-04, 03-08, 03-14 | Agent spawn timing desynchronised to avoid index collisions | ✓ SATISFIED | Unchanged this round; `REQUIREMENTS.md` correctly marks `Complete`. |
-| WORK-06 | 03-03, 03-09, 03-11, 03-18 | Launch reconciles worktrees in DB against disk, surfaces discrepancy | ✓ SATISFIED | Unchanged this round; `REQUIREMENTS.md` correctly marks `Complete`. |
-| PROC-03 | 03-02, 03-15 | Agent processes managed as process groups | ✓ SATISFIED | Unchanged this round; `REQUIREMENTS.md` correctly marks `Complete`. |
-| PROC-04 | 03-02, 03-10, 03-15, 03-17, 03-20, 03-21 | No agent process survives application quit | ✓ SATISFIED | Unchanged this round; `REQUIREMENTS.md` correctly marks `Complete`. |
-| PROC-05 | 03-06, 03-10, 03-11, 03-17, 03-23 | Orphaned processes/runs detected and surfaced on launch | ✓ SATISFIED | Unchanged this round; `REQUIREMENTS.md` correctly marks `Complete`. |
-| AGNT-07 | 03-07, 03-12, 03-14, 03-16, 03-19, 03-20, 03-21, 03-22, 03-23, 03-24, 03-25, 03-26, 03-27, 03-28 | Destructive actions always require explicit confirmation, even in auto-accept mode | ✗ BLOCKED | CR-01, independently reproduced this session (see Gaps). `REQUIREMENTS.md` line 272 currently reads `Gaps Found`, which is CORRECT and must NOT be changed to `Complete` by this verification. No orphaned requirement IDs found — the phase's declared set (`WORK-03, WORK-04, WORK-05, WORK-06, PROC-03, PROC-04, PROC-05, AGNT-07`) exactly matches every ID any plan in this phase claims, and every ID `REQUIREMENTS.md` maps to Phase 3. |
+| WORK-03 | 03-01, 03-05, 03-18 | Worktree never destroyed without checking for uncommitted changes | ✓ SATISFIED | Unchanged this round; genuinely delivered (see ruling above). `REQUIREMENTS.md` currently `Complete`; will be reverted by this `gaps_found` verdict per #2388 — bookkeeping only. |
+| WORK-04 | 03-04, 03-08, 03-13, 03-14 | Concurrent git ops retry with backoff/jitter on index-lock contention | ✓ SATISFIED | Same as above. |
+| WORK-05 | 03-04, 03-08, 03-14 | Agent spawn timing desynchronised to avoid index collisions | ✓ SATISFIED | Same as above. |
+| WORK-06 | 03-03, 03-09, 03-11, 03-18 | Launch reconciles worktrees in DB against disk, surfaces discrepancy | ✓ SATISFIED | Same as above. |
+| PROC-03 | 03-02, 03-15 | Agent processes managed as process groups | ✓ SATISFIED | Same as above. |
+| PROC-04 | 03-02, 03-10, 03-15, 03-17, 03-20, 03-21 | No agent process survives application quit | ✓ SATISFIED | Same as above. |
+| PROC-05 | 03-06, 03-10, 03-11, 03-17, 03-23 | Orphaned processes/runs detected and surfaced on launch | ✓ SATISFIED | Same as above. |
+| AGNT-07 | 03-07, 03-12, 03-14, 03-16, 03-19..03-31 | Destructive actions always require explicit confirmation, even in auto-accept mode | ✗ BLOCKED | Round six (independently reproduced) is a live, zero-confirmation bypass; CR-01 (brace expansion, independently reproduced and judged) is a further undocumented soundness gap. `REQUIREMENTS.md` line 272 reads `Gaps Found`, which is CORRECT and must NOT change. No orphaned requirement IDs: the phase's declared set (`WORK-03, WORK-04, WORK-05, WORK-06, PROC-03, PROC-04, PROC-05, AGNT-07`) exactly matches every ID any plan in this phase claims and every ID `REQUIREMENTS.md` maps to Phase 3. |
 
-**Caution recorded per the orchestrator's own note:** `requirements.mark-complete` has no shared-ID
-gate and wrongly flipped AGNT-07 to `Complete` once already during this closure (plan 03-26, caught
-and reverted). I did not trust that verb's output — the status above is from a direct `grep` of
-`.planning/REQUIREMENTS.md` at HEAD, reproduced in this report's tool output.
+**Caution recorded, matching the orchestrator's own note:** `requirements.mark-complete` has no
+shared-ID gate and has wrongly flipped `AGNT-07` to `Complete` at least once before (plan 03-26). I
+did not trust any verb's output for the current state — the table above is from a direct `grep` of
+`.planning/REQUIREMENTS.md` at HEAD, reproduced in this report.
 
 ## Human Verification Required
 
-None. Every truth in this report was settled by direct source read, direct binary invocation, or a
-single targeted test-file run — no item required manual UI/UX judgment or an unrunnable check.
+None. Every truth in this report was settled by direct source read, direct binary invocation, direct
+shell invocation with harmless payloads, or a full-suite test run — no item required manual UI/UX
+judgment or an unrunnable check.
 
 ---
 
-_Verified: 2026-09-21T00:00:00Z_
+_Verified: 2026-09-22T00:00:00Z_
 _Verifier: Claude (gsd-verifier)_
