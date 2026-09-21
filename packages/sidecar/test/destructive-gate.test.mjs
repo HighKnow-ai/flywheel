@@ -1675,6 +1675,110 @@ test(
   },
 );
 
+// --- ORDINARY_USAGE_CORPUS (plan 03-31 Task 2): the cost C3's indeterminacy clause charges ordinary
+// agent work is a checked-in, asserted fact — a named table of ordinary agent commands, each
+// recording whether it defers or denies, so a change that widens or narrows the gate's friction must
+// be made deliberately, not discovered later by an annoyed developer. D-61's own recorded
+// discipline: a false positive costs one deny on a command that mentions a gated program; a false
+// negative costs an ungated force-push. This table prices the false-positive side of that trade. ---
+
+const ORDINARY_USAGE_CORPUS = [
+  {
+    command: 'git commit -m "fix: thing"',
+    expect: "defer",
+    why: "the quoted commit message is fully determinate after quote removal — no $, no backtick, no letter-adjacent glob — so C3 never fires and the safe verdict defers",
+  },
+  {
+    command: "git add *.rs",
+    expect: "defer",
+    why: "the wildcard sits adjacent to a dot and a space, never a letter, so C3's glob-adjacency rule does not fire — an ordinary path pattern, not indeterminate word formation",
+  },
+  {
+    command: "git log --oneline -n 5",
+    expect: "defer",
+    why: "no shadow construct, no $/backtick/letter-adjacent glob anywhere in the text — fully determinate",
+  },
+  {
+    command: "git diff --stat",
+    expect: "defer",
+    why: "no shadow construct, no $/backtick/letter-adjacent glob anywhere in the text — fully determinate",
+  },
+  {
+    command: "git rebase --continue",
+    expect: "defer",
+    why: "no shadow construct, no $/backtick/letter-adjacent glob anywhere in the text — fully determinate",
+  },
+  {
+    command: "grep -rn git packages",
+    expect: "defer",
+    why: "names a gated program (git, as a plain search-pattern argument) but carries no shadow-construct or word-formation machinery, so textCanShadowPathResolution stays false and D-61's AND never fires",
+  },
+  {
+    command: "rm -rf ./build",
+    expect: "defer",
+    why: "MEASURED via --classify-invocation (recorded in 03-31-SUMMARY.md): a real, bare destructive rm invocation — invokedBareName is true, and shimWillIntercept(rm) is true in this proven environment, so the non-safe branch defers to layer 2's own socket exactly as D-59 intends",
+  },
+  {
+    command: 'git commit -m "$(date +%F)"',
+    expect: "deny",
+    why: "the $(...) command substitution inside the quoted message makes word formation indeterminate (C3) — quote removal cannot know what \"$(date +%F)\" will expand to, so textCanShadowPathResolution reports true; the text also names git, so D-61 denies. Accepted friction, docs/destructive-gate-trust-boundary.md's C3 paragraph.",
+  },
+  {
+    command: 'git log --format="%H `date +%s`"',
+    expect: "deny",
+    why: "the backtick-delimited command substitution inside the format string makes word formation indeterminate (C3) — textCanShadowPathResolution reports true; the text also names git, so D-61 denies. Accepted friction, docs/destructive-gate-trust-boundary.md's C3 paragraph.",
+  },
+];
+
+test(
+  "ORDINARY_USAGE_CORPUS: the friction C3 buys on ordinary agent commands is a recorded, asserted fact — not an assumption",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    const shimDir = makeShimDir(["git", "rm"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    let deferCount = 0;
+    let denyCount = 0;
+
+    for (const row of ORDINARY_USAGE_CORPUS) {
+      assert.ok(
+        typeof row.why === "string" && row.why.length > 0,
+        `every ORDINARY_USAGE_CORPUS row must carry a non-empty why: ${row.command}`,
+      );
+      const { status, decision } = runHook(row.command, env);
+      if (row.expect === "defer") {
+        deferCount += 1;
+        assert.equal(status, 0, `expected defer (status 0) for: ${row.command} — ${row.why}`);
+        assert.deepEqual(decision, {}, `expected no opinion for: ${row.command} — ${row.why}`);
+      } else {
+        denyCount += 1;
+        assert.equal(status, 2, `expected deny (status 2) for: ${row.command} — ${row.why}`);
+        assert.equal(
+          decision?.hookSpecificOutput?.permissionDecision,
+          "deny",
+          `expected permissionDecision "deny" for: ${row.command} — ${row.why}`,
+        );
+        assert.ok(
+          typeof decision?.hookSpecificOutput?.permissionDecisionReason === "string" &&
+            decision.hookSpecificOutput.permissionDecisionReason.length > 0,
+          `expected a non-empty deny reason for: ${row.command} — ${row.why}`,
+        );
+      }
+    }
+
+    assert.ok(
+      ORDINARY_USAGE_CORPUS.length >= 9,
+      `ORDINARY_USAGE_CORPUS must hold at least nine rows, holds ${ORDINARY_USAGE_CORPUS.length}`,
+    );
+    assert.ok(deferCount >= 5, `expected at least five defer rows, counted ${deferCount}`);
+    assert.ok(denyCount >= 2, `expected at least two deny rows, counted ${denyCount}`);
+  },
+);
+
 test(
   "LAUNCHER_CORPUS: every launcher shape, wrapper family, shadow shape and non-trigger control, asserted through the real hook against the real shim in a proven environment",
   { skip: SHIM_SKIP_REASON },
