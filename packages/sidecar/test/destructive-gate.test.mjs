@@ -1552,6 +1552,48 @@ test(
       );
     }
 
+    // Plan 03-29 (D-62 item 3, round five): the corrected Layer 1 claim, its own round-five
+    // record, and the C1-C4 contract the scanner must satisfy — each asserted by a stable anchor
+    // so a future rewrite cannot quietly narrow the correction back into the false claim it
+    // replaced.
+    const roundFiveHeadings = [
+      "## Round five — the counterexample that made Layer 1's claim false",
+      "## What Layer 1's raw-text scan is trusted to prove after round five",
+    ];
+    for (const heading of roundFiveHeadings) {
+      assert.ok(
+        content.includes(heading),
+        `docs/destructive-gate-trust-boundary.md no longer contains the heading "${heading}" — ` +
+          "round five's own correction section has been dropped, which is exactly the rot this " +
+          "structural gate exists to catch",
+      );
+    }
+
+    const cContractAnchors = [
+      "C1 — quote removal",
+      "C2 — union matching",
+      "C3 — indeterminate word formation",
+      "C4 — the bare-name fact",
+    ];
+    for (const anchor of cContractAnchors) {
+      assert.ok(
+        content.includes(anchor),
+        `docs/destructive-gate-trust-boundary.md no longer contains the contract anchor "${anchor}" ` +
+          "— the C1-C4 contract plan 03-30 must implement against has lost one of its findable " +
+          "clauses",
+      );
+    }
+
+    assert.ok(
+      content.includes(
+        "**C-contract status:** specified, not yet implemented — plan 03-30 implements C1, C2, C3 " +
+          "and C4 in packages/shim/src/main.rs.",
+      ),
+      "docs/destructive-gate-trust-boundary.md no longer carries the literal C-contract status " +
+        "line — the honest signal that the corrected claim is not yet backed by code has been " +
+        "lost or reworded",
+    );
+
     // The "Named residuals" table: every row between that heading and the next "## " heading,
     // excluding the header row itself and the "---" separator row markdown tables require.
     const residualsHeadingIndex = content.indexOf("## Named residuals");

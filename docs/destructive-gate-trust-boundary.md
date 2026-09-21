@@ -47,12 +47,16 @@ shim's shadow directory leads `PATH` right now, via two synchronous `stat` calls
 (`shimWillIntercept`/`shimShadowDirectoryProven`) — never a wait, never a socket, never a poll; the
 command's classified category, its program token, and whether that token invokes the program by
 bare name (via the shim's own `--classify-invocation` mode, classified only, D-63); and, for a
-`safe` verdict specifically, two additional text facts — whether the raw command text can pre-empt
-`PATH` resolution before it happens (`textCanShadowPathResolution`, D-61) and whether that text
-names one of the two programs the shim shadows (`namesGatedProgram`). A `safe` verdict defers only
-when the environment is proven AND the two text facts are not both true; a non-`safe` verdict
-defers only when the invocation is by bare name AND the environment proves the shim will intercept
-that exact program. Every other combination — including any field this hook cannot parse — denies.
+`safe` verdict specifically, two additional text facts. The first of those two — corrected after
+round five, see below — is NOT a proof that raw command text can pre-empt `PATH` resolution before
+it happens: the raw-text scan proves the PRESENCE of a shadow construct in the text it is handed,
+and proves its ABSENCE only for text whose word formation the text itself fully determines; for any
+other text the field reports `true`, because the scan cannot determine what words the shell will
+form (`textCanShadowPathResolution`, D-61). The second is whether that text names one of the two
+programs the shim shadows (`namesGatedProgram`). A `safe` verdict defers only when the environment
+is proven AND the two text facts are not both true; a non-`safe` verdict defers only when the
+invocation is by bare name AND the environment proves the shim will intercept that exact program.
+Every other combination — including any field this hook cannot parse — denies.
 
 ### Explicitly cannot see
 
@@ -66,6 +70,11 @@ It reads already-written stdin, shells out to a synchronous classifier, and exit
 its own configured timeout the backend would cancel it and let the tool call through anyway, exactly
 as `RESEARCH.md` measured live. Every ask a human actually answers is asked by layer 2's permission
 socket, never by this hook.
+
+Sharpened by round five (below): this layer cannot see a gated keyword whose letters the shell
+reassembles through an expansion whose result the text does not determine — parameter expansion,
+command substitution, arithmetic expansion and pathname expansion all produce words the scanner has
+no way to compute — and for such text it reports "cannot prove", never "absent".
 
 ## Layer 2 — the shim's runtime interception
 
@@ -91,6 +100,93 @@ alias resolved before any `PATH` search ever happens; a `PATH` cleared, replaced
 before the search reaches this shim's directory; and any program that is not literally one of the
 two shadowed names (`git`/`git.exe`, `rm`/`rm.exe`) — `destructive::classify` is deliberately never
 consulted for anything else, per D-59's own decision not to widen the classifier's dispatch.
+
+## Round five — the counterexample that made Layer 1's claim false
+
+Layer 1's own "Trusted to prove" paragraph above, before this correction, promised that the scan
+established "whether the raw command text can pre-empt `PATH` resolution before it happens." Round
+five is the reproduced counterexample that makes that claim false, independently reproduced three
+times against the compiled `flywheel-shim` binary — by the code reviewer, by the orchestrator, and
+by the verifier — using only `--classify-invocation` (D-63: nothing below ever executed a
+destructive command against a real remote or a real worktree).
+
+Four results, copied verbatim from `03-VERIFICATION.md`'s Behavioral Spot-Checks table:
+
+| Behavior | Command | Result |
+|---|---|---|
+| Control: unobfuscated `eval` inside `sh -c` is correctly caught | `flywheel-shim --classify-invocation "sh -c 'eval \"\$(cat ./defs.sh)\"; git push --force'"` | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}` |
+| CR-01: empty-quote-split `eval` (`e""val`) defeats the scan | `flywheel-shim --classify-invocation "sh -c 'e\"\"val \"\$(cat ./defs.sh)\"; git push --force'"` | `{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}` |
+| CR-01 variant: quote-split `git` (`g""it`) also defeats `namesGatedProgram` | `flywheel-shim --classify-invocation "sh -c 'eval \"\$(cat ./defs.sh)\"; g\"\"it push --force'"` | `{"category":"safe","namesGatedProgram":false,"textCanShadowPathResolution":true}` |
+| Shell genuinely resolves the obfuscated form (harmless payload only, D-63) | `sh -c 'e""val "echo RESOLVED_BY_EMPTY_QUOTES"'` | `RESOLVED_BY_EMPTY_QUOTES` |
+
+`03-REVIEW.md`'s CR-01 finding names the backslash-escaped sibling of the same construct, `e\val`,
+as defeating the identical mechanism: `raw_text_contains_word` (`packages/shim/src/main.rs:913-932`)
+is a literal, contiguous-character match over the raw text, and a backslash inserted between `e` and
+`val` breaks that contiguity exactly as the empty-quote pair does. No separate live run was needed
+to establish this — the function, read directly, has no step that treats the two constructs
+differently.
+
+The real shell genuinely resolves the obfuscated form — confirmed live with a harmless `echo`
+payload, never a destructive command (D-63): `sh -c 'e""val "echo RESOLVED_BY_EMPTY_QUOTES"'` prints
+`RESOLVED_BY_EMPTY_QUOTES`. The actual attack shape was confirmed too — a shell function shadowing
+`git`, defined via the hidden `eval`, silently intercepting the subsequent bare `git` call in the
+same shell context, before any `PATH` search Layer 2 depends on ever runs.
+
+This is **NOT** the already-named source-file-indirection residual in the table below (the row
+about "a shell function definition sourced from a file whose own name carries no shadow keyword").
+That residual is about content the scanner cannot access at all — a definition living in a file the
+text only names. Here the keyword is present in the exact text the scanner was handed, merely
+reassembled by ordinary shell word formation — quote removal, backslash-escape resolution — the
+scanner never performed before matching. **Layer 1 is the layer whose claim was wrong.** Its
+"Trusted to prove" paragraph promised more than a literal, unnormalized contiguous-substring match
+can deliver.
+
+## What Layer 1's raw-text scan is trusted to prove after round five
+
+`**C1 — quote removal, performed context-free.**` Every `'` and `"` character is deleted and every
+backslash-escape `\x` is resolved to `x`, without tracking quoting context, before any keyword
+matching happens. This removal is deliberately unfaithful to a single shell's grammar: the text may
+be re-parsed by a nested shell at a depth the scanner does not know, so a context-sensitive removal
+would correctly leave a backslash literal inside single quotes and thereby MISS the nested case
+round five reproduced. Over-triggering is the intended direction, consistent with D-61's own
+recorded discipline.
+
+`**C2 — union matching over the raw text and the quote-removed text.**` Keyword matching runs over
+both forms and a match in either is a match. Deleting characters can only join a word, never split
+one, so the union never loses a match the raw form already had.
+
+`**C3 — indeterminate word formation reports "can shadow".**` When the quote-removed text contains
+a `$` or a backtick anywhere, or contains a `*`, `?` or `[` with an ASCII letter or `_` immediately
+on either side, the scan reports `textCanShadowPathResolution` as `true` — not because a shadow
+construct was found, but because the scan cannot determine what words the shell will form and
+refuses to report absence it cannot prove.
+
+`**C4 — the bare-name fact resolves quoting but never refuses on indeterminacy.**` The non-safe
+branch's own fact, `invokedBareName`, is widened by C1's quote removal and by nothing else. A shadow
+keyword that survives quote removal genuinely defeats the `PATH` search Layer 2 depends on, so it
+must force `invokedBareName` to `false`; today a backslash-split keyword escapes this because
+`tokenize_shell_words` resolves quotes but not backslashes, which makes the round-five obfuscation
+reach the non-safe branch as well as the safe one. C3's indeterminacy is deliberately NOT carried
+into this fact: an expansion sitting in an argument does not defeat a `PATH` search, and treating it
+as if it did would convert Layer 2's "ask a human" into Layer 1's "refuse" for ordinary destructive
+commands such as a force-push naming a branch through a variable — weakening the exact sentence
+AGNT-07 is written on.
+
+C1-C4 do NOT prove anything about text the scan never receives; nothing on Windows; and nothing
+about a determinate text whose keyword is assembled by a mechanism outside C1 and outside C3's named
+characters.
+
+**C-contract status:** specified, not yet implemented — plan 03-30 implements C1, C2, C3 and C4 in packages/shim/src/main.rs.
+
+The four functions the contract binds: `raw_text_contains_word`, `text_names_gated_program`,
+`raw_text_can_shadow_path_resolution` and `text_can_shadow_path_resolution` — a reader landing on
+the shim can find the clause that governs each.
+
+Record the friction C3 buys explicitly and without softening it: a command whose text names `git`
+or `rm` and also carries a `$` or a backtick will be denied where it is deferred today, and that is
+the accepted trade — D-60 already accepted denying `npm test` in an unprovable environment, and
+D-61 already recorded that a false positive costs one deny while a false negative costs an ungated
+force-push.
 
 ## Named residuals
 
