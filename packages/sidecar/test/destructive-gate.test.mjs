@@ -1225,7 +1225,16 @@ test(
 //
 // This corpus is EVIDENCE for the trust boundary recorded in `docs/destructive-gate-trust-boundary.md`
 // (D-62 item 3), not a replacement for it — a new bypass shape means amending that boundary first and
-// adding a row here second. ---
+// adding a row here second.
+//
+// (plan 03-31, WR-02) The corpus is now TWO things: a table of shapes, and a property asserted OVER
+// that table — `obfuscationVariants`, below, generates decision-invariance adversaries from every
+// row mechanically, so a future row gains this coverage the instant it is written, rather than
+// waiting for someone to remember its hand-written obfuscated twin (the exact pattern that let round
+// five ship undetected). The ordering rule still stands, unchanged and now doubly load-bearing: a
+// newly found bypass shape — whether found by a person reading the source, OR by this generator
+// itself — means amending `docs/destructive-gate-trust-boundary.md` FIRST, and only then touching
+// this file. ---
 
 const LAUNCHER_CORPUS = [
   // --- Group 1: the eight launcher shapes from the finding
@@ -1404,6 +1413,267 @@ const LAUNCHER_CORPUS = [
       "form as its shim-installation proof and has nobody to answer a permission request",
   },
 ];
+
+// --- obfuscationVariants (plan 03-31, WR-02): the corpus asserting a property about itself, not a
+// longer hand-written list. See the extended LAUNCHER_CORPUS header comment above. ---
+
+/** Group 3's own seven `command` strings (LAUNCHER_CORPUS, the shadow shapes reachable only through
+ * D-61's raw-text scan — the rows inside an opaque `sh -c '...'` payload the token-level scan
+ * cannot split). Read directly off the array by slice, never duplicated by hand, so it can only
+ * drift if the corpus's own row count or group boundaries change — guarded by the length assertion
+ * inside the invariance test below, which fails loudly rather than silently mis-tagging the wrong
+ * rows if that ever happens. */
+const GROUP_3_START_INDEX = 16;
+const GROUP_3_END_INDEX = 23; // exclusive
+const GROUP_3_COMMANDS = new Set(
+  LAUNCHER_CORPUS.slice(GROUP_3_START_INDEX, GROUP_3_END_INDEX).map((row) => row.command),
+);
+
+/** ASCII alphanumeric or `_` — mirrors `is_identifier_char` in `packages/shim/src/main.rs` exactly,
+ * so this generator's word-boundary rule agrees with the scanner it is testing. */
+function isKeyedIdentifierChar(ch) {
+  return /^[A-Za-z0-9_]$/.test(ch);
+}
+
+/** The three split kinds `obfuscationVariants` applies, in the fixed order it applies them — an
+ * adjacent empty double-quote pair, an adjacent empty single-quote pair, and a backslash escape.
+ * Each is an ordinary shell mechanism a real shell resolves back into the word it splits: `e""val`,
+ * `e''val` and `e\val` all resolve to `eval`. */
+const OBFUSCATION_SPLIT_KINDS = [
+  { label: "empty-double-quote", insertion: '""' },
+  { label: "empty-single-quote", insertion: "''" },
+  { label: "backslash", insertion: "\\" },
+];
+
+/**
+ * As `obfuscationVariants` below, but pairs each generated command string with a human-readable
+ * label for which split mechanism and split position produced it — the detail the invariance test's
+ * failure messages need to name which clause of the contract stopped holding, without widening
+ * `obfuscationVariants`'s own contract (which returns plain command strings only).
+ *
+ * Finds the FIRST occurrence of `word` in `command` under the same word-boundary rule
+ * `raw_text_contains_word` uses in `packages/shim/src/main.rs`: a non-identifier character, or a
+ * string boundary, on both sides. Returns an empty array if `word` does not occur under that rule.
+ *
+ * Splits at offset 1 (immediately after the word's first character) always. For the seven Group 3
+ * rows (`GROUP_3_COMMANDS` above) it ALSO splits at the word's midpoint, to guard against an
+ * implementation of quote removal that happens to work at the first character but not elsewhere in
+ * the word. Skips the midpoint split when it coincides with offset 1 (short words — `git`, `rm`,
+ * `env` — have no other interior position), so no duplicate variant is ever generated.
+ */
+function obfuscationVariantDetails(command, word) {
+  const wordLen = word.length;
+  if (wordLen === 0 || command.length < wordLen) return [];
+
+  let occurrenceIndex = -1;
+  for (let start = 0; start <= command.length - wordLen; start += 1) {
+    if (command.slice(start, start + wordLen) !== word) continue;
+    const beforeOk = start === 0 || !isKeyedIdentifierChar(command[start - 1]);
+    const afterIdx = start + wordLen;
+    const afterOk = afterIdx === command.length || !isKeyedIdentifierChar(command[afterIdx]);
+    if (beforeOk && afterOk) {
+      occurrenceIndex = start;
+      break;
+    }
+  }
+  if (occurrenceIndex === -1) return [];
+
+  const splitPositions = [{ label: "offset-1", offset: 1 }];
+  if (GROUP_3_COMMANDS.has(command)) {
+    const midpoint = Math.floor(wordLen / 2);
+    if (midpoint >= 1 && midpoint <= wordLen - 1 && midpoint !== 1) {
+      splitPositions.push({ label: "midpoint", offset: midpoint });
+    }
+  }
+
+  const details = [];
+  for (const position of splitPositions) {
+    const splitIndex = occurrenceIndex + position.offset;
+    for (const kind of OBFUSCATION_SPLIT_KINDS) {
+      details.push({
+        command: command.slice(0, splitIndex) + kind.insertion + command.slice(splitIndex),
+        splitKind: `${kind.label} @ ${position.label}`,
+      });
+    }
+  }
+  return details;
+}
+
+/**
+ * Given a LAUNCHER_CORPUS row's own command text and one of the words the gate's decision keys on
+ * (`KEYED_WORDS` below), returns the command text with that word split by three ordinary shell
+ * mechanisms a real shell resolves back into the same word. These are NOT new corpus rows — they
+ * are variants of an EXISTING row's own command, generated mechanically — so a future row added to
+ * `LAUNCHER_CORPUS` gains this adversarial coverage the moment it is written, without anyone
+ * remembering to hand-append its obfuscated twin (WR-02). See `obfuscationVariantDetails` above for
+ * the full contract; this is its plain-string-array projection.
+ */
+function obfuscationVariants(command, word) {
+  return obfuscationVariantDetails(command, word).map((detail) => detail.command);
+}
+
+/** The eleven words `packages/shim/src/main.rs`'s decision logic keys on, read off the gate's own
+ * source rather than invented — if a future change teaches the gate a new keyed word, that word
+ * belongs here on the same commit:
+ *  - `function`, `alias`, `hash`, `eval`, `source`, `builtin` — `KEYWORD_TRIGGERS` in
+ *    `text_can_shadow_path_resolution` (main.rs:862) and `raw_text_can_shadow_path_resolution`
+ *    (main.rs:1029)
+ *  - `command` — the `-p`-flag-gated trigger inside `text_can_shadow_path_resolution`'s own token
+ *    walk (main.rs:871-879), and the wrapper-unwrap in `resolve_segment_program_index`
+ *  - `env` — the `-i`/`--ignore-environment`/`-u PATH`/`--unset=PATH`-gated trigger in the same
+ *    token walk (main.rs:880-906), and the wrapper-unwrap/`-S`-opacity check in
+ *    `resolve_segment_program_index`
+ *  - `PATH` — the `text.contains("PATH=")` substring check in `text_can_shadow_path_resolution`
+ *    (main.rs:858-860)
+ *  - `git`, `rm` — the two gated program names `text_names_gated_program` matches via
+ *    `raw_text_contains_word` (main.rs:998-1004)
+ */
+const KEYED_WORDS = [
+  "function",
+  "alias",
+  "hash",
+  "eval",
+  "source",
+  "builtin",
+  "command",
+  "env",
+  "PATH",
+  "git",
+  "rm",
+];
+
+/**
+ * A single, precisely-scoped, BOUNDARY-DOCUMENTED exception to decision invariance — discovered BY
+ * this generator, while it was being built for this plan (03-31), not patched over silently
+ * (D-62/D-63's own safety constraint: report a found bypass prominently, never quietly narrow the
+ * test around it).
+ *
+ * `env -S STRING` re-splits STRING into its own argv, shell-style, INCLUDING any further env flags
+ * or `PATH=` assignment the string itself carries — `main.rs`'s `resolve_segment_program_index`
+ * cannot safely re-parse that opaque re-split, so it forces `ProgramResolution::Unresolvable` (deny)
+ * whenever it recognises the literal token `env` immediately followed by `-S`. That recognition is a
+ * WHOLE-TOKEN equality check over `tokenize_shell_words`, which — unlike every other keyed word this
+ * generator obfuscates — is NEVER retried against `shell_quote_removed`'s output:
+ * `classify_raw_command_text`'s segment loop (`main.rs:1154`, `for segment in
+ * split_top_level_segments(trimmed)`) walks the RAW trimmed text exactly once. A backslash inserted
+ * between `env`'s first and second character (`e\nv`) is invisible to `tokenize_shell_words` (which
+ * resolves quote-toggling correctly but never backslash escapes at all), so `env -S …` is no longer
+ * recognised as the `env` wrapper AT ALL for this ONE split kind — the segment falls through to
+ * ordinary, non-gated program-token treatment, and the safe-verdict's two D-61 facts (which C1-C4 DO
+ * protect) are not independently enough to catch it for this row's own harmless nested payload.
+ *
+ * MEASURED, non-destructively (D-63, `--classify-invocation` only): for THIS row's own payload
+ * (`'git push --force'`, no nested PATH-defeating flag), the hook's decision changes from deny to
+ * defer — but the real backslash-split form still resolves through `env`'s own, un-subverted `PATH`
+ * search in a proven environment, so Layer 2 still reaches it; this ONE row's specific payload is
+ * not itself a live bypass. A DIFFERENT nested payload is: `env -S "-P /tmp git push --force"` (BSD
+ * `env`'s `-P` altpath flag) denies unobfuscated and DEFERS once `env` is backslash-split, and a
+ * real, non-destructive shell probe (a harmless stub named `git` placed at the altpath, confirmed to
+ * run INSTEAD of the shim, never a real git/rm invocation) proves this reaches ZERO human
+ * confirmation at any layer — a genuine boundary failure, not covered by any row in
+ * `LAUNCHER_CORPUS` today. Recorded in `docs/destructive-gate-trust-boundary.md`'s Named residuals
+ * table and `03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md` (this plan, 03-31); **AGNT-07 stays "Gaps
+ * Found" until a round-six plan closes it.** This allow-list exists so a FUTURE fix that closes the
+ * gap makes this exact entry start failing LOUDLY (the falsifiability check in the invariance test
+ * below) rather than silently going stale.
+ */
+const KNOWN_OPEN_BOUNDARY_FAILURES = [
+  {
+    command: "env -S 'git push --force'",
+    word: "env",
+    splitKind: "backslash @ offset-1",
+    measuredDefer: true, // the CURRENT, measured, incorrect-per-source-row decision
+  },
+];
+
+function findKnownOpenBoundaryFailure(command, word, splitKind) {
+  return KNOWN_OPEN_BOUNDARY_FAILURES.find(
+    (entry) => entry.command === command && entry.word === word && entry.splitKind === splitKind,
+  );
+}
+
+test(
+  "decision invariance under obfuscation: splitting any keyed word in any LAUNCHER_CORPUS row's command text — by an empty double quote pair, an empty single quote pair, or a backslash — changes nothing about what the gate decides (WR-02)",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    assert.equal(
+      LAUNCHER_CORPUS.length,
+      29,
+      "LAUNCHER_CORPUS's row count changed — re-check GROUP_3_START_INDEX/GROUP_3_END_INDEX above before trusting this sweep's Group 3 tagging",
+    );
+
+    const shimDir = makeShimDir(["git", "rm"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    const seenKnownFailures = new Set();
+    let variantCount = 0;
+
+    for (const row of LAUNCHER_CORPUS) {
+      for (const word of KEYED_WORDS) {
+        for (const detail of obfuscationVariantDetails(row.command, word)) {
+          variantCount += 1;
+          const { status, decision } = runHook(detail.command, env);
+          const knownFailure = findKnownOpenBoundaryFailure(row.command, word, detail.splitKind);
+          const expectDeny = knownFailure ? !knownFailure.measuredDefer : row.expect === "deny";
+
+          const context =
+            `source row: "${row.command}" — ${row.why}\n` +
+            `word split: "${word}" (${detail.splitKind})\n` +
+            `variant command: ${detail.command}`;
+
+          if (!expectDeny) {
+            assert.equal(status, 0, `expected defer (status 0) for —\n${context}`);
+            assert.deepEqual(decision, {}, `expected no opinion for —\n${context}`);
+          } else {
+            assert.equal(status, 2, `expected deny (status 2) for —\n${context}`);
+            assert.equal(
+              decision?.hookSpecificOutput?.permissionDecision,
+              "deny",
+              `expected permissionDecision "deny" for —\n${context}`,
+            );
+            assert.ok(
+              typeof decision?.hookSpecificOutput?.permissionDecisionReason === "string" &&
+                decision.hookSpecificOutput.permissionDecisionReason.length > 0,
+              `expected a non-empty deny reason for —\n${context}`,
+            );
+          }
+
+          if (knownFailure) seenKnownFailures.add(knownFailure);
+        }
+      }
+    }
+
+    assert.ok(
+      variantCount > 0,
+      "the generator produced zero variants across the whole corpus — this test would prove nothing",
+    );
+
+    // Falsifiability companion for the exception itself: if a future fix closes the gap, this row
+    // starts denying again on its own — assert the exception was actually exercised, so a corpus or
+    // word-list change that stops reaching it is caught (the entry going stale) rather than the
+    // exception silently outliving the shape it was carved out for.
+    for (const entry of KNOWN_OPEN_BOUNDARY_FAILURES) {
+      assert.ok(
+        seenKnownFailures.has(entry),
+        `KNOWN_OPEN_BOUNDARY_FAILURES entry for "${entry.command}"/"${entry.word}"/"${entry.splitKind}" ` +
+          "was never exercised by the sweep above — the corpus or word list changed; remove or update this entry",
+      );
+    }
+
+    console.warn(
+      `[destructive-gate.test.mjs] KNOWN OPEN BOUNDARY FAILURE (round six, plan 03-31): ` +
+        `${KNOWN_OPEN_BOUNDARY_FAILURES.length} decision-invariance exception(s) carried in this suite ` +
+        "pending a fix to packages/shim/src/main.rs's env -S opaque-reparse handling — see " +
+        "docs/destructive-gate-trust-boundary.md's Named residuals table and " +
+        ".planning/phases/03-nothing-lost-nothing-left-running/03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md. " +
+        'AGNT-07 must stay "Gaps Found" until this is closed.',
+    );
+  },
+);
 
 test(
   "LAUNCHER_CORPUS: every launcher shape, wrapper family, shadow shape and non-trigger control, asserted through the real hook against the real shim in a proven environment",

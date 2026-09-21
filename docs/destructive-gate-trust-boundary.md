@@ -206,6 +206,7 @@ concrete trigger that should reopen it.
 | Claude Code's own internal git housekeeping (trust checks, `status`/`log`/`config user.*`, `worktree list`) runs outside the agent's own visible `Bash` tool-call loop and therefore never reaches layer 1's `Bash` matcher at all — it reaches only layer 2 | Layer 1 loses it entirely, by construction (the matcher only fires for the agent's own tool calls); layer 2 still sees it, because it still resolves through the shimmed `PATH` | Already recorded, not restated here — see `drainIncidentalPermissionRequests`'s doc comment in `scripts/uat/uat-03-destructive-gate.mjs`, which names the exact internal invocations observed live and the pre-existing `classify_git`-global-flag gap this exposes |
 | The whole closure — corpus (03-26), live run (03-27), this boundary — is measured on macOS only | All three layers: the shadowed entry names (`git`/`rm` vs. `git.exe`/`rm.exe`) and the hook's own witness-entry convention (`SHADOW_WITNESS_ENTRY_NAME`) differ on Windows, and nothing in this closure has been run there | A Windows build target becoming real — at that point every claim in this document must be re-measured, not assumed to transfer |
 | A gated keyword assembled by a mechanism that is neither C1's quote removal nor one of C3's named expansion characters | Layer 1 loses it: C1 resolves only quoting and backslashes, and C3 only refuses to answer when it sees `$`, a backtick, or a letter-adjacent `*`/`?`/`[` — a mechanism outside both leaves the raw-text scan with no signal at all | Any bypass shape whose raw text carries none of those characters and still installs a shadow — which would mean the character set C3 names is not the closed set the contract claims it is, and the contract, not the corpus, is what must change |
+| **OPEN — `env -S STRING`'s own opaque-reparse detection, backslash-split** (found 2026-09-21, plan 03-31, building the WR-02 generator): `main.rs`'s `resolve_segment_program_index` recognises the wrapper token `env` (to force `ProgramResolution::Unresolvable`/deny on `-S`'s unparseable re-split, or any other unrecognised `env` flag such as BSD's `-P` altpath) by exact string equality over `tokenize_shell_words(trimmed)` — the RAW, un-normalized segment text, walked exactly once (`classify_raw_command_text`'s `for segment in split_top_level_segments(trimmed)`, never retried against `shell_quote_removed`'s output the way the SAFE-verdict's own C1-C4 facts are). `tokenize_shell_words` resolves quote-toggling correctly but performs NO backslash-escape resolution at all, so `e\nv -S "…"` is never recognised as `env` in the first place — the segment falls through to ordinary (non-gated) program-token treatment, and C1-C4 (which protect only the safe-verdict's OWN two facts) do not independently close this, because the reason Layer 1 denies `env -S` is that the wrapper is *unresolvable*, not that it names a gated program in a shadowable way. **See "Round six" below.** | Layer 1 loses it: this is a distinct mechanism from C1-C4's raw-text scan, sharing none of its quote/backslash normalization | `sh -c 'e\nv -S "-P /tmp git push --force"'` — MEASURED via `--classify-invocation` to defer where the unobfuscated form denies, and PROVEN live and non-destructively (a harmless `git` stub at the altpath ran instead of the shim) to reach zero human confirmation at any layer |
 | A shadow definition installed by an EARLIER `Bash` tool call in the same session | Layer 1 loses it, by construction: each hook invocation is a fresh OS process holding no cache and no memory of any previous tool call, so it classifies one command's text in isolation and can never see a function or alias a prior call left behind in a shell profile or a sourced file | An observed two-call shadow in which the FIRST call's own text was itself deferrable — today every single-call shadow shape the corpus covers denies on its own text, so a deferrable first call is the signal that this residual has become reachable |
 
 ## The layer-to-corpus map
@@ -256,6 +257,60 @@ falsifiability companion proving the session was not simply refusing everything)
 claim above made a measured fact for this one shape, on this one machine, against this one backend
 version — not an inference, and not a claim that generalises to every shape in the corpus without
 its own live run.
+
+## Round six — the counterexample found while building the WR-02 generator
+
+Plan 03-31 built a generator (`obfuscationVariants`, `packages/sidecar/test/destructive-gate.test.mjs`)
+that mechanically splits every word the gate's decision keys on across every `LAUNCHER_CORPUS` row,
+asserting the row's decision is invariant. Sweeping all eleven keyed words against all twenty-nine
+rows (141 generated variants) found exactly one decision-invariance break: word `env`, row
+`env -S 'git push --force'`, split kind backslash-at-offset-1 (`e\nv -S 'git push --force'`).
+
+**This is NOT a regression of C1-C4.** C1 (quote/backslash removal), C2 (union matching), C3
+(indeterminacy) and C4 (bare-name scope) all hold exactly as plan 03-30 implemented them, for the
+narrow class they were written to cover — the SAFE-verdict's own two D-61 facts
+(`textCanShadowPathResolution`, `namesGatedProgram`). The break is in an ADJACENT mechanism C1-C4
+was never designed to reach: `resolve_segment_program_index`'s wrapper-token recognition (does this
+segment's leading token literally equal `env`, so `-S`'s own opaque re-split argument should be
+treated as unparseable and force a deny?). That recognition runs via `tokenize_shell_words` over the
+RAW segment text, exactly once, per `classify_raw_command_text`'s segment loop — never retried
+against `shell_quote_removed`'s output. `tokenize_shell_words` resolves quote-TOGGLING correctly (so
+`e""nv`/`e''nv` are already, coincidentally, recognised as `env` today — quote-adjacency concatenation
+was never broken), but performs NO backslash-escape resolution at all, so `e\nv` is never recognised
+as the token `env`.
+
+For THIS row's own harmless payload (`'git push --force'`, no nested `PATH=`/`-i`/`-P` override), the
+practical effect is narrow: the hook's decision changes from deny to defer, but a proven environment's
+Layer 2 still reaches the real `git` (`env -S` genuinely performs its own `PATH` search when nothing
+in its re-split argument defeats it), so this exact row is not itself a live bypass. A DIFFERENT
+nested payload is: BSD `env`'s `-P` altpath flag (`env -S "-P /tmp git push --force"`) sets an
+ALTERNATE search path for `env`'s own program lookup, bypassing the shim's shadow directory entirely
+— and once `env` is backslash-split, NEITHER Layer 1 nor Layer 2 sees it. Measured, classification
+only (D-63):
+
+```
+$ target/debug/flywheel-shim --classify-invocation 'env -S "-P /tmp git push --force"'
+{"category":"uncategorized","invokedBareName":false,"program":null}
+$ target/debug/flywheel-shim --classify-invocation 'e\nv -S "-P /tmp git push --force"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}
+```
+
+And proven live, non-destructively (D-63 — a harmless stub named `git` at the altpath, never a real
+git/rm invocation): with a shim shadow directory genuinely first on `PATH`, a bare `git status` in
+that environment correctly reaches the shim's own dispatch; `sh -c 'e\nv -S "-P <altpath> git
+status"'` in the identical environment runs the altpath's harmless stub INSTEAD — the shim is never
+invoked at all. This is a full, zero-human-confirmation bypass for a real, executable shell
+construct, not a hypothetical.
+
+**Disposition:** this residual is carried, not silently narrowed around, in
+`packages/sidecar/test/destructive-gate.test.mjs`'s `KNOWN_OPEN_BOUNDARY_FAILURES` — a single,
+precisely-scoped exception with its own falsifiability check (it fails loudly if a future fix closes
+the gap without updating the list, and fails loudly if the corpus changes such that the exception is
+no longer exercised). **AGNT-07 stays `Gaps Found`.** Closing this is round seven's work: extend the
+wrapper-token recognition inside `resolve_segment_program_index` (or, more conservatively, deny
+unconditionally whenever the quote-removed text contains `env` immediately followed by `-S` or any
+unrecognised `-`-flag, mirroring C1's own over-triggering philosophy) — a decision requiring its own
+plan, not a fix folded into the corpus-generator plan that found it.
 
 ## The rule for round six
 
