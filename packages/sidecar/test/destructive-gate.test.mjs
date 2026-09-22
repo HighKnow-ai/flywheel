@@ -1145,7 +1145,8 @@ function makeStubShimDir() {
 }
 
 test(
-  "the hook denies a partially-reporting shim by field name, before the two-genuine-booleans AND is ever evaluated (WR-01)",
+  "the hook denies a partially-reporting shim by field name, before the two-genuine-booleans AND is ever evaluated (WR-01)" +
+    " — the payload set matches readProvenBoolean's own doc-comment enumeration one-for-one (absent, null, a string, a number)",
   () => {
     const stubDir = makeStubShimDir();
     const baseEnv = {
@@ -1209,6 +1210,47 @@ test(
     );
     assert.equal(p5.status, 0, "two genuine booleans with one real false must still defer");
     assert.deepEqual(p5.decision, {});
+
+    // Payload 6: textCanShadowPathResolution reported as an explicit null. typeof null === "object",
+    // so the current implementation is correct by inspection — but a refactor that special-cased
+    // null alongside undefined (`value === null || value === undefined ? undefined : value`, the
+    // exact shape 03-REVIEW.md's WR-01 names as the bug that could return) would silently start
+    // letting a falsy non-boolean through. Not redundant with p1 (absent): this is the explicit case
+    // readProvenBoolean's own doc comment enumerates.
+    const p6 = runStub(
+      JSON.stringify({ category: "safe", textCanShadowPathResolution: null, namesGatedProgram: true }),
+    );
+    assert.equal(p6.status, 2, "an explicit null textCanShadowPathResolution must deny, not be silently absorbed");
+    assert.equal(p6.decision?.hookSpecificOutput?.permissionDecision, "deny");
+    assert.match(
+      p6.decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+      /textCanShadowPathResolution/,
+      "the deny reason must name the field the shim reported as null",
+    );
+
+    // Payload 7: textCanShadowPathResolution reported as a number. This closes the last case the
+    // doc comment enumerates and is the payload that would actually go red under the refactor named
+    // in 03-REVIEW.md — a numeric 0 is falsy but not a genuine boolean false.
+    const p7 = runStub(
+      JSON.stringify({ category: "safe", textCanShadowPathResolution: 0, namesGatedProgram: true }),
+    );
+    assert.equal(p7.status, 2, "a numeric textCanShadowPathResolution must deny, not be silently absorbed");
+    assert.equal(p7.decision?.hookSpecificOutput?.permissionDecision, "deny");
+    assert.match(
+      p7.decision?.hookSpecificOutput?.permissionDecisionReason ?? "",
+      /textCanShadowPathResolution/,
+      "the deny reason must name the field the shim reported as a non-boolean number",
+    );
+
+    // The enumeration is complete, not merely longer: at least seven distinct payload shapes were
+    // exercised above — the four doc-comment cases (absent: p1/p2, null: p6, a string: p3, a number:
+    // p7) plus the two genuine-boolean controls (p4: both true, p5: one real false).
+    const exercisedPayloadShapes = [p1, p2, p3, p4, p5, p6, p7];
+    assert.ok(
+      exercisedPayloadShapes.length >= 7,
+      "the WR-01 test must exercise at least 7 payload shapes: absent (p1, p2), null (p6), a string (p3), " +
+        "a number (p7), plus the two genuine-boolean controls (p4, p5)",
+    );
   },
 );
 
