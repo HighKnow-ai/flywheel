@@ -164,6 +164,138 @@ fn classification_is_idempotent_for_identical_text() {
     );
 }
 
+// --- Plan 03-33: C3 gains its fourth named mechanism (brace-adjacency), closing CR-01. ---
+// Every payload below is a classification string only — never executed — per D-63.
+
+#[test]
+fn c3_brace_adjacency_reports_indeterminate_for_assembled_alias() {
+    // Measured live during planning: `al{i,}as gitx="echo ..."` genuinely defines the alias
+    // under `expand_aliases`. `al{i,}as` welds a `{`/`}`-adjacent letter run, so C3 must now
+    // report indeterminate for it — and the raw text still names `git` literally later on.
+    let alias = classify(r#"sh -c 'al{i,}as git=/usr/bin/git; git push --force'"#);
+    assert!(
+        alias.contains(r#""category":"safe""#),
+        "brace-assembled alias shadow must classify safe, got: {alias}"
+    );
+    assert!(
+        alias.contains(r#""textCanShadowPathResolution":true"#),
+        "brace-assembled alias shadow must report textCanShadowPathResolution true, got: {alias}"
+    );
+    assert!(
+        alias.contains(r#""namesGatedProgram":true"#),
+        "brace-assembled alias shadow must report namesGatedProgram true (git appears literally later), got: {alias}"
+    );
+
+    // The same adjacency shape on a second keyword (`source`). `./defs.sh` is a string inside
+    // the classification payload only and is never read from disk (D-63).
+    let source = classify(r#"sh -c 'so{u,}rce ./defs.sh; git push --force'"#);
+    assert!(
+        source.contains(r#""textCanShadowPathResolution":true"#),
+        "brace-assembled source shadow must report textCanShadowPathResolution true, got: {source}"
+    );
+    assert!(
+        source.contains(r#""namesGatedProgram":true"#),
+        "brace-assembled source shadow must report namesGatedProgram true, got: {source}"
+    );
+}
+
+#[test]
+fn c3_brace_adjacency_reports_indeterminate_for_assembled_program_name() {
+    // `{gi,}t push --force` expands to `git t push --force` — the gated program name itself is
+    // brace-assembled. The raw text does NOT contain the contiguous literal `git`, so
+    // namesGatedProgram stays false; the point of this row is that
+    // textCanShadowPathResolution is now honest (true) so the hook still defers to Layer 2,
+    // which is proven to backstop this exact shape.
+    let git = classify("{gi,}t push --force");
+    assert!(
+        git.contains(r#""textCanShadowPathResolution":true"#),
+        "brace-assembled `git` must report textCanShadowPathResolution true, got: {git}"
+    );
+    assert!(
+        git.contains(r#""namesGatedProgram":false"#),
+        "brace-assembled `git` must still report namesGatedProgram false (decision unchanged), got: {git}"
+    );
+
+    let rm = classify("{r,}m -rf /tmp/nonexistent-x");
+    assert!(
+        rm.contains(r#""textCanShadowPathResolution":true"#),
+        "brace-assembled `rm` must report textCanShadowPathResolution true, got: {rm}"
+    );
+    assert!(
+        rm.contains(r#""namesGatedProgram":false"#),
+        "brace-assembled `rm` must still report namesGatedProgram false (decision unchanged), got: {rm}"
+    );
+}
+
+#[test]
+fn c3_brace_rule_leaves_ordinary_path_braces_determinate() {
+    // The adjacency rule's whole purpose: `{` following `/` and `}` preceding `.` welds nothing,
+    // so ordinary path-brace idioms stay determinate.
+    let git_add = classify("git add src/{a,b}.rs");
+    assert!(
+        git_add.contains(r#""textCanShadowPathResolution":false"#),
+        "git add src/{{a,b}}.rs must remain determinate (false), got: {git_add}"
+    );
+
+    let mkdir = classify("mkdir -p src/{a,b}");
+    assert!(
+        mkdir.contains(r#""textCanShadowPathResolution":false"#),
+        "mkdir -p src/{{a,b}} must remain determinate (false), got: {mkdir}"
+    );
+
+    let curl = classify(r#"curl -s -d '{"a":1}' http://x"#);
+    assert!(
+        curl.contains(r#""textCanShadowPathResolution":false"#),
+        "curl -s -d '{{\"a\":1}}' http://x must remain determinate (false), got: {curl}"
+    );
+
+    let commit = classify(r#"git commit -m "fix: thing""#);
+    assert!(
+        commit.contains(r#""textCanShadowPathResolution":false"#),
+        "git commit -m \"fix: thing\" must remain determinate (false), got: {commit}"
+    );
+
+    let log = classify("git log --oneline -n 5");
+    assert!(
+        log.contains(r#""textCanShadowPathResolution":false"#),
+        "git log --oneline -n 5 must remain determinate (false), got: {log}"
+    );
+}
+
+#[test]
+fn c3_brace_rule_does_not_flip_the_wildcard_git_add_row() {
+    // The WR-03 ruling's own falsifiability row: if the brace rule became symmetric or
+    // presence-based instead of the asymmetric `{`-looks-backward/`}`-looks-forward rule, this
+    // row (which has no brace at all) must still stay unaffected — this test guards against a
+    // change to the GLOB rule, not the brace rule, moving unexpectedly.
+    let wildcard = classify("git add *.rs");
+    assert!(
+        wildcard.contains(r#""textCanShadowPathResolution":false"#),
+        "git add *.rs must still defer — a genuine inversion would have flipped this row, got: {wildcard}"
+    );
+
+    // Unchanged behaviour re-asserted so the new brace rule is not the reason this passes: the
+    // pre-existing `()`-adjacency scan still catches this shape, and its own `{`/`}` are
+    // space-adjacent, not letter-adjacent, so they are not a brace trigger.
+    let function_shadow = classify(r#"sh -c 'git() { /usr/bin/git "$@"; }; git push --force'"#);
+    assert!(
+        function_shadow.contains(r#""textCanShadowPathResolution":true"#),
+        "the pre-existing git() function-shadow shape must still report true via the ()-scan, got: {function_shadow}"
+    );
+}
+
+#[test]
+fn c3_brace_rule_priced_friction_xargs_placeholder() {
+    // Accepted, priced friction (recorded explicitly, not parsed away): `{` immediately follows
+    // `I`, so this moves from false to true. Combined with namesGatedProgram:true this becomes a
+    // deny — asserted here as a decision, not a surprise.
+    let xargs = classify("xargs -I{} rm {}");
+    assert!(
+        xargs.contains(r#""textCanShadowPathResolution":true"#),
+        "xargs -I{{}} rm {{}} is the accepted, priced friction row — must report true, got: {xargs}"
+    );
+}
+
 #[test]
 fn concurrent_classifications_agree_with_serial_ones() {
     let texts = [
