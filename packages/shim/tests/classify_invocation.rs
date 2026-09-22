@@ -413,6 +413,70 @@ fn c6_keeps_c5_falsifiability_companions() {
     );
 }
 
+// --- Plan 03-35 Task 3: an indeterminate token at a flag or NAME position fails closed, and
+// the friction is priced. Every payload below is a classification string only — never
+// executed — per D-63.
+
+#[test]
+fn c6_indeterminate_flag_position_fails_closed() {
+    // All three brace forms were confirmed live with harmless echo payloads to be real shell
+    // invocations (D-63). `env -u {PATH,} git push --force` is the one of the three plan 03-36's
+    // brace sweep will generate mechanically, because PATH is already a KEYED_WORDS member while
+    // -S and -p are not.
+    let env_flag = classify(r#"env {-S,} "-P /tmp git push --force""#);
+    assert!(
+        env_flag.contains(r#""textCanShadowPathResolution":true"#),
+        "env {{-S,}} must report textCanShadowPathResolution true, got: {env_flag}"
+    );
+
+    let env_unset_name = classify("env -u {PATH,} git push --force");
+    assert!(
+        env_unset_name.contains(r#""textCanShadowPathResolution":true"#),
+        "env -u {{PATH,}} must report textCanShadowPathResolution true, got: {env_unset_name}"
+    );
+
+    let command_flag = classify("command {-p,} git push --force");
+    assert!(
+        command_flag.contains(r#""textCanShadowPathResolution":true"#),
+        "command {{-p,}} must report textCanShadowPathResolution true, got: {command_flag}"
+    );
+
+    // Negative control: --unset naming any OTHER variable leaves PATH intact and must not
+    // trigger, exactly as it does not today.
+    let unset_other = classify("env -u FOO git push --force");
+    assert!(
+        unset_other.contains(r#""category":"force-push""#),
+        "env -u FOO git push --force must remain force-push, got: {unset_other}"
+    );
+}
+
+#[test]
+fn c6_priced_friction_ordinary_commit_message_with_braces() {
+    // WR-01's own class, asserted rather than assumed. This is C3's pre-existing letter-adjacency
+    // cost, not new to C6, and it denies today — the gap 03-VERIFICATION.md's fourth `missing:`
+    // item says must stop persisting silently.
+    let commit = classify(r#"git commit -m "add {foo}bar support""#);
+    assert!(
+        commit.contains(r#""textCanShadowPathResolution":true"#) && commit.contains(r#""namesGatedProgram":true"#),
+        "git commit -m \"add {{foo}}bar support\" must report both true (priced friction), got: {commit}"
+    );
+}
+
+#[test]
+fn c6_did_not_widen_c3s_adjacency_scope() {
+    let git_add = classify("git add src/{a,b}.rs");
+    assert!(
+        git_add.contains(r#""textCanShadowPathResolution":false"#),
+        "git add src/{{a,b}}.rs must remain determinate, got: {git_add}"
+    );
+
+    let mkdir = classify("mkdir -p src/{a,b}");
+    assert!(
+        mkdir.contains(r#""textCanShadowPathResolution":false"#),
+        "mkdir -p src/{{a,b}} must remain determinate, got: {mkdir}"
+    );
+}
+
 #[test]
 fn concurrent_classifications_agree_with_serial_ones() {
     let texts = [
