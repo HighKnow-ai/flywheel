@@ -7,7 +7,10 @@ mod common;
 
 use core::context_packet::{assemble_context_packet, render_prompt};
 use core::domain::acceptance_criterion::create_criterion;
-use core::domain::agent_run::{start_agent_run, AgentRun};
+use core::domain::agent_run::{
+    apply_session_closed, close_agent_run, start_agent_run, AgentRun, AgentRunStatus,
+    SessionClosedOutcome,
+};
 use core::domain::epic::create_epic;
 use core::domain::event::{append_event, next_sequence};
 use core::domain::project::Project;
@@ -509,5 +512,179 @@ fn create_summary_and_synthesize_fallback_summary_share_one_insert_site_and_stay
         let fallback_row = all.iter().find(|s| s.id == fallback_id).expect("fallback row must exist");
         assert!(!agent_row.auto_generated, "the agent-authored row must read back unset");
         assert!(fallback_row.auto_generated, "the fallback row must read back set");
+    });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Task 2: `apply_session_closed`'s fallback-summary hook — every terminal run gets checked.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn apply_session_closed_interrupted_writes_a_fallback_summary_and_points_exit_summary_id_at_it() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
+
+        let event = serde_json::json!({
+            "type": "session_closed",
+            "runId": run.id,
+            "reason": "interrupted",
+        });
+        let outcome =
+            apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
+        assert_eq!(outcome, SessionClosedOutcome::Closed(AgentRunStatus::Interrupted));
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_summaries WHERE agent_run_id = ?1",
+                params![run.id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(
+            count, 1,
+            "a run with no agent-recorded summary must leave exactly one synthesized row"
+        );
+
+        let summary = latest_summary_for_run(&conn, &run.id)
+            .expect("latest_summary_for_run should succeed")
+            .expect("a summary row must exist");
+        assert!(summary.auto_generated, "the fallback row must be flagged auto_generated");
+
+        let exit_summary_id: Option<String> = conn
+            .query_row(
+                "SELECT exit_summary_id FROM agent_runs WHERE id = ?1",
+                params![run.id],
+                |row| row.get(0),
+            )
+            .expect("agent_runs row should exist");
+        assert_eq!(
+            exit_summary_id,
+            Some(summary.id.clone()),
+            "exit_summary_id must name the fallback row"
+        );
+    });
+}
+
+#[test]
+fn apply_session_closed_behaves_identically_for_completed_and_failed() {
+    // Each reason gets its OWN scratch worktree root — `with_scratch_worktree_root` sets a
+    // process-wide env var, and both iterations otherwise mint a project with the identical key
+    // prefix/first-task-key ("FLY-1"), which would collide on the same physical worktree
+    // directory on disk if the root were shared across iterations.
+    for reason in ["completed", "failed"] {
+        with_scratch_worktree_root(|| {
+            let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
+            let event = serde_json::json!({
+                "type": "session_closed",
+                "runId": run.id,
+                "reason": reason,
+            });
+            let outcome = apply_session_closed(&mut conn, &event)
+                .expect("apply_session_closed should succeed");
+            assert!(matches!(outcome, SessionClosedOutcome::Closed(_)));
+
+            let summary = latest_summary_for_run(&conn, &run.id)
+                .expect("latest_summary_for_run should succeed")
+                .expect("a summary row must exist");
+            assert!(
+                summary.auto_generated,
+                "reason {reason} must still synthesize a fallback summary"
+            );
+            let prose = summary.changed_prose.expect("changed_prose must be present");
+            assert!(prose.contains(reason), "prose must name the close reason {reason}: {prose}");
+        });
+    }
+}
+
+#[test]
+fn apply_session_closed_never_synthesizes_a_second_summary_when_one_already_exists() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
+
+        let recorded = create_summary(
+            &mut conn,
+            &run.id,
+            minimal_fields("agent's own closing words", false),
+            &actor_id,
+        )
+        .expect("create_summary should succeed");
+
+        let event = serde_json::json!({
+            "type": "session_closed",
+            "runId": run.id,
+            "reason": "completed",
+        });
+        apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_summaries WHERE agent_run_id = ?1",
+                params![run.id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(count, 1, "an agent-recorded summary must never gain a synthesized sibling");
+
+        let still = latest_summary_for_run(&conn, &run.id)
+            .expect("latest_summary_for_run should succeed")
+            .expect("the recorded summary must still exist");
+        assert_eq!(still.id, recorded.id);
+        assert!(
+            !still.auto_generated,
+            "the pre-existing agent-authored row must never flip auto_generated"
+        );
+    });
+}
+
+#[test]
+fn apply_session_closed_with_a_non_ulid_run_id_writes_no_summary() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, _actor_id, _project, _repo_dir) = common::seeded_git_project();
+
+        let event = serde_json::json!({
+            "type": "session_closed",
+            "runId": "not-a-ulid",
+            "reason": "completed",
+        });
+        let outcome =
+            apply_session_closed(&mut conn, &event).expect("a malformed run id must not error");
+        assert_eq!(outcome, SessionClosedOutcome::Ignored);
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM session_summaries", [], |row| row.get(0))
+            .expect("count query should succeed");
+        assert_eq!(count, 0, "an ignored event must write no summary row at all");
+    });
+}
+
+#[test]
+fn close_agent_run_still_works_directly_after_the_in_tx_refactor() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
+
+        close_agent_run(&mut conn, &run.id, AgentRunStatus::Completed, Some(0.01), Some(10), Some(2))
+            .expect("close_agent_run should still succeed after the refactor");
+
+        let (status, cost_usd): (String, Option<f64>) = conn
+            .query_row(
+                "SELECT status, cost_usd FROM agent_runs WHERE id = ?1",
+                params![run.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("agent_runs row should exist");
+        assert_eq!(status, "completed");
+        assert_eq!(cost_usd, Some(0.01));
+
+        // `close_agent_run` alone (its lower-level statement body, called directly rather than
+        // through `apply_session_closed`) must not synthesize a fallback summary — that behavior
+        // belongs only to `apply_session_closed`'s own call site (production's one caller).
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_summaries WHERE agent_run_id = ?1",
+                params![run.id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(count, 0, "close_agent_run alone must not synthesize a summary");
     });
 }

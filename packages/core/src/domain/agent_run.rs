@@ -213,11 +213,14 @@ pub fn start_agent_run(
     })
 }
 
-/// Write a run's terminal status and `ended_at`, and append the matching event. Never touches
-/// `tasks.status` — moving a task out of `in_progress` is a human/board decision, never something
-/// this module (or an agent) does for itself.
-pub fn close_agent_run(
-    conn: &mut Connection,
+/// The statement body [`close_agent_run`] issues, factored out so [`apply_session_closed`] can run
+/// it inside ITS OWN transaction — alongside the fallback-summary presence check — rather than
+/// calling `close_agent_run`'s `&mut Connection` entry point, which would open a second, separate
+/// transaction and break "the status update and the summary insert commit together or not at
+/// all" (T-04-07). `close_agent_run`'s own body and signature are otherwise unchanged; this is the
+/// same statements, callable from inside a transaction the caller already owns.
+fn close_agent_run_in_tx(
+    tx: &Transaction,
     run_id: &str,
     status: AgentRunStatus,
     cost_usd: Option<f64>,
@@ -225,7 +228,6 @@ pub fn close_agent_run(
     tokens_out: Option<i64>,
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
-    let tx = conn.transaction()?;
 
     let existing: Option<(String, String, Option<String>)> = tx
         .query_row(
@@ -237,11 +239,10 @@ pub fn close_agent_run(
         .context("failed to read agent_runs row before close")?;
 
     let Some((project_id, task_id, _worktree_id)) = existing else {
-        tx.commit().context("failed to commit no-op close_agent_run transaction")?;
         return Ok(());
     };
 
-    let agent_id = agent_actor_id(&tx)?;
+    let agent_id = agent_actor_id(tx)?;
 
     tx.execute(
         "UPDATE agent_runs SET status = ?1, cost_usd = ?2, tokens_in = ?3, tokens_out = ?4, ended_at = ?5 WHERE id = ?6",
@@ -249,7 +250,7 @@ pub fn close_agent_run(
     )
     .context("failed to close agent run")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "agent_run",
         "before": "running",
@@ -257,7 +258,7 @@ pub fn close_agent_run(
         "label": format!("Agent run {}", status.as_str()),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -271,6 +272,28 @@ pub fn close_agent_run(
         &now,
     )?;
 
+    Ok(())
+}
+
+/// Write a run's terminal status and `ended_at`, and append the matching event. Never touches
+/// `tasks.status` — moving a task out of `in_progress` is a human/board decision, never something
+/// this module (or an agent) does for itself.
+///
+/// Called only by test code today (production's one caller, `apply_session_closed`, runs
+/// [`close_agent_run_in_tx`] directly inside its own transaction instead — see that function's
+/// doc comment). Opens and commits its own transaction; never synthesizes a fallback summary,
+/// since that behavior belongs to `apply_session_closed`'s own call site, not to every caller of
+/// this lower-level statement body.
+pub fn close_agent_run(
+    conn: &mut Connection,
+    run_id: &str,
+    status: AgentRunStatus,
+    cost_usd: Option<f64>,
+    tokens_in: Option<i64>,
+    tokens_out: Option<i64>,
+) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    close_agent_run_in_tx(&tx, run_id, status, cost_usd, tokens_in, tokens_out)?;
     tx.commit().context("failed to commit close_agent_run transaction")?;
     Ok(())
 }
@@ -453,7 +476,24 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
         return Ok(SessionClosedOutcome::BackfilledTerminal);
     }
 
-    close_agent_run(conn, run_id, status, cost_usd, tokens_in, tokens_out)?;
+    // Own ONE transaction covering both the status write and the fallback-summary presence
+    // check (T-04-07): `close_agent_run`'s public `&mut Connection` entry point is deliberately
+    // NOT called here, because it opens and commits its own transaction, which would let the
+    // status update land while a crash before the summary insert left the run terminal with no
+    // summary at all — exactly the gap D-64 exists to close. `close_agent_run_in_tx` is the same
+    // statement body, run inside this function's own transaction instead.
+    let tx = conn.transaction()?;
+
+    close_agent_run_in_tx(&tx, run_id, status, cost_usd, tokens_in, tokens_out)?;
+
+    // If the agent already recorded its own summary (via `report_summary`, plan 04-03), leave it
+    // exactly as it is — never write a second, synthesized row over an agent-authored one. Only
+    // an ABSENT summary triggers the fallback (D-64).
+    if crate::domain::session_summary::latest_summary_for_run(&tx, run_id)?.is_none() {
+        crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, status.as_str())?;
+    }
+
+    tx.commit().context("failed to commit apply_session_closed transaction")?;
     Ok(SessionClosedOutcome::Closed(status))
 }
 
