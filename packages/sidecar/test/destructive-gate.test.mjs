@@ -1244,36 +1244,43 @@ const LAUNCHER_CORPUS = [
   // and the shim's OWN permission socket is the layer that asks (D-59) — not a gap, the design.
   {
     command: 'sh -c "git push --force"',
+    group: 1,
     expect: "defer",
     why: "sh is the Safe program token; no shadow construct in the text; a proven env lets the inner bare git reach the shim's own socket",
   },
   {
     command: 'bash -c "git push --force"',
+    group: 1,
     expect: "defer",
     why: "bash is the Safe program token; same reasoning as sh -c — no shadow construct anywhere in the text",
   },
   {
     command: "nice git push --force",
+    group: 1,
     expect: "defer",
     why: "nice is the Safe program token; no shadow construct; the inner bare git reaches the shim in a proven env",
   },
   {
     command: "nohup git push --force",
+    group: 1,
     expect: "defer",
     why: "nohup is the Safe program token; no shadow construct; same reasoning as nice",
   },
   {
     command: "timeout 5 git push --force",
+    group: 1,
     expect: "defer",
     why: "timeout is the Safe program token; no shadow construct; same reasoning",
   },
   {
     command: "xargs git push --force",
+    group: 1,
     expect: "defer",
     why: "xargs is the Safe program token; no shadow construct; same reasoning",
   },
   {
     command: "sudo git push --force",
+    group: 1,
     expect: "defer",
     why:
       "sudo is the Safe program token in THIS proven environment, but sudo's own secure_path can replace PATH before the inner git " +
@@ -1282,6 +1289,7 @@ const LAUNCHER_CORPUS = [
   },
   {
     command: "setsid git push --force",
+    group: 1,
     expect: "defer",
     why: "setsid is the Safe program token; no shadow construct; same reasoning as nice/nohup/timeout/xargs",
   },
@@ -1291,41 +1299,68 @@ const LAUNCHER_CORPUS = [
   // one readable table is worth the duplication (03-26-PLAN.md's own instruction).
   {
     command: "env git push --force",
+    group: 2,
     expect: "defer",
     why: "env unwraps to git on the non-safe branch; invokedBareName is true; shimWillIntercept(git) is true in a proven env",
   },
   {
     command: "command git push --force",
+    group: 2,
     expect: "defer",
     why: "command unwraps to git on the non-safe branch and still performs a real PATH search; invokedBareName stays true",
   },
   {
     command: "builtin git push --force",
+    group: 2,
     expect: "deny",
     why: "builtin never performs a PATH search for a non-builtin program, so the shim can never be reached; invokedBareName forced false",
   },
   {
     command: "PATH=/usr/bin git push --force",
+    group: 2,
     expect: "deny",
     why: "a leading PATH= assignment defeats PATH resolution before it ever reaches the shim; invokedBareName forced false",
   },
   {
     command: "env -i git push --force",
+    group: 2,
     expect: "deny",
     why: "env -i clears the whole environment, PATH included, before the target runs; invokedBareName forced false",
   },
   {
     command: "env -u PATH git push --force",
+    group: 2,
     expect: "deny",
     why: "env -u PATH removes PATH specifically — the same effective bypass class as -i; invokedBareName forced false",
   },
   {
     command: "env -S 'git push --force'",
+    group: 2,
     expect: "deny",
     why: "env -S embeds an opaque, separately-parsed argument list this tokenizer cannot safely re-parse — fails closed to Uncategorized/un-interceptable, program null",
   },
   {
+    command: 'env -S "-P /tmp git push --force"',
+    group: 2,
+    expect: "deny",
+    why:
+      "BSD env's -P altpath performs its own search and never consults the shim's shadow directory, so layer 2 " +
+      "provides no backstop and layer 1's fail-closed Unresolvable arm is the only line (round seven, plan 03-32); " +
+      "/tmp is a string inside the classification payload only and is never searched by this test",
+  },
+  {
+    // Template literal (not a quote-escaped string): keeps the exact literal text
+    // sh -c 'env -S "-P /tmp git push --force"' grep-able in this source file, unescaped.
+    command: `sh -c 'env -S "-P /tmp git push --force"'`,
+    group: 2,
+    expect: "deny",
+    why:
+      "the nested form round seven found: wrapper recognition is positional, so only C5's presence-anywhere scan " +
+      "sees it, and the D-61 AND-gate denies because the text also names git",
+  },
+  {
     command: "command -p git push --force",
+    group: 2,
     expect: "deny",
     why: "command -p forces bash to search a hardcoded default PATH that can never contain the shim's shadow directory; invokedBareName forced false",
   },
@@ -1339,26 +1374,31 @@ const LAUNCHER_CORPUS = [
   // perfectly proven.
   {
     command: 'sh -c \'git() { /usr/bin/git "$@"; }; git push --force\'',
+    group: 3,
     expect: "deny",
     why: "the ()-immediately-adjacent parens fire text_can_shadow_path_resolution; raw text names git; D-61 denies even in a proven env",
   },
   {
     command: 'sh -c \'function git { /usr/bin/git "$@"; }; git push --force\'',
+    group: 3,
     expect: "deny",
     why: "the raw-text scan sees 'function' inside the quoted payload the token-level scan cannot see into; raw text names git; D-61 denies",
   },
   {
     command: "sh -c 'alias git=/usr/bin/git; git push --force'",
+    group: 3,
     expect: "deny",
     why: "the raw-text scan sees 'alias' inside the quoted payload; raw text names git; D-61 denies",
   },
   {
     command: "sh -c 'hash -p /usr/bin/git git; git push --force'",
+    group: 3,
     expect: "deny",
     why: "the raw-text scan sees 'hash' inside the quoted payload; raw text names git; D-61 denies",
   },
   {
     command: 'sh -c \'eval "$(cat ./defs.sh)"; git push --force\'',
+    group: 3,
     expect: "deny",
     why:
       "the raw-text scan sees 'eval' inside the quoted payload; raw text names git; D-61 denies. " +
@@ -1366,6 +1406,7 @@ const LAUNCHER_CORPUS = [
   },
   {
     command: "sh -c 'source ./defs.sh; git push --force'",
+    group: 3,
     expect: "deny",
     why:
       "the raw-text scan sees 'source' inside the quoted payload; raw text names git; D-61 denies. " +
@@ -1373,6 +1414,7 @@ const LAUNCHER_CORPUS = [
   },
   {
     command: 'sh -c \'rm() { /bin/rm "$@"; }; rm -rf ./scratch\'',
+    group: 3,
     expect: "deny",
     why: "the rm counterpart: the ()-adjacent parens fire the shadow scan; raw text names rm; D-61 denies",
   },
@@ -1382,31 +1424,37 @@ const LAUNCHER_CORPUS = [
   // has become general command-refusal and the gate's usability is gone.
   {
     command: "source .venv/bin/activate && pytest",
+    group: 4,
     expect: "defer",
     why: "a shadow construct (source) is present, but the text names neither git nor rm — D-61's own protected non-trigger",
   },
   {
     command: 'eval "$(direnv hook bash)"',
+    group: 4,
     expect: "defer",
     why: "a shadow construct (eval) is present, but the text names neither git nor rm — the same D-61 protection",
   },
   {
     command: "npm test",
+    group: 4,
     expect: "defer",
     why: "npm is the Safe program token; no shadow construct; names neither gated program",
   },
   {
     command: "cargo build",
+    group: 4,
     expect: "defer",
     why: "cargo is the Safe program token; no shadow construct; names neither gated program",
   },
   {
     command: "git status",
+    group: 4,
     expect: "defer",
     why: "an ordinary bare safe git command; no shadow construct; names git but shadows nothing, so D-61's AND never fires",
   },
   {
     command: "command -v git",
+    group: 4,
     expect: "defer",
     why:
       "a query form that never executes git, so it must stay safe/defer — scripts/uat/uat-05-concurrent-commits.mjs uses this exact " +
@@ -1417,16 +1465,14 @@ const LAUNCHER_CORPUS = [
 // --- obfuscationVariants (plan 03-31, WR-02): the corpus asserting a property about itself, not a
 // longer hand-written list. See the extended LAUNCHER_CORPUS header comment above. ---
 
-/** Group 3's own seven `command` strings (LAUNCHER_CORPUS, the shadow shapes reachable only through
+/** Group 3's own `command` strings (LAUNCHER_CORPUS, the shadow shapes reachable only through
  * D-61's raw-text scan — the rows inside an opaque `sh -c '...'` payload the token-level scan
- * cannot split). Read directly off the array by slice, never duplicated by hand, so it can only
- * drift if the corpus's own row count or group boundaries change — guarded by the length assertion
- * inside the invariance test below, which fails loudly rather than silently mis-tagging the wrong
- * rows if that ever happens. */
-const GROUP_3_START_INDEX = 16;
-const GROUP_3_END_INDEX = 23; // exclusive
+ * cannot split). Derived from each row's own `group` marker (WR-02, plan 03-32 Task 3(a)) —
+ * NEVER from a slice by index range, which a same-length reorder of `LAUNCHER_CORPUS` can silently
+ * mistag (03-REVIEW.md's WR-02 finding): a row keeps its Group 3 membership no matter where it
+ * sits in the array. */
 const GROUP_3_COMMANDS = new Set(
-  LAUNCHER_CORPUS.slice(GROUP_3_START_INDEX, GROUP_3_END_INDEX).map((row) => row.command),
+  LAUNCHER_CORPUS.filter((row) => row.group === 3).map((row) => row.command),
 );
 
 /** ASCII alphanumeric or `_` — mirrors `is_identifier_char` in `packages/shim/src/main.rs` exactly,
@@ -1543,48 +1589,28 @@ const KEYED_WORDS = [
 ];
 
 /**
- * A single, precisely-scoped, BOUNDARY-DOCUMENTED exception to decision invariance — discovered BY
- * this generator, while it was being built for this plan (03-31), not patched over silently
- * (D-62/D-63's own safety constraint: report a found bypass prominently, never quietly narrow the
- * test around it).
+ * The mechanism for carrying a single, precisely-scoped, BOUNDARY-DOCUMENTED exception to decision
+ * invariance — never a place to silently narrow the sweep or the word list around a found gap
+ * (D-62/D-63's own safety constraint: report a found bypass prominently, never quietly work around
+ * it).
  *
- * `env -S STRING` re-splits STRING into its own argv, shell-style, INCLUDING any further env flags
- * or `PATH=` assignment the string itself carries — `main.rs`'s `resolve_segment_program_index`
- * cannot safely re-parse that opaque re-split, so it forces `ProgramResolution::Unresolvable` (deny)
- * whenever it recognises the literal token `env` immediately followed by `-S`. That recognition is a
- * WHOLE-TOKEN equality check over `tokenize_shell_words`, which — unlike every other keyed word this
- * generator obfuscates — is NEVER retried against `shell_quote_removed`'s output:
- * `classify_raw_command_text`'s segment loop (`main.rs:1154`, `for segment in
- * split_top_level_segments(trimmed)`) walks the RAW trimmed text exactly once. A backslash inserted
- * between `env`'s first and second character (`e\nv`) is invisible to `tokenize_shell_words` (which
- * resolves quote-toggling correctly but never backslash escapes at all), so `env -S …` is no longer
- * recognised as the `env` wrapper AT ALL for this ONE split kind — the segment falls through to
- * ordinary, non-gated program-token treatment, and the safe-verdict's two D-61 facts (which C1-C4 DO
- * protect) are not independently enough to catch it for this row's own harmless nested payload.
+ * **Closed by plan 03-32 (round seven).** This array carried exactly one entry — `env -S 'git push
+ * --force'` split on `env` at `backslash @ offset-1` — from plan 03-31 (round six) until plan
+ * 03-32's `raw_text_names_opaque_env_reparse` (C5, `packages/shim/src/main.rs`) closed it: C5
+ * retries the `env`-wrapper recognition by presence, over both the raw and quote-removed text,
+ * rather than the old single-pass, leading-token-only check `resolve_segment_program_index` used
+ * alone. The array is empty now, and the invariance test below asserts it stays empty
+ * (`assert.equal(KNOWN_OPEN_BOUNDARY_FAILURES.length, 0, …)`) — an empty array here means the sweep
+ * found zero decision-invariance breaks across every keyed word and every corpus row.
  *
- * MEASURED, non-destructively (D-63, `--classify-invocation` only): for THIS row's own payload
- * (`'git push --force'`, no nested PATH-defeating flag), the hook's decision changes from deny to
- * defer — but the real backslash-split form still resolves through `env`'s own, un-subverted `PATH`
- * search in a proven environment, so Layer 2 still reaches it; this ONE row's specific payload is
- * not itself a live bypass. A DIFFERENT nested payload is: `env -S "-P /tmp git push --force"` (BSD
- * `env`'s `-P` altpath flag) denies unobfuscated and DEFERS once `env` is backslash-split, and a
- * real, non-destructive shell probe (a harmless stub named `git` placed at the altpath, confirmed to
- * run INSTEAD of the shim, never a real git/rm invocation) proves this reaches ZERO human
- * confirmation at any layer — a genuine boundary failure, not covered by any row in
- * `LAUNCHER_CORPUS` today. Recorded in `docs/destructive-gate-trust-boundary.md`'s Named residuals
- * table and `03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md` (this plan, 03-31); **AGNT-07 stays "Gaps
- * Found" until a round-six plan closes it.** This allow-list exists so a FUTURE fix that closes the
- * gap makes this exact entry start failing LOUDLY (the falsifiability check in the invariance test
- * below) rather than silently going stale.
+ * A future author re-adding an entry here MUST, in the same commit, also add a Named-residuals row
+ * to `docs/destructive-gate-trust-boundary.md` — this file is evidence for that document, never a
+ * substitute for it (the same discipline the file's own header comment states for `LAUNCHER_CORPUS`
+ * itself). The falsifiability loop below (iterating zero times while this array is empty) and the
+ * `variantCount > 0` guard both stay in place, unconditionally, so a future non-empty array is still
+ * checked for staleness exactly as it was before this plan closed the one entry it carried.
  */
-const KNOWN_OPEN_BOUNDARY_FAILURES = [
-  {
-    command: "env -S 'git push --force'",
-    word: "env",
-    splitKind: "backslash @ offset-1",
-    measuredDefer: true, // the CURRENT, measured, incorrect-per-source-row decision
-  },
-];
+const KNOWN_OPEN_BOUNDARY_FAILURES = [];
 
 function findKnownOpenBoundaryFailure(command, word, splitKind) {
   return KNOWN_OPEN_BOUNDARY_FAILURES.find(
@@ -1596,10 +1622,24 @@ test(
   "decision invariance under obfuscation: splitting any keyed word in any LAUNCHER_CORPUS row's command text — by an empty double quote pair, an empty single quote pair, or a backslash — changes nothing about what the gate decides (WR-02)",
   { skip: SHIM_SKIP_REASON },
   () => {
+    // WR-02 (03-REVIEW.md, closed plan 03-32 Task 3(a)): a same-length reorder of LAUNCHER_CORPUS
+    // defeated the OLD index-range derivation silently. These two assertions cannot be defeated by
+    // a reorder — they read each row's own `group` marker, never a position.
+    for (const row of LAUNCHER_CORPUS) {
+      assert.ok(
+        Number.isInteger(row.group) && row.group >= 1 && row.group <= 4,
+        `every LAUNCHER_CORPUS row must carry an integer group between 1 and 4: ${row.command}`,
+      );
+    }
+    const group3RowCount = LAUNCHER_CORPUS.filter((row) => row.group === 3).length;
     assert.equal(
-      LAUNCHER_CORPUS.length,
-      29,
-      "LAUNCHER_CORPUS's row count changed — re-check GROUP_3_START_INDEX/GROUP_3_END_INDEX above before trusting this sweep's Group 3 tagging",
+      GROUP_3_COMMANDS.size,
+      group3RowCount,
+      "GROUP_3_COMMANDS must contain exactly one entry per Group 3 row — a mismatch means two Group 3 rows share a command string",
+    );
+    assert.ok(
+      GROUP_3_COMMANDS.size >= 7,
+      `GROUP_3_COMMANDS must hold at least seven rows, holds ${GROUP_3_COMMANDS.size}`,
     );
 
     const shimDir = makeShimDir(["git", "rm"]);
@@ -1655,7 +1695,8 @@ test(
     // Falsifiability companion for the exception itself: if a future fix closes the gap, this row
     // starts denying again on its own — assert the exception was actually exercised, so a corpus or
     // word-list change that stops reaching it is caught (the entry going stale) rather than the
-    // exception silently outliving the shape it was carved out for.
+    // exception silently outliving the shape it was carved out for. Iterates zero times today
+    // (empty array), and stays in place unconditionally for a future carried exception.
     for (const entry of KNOWN_OPEN_BOUNDARY_FAILURES) {
       assert.ok(
         seenKnownFailures.has(entry),
@@ -1664,14 +1705,29 @@ test(
       );
     }
 
-    console.warn(
-      `[destructive-gate.test.mjs] KNOWN OPEN BOUNDARY FAILURE (round six, plan 03-31): ` +
-        `${KNOWN_OPEN_BOUNDARY_FAILURES.length} decision-invariance exception(s) carried in this suite ` +
-        "pending a fix to packages/shim/src/main.rs's env -S opaque-reparse handling — see " +
-        "docs/destructive-gate-trust-boundary.md's Named residuals table and " +
-        ".planning/phases/03-nothing-lost-nothing-left-running/03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md. " +
-        'AGNT-07 must stay "Gaps Found" until this is closed.',
+    // Closed by plan 03-32 (round seven): the round-six exception is gone, and this asserts it
+    // stays gone rather than silently regrowing. A future author re-adding an entry must also add
+    // a Named-residuals row to docs/destructive-gate-trust-boundary.md (this array's own doc
+    // comment) — update this message, not just the array, if that ever happens.
+    assert.equal(
+      KNOWN_OPEN_BOUNDARY_FAILURES.length,
+      0,
+      "KNOWN_OPEN_BOUNDARY_FAILURES must be empty — plan 03-32 closed the round-six exception; " +
+        "re-add an entry only alongside a new Named-residuals row in docs/destructive-gate-trust-boundary.md",
     );
+
+    if (KNOWN_OPEN_BOUNDARY_FAILURES.length > 0) {
+      console.warn(
+        `[destructive-gate.test.mjs] KNOWN OPEN BOUNDARY FAILURE: ` +
+          `${KNOWN_OPEN_BOUNDARY_FAILURES.length} decision-invariance exception(s) carried in this suite ` +
+          "— see docs/destructive-gate-trust-boundary.md's Named residuals table. " +
+          'AGNT-07 must stay "Gaps Found" until every carried exception is closed.',
+      );
+    } else {
+      console.log(
+        "[destructive-gate.test.mjs] decision-invariance sweep carried zero exceptions (plan 03-32, round seven closed).",
+      );
+    }
   },
 );
 
@@ -1727,6 +1783,11 @@ const ORDINARY_USAGE_CORPUS = [
     command: 'git log --format="%H `date +%s`"',
     expect: "deny",
     why: "the backtick-delimited command substitution inside the format string makes word formation indeterminate (C3) — textCanShadowPathResolution reports true; the text also names git, so D-61 denies. Accepted friction, docs/destructive-gate-trust-boundary.md's C3 paragraph.",
+  },
+  {
+    command: 'sh -c \'env -S "echo hello"\'',
+    expect: "defer",
+    why: "the priced falsifiability companion of round seven's C5 (plan 03-32): C5 fires (an env token followed by the opaque -S flag is present, so textCanShadowPathResolution reports true), but the text names neither git nor rm, so D-61's AND never fires — proof C5 did not become general command refusal",
   },
 ];
 
@@ -1797,6 +1858,10 @@ test(
       assert.ok(
         typeof row.why === "string" && row.why.length > 0,
         `every LAUNCHER_CORPUS row must carry a non-empty why: ${row.command}`,
+      );
+      assert.ok(
+        Number.isInteger(row.group) && row.group >= 1 && row.group <= 4,
+        `every LAUNCHER_CORPUS row must carry an integer group between 1 and 4: ${row.command}`,
       );
       const { status, decision } = runHook(row.command, env);
       if (row.expect === "defer") {

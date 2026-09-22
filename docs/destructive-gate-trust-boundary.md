@@ -195,7 +195,7 @@ characters.
 
 **C-contract status:** implemented by plan 03-30 in packages/shim/src/main.rs — C1 and C2 in
 shell_quote_removed and its two callers, C3 in raw_text_word_formation_is_indeterminate, C4 in
-classify_raw_command_text's shadowable binding; C5 is implemented by plan 03-32 in
+classify_raw_command_text's shadowable binding. C5 is implemented by plan 03-32 in
 packages/shim/src/main.rs as `raw_text_names_opaque_env_reparse`.
 
 The four functions the contract binds: `raw_text_contains_word`, `text_names_gated_program`,
