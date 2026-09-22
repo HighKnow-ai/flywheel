@@ -629,6 +629,29 @@ DOCUMENT — the code already denies the right things; the document understated 
 The corrective move is therefore the document and the corpus, not the predicate:
 `packages/shim/src/main.rs` is deliberately unchanged by round nine.
 
+**`env` and `command` do NOT charge the same class.** `env`'s own recognised-flag set is OPEN: an
+unrecognised dash-prefixed token following `env` means the scanner cannot tell where `env`'s own
+arguments end, so it fails closed and charges on ANY dash-prefixed follower — the named
+PATH-defeating flags AND an unrecognised one alike (`--help`, `-x`). `command`'s own recognised-flag
+set is CLOSED (`-v`, `-V`, `-p`): an unrecognised dash-prefixed token can be safely stepped over
+without firing, so `command` charges only when its flag run actually REACHES `-p`. This is why
+`env --help form` charges while `command --help form` does not, asserted by
+`round_nine_env_charges_any_dash_command_charges_only_the_p_run`
+(`packages/shim/tests/classify_invocation.rs`).
+
+The corrected class is bounded from the other side by four measured control families, asserted by
+`round_nine_prose_controls_still_defer`: an ordinary non-dash word standing after the wrapper (`the
+env vars form`, `the command parser form`) — proving the walk still requires an actual flag, not
+bare presence of the wrapper word; `command`'s own query flags (`-v`, `-V`) and an unrecognised flag
+that never reaches `-p` (`--help`) — protecting `command -v git`, both a corpus Group 4
+falsifiability companion and a live probe inside `scripts/uat/uat-05-concurrent-commits.mjs`; a
+longer word merely containing the wrapper's letters (`the environment -i flag`) — proving the
+word-boundary rule still holds, since `environment` does not word-contain `env` (an identifier
+character sits immediately after where `env` would end); and a wrapper token with nothing following
+it at all (`add --unset=PATH support to env`). D-61's own AND-gate stays intact throughout: `grep -rn
+"env -i" packages` reports the adjacency `true` while `namesGatedProgram` stays `false`, so the text
+still defers.
+
 ## The rule for round six
 
 A newly found bypass shape is a **boundary failure**, not a missing corpus row. The first move is
