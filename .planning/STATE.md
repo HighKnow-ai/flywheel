@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 03
-current_phase_name: nothing-lost-nothing-left-running
+current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-36-PLAN.md (round-eight gap closure complete — brace-expansion sweep, corpus + friction pricing, requirements-bookkeeping coverage map; AGNT-07 and the seven siblings stay Gaps Found pending fresh phase verification)
-last_updated: "2026-09-22T06:30:04.102Z"
+stopped_at: Completed 03-37-PLAN.md (round-nine gap closure complete — C6 friction claim corrected to its measured class, branch decision + rejected alternative recorded, four new Rust tests; AGNT-07 and the seven siblings stay Gaps Found pending fresh phase verification)
+last_updated: "2026-09-22T06:49:08.377Z"
 last_activity: 2026-09-22
 last_activity_desc: Phase 03 execution started
-state_head: 32692be4724585d0241a6075bd5b9db637569a5e
+state_head: 48d5380038b6e3af9a6b2499a5a575c550c94815
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 77
-  completed_plans: 75
+  completed_plans: 76
   percent: 0
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 ## Current Position
 
-Phase: 03 (nothing-lost-nothing-left-running) — READY TO EXECUTE
-Plan: 3 of 36
+Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
+Plan: 2 of 38
 Status: Ready to execute
 Last activity: 2026-09-22 — Phase 03 execution started
 
@@ -132,6 +132,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P34 | 32min | 3 tasks | 2 files |
 | Phase 03 P35 | 30min | 3 tasks | 3 files |
 | Phase 03 P36 | 45min | 3 tasks | 2 files |
+| Phase 03 P37 | 17min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -260,6 +261,7 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-35: resolve_segment_program_index's -u/--unset NAME handling widened to fail closed on an indeterminate NAME token (deviation, Rule 1) — A Destructive verdict's JSON never carries textCanShadowPathResolution at all, so C6 alone cannot make env -u {PATH,} git push --force satisfy its own acceptance criterion without this narrow, symmetric widening.
 - [Phase 03]: [Phase 03] 03-36: brace split kind added to OBFUSCATION_SPLIT_KINDS (mechanism: wrap vs insert) mechanically generates round-eight's {env,} CR-01 payload from the existing corpus row, guarded by occurrenceIsCompleteShellWord so a brace group glued to a suffix (PATH=) is never generated as an equivalent variant
 - [Phase 03]: [Phase 03] 03-36: 03-REQUIREMENTS-BOOKKEEPING.md section (f) records round eight's coverage map — all four 03-VERIFICATION.md missing: items covered by 03-35/03-36 — with no requirement status changed; all eight Phase-3 rows still read Gaps Found
+- [Phase 03]: [Phase 03] 03-37: Round nine closed via branch (b) — the C6 over-trigger is accepted as a priced trade and docs/destructive-gate-trust-boundary.md corrected to the measured class; branch (a)'s narrowed-adjacency fix was rejected as unsound because it would reopen rounds seven/eight's closed nested env -S shapes. packages/shim/src/main.rs is unchanged.
 
 ### Pending Todos
 
@@ -302,6 +304,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-22T05:19:22.115Z
-Stopped at: Completed 03-36-PLAN.md (round-eight gap closure complete — brace-expansion sweep, corpus + friction pricing, requirements-bookkeeping coverage map; AGNT-07 and the seven siblings stay Gaps Found pending fresh phase verification)
+Last session: 2026-09-22T06:49:08.283Z
+Stopped at: Completed 03-37-PLAN.md (round-nine gap closure complete — C6 friction claim corrected to its measured class, branch decision + rejected alternative recorded, four new Rust tests; AGNT-07 and the seven siblings stay Gaps Found pending fresh phase verification)
 Resume file: None
