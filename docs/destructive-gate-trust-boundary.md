@@ -264,6 +264,15 @@ indeterminate flag. It is NOT a claim about a wrapper NAME assembled across sepa
 (`{e,}{n,}v`) — that shape is C3's, which catches it by letter adjacency — and it is NOT a claim
 about a wrapper reached through an indirection the text only names.
 
+**Widened by round nine:** the adjacency C6 tests is computed over BOTH forms of the text — the raw
+tokens AND `shell_quote_removed`'s re-tokenized output (the same C2 union C1-C5 already use) — and
+in the second form, a single quoted shell word that C1's context-free quote removal strips
+contributes SEVERAL tokens once `tokenize_shell_words` re-splits it on the whitespace that removal
+exposed. "Immediately follows" therefore means "immediately follows in either form", which includes
+ordinary prose sitting inside one quoted argument. This is inherited from C1's own by-design,
+context-free behaviour, and is not a defect of C6's own matching rule — see `## Round nine` below
+for the measurements and the branch decision this widening rests on.
+
 C6 SUPERSEDES C5 and is a strict superset of it — token equality is the boundary-contained case
 where the token is exactly the name — so every round-six and round-seven claim keeps its meaning.
 C5's own clause above is left in place as the historical record, marked superseded by this pointer;
@@ -313,17 +322,24 @@ Task 3) to name three classes rather than one:
   `textCanShadowPathResolution:true` and `namesGatedProgram:true` today (`c6_priced_friction_ordinary_commit_message_with_braces`,
   `packages/shim/tests/classify_invocation.rs`), a friction that existed since plan 03-33 and was
   never previously written down.
-- **C6's own new class, stated as narrowly as it actually is:** a token carrying a non-letter-adjacent
-  brace or glob AND a `-`, standing immediately where `env`'s or `command`'s own flag belongs, in
-  text that also names `git` or `rm`. The `$` and backtick cases add NO new friction here, because
-  C3 already denies any text carrying them that names a gated program. What C6 deliberately does NOT
-  charge, and why: bare presence of the word `env` or `command` would have denied `command -v git`
-  and `git commit -m "fix the command parser"` (both measured as deferring today), and `command -v
-  git` is both a corpus Group 4 falsifiability companion and a live probe inside
-  `scripts/uat/uat-05-concurrent-commits.mjs`. This is the reason C6 keeps C5's flag qualification
-  while promoting only the token match — the verifier's own suggested direction ("caught by presence
-  the same way `{alias,}` already is") is met at the TOKEN level rather than the whole-text level for
-  exactly this reason.
+- **C6's own class, corrected in round nine to the class C6 actually charges:** for `env`, a token
+  word-containing `env`, in either text form, followed by ANY dash-prefixed token — the recognised
+  PATH-defeating flags (`-i`, `--ignore-environment`, `-S`, `--split-string`, `-u PATH`,
+  `--unset=PATH`) AND any unrecognised dash-prefixed token (`--help`, `-x`), because an unrecognised
+  flag means the scanner cannot tell where `env`'s own arguments end and fails closed; for `command`,
+  a token word-containing `command` whose following flag run reaches `-p` — `-v` and `-V` break the
+  walk without firing (they make `command` a query that never executes its argument), and an
+  ordinary non-dash word breaks it too, so `command --help form` does not charge while
+  `command --verbose -p form` does. In both cases the D-61 AND-gate still applies: nothing is
+  refused unless the text also names `git` or `rm`. The `$` and backtick cases add NO new friction
+  here, because C3 already denies any text carrying them that names a gated program. What C6
+  deliberately does NOT charge, and why: bare presence of the word `env` or `command` would have
+  denied `command -v git` and `git commit -m "fix the command parser"` (both measured as deferring
+  today), and `command -v git` is both a corpus Group 4 falsifiability companion and a live probe
+  inside `scripts/uat/uat-05-concurrent-commits.mjs`. This is the reason C6 keeps C5's flag
+  qualification while promoting only the token match — the verifier's own suggested direction
+  ("caught by presence the same way `{alias,}` already is") is met at the TOKEN level rather than the
+  whole-text level for exactly this reason.
 
 ## Named residuals
 
@@ -556,6 +572,62 @@ process per generated variant. `env -u {PATH,} git push --force` — the third p
 test — IS one the brace sweep will generate mechanically, because `PATH` already is a `KEYED_WORDS`
 member. **Reopening trigger:** a wrapper-flag spelling that defeats the gate and is neither swept nor
 named in that test.
+
+## Round nine — the C6 friction claim was narrower than C6's own behaviour
+
+Named here BEFORE any code change, per "The rule for round six" below — this document's own
+discipline, applied to itself. `03-VERIFICATION.md` (round nine, `gaps_found`, 5/6) left exactly one
+truth open, and `03-REVIEW.md`'s WR-A finding is the counterexample that forced it open.
+
+**What was claimed and what is true.** The friction bullet above (before this correction) and C6's
+own soundness-class paragraph together led a reader to believe C6 charges only an obfuscated
+token — a brace or glob carrier bearing a dash — standing at a wrapper's own flag position. Measured
+against the compiled binary at HEAD, the class C6 actually charges is far broader: an entirely
+ordinary, non-obfuscated, plain-prose quoted commit message that merely MENTIONS a recognised
+wrapper flag right after `env`/`command` denies too.
+
+**The root cause, in this document's own voice rather than by citation.** C1's quote removal
+(`shell_quote_removed`) is context-free BY DESIGN — that is its whole documented purpose, a
+deliberate choice that catches the nested-shell re-parse case round five reproduced. Stripping the
+quotes from a single quoted shell word leaves its internal spaces exposed, and `tokenize_shell_words`
+then re-splits that one former word into several array elements. Two words that were adjacent only
+because they shared one quoted argument become adjacent TOKENS after that re-split, and C6's
+`j = i + 1` flag walk has no way to tell the difference between genuine shell-level adjacency and
+this artifact of C1's own re-tokenization.
+
+**The measurements, classification-only per D-63, copied as facts rather than paraphrased.** At HEAD:
+
+```
+$ flywheel-shim --classify-invocation 'git commit -m "the command -p form"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
+$ flywheel-shim --classify-invocation 'git commit -m "document the command -p flag behavior"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
+$ flywheel-shim --classify-invocation 'git commit -m "the env -i flag clears vars"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
+$ flywheel-shim --classify-invocation 'git log --grep "the command -p flag"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
+```
+
+each report `textCanShadowPathResolution:true` together with `namesGatedProgram:true`, with **no
+brace, no glob and no obfuscation of any kind** in the payload. The second row above —
+`git commit -m "document the command -p flag behavior"` — is the plain, non-obfuscated
+representative `03-VERIFICATION.md`'s own `missing:` item names. The control,
+`git commit -m "fix the command parser"`, still reports `textCanShadowPathResolution:false`, because
+it carries no dash-flag word immediately after "command".
+
+**The direction, stated plainly so no future reader mistakes this for a bypass.** The effect is
+OVER-triggering — the gate refuses MORE than this document claimed, never less. Success Criterion 5
+/ AGNT-07's behavioural truth (an agent in auto-accept permission mode still stops and asks before a
+real force-push, branch deletion, or recursive delete) is not weakened by it. What IS violated is
+this project's own prohibition against adding gate friction without pricing it in the same change,
+and round five's own rule that a field whose negative is read as proof must name the exact class for
+which that negative is sound.
+
+**Round nine differs in kind from rounds five through eight.** Those rounds were bypasses found IN
+THE CODE — a shape that should have denied and did not. Round nine is a FALSE CLAIM found in THE
+DOCUMENT — the code already denies the right things; the document understated how much it denies.
+The corrective move is therefore the document and the corpus, not the predicate:
+`packages/shim/src/main.rs` is deliberately unchanged by round nine.
 
 ## The rule for round six
 

@@ -505,3 +505,43 @@ fn concurrent_classifications_agree_with_serial_ones() {
         "four classifications spawned concurrently must produce the same verdicts as spawned serially"
     );
 }
+
+// --- Plan 03-37 (round nine): `docs/destructive-gate-trust-boundary.md` stated C6's charged
+// friction class narrower than C6's own measured behaviour (03-REVIEW.md WR-A). These tests prove
+// the corrected, broader class against the compiled binary. Every payload below is a
+// classification string only — never executed — per D-63.
+
+#[test]
+fn round_nine_plain_prose_wrapper_flag_adjacency_denies() {
+    // Establish the control's own verdict in this same test, rather than trusting a remembered
+    // one: no dash-flag word sits immediately after "command", so the walk breaks and this
+    // defers.
+    let control = classify(r#"git commit -m "fix the command parser""#);
+    assert!(
+        control.contains(r#""textCanShadowPathResolution":false"#),
+        "control must defer (no dash-flag word adjacent to \"command\"), got: {control}"
+    );
+
+    // The verifier's own named representative (03-VERIFICATION.md's `missing:` item): plain
+    // prose, no brace, no glob, no obfuscation of any kind — yet C1's context-free quote removal
+    // re-tokenizes the quoted commit message and C6's flag walk sees "-p" immediately following
+    // "command".
+    let command_form = classify(r#"git commit -m "document the command -p flag behavior""#);
+    assert!(
+        command_form.contains(r#""namesGatedProgram":true"#),
+        "representative must report namesGatedProgram true, got: {command_form}"
+    );
+    assert!(
+        command_form.contains(r#""textCanShadowPathResolution":true"#),
+        "representative must report textCanShadowPathResolution true — the D-61 AND-gate reads \
+         both this and namesGatedProgram, got: {command_form}"
+    );
+
+    // The `env` half of the same class: no brace, no glob, no obfuscation.
+    let env_form = classify(r#"git commit -m "the env -i flag clears vars""#);
+    assert!(
+        env_form.contains(r#""namesGatedProgram":true"#)
+            && env_form.contains(r#""textCanShadowPathResolution":true"#),
+        "env half of the plain-prose class must report both fields true, got: {env_form}"
+    );
+}
