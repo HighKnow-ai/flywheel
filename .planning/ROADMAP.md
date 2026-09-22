@@ -58,7 +58,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: The Board Is The Store Of Record** - Run real project structure on a fixed, fast, durable board with checkable acceptance criteria (completed 2026-09-10)
 - [x] **Phase 2: One Agent, One Worktree, Watched Live** - Start work on a task and watch a Claude Code session do it in a worktree the task owns (completed 2026-09-12)
-- [ ] **Phase 3: Nothing Lost, Nothing Left Running** - Quit, crash or interrupt at any moment without destroying work or leaking agents
+- [x] **Phase 3: Nothing Lost, Nothing Left Running** - Quit, crash or interrupt at any moment without destroying work or leaking agents (completed 2026-09-22)
 - [ ] **Phase 4: `/clear` Is Free** - Discard an agent's whole context and have the next session pick up from the board alone
 - [ ] **Phase 5: Socratic Epic Authoring** - Be challenged while shaping an epic and walk away with board items, not a document
 - [ ] **Phase 6: Agents File Their Own Backlog** - Agents propose what they learn into a triage lane that nothing escapes without a human
@@ -692,7 +692,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
-| 3. Nothing Lost, Nothing Left Running | 38/38 | In Progress|  |
+| 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 0/TBD | Not started | - |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
