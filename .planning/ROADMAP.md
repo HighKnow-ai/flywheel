@@ -418,8 +418,55 @@ versions during planning.
   4. When a new session states an understanding that contradicts a decision already recorded on the board, the user is told rather than left to discover it in the diff.
   5. An automated test runs one task through at least five session cycles and proves its acceptance criteria are unchanged; a user editing criteria after work has started creates a new revision instead of overwriting the original.
 
-**Plans**: TBD
+**Plans**: 14 plans
 **UI hint**: yes
+
+**Wave 1 — the tracer** *(the thinnest end-to-end slice, proven before anything expands out from it)*
+
+- [ ] 04-01-PLAN.md — Tracer: a session summary reaches the board and the next briefing carries it, verbatim and append-only (CTX-01, CTX-02, CTX-03, CTX-04)
+
+**Wave 2** *(four independent expansions off the tracer — no file overlap between them)*
+
+- [ ] 04-02-PLAN.md — No session ends without a summary: D-64's `auto_generated` fallback, inside the terminal event's own transaction (CTX-01)
+- [ ] 04-03-PLAN.md — The agent authors its own summary: `report_summary` as a second tool on the existing per-run MCP socket (CTX-01, CTX-06)
+- [ ] 04-04-PLAN.md — Criteria lock and revisions: the lock is the first agent run, an edit appends, and no agent ever reads superseded wording (BOARD-03)
+- [ ] 04-05-PLAN.md — Compaction: a pure fold, five verbatim, lossless for decisions and total for narrative (CTX-05)
+
+**Wave 3** *(blocked on 04-02 and 04-03 — the write surface meets the board)*
+
+- [ ] 04-06-PLAN.md — The tool call becomes a board row, and every prompt asks for one by exact tool name (CTX-01, CTX-02, CTX-06)
+
+**Wave 4** *(blocked on 04-06 — shares `context_packet.rs`)*
+
+- [ ] 04-07-PLAN.md — The diff so far is ground truth: committed and uncommitted, stat and paths, never hunks (CTX-03)
+
+**Wave 5** *(blocked on 04-05 and 04-07)*
+
+- [ ] 04-08-PLAN.md — The prompt folds, and says where the fold begins; the boundary reaches the desktop as structure (CTX-05, CTX-03)
+
+**Wave 6** *(blocked on 04-08)*
+
+- [ ] 04-09-PLAN.md — The launch sheet shows the whole briefing: prior sessions, the compaction boundary, the diff (CTX-03, CTX-05, CTX-01)
+
+**Wave 7** *(blocked on 04-04 and 04-09)*
+
+- [ ] 04-10-PLAN.md — The revised marker, the one edit path, and the run's record of what it was told (BOARD-03, CTX-06)
+
+**Wave 8** *(blocked on 04-07 and 04-10 — the third detector needs the revision pin)*
+
+- [ ] 04-11-PLAN.md — Four fact-based drift detectors, no model anywhere, re-derived on every assembly (CTX-06)
+
+**Wave 9** *(blocked on 04-11)*
+
+- [ ] 04-12-PLAN.md — Drift surfaced: an activity-trail event, the existing needs-you signal, and a warning that blocks nothing (CTX-06)
+
+**Wave 10** *(blocked on 04-12 — the flagship action, last because it shows everything before it)*
+
+- [ ] 04-13-PLAN.md — Discard in one action: a bounded wait for the agent's summary, then the pre-filled launch sheet (CTX-08)
+
+**Wave 11** *(blocked on 04-13 — the phase's ship gate)*
+
+- [ ] 04-14-PLAN.md — Ten cycles, criteria byte-identical, plus the context-quality metrics the roadmap flagged (CTX-07, CTX-04, CTX-02)
 
 **Notes**: This phase is the falsification test for the whole product thesis and it completes the
 thinnest vertical slice — one task, two sequential sessions on one worktree, the second
