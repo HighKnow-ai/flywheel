@@ -630,3 +630,34 @@ fn round_nine_prose_controls_still_defer() {
          namesGatedProgram:false, got: {grep_control}"
     );
 }
+
+#[test]
+fn round_nine_quote_removed_form_is_load_bearing() {
+    // Why this test exists, not merely what it asserts: both nested payloads below are ONE token
+    // in the raw form — `env` never appears at a segment's own leading position, buried instead
+    // inside the outer `sh -c '...'` single-quoted payload. Their true verdict comes entirely from
+    // `shell_quote_removed`'s re-tokenization of that quoted span — the SAME mechanism that
+    // produces round nine's plain-prose false positive
+    // (`round_nine_plain_prose_wrapper_flag_adjacency_denies`). A future author implementing the
+    // co-location narrowing or the original-quoted-span narrowing named in
+    // `docs/destructive-gate-trust-boundary.md`'s `## Named residuals` table (the "DECLINED (round
+    // nine, plan 03-37)" row) must see THIS test go red rather than silently reopening a bypass
+    // rounds seven and eight already closed.
+    let nested_env = classify(r#"sh -c 'env -S "-P /tmp git push --force"'"#);
+    assert!(
+        nested_env.contains(r#""textCanShadowPathResolution":true"#),
+        "round seven's nested env shape must still deny, got: {nested_env}"
+    );
+
+    let nested_brace_env = classify(r#"sh -c '{env,} -S "-P /tmp git push --force"'"#);
+    assert!(
+        nested_brace_env.contains(r#""textCanShadowPathResolution":true"#),
+        "round eight's nested brace-obfuscated env shape must still deny, got: {nested_brace_env}"
+    );
+
+    let unobfuscated_top_level = classify(r#"env -S "-P /tmp git push --force""#);
+    assert!(
+        unobfuscated_top_level.contains(r#""category":"uncategorized""#),
+        "the unobfuscated top-level control must still classify uncategorized, got: {unobfuscated_top_level}"
+    );
+}

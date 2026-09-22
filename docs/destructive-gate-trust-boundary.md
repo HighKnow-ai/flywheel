@@ -357,6 +357,7 @@ concrete trigger that should reopen it.
 | **CLOSED (round seven, plan 03-32) — `env -S STRING`'s own opaque-reparse detection, backslash-split and nested** (found 2026-09-21, plan 03-31; widened 2026-09-22, plan 03-32): `main.rs`'s `resolve_segment_program_index` recognises the wrapper token `env` (to force `ProgramResolution::Unresolvable`/deny on `-S`'s unparseable re-split, or any other unrecognised `env` flag such as BSD's `-P` altpath) by exact string equality over `tokenize_shell_words(trimmed)` — the RAW, un-normalized segment text, walked exactly once, at a single fixed position (a segment's own leading token). The defect has two halves: a backslash-split `env` (`e\nv`) was never recognised as the literal token `env` (round six); and even an UNSPLIT `env` nested inside a launcher's opaque quoted payload (`sh -c 'env -S "…"'`) was never SEEN at all, because `tokenize_shell_words` returns the whole single-quoted payload as one opaque token and the wrapper-token walk only ever inspected a segment's own leading position (round seven — no obfuscation required). Closed by plan 03-32's `raw_text_names_opaque_env_reparse` (C5): a presence-anywhere scan over both the raw and quote-removed text, folded into the SAME `text_can_shadow` disjunct the safe verdict's D-61 AND-gate already reads, plus a second, quote-removed resolution pass inside the segment loop that reaches the same fail-closed `Unresolvable` arm as the raw pass. **Superseded by C6 (plan 03-35, round eight):** C5's exact-token-equality recognition of the wrapper token `env` was itself defeated by brace expansion (`{env,}`) and a path prefix (`/usr/bin/env`) — C6 promotes the SAME presence-anywhere scan from token equality to word-boundary containment, a strict superset, so every claim this row makes still holds. | Closed: C5 folds both halves into Layer 1's existing D-61 AND-gate; superseded, not re-derived, by C6 | Reopens if: an `env` invocation carries a PATH-defeating flag that `text_can_shadow_path_resolution` does not independently re-check, AND its surrounding text names neither `git` nor `rm` — since C5 is folded into the safe verdict's own D-61 AND-gate, it structurally cannot deny a text that names no gated program, so such a text defers by design; finding one that should not is the trigger to reopen this row |
 | **OPEN (round eight, plan 03-35) — a wrapper NAME assembled across separate brace groups, or by any mechanism outside C1's quote/backslash removal, C3's named characters, and C6's word-boundary containment** — e.g. `{e,}{n,}v` (two separate brace groups, each individually letter-adjacent so C3 catches THIS one, but named here as the general shape C6 does not claim to cover): C6's own soundness class is explicit that it is not a claim about a wrapper name assembled this way. | Layer 1's C6 scan loses it: C6 recognises a wrapper token by word-boundary containment of a CONTIGUOUS `env`/`command` substring in one token; a name split across multiple brace groups, each contributing a fragment, may never appear contiguously in any single form C1/C2's quote-removal union produces. | Reopens if: a wrapper-token spelling assembled by a mechanism outside all three (C1, C3, C6) is found to defeat the `PATH` search with zero human confirmation — at that point this document, not the corpus, is what must change first, per "The rule for round six" below. |
 | A shadow definition installed by an EARLIER `Bash` tool call in the same session | Layer 1 loses it, by construction: each hook invocation is a fresh OS process holding no cache and no memory of any previous tool call, so it classifies one command's text in isolation and can never see a function or alias a prior call left behind in a shell profile or a sourced file | An observed two-call shadow in which the FIRST call's own text was itself deferrable — today every single-call shadow shape the corpus covers denies on its own text, so a deferrable first call is the signal that this residual has become reachable |
+| **DECLINED (round nine, plan 03-37) — the co-location narrowing that would have closed WR-A's false positive.** A rule that charges a quote-removed-form adjacency only when the gated program name (`git`/`rm`) ALSO sits inside the SAME quoted region as the wrapper token would defer the prose false-positive case (`git commit -m "the command -p form"` names `git` OUTSIDE the quoted message) while still keeping the nested shapes denied (`sh -c 'env -S "-P /tmp git push --force"'` carries `git push --force` INSIDE the same quoted span as `env`). This is branch (a)'s narrower, co-location-scoped cousin — not rejected for the same unsoundness branch (a) itself carries (see `## Round nine` above), but declined here because it was not implemented: pricing the false positive (branch (b)) was judged simpler and lower-risk for this round, and this residual keeps the option open rather than discarding it. | Layer 1's C6 scan accepts the friction rather than losing the case: the co-location rule is not implemented, so this row names an available narrowing, not an unseen bypass. | Reopens if: measured evidence that this friction fires on ordinary development traffic often enough to be worse than the bypass risk of a locality rule — at which point the co-location rule is the named candidate, and it must be argued against the nested shapes' own corpus rows (`round_nine_quote_removed_form_is_load_bearing`, `packages/shim/tests/classify_invocation.rs`) before it lands. |
 
 ## The layer-to-corpus map
 
@@ -651,6 +652,38 @@ character sits immediately after where `env` would end); and a wrapper token wit
 it at all (`add --unset=PATH support to env`). D-61's own AND-gate stays intact throughout: `grep -rn
 "env -i" packages` reports the adjacency `true` while `namesGatedProgram` stays `false`, so the text
 still defers.
+
+**The branch decision.** Round nine accepts the over-trigger as a deliberate, priced trade — the
+same disposition C3's brace-adjacency cost already carries under the WR-03 ruling — and corrects
+this document's claim rather than narrowing the predicate. This is branch (b) of the two
+`03-VERIFICATION.md`'s own `missing:` item offered.
+
+**Why branch (a) was rejected**, argued against the measurement rather than a preference. Branch (a)
+(`03-REVIEW.md` WR-A) proposes deriving flag-adjacency within a single token's ORIGINAL quoted
+span — computing adjacency before `shell_quote_removed` collapses the quoting structure, likely by
+having the quote-removed retokenization retain quote-boundary markers rather than plain
+whitespace-splittable text — so that spaces inside one quoted shell word are not mistaken for real
+word boundaries. The measured obstacle: the nested shapes rounds seven and eight closed reach C6
+through exactly that same mechanism. In `sh -c 'env -S "-P /tmp git push --force"'` the payload is
+ONE token in the raw form — the raw-form walk sees no token following `env` and does not fire; the
+`true` verdict comes entirely from the quote-removed form's re-tokenization of that quoted span. The
+same holds for round eight's `sh -c '{env,} -S "-P /tmp git push --force"'`. A rule that refuses to
+treat quote-internal spaces as boundaries therefore silences the nested shapes and the prose
+false-positive TOGETHER — there is no syntactic property that distinguishes a quoted shell payload
+from a quoted commit message, because whether a quoted span is re-parsed depends on the outer
+program, and enumerating outer programs is exactly what D-59 forbids.
+
+**The consequence, priced honestly.** A commit message, a `--grep` pattern, or any other quoted
+argument of a command that also names `git`/`rm` is refused whenever it mentions a recognised
+wrapper flag right after `env`/`command`. This is likeliest to bite while working on this very
+subsystem — this plan's own required-reading files use phrases like "env -u PATH", "command -p",
+"env -S" dozens of times — and that cost is accepted rather than hidden.
+
+**The recovery path.** The refusal is a `deny` the agent can respond to by rephrasing the
+argument — the ADJACENCY, not the words themselves, is what charges, so separating the wrapper name
+from the flag word defers. Before (denies): `git commit -m "the command -p form"`. After (defers):
+`git commit -m "the command parser form"` — describing the same feature without a dash-flag word
+sitting immediately after "command" no longer trips the walk.
 
 ## The rule for round six
 
