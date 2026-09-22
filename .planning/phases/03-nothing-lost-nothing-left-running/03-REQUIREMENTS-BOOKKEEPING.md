@@ -76,3 +76,58 @@ reader can check it without re-deriving it — it makes no ruling of its own on 
 
 `.planning/REQUIREMENTS.md` is not in this task's diff. Every phase-3 requirement row — the seven
 named above plus `AGNT-07` — reads exactly the status it read before plan 03-34 ran.
+
+## (f) Round eight — the coverage map for this gap closure
+
+**What round eight found, in the verifier's own framing.** `03-VERIFICATION.md` (round eight,
+`gaps_found`, 4/5) found Truth 5 / `AGNT-07` staying open on its FOURTH distinct shape in as many
+rounds: brace-expansion- and path-prefix-obfuscated `env`/`command` wrapper tokens. The verifier
+judged this an ADJACENT mechanism rather than incomplete closure of round six/seven's own scope,
+because `env` and `command` were recognised by exact token equality while `git`/`rm` and the six
+`KEYWORD_TRIGGERS` were recognised by character-level, word-boundary scanning — the same
+distinction round six's and round seven's own closures already drew for their own defects.
+
+**The four `missing:` items, quoted from `03-VERIFICATION.md`, mapped to the plan and task that
+covered each:**
+
+| `missing:` item (`03-VERIFICATION.md`, quoted) | Covered by |
+|---|---|
+| "A fix giving env and command the same raw-text, character-level, word-boundary substring-scan companion git/rm and the six KEYWORD_TRIGGERS already have (e.g. extending raw_text_can_shadow_path_resolution's scan, or an equivalent, to include env/command), so {env,}/{command,} are caught by presence the same way {alias,} already is." | Plan 03-35 Tasks 1-3 — C6 (`raw_text_names_path_defeating_wrapper`) |
+| "A Named-residuals row (or the fix itself) in docs/destructive-gate-trust-boundary.md naming the env/command wrapper-token brace-obfuscation shape specifically, distinct from the already-ruled-on gated-program-name brace case, per the document's own round-six-onward discipline: amend the document before any new corpus row addresses this shape." | Plan 03-35 Task 1(a) — the Named-residuals row naming the wrapper-token brace shape, landing before any corpus row; the ordering enforced by plan 03-36's own `depends_on` |
+| "A brace-expansion split kind added to OBFUSCATION_SPLIT_KINDS (packages/sidecar/test/destructive-gate.test.mjs), swept over KEYED_WORDS (env/command already members), so the automated invariance sweep would have caught this mechanically and will catch any regression." | Plan 03-36 Task 1 — the `brace-expansion`/`wrap`-mechanism entry, `occurrenceIsCompleteShellWord`, and the `braceVariantCount` floor |
+| "Either broaden the trust-boundary document's friction-accounting paragraph to name the ordinary letter-adjacent {word}/{word}text-in-a-commit-message class explicitly, or add an ORDINARY_USAGE_CORPUS row pricing it — the gap between what is priced (one xargs -I{} rm {} row) and what actually denies (any git/rm text containing an ordinary letter-adjacent brace shape) should not persist silently." | BOTH: plan 03-35 Task 3 for the document half (the widened three-class friction paragraph) AND plan 03-36 Task 2(c) for the corpus half (the four new `ORDINARY_USAGE_CORPUS` rows, including `add {foo}bar support`) |
+
+**Two shapes this gap closure found on its own, that `03-VERIFICATION.md` did not name** — recorded
+here so the next verifier does not have to rediscover them:
+
+- **The path-qualified wrapper tokens** — `/usr/bin/env -S "-P /tmp git push --force"` and
+  `/usr/bin/command -p git push --force` — both measured as deferring at HEAD with NO obfuscation
+  whatsoever (`program_stem` strips a path prefix for the PROGRAM token; no site ever stripped one
+  for a WRAPPER token until C6's boundary rule made `/` a boundary character). Closed by plan 03-35
+  Task 1 (C6's word-boundary containment, which recognises the token regardless of a leading path
+  prefix) and covered by a named Rust test
+  (`round_eight_path_qualified_env_wrapper_is_recognised`,
+  `round_eight_path_qualified_command_wrapper_is_recognised`,
+  `packages/shim/tests/classify_invocation.rs`) — this is a named-test closure, not a mechanical
+  sweep closure, since the mechanical sweep only wraps a word in braces, never strips a path
+  prefix.
+- **The indeterminate flag/NAME positions** — a brace-wrapped `-S` (`env`), a brace-wrapped `-p`
+  (`command`), and a brace-wrapped `--unset` NAME argument (`env -u {PATH,}`). Closed by plan 03-35
+  Task 3 (the fail-closed extension inside C6, plus the narrow `resolve_segment_program_index`
+  widening for the `--unset` NAME position) and covered by a named Rust test
+  (`c6_indeterminate_flag_position_fails_closed`, `packages/shim/tests/classify_invocation.rs`).
+  The `env -u {PATH,} git push --force` shape is ALSO covered by the mechanical sweep (plan 03-36
+  Task 1) — it is the one brace variant the sweep generates on its own, because `PATH` is already a
+  `KEYED_WORDS` member — and is additionally asserted as an explicit `LAUNCHER_CORPUS` row (plan
+  03-36 Task 2(a)) so the shape is checked twice, by two independent mechanisms.
+
+**The status rule, restated because it is the thing most likely to be dropped.** All eight
+Phase-3 rows in `.planning/REQUIREMENTS.md` (`WORK-03`, `WORK-04`, `WORK-05`, `WORK-06`, `PROC-03`,
+`PROC-04`, `PROC-05`, `AGNT-07`) still read `Gaps Found` after plans 03-35 and 03-36 — that is the
+correct bookkeeping state, not an oversight. Section (c)'s re-mark of the seven siblings remains
+gated on a FRESH verification pass covering this gap closure (plans 03-35 and 03-36) reporting the
+phase clear, and when it happens it must follow section (d)'s discipline exactly: a line-scoped
+edit touching exactly those seven rows, never a shared-ID-blind marking verb, followed by a direct
+grep confirming `AGNT-07`'s own row is unchanged.
+
+No requirement status was changed by plan 03-35 or plan 03-36.
