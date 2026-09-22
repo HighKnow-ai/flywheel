@@ -1561,15 +1561,62 @@ function isKeyedIdentifierChar(ch) {
   return /^[A-Za-z0-9_]$/.test(ch);
 }
 
-/** The three split kinds `obfuscationVariants` applies, in the fixed order it applies them — an
- * adjacent empty double-quote pair, an adjacent empty single-quote pair, and a backslash escape.
- * Each is an ordinary shell mechanism a real shell resolves back into the word it splits: `e""val`,
- * `e''val` and `e\val` all resolve to `eval`. */
+/** The four split kinds `obfuscationVariants` applies. The first three INSERT characters inside a
+ * word — an adjacent empty double-quote pair, an adjacent empty single-quote pair, and a backslash
+ * escape — each an ordinary shell mechanism a real shell resolves back into the word it splits:
+ * `e""val`, `e''val` and `e\val` all resolve to `eval`. The fourth, `brace-expansion`, WRAPS the
+ * whole word instead of inserting inside it, which is why every entry carries an explicit
+ * `mechanism` discriminator (`"insert"` or `"wrap"`) rather than relying on the presence of an
+ * `insertion` string.
+ *
+ * The `brace-expansion` kind was added in round eight (plan 03-36) because its absence is exactly
+ * why round eight's own bypass — a brace-obfuscated `env`/`command` wrapper token, `{env,} -S "-P
+ * /tmp git push --force"` — was never produced mechanically the way round six's backslash-split
+ * `env` was: the sweep had no mechanism that WRAPS a keyed word, only mechanisms that split it. See
+ * `occurrenceIsCompleteShellWord` below for why this kind is generated only for a complete-word
+ * occurrence. */
 const OBFUSCATION_SPLIT_KINDS = [
-  { label: "empty-double-quote", insertion: '""' },
-  { label: "empty-single-quote", insertion: "''" },
-  { label: "backslash", insertion: "\\" },
+  { label: "empty-double-quote", insertion: '""', mechanism: "insert" },
+  { label: "empty-single-quote", insertion: "''", mechanism: "insert" },
+  { label: "backslash", insertion: "\\", mechanism: "insert" },
+  { label: "brace-expansion", mechanism: "wrap" },
 ];
+
+/** Mirrors the word-boundary characters a real shell treats as separating one word from the next:
+ * a string boundary (start/end of the command text), whitespace, a single quote, or a double quote.
+ * Used only by the wrap mechanism's own completeness guard below — the three insert mechanisms
+ * never needed this, since inserting inside a word never changes what stands immediately outside
+ * it. */
+function isShellWordBoundaryChar(ch) {
+  return ch === undefined || ch === "'" || ch === '"' || /\s/.test(ch);
+}
+
+/**
+ * True when the keyed word occurring at `[startIndex, startIndex + wordLength)` in `command` is a
+ * COMPLETE shell word — bounded on both sides by a string boundary, whitespace, or a quote
+ * character — rather than glued to a longer token.
+ *
+ * This guard is what keeps the brace kind's STRICT decision-invariance assertion truthful rather
+ * than asserting a shell equivalence that does not hold, and both measurements below were run live
+ * (D-63 — an echo payload, never a destructive command):
+ *
+ * - Where the occurrence is a complete word, the brace form expands to exactly one word — the word
+ *   itself. Measured: `for w in {env,}; do echo "[$w]"; done` prints a single iteration, `[env]` —
+ *   bash drops the empty alternative in word position. `bash -c '{env,} -S "echo hi"'` genuinely
+ *   runs `env`.
+ * - Where it is not — glued to a suffix, such as the `PATH=` prefix in
+ *   `PATH=/usr/bin git push --force` — the brace group produces a SECOND, non-empty word. Measured:
+ *   `echo {PATH,}=/usr/bin` prints `PATH= /usr/bin=`, two words, and `bash -c '{PATH,}=/usr/bin git
+ *   push --force'` reports `command not found: PATH=/usr/bin` — a DIFFERENT invocation, not an
+ *   obfuscation of the same one. Generating this second kind and asserting decision invariance for
+ *   it would assert something the shell does not do.
+ */
+function occurrenceIsCompleteShellWord(command, startIndex, wordLength) {
+  const before = startIndex === 0 ? undefined : command[startIndex - 1];
+  const afterIndex = startIndex + wordLength;
+  const after = afterIndex >= command.length ? undefined : command[afterIndex];
+  return isShellWordBoundaryChar(before) && isShellWordBoundaryChar(after);
+}
 
 /**
  * As `obfuscationVariants` below, but pairs each generated command string with a human-readable
@@ -1616,12 +1663,27 @@ function obfuscationVariantDetails(command, word) {
   for (const position of splitPositions) {
     const splitIndex = occurrenceIndex + position.offset;
     for (const kind of OBFUSCATION_SPLIT_KINDS) {
+      if (kind.mechanism !== "insert") continue;
       details.push({
         command: command.slice(0, splitIndex) + kind.insertion + command.slice(splitIndex),
         splitKind: `${kind.label} @ ${position.label}`,
       });
     }
   }
+
+  // The wrap mechanism (brace-expansion): unlike the insert mechanisms above, there is no split
+  // offset to vary — the whole matched occurrence is wrapped as one unit — and it is generated only
+  // when occurrenceIsCompleteShellWord holds, per that function's own doc comment.
+  for (const kind of OBFUSCATION_SPLIT_KINDS) {
+    if (kind.mechanism !== "wrap") continue;
+    if (!occurrenceIsCompleteShellWord(command, occurrenceIndex, wordLen)) continue;
+    details.push({
+      command:
+        command.slice(0, occurrenceIndex) + `{${word},}` + command.slice(occurrenceIndex + wordLen),
+      splitKind: `${kind.label} @ whole-word`,
+    });
+  }
+
   return details;
 }
 
@@ -1699,7 +1761,7 @@ function findKnownOpenBoundaryFailure(command, word, splitKind) {
 }
 
 test(
-  "decision invariance under obfuscation: splitting any keyed word in any LAUNCHER_CORPUS row's command text — by an empty double quote pair, an empty single quote pair, or a backslash — changes nothing about what the gate decides (WR-02)",
+  "decision invariance under obfuscation: splitting or brace-wrapping any keyed word in any LAUNCHER_CORPUS row's command text — by an empty double quote pair, an empty single quote pair, a backslash, or brace expansion — changes nothing about what the gate decides (WR-02, round eight)",
   { skip: SHIM_SKIP_REASON },
   () => {
     // WR-02 (03-REVIEW.md, closed plan 03-32 Task 3(a)): a same-length reorder of LAUNCHER_CORPUS
@@ -1722,6 +1784,22 @@ test(
       `GROUP_3_COMMANDS must hold at least seven rows, holds ${GROUP_3_COMMANDS.size}`,
     );
 
+    // Round eight (WR-02, 03-REVIEW.md): the fourth split kind and the word list it sweeps must
+    // both stay findable at their asserted floors — a future edit that quietly narrows either one
+    // is the cheapest way to make a found bypass stop being generated.
+    assert.ok(
+      OBFUSCATION_SPLIT_KINDS.length >= 4,
+      `OBFUSCATION_SPLIT_KINDS must hold at least four split kinds, holds ${OBFUSCATION_SPLIT_KINDS.length}`,
+    );
+    assert.ok(
+      OBFUSCATION_SPLIT_KINDS.some((kind) => kind.mechanism === "wrap"),
+      "OBFUSCATION_SPLIT_KINDS must carry at least one wrap-mechanism entry — a future edit dropped the brace-expansion kind while leaving the other count assertions passing",
+    );
+    assert.ok(
+      KEYED_WORDS.length >= 11,
+      `KEYED_WORDS must hold at least eleven words, holds ${KEYED_WORDS.length} — the sweep's whole value is that it is systematic, and shortening the word list is the cheapest way to make a found bypass stop being generated`,
+    );
+
     const shimDir = makeShimDir(["git", "rm"]);
     const env = {
       ...process.env,
@@ -1731,11 +1809,13 @@ test(
 
     const seenKnownFailures = new Set();
     let variantCount = 0;
+    let braceVariantCount = 0;
 
     for (const row of LAUNCHER_CORPUS) {
       for (const word of KEYED_WORDS) {
         for (const detail of obfuscationVariantDetails(row.command, word)) {
           variantCount += 1;
+          if (detail.splitKind.startsWith("brace-expansion")) braceVariantCount += 1;
           const { status, decision } = runHook(detail.command, env);
           const knownFailure = findKnownOpenBoundaryFailure(row.command, word, detail.splitKind);
           const expectDeny = knownFailure ? !knownFailure.measuredDefer : row.expect === "deny";
@@ -1770,6 +1850,16 @@ test(
     assert.ok(
       variantCount > 0,
       "the generator produced zero variants across the whole corpus — this test would prove nothing",
+    );
+
+    // Round eight (WR-02): the falsifiability companion for occurrenceIsCompleteShellWord itself —
+    // a complete-word guard that silently matches nothing must fail loudly, not pass vacuously. 30
+    // is a floor, not a target (see OBFUSCATION_SPLIT_KINDS's own doc comment for the arithmetic).
+    assert.ok(
+      braceVariantCount >= 30,
+      `the brace-expansion kind produced only ${braceVariantCount} variants (expected at least 30) — ` +
+        "a zero or near-zero count means occurrenceIsCompleteShellWord matched nothing and this sweep " +
+        "proved nothing about brace expansion",
     );
 
     // Falsifiability companion for the exception itself: if a future fix closes the gap, this row
