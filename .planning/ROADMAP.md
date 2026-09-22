@@ -378,7 +378,7 @@ Plans:
 
 **Wave 20** *(blocked on Wave 19 — the document-before-corpus-row ordering, enforced as a real `depends_on` rather than a comment)*
 
-- [ ] 03-34-PLAN.md — The brace corpus rows and their priced friction, WR-01's null and numeric payloads, and the requirements bookkeeping record (AGNT-07, WR-01)
+- [x] 03-34-PLAN.md — The brace corpus rows and their priced friction, WR-01's null and numeric payloads, and the requirements bookkeeping record (AGNT-07, WR-01)
 
 **Notes**: This phase exists as its own slice because two of the four ranked project-killers live
 here and each deserves a dedicated plan with its own tests rather than being buried in Phase 2.

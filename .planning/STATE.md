@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-33-PLAN.md (brace expansion named in trust-boundary doc first, WR-03 ruled, C3 gains fourth brace-adjacency mechanism; plan 03-34 carries the corpus rows)
-last_updated: "2026-09-22T01:39:55.312Z"
+stopped_at: Completed 03-34-PLAN.md (corpus carries the brace shapes and prices friction; WR-01 closed; 03-REQUIREMENTS-BOOKKEEPING.md recorded; AGNT-07 stays Gaps Found)
+last_updated: "2026-09-22T02:13:23.384Z"
 last_activity: 2026-09-22
 last_activity_desc: Phase 03 execution started
-state_head: ce1d08fc6d79f4482eede5c8e736620613157783
+state_head: 0e241b3644505a70e2298be3ddea0b84c43a8b9e
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 73
-  completed_plans: 72
+  completed_plans: 73
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 3 of 34
+Plan: 4 of 34
 Status: Ready to execute
 Last activity: 2026-09-22 — Phase 03 execution started
 
@@ -129,6 +129,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P31 | ~2h | 3 tasks | 3 files |
 | Phase 03 P32 | 36min | 3 tasks | 4 files |
 | Phase 03 P33 | 15min | 2 tasks | 3 files |
+| Phase 03 P34 | 32min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -250,6 +251,9 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-33: WR-03 ruling — C3 stays an enumeration (now four named mechanisms) rather than becoming a genuine inversion; a genuine inversion would flip `git add *.rs` to indeterminate and D-61's AND-gate would deny it, which ORDINARY_USAGE_CORPUS asserts must not happen. — Recorded as a measurement (the git add *.rs falsifiability row), not an opinion, with a written reopening trigger: a bypass shape assembled by a mechanism outside all four named ones.
 - [Phase 03]: 03-33: The brace-adjacency rule is deliberately asymmetric ({ backward-only, } forward-only), not symmetric like the glob rule, accepting xargs -I{} rm {} as priced friction rather than adding comma/matching-brace parsing. — The asymmetry keeps git add src/{a,b}.rs and mkdir -p src/{a,b} determinate while still catching al{i,}as and {gi,}t; a symmetric or comma-aware rule would either over-deny ordinary path braces or need a parser whose own soundness class would have to be documented.
 - [Phase 03]: 03-33: text_names_gated_program's false is narrowed to the word-bounded-literal class rather than repaired by folding indeterminacy into it. — Folding indeterminacy into namesGatedProgram was rejected because it would make an indeterminate eval "$(direnv hook bash)" report a gated program and start denying, destroying the Group 4 falsifiability companions.
+- [Phase 03]: [Phase 03] 03-34: brace-expansion corpus rows landed only after plan 03-33's document amendment, enforced by depends_on and Task 1's own precondition grep gate — no row added out of order.
+- [Phase 03]: [Phase 03] 03-34: xargs -I{} rm {} is an asserted, priced deny in ORDINARY_USAGE_CORPUS — the accepted friction of the asymmetric brace rule, recorded as a decision, not parsed away.
+- [Phase 03]: [Phase 03] 03-34: 03-REQUIREMENTS-BOOKKEEPING.md is a record only — no requirement status changed; all eight phase-3 rows (WORK-03..06, PROC-03..05, AGNT-07) still read Gaps Found.
 
 ### Pending Todos
 
@@ -269,6 +273,7 @@ None yet.
 - ⚠️ **[Phase 01] Process defect, will recur every phase needing human verification.** The verifier's `human_needed` branch writes `{phase}-UAT.md`, but `UAT.md` is also declared in `covered_files` and hashed into `covered_digest` — so a verification that asks for human testing invalidates its own fingerprint and reads `stale` forever after. `/gsd-verify-work` then routes to itself, which cannot clear it. Broken this round by regenerating verification with `status: passed` after UAT passed; the durable fix is to stop fingerprinting verify-step *outputs* as verification *inputs*.
 - ⚠️ **[Phase 03] Session-termination finding investigated — root-cause-identified (03-20/03-21).** 03-19's ~15-16s session-termination finding was root-caused by the dedicated follow-up spike it recommended: `03-SESSION-LIFECYCLE-FINDINGS.md` records **Disposition: root-cause-identified**, H1 CONFIRMED — the watchdog's own heartbeat-staleness kill (`DEFAULT_HEARTBEAT_STALE_MS=15000`) correctly reaped an unsupervised session (`--heartbeat=off`: terminated at `elapsed_ms=7397`, `closeOrigin: watchdog-heartbeat-stale`), while a production-shaped `--heartbeat=on` run sustained the block for the full 90s window with zero termination artifacts — the product was never at fault; the prior measurement harness was. Plan 03-21 took Branch B (harness-only doc fix; no change to `watchdog.ts`'s stale-kill condition) and added a repeatable acceptance command (`uat-06-permission-block-lifecycle.mjs --heartbeat=on --answer-after=60000 --decision=deny`, `honoured=true`) proving a supervised session survives a 60+ second unanswered destructive-gate block and honours the eventual answer. **AGNT-07 is NOT Complete**: a separate, broader bypass class was found afterwards (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`) and the requirement was walked back to Gaps Found in `db18b0e`. Still genuinely open per the findings document's own "What this does not claim": reproduction inside a packaged `.app` (only the dev-mode sidecar bundle was driven), on a machine other than the one measured, and against a `claude` version other than 2.1.267 remain untested; H1a (whether 03-19's specific `FLYWHEEL_HEARTBEAT_STALE_MS=120000` override reached the watchdog) was not directly retested with a non-default value.
 - AGNT-07 open: round-six destructive-gate bypass found live and non-destructively (env -S opaque-reparse defeated by backslash-split env, zero human confirmation for a nested altpath payload). See 03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md. Needs a round-seven plan before AGNT-07 can close.
+- [Phase 03] scripts/uat/run-all.sh failed 4/6 scriptable items (UAT 3, 5, 6a, 6b) when run once as plan 03-34's own end-of-phase regression gate. This plan's diff (test-corpus + docs only) cannot plausibly cause a live-claude-session failure; judged pre-existing flakiness matching the phase's repeated 03-24/03-26/03-29/03-30/03-32 pattern, per 03-34-SUMMARY.md. Next phase verification should judge whether this needs a dedicated live-session investigation before AGNT-07 closes. See WINDOWS.md entry 11.
 
 ### Quick Tasks Completed
 
@@ -291,6 +296,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-22T01:39:55.231Z
-Stopped at: Completed 03-33-PLAN.md (brace expansion named in trust-boundary doc first, WR-03 ruled, C3 gains fourth brace-adjacency mechanism; plan 03-34 carries the corpus rows)
+Last session: 2026-09-22T02:13:23.302Z
+Stopped at: Completed 03-34-PLAN.md (corpus carries the brace shapes and prices friction; WR-01 closed; 03-REQUIREMENTS-BOOKKEEPING.md recorded; AGNT-07 stays Gaps Found)
 Resume file: None

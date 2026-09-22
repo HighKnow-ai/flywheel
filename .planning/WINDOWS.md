@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 4
+open_count: 5
 waived_count: 0
 fixed_count: 6
-total_count: 10
-last_updated: 2026-09-15T08:11:47.167Z
+total_count: 11
+last_updated: 2026-09-22T02:12:43.740Z
 ---
 
 # Broken Windows Ledger
@@ -25,6 +25,7 @@ last_updated: 2026-09-15T08:11:47.167Z
 | 8 | 03 | deviation | packages/sidecar/test/adapter.test.mjs |  | ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Recorded by plan 03-13 as a deterministic clean-baseline failure, but the full sidecar suite was re-run twice by the execute-phase orchestrator at HEAD 4cb50f0 on a quiet machine and passed 55/55 both times. The original observation was transient (resource contention during concurrent test execution), not a defect. Closed as not-a-defect. | fixed |  | 2026-09-15T08:03:19.010Z | 2026-09-15T08:11:46.866Z |
 | 9 | 03 | deviation | packages/sidecar/test/permission.test.mjs |  | ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Recorded by plan 03-13 as reproducing on a clean baseline stash, but two consecutive quiet full-suite runs at HEAD 4cb50f0 passed 55/55 with no timeouts. The timeouts were load-dependent, not a sandbox constraint. Closed as not-a-defect. | fixed |  | 2026-09-15T08:03:19.166Z | 2026-09-15T08:11:47.015Z |
 | 10 | 03 | deviation | packages/sidecar/test |  | ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Plan 03-13 observed 38/55 and did not re-run. The execute-phase orchestrator re-ran the full sidecar suite twice at HEAD 4cb50f0: 55/55 pass, 0 fail, both times. The 16 failures were transient under concurrent load. Standing caveat kept for future readers: packages/sidecar/test/destructive-gate.test.mjs drives the real `claude` binary, so this suite spends real API budget per run and is sensitive to machine load. Closed as not-a-defect. | fixed |  | 2026-09-15T08:03:19.318Z | 2026-09-15T08:11:47.167Z |
+| 11 | 03 | deviation | scripts/uat/run-all.sh |  | Plan 03-34's own end-of-phase run-all.sh (verification step 6) FAILED 4/6 scriptable items (UAT 3, 5, 6a, 6b — all live-claude-session scripts unrelated to this plan's test-corpus/docs-only diff); judged pre-existing live-session flakiness matching the phase's own repeated 03-24/03-26/03-29/03-30/03-32 pattern, not chased; see 03-34-SUMMARY.md Issues Encountered | open |  | 2026-09-22T02:12:43.740Z |  |
 
 ````json
 [
@@ -147,6 +148,18 @@ last_updated: 2026-09-15T08:11:47.167Z
     "reason": "",
     "recorded_at": "2026-09-15T08:03:19.318Z",
     "resolved_at": "2026-09-15T08:11:47.167Z"
+  },
+  {
+    "id": 11,
+    "kind": "deviation",
+    "phase": "03",
+    "file": "scripts/uat/run-all.sh",
+    "line": null,
+    "description": "Plan 03-34's own end-of-phase run-all.sh (verification step 6) FAILED 4/6 scriptable items (UAT 3, 5, 6a, 6b — all live-claude-session scripts unrelated to this plan's test-corpus/docs-only diff); judged pre-existing live-session flakiness matching the phase's own repeated 03-24/03-26/03-29/03-30/03-32 pattern, not chased; see 03-34-SUMMARY.md Issues Encountered",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-22T02:12:43.740Z",
+    "resolved_at": null
   }
 ]
 ````
