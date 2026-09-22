@@ -526,14 +526,15 @@ fn uncategorized_deliberately_nonsensical_argument_vector() {
 // --- migration wiring ---
 
 #[test]
-fn migration_source_list_registers_the_destructive_gate_column_exactly_once_and_last() {
+fn migration_source_list_registers_the_destructive_gate_column_exactly_once() {
+    // Deviation (Rule 1): this test previously also asserted migration 0007 was the LAST
+    // registered migration and that exactly seven migrations existed — both became false the
+    // moment plan 04-01 appended `0008_session_summaries.sql` to the list. The
+    // exactly-once-registered assertion for `destructive_category` is unrelated to list length
+    // or position and remains meaningful; the length/position assertions are removed rather than
+    // hardcoded to a new number, so the next migration addition does not require touching this
+    // test again for a fact this test was never really about.
     let sources = core::db::migration_sources();
-    assert_eq!(sources.len(), 7, "expected exactly seven migrations registered");
-    let last = sources.last().expect("migration_sources() must be non-empty");
-    assert!(
-        last.contains("ALTER TABLE permission_requests ADD COLUMN destructive_category"),
-        "the seventh (last) migration must be 0007_destructive_gate.sql"
-    );
     let occurrences = sources.iter().filter(|s| s.contains("ADD COLUMN destructive_category")).count();
     assert_eq!(occurrences, 1, "destructive_category must be added by exactly one migration");
 }

@@ -21,6 +21,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::branch::{epic_integration_branch_name, task_branch_name};
+use crate::domain::session_summary::DecisionEntry;
 use crate::domain::worktree::worktree_root;
 
 /// One acceptance criterion entry, in rank order — statement plus its verification hint (D-05).
@@ -37,6 +38,22 @@ pub struct CriterionEntry {
 pub struct EpicSection {
     pub title: String,
     pub description: Option<String>,
+}
+
+/// One prior-session summary entry (D-65, CTX-01) — the packet's read-only projection of a
+/// `session_summaries` row, in the same field shape [`crate::domain::session_summary::SummaryFields`]
+/// was written with. Ordered oldest-first by [`assemble_context_packet`]'s own query, matching
+/// `session_summaries`' own `created_at ASC, id ASC` read order (CTX-04's stable tie-break).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SummaryEntry {
+    pub agent_run_id: String,
+    pub changed_files: Vec<String>,
+    pub changed_prose: Option<String>,
+    pub remains: Option<String>,
+    pub next_session_must_know: Option<String>,
+    pub decisions: Vec<DecisionEntry>,
+    pub auto_generated: bool,
+    pub created_at: String,
 }
 
 /// The branch/worktree facts the run will actually use (WORK-01/WORK-02) — the resolved row's
@@ -59,6 +76,7 @@ pub struct ContextPacket {
     pub task_description: Option<String>,
     pub epic: Option<EpicSection>,
     pub criteria: Vec<CriterionEntry>,
+    pub summaries: Vec<SummaryEntry>,
     pub worktree: WorktreeFacts,
 }
 
@@ -70,6 +88,10 @@ const EPIC_ROW_SQL: &str =
 
 const CRITERIA_SQL: &str = "SELECT statement, verification_hint FROM acceptance_criteria \
     WHERE parent_type = 'task' AND parent_id = ?1 ORDER BY rank ASC, id ASC";
+
+const SUMMARIES_SQL: &str = "SELECT agent_run_id, changed_files, changed_prose, remains, \
+    next_session_must_know, decisions, auto_generated, created_at FROM session_summaries \
+    WHERE task_id = ?1 ORDER BY created_at ASC, id ASC";
 
 const WORKTREE_ROW_SQL: &str = "SELECT branch, base_branch, path FROM worktrees WHERE task_id = ?1";
 
@@ -137,6 +159,31 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         .context("failed to read the task's acceptance criteria")?;
     drop(criteria_stmt);
 
+    let mut summaries_stmt = conn.prepare(SUMMARIES_SQL)?;
+    let summaries = summaries_stmt
+        .query_map(params![task_id], |row| {
+            let changed_files_json: String = row.get(1)?;
+            let decisions_json: String = row.get(5)?;
+            let auto_generated_int: i64 = row.get(6)?;
+            let changed_files: Vec<String> =
+                serde_json::from_str(&changed_files_json).unwrap_or_else(|_| Vec::new());
+            let decisions: Vec<DecisionEntry> =
+                serde_json::from_str(&decisions_json).unwrap_or_else(|_| Vec::new());
+            Ok(SummaryEntry {
+                agent_run_id: row.get(0)?,
+                changed_files,
+                changed_prose: row.get(2)?,
+                remains: row.get(3)?,
+                next_session_must_know: row.get(4)?,
+                decisions,
+                auto_generated: auto_generated_int != 0,
+                created_at: row.get(7)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the task's session summaries")?;
+    drop(summaries_stmt);
+
     let existing_worktree: Option<(String, String, String)> = conn
         .query_row(WORKTREE_ROW_SQL, params![task_id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -182,6 +229,7 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         task_description,
         epic,
         criteria,
+        summaries,
         worktree,
     })
 }
@@ -225,6 +273,46 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
                 out.push_str(" (Verify: ");
                 out.push_str(hint);
                 out.push(')');
+            }
+            out.push('\n');
+        }
+    }
+
+    if !packet.summaries.is_empty() {
+        out.push_str("\n## Prior Sessions\n\n");
+        for (i, summary) in packet.summaries.iter().enumerate() {
+            out.push_str("### Session ");
+            out.push_str(&(i + 1).to_string());
+            if summary.auto_generated {
+                out.push_str(" (auto-generated — no agent summary was recorded for this run)");
+            }
+            out.push('\n');
+
+            if !summary.changed_files.is_empty() {
+                out.push_str("Changed: ");
+                out.push_str(&summary.changed_files.join(", "));
+                out.push('\n');
+            }
+            if let Some(prose) = &summary.changed_prose {
+                out.push_str(prose);
+                out.push('\n');
+            }
+            if let Some(remains) = &summary.remains {
+                out.push_str("Remains: ");
+                out.push_str(remains);
+                out.push('\n');
+            }
+            if let Some(next) = &summary.next_session_must_know {
+                out.push_str("Next session must know: ");
+                out.push_str(next);
+                out.push('\n');
+            }
+            for decision in &summary.decisions {
+                out.push_str("- [");
+                out.push_str(&decision.id);
+                out.push_str("] ");
+                out.push_str(&decision.statement);
+                out.push('\n');
             }
             out.push('\n');
         }
