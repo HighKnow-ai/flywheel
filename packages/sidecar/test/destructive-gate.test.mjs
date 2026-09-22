@@ -2075,10 +2075,78 @@ const ORDINARY_USAGE_CORPUS = [
     command: 'git commit -m "the command {-p,} form"',
     expect: "deny",
     why:
-      "C6's own new priced class, asserted so the cost is a decision on the record rather than a surprise: it " +
-      "needs the literal word env or command immediately followed by a token carrying BOTH a brace-or-glob " +
-      "character AND a dash, in text that also names git or rm — which is why the two defer rows above are " +
-      "the ordinary cases and this is the contrived one",
+      "the INDETERMINATE-FLAG variant of round nine's corrected class (docs/destructive-gate-trust-boundary.md's " +
+      "## Round nine): the general class needs no obfuscation at all — the four deny rows below are its ordinary " +
+      "members — but this row exercises the fail-closed path for a token ({-p,}) standing where command's own " +
+      "flag belongs, whose word formation C3 cannot determine, in text that also names git",
+  },
+  {
+    command: 'git commit -m "document the command -p flag behavior"',
+    expect: "deny",
+    why:
+      "the verifier's own named representative of round nine's corrected class " +
+      "(docs/destructive-gate-trust-boundary.md's ## Round nine): the quoted commit message carries no brace, " +
+      "no glob and no obfuscation of any kind — it is one shell word, and C1's context-free quote removal " +
+      "re-tokenizes it so -p lands immediately after command, tripping C6's flag walk; the text also names " +
+      "git, so D-61 denies",
+  },
+  {
+    command: 'git commit -m "the env -i flag clears vars"',
+    expect: "deny",
+    why:
+      "the env half of round nine's corrected class — env is immediately followed by the recognised " +
+      "PATH-defeating flag -i once C1's quote removal re-tokenizes the quoted message, tripping C6; the text " +
+      "also names git, so D-61 denies. See docs/destructive-gate-trust-boundary.md's ## Round nine",
+  },
+  {
+    command: 'git commit -m "run env --help now"',
+    expect: "deny",
+    why:
+      "the widest and least obvious member of round nine's class: --help is an UNRECOGNISED env flag, and an " +
+      "unrecognised dash-prefixed token following env means the scanner cannot tell where env's own arguments " +
+      "end and fails closed — env's own recognised-flag set is OPEN (any dash-prefixed follower charges), " +
+      "unlike command's CLOSED set (-v/-V/-p only). See docs/destructive-gate-trust-boundary.md's ## Round nine",
+  },
+  {
+    command: 'git grep "command -p"',
+    expect: "deny",
+    why:
+      "a non-commit template pricing the class as a property of quoted arguments generally, not of " +
+      "git commit -m specifically: the quoted grep pattern re-tokenizes so -p lands immediately after command, " +
+      "tripping C6's flag walk; the text names git, so D-61 denies. See docs/destructive-gate-trust-boundary.md's " +
+      "## Round nine",
+  },
+  {
+    command: 'git commit -m "the command --help flag"',
+    expect: "defer",
+    why:
+      "command's own recognised-flag set is CLOSED (-v, -V, -p) — --help is unrecognised and command's walk " +
+      "steps over a lone unrecognised flag without firing, so the following ordinary word breaks the walk; " +
+      "this row proves the two wrappers charge different classes (env's set is open, command's is closed). " +
+      "See docs/destructive-gate-trust-boundary.md's ## Round nine",
+  },
+  {
+    command: 'git commit -m "the environment -i flag"',
+    expect: "defer",
+    why:
+      "the word-boundary rule still holds: environment does not word-contain env (an identifier character " +
+      "sits immediately after where env would end), so the wrapper is never recognised — this row proves the " +
+      "corrected class did not become a substring scan",
+  },
+  {
+    command: 'git commit -m "add --unset=PATH support to env"',
+    expect: "defer",
+    why:
+      "env is the LAST token in the quoted message, so nothing follows it to walk — this row proves the " +
+      "trigger is adjacency, not bare presence of the wrapper word",
+  },
+  {
+    command: 'grep -rn "env -i" packages',
+    expect: "defer",
+    why:
+      "C6 fires here (env is immediately followed by -i), but the text names neither git nor rm, so D-61's " +
+      "AND-gate never fires — this row proves the corrected class still cannot deny a text naming no gated " +
+      "program",
   },
 ];
 
@@ -2123,11 +2191,11 @@ test(
     }
 
     assert.ok(
-      ORDINARY_USAGE_CORPUS.length >= 17,
-      `ORDINARY_USAGE_CORPUS must hold at least seventeen rows, holds ${ORDINARY_USAGE_CORPUS.length}`,
+      ORDINARY_USAGE_CORPUS.length >= 25,
+      `ORDINARY_USAGE_CORPUS must hold at least twenty-five rows, holds ${ORDINARY_USAGE_CORPUS.length}`,
     );
-    assert.ok(deferCount >= 12, `expected at least twelve defer rows, counted ${deferCount}`);
-    assert.ok(denyCount >= 5, `expected at least five deny rows, counted ${denyCount}`);
+    assert.ok(deferCount >= 16, `expected at least sixteen defer rows, counted ${deferCount}`);
+    assert.ok(denyCount >= 9, `expected at least nine deny rows, counted ${denyCount}`);
   },
 );
 
