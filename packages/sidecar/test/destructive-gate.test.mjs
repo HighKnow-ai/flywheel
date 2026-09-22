@@ -1406,6 +1406,53 @@ const LAUNCHER_CORPUS = [
     expect: "deny",
     why: "command -p forces bash to search a hardcoded default PATH that can never contain the shim's shadow directory; invokedBareName forced false",
   },
+  {
+    command: '{env,} -S "-P /tmp git push --force"',
+    group: 2,
+    expect: "deny",
+    why:
+      "the reproduced round-eight payload (03-REVIEW.md's CR-01, 03-VERIFICATION.md's own three-way reproduction): the token " +
+      "{env,} contains a word-bounded env, so C6's containment recognises the wrapper where C5's token equality did not, the " +
+      "opaque -S flag follows, and D-61's AND-gate denies because the text also names git. BSD env -P's own alternate search " +
+      "path bypasses the shim's shadow directory entirely, so layer 2 provides no backstop for this shape and layer 1's scan " +
+      "is the only line — the same note the round-seven rows carry",
+  },
+  {
+    command: `sh -c '{env,} -S "-P /tmp git push --force"'`,
+    group: 2,
+    expect: "deny",
+    why:
+      "the nested form: the whole single-quoted payload arrives as one opaque token, so only a presence-anywhere scan over " +
+      "the quote-removed form can see the wrapper inside it",
+  },
+  {
+    command: "{command,} -p git push --force",
+    group: 2,
+    expect: "deny",
+    why:
+      "the second wrapper token of the same root cause: -p forces a hardcoded default search path that can never contain " +
+      "the shim's per-run shadow directory, an unconditional bypass independent of how correctly the shim's environment is " +
+      "wired",
+  },
+  {
+    command: '/usr/bin/env -S "-P /tmp git push --force"',
+    group: 2,
+    expect: "deny",
+    why:
+      "the PATH-QUALIFIED sibling, carrying NO obfuscation at all — found during plan 03-35's own planning pass and named " +
+      "in neither 03-REVIEW.md nor 03-VERIFICATION.md; deferred at HEAD before C6, because program_stem strips a path " +
+      "prefix for the PROGRAM token while no site ever stripped one for a WRAPPER token until C6's boundary rule made / a " +
+      "boundary character",
+  },
+  {
+    command: "env -u {PATH,} git push --force",
+    group: 2,
+    expect: "deny",
+    why:
+      "the indeterminate --unset NAME argument: whether the brace form names PATH cannot be decided without brace-group " +
+      "parsing the boundary document refuses, so the NAME position fails closed; this is the one of the brace variants " +
+      "the obfuscation sweep generates on its own, because PATH is already a KEYED_WORDS member",
+  },
 
   // --- Group 3: the shadow shapes, each wrapped in a launcher so the verdict lands on the SAFE
   // branch — the set only D-61 catches, and the set no prior round covered at all. All deny: the
@@ -1539,6 +1586,27 @@ const LAUNCHER_CORPUS = [
       "the rm counterpart of the row above — same reasoning: namesGatedProgram is false, D-61's AND never " +
       "fires. /tmp/nonexistent-x is a string inside the classification payload only — never created, touched " +
       "or removed by this test",
+  },
+  {
+    command: "env {git,} push --force",
+    group: 4,
+    expect: "defer",
+    why:
+      "a brace-bearing token carrying no dash stands at the PROGRAM position, not the flag position, so C6's " +
+      "dash-carrying requirement correctly declines to fire; the real shell performs an ordinary search and " +
+      "reaches the shim's own shadow entry, which is Layer 2's job, not Layer 1's — this is the row that " +
+      "proves C6 did not become a brace-presence rule",
+  },
+  {
+    command: "{command,} -v git",
+    group: 4,
+    expect: "defer",
+    why:
+      "the query flags never execute their argument, so C6 must not fire on them; the unobfuscated " +
+      "command -v git is both this corpus's own Group 4 companion and a live resolution probe inside " +
+      "scripts/uat/uat-05-concurrent-commits.mjs. The obfuscation sweep also generates this exact string from " +
+      "the existing command -v git row — the agreement between the generated variant and this explicit row " +
+      "is the point rather than a redundancy to delete",
   },
 ];
 
@@ -1979,6 +2047,39 @@ const ORDINARY_USAGE_CORPUS = [
       "indeterminate, and the text names rm — a deliberate cost accepted in preference to adding brace-group " +
       "parsing, per the WR-03 ruling in docs/destructive-gate-trust-boundary.md",
   },
+  {
+    command: 'git commit -m "add {foo}bar support"',
+    expect: "deny",
+    why:
+      "WR-01's own measured class (03-REVIEW.md): C3's letter-adjacency cost from plan 03-33 (the brace opens " +
+      "immediately after a letter run inside the quoted message), materially more common than the single " +
+      "placeholder row the brace rule's own doc comment prices — the trust-boundary document's friction " +
+      "paragraph now names it explicitly rather than leaving the gap between the priced and the actual cost " +
+      "to persist silently",
+  },
+  {
+    command: 'git commit -m "fix the command parser"',
+    expect: "defer",
+    why:
+      "the falsifiability companion proving C6 is NOT a bare-presence scan: the token containing the word " +
+      "command is followed by an ordinary word, not by a dash-prefixed or indeterminate flag, so C6's walk " +
+      "breaks without firing. A bare-presence scan would have denied this row AND command -v git, which is " +
+      "why C6 promotes the TOKEN match while keeping C5's flag qualification",
+  },
+  {
+    command: 'git commit -m "set env vars"',
+    expect: "defer",
+    why: "the same falsifiability companion for the env wrapper — an ordinary word follows env, so C6's flag-qualification walk never fires",
+  },
+  {
+    command: 'git commit -m "the command {-p,} form"',
+    expect: "deny",
+    why:
+      "C6's own new priced class, asserted so the cost is a decision on the record rather than a surprise: it " +
+      "needs the literal word env or command immediately followed by a token carrying BOTH a brace-or-glob " +
+      "character AND a dash, in text that also names git or rm — which is why the two defer rows above are " +
+      "the ordinary cases and this is the contrived one",
+  },
 ];
 
 test(
@@ -2022,11 +2123,11 @@ test(
     }
 
     assert.ok(
-      ORDINARY_USAGE_CORPUS.length >= 12,
-      `ORDINARY_USAGE_CORPUS must hold at least twelve rows, holds ${ORDINARY_USAGE_CORPUS.length}`,
+      ORDINARY_USAGE_CORPUS.length >= 17,
+      `ORDINARY_USAGE_CORPUS must hold at least seventeen rows, holds ${ORDINARY_USAGE_CORPUS.length}`,
     );
-    assert.ok(deferCount >= 7, `expected at least seven defer rows, counted ${deferCount}`);
-    assert.ok(denyCount >= 3, `expected at least three deny rows, counted ${denyCount}`);
+    assert.ok(deferCount >= 12, `expected at least twelve defer rows, counted ${deferCount}`);
+    assert.ok(denyCount >= 5, `expected at least five deny rows, counted ${denyCount}`);
   },
 );
 
@@ -2043,6 +2144,13 @@ test(
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
     };
+
+    // Round eight (Task 2(d)): the corpus must not silently shrink — it had no total row-count
+    // floor before this plan.
+    assert.ok(
+      LAUNCHER_CORPUS.length >= 42,
+      `LAUNCHER_CORPUS must hold at least forty-two rows, holds ${LAUNCHER_CORPUS.length}`,
+    );
 
     for (const row of LAUNCHER_CORPUS) {
       assert.ok(
@@ -2516,6 +2624,8 @@ test(
       "C2 — union matching",
       "C3 — indeterminate word formation",
       "C4 — the bare-name fact",
+      "C5 — an opaque `env` re-parse",
+      "C6 — a PATH-defeating wrapper token",
     ];
     for (const anchor of cContractAnchors) {
       assert.ok(
@@ -2564,12 +2674,14 @@ test(
       .filter((line) => !/^\|\s*-+\s*\|/.test(line.trim()))
       .slice(1); // the first remaining "|...|" row is the table's own header row.
     assert.ok(
-      residualRows.length >= 6,
-      `expected at least 6 rows in the "Named residuals" table, found ${residualRows.length} — the ` +
+      residualRows.length >= 7,
+      `expected at least 7 rows in the "Named residuals" table, found ${residualRows.length} — the ` +
         "residuals table has shrunk below the bar D-62 item 3 (as widened by plan 03-29, round " +
-        "five) requires: sudo's secure_path, an indirection-hidden shadow construct, internal git " +
-        "housekeeping outside the Bash matcher, macOS-only measurement, a keyword assembled outside " +
-        "C1 and C3, and a shadow installed by an earlier tool call, at minimum",
+        "five, and again by plan 03-35, round eight) requires: sudo's secure_path, an " +
+        "indirection-hidden shadow construct, internal git housekeeping outside the Bash matcher, " +
+        "macOS-only measurement, a keyword assembled outside C1 and C3, a shadow installed by an " +
+        "earlier tool call, and (the seventh row, plan 03-35) a wrapper NAME assembled across " +
+        "separate brace groups, at minimum",
     );
 
     assert.ok(
