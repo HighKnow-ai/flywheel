@@ -131,3 +131,70 @@ edit touching exactly those seven rows, never a shared-ID-blind marking verb, fo
 grep confirming `AGNT-07`'s own row is unchanged.
 
 No requirement status was changed by plan 03-35 or plan 03-36.
+
+## (g) Round nine — the coverage map for this gap closure
+
+**The gap, in one sentence.** The trust-boundary document's C6 friction claim was narrower than
+C6's measured behaviour: an ordinary, non-obfuscated quoted argument mentioning a recognised
+wrapper flag right after `env`/`command` denies too, not only an obfuscated brace/glob token
+standing at a wrapper's flag position, as the document previously claimed.
+
+**The branch decision and its rationale, in short form.** Branch (b) — accept the over-trigger,
+correct the claim, price it — chosen over branch (a) (narrowing the predicate to compute adjacency
+within a token's original quoted span). Branch (a) is unsound, not merely costlier: the nested
+`sh -c 'env -S "..."'` shapes rounds seven and eight closed reach C6 through the exact same
+quote-internal adjacency the prose false positive depends on, so a rule that silences the false
+positive silences those closed bypasses too. No syntactic property distinguishes a quoted shell
+payload from a quoted commit message, and enumerating outer programs to supply one is banned by
+D-59. Full rationale in `docs/destructive-gate-trust-boundary.md`'s own `## Round nine` section.
+
+**The coverage map: which plan covered which half of `03-VERIFICATION.md`'s `missing:` item.**
+
+| Half of the gap | Covered by |
+|---|---|
+| The corrected document claim, C6's widened soundness-class paragraph, the branch decision and rejected alternative, and the classifier-level Rust tests bounding the corrected class from both sides | Plan 03-37 (all tasks) |
+| The priced `ORDINARY_USAGE_CORPUS` rows (four deny, four defer) pricing the corrected class through the real hook, and the corrected `why` on the pre-existing brace-flag row | Plan 03-38 Task 1 |
+| The prose-shape generator (`PROSE_FRICTION_SHAPES`, `PROSE_FRICTION_TEMPLATES`, `proseFrictionVariants`) that mechanically produces the class round nine found by hand | Plan 03-38 Task 2 |
+| The document-to-corpus class gate (`FRICTION_CLASSES`) and the structural-gate's round-nine anchors (heading pin, raised Named-residuals floor) | Plan 03-38 Task 3 |
+
+**The structural blind spot, and how it was closed.** `obfuscationVariants` generates every
+variant from `LAUNCHER_CORPUS.map((row) => row.command)` — real invocations — so it structurally
+cannot reach a prose-in-quotes shape no matter how many split kinds it gains; that is why round
+nine's class was found by a human reading `main.rs`, not by the sweep. Two mechanisms close this in
+response: `PROSE_FRICTION_SHAPES` (plan 03-38 Task 2) is a second, sibling generator over prose
+shapes (wrapper + follower), independent of any corpus row, so the same class is now produced
+mechanically; `FRICTION_CLASSES` (plan 03-38 Task 3) binds every friction class the trust-boundary
+document names to a corpus row of that exact shape, so a class can no longer be claimed in the
+document without a row pricing it, nor priced without a claim naming it — the absence of exactly
+this binding is what let round nine's false claim land undetected.
+
+**A note on the document's own shape, recorded so a future reader is not confused by the plan's
+own wording.** `03-38-PLAN.md`'s Task 3 instructions describe anchoring two `FRICTION_CLASSES` rows
+to "the corrected third bullet" and "the new fourth bullet" of the friction-accounting list. In
+fact plan 03-37 corrected the THIRD bullet in place to state the general, corrected class directly
+(`03-37-SUMMARY.md`: "corrected the friction accounting's third bullet ... to the measured class")
+rather than adding a separate fourth bullet — consistent with this plan's own
+`assumption_delta_decision`, which promotes the general wrapper-flag-adjacency class to primary and
+demotes the brace/indeterminate form to a variant described inside it, not a sibling class. The
+`FRICTION_CLASSES` `c6-corrected` and `plain-prose-wrapper-flag-adjacency` rows are both genuinely
+present and both anchor into text that exists in the document today — `c6-corrected` into the
+friction-accounting bullet's own lead-in, `plain-prose-wrapper-flag-adjacency` into a distinct
+sentence inside the `## Round nine` narrative section — so the gate still asserts two independently
+locatable anchors, just not two separate bullets. This is a Rule 1/3-class deviation from the
+plan's literal wording, not from its intent, and is also recorded in `03-38-SUMMARY.md`'s own
+Deviations section.
+
+**Restated: §(c)'s gate and §(d)'s caution, unchanged in substance.** The seven sibling IDs
+(`WORK-03`, `WORK-04`, `WORK-05`, `WORK-06`, `PROC-03`, `PROC-04`, `PROC-05`) are re-marked
+`Complete` only once the phase as a whole clears verification — never by this file, never by an
+individual gap-closure plan's own SUMMARY. When that re-marking happens, it must be a
+**line-scoped edit** of exactly those seven rows in `.planning/REQUIREMENTS.md`, never a
+shared-ID-blind marking verb, followed by a **direct grep** confirming
+`| AGNT-07 | Phase 3 | Gaps Found |` is unchanged — `requirements.mark-complete` has no shared-ID
+gate and has wrongly flipped `AGNT-07` before (plan 03-26).
+
+**No requirement status was changed by this plan.** All eight Phase-3 rows in
+`.planning/REQUIREMENTS.md` (`WORK-03`, `WORK-04`, `WORK-05`, `WORK-06`, `PROC-03`, `PROC-04`,
+`PROC-05`, `AGNT-07`) still read `Gaps Found` after plans 03-37 and 03-38 — that is the correct
+bookkeeping state, not an oversight, confirmed by direct grep of `.planning/REQUIREMENTS.md` at
+HEAD as part of this plan's own verify block.

@@ -2862,6 +2862,96 @@ function resolveTrustBoundaryDocForTest() {
   return path.join(workspaceRoot, "docs", "destructive-gate-trust-boundary.md");
 }
 
+// --- FRICTION_CLASSES (plan 03-38 Task 3): the document-to-corpus binding round nine's false
+// claim exposed was missing. "## The rule for round six" already requires the document be amended
+// BEFORE a new corpus row lands; this gate checks the reverse direction too — a friction class
+// claimed in the document with no corpus row pricing it, which is exactly the failure round nine
+// was. Needs neither the shim binary nor the backend (it reads a document and an array), so it
+// carries no skip condition, matching the structural gate immediately below. ---
+
+/** One row per friction class `docs/destructive-gate-trust-boundary.md`'s friction-accounting
+ * section names. `docAnchor` is a short literal that must appear in the document; `representative`
+ * is the exact `command` string of an `ORDINARY_USAGE_CORPUS` row of that class.
+ *
+ * The third and fourth rows below both anchor into the SAME friction-accounting bullet
+ * ("C6's own class, corrected in round nine") because that is genuinely what
+ * `docs/destructive-gate-trust-boundary.md`'s round nine correction did: it corrected the
+ * THIRD bullet in place to state the general, corrected class directly (03-37-SUMMARY.md: "corrected
+ * the friction accounting's third bullet ... to the measured class") rather than adding a separate
+ * fourth bullet — matching this plan's own `assumption_delta_decision`, which promotes the general
+ * wrapper-flag-adjacency class to primary and demotes the brace/indeterminate form to a variant
+ * described inside it, rather than a sibling class. The fourth row's own anchor is therefore drawn
+ * from the "## Round nine" narrative section instead, which states the plain-prose member of that
+ * same class in its own distinct sentence — a real, separately-locatable anchor, not a duplicate of
+ * the third row's. */
+const FRICTION_CLASSES = [
+  {
+    id: "dollar-backtick",
+    docAnchor: "The `$`/backtick class, unchanged since plan 03-30",
+    representative: 'git commit -m "$(date +%F)"',
+    expect: "deny",
+    why: "the $/backtick command-substitution class C3 has denied since plan 03-30, unchanged by round nine",
+  },
+  {
+    id: "letter-adjacent-brace",
+    docAnchor: "The ordinary letter-adjacent brace class",
+    representative: 'git commit -m "add {foo}bar support"',
+    expect: "deny",
+    why: "WR-01's measured class (03-REVIEW.md): C3's letter-adjacency cost from plan 03-33, priced since plan 03-34",
+  },
+  {
+    id: "c6-corrected",
+    docAnchor: "C6's own class, corrected in round nine",
+    representative: 'git commit -m "the command {-p,} form"',
+    expect: "deny",
+    why: "the indeterminate-flag variant of C6's own corrected class, exercising the fail-closed path",
+  },
+  {
+    id: "plain-prose-wrapper-flag-adjacency",
+    docAnchor: "plain-prose quoted commit message that merely MENTIONS a recognised",
+    representative: 'git commit -m "document the command -p flag behavior"',
+    expect: "deny",
+    why: "round nine's own named representative — no brace, no glob, no obfuscation of any kind",
+  },
+];
+
+test(
+  "FRICTION_CLASSES: a friction class named in the trust-boundary document must have a corpus row of that exact shape, and vice versa",
+  () => {
+    assert.ok(
+      FRICTION_CLASSES.length >= 4,
+      `FRICTION_CLASSES must hold at least four rows, holds ${FRICTION_CLASSES.length}`,
+    );
+
+    const docPath = resolveTrustBoundaryDocForTest();
+    const content = fs.readFileSync(docPath, "utf8");
+
+    for (const row of FRICTION_CLASSES) {
+      assert.ok(
+        typeof row.why === "string" && row.why.length > 0,
+        `every FRICTION_CLASSES row must carry a non-empty why: ${row.id}`,
+      );
+      assert.ok(
+        content.includes(row.docAnchor),
+        `docs/destructive-gate-trust-boundary.md no longer contains the anchor "${row.docAnchor}" for ` +
+          `friction class "${row.id}" — the document has stopped naming a class the corpus prices, so the ` +
+          "corpus is pricing something the document no longer claims",
+      );
+      const matches = ORDINARY_USAGE_CORPUS.filter(
+        (corpusRow) => corpusRow.command === row.representative && corpusRow.expect === row.expect,
+      );
+      assert.equal(
+        matches.length,
+        1,
+        `expected exactly one ORDINARY_USAGE_CORPUS row with command "${row.representative}" and ` +
+          `expect "${row.expect}" for friction class "${row.id}" (found ${matches.length}) — the document ` +
+          "names a friction class with no corpus row of that exact shape, which is the unpriced-friction " +
+          "failure round nine was",
+      );
+    }
+  },
+);
+
 test(
   "the recorded trust boundary (docs/destructive-gate-trust-boundary.md) still names all three layers, their residuals and the files that implement them — D-62 item 3's structural gate",
   () => {
@@ -2911,6 +3001,9 @@ test(
     const roundFiveHeadings = [
       "## Round five — the counterexample that made Layer 1's claim false",
       "## What Layer 1's raw-text scan is trusted to prove after round five",
+      // Round nine (plan 03-37/03-38): pinned alongside round five's own headings so the
+      // C6 friction correction cannot rot out of the document silently.
+      "## Round nine — the C6 friction claim was narrower than C6's own behaviour",
     ];
     for (const heading of roundFiveHeadings) {
       assert.ok(
@@ -2976,14 +3069,15 @@ test(
       .filter((line) => !/^\|\s*-+\s*\|/.test(line.trim()))
       .slice(1); // the first remaining "|...|" row is the table's own header row.
     assert.ok(
-      residualRows.length >= 7,
-      `expected at least 7 rows in the "Named residuals" table, found ${residualRows.length} — the ` +
+      residualRows.length >= 8,
+      `expected at least 8 rows in the "Named residuals" table, found ${residualRows.length} — the ` +
         "residuals table has shrunk below the bar D-62 item 3 (as widened by plan 03-29, round " +
-        "five, and again by plan 03-35, round eight) requires: sudo's secure_path, an " +
-        "indirection-hidden shadow construct, internal git housekeeping outside the Bash matcher, " +
-        "macOS-only measurement, a keyword assembled outside C1 and C3, a shadow installed by an " +
-        "earlier tool call, and (the seventh row, plan 03-35) a wrapper NAME assembled across " +
-        "separate brace groups, at minimum",
+        "five, plan 03-35, round eight, and again by plan 03-37, round nine) requires: sudo's " +
+        "secure_path, an indirection-hidden shadow construct, internal git housekeeping outside the " +
+        "Bash matcher, macOS-only measurement, a keyword assembled outside C1 and C3, a shadow " +
+        "installed by an earlier tool call, a wrapper NAME assembled across separate brace groups " +
+        "(plan 03-35), and (the eighth row, plan 03-37) the declined co-location narrowing that " +
+        "would have closed WR-A's false positive, at minimum",
     );
 
     assert.ok(
