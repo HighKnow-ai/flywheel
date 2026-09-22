@@ -1002,6 +1002,20 @@ fn raw_text_contains_word(chars: &[char], word: &str) -> bool {
 /// false positive costs one deny on a command that mentions a gated program; a false negative
 /// costs an ungated force-push.
 ///
+/// **Soundness class, narrowed by CR-01/plan 03-33
+/// (`docs/destructive-gate-trust-boundary.md`):** a `false` means neither `git` nor `rm` appears
+/// as a word-bounded literal in the raw text or in [`shell_quote_removed`]'s output — and NOTHING
+/// MORE. It does NOT mean the shell will not FORM one of those words: `{gi,}t push --force`
+/// classifies `namesGatedProgram:false` (no contiguous literal `git`), even though bash resolves
+/// the first word to the literal `git` via ordinary brace expansion this function never models —
+/// confirmed live, `echo {gi,}t push --force` prints `git t push --force`. C3's brace-adjacency
+/// trigger (`raw_text_word_formation_is_indeterminate`) does NOT repair this claim: it feeds
+/// `textCanShadowPathResolution`, never this function's own `namesGatedProgram`. Folding
+/// indeterminacy into THIS function was considered and rejected — it would make an indeterminate
+/// `eval "$(direnv hook bash)"` report a gated program and start denying, destroying the Group 4
+/// falsifiability companions the whole corpus depends on. This residual is carried, not silently
+/// closed — see the trust-boundary document's `## Named residuals` table.
+///
 /// **C2 — union matching over the raw text and the quote-removed text**
 /// (`docs/destructive-gate-trust-boundary.md`): the name is matched against BOTH the raw
 /// characters and [`shell_quote_removed`]'s output, and a match in either form is a match — round
@@ -1049,18 +1063,43 @@ fn raw_text_can_shadow_path_resolution(text: &str) -> bool {
 }
 
 /// **C3 — indeterminate word formation reports "can shadow"**
-/// (`docs/destructive-gate-trust-boundary.md`): operates on [`shell_quote_removed`]'s output and
-/// returns `true` when that text contains a `$` or a backtick anywhere, or contains a `*`, `?` or
-/// `[` with an ASCII alphanumeric character or `_` ([`is_identifier_char`], shared with
-/// [`raw_text_contains_word`] so the two scanners agree on what counts as a letter run) immediately
-/// before it or immediately after it.
+/// (`docs/destructive-gate-trust-boundary.md`, WR-03 ruling): a CLOSED, POSITIVE ENUMERATION of
+/// four NAMED bash word-formation mechanisms — not a general inversion. Operates on
+/// [`shell_quote_removed`]'s output and returns `true` when that text contains: (1) a `$` anywhere
+/// (parameter expansion, command substitution, arithmetic expansion, ANSI-C `$'…'` quoting); (2) a
+/// backtick anywhere (command substitution); (3) a `*`, `?` or `[` immediately adjacent — before OR
+/// after — to an ASCII alphanumeric character or `_` ([`is_identifier_char`], shared with
+/// [`raw_text_contains_word`] so the two scanners agree on what counts as a letter run) — pathname
+/// globbing that can complete a keyword; or (4) — added by plan 03-33, closing CR-01 — a `{`
+/// immediately PRECEDED BY an [`is_identifier_char`], or a `}` immediately FOLLOWED BY an
+/// [`is_identifier_char`] — brace expansion that can weld its alternatives onto an adjacent letter
+/// run (`al{i,}as` expands to `alias alas`, measured live to genuinely define a shell alias under
+/// `expand_aliases`).
+///
+/// This enumeration explicitly does NOT cover tilde expansion, process substitution's own
+/// `<(`/`>(` forms, or any future word-formation construct outside this named list. A mechanism
+/// outside the four is a boundary failure (`docs/destructive-gate-trust-boundary.md`'s "The rule
+/// for round six"), not a gap this function silently excuses.
 ///
 /// This function never claims a shadow construct was FOUND — it reports that the scan CANNOT
 /// DETERMINE what words the shell will form, and the field it feeds answers "cannot prove" rather
-/// than "absent", which is the correction round five forced. The adjacency rule's purpose: a glob
-/// that interrupts a run of letters can be completed into a keyword by a filename in the working
+/// than "absent", which is the correction round five forced. The glob rule's purpose: a glob that
+/// interrupts a run of letters can be completed into a keyword by a filename in the working
 /// directory, while a glob sitting next to a dot or a slash is an ordinary path pattern and must
-/// stay deferrable — or the gate would refuse `git add` on a wildcard.
+/// stay deferrable — or the gate would refuse `git add` on a wildcard (the WR-03 falsifiability
+/// row: `git add *.rs` must still defer, proving C3 was not silently turned into a genuine
+/// inversion).
+///
+/// The brace rule is DELIBERATELY ASYMMETRIC — `{` looks BACKWARD only, `}` looks FORWARD only —
+/// unlike the glob rule's symmetric "before or after" test, and requires no comma or `..` inside
+/// the group. This asymmetry is what keeps `git add src/{a,b}.rs` and `mkdir -p src/{a,b}`
+/// determinate (their `{`/`}` sit next to `/` and `.`, never a letter) while still catching
+/// `al{i,}as` and `{gi,}t`. A symmetric rule would fire on both of those ordinary path-brace
+/// idioms; a comma requirement would need a matching-brace scan whose own soundness class would
+/// then have to be written into the trust-boundary document — the parser this contract exists to
+/// avoid. Accepted, priced friction from this asymmetric rule: `xargs -I{} rm {}` moves from
+/// `false` to `true` because `{` immediately follows `I` — recorded here as a decision, not parsed
+/// away with brace-group matching.
 fn raw_text_word_formation_is_indeterminate(text: &str) -> bool {
     let quote_removed: Vec<char> = shell_quote_removed(text).chars().collect();
     if quote_removed.contains(&'$') || quote_removed.contains(&'`') {
@@ -1073,6 +1112,14 @@ fn raw_text_word_formation_is_indeterminate(text: &str) -> bool {
         let before_is_letter = i > 0 && is_identifier_char(quote_removed[i - 1]);
         let after_is_letter = i + 1 < quote_removed.len() && is_identifier_char(quote_removed[i + 1]);
         if before_is_letter || after_is_letter {
+            return true;
+        }
+    }
+    for (i, &c) in quote_removed.iter().enumerate() {
+        if c == '{' && i > 0 && is_identifier_char(quote_removed[i - 1]) {
+            return true;
+        }
+        if c == '}' && i + 1 < quote_removed.len() && is_identifier_char(quote_removed[i + 1]) {
             return true;
         }
     }

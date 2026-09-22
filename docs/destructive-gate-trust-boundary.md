@@ -187,7 +187,7 @@ closed allowlist of characters — under which `git add *.rs` becomes indetermin
 fires because the text also names `git`, and an ordinary `git add` on a wildcard is DENIED.
 `ORDINARY_USAGE_CORPUS` asserts that row defers today, and this document already records that
 outcome as unacceptable. Turning C3 into a genuine inversion is therefore not a code fix but the
-product-scope change `## What was deliberately not done` (below) already deferred ("inverting the
+product-scope change the "What was deliberately not done" section (below) already deferred ("inverting the
 classifier's default … turns a narrow `git`/`rm` gate into general command allow-listing").
 **Reopening trigger:** a bypass shape assembled by a word-formation mechanism outside all four named
 ones — at that point the enumeration premise has failed for the second time and the allowlist
@@ -205,7 +205,7 @@ C3's new brace-adjacency trigger does NOT repair this claim: C3 feeds `textCanSh
 never `namesGatedProgram`, and folding indeterminacy into `namesGatedProgram` was considered and
 rejected — it would make an indeterminate `eval "$(direnv hook bash)"` report a gated program and
 start denying, destroying the Group 4 falsifiability companions the whole corpus depends on. This
-residual is carried, not silently closed — see `## Named residuals` below.
+residual is carried, not silently closed — see the "Named residuals" table below.
 
 `**C4 — the bare-name fact resolves quoting but never refuses on indeterminacy.**` The non-safe
 branch's own fact, `invokedBareName`, is widened by C1's quote removal and by nothing else. A shadow
