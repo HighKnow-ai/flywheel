@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-35-PLAN.md (C6 closes round-eight env/command wrapper-token word-formation bypass; AGNT-07 stays Gaps Found, closure completed by 03-36)
-last_updated: "2026-09-22T04:42:02.437Z"
+stopped_at: Completed 03-36-PLAN.md (round-eight gap closure complete — brace-expansion sweep, corpus + friction pricing, requirements-bookkeeping coverage map; AGNT-07 and the seven siblings stay Gaps Found pending fresh phase verification)
+last_updated: "2026-09-22T05:19:22.209Z"
 last_activity: 2026-09-22
 last_activity_desc: Phase 03 execution started
-state_head: 93d3c5cb3d8b745d38aa6a2004074f0aa8d2edc7
+state_head: dfe15d0ce842b15880db1d6185a8d3f73262bf7d
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 75
-  completed_plans: 74
+  completed_plans: 75
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 2 of 36
+Plan: 3 of 36
 Status: Ready to execute
 Last activity: 2026-09-22 — Phase 03 execution started
 
@@ -131,6 +131,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P33 | 15min | 2 tasks | 3 files |
 | Phase 03 P34 | 32min | 3 tasks | 2 files |
 | Phase 03 P35 | 30min | 3 tasks | 3 files |
+| Phase 03 P36 | 45min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -257,6 +258,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-34: 03-REQUIREMENTS-BOOKKEEPING.md is a record only — no requirement status changed; all eight phase-3 rows (WORK-03..06, PROC-03..05, AGNT-07) still read Gaps Found.
 - [Phase 03]: [Phase 03] 03-35: C6 promotes wrapper-token recognition (env/command) from exact-token-equality to word-boundary containment, superseding C5 — Four rounds (five through eight) each closed the SPELLING someone happened to test because env/command were recognised by string equality while git/rm and the six KEYWORD_TRIGGERS were recognised by character-level word-boundary scanning; C6 generalises the mechanism, not the spelling list.
 - [Phase 03]: [Phase 03] 03-35: resolve_segment_program_index's -u/--unset NAME handling widened to fail closed on an indeterminate NAME token (deviation, Rule 1) — A Destructive verdict's JSON never carries textCanShadowPathResolution at all, so C6 alone cannot make env -u {PATH,} git push --force satisfy its own acceptance criterion without this narrow, symmetric widening.
+- [Phase 03]: [Phase 03] 03-36: brace split kind added to OBFUSCATION_SPLIT_KINDS (mechanism: wrap vs insert) mechanically generates round-eight's {env,} CR-01 payload from the existing corpus row, guarded by occurrenceIsCompleteShellWord so a brace group glued to a suffix (PATH=) is never generated as an equivalent variant
+- [Phase 03]: [Phase 03] 03-36: 03-REQUIREMENTS-BOOKKEEPING.md section (f) records round eight's coverage map — all four 03-VERIFICATION.md missing: items covered by 03-35/03-36 — with no requirement status changed; all eight Phase-3 rows still read Gaps Found
 
 ### Pending Todos
 
@@ -299,6 +302,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-22T04:42:02.342Z
-Stopped at: Completed 03-35-PLAN.md (C6 closes round-eight env/command wrapper-token word-formation bypass; AGNT-07 stays Gaps Found, closure completed by 03-36)
+Last session: 2026-09-22T05:19:22.115Z
+Stopped at: Completed 03-36-PLAN.md (round-eight gap closure complete — brace-expansion sweep, corpus + friction pricing, requirements-bookkeeping coverage map; AGNT-07 and the seven siblings stay Gaps Found pending fresh phase verification)
 Resume file: None
