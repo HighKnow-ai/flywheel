@@ -296,6 +296,43 @@ fn c3_brace_rule_priced_friction_xargs_placeholder() {
     );
 }
 
+// --- Plan 03-35 (round eight): C6 promotes wrapper-token recognition from exact-token-equality
+// (C5) to word-boundary containment, closing brace expansion (`{env,}`), a path prefix
+// (`/usr/bin/env`), and an indeterminate token at a wrapper's own flag or NAME position. Every
+// payload below is a classification string only — never executed — per D-63.
+
+#[test]
+fn round_eight_brace_obfuscated_env_wrapper_matches_unobfuscated() {
+    let unobfuscated = classify(r#"env -S "-P /tmp git push --force""#);
+    assert!(
+        unobfuscated.contains(r#""category":"uncategorized""#),
+        "unobfuscated control must classify uncategorized, got: {unobfuscated}"
+    );
+
+    let obfuscated = classify(r#"{env,} -S "-P /tmp git push --force""#);
+    assert!(
+        obfuscated.contains(r#""textCanShadowPathResolution":true"#),
+        "brace-obfuscated env wrapper must report textCanShadowPathResolution true, got: {obfuscated}"
+    );
+    assert!(
+        obfuscated.contains(r#""namesGatedProgram":true"#),
+        "brace-obfuscated env wrapper must report namesGatedProgram true, got: {obfuscated}"
+    );
+}
+
+#[test]
+fn round_eight_nested_brace_obfuscated_env_wrapper_reports_can_shadow() {
+    let nested = classify(r#"sh -c '{env,} -S "-P /tmp git push --force"'"#);
+    assert!(
+        nested.contains(r#""textCanShadowPathResolution":true"#),
+        "nested brace-obfuscated form must report textCanShadowPathResolution true, got: {nested}"
+    );
+    assert!(
+        nested.contains(r#""namesGatedProgram":true"#),
+        "nested brace-obfuscated form must report namesGatedProgram true, got: {nested}"
+    );
+}
+
 #[test]
 fn concurrent_classifications_agree_with_serial_ones() {
     let texts = [

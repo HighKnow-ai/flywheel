@@ -666,8 +666,9 @@ enum ProgramResolution {
     /// (Round seven's OTHER half — an `env` wrapper nested inside a launcher's opaque quoted
     /// payload, e.g. `sh -c 'env -S "…"'` — is not reachable by retrying THIS segment's own
     /// tokenization at all, since the whole payload is one opaque token to both passes; that half
-    /// is closed instead by `raw_text_names_opaque_env_reparse`'s presence-anywhere scan, feeding
-    /// only `text_can_shadow`, never this resolution.)
+    /// is closed instead by `raw_text_names_path_defeating_wrapper`'s (C6, plan 03-35, superseding
+    /// round seven's C5) presence-anywhere scan, feeding only `text_can_shadow`, never this
+    /// resolution.)
     Unresolvable,
 }
 
@@ -749,10 +750,30 @@ fn resolve_segment_program_index(tokens: &[String]) -> ProgramResolution {
                                 // there is nothing left to classify as the program either.
                                 return ProgramResolution::Unresolvable;
                             }
+                            if token_word_formation_is_indeterminate(&tokens[idx]) {
+                                // Deviation (Rule 1, plan 03-35 Task 3): the NAME argument's word
+                                // formation cannot be determined, so whether it names `PATH` is
+                                // undecidable — break WITHOUT consuming it, leaving it in place to
+                                // be resolved (deliberately misresolved) as this segment's own
+                                // program token. `destructive::classify` reports `Safe` for an
+                                // unrecognised name, and `raw_text_names_path_defeating_wrapper`
+                                // (C6) independently reports `textCanShadowPathResolution: true`
+                                // for the same text via its own matching NAME-position check.
+                                // Unlike the flag position above, the NAME position carries NO
+                                // dash-carrying requirement — a variable name is not dash-prefixed,
+                                // so any indeterminate token here is genuinely undecidable.
+                                break;
+                            }
                             idx += 1; // consume NAME itself (its identity is checked separately,
                                       // by text_can_shadow_path_resolution, for the PATH case)
                         }
                         Some(t) if t.starts_with("--unset=") => {
+                            let remainder = &t["--unset=".len()..];
+                            if token_word_formation_is_indeterminate(remainder) {
+                                // Same undecidable-NAME reasoning as the `-u NAME` arm above,
+                                // applied to the `--unset=NAME` single-token spelling.
+                                break;
+                            }
                             idx += 1;
                         }
                         Some(t) if t == "-S" || t.starts_with("--split-string") => {
@@ -988,6 +1009,39 @@ fn raw_text_contains_word(chars: &[char], word: &str) -> bool {
     false
 }
 
+/// True when `token`'s own characters contain `word` with a non-identifier character (or a token
+/// boundary) on both sides — [`raw_text_contains_word`] applied to a single token's own character
+/// slice instead of the whole raw text. Exact token equality (`token == word`) is the special case
+/// where the token IS the word; this is the general, promoted form of wrapper-token recognition
+/// **C6** (`docs/destructive-gate-trust-boundary.md`) is built on — the word-boundary treatment
+/// `git`/`rm` ([`text_names_gated_program`]) and the six `KEYWORD_TRIGGERS`
+/// ([`raw_text_can_shadow_path_resolution`]) have had since plan 03-24, which `env`/`command`
+/// lacked until round eight. A path prefix (`/usr/bin/env`) is recognised because `/` is not an
+/// identifier character ([`is_identifier_char`]), so it counts as a boundary exactly like a space
+/// or a quote would.
+fn token_names_word(token: &str, word: &str) -> bool {
+    let chars: Vec<char> = token.chars().collect();
+    raw_text_contains_word(&chars, word)
+}
+
+/// True when `token`'s own word formation cannot be determined — reuses **C3**'s own named
+/// character set (`$`, a backtick, `*`, `?`, `[`, `{`, `}`,
+/// `docs/destructive-gate-trust-boundary.md`) deliberately, so the two scanners can never drift
+/// apart: a character that can complete or reassemble a keyword in the middle of ordinary text is
+/// equally capable of reassembling a wrapper's own flag or `--unset` NAME argument. Unlike
+/// [`raw_text_word_formation_is_indeterminate`] (C3), this makes NO adjacency test: at a flag or
+/// NAME position there is no letter run to weld onto — the whole token IS the thing being
+/// determined, not a fragment of a longer word.
+fn token_word_formation_is_indeterminate(token: &str) -> bool {
+    token.contains('$')
+        || token.contains('`')
+        || token.contains('*')
+        || token.contains('?')
+        || token.contains('[')
+        || token.contains('{')
+        || token.contains('}')
+}
+
 /// D-59/D-61 (plan 03-24): does the raw command TEXT name one of the two programs
 /// `flywheel_core::shim::install_for_run` shadows — `git` or `rm`, fixed by
 /// `shadowed_git_entry_name`/`shadowed_rm_entry_name`? This is NOT enumeration: the pair is
@@ -1126,40 +1180,61 @@ fn raw_text_word_formation_is_indeterminate(text: &str) -> bool {
     false
 }
 
-/// **C5 — an opaque `env` re-parse is detected by presence, over both text forms**
-/// (`docs/destructive-gate-trust-boundary.md`, plan 03-32, D-61): true when a token equal to `env`
-/// appears ANYWHERE in `text` — over both the raw form and [`shell_quote_removed`]'s output, the
-/// SAME C2 union C1-C4 already use — followed, among its own recognised flag run, by `-S`,
-/// `--split-string`, or any OTHER unrecognised `-`-prefixed token. Closes round seven's
-/// positional/single-pass gap: `resolve_segment_program_index`'s own wrapper-token recognition
-/// inspects only a segment's own LEADING token, once, over the raw segment text — it never retries
-/// against the quote-removed form, and never searches for `env` by presence anywhere in the text
-/// the way this function does. A backslash-split `env` (round six, `e\nv`) or an `env` nested
-/// inside a launcher's opaque quoted payload (round seven, `sh -c 'env -S "…"'` — the whole payload
-/// arrives as ONE token from [`tokenize_shell_words`], so no whole-token equality check at a fixed
-/// position can ever see inside it) escapes `resolve_segment_program_index` entirely; this function
-/// is the presence-anywhere backstop for the SAFE-verdict's own `textCanShadowPathResolution` field.
+/// **C6 — a PATH-defeating wrapper token is recognised by word-boundary containment, over both
+/// text forms** (`docs/destructive-gate-trust-boundary.md`, plan 03-35, round eight): true when a
+/// TOKEN containing a word-bounded `env` or `command` ([`token_names_word`]) appears ANYWHERE in
+/// `text` — over both the raw form and [`shell_quote_removed`]'s output, the SAME C2 union C1-C5
+/// already use — followed, among its own recognised flag run, by the wrapper's own PATH-defeating
+/// or indeterminate flag. C6 SUPERSEDES round seven's C5 (`raw_text_names_opaque_env_reparse`,
+/// superseded — see `docs/destructive-gate-trust-boundary.md`'s "Named residuals" table): C5
+/// recognised the wrapper token by exact string equality, which four rounds in a row (five through
+/// eight) each defeated by a fresh word-formation mechanism that produced the token without
+/// producing the literal string — brace expansion (`{env,}`), a path prefix (`/usr/bin/env`). C6 is
+/// a strict superset of C5 (token equality is the boundary-contained case where the token is
+/// exactly the name), so every round-six and round-seven assertion keeps its meaning.
 ///
 /// This function does NOT feed `invoked_bare_name` — C4's own rule is that only C1's quote removal
 /// widens that fact, never a presence-anywhere scan. It feeds ONLY the safe verdict's own
 /// `text_can_shadow` binding in [`classify_raw_command_text`].
 ///
-/// The flag walk below mirrors `text_can_shadow_path_resolution`'s own `env` branch exactly, so the
-/// two scanners agree on where each flag's own argument ends: leading `NAME=VALUE` assignment
-/// tokens are skipped; `--` ends `env`'s own option processing (this walk stops without reporting
-/// `true` for this occurrence); `-i`/`--ignore-environment` and `-u`/`--unset NAME`/`--unset=NAME`
-/// are recognised and skipped (consuming `-u`/`--unset`'s own NAME argument as a second token, same
-/// as `resolve_segment_program_index`'s own `env` walk); `-S`/`--split-string` or any OTHER,
-/// unrecognised `-`-prefixed token reports `true` immediately — the opaque-reparse or
-/// unrecognised-flag shape this predicate exists to catch. Anything else breaks out of THIS `env`
-/// occurrence's own walk (not the whole scan) and the outer loop continues at the next token index,
-/// so a LATER, unrelated `env` occurrence in the same text is still found.
-fn raw_text_names_opaque_env_reparse(text: &str) -> bool {
+/// **`env`'s flag walk**, mirroring `text_can_shadow_path_resolution`'s own `env` branch (and C5's
+/// before it) so the scanners agree on where each flag's own argument ends, widened with the two
+/// flags that function already recognised at the token level but could never see inside an opaque
+/// payload, plus the fail-closed extension this round adds: leading `NAME=VALUE` assignment tokens
+/// are skipped; `--` ends `env`'s own option processing (this occurrence's walk stops without
+/// reporting `true`); `-i`/`--ignore-environment` reports `true` immediately (clearing the whole
+/// environment, `PATH` included, is unconditionally PATH-defeating); `-u`/`--unset` reports `true`
+/// when its NAME argument is a word-bounded `PATH` ([`token_names_word`]), otherwise consumes the
+/// flag and its NAME argument and continues; a `--unset=NAME` token reports `true` under the same
+/// NAME test on its own remainder, otherwise advances past it; `-S`/`--split-string` or any OTHER
+/// unrecognised `-`-prefixed token reports `true` (C5's own opaque-reparse/unrecognised-flag
+/// catch-all, unchanged); and — the fail-closed extension, C3's philosophy applied to a flag
+/// position rather than a new idea — a token that is neither an assignment nor dash-prefixed, but
+/// whose word formation [`token_word_formation_is_indeterminate`] cannot determine AND which itself
+/// carries a `-` character, reports `true`: it stands where `env`'s own flag belongs and cannot be
+/// read as a flag OR as a program name. The `-`-carrying requirement is what keeps
+/// `env {git,} push --force` deferring (measured; `{git,}` bears no `-`, so it is a program token,
+/// not a flag, and the real shell reaches this shim through an ordinary `PATH` search for it).
+/// Anything else breaks out of THIS `env` occurrence's own walk (not the whole scan), and the outer
+/// loop continues at the next token index, so a LATER, unrelated `env` occurrence in the same text
+/// is still found.
+///
+/// **`command`'s flag walk**, new to C6 (C5 covered only `env`): a token equal to `-v` or `-V`
+/// breaks the walk WITHOUT reporting `true` — these make `command` a QUERY that never executes its
+/// argument at all, the exact distinction `resolve_segment_program_index`'s own round-3 correction
+/// already records, and the reason `command -v git` — both a corpus Group 4 falsifiability
+/// companion and a live probe inside `scripts/uat/uat-05-concurrent-commits.mjs` — must keep
+/// deferring. A token equal to `-p` reports `true` (forces a hardcoded default `PATH` search that
+/// can never contain this shim's shadow directory). A token satisfying both
+/// [`token_word_formation_is_indeterminate`] and carrying a `-` reports `true`, the same
+/// fail-closed extension as `env`'s walk. Any other dash-prefixed token or assignment advances past
+/// it; anything else breaks this occurrence's own walk.
+fn raw_text_names_path_defeating_wrapper(text: &str) -> bool {
     for form in [text.to_string(), shell_quote_removed(text)] {
         let tokens = tokenize_shell_words(&form);
         let mut i = 0;
         while i < tokens.len() {
-            if tokens[i] == "env" {
+            if token_names_word(&tokens[i], "env") {
                 let mut j = i + 1;
                 loop {
                     while j < tokens.len() && is_assignment_token(&tokens[j]) {
@@ -1168,16 +1243,22 @@ fn raw_text_names_opaque_env_reparse(text: &str) -> bool {
                     match tokens.get(j).map(String::as_str) {
                         Some("--") => break,
                         Some("-i") | Some("--ignore-environment") => {
-                            j += 1;
+                            return true;
                         }
                         Some("-u") | Some("--unset") => {
-                            j += 1;
-                            if j >= tokens.len() {
-                                break;
+                            let names_path = tokens
+                                .get(j + 1)
+                                .is_some_and(|name| token_names_word(name, "PATH"));
+                            if names_path {
+                                return true;
                             }
-                            j += 1; // consume NAME itself
+                            j += 2;
                         }
                         Some(t) if t.starts_with("--unset=") => {
+                            let remainder = &t["--unset=".len()..];
+                            if token_names_word(remainder, "PATH") {
+                                return true;
+                            }
                             j += 1;
                         }
                         Some(t) if t == "-S" || t.starts_with("--split-string") => {
@@ -1185,6 +1266,28 @@ fn raw_text_names_opaque_env_reparse(text: &str) -> bool {
                         }
                         Some(t) if t.starts_with('-') => {
                             return true;
+                        }
+                        Some(t)
+                            if token_word_formation_is_indeterminate(t) && t.contains('-') =>
+                        {
+                            return true;
+                        }
+                        _ => break,
+                    }
+                }
+            } else if token_names_word(&tokens[i], "command") {
+                let mut j = i + 1;
+                loop {
+                    match tokens.get(j).map(String::as_str) {
+                        Some("-v") | Some("-V") => break,
+                        Some("-p") => return true,
+                        Some(t)
+                            if token_word_formation_is_indeterminate(t) && t.contains('-') =>
+                        {
+                            return true;
+                        }
+                        Some(t) if t.starts_with('-') || is_assignment_token(t) => {
+                            j += 1;
                         }
                         _ => break,
                     }
@@ -1280,10 +1383,13 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         || raw_text_can_shadow_path_resolution(trimmed)
         || text_can_shadow_path_resolution(&quote_removed)
         || raw_text_word_formation_is_indeterminate(trimmed)
-        // C5 (docs/destructive-gate-trust-boundary.md, plan 03-32): an opaque `env` re-parse,
-        // detected by presence anywhere in the raw or quote-removed text — closes round seven's
-        // positional/single-pass gap in resolve_segment_program_index's own wrapper recognition.
-        || raw_text_names_opaque_env_reparse(trimmed);
+        // C6 (docs/destructive-gate-trust-boundary.md, plan 03-35, round eight): a PATH-defeating
+        // `env`/`command` wrapper token, recognised by word-boundary containment rather than exact
+        // string equality, detected by presence anywhere in the raw or quote-removed text — closes
+        // round eight's word-formation gap (brace expansion, a path prefix) in
+        // resolve_segment_program_index's own wrapper recognition, and supersedes round seven's C5
+        // (`raw_text_names_opaque_env_reparse`) as a strict superset of it.
+        || raw_text_names_path_defeating_wrapper(trimmed);
     let names_gated_program = text_names_gated_program(trimmed);
 
     for segment in split_top_level_segments(trimmed) {
