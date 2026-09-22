@@ -176,13 +176,27 @@ as if it did would convert Layer 2's "ask a human" into Layer 1's "refuse" for o
 commands such as a force-push naming a branch through a variable — weakening the exact sentence
 AGNT-07 is written on.
 
-C1-C4 do NOT prove anything about text the scan never receives; nothing on Windows; and nothing
+`**C5 — an opaque `env` re-parse is detected by presence, over both text forms.**` A token equal to
+`env`, appearing ANYWHERE in the command text — matched over both the raw text and
+`shell_quote_removed`'s output, the same C2 union C1-C4 already use — followed, among its own
+recognised flag run (mirroring `resolve_segment_program_index`'s own walk: skipping `NAME=VALUE`
+assignments, `-i`/`--ignore-environment`, `-u NAME`/`--unset NAME`/`--unset=NAME`, `--`), by `-S`,
+`--split-string`, or any other unrecognised `-`-prefixed token, reports `textCanShadowPathResolution`
+as `true`. C5's `false` means one thing and nothing more: no `env` token followed by an opaque or
+unrecognised flag survives quote and backslash removal, anywhere in the text — it is not a claim
+about a form assembled by a mechanism outside quote/backslash removal. The friction it buys, under
+D-61's own accounting: C5 costs a deny only when the text ALSO names `git` or `rm` — `env -S "echo
+hello"` and `sh -c 'env -S "echo hello"'` still defer, because D-61's AND-gate never fires on
+`namesGatedProgram: false`.
+
+C1-C5 do NOT prove anything about text the scan never receives; nothing on Windows; and nothing
 about a determinate text whose keyword is assembled by a mechanism outside C1 and outside C3's named
 characters.
 
 **C-contract status:** implemented by plan 03-30 in packages/shim/src/main.rs — C1 and C2 in
 shell_quote_removed and its two callers, C3 in raw_text_word_formation_is_indeterminate, C4 in
-classify_raw_command_text's shadowable binding.
+classify_raw_command_text's shadowable binding; C5 is implemented by plan 03-32 in
+packages/shim/src/main.rs as `raw_text_names_opaque_env_reparse`.
 
 The four functions the contract binds: `raw_text_contains_word`, `text_names_gated_program`,
 `raw_text_can_shadow_path_resolution` and `text_can_shadow_path_resolution` — a reader landing on
@@ -206,7 +220,7 @@ concrete trigger that should reopen it.
 | Claude Code's own internal git housekeeping (trust checks, `status`/`log`/`config user.*`, `worktree list`) runs outside the agent's own visible `Bash` tool-call loop and therefore never reaches layer 1's `Bash` matcher at all — it reaches only layer 2 | Layer 1 loses it entirely, by construction (the matcher only fires for the agent's own tool calls); layer 2 still sees it, because it still resolves through the shimmed `PATH` | Already recorded, not restated here — see `drainIncidentalPermissionRequests`'s doc comment in `scripts/uat/uat-03-destructive-gate.mjs`, which names the exact internal invocations observed live and the pre-existing `classify_git`-global-flag gap this exposes |
 | The whole closure — corpus (03-26), live run (03-27), this boundary — is measured on macOS only | All three layers: the shadowed entry names (`git`/`rm` vs. `git.exe`/`rm.exe`) and the hook's own witness-entry convention (`SHADOW_WITNESS_ENTRY_NAME`) differ on Windows, and nothing in this closure has been run there | A Windows build target becoming real — at that point every claim in this document must be re-measured, not assumed to transfer |
 | A gated keyword assembled by a mechanism that is neither C1's quote removal nor one of C3's named expansion characters | Layer 1 loses it: C1 resolves only quoting and backslashes, and C3 only refuses to answer when it sees `$`, a backtick, or a letter-adjacent `*`/`?`/`[` — a mechanism outside both leaves the raw-text scan with no signal at all | Any bypass shape whose raw text carries none of those characters and still installs a shadow — which would mean the character set C3 names is not the closed set the contract claims it is, and the contract, not the corpus, is what must change |
-| **OPEN — `env -S STRING`'s own opaque-reparse detection, backslash-split** (found 2026-09-21, plan 03-31, building the WR-02 generator): `main.rs`'s `resolve_segment_program_index` recognises the wrapper token `env` (to force `ProgramResolution::Unresolvable`/deny on `-S`'s unparseable re-split, or any other unrecognised `env` flag such as BSD's `-P` altpath) by exact string equality over `tokenize_shell_words(trimmed)` — the RAW, un-normalized segment text, walked exactly once (`classify_raw_command_text`'s `for segment in split_top_level_segments(trimmed)`, never retried against `shell_quote_removed`'s output the way the SAFE-verdict's own C1-C4 facts are). `tokenize_shell_words` resolves quote-toggling correctly but performs NO backslash-escape resolution at all, so `e\nv -S "…"` is never recognised as `env` in the first place — the segment falls through to ordinary (non-gated) program-token treatment, and C1-C4 (which protect only the safe-verdict's OWN two facts) do not independently close this, because the reason Layer 1 denies `env -S` is that the wrapper is *unresolvable*, not that it names a gated program in a shadowable way. **See "Round six" below.** | Layer 1 loses it: this is a distinct mechanism from C1-C4's raw-text scan, sharing none of its quote/backslash normalization | `sh -c 'e\nv -S "-P /tmp git push --force"'` — MEASURED via `--classify-invocation` to defer where the unobfuscated form denies, and PROVEN live and non-destructively (a harmless `git` stub at the altpath ran instead of the shim) to reach zero human confirmation at any layer |
+| **CLOSED (round seven, plan 03-32) — `env -S STRING`'s own opaque-reparse detection, backslash-split and nested** (found 2026-09-21, plan 03-31; widened 2026-09-22, plan 03-32): `main.rs`'s `resolve_segment_program_index` recognises the wrapper token `env` (to force `ProgramResolution::Unresolvable`/deny on `-S`'s unparseable re-split, or any other unrecognised `env` flag such as BSD's `-P` altpath) by exact string equality over `tokenize_shell_words(trimmed)` — the RAW, un-normalized segment text, walked exactly once, at a single fixed position (a segment's own leading token). The defect has two halves: a backslash-split `env` (`e\nv`) was never recognised as the literal token `env` (round six); and even an UNSPLIT `env` nested inside a launcher's opaque quoted payload (`sh -c 'env -S "…"'`) was never SEEN at all, because `tokenize_shell_words` returns the whole single-quoted payload as one opaque token and the wrapper-token walk only ever inspected a segment's own leading position (round seven — no obfuscation required). Closed by plan 03-32's `raw_text_names_opaque_env_reparse` (C5): a presence-anywhere scan over both the raw and quote-removed text, folded into the SAME `text_can_shadow` disjunct the safe verdict's D-61 AND-gate already reads, plus a second, quote-removed resolution pass inside the segment loop that reaches the same fail-closed `Unresolvable` arm as the raw pass. | Closed: C5 folds both halves into Layer 1's existing D-61 AND-gate | Reopens if: an `env` invocation carries a PATH-defeating flag that `text_can_shadow_path_resolution` does not independently re-check, AND its surrounding text names neither `git` nor `rm` — since C5 is folded into the safe verdict's own D-61 AND-gate, it structurally cannot deny a text that names no gated program, so such a text defers by design; finding one that should not is the trigger to reopen this row |
 | A shadow definition installed by an EARLIER `Bash` tool call in the same session | Layer 1 loses it, by construction: each hook invocation is a fresh OS process holding no cache and no memory of any previous tool call, so it classifies one command's text in isolation and can never see a function or alias a prior call left behind in a shell profile or a sourced file | An observed two-call shadow in which the FIRST call's own text was itself deferrable — today every single-call shadow shape the corpus covers denies on its own text, so a deferrable first call is the signal that this residual has become reachable |
 
 ## The layer-to-corpus map
@@ -219,6 +233,7 @@ mapped to the layer each group's own `why` field names as the one trusted to cat
 | Group 1 — the eight launcher shapes (`sh -c`, `bash -c`, `nice`, `nohup`, `timeout`, `xargs`, `sudo`, `setsid`) | Layer 2 | The launcher itself is the `Safe` program token and the text carries no shadow construct, so layer 1 defers; in a proven environment the inner bare `git` still reaches layer 2's own shadow entry and permission socket |
 | Group 2a — `env`/`command` (the non-safe branch unwraps these to the real program) | Layer 2 | `invokedBareName` stays `true` after unwrapping, and `shimWillIntercept(git)` is `true` in a proven environment, so layer 1 defers to layer 2's socket |
 | Group 2b — `builtin`, `PATH=`, `env -i`, `env -u PATH`, `env -S`, `command -p` | Layer 1 | Each construct defeats a real `PATH` search outright (a builtin lookup never searches `PATH`; a cleared/replaced/hardcoded `PATH` can never contain the shadow directory), so `invokedBareName` is forced `false` and layer 1 denies directly — the command never reaches layer 2 at all |
+| Group 2b (round seven additions, plan 03-32) — `env -S "-P /tmp git push --force"` (backslash-split-immune) and `sh -c 'env -S "-P /tmp git push --force"'` (nested, unobfuscated) | Layer 1 | C5's presence-anywhere scan (`raw_text_names_opaque_env_reparse`) sees the `env`-plus-opaque-flag construct wherever it sits in the text, raw or quote-removed, and layer 1's D-61 AND-gate denies because the text also names `git`; BSD `env -P`'s own altpath search bypasses the shim's shadow directory entirely, so layer 2 provides no backstop and layer 1's scan is the only line |
 | Group 3 — shadow shapes wrapped in a launcher (function-call, `function`-keyword, `alias`, `hash`, `eval`, `source`, and the `rm()` counterpart) | Layer 1 | D-61's raw-text scan sees the shadow keyword inside the quoted `sh -c '…'` payload the token-level scan cannot see into (`textCanShadowPathResolution`), the raw text also names a gated program (`namesGatedProgram`), and that AND denies the safe verdict before the command can ever reach layer 2 |
 | Group 4 — the non-trigger/harmless controls (`source .venv/bin/activate && pytest`, `eval "$(direnv hook bash)"`, `npm test`, `cargo build`, `git status`, `command -v git`) | No layer needs to catch them | Each is genuinely safe, or (for `git status`) is a harmless bare `git` invocation deferred straight through to layer 2's own `classify`, which reports `Safe` and executes with no permission round trip at all — these rows are the falsifiability companions of the whole table: if any of them starts denying, the rule has become general command-refusal, not a destructive-action gate |
 
@@ -311,6 +326,44 @@ wrapper-token recognition inside `resolve_segment_program_index` (or, more conse
 unconditionally whenever the quote-removed text contains `env` immediately followed by `-S` or any
 unrecognised `-`-flag, mirroring C1's own over-triggering philosophy) — a decision requiring its own
 plan, not a fix folded into the corpus-generator plan that found it.
+
+## Round seven — the opaque `env` re-parse is positional, and nesting escapes it
+
+Plan 03-32 re-measured round six's counterexample, non-destructively, with `--classify-invocation`
+only (D-63), and found the record round six left behind was narrower than the defect it found.
+
+```
+$ target/debug/flywheel-shim --classify-invocation 'env -S "-P /tmp git push --force"'
+{"category":"uncategorized","invokedBareName":false,"program":null}
+$ target/debug/flywheel-shim --classify-invocation 'e\nv -S "-P /tmp git push --force"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}
+$ target/debug/flywheel-shim --classify-invocation "sh -c 'env -S \"-P /tmp git push --force\"'"
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}
+```
+
+The unobfuscated `env -S "-P /tmp git push --force"` classifies `uncategorized` — layer 1's
+fail-closed `Unresolvable` arm, exactly as round six recorded. The backslash-split `e\nv -S "-P /tmp
+git push --force"` classifies `safe` with `textCanShadowPathResolution` false — the round-six
+decision-invariance break. And — the finding this plan adds — `sh -c 'env -S "-P /tmp git push
+--force"'` ALSO classifies `safe` with `textCanShadowPathResolution` false, with **no obfuscation
+whatsoever**: no backslash, no quote-split, nothing. The nested form alone defeats both mechanisms
+round six's record named.
+
+Why: `resolve_segment_program_index` inspects only the LEADING token of a segment
+(`classify_raw_command_text`'s `for segment in split_top_level_segments(trimmed)`, each segment
+tokenized once via `tokenize_shell_words` and its wrapper recognition run against a single position,
+`tokens.get(idx)`). For the outer segment `sh -c 'env -S "-P /tmp git push --force"'`,
+`tokenize_shell_words` returns the ENTIRE single-quoted `sh -c` payload as one opaque token — `env`
+never appears at `tokens[idx]` at all, because it is buried inside a token whose full text reads
+`env -S "-P /tmp git push --force"`. The segment's own leading token is `sh`, a `Safe` program, and
+the wrapper-recognition walk never runs a second time against the opaque payload nested inside it.
+
+State plainly what round six's own record understated: the defect this closes is not only "backslash
+defeats the wrapper token's exact-string match" — it is "wrapper recognition is positional (inspects
+only a segment's own leading token) and single-pass (never retried against a nested, opaque
+payload)." The backslash-split form and the nested form are two faces of the same underlying gap:
+`env`'s wrapper-token recognition, unlike the safe verdict's own C1-C4 facts, was never searched for
+by PRESENCE anywhere in the text — only matched at one fixed position, in one token, once.
 
 ## The rule for round six
 
