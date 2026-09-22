@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: Completed 03-31-PLAN.md (WR-02 generator built and found a genuine round-six bypass — env -S backslash-split — reported per D-62/D-63, AGNT-07 kept Gaps Found; ORDINARY_USAGE_CORPUS and de-flaked absolute-path test also delivered)
-last_updated: "2026-09-22T00:29:47.773Z"
-last_activity: 2026-09-21
+stopped_at: "Completed 03-32-PLAN.md (round seven env-reparse bypass closed: presence-anywhere C5 predicate + quote-removed wrapper-token retry; WR-02 corpus group-marker refactor; KNOWN_OPEN_BOUNDARY_FAILURES emptied and asserted empty)"
+last_updated: "2026-09-22T01:16:02.732Z"
+last_activity: 2026-09-22
 last_activity_desc: Phase 03 execution started
-state_head: 9f60769b38e18cf856550015bf6f15243f11def0
+state_head: 3cc40a58f2ed9c5c7055cdd05371f11c0726d759
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 73
-  completed_plans: 70
+  completed_plans: 71
   percent: 0
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 ## Current Position
 
-Phase: 03 (Nothing Lost, Nothing Left Running) — READY TO EXECUTE
-Plan: 3 of 31
+Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
+Plan: 2 of 34
 Status: Ready to execute
-Last activity: 2026-09-21 — Phase 03 execution started
+Last activity: 2026-09-22 — Phase 03 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -127,6 +127,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P27 | 14min | 2 tasks | 3 files |
 | Phase 03 P30 | 140min | 3 tasks | 4 files |
 | Phase 03 P31 | ~2h | 3 tasks | 3 files |
+| Phase 03 P32 | 36min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -243,6 +244,8 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-30: readProvenBoolean's tri-state deny-before-AND ordering closes WR-01 -- an unestablished D-61 field denies by name before the AND, rather than being defaulted-unsafe and fed into it (the shape that produced the latent bug).
 - [Phase 03]: obfuscationVariants generates decision-invariance adversaries over LAUNCHER_CORPUS mechanically (WR-02); the sweep found a genuine round-six bypass (env -S opaque-reparse defeated by a backslash-split env), reported prominently per D-62/D-63 rather than patched, AGNT-07 kept Gaps Found
 - [Phase 03]: The one decision-invariance break found is carried as a single falsifiability-checked exception (KNOWN_OPEN_BOUNDARY_FAILURES) rather than narrowing the sweep or the word list to avoid it
+- [Phase 03]: [Phase 03] Round seven closed: raw_text_names_opaque_env_reparse (C5) scans presence-anywhere for an env token followed by an opaque/unrecognised flag, folded into the safe verdict's text_can_shadow disjunct; a second quote-removed resolution pass inside classify_raw_command_text's segment loop closes the backslash-split leading-token half. KNOWN_OPEN_BOUNDARY_FAILURES emptied and asserted empty.
+- [Phase 03]: [Phase 03] WR-02 (03-REVIEW.md) closed in plan 03-32: LAUNCHER_CORPUS rows now carry an explicit group field (1-4) instead of a derived index-range slice, so a same-length reorder can no longer silently mistag Group 3 membership.
 
 ### Pending Todos
 
@@ -284,6 +287,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-21T12:46:49.330Z
-Stopped at: Completed 03-31-PLAN.md (WR-02 generator built and found a genuine round-six bypass — env -S backslash-split — reported per D-62/D-63, AGNT-07 kept Gaps Found; ORDINARY_USAGE_CORPUS and de-flaked absolute-path test also delivered)
+Last session: 2026-09-22T01:15:55.321Z
+Stopped at: Completed 03-32-PLAN.md (round seven env-reparse bypass closed: presence-anywhere C5 predicate + quote-removed wrapper-token retry; WR-02 corpus group-marker refactor; KNOWN_OPEN_BOUNDARY_FAILURES emptied and asserted empty)
 Resume file: None
