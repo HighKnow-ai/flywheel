@@ -9,13 +9,15 @@ use core::context_packet::{assemble_context_packet, render_prompt};
 use core::domain::acceptance_criterion::create_criterion;
 use core::domain::agent_run::{start_agent_run, AgentRun};
 use core::domain::epic::create_epic;
+use core::domain::event::{append_event, next_sequence};
 use core::domain::project::Project;
 use core::domain::session_summary::{
-    create_summary, latest_summary_for_run, list_summaries_for_task, DecisionEntry, SummaryFields,
+    create_summary, latest_summary_for_run, list_summaries_for_task, synthesize_fallback_summary,
+    DecisionEntry, SummaryFields,
 };
 use core::domain::task::{create_task, Task};
 use core::domain::worktree::ensure_worktree;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use tempfile::TempDir;
 
 /// A minimal fixture shared by Task 2's structural tests: a project, one task, and one started
@@ -278,5 +280,234 @@ fn the_auto_generated_flag_survives_the_round_trip_in_both_directions() {
             prompt.contains(&agent_heading),
             "the agent-authored session's heading must render with no suffix"
         );
+    });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Task 1: `synthesize_fallback_summary` — a best-effort summary from facts the board already
+// holds, exercised directly (its own transaction, never through `apply_session_closed`).
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn fallback_summary_counts_the_runs_own_events_and_names_the_close_reason() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir, task, run) = seeded_task_and_run();
+
+        // Three tool_call-derived event rows attached directly to the run (stream_id = run.id),
+        // plus one permission_request.raised row attached to the run's task within the run's
+        // window (stream_id names the permission request, not the run) — the plan's own worked
+        // example.
+        let event_at = chrono::Utc::now().to_rfc3339();
+        {
+            let tx = conn.transaction().expect("failed to open tx for event seeding");
+            for i in 0..3 {
+                let seq = next_sequence(&tx, &project.id, "local").expect("next_sequence should succeed");
+                append_event(
+                    &tx,
+                    &project.id,
+                    "local",
+                    seq,
+                    "agent_run",
+                    &run.id,
+                    Some(&task.id),
+                    None,
+                    &actor_id,
+                    "tool_call",
+                    &serde_json::json!({ "n": i }),
+                    &event_at,
+                )
+                .expect("append_event for a tool_call row should succeed");
+            }
+            let seq = next_sequence(&tx, &project.id, "local").expect("next_sequence should succeed");
+            append_event(
+                &tx,
+                &project.id,
+                "local",
+                seq,
+                "permission_request",
+                "perm-1",
+                Some(&task.id),
+                None,
+                &actor_id,
+                "permission_request.raised",
+                &serde_json::json!({}),
+                &event_at,
+            )
+            .expect("append_event for the permission_request row should succeed");
+            tx.commit().expect("failed to commit event-seeding tx");
+        }
+
+        // The expected count is measured independently, with the identical predicate
+        // `synthesize_fallback_summary` itself uses — this proves the embedded number is exactly
+        // the run's own event count, without hard-coding an assumption about background events
+        // `start_agent_run`'s own fixture setup already wrote (its own `agent_run.started` event,
+        // for one, also carries `stream_id = run.id`).
+        let started_at: String = conn
+            .query_row(
+                "SELECT started_at FROM agent_runs WHERE id = ?1",
+                params![run.id],
+                |row| row.get(0),
+            )
+            .expect("agent_runs row should exist");
+        let upper_bound = chrono::Utc::now().to_rfc3339();
+        let expected_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE stream_id = ?1 OR (task_id = ?2 AND occurred_at >= ?3 AND occurred_at <= ?4)",
+                params![run.id, task.id, started_at, upper_bound],
+                |row| row.get(0),
+            )
+            .expect("expected-count query should succeed");
+        assert!(
+            expected_count >= 4,
+            "the four seeded rows above must all be counted, got {expected_count}"
+        );
+
+        let tx = conn.transaction().expect("failed to open tx for synthesize");
+        let summary_id = synthesize_fallback_summary(&tx, &run.id, "interrupted")
+            .expect("synthesize_fallback_summary should succeed");
+        tx.commit().expect("failed to commit synthesize tx");
+
+        let summary = latest_summary_for_run(&conn, &run.id)
+            .expect("latest_summary_for_run should succeed")
+            .expect("a summary row must exist");
+        assert_eq!(summary.id, summary_id);
+        assert!(summary.auto_generated, "the synthesized row must be flagged auto_generated");
+        let prose = summary.changed_prose.expect("changed_prose must be present");
+        assert!(prose.contains("interrupted"), "prose must name the close reason: {prose}");
+        assert!(
+            prose.contains(&expected_count.to_string()),
+            "prose must name the run's own event count ({expected_count}): {prose}"
+        );
+        assert!(summary.decisions.is_empty(), "decisions must be empty");
+    });
+}
+
+#[test]
+fn fallback_summary_with_zero_matching_events_still_yields_one_honest_row() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
+
+        // Clear every event so the synthesizer's own count query reads zero — proving the
+        // fallback never fails, and never invents a claim, when the board holds no interaction
+        // history at all for this run. (Test-only: production code never issues a DELETE against
+        // `events`.)
+        conn.execute("DELETE FROM events", []).expect("clearing events should succeed");
+
+        let tx = conn.transaction().expect("failed to open tx for synthesize");
+        synthesize_fallback_summary(&tx, &run.id, "failed")
+            .expect("synthesize_fallback_summary should succeed with zero events");
+        tx.commit().expect("failed to commit synthesize tx");
+
+        let summary = latest_summary_for_run(&conn, &run.id)
+            .expect("latest_summary_for_run should succeed")
+            .expect("a summary row must exist");
+
+        assert!(summary.changed_files.is_empty(), "changed_files must be an empty list");
+        let prose = summary.changed_prose.expect("changed_prose must be present");
+        assert!(!prose.is_empty(), "changed_prose must be non-empty");
+        assert!(
+            prose.contains("no agent summary recorded"),
+            "prose must state that no agent summary was recorded: {prose}"
+        );
+        assert!(summary.remains.is_some(), "remains must be present");
+        assert_eq!(
+            summary.next_session_must_know, None,
+            "next_session_must_know must always be None for a synthesized row"
+        );
+        assert!(summary.decisions.is_empty(), "decisions must be an empty list");
+        assert!(summary.acknowledged_decisions.is_empty(), "acknowledged_decisions must be empty");
+        assert!(summary.diff_ref.is_none(), "diff_ref must be None in this plan");
+        assert!(summary.auto_generated);
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_summaries WHERE agent_run_id = ?1",
+                params![run.id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(count, 1, "zero events must still produce exactly one summary row");
+    });
+}
+
+#[test]
+fn fallback_summary_is_attributed_to_the_agent_actor_not_a_human() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, human_actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
+
+        let tx = conn.transaction().expect("failed to open tx for synthesize");
+        synthesize_fallback_summary(&tx, &run.id, "completed")
+            .expect("synthesize_fallback_summary should succeed");
+        tx.commit().expect("failed to commit synthesize tx");
+
+        let summary = latest_summary_for_run(&conn, &run.id)
+            .expect("latest_summary_for_run should succeed")
+            .expect("a summary row must exist");
+
+        assert!(summary.auto_generated, "the synthesized row must be flagged auto_generated");
+        assert_eq!(
+            summary.created_by, run.actor_id,
+            "a synthesized row must be attributed to the run's own agent actor"
+        );
+        assert_ne!(
+            summary.created_by, human_actor_id,
+            "a synthesized row must never be attributed to the local human actor"
+        );
+    });
+}
+
+#[test]
+fn calling_the_synthesizer_twice_for_the_same_run_writes_two_rows() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
+
+        {
+            let tx = conn.transaction().expect("failed to open tx for the first synthesize call");
+            synthesize_fallback_summary(&tx, &run.id, "completed")
+                .expect("first synthesize_fallback_summary call should succeed");
+            tx.commit().expect("failed to commit the first synthesize tx");
+        }
+        {
+            let tx = conn.transaction().expect("failed to open tx for the second synthesize call");
+            synthesize_fallback_summary(&tx, &run.id, "completed")
+                .expect("second synthesize_fallback_summary call should succeed");
+            tx.commit().expect("failed to commit the second synthesize tx");
+        }
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_summaries WHERE agent_run_id = ?1",
+                params![run.id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(
+            count, 2,
+            "the synthesizer has no dedupe of its own — the caller's presence check is the guard"
+        );
+    });
+}
+
+#[test]
+fn create_summary_and_synthesize_fallback_summary_share_one_insert_site_and_stay_distinguishable() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, _project, _repo_dir, task, run) = seeded_task_and_run();
+
+        let agent_written =
+            create_summary(&mut conn, &run.id, minimal_fields("agent's own words", false), &actor_id)
+                .expect("create_summary should still succeed after the insert_summary_row refactor");
+
+        let tx = conn.transaction().expect("failed to open tx for synthesize");
+        let fallback_id = synthesize_fallback_summary(&tx, &run.id, "failed")
+            .expect("synthesize_fallback_summary should succeed");
+        tx.commit().expect("failed to commit synthesize tx");
+
+        let all = list_summaries_for_task(&conn, &task.id)
+            .expect("list_summaries_for_task should succeed");
+        assert_eq!(all.len(), 2, "both the agent-authored and the fallback row must exist");
+        let agent_row = all.iter().find(|s| s.id == agent_written.id).expect("agent row must exist");
+        let fallback_row = all.iter().find(|s| s.id == fallback_id).expect("fallback row must exist");
+        assert!(!agent_row.auto_generated, "the agent-authored row must read back unset");
+        assert!(fallback_row.auto_generated, "the fallback row must read back set");
     });
 }

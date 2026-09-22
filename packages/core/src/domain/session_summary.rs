@@ -122,25 +122,24 @@ fn row_to_summary(row: &Row) -> rusqlite::Result<SessionSummary> {
     })
 }
 
-/// Record one summary for `agent_run_id` (D-65). One transaction: resolve `task_id`,
-/// `project_id` and `worktree_id` from the `agent_runs` row (never accepted as a parameter —
-/// T-04-01), mint the id, serialise the three list fields to JSON, insert the row, point
-/// `agent_runs.exit_summary_id` at this new row (so the pointer always names the most recent
-/// summary), append a `summary.recorded` event, one commit.
+/// Insert one `session_summaries` row inside the CALLER's transaction, point
+/// `agent_runs.exit_summary_id` at it, and append one `summary.recorded` event — the SINGLE
+/// shared insert site every producer writes through. [`create_summary`] (agent-authored, opens
+/// its own transaction) and [`synthesize_fallback_summary`] (the fallback, runs inside the
+/// caller's transaction — plan 04-02) both call this and nothing else ever issues `INSERT INTO
+/// session_summaries` (a `<verify>` gate greps the whole crate for exactly one occurrence).
 ///
 /// The event payload is human-renderable per D-19 and deliberately narrow: the summary id, the
 /// `auto_generated` flag and the changed-file count — never the prose fields, so the activity
 /// trail cannot leak session content into a surface that does not expect it (T-04-04).
-pub fn create_summary(
-    conn: &mut Connection,
+fn insert_summary_row(
+    tx: &Transaction,
     agent_run_id: &str,
-    fields: SummaryFields,
+    fields: &SummaryFields,
     actor_id: &str,
+    now: &str,
 ) -> anyhow::Result<SessionSummary> {
-    let now = chrono::Utc::now().to_rfc3339();
     let id = new_id();
-
-    let tx: Transaction = conn.transaction()?;
 
     let (task_id, project_id, worktree_id): (String, String, Option<String>) = tx
         .query_row(
@@ -189,7 +188,7 @@ pub fn create_summary(
     )
     .context("failed to update agent_runs.exit_summary_id")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "session_summary",
         "before": null,
@@ -203,7 +202,7 @@ pub fn create_summary(
         },
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -214,10 +213,8 @@ pub fn create_summary(
         actor_id,
         "summary.recorded",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit create_summary transaction")?;
 
     Ok(SessionSummary {
         id,
@@ -225,17 +222,116 @@ pub fn create_summary(
         worktree_id,
         task_id,
         project_id,
-        changed_files: fields.changed_files,
-        changed_prose: fields.changed_prose,
-        remains: fields.remains,
-        next_session_must_know: fields.next_session_must_know,
-        decisions: fields.decisions,
-        acknowledged_decisions: fields.acknowledged_decisions,
-        diff_ref: fields.diff_ref,
+        changed_files: fields.changed_files.clone(),
+        changed_prose: fields.changed_prose.clone(),
+        remains: fields.remains.clone(),
+        next_session_must_know: fields.next_session_must_know.clone(),
+        decisions: fields.decisions.clone(),
+        acknowledged_decisions: fields.acknowledged_decisions.clone(),
+        diff_ref: fields.diff_ref.clone(),
         auto_generated: fields.auto_generated,
         created_by: actor_id.to_string(),
-        created_at: now,
+        created_at: now.to_string(),
     })
+}
+
+/// Record one summary for `agent_run_id` (D-65). Opens its own transaction, then shares
+/// [`insert_summary_row`] with [`synthesize_fallback_summary`] — the single insert site both
+/// producers write through.
+pub fn create_summary(
+    conn: &mut Connection,
+    agent_run_id: &str,
+    fields: SummaryFields,
+    actor_id: &str,
+) -> anyhow::Result<SessionSummary> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx: Transaction = conn.transaction()?;
+
+    let summary = insert_summary_row(&tx, agent_run_id, &fields, actor_id, &now)?;
+
+    tx.commit().context("failed to commit create_summary transaction")?;
+
+    Ok(summary)
+}
+
+/// The literal `&str` SQL [`synthesize_fallback_summary`] reads to derive its `changed_prose`
+/// fact — every event whose `stream_id` names this run directly (its own bookkeeping and
+/// tool-call-derived rows), plus every event attached to the run's own task whose `occurred_at`
+/// falls inside the run's `[started_at, ended_at]` window (a permission request raised during
+/// this run, for example, carries the permission request's own `stream_id`, not the run's).
+const FALLBACK_EVENT_COUNT_SQL: &str = "SELECT COUNT(*) FROM events \
+    WHERE stream_id = ?1 OR (task_id = ?2 AND occurred_at >= ?3 AND occurred_at <= ?4)";
+
+/// Write a best-effort summary for a run that reached a terminal state with no summary of its own
+/// (D-64, plan 04-02) — called by `domain::agent_run::apply_session_closed` INSIDE the same
+/// transaction that writes the run's terminal status, never in a transaction it opens itself.
+/// That is what makes "a run can never be terminal while its fallback summary is missing" a
+/// property of the database rather than of call ordering.
+///
+/// Resolves `actor_id` from the `agent_runs` row itself — the row is attributed to the run's own
+/// agent actor, never the local human actor, so DATA-03's actor model stays honest even though the
+/// core, not the agent, is the one writing this row.
+///
+/// What this may claim, resolving CONTEXT.md's open discretion item explicitly: `changed_files` is
+/// always an empty `Vec` (plan 04-07 fills it from a real `git diff --name-only`); `changed_prose`
+/// and `remains` are `Some(...)`, built only from facts already in the database (the close reason,
+/// the run's own timestamps, and a literal event count — never a model call, never free prose);
+/// `next_session_must_know` is **always `None`** — the one field only the agent can fill, and a
+/// synthesized value here would be an invented claim (P2); `decisions`/`acknowledged_decisions`
+/// are always empty — a decision the agent did not state is not a decision; `diff_ref` is always
+/// `None` (plan 04-07 fills it); `auto_generated` is always `true`.
+///
+/// Has no dedupe of its own — calling this twice for one run writes two rows. The caller's own
+/// presence check (`latest_summary_for_run` returning `None`) is the only guard, matching
+/// [`insert_summary_row`]'s "one insert site, no second guard duplicated here" shape.
+pub fn synthesize_fallback_summary(
+    tx: &Transaction,
+    agent_run_id: &str,
+    close_reason: &str,
+) -> anyhow::Result<String> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let (actor_id, task_id, started_at, ended_at): (String, String, String, Option<String>) = tx
+        .query_row(
+            "SELECT actor_id, task_id, started_at, ended_at FROM agent_runs WHERE id = ?1",
+            params![agent_run_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
+    let ended_at = ended_at.unwrap_or_else(|| now.clone());
+
+    let event_count: i64 = tx
+        .query_row(
+            FALLBACK_EVENT_COUNT_SQL,
+            params![agent_run_id, task_id, started_at, ended_at],
+            |row| row.get(0),
+        )
+        .context("failed to count events for the fallback summary")?;
+
+    let changed_prose = Some(format!(
+        "This session closed as {close_reason} with no agent summary recorded; {event_count} \
+         event{plural} logged for this run between {started_at} and {ended_at}.",
+        plural = if event_count == 1 { "" } else { "s" },
+    ));
+    let remains = Some(
+        "The session ended without recording its own summary; the working tree is the authority \
+         on what is finished."
+            .to_string(),
+    );
+
+    let fields = SummaryFields {
+        changed_files: Vec::new(),
+        changed_prose,
+        remains,
+        next_session_must_know: None,
+        decisions: Vec::new(),
+        acknowledged_decisions: Vec::new(),
+        diff_ref: None,
+        auto_generated: true,
+    };
+
+    let summary = insert_summary_row(tx, agent_run_id, &fields, &actor_id, &now)?;
+    Ok(summary.id)
 }
 
 /// Every summary recorded for `task_id`, ordered `created_at ASC, id ASC` — the packet's own read
