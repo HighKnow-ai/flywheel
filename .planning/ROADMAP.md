@@ -280,7 +280,7 @@ as an existential external dependency.
   4. A stress run driving ten concurrent commits into one repository keeps every commit — index-lock collisions back off and retry instead of failing a task, and staggered spawn timing stops parallel starts colliding in the first place.
   5. An agent running in auto-accept permission mode still stops and asks before a force-push, a branch deletion or a recursive delete.
 
-**Plans**: 31/31 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the launcher-shape bypass class per D-59 .. D-63, plus 3 planned gap-closure plans (03-29 .. 03-31) in waves 15-17 closing round five of that class — the reproduced quote/backslash obfuscation of the D-61 raw-text scan (CR-01), plus WR-01 and WR-02
+**Plans**: 31/34 plans executed — 19/19 executed in 8 waves, plus 4 gap-closure plans (03-20 .. 03-23) added in waves 9-11 after re-verification returned `gaps_found` on Success Criterion 5's sustained-block half, plus 5 gap-closure plans (03-24 .. 03-28) in waves 12-14 closing the launcher-shape bypass class per D-59 .. D-63, plus 3 planned gap-closure plans (03-29 .. 03-31) in waves 15-17 closing round five of that class — the reproduced quote/backslash obfuscation of the D-61 raw-text scan (CR-01), plus WR-01 and WR-02, plus 3 gap-closure plans (03-32 .. 03-34) in waves 18-20 closing round seven — the `env -S` opaque re-parse (positional, and backslash-split), bash brace expansion as an unmodelled word-formation mechanism, and review warnings WR-01/WR-02/WR-03
 **UI hint**: yes
 
 Plans:
@@ -367,6 +367,18 @@ Plans:
 **Wave 17** *(blocked on Wave 16 — adversarial rows may only follow the corrected and implemented boundary)*
 
 - [x] 03-31-PLAN.md — The corpus manufactures its own adversaries: decision invariance under obfuscation (WR-02), the recorded friction table, and a live measurement whose failures mean what they say (all 8 phase IDs)
+
+**Wave 18 — gap closure** *(round seven, from `03-VERIFICATION.md`'s one failed truth — Success Criterion 5 / AGNT-07. Round six's `env -S` opaque re-parse is a proven, live, zero-human-confirmation bypass: `resolve_segment_program_index` recognises the wrapper token `env` only over `tokenize_shell_words`'s raw output, so a backslash-split `e\nv` escapes it entirely. Measured again during planning: the recognition is also POSITIONAL, so `sh -c 'env -S "-P /tmp git push --force"'` defers with no obfuscation at all. Per the trust-boundary document's own rule for round six, the boundary is amended BEFORE any code or corpus change — that ordering is the wave structure below.)*
+
+- [ ] 03-32-PLAN.md — Round seven: the boundary names the positional defect, C5 sees an opaque `env` re-parse anywhere, and the corpus carries no exception (AGNT-07, WR-02)
+
+**Wave 19** *(blocked on Wave 18 — shares `main.rs`, the boundary document and the shim test file)*
+
+- [ ] 03-33-PLAN.md — Brace expansion, named in the boundary first: C3 gains its fourth mechanism and two doc comments stop overclaiming (AGNT-07, WR-03)
+
+**Wave 20** *(blocked on Wave 19 — the document-before-corpus-row ordering, enforced as a real `depends_on` rather than a comment)*
+
+- [ ] 03-34-PLAN.md — The brace corpus rows and their priced friction, WR-01's null and numeric payloads, and the requirements bookkeeping record (AGNT-07, WR-01)
 
 **Notes**: This phase exists as its own slice because two of the four ranked project-killers live
 here and each deserves a dedicated plan with its own tests rather than being buried in Phase 2.
