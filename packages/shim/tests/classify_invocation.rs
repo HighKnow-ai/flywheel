@@ -545,3 +545,88 @@ fn round_nine_plain_prose_wrapper_flag_adjacency_denies() {
         "env half of the plain-prose class must report both fields true, got: {env_form}"
     );
 }
+
+#[test]
+fn round_nine_env_charges_any_dash_command_charges_only_the_p_run() {
+    // `env`'s recognised-flag set is OPEN: an unrecognised dash-prefixed token means the scanner
+    // cannot tell where `env`'s own arguments end, so it fails closed and fires on ANY
+    // dash-prefixed follower, not only the named PATH-defeating flags. `command`'s recognised-flag
+    // set is CLOSED (`-v`, `-V`, `-p`), so `command` can safely step over an unrecognised flag
+    // without firing — it fires only when the walk actually reaches `-p`. This asymmetry is why
+    // `env --help form` charges while `command --help form` (tested in the sibling negative-control
+    // test) does not.
+    let env_payloads = [
+        "the env -i form",
+        "the env --ignore-environment form",
+        "the env -u PATH form",
+        "the env --unset=PATH form",
+        "the env -S form",
+        "the env --split-string form",
+        "the env --help form",
+        "the env -x form",
+    ];
+    for payload in env_payloads {
+        let text = format!(r#"git commit -m "{payload}""#);
+        let result = classify(&text);
+        assert!(
+            result.contains(r#""textCanShadowPathResolution":true"#),
+            "{payload} must report textCanShadowPathResolution true, got: {result}"
+        );
+    }
+
+    let command_payloads = ["the command -p form", "the command --verbose -p form"];
+    for payload in command_payloads {
+        let text = format!(r#"git commit -m "{payload}""#);
+        let result = classify(&text);
+        assert!(
+            result.contains(r#""textCanShadowPathResolution":true"#),
+            "{payload} must report textCanShadowPathResolution true (the walk reaches -p), got: {result}"
+        );
+    }
+}
+
+#[test]
+fn round_nine_prose_controls_still_defer() {
+    // Each control is load-bearing for a distinct reason:
+    // - "the env vars form" / "the env handling form": an ordinary non-dash word after `env`
+    //   proves the walk still requires an actual flag, not bare presence of the wrapper word.
+    // - "the command -v form" / "the command -V form": the query flags that make `command` a
+    //   lookup rather than an execution — protecting `command -v git`, both a corpus Group 4
+    //   falsifiability companion and a live probe inside
+    //   `scripts/uat/uat-05-concurrent-commits.mjs`.
+    // - "the command --help form": proves `command`'s flag run must actually REACH `-p`, not
+    //   merely contain a recognised query flag or an unrecognised one.
+    // - "the command parser form": an ordinary word after `command` with no flag at all.
+    // - "the environment -i flag": proves the word-boundary rule still holds — `environment` does
+    //   not word-contain `env` (an identifier character, `i`, sits immediately after where `env`
+    //   would end).
+    // - "add --unset=PATH support to env": `env` is the LAST token, so nothing follows it to walk.
+    let negative_controls = [
+        "the env vars form",
+        "the env handling form",
+        "the command -v form",
+        "the command -V form",
+        "the command --help form",
+        "the command parser form",
+        "the environment -i flag",
+        "add --unset=PATH support to env",
+    ];
+    for payload in negative_controls {
+        let text = format!(r#"git commit -m "{payload}""#);
+        let result = classify(&text);
+        assert!(
+            result.contains(r#""textCanShadowPathResolution":false"#),
+            "{payload} must report textCanShadowPathResolution false, got: {result}"
+        );
+    }
+
+    // D-61's AND-gate proof: C6 fires (the env/dash adjacency is present), but this text names no
+    // gated program, so the AND-gate never denies it.
+    let grep_control = classify(r#"grep -rn "env -i" packages"#);
+    assert!(
+        grep_control.contains(r#""textCanShadowPathResolution":true"#)
+            && grep_control.contains(r#""namesGatedProgram":false"#),
+        "grep -rn \"env -i\" packages must report textCanShadowPathResolution:true and \
+         namesGatedProgram:false, got: {grep_control}"
+    );
+}
