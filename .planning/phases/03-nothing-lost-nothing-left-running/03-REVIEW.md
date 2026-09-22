@@ -2,252 +2,201 @@
 phase: 03-nothing-lost-nothing-left-running
 reviewed: 2026-09-22T00:00:00Z
 depth: standard
-files_reviewed: 4
+files_reviewed: 5
 files_reviewed_list:
+  - .planning/phases/03-nothing-lost-nothing-left-running/03-REQUIREMENTS-BOOKKEEPING.md
   - docs/destructive-gate-trust-boundary.md
   - packages/shim/src/main.rs
   - packages/shim/tests/classify_invocation.rs
   - packages/sidecar/test/destructive-gate.test.mjs
 findings:
-  critical: 1
+  critical: 0
   warning: 2
-  info: 0
+  info: 1
   total: 3
 status: issues_found
 ---
 
-# Phase 03: Code Review Report — round eight (incremental, since `cb790c4`)
+# Phase 3: Code Review Report (incremental — round-eight gap closure, plans 03-35/03-36)
 
 **Reviewed:** 2026-09-22
 **Depth:** standard
-**Files Reviewed:** 4
+**Files Reviewed:** 5
 **Status:** issues_found
 
 ## Summary
 
-The four gap-closure findings from the last review (CR-01 brace expansion, WR-01
-`readProvenBoolean` null payload, WR-02 `GROUP_3_COMMANDS` index range, WR-03 the C3
-enumeration-vs-inversion ruling) all check out — I traced each fix against the code and the new
-tests and did not find a regression in any of them. `GROUP_3_COMMANDS` is genuinely derived from
-`row.group`, never an index range; the `readProvenBoolean` tests (`p6`/`p7`) genuinely exercise
-`null` and a numeric `0`; the WR-03 ruling is correctly reflected in the code (C3 stays a closed,
-positive enumeration) and in `ORDINARY_USAGE_CORPUS`'s `git add *.rs` falsifiability row.
+This is an incremental review of the six commits closing round eight of the destructive-gate
+bypass class (plans 03-35 and 03-36): the promotion of `env`/`command` wrapper-token recognition
+from exact-string-equality (C5) to word-boundary containment (C6), the fail-closed extension for
+indeterminate flag/NAME positions, and the mechanical brace-expansion sweep added to the
+adversarial corpus.
 
-But this round's own new work — C5's `raw_text_names_opaque_env_reparse` and C3's brace-adjacency
-trigger — leaves open a **live, reproduced, zero-human-confirmation bypass of the destructive
-gate**, using the same "env"/"command" wrapper-token class round six and seven just spent two
-plans closing, obfuscated by a mechanism (brace expansion) neither C1-C5 nor the wrapper-token
-walk was built to see through. I reproduced this three times against the compiled binaries — the
-`--classify-invocation` classifier, the real compiled `pretooluse-hook.js` in a genuinely proven
-environment, and a live runtime confirmation that Layer 2 provides no backstop either — never
-running a real `git`/`rm` against a real target, per D-63. This is the CR-01 finding below and it
-is the most important thing in this review.
+I did not find a bypass (a real destructive invocation that the gate would classify `safe` and let
+through unasked). I compiled `flywheel-shim` and drove `--classify-invocation` directly against
+several hand-constructed adversarial payloads not present in either corpus — brace/dash hybrid
+flag tokens (`command -{p,} ...`), glob-obfuscated `--unset` NAME arguments
+(`env -u PA[T]H ...`), and individually-quoted flag tokens inside a nested launcher
+(`sh -c 'env "-S" "..."'`) — and in every case the existing C3/C4/C6 machinery already denies or
+the real shell itself fails to execute the payload as an attacker would need it to (verified live,
+non-destructively, per this codebase's own D-63 discipline). `cargo test -p flywheel-shim` (20/20)
+and the sidecar's `destructive-gate.test.mjs` suite (all subtests, including the round-eight rows)
+pass as shipped.
 
-Two further findings, both WARNING-level: the brace rule's priced friction is materially wider
-than what the trust-boundary document prices (an ordinary quoted commit message containing a
-letter-adjacent `{word}`/`{word}text` shape now denies, not just the one documented `xargs -I{}
-rm {}` row), and the round's own adversarial obfuscation generator (`OBFUSCATION_SPLIT_KINDS`)
-was never extended to generate brace-expansion splits even though this same round taught C3 a
-whole new brace-expansion mechanism — which is exactly why CR-01 below shipped without the
-generator catching it mechanically, the way it caught round six's backslash-split `env` defect.
+What I did find is a **materially under-priced friction regression** introduced by this round's
+own C6 promotion: the trust-boundary document's own soundness claim for C6 ("needs ... a token
+carrying BOTH a brace-or-glob character AND a dash") is false. An entirely ordinary quoted
+argument — no brace, no glob, no obfuscation of any kind — that happens to mention `env`/`command`
+immediately followed by one of their gated flags (`-p`, `-i`, `-u`, `-S`) anywhere in prose (a
+commit message, a `--grep` pattern, a code comment passed as an argument) now denies whenever the
+text also names `git`/`rm`. This is exactly the kind of language this very subsystem's own commits
+and documentation use constantly, so it is likely to bite this project's own future development.
+Full reproduction and root-cause trace below (WR-A). This is a WARNING per the review's own
+weighting (over-refusal, not a bypass), but it directly contradicts a claim this round's own
+authors wrote down as fact, and no test in either file catches it.
 
-## Narrative Findings (AI reviewer)
+I also flag one maintainability concern (INFO): the wrapper-flag-walk logic for `env`/`command` is
+now independently hand-duplicated in three functions in `packages/shim/src/main.rs`, kept in sync
+only by doc-comment cross-references, not shared code.
 
-### CR-01: Brace-expansion-obfuscated `env`/`command` wrapper tokens fully defeat the gate — reproduced live, no human confirmation required
+`03-REQUIREMENTS-BOOKKEEPING.md` is a narrative/bookkeeping record with no executable content; I
+checked its factual claims (the seven-plus-one requirement rows' current status) against a direct
+`grep` of `.planning/REQUIREMENTS.md` and found no discrepancy — every row still reads exactly
+`Gaps Found`, matching the document's own claim.
 
-**Files:**
-`packages/shim/src/main.rs:724-792` (`resolve_segment_program_index`'s `env`/`command` unwrap),
-`packages/shim/src/main.rs:856-926` (`text_can_shadow_path_resolution`'s own `env`/`command` token
-walk), `packages/shim/src/main.rs:1056-1063` (`raw_text_can_shadow_path_resolution` — the
-`raw_text_contains_word` companion that protects six other keywords but not these two),
-`packages/shim/src/main.rs:1157-1197` (C5, `raw_text_names_opaque_env_reparse`)
+## Warnings
 
-**Issue:**
+### WR-A: C6's own documented soundness claim is false — plain (non-obfuscated) mentions of `env`/`command` flags in ordinary quoted text now deny, not just the "contrived" brace case the doc and tests price
 
-Round six and seven closed a real bypass in which a backslash-split or launcher-nested `env`
-token defeated the gate. Both fixes — the second quote-removed pass in
-`resolve_segment_program_index`'s caller, and C5's presence-anywhere scan — recognise `env` (and
-`resolve_segment_program_index` also recognises `command`) only as an exact-string TOKEN match,
-after C1's quote/backslash removal. Neither ever applies the character-level, word-boundary
-substring scan (`raw_text_contains_word`) that protects `git`/`rm` (`text_names_gated_program`)
-and the six `KEYWORD_TRIGGERS` — `function`, `alias`, `hash`, `eval`, `source`, `builtin`
-(`raw_text_can_shadow_path_resolution`). Those six get a raw-text companion specifically so a
-keyword hiding inside a token like `{alias,}` or `al{i,}as` is still found by character-level
-scanning; `env` and `command` never got the same companion — `raw_text_can_shadow_path_resolution`'s
-own `KEYWORD_TRIGGERS` constant (main.rs:1057) simply does not list them, with no comment
-explaining the omission as deliberate.
+**File:** `packages/shim/src/main.rs:1232-1300` (`raw_text_names_path_defeating_wrapper`, C6), cross-referenced against `docs/destructive-gate-trust-boundary.md:234-326` (the C6 clause and its "priced friction" paragraph) and `packages/sidecar/test/destructive-gate.test.mjs:2075-2082` (`ORDINARY_USAGE_CORPUS`'s one C6 friction row)
 
-Bash's brace expansion assembles the literal word `env` (or `command`) from `{env,}` /
-`{command,}` — verified live, harmless:
+**Issue:** The trust-boundary document states C6's new friction class as narrowly as:
 
-```
-$ bash -c '{env,} -S "echo TEST_ENV_BRACE_OBFUSCATION"'
-TEST_ENV_BRACE_OBFUSCATION
-```
+> "a token carrying a non-letter-adjacent brace or glob AND a `-`, standing immediately where
+> `env`'s or `command`'s own flag belongs, in text that also names `git` or `rm`. ... What C6
+> deliberately does NOT charge, and why: bare presence of the word `env` or `command` would have
+> denied `command -v git` and `git commit -m "fix the command parser"` (both measured as deferring
+> today)"
 
-Because the resulting `{`/`}` sit next to whitespace on both sides (not a letter), C3's
-brace-adjacency trigger — which is deliberately, correctly, asymmetric and letter-adjacency-scoped
-(confirmed by reading `raw_text_word_formation_is_indeterminate`, main.rs:1103-1127, and its own
-tests) — never fires either. So this exact obfuscation is invisible to every mechanism this round
-shipped.
+and the corresponding test comment (`destructive-gate.test.mjs:2075-2082`) repeats the same claim
+almost verbatim, presenting `git commit -m "the command {-p,} form"` as "the contrived one" versus
+two plain-English defer rows ("fix the command parser", "set env vars") that supposedly prove C6
+did not become a bare-presence scan.
 
-**Reproduction 1 — the classifier (D-63: `--classify-invocation` only, never executed):**
+This claim is false. `raw_text_names_path_defeating_wrapper` scans **two forms** of the text: the
+raw text, and `shell_quote_removed(text)` (C1/C2's union, reused here). `shell_quote_removed`
+strips every `'`/`"` character with **no quoting-context tracking at all** — that is its whole
+documented purpose (context-free removal, to catch nested-shell re-parsing). The side effect: a
+double-quoted argument like `"the command -p form"` — a single shell WORD, with internal spaces
+that are *not* real word boundaries — has its quotes stripped and is then **re-tokenized on
+whitespace by `tokenize_shell_words`**, at which point "the", "command", "-p" and "form" become
+four *separate* array elements. The wrapper-flag walk (`j = i + 1`, `tokens.get(j)`) sees "-p"
+immediately following "command" and fires — with **no brace, no glob, and no obfuscation
+whatsoever** in the original text.
 
-```
-$ target/debug/flywheel-shim --classify-invocation '{env,} -S "-P /tmp git push --force"'
-{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}
-$ target/debug/flywheel-shim --classify-invocation "sh -c '{env,} -S \"-P /tmp git push --force\"'"
-{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}
-```
-
-Compare the already-closed, unobfuscated and backslash-split forms of the identical payload, both
-correctly fail-closed today:
+Verified live against the compiled `flywheel-shim` binary (`--classify-invocation`, D-63 — no
+destructive command executed):
 
 ```
-$ target/debug/flywheel-shim --classify-invocation 'env -S "-P /tmp git push --force"'
-{"category":"uncategorized","invokedBareName":false,"program":null}
-$ target/debug/flywheel-shim --classify-invocation 'e\nv -S "-P /tmp git push --force"'
-{"category":"uncategorized","invokedBareName":false,"program":null}
-```
-
-Since `textCanShadowPathResolution` and `namesGatedProgram` are never both `true`, D-61's AND-gate
-never fires for the brace form. `namesGatedProgram` is honest (`git` is literally present); the
-gap is entirely in `textCanShadowPathResolution` staying `false`.
-
-**Reproduction 2 — the real hook, real shim, genuinely proven environment:**
-
-Drove the shipped, compiled `packages/sidecar/dist/pretooluse-hook.js` with `FLYWHEEL_SHIM_BIN`
-pointed at a real copy of the compiled shim and the shim's shadow directory genuinely first on
-`PATH` (the exact construction `destructive-gate.test.mjs`'s own `makeShimDir`/`runHook` helpers
-use):
-
-```
-$ FLYWHEEL_SHIM_BIN=$SHIMDIR/git PATH=$SHIMDIR:$PATH node pretooluse-hook.js <<< \
-    '{"tool_input":{"command":"{env,} -S \"-P /tmp git push --force\""}}'
-{}
-exit=0
-```
-
-`{}` at exit 0 is "no opinion" — byte-identical to the decision an ordinary `git status` produces
-in the same environment. The nested `sh -c '{env,} -S "-P /tmp git push --force"'` form produces
-the identical `{}`/exit-0 decision.
-
-**Reproduction 3 — Layer 2 provides no backstop either (D-63: a harmless `git status` payload, a
-planted stub, never a real destructive command):**
-
-With the shim's shadow directory genuinely first on `PATH`, and a harmless stub `git` (that only
-prints a marker and exits) planted at an alternate directory:
-
-```
-$ PATH=$SHIMDIR:$PATH FLYWHEEL_REAL_GIT=$(command -v git) \
-    sh -c '{env,} -S "-P '"$ALTDIR"' git status"'
-ALTPATH_STUB_REACHED_NOT_THE_SHIM
-```
-
-The altpath stub was reached, not the shim — confirming, for this obfuscation mechanism, exactly
-what round six's own record already established for the non-obfuscated `-P` form: `env`'s own
-`-P` altpath search bypasses the shim's shadow directory entirely at runtime, so there is no
-second layer to fall back on once Layer 1 misclassifies the text as `safe`.
-
-**A second, independent instance of the same root cause — `command -p`:**
-
-```
-$ target/debug/flywheel-shim --classify-invocation '{command,} -p git push --force'
-{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}
-```
-
-Compare the unobfuscated form, correctly denied today:
-
-```
-$ target/debug/flywheel-shim --classify-invocation 'command -p git push --force'
-{"category":"force-push","invokedBareName":false,"program":"git"}
-```
-
-`command -p` forces a hardcoded default `PATH` (e.g. `/bin:/usr/bin`) that can never contain the
-shim's shadow directory — the same "unconditional, environment-independent bypass" this file's own
-doc comment (main.rs:826-830) already names for the unobfuscated form. The brace-obfuscated form
-is invisible to the same gap: `resolve_segment_program_index` never recognises `{command,}` as the
-`command` wrapper (so it tries, and fails, to classify a program literally named `{command,}`,
-which `classify()` does not recognise and reports `Safe`), and neither `text_can_shadow_path_resolution`
-nor its raw-text companion nor C5 catch it, for the identical reason.
-
-**Why this is not already covered by the "Named residuals" table:** the table's closest row —
-"A gated keyword assembled by a mechanism that is neither C1's quote removal nor one of C3's
-named expansion characters" — is scoped to a "gated keyword" installing a shadow (function/alias/
-eval/etc., the residual's own examples) and its reopening trigger is "any bypass shape whose raw
-text carries none of those characters and still installs a shadow." `env`/`command` are wrapper
-tokens, a third category this residual's own language does not name, and the mechanism here is not
-"installing a shadow" — it is silently mis-resolving the segment's own program token so the
-destructive verdict is never reached at all. Per this document's own "rule for round six": *"A
-newly found bypass shape is a boundary failure, not a missing corpus row… Only after this document
-is corrected does a new row belong in `LAUNCHER_CORPUS`."* This finding is exactly that — a new
-boundary failure, not a corpus gap, and it needs its own named residual/round before a fix lands.
-
-**Fix (concrete direction, not prescriptive):** give `env` and `command` the same raw-text,
-word-boundary substring-scan companion the six `KEYWORD_TRIGGERS` and `git`/`rm` already have —
-e.g. add `env` and `command` to a `raw_text_contains_word`-based scan feeding `text_can_shadow`
-(mirroring C2's existing union-matching discipline), so `{env,}`/`{command,}` are caught by
-character-level presence the same way `{alias,}` already is via `raw_text_can_shadow_path_resolution`.
-Over-triggering (a false positive costs one deny) is the accepted direction per this file's own
-D-61 discipline; under-triggering here costs an ungated force-push with zero confirmation.
-
-### WR-01: The brace rule's priced friction is materially wider than what the trust-boundary document records
-
-**File:** `packages/shim/src/main.rs:1118-1125` (the brace-adjacency loop in
-`raw_text_word_formation_is_indeterminate`); `docs/destructive-gate-trust-boundary.md:247-251`
-(the "Record the friction..." paragraph) and `:1100-1102` (the brace rule's own doc comment, which
-names only `xargs -I{} rm {}` as the priced case)
-
-**Issue:** the document's own accounting paragraph names only `$`/backtick as the AND-gate's
-priced friction ("a command whose text names `git` or `rm` and also carries a `$` or a backtick
-will be denied where it is deferred today") and the brace rule's own doc comment prices exactly
-one row (`xargs -I{} rm {}`). In practice the friction is much broader — any text naming `git`/`rm`
-that also contains an ordinary letter-adjacent `{word}` or `{word}text` shape now denies, which is
-a common pattern in commit messages, doc edits, and code snippets an agent might legitimately pass
-through `git commit -m`. Reproduced against the compiled binary:
-
-```
-$ target/debug/flywheel-shim --classify-invocation 'git commit -m "add {foo}bar support"'
+$ flywheel-shim --classify-invocation 'git commit -m "the command -p form"'
 {"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
-$ target/debug/flywheel-shim --classify-invocation 'git commit -m "fix ${VAR}text bug"'
+
+$ flywheel-shim --classify-invocation 'git commit -m "document the command -p flag behavior"'
 {"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
-$ target/debug/flywheel-shim --classify-invocation 'git commit -m "See docs/{README}text"'
+
+$ flywheel-shim --classify-invocation 'git commit -m "the env -i flag clears vars"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
+
+$ flywheel-shim --classify-invocation 'git commit -m "describe env -u PATH behavior"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
+
+$ flywheel-shim --classify-invocation 'git commit -m "use env -S here"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
+
+$ flywheel-shim --classify-invocation 'git log --grep "the command -p flag"'
 {"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true}
 ```
 
-Each of these is an ordinary, harmless `git commit` an agent could plausibly write, and each now
-denies where it deferred before plan 03-33. `ORDINARY_USAGE_CORPUS` only prices the `xargs -I{} rm
-{}` shape; there is no corresponding row for this much more common "ordinary commit message
-happens to contain a brace" case.
+Every one of these denies today, combined with D-61's AND-gate whenever the text also names
+`git`/`rm` — which an ordinary commit message about *this exact feature* routinely will (this
+review's own required-reading files use phrases like "env -u PATH", "command -p", "env -S" dozens
+of times). Compare the control, which correctly still defers because it has no dash-flag word
+immediately after "command"/"env":
 
-**Fix:** either broaden the trust-boundary document's friction paragraph to name this class
-explicitly (so it is a recorded decision, not a surprise), or add an `ORDINARY_USAGE_CORPUS` row
-pricing an ordinary commit-message-with-braces shape the same way the xargs row already prices the
-placeholder shape — whichever the team decides, the gap between what is priced and what actually
-denies should not persist silently.
+```
+$ flywheel-shim --classify-invocation 'git commit -m "fix the command parser"'
+{"category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":false}
+```
 
-### WR-02: `OBFUSCATION_SPLIT_KINDS` never gained a brace-expansion split kind, even though this round taught C3 brace expansion
+Root cause: the flag-adjacency design (`raw_text_names_path_defeating_wrapper`'s `j = i + 1` walk)
+assumes that "the next array element after the wrapper token" reflects real adjacency in the
+shell's own word structure. C1's context-free quote removal (a deliberate, documented,
+over-triggering-by-design choice for the *nested-shell* case) breaks that assumption for text
+*inside* a single quoted argument: two words that are only adjacent because they share one quoted
+string become adjacent tokens after quote removal, exactly reproducing the "ordinary mention"
+over-triggering the flag-qualification (`-p`/`-i`/`-u`/`-S` instead of bare presence) was
+specifically designed to avoid. C5 (round seven) already had this same defect for `env` alone (I
+verified `git commit -m "use env -S here"` above); C6 (this round) newly extends it to `command`
+and to `env`'s `-i`/`-u` flags, which is squarely inside this review's diff.
 
-**File:** `packages/sidecar/test/destructive-gate.test.mjs:1564-1572` (`OBFUSCATION_SPLIT_KINDS`),
-`:1641-1669` (`KEYED_WORDS`, which already lists `env` and `command`)
+This is not caught by any existing test: `ORDINARY_USAGE_CORPUS`'s only C6-friction row uses the
+brace-wrapped form (`"the command {-p,} form"`), and no row exercises a plain, non-obfuscated
+mention of a recognised flag word after "env"/"command" in prose. The mechanical
+`obfuscationVariants` sweep (`destructive-gate.test.mjs`) only generates variants from
+`LAUNCHER_CORPUS` *commands* (real invocations), never from prose-in-quotes shapes, so it cannot
+surface this either.
 
-**Issue:** the round-six/seven decision-invariance generator (`obfuscationVariants`) sweeps every
-`KEYED_WORDS` entry — including `env` and `command` — across three split mechanisms:
-empty-double-quote, empty-single-quote, and backslash. It never generates a brace-expansion split
-(`{w,}` or `w{,}`), even though plan 03-33, landing in this very round, taught the classifier a
-whole new word-formation mechanism (brace expansion) and even added a dedicated brace-adjacency
-trigger to C3. Had a brace-split kind existed in this generator, sweeping `env`/`command` (already
-members of `KEYED_WORDS`) with it would have mechanically produced and flagged the exact CR-01
-payload above — the same way this generator already caught round six's backslash-split `env`
-defect before a human had to find it by hand. This is the precise coverage gap the generator
-exists to close, left unclosed for the one word-formation mechanism this round itself introduced.
+**Fix:** Either (a) narrow the flag-adjacency check so it is computed only within a single
+`tokenize_shell_words` token's own *original* quoted span (i.e., derive adjacency before
+`shell_quote_removed` collapses the quoting structure, not after), so that quote-internal spaces
+are not mistaken for real word boundaries — likely by having the quote-removed retokenization
+retain quote-boundary markers rather than plain whitespace-splittable text; or (b) if the false
+positive is judged an acceptable/deliberate trade like C3's brace-adjacency cost, correct the trust
+boundary document's soundness claim to state the true (much broader) scope, and add a representative
+non-brace `ORDINARY_USAGE_CORPUS` row (e.g. `git commit -m "document the command -p flag behavior"`,
+expect `deny`) so the cost is priced rather than contradicted by the document's own text.
 
-**Fix:** add a fourth `OBFUSCATION_SPLIT_KINDS` entry (or a parallel generator) that wraps the
-keyed word's own text in a `{`/`,}`-style brace pair with an empty second alternative
-(`word` → `{word,}`), and sweep it the same way. This would need to run through the invariance
-loop's own `KEYED_WORDS`/`GROUP_3_COMMANDS` machinery, not just the two `env`/`command`-specific
-payloads CR-01 above uses — the whole point of the existing generator is to make this systematic
-rather than hand-written.
+### WR-B: The `env`/`command` wrapper flag-walk is hand-duplicated across three functions with no shared implementation
+
+**File:** `packages/shim/src/main.rs:725-813` (`resolve_segment_program_index`), `:877-947` (`text_can_shadow_path_resolution`), `:1232-1300` (`raw_text_names_path_defeating_wrapper`)
+
+**Issue:** The logic for walking past `env`'s own recognised flags (`--`, `-i`/`--ignore-environment`,
+`-u`/`--unset[=NAME]`, `-S`/`--split-string`, any other `-`-prefixed token) and `command`'s own
+flags (`-v`/`-V`/`-p`) is implemented independently, with separate loops and separate match arms,
+in three different functions. The doc comments on all three explicitly acknowledge the
+duplication and the drift risk ("Mirrors `resolve_segment_program_index`'s own env-flag walk...
+closely enough to agree on where each flag's own argument ends"), and this round's own fix
+(the fail-closed extension for indeterminate flag/NAME tokens) had to be applied by hand to two of
+the three copies (`resolve_segment_program_index` and `raw_text_names_path_defeating_wrapper`) —
+`text_can_shadow_path_resolution` was deliberately left unwidened, per its own doc comment,
+because the two functions serve different fields. This is a maintainability risk that this
+finding's own reasoning (WR-A) demonstrates in practice: a change to one flag-walk's behavior
+(e.g., adding a new recognised `env` flag) requires the author to remember to update up to three
+separate implementations and their cross-referencing doc comments, or a future flag addition will
+silently apply to only one or two of the three functions.
+
+**Fix:** Consider extracting a single, parameterized flag-walk helper (e.g.
+`fn walk_wrapper_flags(tokens: &[String], start: usize, wrapper: WrapperKind) -> WalkOutcome`)
+that each of the three call sites adapts to its own field (`ProgramResolution`,
+`bool` for shadowability, `bool` for `text_can_shadow`), so a newly recognised flag is added in one
+place. If the three call sites' differing semantics (consume-vs-detect, NAME-position rules) make
+a single helper impractical, at minimum add a single source-of-truth table (flag name → semantic
+class: "PATH-defeating", "opaque/unrecognised", "query-only") that all three functions iterate,
+rather than three independent `match` trees.
+
+## Info
+
+### IN-01: `03-REQUIREMENTS-BOOKKEEPING.md` is purely narrative bookkeeping with no independently verifiable claim beyond requirement-table status
+
+**File:** `.planning/phases/03-nothing-lost-nothing-left-running/03-REQUIREMENTS-BOOKKEEPING.md`
+
+**Issue:** Not a defect — noted for completeness. I cross-checked the document's central factual
+claim (all eight Phase-3 requirement rows read `Gaps Found` in `.planning/REQUIREMENTS.md`) via a
+direct `grep` of that file, per the document's own stated discipline ("confirm by direct grep,
+never from a verb's own report"), and it matches. The rest of the document is a coverage map and a
+procedural instruction for a future re-marking step; there is no code path to review here.
+
+**Fix:** None required.
 
 ---
 
