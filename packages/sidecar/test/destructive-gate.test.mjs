@@ -1418,6 +1418,25 @@ const LAUNCHER_CORPUS = [
     expect: "deny",
     why: "the rm counterpart: the ()-adjacent parens fire the shadow scan; raw text names rm; D-61 denies",
   },
+  {
+    command: "sh -c 'al{i,}as git=/usr/bin/git; git push --force'",
+    group: 3,
+    expect: "deny",
+    why:
+      "al{i,}as expands to the two words alias alas with the real keyword FIRST, and alias accepts multiple " +
+      "NAME/NAME=VALUE arguments and errors harmlessly on the junk one, so under expand_aliases this genuinely " +
+      "defines the git alias; C3's brace-adjacency trigger (plan 03-33) fires on the { immediately after l, " +
+      "reporting textCanShadowPathResolution true, the raw text names git, and D-61's AND denies",
+  },
+  {
+    command: "sh -c 'so{u,}rce ./defs.sh; git push --force'",
+    group: 3,
+    expect: "deny",
+    why:
+      "the same adjacency shape on a second keyword (source); C3's brace-adjacency trigger fires, raw text " +
+      "names git, D-61's AND denies. ./defs.sh is a string inside the classification payload only — never " +
+      "read from disk by this test",
+  },
 
   // --- Group 4: the non-triggers D-61 explicitly protects, plus harmless controls. All defer —
   // the falsifiability companions of this whole table: if any of these starts denying, the rule
@@ -1459,6 +1478,25 @@ const LAUNCHER_CORPUS = [
     why:
       "a query form that never executes git, so it must stay safe/defer — scripts/uat/uat-05-concurrent-commits.mjs uses this exact " +
       "form as its shim-installation proof and has nobody to answer a permission request",
+  },
+  {
+    command: "{gi,}t push --force",
+    group: 4,
+    expect: "defer",
+    why:
+      "C3 now reports textCanShadowPathResolution true (honest — the brace-adjacency trigger fires), but " +
+      "namesGatedProgram is false because no word-bounded literal git survives in either text form, so D-61's " +
+      "AND never fires; Layer 2's own argv classifier is the layer trusted to catch it, measured: " +
+      "--classify-command 'rm m -rf /tmp/x' reports recursive-delete",
+  },
+  {
+    command: "{r,}m -rf /tmp/nonexistent-x",
+    group: 4,
+    expect: "defer",
+    why:
+      "the rm counterpart of the row above — same reasoning: namesGatedProgram is false, D-61's AND never " +
+      "fires. /tmp/nonexistent-x is a string inside the classification payload only — never created, touched " +
+      "or removed by this test",
   },
 ];
 
@@ -1789,6 +1827,26 @@ const ORDINARY_USAGE_CORPUS = [
     expect: "defer",
     why: "the priced falsifiability companion of round seven's C5 (plan 03-32): C5 fires (an env token followed by the opaque -S flag is present, so textCanShadowPathResolution reports true), but the text names neither git nor rm, so D-61's AND never fires — proof C5 did not become general command refusal",
   },
+  {
+    command: "git add src/{a,b}.rs",
+    expect: "defer",
+    why:
+      "{ follows / and } precedes . , so no letter run is welded and C3's brace-adjacency trigger (plan 03-33) " +
+      "stays determinate — this is the row that proves the rule is adjacency-scoped rather than presence-based",
+  },
+  {
+    command: "mkdir -p src/{a,b}",
+    expect: "defer",
+    why: "same adjacency reasoning as the row above, and the text names no gated program either",
+  },
+  {
+    command: "xargs -I{} rm {}",
+    expect: "deny",
+    why:
+      "the accepted, priced cost of the asymmetric brace rule: { immediately follows I, so C3 reports " +
+      "indeterminate, and the text names rm — a deliberate cost accepted in preference to adding brace-group " +
+      "parsing, per the WR-03 ruling in docs/destructive-gate-trust-boundary.md",
+  },
 ];
 
 test(
@@ -1832,11 +1890,11 @@ test(
     }
 
     assert.ok(
-      ORDINARY_USAGE_CORPUS.length >= 9,
-      `ORDINARY_USAGE_CORPUS must hold at least nine rows, holds ${ORDINARY_USAGE_CORPUS.length}`,
+      ORDINARY_USAGE_CORPUS.length >= 12,
+      `ORDINARY_USAGE_CORPUS must hold at least twelve rows, holds ${ORDINARY_USAGE_CORPUS.length}`,
     );
-    assert.ok(deferCount >= 5, `expected at least five defer rows, counted ${deferCount}`);
-    assert.ok(denyCount >= 2, `expected at least two deny rows, counted ${denyCount}`);
+    assert.ok(deferCount >= 7, `expected at least seven defer rows, counted ${deferCount}`);
+    assert.ok(denyCount >= 3, `expected at least three deny rows, counted ${denyCount}`);
   },
 );
 
