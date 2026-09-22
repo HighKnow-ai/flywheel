@@ -7,7 +7,9 @@ mod common;
 
 use core::context_packet::{assemble_context_packet, render_prompt};
 use core::domain::acceptance_criterion::{create_criterion, reorder_criterion};
+use core::domain::agent_run::start_agent_run;
 use core::domain::epic::create_epic;
+use core::domain::session_summary::{create_summary, SummaryFields};
 use core::domain::task::create_task;
 use core::domain::worktree::ensure_worktree;
 
@@ -245,6 +247,52 @@ fn render_prompt_is_byte_identical_across_calls_for_the_same_packet_and_instruct
         let first = render_prompt(&packet, "steer it this way");
         let second = render_prompt(&packet, "steer it this way");
         assert_eq!(first, second);
+    });
+}
+
+#[test]
+fn determinism_holds_with_summaries_present() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Summaries determinism", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+
+        let make_fields = |n: usize| SummaryFields {
+            changed_files: vec![format!("src/file_{n}.rs")],
+            changed_prose: Some(format!("session {n}")),
+            remains: None,
+            next_session_must_know: None,
+            decisions: vec![],
+            acknowledged_decisions: vec![],
+            diff_ref: None,
+            auto_generated: false,
+        };
+
+        for n in 0..3 {
+            create_summary(&mut conn, &run.id, make_fields(n), &actor_id)
+                .expect("create_summary should succeed");
+        }
+
+        let packet_a = assemble_context_packet(&conn, &task.id).expect("first assembly should succeed");
+        let packet_b = assemble_context_packet(&conn, &task.id).expect("second assembly should succeed");
+        assert_eq!(packet_a, packet_b, "two packets with summaries present must be structurally equal");
+        assert_eq!(packet_a.summaries.len(), 3);
+
+        let prompt_a = render_prompt(&packet_a, "");
+        let prompt_b = render_prompt(&packet_b, "");
+        assert_eq!(prompt_a, prompt_b, "rendered prompts with summaries present must be byte-identical");
+
+        create_summary(&mut conn, &run.id, make_fields(3), &actor_id)
+            .expect("fourth create_summary should succeed");
+        let packet_c = assemble_context_packet(&conn, &task.id).expect("third assembly should succeed");
+        assert_ne!(
+            packet_a, packet_c,
+            "recording a further summary must produce a packet that differs from the first — the \
+             assembler reads board state on every call rather than caching"
+        );
     });
 }
 
