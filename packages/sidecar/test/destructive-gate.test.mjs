@@ -2199,6 +2199,240 @@ test(
   },
 );
 
+// --- PROSE_FRICTION_SHAPES (plan 03-38 Task 2, round nine): the prose-shape sibling of
+// obfuscationVariants. Round nine's friction class was found by a human reading main.rs, not by
+// the mechanical sweep above, because obfuscationVariants derives every variant from
+// LAUNCHER_CORPUS.map((row) => row.command) — real invocations — and a prose-in-quotes shape is
+// not an invocation; the class it needs to reach lives entirely inside one quoted argument's own
+// internal words, which no LAUNCHER_CORPUS row's command text contains. No number of additional
+// split kinds fixes that — a second generator over prose SHAPES (wrapper + follower), independent
+// of any corpus row, is what does. See docs/destructive-gate-trust-boundary.md's "## Round nine"
+// for the measurements this generator's expected decisions are derived from. ---
+
+/** Sixteen `{ wrapper, follower, expect, why }` rows — the followers round nine's own corrected
+ * friction class turns on, for both wrapper tokens `env` and `command`. Expectations are derived
+ * from `raw_text_names_path_defeating_wrapper`'s own match arms (packages/shim/src/main.rs) and
+ * were measured against the compiled binary during planning; a future change teaching the scanner
+ * a new wrapper flag belongs here on the same commit — the same discipline `KEYED_WORDS`' own
+ * comment states above. */
+const PROSE_FRICTION_SHAPES = [
+  // env's own recognised-flag set is OPEN (round nine): every recognised PATH-defeating flag
+  // charges, and so does any UNRECOGNISED dash-prefixed follower — the scanner cannot tell where
+  // env's own arguments end, so it fails closed rather than stepping over an unknown flag.
+  {
+    wrapper: "env",
+    follower: "-i",
+    expect: "deny",
+    why: "a recognised PATH-defeating flag (--ignore-environment's short form) immediately after env",
+  },
+  {
+    wrapper: "env",
+    follower: "--ignore-environment",
+    expect: "deny",
+    why: "the long form of the same recognised flag as -i",
+  },
+  {
+    wrapper: "env",
+    follower: "-u PATH",
+    expect: "deny",
+    why: "env's own -u flag naming a word-bounded PATH — the two-token form of --unset=PATH",
+  },
+  {
+    wrapper: "env",
+    follower: "--unset=PATH",
+    expect: "deny",
+    why: "the single-token --unset=PATH form of the same recognised flag as -u PATH",
+  },
+  {
+    wrapper: "env",
+    follower: "-S",
+    expect: "deny",
+    why: "the opaque re-parse flag C5 already recognised, now reached through prose adjacency too",
+  },
+  {
+    wrapper: "env",
+    follower: "--split-string",
+    expect: "deny",
+    why: "the long form of the same opaque re-parse flag as -S",
+  },
+  {
+    wrapper: "env",
+    follower: "--help",
+    expect: "deny",
+    why:
+      "UNRECOGNISED — charges precisely because an unrecognised env flag leaves the scanner unable to tell " +
+      "where env's own arguments end, so it fails closed rather than stepping over it (round nine's own " +
+      "fail-closed obligation, not an oversight)",
+  },
+  {
+    wrapper: "env",
+    follower: "-x",
+    expect: "deny",
+    why: "UNRECOGNISED — the same fail-closed obligation as --help above, a shorter unrecognised flag",
+  },
+  {
+    wrapper: "env",
+    follower: "vars",
+    expect: "defer",
+    why: "an ordinary word, not a flag at all — breaks the walk before it ever begins",
+  },
+  {
+    wrapper: "env",
+    follower: "handling",
+    expect: "defer",
+    why: "a second ordinary word, proving the first is not a coincidence",
+  },
+  // command's own recognised-flag set is CLOSED (-v, -V, -p): an unrecognised dash-prefixed token
+  // can be safely stepped over without firing, so command charges only when its flag run actually
+  // reaches -p.
+  {
+    wrapper: "command",
+    follower: "-p",
+    expect: "deny",
+    why: "the bare recognised flag that makes command execute its argument through a PATH-defeating lookup",
+  },
+  {
+    wrapper: "command",
+    follower: "--verbose -p",
+    expect: "deny",
+    why: "the walk steps over the unrecognised --verbose flag and fires when it reaches -p",
+  },
+  {
+    wrapper: "command",
+    follower: "-v",
+    expect: "defer",
+    why:
+      "makes command a query that never executes its argument — must not fire, or command -v git (a corpus " +
+      "Group 4 falsifiability companion and a live probe inside scripts/uat/uat-05-concurrent-commits.mjs) " +
+      "would deny",
+  },
+  {
+    wrapper: "command",
+    follower: "-V",
+    expect: "defer",
+    why: "the same query-flag exemption as -v, the long/alternate form",
+  },
+  {
+    wrapper: "command",
+    follower: "--help",
+    expect: "defer",
+    why:
+      "UNRECOGNISED for command, but command's own set is CLOSED — an unrecognised flag is stepped over " +
+      "without firing, unlike env's OPEN set above",
+  },
+  {
+    wrapper: "command",
+    follower: "parser",
+    expect: "defer",
+    why: "an ordinary word, not a flag at all — breaks the walk before it ever begins",
+  },
+];
+
+/** Two `{ label, build }` templates, so the class is asserted as a property of quoted arguments
+ * generally rather than of one flag of one subcommand. Cost accounting: each generated variant
+ * (16 shapes x 2 templates = 32) spawns one real hook process, so the template count is
+ * deliberately small and the sweep's total is bounded — mirroring plan 03-35's own note about not
+ * multiplying the brace sweep. */
+const PROSE_FRICTION_TEMPLATES = [
+  {
+    label: "commit-message",
+    build: (prose) => `git commit -m "the ${prose} form"`,
+  },
+  {
+    label: "log-search",
+    build: (prose) => `git log --grep "the ${prose} flag"`,
+  },
+];
+
+/** The cross product of `PROSE_FRICTION_SHAPES` and `PROSE_FRICTION_TEMPLATES` as
+ * `{ command, shape, template, expect, why }` objects. The prose string handed to each template
+ * is the shape's `wrapper` followed by a space and its `follower`. The expectations are derived
+ * from `raw_text_names_path_defeating_wrapper`'s own match arms and were measured against the
+ * compiled binary during planning; a future change teaching the scanner a new wrapper flag
+ * belongs in `PROSE_FRICTION_SHAPES` on the same commit — the same discipline `KEYED_WORDS`' own
+ * comment states above. */
+function proseFrictionVariants() {
+  const variants = [];
+  for (const shape of PROSE_FRICTION_SHAPES) {
+    const prose = `${shape.wrapper} ${shape.follower}`;
+    for (const template of PROSE_FRICTION_TEMPLATES) {
+      variants.push({
+        command: template.build(prose),
+        shape,
+        template,
+        expect: shape.expect,
+        why: shape.why,
+      });
+    }
+  }
+  return variants;
+}
+
+test(
+  "PROSE_FRICTION_SHAPES: ordinary prose naming a wrapper flag inside a quoted argument decides the way the trust-boundary document says it does — the shape round nine found by hand, produced mechanically",
+  { skip: SHIM_SKIP_REASON },
+  () => {
+    for (const shape of PROSE_FRICTION_SHAPES) {
+      assert.ok(
+        typeof shape.why === "string" && shape.why.length > 0,
+        `every PROSE_FRICTION_SHAPES row must carry a non-empty why: ${shape.wrapper} ${shape.follower}`,
+      );
+      assert.ok(
+        shape.expect === "deny" || shape.expect === "defer",
+        `every PROSE_FRICTION_SHAPES row's expect must be "deny" or "defer": ${shape.wrapper} ${shape.follower}`,
+      );
+    }
+    assert.equal(
+      PROSE_FRICTION_SHAPES.length,
+      16,
+      `PROSE_FRICTION_SHAPES must hold exactly sixteen rows, holds ${PROSE_FRICTION_SHAPES.length}`,
+    );
+    assert.equal(
+      PROSE_FRICTION_TEMPLATES.length,
+      2,
+      `PROSE_FRICTION_TEMPLATES must hold exactly two entries, holds ${PROSE_FRICTION_TEMPLATES.length}`,
+    );
+
+    const shimDir = makeShimDir(["git", "rm"]);
+    const env = {
+      ...process.env,
+      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
+
+    const variants = proseFrictionVariants();
+    assert.ok(
+      variants.length >= 32,
+      `proseFrictionVariants() produced only ${variants.length} variants (expected at least 32) — a generator ` +
+        "producing fewer has silently stopped sweeping and must never be read as evidence that the class is priced",
+    );
+
+    for (const variant of variants) {
+      const context =
+        `shape: wrapper=${variant.shape.wrapper} follower=${variant.shape.follower} — ${variant.why}\n` +
+        `template: ${variant.template.label}\n` +
+        `variant command: ${variant.command}`;
+      const { status, decision } = runHook(variant.command, env);
+      if (variant.expect === "defer") {
+        assert.equal(status, 0, `expected defer (status 0) for —\n${context}`);
+        assert.deepEqual(decision, {}, `expected no opinion for —\n${context}`);
+      } else {
+        assert.equal(status, 2, `expected deny (status 2) for —\n${context}`);
+        assert.equal(
+          decision?.hookSpecificOutput?.permissionDecision,
+          "deny",
+          `expected permissionDecision "deny" for —\n${context}`,
+        );
+        assert.ok(
+          typeof decision?.hookSpecificOutput?.permissionDecisionReason === "string" &&
+            decision.hookSpecificOutput.permissionDecisionReason.length > 0,
+          `expected a non-empty deny reason for —\n${context}`,
+        );
+      }
+    }
+  },
+);
+
 test(
   "LAUNCHER_CORPUS: every launcher shape, wrapper family, shadow shape and non-trigger control, asserted through the real hook against the real shim in a proven environment",
   { skip: SHIM_SKIP_REASON },
