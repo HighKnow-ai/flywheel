@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Nothing Lost, Nothing Left Running
 status: executing
-stopped_at: "Completed 03-32-PLAN.md (round seven env-reparse bypass closed: presence-anywhere C5 predicate + quote-removed wrapper-token retry; WR-02 corpus group-marker refactor; KNOWN_OPEN_BOUNDARY_FAILURES emptied and asserted empty)"
-last_updated: "2026-09-22T01:16:02.732Z"
+stopped_at: Completed 03-33-PLAN.md (brace expansion named in trust-boundary doc first, WR-03 ruled, C3 gains fourth brace-adjacency mechanism; plan 03-34 carries the corpus rows)
+last_updated: "2026-09-22T01:39:55.312Z"
 last_activity: 2026-09-22
 last_activity_desc: Phase 03 execution started
-state_head: 3cc40a58f2ed9c5c7055cdd05371f11c0726d759
+state_head: ce1d08fc6d79f4482eede5c8e736620613157783
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 73
-  completed_plans: 71
+  completed_plans: 72
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 03 (Nothing Lost, Nothing Left Running) — EXECUTING
-Plan: 2 of 34
+Plan: 3 of 34
 Status: Ready to execute
 Last activity: 2026-09-22 — Phase 03 execution started
 
@@ -128,6 +128,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P30 | 140min | 3 tasks | 4 files |
 | Phase 03 P31 | ~2h | 3 tasks | 3 files |
 | Phase 03 P32 | 36min | 3 tasks | 4 files |
+| Phase 03 P33 | 15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -246,6 +247,9 @@ Recent decisions affecting current work:
 - [Phase 03]: The one decision-invariance break found is carried as a single falsifiability-checked exception (KNOWN_OPEN_BOUNDARY_FAILURES) rather than narrowing the sweep or the word list to avoid it
 - [Phase 03]: [Phase 03] Round seven closed: raw_text_names_opaque_env_reparse (C5) scans presence-anywhere for an env token followed by an opaque/unrecognised flag, folded into the safe verdict's text_can_shadow disjunct; a second quote-removed resolution pass inside classify_raw_command_text's segment loop closes the backslash-split leading-token half. KNOWN_OPEN_BOUNDARY_FAILURES emptied and asserted empty.
 - [Phase 03]: [Phase 03] WR-02 (03-REVIEW.md) closed in plan 03-32: LAUNCHER_CORPUS rows now carry an explicit group field (1-4) instead of a derived index-range slice, so a same-length reorder can no longer silently mistag Group 3 membership.
+- [Phase 03]: 03-33: WR-03 ruling — C3 stays an enumeration (now four named mechanisms) rather than becoming a genuine inversion; a genuine inversion would flip `git add *.rs` to indeterminate and D-61's AND-gate would deny it, which ORDINARY_USAGE_CORPUS asserts must not happen. — Recorded as a measurement (the git add *.rs falsifiability row), not an opinion, with a written reopening trigger: a bypass shape assembled by a mechanism outside all four named ones.
+- [Phase 03]: 03-33: The brace-adjacency rule is deliberately asymmetric ({ backward-only, } forward-only), not symmetric like the glob rule, accepting xargs -I{} rm {} as priced friction rather than adding comma/matching-brace parsing. — The asymmetry keeps git add src/{a,b}.rs and mkdir -p src/{a,b} determinate while still catching al{i,}as and {gi,}t; a symmetric or comma-aware rule would either over-deny ordinary path braces or need a parser whose own soundness class would have to be documented.
+- [Phase 03]: 03-33: text_names_gated_program's false is narrowed to the word-bounded-literal class rather than repaired by folding indeterminacy into it. — Folding indeterminacy into namesGatedProgram was rejected because it would make an indeterminate eval "$(direnv hook bash)" report a gated program and start denying, destroying the Group 4 falsifiability companions.
 
 ### Pending Todos
 
@@ -287,6 +291,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-22T01:15:55.321Z
-Stopped at: Completed 03-32-PLAN.md (round seven env-reparse bypass closed: presence-anywhere C5 predicate + quote-removed wrapper-token retry; WR-02 corpus group-marker refactor; KNOWN_OPEN_BOUNDARY_FAILURES emptied and asserted empty)
+Last session: 2026-09-22T01:39:55.231Z
+Stopped at: Completed 03-33-PLAN.md (brace expansion named in trust-boundary doc first, WR-03 ruled, C3 gains fourth brace-adjacency mechanism; plan 03-34 carries the corpus rows)
 Resume file: None
