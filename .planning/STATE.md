@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 04
-current_phase_name: clear-is-free
+current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-09-22T23:12:51.331Z"
-last_activity: 2026-09-22
-last_activity_desc: Phase 03 complete, transitioned to Phase 4
-state_head: 5eff969c3ca6abdc7a1a7a46cff072273c51be01
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-09-22T23:31:21.742Z"
+last_activity: 2026-09-23
+last_activity_desc: Phase 04 execution started
+state_head: 17fc84a04421d6d205040dd76972904ee5ebea15
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 77
+  completed_plans: 78
   percent: 0
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-10)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 03 — Nothing Lost, Nothing Left Running
+**Current focus:** Phase 04 — `/clear` Is Free
 
 ## Current Position
 
-Phase: 04 (clear-is-free) — READY TO EXECUTE
-Plan: Not started
+Phase: 04 (`/clear` Is Free) — EXECUTING
+Plan: 2 of 14
 Status: Ready to execute
-Last activity: 2026-09-22 — Phase 03 complete, transitioned to Phase 4
+Last activity: 2026-09-23 — Phase 04 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -135,6 +135,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P36 | 45min | 3 tasks | 2 files |
 | Phase 03 P37 | 17min | 3 tasks | 2 files |
 | Phase 03 P38 | 30min | 3 tasks | 2 files |
+| Phase 04 P01 | 13min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -265,6 +266,7 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-36: 03-REQUIREMENTS-BOOKKEEPING.md section (f) records round eight's coverage map — all four 03-VERIFICATION.md missing: items covered by 03-35/03-36 — with no requirement status changed; all eight Phase-3 rows still read Gaps Found
 - [Phase 03]: [Phase 03] 03-37: Round nine closed via branch (b) — the C6 over-trigger is accepted as a priced trade and docs/destructive-gate-trust-boundary.md corrected to the measured class; branch (a)'s narrowed-adjacency fix was rejected as unsound because it would reopen rounds seven/eight's closed nested env -S shapes. packages/shim/src/main.rs is unchanged.
 - [Phase 03]: [Phase 03] 03-38: FRICTION_CLASSES' plain-prose anchor points into the "## Round nine" narrative section rather than a nonexistent fourth friction-accounting bullet, since 03-37 corrected the third bullet in place instead of adding a fourth. — 03-38-PLAN.md's Task 3 assumed a separate fourth bullet the document does not contain; 03-37's own assumption_delta_decision promoted the general class into the existing third bullet instead, so the gate anchors into the Round nine narrative's own distinct sentence for the plain-prose member.
+- [Phase 04]: [Phase 04-01]: task_id/project_id/worktree_id in create_summary are resolved from the agent_runs row inside its own transaction, never accepted as caller parameters — T-04-01's spoofing mitigation -- a caller cannot attribute a summary to a run it does not drive, matching create_pending_request's identical discipline
 
 ### Pending Todos
 
@@ -307,6 +309,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-22T12:05:34.922Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-clear-is-free/04-CONTEXT.md
+Last session: 2026-09-22T23:31:21.646Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
