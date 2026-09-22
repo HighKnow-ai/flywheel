@@ -654,6 +654,20 @@ enum ProgramResolution {
     /// not yet learned about being treated as harmless-by-omission. An unrecognised `env` flag
     /// (BSD's `-P altpath`, `-C altwd`, `-0`, `-v`, or any future addition to either `env`
     /// implementation) now fails closed instead of silently becoming the assumed program name.
+    ///
+    /// **Reached from TWO passes as of plan 03-32 (round seven):** `classify_raw_command_text`'s
+    /// segment loop resolves this variant once over the segment's RAW `tokenize_shell_words`
+    /// output (the pass this doc comment describes above, unchanged), and once more over the
+    /// SAME segment's `shell_quote_removed` output, mirroring the safe-verdict's own C1-C4 retry
+    /// discipline. The raw pass alone is positional and single-pass: it recognises the wrapper
+    /// token `env` by exact string equality at a segment's own leading position, so a
+    /// backslash-split `env` (`e\nv`, round six) never equals the literal string `env` and the
+    /// wrapper is never recognised at all — the second, quote-removed pass is what catches it.
+    /// (Round seven's OTHER half — an `env` wrapper nested inside a launcher's opaque quoted
+    /// payload, e.g. `sh -c 'env -S "…"'` — is not reachable by retrying THIS segment's own
+    /// tokenization at all, since the whole payload is one opaque token to both passes; that half
+    /// is closed instead by `raw_text_names_opaque_env_reparse`'s presence-anywhere scan, feeding
+    /// only `text_can_shadow`, never this resolution.)
     Unresolvable,
 }
 
@@ -1065,6 +1079,76 @@ fn raw_text_word_formation_is_indeterminate(text: &str) -> bool {
     false
 }
 
+/// **C5 — an opaque `env` re-parse is detected by presence, over both text forms**
+/// (`docs/destructive-gate-trust-boundary.md`, plan 03-32, D-61): true when a token equal to `env`
+/// appears ANYWHERE in `text` — over both the raw form and [`shell_quote_removed`]'s output, the
+/// SAME C2 union C1-C4 already use — followed, among its own recognised flag run, by `-S`,
+/// `--split-string`, or any OTHER unrecognised `-`-prefixed token. Closes round seven's
+/// positional/single-pass gap: `resolve_segment_program_index`'s own wrapper-token recognition
+/// inspects only a segment's own LEADING token, once, over the raw segment text — it never retries
+/// against the quote-removed form, and never searches for `env` by presence anywhere in the text
+/// the way this function does. A backslash-split `env` (round six, `e\nv`) or an `env` nested
+/// inside a launcher's opaque quoted payload (round seven, `sh -c 'env -S "…"'` — the whole payload
+/// arrives as ONE token from [`tokenize_shell_words`], so no whole-token equality check at a fixed
+/// position can ever see inside it) escapes `resolve_segment_program_index` entirely; this function
+/// is the presence-anywhere backstop for the SAFE-verdict's own `textCanShadowPathResolution` field.
+///
+/// This function does NOT feed `invoked_bare_name` — C4's own rule is that only C1's quote removal
+/// widens that fact, never a presence-anywhere scan. It feeds ONLY the safe verdict's own
+/// `text_can_shadow` binding in [`classify_raw_command_text`].
+///
+/// The flag walk below mirrors `text_can_shadow_path_resolution`'s own `env` branch exactly, so the
+/// two scanners agree on where each flag's own argument ends: leading `NAME=VALUE` assignment
+/// tokens are skipped; `--` ends `env`'s own option processing (this walk stops without reporting
+/// `true` for this occurrence); `-i`/`--ignore-environment` and `-u`/`--unset NAME`/`--unset=NAME`
+/// are recognised and skipped (consuming `-u`/`--unset`'s own NAME argument as a second token, same
+/// as `resolve_segment_program_index`'s own `env` walk); `-S`/`--split-string` or any OTHER,
+/// unrecognised `-`-prefixed token reports `true` immediately — the opaque-reparse or
+/// unrecognised-flag shape this predicate exists to catch. Anything else breaks out of THIS `env`
+/// occurrence's own walk (not the whole scan) and the outer loop continues at the next token index,
+/// so a LATER, unrelated `env` occurrence in the same text is still found.
+fn raw_text_names_opaque_env_reparse(text: &str) -> bool {
+    for form in [text.to_string(), shell_quote_removed(text)] {
+        let tokens = tokenize_shell_words(&form);
+        let mut i = 0;
+        while i < tokens.len() {
+            if tokens[i] == "env" {
+                let mut j = i + 1;
+                loop {
+                    while j < tokens.len() && is_assignment_token(&tokens[j]) {
+                        j += 1;
+                    }
+                    match tokens.get(j).map(String::as_str) {
+                        Some("--") => break,
+                        Some("-i") | Some("--ignore-environment") => {
+                            j += 1;
+                        }
+                        Some("-u") | Some("--unset") => {
+                            j += 1;
+                            if j >= tokens.len() {
+                                break;
+                            }
+                            j += 1; // consume NAME itself
+                        }
+                        Some(t) if t.starts_with("--unset=") => {
+                            j += 1;
+                        }
+                        Some(t) if t == "-S" || t.starts_with("--split-string") => {
+                            return true;
+                        }
+                        Some(t) if t.starts_with('-') => {
+                            return true;
+                        }
+                        _ => break,
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+    false
+}
+
 /// The result of classifying raw command text: the verdict itself, plus — when destructive — the
 /// program name and bare-name status of the segment that produced it (plan 03-19 Task 1, narrowed
 /// by plan 03-20 Task 1). Computed together so `--classify-invocation` needs no second scan of the
@@ -1148,7 +1232,11 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
     let text_can_shadow = shadowable
         || raw_text_can_shadow_path_resolution(trimmed)
         || text_can_shadow_path_resolution(&quote_removed)
-        || raw_text_word_formation_is_indeterminate(trimmed);
+        || raw_text_word_formation_is_indeterminate(trimmed)
+        // C5 (docs/destructive-gate-trust-boundary.md, plan 03-32): an opaque `env` re-parse,
+        // detected by presence anywhere in the raw or quote-removed text — closes round seven's
+        // positional/single-pass gap in resolve_segment_program_index's own wrapper recognition.
+        || raw_text_names_opaque_env_reparse(trimmed);
     let names_gated_program = text_names_gated_program(trimmed);
 
     for segment in split_top_level_segments(trimmed) {
@@ -1157,6 +1245,24 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
             continue;
         }
         let tokens = tokenize_shell_words(segment);
+        // Round seven's own second pass (plan 03-32): retry the wrapper-token recognition against
+        // THIS segment's quote-removed form, mirroring the safe-verdict's own C1-C4 retry
+        // discipline. `resolve_segment_program_index`'s raw-text pass below (unchanged) remains the
+        // ONLY source of the `Found` index — this retry contributes only the fail-closed verdict
+        // when the quote-removed form resolves to `Unresolvable` and the raw form did not already
+        // catch it (see `ProgramResolution::Unresolvable`'s own doc comment for why both passes are
+        // needed).
+        if let ProgramResolution::Unresolvable =
+            resolve_segment_program_index(&tokenize_shell_words(&shell_quote_removed(segment)))
+        {
+            return ClassifiedInvocation {
+                verdict: Verdict::Destructive(DestructiveCategory::Uncategorized),
+                program: None,
+                invoked_bare_name: false,
+                text_can_shadow: true,
+                names_gated_program: true,
+            };
+        }
         // Skip leading `NAME=VALUE` assignment tokens (and, past them, a leading `env` wrapper plus
         // ITS OWN leading assignment arguments) when choosing the segment's program token, so
         // `PATH=/usr/bin git push --force` AND `env PATH=/usr/bin git push --force` both resolve
