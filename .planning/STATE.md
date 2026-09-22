@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-09-22T23:31:21.742Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-09-22T23:57:57.621Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: 17fc84a04421d6d205040dd76972904ee5ebea15
+state_head: e643371eac35b46ad891ec8aa4ce661a7d34d70d
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 78
+  completed_plans: 79
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 2 of 14
+Plan: 3 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -136,6 +136,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P37 | 17min | 3 tasks | 2 files |
 | Phase 03 P38 | 30min | 3 tasks | 2 files |
 | Phase 04 P01 | 13min | 2 tasks | 8 files |
+| Phase 04 P02 | 35min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -267,6 +268,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [Phase 03] 03-37: Round nine closed via branch (b) — the C6 over-trigger is accepted as a priced trade and docs/destructive-gate-trust-boundary.md corrected to the measured class; branch (a)'s narrowed-adjacency fix was rejected as unsound because it would reopen rounds seven/eight's closed nested env -S shapes. packages/shim/src/main.rs is unchanged.
 - [Phase 03]: [Phase 03] 03-38: FRICTION_CLASSES' plain-prose anchor points into the "## Round nine" narrative section rather than a nonexistent fourth friction-accounting bullet, since 03-37 corrected the third bullet in place instead of adding a fourth. — 03-38-PLAN.md's Task 3 assumed a separate fourth bullet the document does not contain; 03-37's own assumption_delta_decision promoted the general class into the existing third bullet instead, so the gate anchors into the Round nine narrative's own distinct sentence for the plain-prose member.
 - [Phase 04]: [Phase 04-01]: task_id/project_id/worktree_id in create_summary are resolved from the agent_runs row inside its own transaction, never accepted as caller parameters — T-04-01's spoofing mitigation -- a caller cannot attribute a summary to a run it does not drive, matching create_pending_request's identical discipline
+- [Phase 04]: [Phase 04-02]: insert_summary_row(tx: &Transaction, ...) is the ONE insert site create_summary and synthesize_fallback_summary both call — never two INSERT statements against session_summaries, enforced by a crate-wide grep <verify> gate.
+- [Phase 04]: [Phase 04-02]: close_agent_run_in_tx factors close_agent_run's statement body out so apply_session_closed can run it inside its OWN transaction alongside the fallback-summary presence check — a run can never be terminal while its fallback summary is missing.
 
 ### Pending Todos
 
@@ -309,6 +312,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-22T23:31:21.646Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-09-22T23:57:57.523Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
