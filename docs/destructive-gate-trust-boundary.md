@@ -52,8 +52,10 @@ round five, see below — is NOT a proof that raw command text can pre-empt `PAT
 it happens: the raw-text scan proves the PRESENCE of a shadow construct in the text it is handed,
 and proves its ABSENCE only for text whose word formation the text itself fully determines; for any
 other text the field reports `true`, because the scan cannot determine what words the shell will
-form (`textCanShadowPathResolution`, D-61). The second is whether that text names one of the two
-programs the shim shadows (`namesGatedProgram`). A `safe` verdict defers only when the environment
+form (`textCanShadowPathResolution`, D-61). The second is whether a word-bounded literal `git` or
+`rm` appears in that text or its C1 quote-removed form (`namesGatedProgram`) — narrowed by
+CR-01/plan 03-33; see "What Layer 1's raw-text scan is trusted to prove after round five" below for
+the exact class this negative is, and is not, sound for. A `safe` verdict defers only when the environment
 is proven AND the two text facts are not both true; a non-`safe` verdict defers only when the
 invocation is by bare name AND the environment proves the shim will intercept that exact program.
 Every other combination — including any field this hook cannot parse — denies. **WR-01 (plan
@@ -159,11 +161,51 @@ recorded discipline.
 both forms and a match in either is a match. Deleting characters can only join a word, never split
 one, so the union never loses a match the raw form already had.
 
-`**C3 — indeterminate word formation reports "can shadow".**` When the quote-removed text contains
-a `$` or a backtick anywhere, or contains a `*`, `?` or `[` with an ASCII letter or `_` immediately
-on either side, the scan reports `textCanShadowPathResolution` as `true` — not because a shadow
-construct was found, but because the scan cannot determine what words the shell will form and
-refuses to report absence it cannot prove.
+`**C3 — indeterminate word formation reports "can shadow".**` This is NOT a general inversion — it
+is a closed, positive enumeration of four NAMED bash word-formation mechanisms, each checked
+independently against `shell_quote_removed`'s output: (1) a literal `$` anywhere (parameter
+expansion, command substitution, arithmetic expansion, and ANSI-C `$'…'` quoting all share this
+leading character); (2) a backtick anywhere (command substitution); (3) a `*`, `?` or `[`
+immediately adjacent to an ASCII letter, digit or `_` (pathname globbing that can complete a
+keyword); and (4) — added by plan 03-33, closing CR-01 — a `{` immediately preceded by, or a `}`
+immediately followed by, an ASCII letter, digit or `_` (**brace expansion** that can weld its
+alternatives onto an adjacent letter run, e.g. `al{i,}as` expands to the two words `alias alas`,
+confirmed live to genuinely define a shell alias under `expand_aliases`). This enumeration
+explicitly does NOT cover tilde expansion, process substitution's own `<(`/`>(` forms, or any
+future word-formation construct outside this named list — an unnamed mechanism is a boundary
+failure per "The rule for round six" below, not an omission this paragraph already excuses.
+
+When any of the four mechanisms triggers, the scan reports `textCanShadowPathResolution` as `true`
+— not because a shadow construct was found, but because the scan cannot determine what words the
+shell will form and refuses to report absence it cannot prove.
+
+**WR-03 ruling (`03-REVIEW.md`):** C3 stays this enumeration and its claim is narrowed to match — it
+does NOT become a genuine inversion this round. Reason, recorded as a measurement rather than an
+opinion: a genuine inversion would default `raw_text_word_formation_is_indeterminate` to `true`
+unless the text is positively proven determinate, and the only cheap proof of determinacy is a
+closed allowlist of characters — under which `git add *.rs` becomes indeterminate, the D-61 AND-gate
+fires because the text also names `git`, and an ordinary `git add` on a wildcard is DENIED.
+`ORDINARY_USAGE_CORPUS` asserts that row defers today, and this document already records that
+outcome as unacceptable. Turning C3 into a genuine inversion is therefore not a code fix but the
+product-scope change `## What was deliberately not done` (below) already deferred ("inverting the
+classifier's default … turns a narrow `git`/`rm` gate into general command allow-listing").
+**Reopening trigger:** a bypass shape assembled by a word-formation mechanism outside all four named
+ones — at that point the enumeration premise has failed for the second time and the allowlist
+option is the answer.
+
+**`text_names_gated_program`'s own soundness class (CR-01, plan 03-33):** this is a SEPARATE
+function feeding the OTHER safe-verdict fact, `namesGatedProgram` — its claim was never covered by
+C1-C5, which govern only `textCanShadowPathResolution`. Its `false` means exactly this and nothing
+more: neither `git` nor `rm` appears as a word-bounded literal in the raw text or in
+`shell_quote_removed`'s output. It does NOT mean the shell will not FORM one of those words — brace
+expansion is the named counterexample: `{gi,}t push --force` classifies `namesGatedProgram:false`
+today, even though bash resolves the first word to the literal `git` via ordinary word formation
+this function never models (confirmed live: `echo {gi,}t push --force` prints `git t push --force`).
+C3's new brace-adjacency trigger does NOT repair this claim: C3 feeds `textCanShadowPathResolution`,
+never `namesGatedProgram`, and folding indeterminacy into `namesGatedProgram` was considered and
+rejected — it would make an indeterminate `eval "$(direnv hook bash)"` report a gated program and
+start denying, destroying the Group 4 falsifiability companions the whole corpus depends on. This
+residual is carried, not silently closed — see `## Named residuals` below.
 
 `**C4 — the bare-name fact resolves quoting but never refuses on indeterminacy.**` The non-safe
 branch's own fact, `invokedBareName`, is widened by C1's quote removal and by nothing else. A shadow
@@ -219,7 +261,8 @@ concrete trigger that should reopen it.
 | A shadow construct reached through an indirection the raw-text scan cannot see — for example, a shell function definition sourced from a file whose own name carries no shadow keyword | Layer 1's `textCanShadowPathResolution` scan loses it: `raw_text_can_shadow_path_resolution` matches literal keywords (`function`, `alias`, `hash`, `eval`, `source`, `builtin`) against the text this hook is handed, and cannot follow a `source ./somefile.sh` into the file it names to see what that file itself defines | A corpus row that defers today and, on inspection of what it actually invokes, should not — i.e. a future audit of a deferred `source`/`eval` row finds it pulls in a shadow definition the text itself never named |
 | Claude Code's own internal git housekeeping (trust checks, `status`/`log`/`config user.*`, `worktree list`) runs outside the agent's own visible `Bash` tool-call loop and therefore never reaches layer 1's `Bash` matcher at all — it reaches only layer 2 | Layer 1 loses it entirely, by construction (the matcher only fires for the agent's own tool calls); layer 2 still sees it, because it still resolves through the shimmed `PATH` | Already recorded, not restated here — see `drainIncidentalPermissionRequests`'s doc comment in `scripts/uat/uat-03-destructive-gate.mjs`, which names the exact internal invocations observed live and the pre-existing `classify_git`-global-flag gap this exposes |
 | The whole closure — corpus (03-26), live run (03-27), this boundary — is measured on macOS only | All three layers: the shadowed entry names (`git`/`rm` vs. `git.exe`/`rm.exe`) and the hook's own witness-entry convention (`SHADOW_WITNESS_ENTRY_NAME`) differ on Windows, and nothing in this closure has been run there | A Windows build target becoming real — at that point every claim in this document must be re-measured, not assumed to transfer |
-| A gated keyword assembled by a mechanism that is neither C1's quote removal nor one of C3's named expansion characters | Layer 1 loses it: C1 resolves only quoting and backslashes, and C3 only refuses to answer when it sees `$`, a backtick, or a letter-adjacent `*`/`?`/`[` — a mechanism outside both leaves the raw-text scan with no signal at all | Any bypass shape whose raw text carries none of those characters and still installs a shadow — which would mean the character set C3 names is not the closed set the contract claims it is, and the contract, not the corpus, is what must change |
+| A gated keyword assembled by a mechanism that is neither C1's quote removal nor one of C3's named expansion characters | Layer 1 loses it: C1 resolves only quoting and backslashes, and C3 only refuses to answer when it sees `$`, a backtick, a letter-adjacent `*`/`?`/`[`, or (plan 03-33) a letter-adjacent `{`/`}` — a mechanism outside all four leaves the raw-text scan with no signal at all | Any bypass shape whose raw text carries none of those characters and still installs a shadow — which would mean the character set C3 names is not the closed set the contract claims it is, and the contract, not the corpus, is what must change |
+| **OPEN — a gated program name assembled by brace expansion, where the resulting first word is a syntactically valid invocation** (CR-01, `03-REVIEW.md`; named here by plan 03-33). `{git,} push --force` is the measured case: its raw text already contains the contiguous, word-bounded literal `git` inside `{git,}`, so `text_names_gated_program` already trips on it today — this exact row is not open. A construction whose literal does NOT survive as a contiguous substring (the `{gi,}t`/`{r,}m` shape CR-01 measured) would be open for `namesGatedProgram`, but plan 03-33's C3 brace-adjacency trigger now catches it via `textCanShadowPathResolution` instead, so the safe-verdict's D-61 AND-gate still denies. | Layer that loses it: Layer 1's `namesGatedProgram`, whose word-bounded literal match has no model of brace expansion at all. Layer 2 still backstops it, because brace expansion does not pre-empt the `PATH` search the way a function, alias or `PATH=` override does — measured, `--classify-command 'rm m -rf /tmp/x'` still reports `recursive-delete`. | Reopens if: any brace construction both assembles a gated program name AND defeats the `PATH` search, or any evidence that Layer 2's argv classifier stops flagging the forwarded argv |
 | **CLOSED (round seven, plan 03-32) — `env -S STRING`'s own opaque-reparse detection, backslash-split and nested** (found 2026-09-21, plan 03-31; widened 2026-09-22, plan 03-32): `main.rs`'s `resolve_segment_program_index` recognises the wrapper token `env` (to force `ProgramResolution::Unresolvable`/deny on `-S`'s unparseable re-split, or any other unrecognised `env` flag such as BSD's `-P` altpath) by exact string equality over `tokenize_shell_words(trimmed)` — the RAW, un-normalized segment text, walked exactly once, at a single fixed position (a segment's own leading token). The defect has two halves: a backslash-split `env` (`e\nv`) was never recognised as the literal token `env` (round six); and even an UNSPLIT `env` nested inside a launcher's opaque quoted payload (`sh -c 'env -S "…"'`) was never SEEN at all, because `tokenize_shell_words` returns the whole single-quoted payload as one opaque token and the wrapper-token walk only ever inspected a segment's own leading position (round seven — no obfuscation required). Closed by plan 03-32's `raw_text_names_opaque_env_reparse` (C5): a presence-anywhere scan over both the raw and quote-removed text, folded into the SAME `text_can_shadow` disjunct the safe verdict's D-61 AND-gate already reads, plus a second, quote-removed resolution pass inside the segment loop that reaches the same fail-closed `Unresolvable` arm as the raw pass. | Closed: C5 folds both halves into Layer 1's existing D-61 AND-gate | Reopens if: an `env` invocation carries a PATH-defeating flag that `text_can_shadow_path_resolution` does not independently re-check, AND its surrounding text names neither `git` nor `rm` — since C5 is folded into the safe verdict's own D-61 AND-gate, it structurally cannot deny a text that names no gated program, so such a text defers by design; finding one that should not is the trigger to reopen this row |
 | A shadow definition installed by an EARLIER `Bash` tool call in the same session | Layer 1 loses it, by construction: each hook invocation is a fresh OS process holding no cache and no memory of any previous tool call, so it classifies one command's text in isolation and can never see a function or alias a prior call left behind in a shell profile or a sourced file | An observed two-call shadow in which the FIRST call's own text was itself deferrable — today every single-call shadow shape the corpus covers denies on its own text, so a deferrable first call is the signal that this residual has become reachable |
 
@@ -382,3 +425,9 @@ which its negative is sound. Round five happened because `textCanShadowPathResol
 read as "no shadow construct" when it only ever meant "no literal contiguous match" — a narrower
 fact than the name promised. The test a future author must apply: if you cannot write down the class
 for which the negative is sound, the field must report the unprovable case as unsafe instead.
+
+The brace-expansion finding (CR-01) exercises this discipline directly: this document is amended in
+plan 03-33 — naming brace expansion, ruling on WR-03, and stating `text_names_gated_program`'s own
+soundness class — and the corpus rows that exercise the new C3 trigger land in a separate, dependent
+plan, 03-34, which `depends_on` 03-33 for exactly this reason. The document-before-corpus ordering is
+enforced by the plan graph, not by memory.
