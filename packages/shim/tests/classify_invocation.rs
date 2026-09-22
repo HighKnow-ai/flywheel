@@ -333,6 +333,86 @@ fn round_eight_nested_brace_obfuscated_env_wrapper_reports_can_shadow() {
     );
 }
 
+// --- Plan 03-35 Task 2: the `command` half and the path-qualified siblings — the same root
+// cause, two more spellings. Every payload below is a classification string only — never
+// executed — per D-63.
+
+#[test]
+fn round_eight_brace_obfuscated_command_wrapper_matches_unobfuscated() {
+    let control = classify("command -p git push --force");
+    assert!(
+        control.contains(r#""category":"force-push""#) && control.contains(r#""invokedBareName":false"#),
+        "command -p git push --force control must classify force-push/invokedBareName:false, got: {control}"
+    );
+
+    let obfuscated = classify("{command,} -p git push --force");
+    assert!(
+        obfuscated.contains(r#""textCanShadowPathResolution":true"#),
+        "brace-obfuscated command wrapper must report textCanShadowPathResolution true, got: {obfuscated}"
+    );
+    assert!(
+        obfuscated.contains(r#""namesGatedProgram":true"#),
+        "brace-obfuscated command wrapper must report namesGatedProgram true, got: {obfuscated}"
+    );
+}
+
+#[test]
+fn round_eight_path_qualified_env_wrapper_is_recognised() {
+    // No obfuscation at all — found during 03-35's own planning pass, named in neither
+    // 03-REVIEW.md nor 03-VERIFICATION.md. `/usr/bin/env -S "echo …"` was confirmed live with a
+    // harmless echo payload to be a real, executable invocation (D-63 — never a destructive one).
+    let qualified = classify(r#"/usr/bin/env -S "-P /tmp git push --force""#);
+    assert!(
+        qualified.contains(r#""textCanShadowPathResolution":true"#),
+        "path-qualified env wrapper must report textCanShadowPathResolution true, got: {qualified}"
+    );
+}
+
+#[test]
+fn round_eight_path_qualified_command_wrapper_is_recognised() {
+    let qualified = classify("/usr/bin/command -p git push --force");
+    assert!(
+        qualified.contains(r#""textCanShadowPathResolution":true"#),
+        "path-qualified command wrapper must report textCanShadowPathResolution true, got: {qualified}"
+    );
+}
+
+#[test]
+fn c6_keeps_c5_falsifiability_companions() {
+    // Load-bearing: a corpus Group 4 companion AND a live probe inside
+    // scripts/uat/uat-05-concurrent-commits.mjs. `-v`/`-V` never execute their argument, so C6
+    // must not fire on them.
+    let command_v = classify("command -v git");
+    assert!(
+        command_v.contains(r#""category":"safe""#) && command_v.contains(r#""textCanShadowPathResolution":false"#),
+        "command -v git must stay safe/false, got: {command_v}"
+    );
+
+    // The measurement that justifies the dash-carrying requirement at the flag position: a
+    // brace-bearing token with no `-` sits at the PROGRAM position, not the flag position, so
+    // the real shell reaches this shim through an ordinary PATH search.
+    let env_git_brace = classify("env {git,} push --force");
+    assert!(
+        env_git_brace.contains(r#""textCanShadowPathResolution":false"#),
+        "env {{git,}} push --force must still defer, got: {env_git_brace}"
+    );
+
+    // C5's own inherited companion.
+    let harmless_nested = classify(r#"sh -c 'env -S "echo hello"'"#);
+    assert!(
+        harmless_nested.contains(r#""textCanShadowPathResolution":true"#)
+            && harmless_nested.contains(r#""namesGatedProgram":false"#),
+        "sh -c 'env -S \"echo hello\"' must keep textCanShadowPathResolution:true / namesGatedProgram:false, got: {harmless_nested}"
+    );
+
+    // The ordinary bare git invocation Layer 2 is trusted to handle.
+    let status = classify("git status");
+    assert!(
+        status.contains(r#""textCanShadowPathResolution":false"#),
+        "git status must still defer, got: {status}"
+    );
+}
+
 #[test]
 fn concurrent_classifications_agree_with_serial_ones() {
     let texts = [
