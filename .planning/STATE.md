@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-09-23T15:25:26.948Z"
+stopped_at: Completed 05-06-PLAN.md
+last_updated: "2026-09-23T15:57:02.614Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 05 execution started
-state_head: c6c80923da3e7f3b3d2bdfb98b32a2f01ec8038e
+state_head: 85e05a65340e6d6b6bb7e04e870058402868ae0a
 progress:
   total_phases: 12
   completed_phases: 0
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 6 of 10
+Plan: 7 of 10
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 05 execution started
 
@@ -157,6 +157,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P03 | 150min | 3 tasks | 18 files |
 | Phase 05 P04 | 110min | 3 tasks | 19 files |
 | Phase 05-socratic-epic-authoring P05 | 240 min | 3 tasks | 14 files |
+| Phase 05 P06 | ~150min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -337,6 +338,9 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05-04]: RejectedSet folds D-83's rejected-proposal history by POSITION past REJECTED_VERBATIM_WINDOW (5), copying compaction.rs's own contract exactly -- the most recent 5 rejected proposals are carried whole, older ones fold to target_type + payload label only, with a RejectionBoundary sentence stating where the fold begins, never a size/character/token ceiling.
 - [Phase 05-socratic-epic-authoring]: Read tools (board_search/epic_get/task_list) are pre-approved via --allowedTools alongside the six write tools — D-46's 'never wait on a human for a cost-free action' reasoning extended from writes to bounded, server-side-scoped reads. — Without pre-approval every board lookup would route through approve_action and block on a human, defeating the challenge stage's need to look things up freely.
 - [Phase 05-socratic-epic-authoring]: board_read is a FOURTH, HELD socket message kind on the existing per-run Unix socket (unlike the fire-and-forget notice/summary/proposal kinds) — reuses the permission gate's own pending-map-and-resolve shape since a read needs an actual answer back. — Zero new socket, zero new process — D-64's precedent extended a third time, this time for a request that genuinely needs a reply.
+- [Phase 05]: accept_proposal materialises every verb x target-type combination through _in_tx siblings factored onto domain::task/epic/acceptance_criterion, never a local INSERT/UPDATE — T-05-02-03/T-05-06-02: the canonical writer stays the only writer, so key/rank allocation and the criterion lock check keep one implementation each
+- [Phase 05]: reject_proposal/amend_proposal are DB-only; the command layer relays the decision to the live session via render_decision_turn + send_authoring_turn, best-effort — mirrors authoring_stage_advance's delivery-is-best-effort discipline; a decision must land even if the session already closed
+- [Phase 05]: accept_subtree is the ONE bulk path (a task plus its drafted criteria); a source-scanning test fails the build if any accept-all/accept-remaining identifier appears in core or desktop src — SHAPE-04/D-95: bulk acceptance may exist, but never as the only option — the gate makes the prohibition a build failure, not a review comment
 
 ### Pending Todos
 
@@ -382,6 +386,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T15:25:03.660Z
-Stopped at: Completed 05-05-PLAN.md
+Last session: 2026-09-23T15:57:02.502Z
+Stopped at: Completed 05-06-PLAN.md
 Resume file: None
