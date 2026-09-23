@@ -38,3 +38,15 @@ denial_outcome: recoverable
 
 The hook mechanism is a real enforcement point for a second MCP server's tool names — plan 05-03 can build D-88's stage gate on it directly.
 <!-- stage-gate-measurement:end -->
+
+## Product Kill Criterion
+
+Closes the three open Discretion questions `05-CONTEXT.md` left for this spike: what is measured,
+what the comparison arm is, and what result changes the plan. Judged **after** plan 05-02's tracer
+makes one real shaping run possible — not before, since the measurement needs something to
+measure. Both halves below are required because either alone is gameable: wall-clock time alone
+rewards a fast-but-sloppy draft; amendment count alone rewards a slow-but-careful one.
+
+measured: wall-clock minutes from "I want to build X" to an epic with at least three tasks, each carrying at least one ACCEPTED acceptance criterion — paired with the count of those criteria the developer amended before accepting (the quality proxy: an authoring surface that drafts criteria nobody has to correct is doing the work; one whose every criterion is rewritten is a typing exercise with extra steps).
+comparison_arm: the identical shaping exercise on the identical real epic, performed by prompting `claude` directly in a terminal and hand-entering the resulting items on the board through the existing quick-add (D-09) — a timed run against the real product, not a hypothetical estimate.
+changes_the_plan_when: if the in-app flow is SLOWER than the terminal arm AND more than half of the drafted criteria were amended before acceptance, the consequence is `05-CONTEXT.md`'s own Deferred Idea — "a dedicated authoring surface... Revisit only with evidence that `SessionSurface` plus a tray measurably loses to a terminal." This is a LAYOUT change, not an abandonment of the phase: the mechanisms (D-80 staging, the create/amend/delete verbs, D-88's stage gate) survive it unchanged: only where the conversation renders would move, from `SessionSurface.tsx` plus a side tray to a dedicated route.
