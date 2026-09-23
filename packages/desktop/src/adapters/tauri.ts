@@ -590,9 +590,12 @@ export async function boardRecoverySummary(projectId: string): Promise<RecoveryS
  */
 export interface PendingOrphanDto {
   runId: string;
-  taskId: string;
-  taskKey: string;
-  taskTitle: string;
+  taskId: string | null;
+  taskKey: string | null;
+  taskTitle: string | null;
+  epicId: string | null;
+  epicKey: string | null;
+  epicTitle: string | null;
   projectId: string;
   externalSessionId: string | null;
   pid: number;

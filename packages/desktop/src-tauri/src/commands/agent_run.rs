@@ -1915,13 +1915,19 @@ pub fn worktree_forget_record(state: State<AppState>, app: AppHandle, task_id: S
 /// nothing `03-UI-SPEC.md`'s orphan-recovery modal does not render: no cost, no token counts
 /// (those are AGNT-08, Phase 10) and no live stream handle — the process here is being killed,
 /// not observed.
+///
+/// Exactly one of the task-* fields or the epic-* fields is populated (plan 05-09's CR-01 fix,
+/// D-84) — a task-execution run carries the former, an epic-authoring run carries the latter.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingOrphanDto {
     pub run_id: String,
-    pub task_id: String,
-    pub task_key: String,
-    pub task_title: String,
+    pub task_id: Option<String>,
+    pub task_key: Option<String>,
+    pub task_title: Option<String>,
+    pub epic_id: Option<String>,
+    pub epic_key: Option<String>,
+    pub epic_title: Option<String>,
     pub project_id: String,
     pub external_session_id: Option<String>,
     pub pid: i32,
@@ -1935,6 +1941,9 @@ impl From<flywheel_core::domain::agent_run::LiveOrphan> for PendingOrphanDto {
             task_id: orphan.task_id,
             task_key: orphan.task_key,
             task_title: orphan.task_title,
+            epic_id: orphan.epic_id,
+            epic_key: orphan.epic_key,
+            epic_title: orphan.epic_title,
             project_id: orphan.project_id,
             external_session_id: orphan.external_session_id,
             pid: orphan.pid,
@@ -2039,9 +2048,12 @@ mod tests {
     fn sample_live_orphan(run_id: &str) -> flywheel_core::domain::agent_run::LiveOrphan {
         flywheel_core::domain::agent_run::LiveOrphan {
             run_id: run_id.to_string(),
-            task_id: "task-1".to_string(),
-            task_key: "FLY-1".to_string(),
-            task_title: "Sample task".to_string(),
+            task_id: Some("task-1".to_string()),
+            task_key: Some("FLY-1".to_string()),
+            task_title: Some("Sample task".to_string()),
+            epic_id: None,
+            epic_key: None,
+            epic_title: None,
             project_id: "project-1".to_string(),
             external_session_id: None,
             pid: 4242,

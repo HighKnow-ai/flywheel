@@ -28,12 +28,30 @@ function makeOrphan(overrides: Partial<PendingOrphanDto> = {}): PendingOrphanDto
     taskId: "task-1",
     taskKey: "FLY-1",
     taskTitle: "Sample orphaned task",
+    epicId: null,
+    epicKey: null,
+    epicTitle: null,
     projectId: "proj-1",
     externalSessionId: "sess-1",
     pid: 4242,
     startedAt: new Date(Date.now() - 60_000).toISOString(),
     ...overrides,
   };
+}
+
+/** An authoring orphan (CR-01, D-84) — `taskId`/`taskKey`/`taskTitle` are always null for these,
+ * mirroring what `flywheel_core::domain::agent_run::LiveOrphan` actually produces via the two
+ * `LEFT JOIN`s in `IN_FLIGHT_AGENT_RUNS_SELECT_SQL`. */
+function makeAuthoringOrphan(overrides: Partial<PendingOrphanDto> = {}): PendingOrphanDto {
+  return makeOrphan({
+    taskId: null,
+    taskKey: null,
+    taskTitle: null,
+    epicId: "epic-1",
+    epicKey: "FLY-E1",
+    epicTitle: "Sample epic",
+    ...overrides,
+  });
 }
 
 function killDto(overrides: Partial<OrphanKillDto> = {}): OrphanKillDto {
@@ -107,6 +125,23 @@ describe("OrphanRecoveryModal — populated", () => {
     renderModal();
 
     expect(await screen.findByText("an unresolvable task")).toBeInTheDocument();
+  });
+
+  it("CR-01: renders epic identity, not task identity, for an authoring orphan of an existing epic", async () => {
+    pendingOrphansMock.mockResolvedValue([makeAuthoringOrphan()]);
+    renderModal();
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("FLY-E1")).toBeInTheDocument();
+    expect(within(dialog).getByText("Sample epic")).toBeInTheDocument();
+    expect(within(dialog).queryByText("an unresolvable task")).not.toBeInTheDocument();
+  });
+
+  it("CR-01: renders 'Shaping a new epic' for an authoring orphan whose epic does not exist yet", async () => {
+    pendingOrphansMock.mockResolvedValue([makeAuthoringOrphan({ epicId: null, epicKey: null, epicTitle: null })]);
+    renderModal();
+
+    expect(await screen.findByText("Shaping a new epic")).toBeInTheDocument();
   });
 
   it("renders no cost figure, token count, or route into the live session surface", async () => {

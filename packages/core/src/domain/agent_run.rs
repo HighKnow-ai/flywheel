@@ -899,14 +899,19 @@ pub fn mark_abandoned(
     Ok(true)
 }
 
-/// Every `agent_runs` row still `running` or `blocked` when [`reconcile_agent_runs`] runs,
-/// joined to its task for the modal's key/title (plan 03-06) — one query rather than one round
-/// trip per row. Compile-time literal, no string interpolation (repository convention,
-/// `01-SECURITY.md`).
+/// Every `agent_runs` row still `running` or `blocked` when [`reconcile_agent_runs`] runs, joined
+/// to its task (or, for an authoring run, its epic — D-84 made `agent_runs.task_id` nullable) for
+/// the modal's key/title (plan 03-06, plan 05-09's CR-01 fix) — one query rather than one round
+/// trip per row. Both joins are `LEFT JOIN`s: an authoring run's `task_id` is NULL and can never
+/// satisfy an inner join against `tasks`, and symmetrically a task run's `epic_id` is NULL —
+/// exactly one of the two label pairs resolves per row. Compile-time literal, no string
+/// interpolation (repository convention, `01-SECURITY.md`).
 const IN_FLIGHT_AGENT_RUNS_SELECT_SQL: &str = "
-    SELECT ar.id, ar.task_id, ar.project_id, ar.external_session_id, t.key, t.title
+    SELECT ar.id, ar.task_id, ar.epic_id, ar.project_id, ar.external_session_id,
+           t.key, t.title, e.key, e.title
     FROM agent_runs ar
-    JOIN tasks t ON t.id = ar.task_id
+    LEFT JOIN tasks t ON t.id = ar.task_id
+    LEFT JOIN epics e ON e.id = ar.epic_id
     WHERE ar.status IN ('running', 'blocked')
 ";
 
@@ -915,12 +920,20 @@ const IN_FLIGHT_AGENT_RUNS_SELECT_SQL: &str = "
 /// board lying about a live fact — so this is the ONLY record of it; the user's decision (kill,
 /// via [`kill_orphan`], the only verb offered per D-30 and `03-UI-SPEC.md`'s discretion item 1)
 /// is what resolves it.
+///
+/// Exactly one of (`task_id`/`task_key`/`task_title`) or (`epic_id`/`epic_key`/`epic_title`) is
+/// populated (plan 05-09's CR-01 fix, D-84): a task-execution run carries the former, an
+/// epic-authoring run carries the latter — never both, never neither, since
+/// `IN_FLIGHT_AGENT_RUNS_SELECT_SQL`'s two `LEFT JOIN`s always resolve exactly one side.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveOrphan {
     pub run_id: String,
-    pub task_id: String,
-    pub task_key: String,
-    pub task_title: String,
+    pub task_id: Option<String>,
+    pub task_key: Option<String>,
+    pub task_title: Option<String>,
+    pub epic_id: Option<String>,
+    pub epic_key: Option<String>,
+    pub epic_title: Option<String>,
     pub project_id: String,
     pub external_session_id: Option<String>,
     pub pid: i32,
@@ -959,7 +972,18 @@ pub struct LiveOrphan {
 /// any process — asserted structurally by this plan's own source-scanning `<verify>` gate over
 /// this function's body: nothing is silently resumed.
 pub fn reconcile_agent_runs(conn: &mut Connection, actor_id: &str) -> anyhow::Result<Vec<LiveOrphan>> {
-    let in_flight: Vec<(String, String, String, Option<String>, String, String)> = {
+    #[allow(clippy::type_complexity)]
+    let in_flight: Vec<(
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = {
         let mut stmt = conn
             .prepare(IN_FLIGHT_AGENT_RUNS_SELECT_SQL)
             .context("failed to prepare the in-flight agent_runs reconciliation query")?;
@@ -967,11 +991,14 @@ pub fn reconcile_agent_runs(conn: &mut Connection, actor_id: &str) -> anyhow::Re
             .query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
                 ))
             })
             .context("failed to query in-flight agent_runs for reconciliation")?;
@@ -989,7 +1016,18 @@ pub fn reconcile_agent_runs(conn: &mut Connection, actor_id: &str) -> anyhow::Re
 
     let mut live_orphans = Vec::new();
 
-    for (run_id, task_id, project_id, external_session_id, task_key, task_title) in in_flight {
+    for (
+        run_id,
+        task_id,
+        epic_id,
+        project_id,
+        external_session_id,
+        task_key,
+        task_title,
+        epic_key,
+        epic_title,
+    ) in in_flight
+    {
         match runtime_protocol::read_kill_record(&run_id) {
             KillRecordRead::Found(record) => {
                 mark_abandoned(conn, &run_id, actor_id, Some(&record.reason))?;
@@ -1011,6 +1049,9 @@ pub fn reconcile_agent_runs(conn: &mut Connection, actor_id: &str) -> anyhow::Re
                     task_id,
                     task_key,
                     task_title,
+                    epic_id,
+                    epic_key,
+                    epic_title,
                     project_id,
                     external_session_id,
                     pid: descriptor.pid,

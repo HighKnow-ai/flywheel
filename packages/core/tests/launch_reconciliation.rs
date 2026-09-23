@@ -11,6 +11,9 @@ use std::process::{Child, Command, Stdio};
 use core::domain::agent_run::{
     kill_orphan, mark_abandoned, reconcile_agent_runs, start_agent_run, AgentRunStatus,
 };
+use core::domain::authoring_session::start_authoring_run;
+use core::domain::epic::create_epic;
+use core::domain::session_summary::latest_summary_for_run;
 use core::domain::task::create_task;
 use core::runtime_protocol::{process_is_alive, write_kill_record, write_run_descriptor};
 
@@ -219,9 +222,10 @@ fn a_running_row_with_no_kill_record_and_a_live_process_stays_running_and_is_a_l
             .find(|o| o.run_id == run.id)
             .expect("the genuinely alive run must appear in the live-orphan list");
         assert_eq!(orphan.pid, pid as i32);
-        assert_eq!(orphan.task_id, task.id);
-        assert_eq!(orphan.task_key, task.key);
-        assert_eq!(orphan.task_title, task.title);
+        assert_eq!(orphan.task_id, Some(task.id.clone()));
+        assert_eq!(orphan.task_key, Some(task.key.clone()));
+        assert_eq!(orphan.task_title, Some(task.title.clone()));
+        assert_eq!(orphan.epic_id, None, "a task run must never carry an epic label");
         assert_eq!(orphan.project_id, project.id);
 
         // The row itself must be UNCHANGED in the database — not merely absent from a rewrite.
@@ -282,6 +286,134 @@ fn a_running_row_with_no_descriptor_at_all_is_abandoned_with_no_reason() {
 
         assert!(!live_orphans.iter().any(|o| o.run_id == run.id));
         assert_eq!(agent_run_status(&conn, &run.id), "abandoned");
+    });
+}
+
+// --- CR-01 regression: an authoring run (task_id NULL, epic_id set) must reconcile exactly the
+// same way a task run does — plan 05-09's own fallback-summary/live-orphan/abandoned guarantees
+// must not silently exclude the whole authoring subject via an inner join against `tasks`.
+
+#[test]
+fn a_crashed_authoring_run_for_an_existing_epic_is_abandoned_with_a_fallback_summary() {
+    with_scratch_runtime_and_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let epic = create_epic(&mut conn, &project.id, &actor_id, "Reopened epic", None)
+            .expect("create_epic should succeed");
+        let run = start_authoring_run(&mut conn, &project.id, Some(&epic.id), "acceptEdits", &actor_id)
+            .expect("start_authoring_run should succeed");
+
+        // Deliberately no run descriptor and no kill record — models a session whose process
+        // died with nobody watching, exactly like the dead-without-a-record task-run case above.
+        let live_orphans =
+            reconcile_agent_runs(&mut conn, &actor_id).expect("reconcile_agent_runs should succeed");
+
+        assert!(
+            !live_orphans.iter().any(|o| o.run_id == run.id),
+            "a dead authoring run with no descriptor must never be reported as a live orphan"
+        );
+        assert_eq!(
+            agent_run_status(&conn, &run.id),
+            "abandoned",
+            "CR-01: before the LEFT JOIN fix, the INNER JOIN against `tasks` silently excluded \
+             every authoring run (task_id IS NULL) from this reconciliation entirely, leaving \
+             the row stuck at `running` forever"
+        );
+        assert!(
+            latest_summary_for_run(&conn, &run.id)
+                .expect("latest_summary_for_run should succeed")
+                .is_some(),
+            "mark_abandoned's own fallback-summary logic (plan 05-09, closing the STATE.md gap) \
+             must actually fire when the reconciler reaches an authoring run"
+        );
+    });
+}
+
+#[test]
+fn a_crashed_authoring_run_for_a_fresh_epic_is_abandoned_with_a_fallback_summary() {
+    with_scratch_runtime_and_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        // epic_id = None models a session shaping a brand new epic that does not exist yet.
+        let run = start_authoring_run(&mut conn, &project.id, None, "acceptEdits", &actor_id)
+            .expect("start_authoring_run should succeed");
+
+        let live_orphans =
+            reconcile_agent_runs(&mut conn, &actor_id).expect("reconcile_agent_runs should succeed");
+
+        assert!(!live_orphans.iter().any(|o| o.run_id == run.id));
+        assert_eq!(agent_run_status(&conn, &run.id), "abandoned");
+        assert!(
+            latest_summary_for_run(&conn, &run.id)
+                .expect("latest_summary_for_run should succeed")
+                .is_some(),
+            "a fresh-epic authoring run must also get a fallback summary on abandonment"
+        );
+    });
+}
+
+#[test]
+fn a_genuinely_alive_authoring_run_surfaces_as_a_live_orphan_with_epic_identity_not_task_identity() {
+    with_scratch_runtime_and_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let epic = create_epic(&mut conn, &project.id, &actor_id, "Still-live epic", None)
+            .expect("create_epic should succeed");
+        let run = start_authoring_run(&mut conn, &project.id, Some(&epic.id), "acceptEdits", &actor_id)
+            .expect("start_authoring_run should succeed");
+
+        let mut child = spawn_long_lived_child();
+        let pid = child.id();
+        let start_time = real_start_time_ms(pid);
+        write_run_descriptor(&run.id, pid as i32, start_time);
+
+        let live_orphans =
+            reconcile_agent_runs(&mut conn, &actor_id).expect("reconcile_agent_runs should succeed");
+
+        let orphan = live_orphans
+            .iter()
+            .find(|o| o.run_id == run.id)
+            .expect("the genuinely alive authoring run must appear in the live-orphan list");
+        assert_eq!(orphan.pid, pid as i32);
+        assert_eq!(orphan.task_id, None, "an authoring run must never carry a task id");
+        assert_eq!(orphan.task_key, None);
+        assert_eq!(orphan.task_title, None);
+        assert_eq!(orphan.epic_id, Some(epic.id.clone()));
+        assert_eq!(orphan.epic_key, Some(epic.key.clone()));
+        assert_eq!(orphan.epic_title, Some(epic.title.clone()));
+        assert_eq!(
+            agent_run_status(&conn, &run.id),
+            "running",
+            "a live authoring orphan must be left exactly at running, same as a live task orphan"
+        );
+
+        let _ = child.kill();
+        let _ = child.wait();
+    });
+}
+
+#[test]
+fn an_authoring_run_with_a_kill_record_is_abandoned_with_the_recorded_reason_and_not_a_live_orphan() {
+    with_scratch_runtime_and_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let epic = create_epic(&mut conn, &project.id, &actor_id, "Killed-by-watchdog epic", None)
+            .expect("create_epic should succeed");
+        let run = start_authoring_run(&mut conn, &project.id, Some(&epic.id), "acceptEdits", &actor_id)
+            .expect("start_authoring_run should succeed");
+
+        write_run_descriptor(&run.id, 999_999, 333);
+        write_kill_record(&run.id, 999_999, 333, "heartbeat-stale");
+
+        let live_orphans =
+            reconcile_agent_runs(&mut conn, &actor_id).expect("reconcile_agent_runs should succeed");
+
+        assert!(
+            !live_orphans.iter().any(|o| o.run_id == run.id),
+            "an authoring run with a kill record must never appear in the live-orphan list"
+        );
+        assert_eq!(agent_run_status(&conn, &run.id), "abandoned");
+        assert_eq!(
+            abandoned_event_reason(&conn, &run.id),
+            Some(Some("heartbeat-stale".to_string())),
+            "the abandoned event must carry the kill record's own reason for an authoring run too"
+        );
     });
 }
 
