@@ -1147,6 +1147,21 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                             {
                                 handle_inbound_git_lock_exhausted(&app_for_reader, &event);
                             }
+
+                            // D-64/D-65 (plan 04-06): the agent's own `report_summary` tool call,
+                            // relayed here as a `summary_reported` event. Sits AFTER both the
+                            // `agent:event` emit and the `session_closed` branch above, for the
+                            // same reason `session_closed`'s own branch sits there: a fault in
+                            // this database write can never delay or suppress the live event the
+                            // developer is watching (T-04-06).
+                            if event.get("type").and_then(|v| v.as_str())
+                                == Some("summary_reported")
+                            {
+                                crate::commands::agent_run::handle_inbound_summary_reported(
+                                    &app_for_reader,
+                                    &event,
+                                );
+                            }
                         }
                         Ok(SidecarStdoutLine::Ack {
                             id,

@@ -578,6 +578,66 @@ pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value)
     }
 }
 
+/// The Tauri-facing half of the inbound `summary_reported` path (D-64/D-65, plan 04-06 Task 2),
+/// called from `sidecar.rs`'s reader loop for every `summary_reported` event — mirrors
+/// [`handle_inbound_session_closed`] line for line: the DB-only decision
+/// (`flywheel_core::domain::session_summary::apply_summary_reported`) stays testable without a
+/// real spawned sidecar, and this half performs the IPC-adjacent side effect (the `board:changed`
+/// emits) the outcome implies.
+///
+/// This function must never panic — no `expect`, no `unwrap`, no direct indexing: a malformed
+/// event, a poisoned lock, or an error from the applier is a silent no-op here, matching
+/// `sidecar.rs`'s own "a malformed line never crashes the reader task" discipline. No per-run
+/// fault on this path may ever disturb the shared reader loop that calls it (T-04-06).
+pub fn handle_inbound_summary_reported(app: &AppHandle, event: &serde_json::Value) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let Ok(mut conn) = state.db.lock() else { return };
+
+    let outcome =
+        match flywheel_core::domain::session_summary::apply_summary_reported(&mut conn, event) {
+            Ok(outcome) => outcome,
+            Err(_) => return,
+        };
+
+    let run_id = event.get("runId").and_then(|v| v.as_str());
+
+    // Resolved BEFORE the lock is dropped, alongside the write above — never read off the event
+    // itself (T-04-01): the task this run belongs to, so the second emit below names the SAME
+    // task the row was actually attached to.
+    let task_id: Option<String> = match (&outcome, run_id) {
+        (flywheel_core::domain::session_summary::SummaryReportOutcome::Recorded(_), Some(run_id)) => conn
+            .query_row(
+                "SELECT task_id FROM agent_runs WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
+            .ok(),
+        _ => None,
+    };
+    drop(conn);
+
+    if let (
+        flywheel_core::domain::session_summary::SummaryReportOutcome::Recorded(_),
+        Some(run_id),
+    ) = (&outcome, run_id)
+    {
+        // Two separate `app.emit` calls, one per entity — mirrors
+        // `handle_inbound_permission_request`'s own one-call-per-entity convention (this file,
+        // above), so the run's own row and the item-detail panel's runs/summaries sections both
+        // refetch.
+        let _ = app.emit(
+            "board:changed",
+            serde_json::json!({ "entity": "agent_run", "id": run_id }),
+        );
+        if let Some(task_id) = task_id {
+            let _ = app.emit(
+                "board:changed",
+                serde_json::json!({ "entity": "task", "id": task_id }),
+            );
+        }
+    }
+}
+
 /// Rejects a `decision` outside `allow`/`deny`/`allow_always` before any DB call happens
 /// (mirrors [`validate_permission_mode`]'s own reasoning) and maps it to the value
 /// `permission_request::answer_request` accepts — the schema's own CHECK-constrained
