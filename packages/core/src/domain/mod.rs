@@ -9,6 +9,8 @@ use rusqlite::{params, OptionalExtension, Transaction};
 pub mod acceptance_criterion;
 pub mod actor;
 pub mod agent_run;
+pub mod authoring_proposal;
+pub mod authoring_session;
 pub mod epic;
 pub mod event;
 pub mod issue;

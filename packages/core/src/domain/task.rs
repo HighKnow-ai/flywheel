@@ -4,7 +4,7 @@
 
 use anyhow::Context;
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::acceptance_criterion::delete_criteria_for_parent;
 use crate::domain::event::{append_event, next_sequence};
@@ -44,13 +44,31 @@ pub fn create_task(
     title: &str,
     epic_id: Option<&str>,
 ) -> anyhow::Result<Task> {
-    let id = new_id();
     let now = Utc::now().to_rfc3339();
-
     let tx = conn.transaction()?;
+    let task = create_task_in_tx(&tx, project_id, actor_id, title, epic_id, &now)?;
+    tx.commit()
+        .context("failed to commit create_task transaction")?;
+    Ok(task)
+}
+
+/// The statement body [`create_task`] issues, factored out so a caller composing a task creation
+/// with something else in the SAME transaction — `domain::authoring_proposal::accept_proposal`,
+/// which must never write `tasks` through a second statement of its own (T-05-02-03) — can run it
+/// inside a transaction it already owns. `create_task`'s own body and signature are otherwise
+/// unchanged; this is the same statements, callable from inside the caller's transaction.
+pub fn create_task_in_tx(
+    tx: &Transaction,
+    project_id: &str,
+    actor_id: &str,
+    title: &str,
+    epic_id: Option<&str>,
+    now: &str,
+) -> anyhow::Result<Task> {
+    let id = new_id();
 
     if let Some(epic_id) = epic_id {
-        assert_parent_in_project(&tx, project_id, ParentTable::Epics, epic_id)?;
+        assert_parent_in_project(tx, project_id, ParentTable::Epics, epic_id)?;
     }
 
     let last_rank: Option<String> = tx
@@ -84,7 +102,7 @@ pub fn create_task(
     )
     .context("failed to insert task")?;
 
-    let sequence = next_sequence(&tx, project_id, "local")?;
+    let sequence = next_sequence(tx, project_id, "local")?;
     let payload = serde_json::json!({
         "field": "status",
         "before": null,
@@ -93,7 +111,7 @@ pub fn create_task(
         "label": format!("Created task \"{title}\""),
     });
     append_event(
-        &tx,
+        tx,
         project_id,
         "local",
         sequence,
@@ -104,11 +122,8 @@ pub fn create_task(
         actor_id,
         "task.created",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit()
-        .context("failed to commit create_task transaction")?;
 
     Ok(Task {
         id,

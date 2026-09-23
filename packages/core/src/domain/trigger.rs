@@ -64,6 +64,30 @@ pub fn create_user_action_trigger(
     Ok(id)
 }
 
+/// Insert one `triggers` row with `source = 'user_action'`, `target_task_id` NULL and
+/// `target_epic_id = epic_id` (D-84, plan 05-02) — the authoring-session sibling of
+/// [`create_user_action_trigger`], called only from `domain::authoring_session::start_authoring_run`.
+/// `epic_id` is itself nullable: a session shaping a brand-new epic has no subject at all yet, and
+/// the trigger row records that honestly rather than inventing one.
+pub fn create_user_action_trigger_for_epic(
+    tx: &Transaction,
+    project_id: &str,
+    epic_id: Option<&str>,
+    actor_id: &str,
+    now: &str,
+) -> anyhow::Result<String> {
+    let id = new_id();
+    tx.execute(
+        "INSERT INTO triggers (
+            id, project_id, target_task_id, target_epic_id, source, config, enabled, last_fired_at,
+            created_by, created_at
+        ) VALUES (?1, ?2, NULL, ?3, ?4, NULL, 1, ?5, ?6, ?5)",
+        params![id, project_id, epic_id, TriggerSource::UserAction.as_str(), now, actor_id],
+    )
+    .context("failed to insert user_action trigger for an authoring run")?;
+    Ok(id)
+}
+
 /// A documented stub for the `schedule` trigger source: the schema accepts it (DATA-04), but no
 /// code constructs one until the automations milestone (`tokio-cron-scheduler`, vendored in this
 /// crate's `Cargo.toml` per `.claude/CLAUDE.md`'s "vendor now, wire later" instruction, is not

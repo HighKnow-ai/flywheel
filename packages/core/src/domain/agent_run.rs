@@ -31,12 +31,20 @@ use crate::ids::{is_ulid, new_id};
 use crate::runtime_protocol::{self, KillRecordRead};
 use crate::session_log::session_log_path;
 
-/// One `agent_runs` row, as read back immediately after [`start_agent_run`] commits.
+/// One `agent_runs` row, as read back immediately after [`start_agent_run`] or
+/// [`start_authoring_run`] commits.
+///
+/// D-84's assumption-delta promote: `task_id` is `Option<String>` because a run's subject is no
+/// longer always a task — an authoring session (`domain::authoring_session::start_authoring_run`)
+/// carries `epic_id` instead, or neither while a fresh epic is still being shaped. [`run_subject`]
+/// is the ONE read path for "what is this run about"; a call site that needs to answer that
+/// question should call it rather than reading `.task_id`/`.epic_id` directly.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentRun {
     pub id: String,
     pub worktree_id: Option<String>,
-    pub task_id: String,
+    pub task_id: Option<String>,
+    pub epic_id: Option<String>,
     pub project_id: String,
     pub trigger_id: String,
     pub adapter: String,
@@ -45,6 +53,41 @@ pub struct AgentRun {
     pub external_session_id: Option<String>,
     pub permission_mode: String,
     pub log_path: String,
+    pub authoring_stage: Option<String>,
+}
+
+/// What an `agent_runs` row is ABOUT (D-84's assumption-delta promote) — the one read path every
+/// call site that needs to answer "what is this run about" should use, rather than reading
+/// `.task_id`/`.epic_id` off a row directly. A run can never carry both (the schema's own
+/// `CHECK (NOT (task_id IS NOT NULL AND epic_id IS NOT NULL))` in migration
+/// `0010_authoring_runs.sql` makes the third combination unrepresentable), so this enum's three
+/// variants are exhaustive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunSubject {
+    Task(String),
+    Epic(String),
+    Unbound,
+}
+
+/// Resolve `agent_run_id`'s subject (D-84) by reading `task_id`/`epic_id` straight off the row —
+/// the one place in this crate that turns those two nullable columns into a single answer.
+pub fn run_subject(conn: &Connection, agent_run_id: &str) -> anyhow::Result<RunSubject> {
+    let (task_id, epic_id): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT task_id, epic_id FROM agent_runs WHERE id = ?1",
+            params![agent_run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
+
+    Ok(match (task_id, epic_id) {
+        (Some(task_id), None) => RunSubject::Task(task_id),
+        (None, Some(epic_id)) => RunSubject::Epic(epic_id),
+        (None, None) => RunSubject::Unbound,
+        (Some(_), Some(_)) => unreachable!(
+            "agent_runs' own CHECK constraint forbids a row carrying both task_id and epic_id"
+        ),
+    })
 }
 
 /// The six values `agent_runs.status`'s CHECK constraint accepts (migration
@@ -202,7 +245,8 @@ pub fn start_agent_run(
     Ok(AgentRun {
         id: run_id,
         worktree_id: Some(worktree.id),
-        task_id: task_id.to_string(),
+        task_id: Some(task_id.to_string()),
+        epic_id: None,
         project_id,
         trigger_id,
         adapter: "claude_code".to_string(),
@@ -211,6 +255,7 @@ pub fn start_agent_run(
         external_session_id: None,
         permission_mode: permission_mode.to_string(),
         log_path,
+        authoring_stage: None,
     })
 }
 
