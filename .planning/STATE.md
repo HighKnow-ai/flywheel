@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-10-PLAN.md
-last_updated: "2026-09-23T04:54:35.794Z"
+stopped_at: Completed 04-11-PLAN.md
+last_updated: "2026-09-23T05:27:01.065Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: 7d9d67bfd5e4da1cb78cbbed9c8add67d6236558
+state_head: e9192d185dac9cf23854e7c0c6f2057ec975ad24
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 87
+  completed_plans: 88
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 11 of 14
+Plan: 12 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -145,6 +145,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P08 | 15min | 2 tasks | 3 files |
 | Phase 04 P09 | 114min | 3 tasks | 8 files |
 | Phase 04 P10 | 62min | 3 tasks | 8 files |
+| Phase 04 P11 | 55min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -296,6 +297,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04-09]: PriorSessionsSection slices packet.summaries by packet.compaction.foldedCount rather than filtering each entry's own folded flag, keeping the folded/verbatim grouping provable from one property.
 - [Phase 04]: [Phase 04-10]: criterion_list restricted to list_current_criteria — plan 04-04 left this read path unfiltered since nothing could reach a locked criterion's revise path from the UI until this plan's edit affordance existed.
 - [Phase 04]: [Phase 04-10]: pin_criteria_revisions is a single guarded UPDATE (WHERE criteria_revision_pin IS NULL), never a read-then-write check or a transaction — an atomic single statement makes a double-write race structurally impossible.
+- [Phase 04]: [Phase 04-11]: diff_stat_and_names now reads with --no-renames on both git diff calls -- resolves 04-CONTEXT.md open item on renamed files; a moved file appears under both its old and new path so the claimed-files drift detector never fires on a legitimate move.
+- [Phase 04]: [Phase 04-11]: The decision read-back detector checks unacknowledged ids before fabricated ids, firing at most one warning even when a summary both drops a real id and invents a fake one.
+- [Phase 04]: [Phase 04-11]: SummaryEntry (context_packet.rs) gained acknowledged_decisions/diff_ref fields the drift detectors need but the packet's read projection never carried -- SUMMARIES_SQL extended to select them.
 
 ### Pending Todos
 
@@ -338,6 +342,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T04:54:35.695Z
-Stopped at: Completed 04-10-PLAN.md
+Last session: 2026-09-23T05:27:00.965Z
+Stopped at: Completed 04-11-PLAN.md
 Resume file: None
