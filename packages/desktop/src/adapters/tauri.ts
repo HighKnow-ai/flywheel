@@ -183,6 +183,51 @@ export async function previewContextPacket(taskId: string): Promise<ContextPacke
 }
 
 /**
+ * A full acceptance-criterion row (BOARD-02/BOARD-03) — mirrors `commands/criterion.rs`'s
+ * `CriterionDto` field-for-field, including the revision markers D-77/D-79 added (plan 04-10).
+ * Distinct from this file's own `CriterionDto` above (the launch sheet's read-only
+ * statement/verificationHint-only projection of `commands/agent_run.rs`'s differently-scoped,
+ * same-named Rust struct) — the two Rust structs share a name but not a shape.
+ */
+export interface AcceptanceCriterionDto {
+  id: string;
+  parentType: string;
+  parentId: string;
+  statement: string;
+  verificationHint: string | null;
+  checked: boolean;
+  rank: string;
+  revision: number;
+  revisionOf: string | null;
+  supersededAt: string | null;
+}
+
+/**
+ * Revise a criterion (D-76/D-77, plan 04-10) — the developer-facing edit surface. The domain
+ * layer decides whether this lands as an in-place edit or mints an appended revision; this
+ * wrapper carries no lock logic of its own. Thin typed wrapper over `criterion_revise`.
+ */
+export async function reviseCriterion(
+  criterionId: string,
+  statement: string,
+  verificationHint: string | null,
+): Promise<AcceptanceCriterionDto> {
+  return invokeCommand<AcceptanceCriterionDto>("criterion_revise", {
+    criterionId,
+    statement,
+    verificationHint,
+  });
+}
+
+/**
+ * A criterion's whole revision chain, newest first (D-79's expand-to-prior-text read, plan
+ * 04-10). Read-only. Thin typed wrapper over `criterion_revisions`.
+ */
+export async function criterionRevisions(criterionId: string): Promise<AcceptanceCriterionDto[]> {
+  return invokeCommand<AcceptanceCriterionDto[]>("criterion_revisions", { criterionId });
+}
+
+/**
  * A bounded page of an agent run's durable session log (D-33, D-34, plan 02-07 Task 1) — the same
  * `LIMIT`/`OFFSET` windowed-read shape `events_activity_trail` already uses, server-capped at
  * 100 rows regardless of what is requested (T-02-06). `total` is the log's true complete-line

@@ -133,6 +133,8 @@ fn main() {
             commands::criterion::criterion_reorder,
             commands::criterion::criterion_delete,
             commands::criterion::criterion_list,
+            commands::criterion::criterion_revise,
+            commands::criterion::criterion_revisions,
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
             commands::menu::menu_set_action_enabled,
