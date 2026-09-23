@@ -418,7 +418,7 @@ versions during planning.
   4. When a new session states an understanding that contradicts a decision already recorded on the board, the user is told rather than left to discover it in the diff.
   5. An automated test runs one task through at least five session cycles and proves its acceptance criteria are unchanged; a user editing criteria after work has started creates a new revision instead of overwriting the original.
 
-**Plans**: 7/14 plans executed
+**Plans**: 8/14 plans executed
 **UI hint**: yes
 
 **Wave 1 — the tracer** *(the thinnest end-to-end slice, proven before anything expands out from it)*
@@ -442,7 +442,7 @@ versions during planning.
 
 **Wave 5** *(blocked on 04-05 and 04-07)*
 
-- [ ] 04-08-PLAN.md — The prompt folds, and says where the fold begins; the boundary reaches the desktop as structure (CTX-05, CTX-03)
+- [x] 04-08-PLAN.md — The prompt folds, and says where the fold begins; the boundary reaches the desktop as structure (CTX-05, CTX-03)
 
 **Wave 6** *(blocked on 04-08)*
 
@@ -740,7 +740,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
-| 4. `/clear` Is Free | 7/14 | In Progress|  |
+| 4. `/clear` Is Free | 8/14 | In Progress|  |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |

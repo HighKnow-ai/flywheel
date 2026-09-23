@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-07-PLAN.md
-last_updated: "2026-09-23T01:41:19.709Z"
+stopped_at: Completed 04-08-PLAN.md
+last_updated: "2026-09-23T01:58:09.445Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: 554208b7059ba9884f4b7cc035bca734b9e3fb28
+state_head: a609f61cae1a8f22e4e5d5f38d3f6bb0d3fdc9d7
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 84
+  completed_plans: 85
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 8 of 14
+Plan: 9 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -142,6 +142,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P05 | 10min | 2 tasks | 3 files |
 | Phase 04 P06 | 12min | 3 tasks | 5 files |
 | Phase 04 P07 | 18min | 3 tasks | 4 files |
+| Phase 04 P08 | 15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -285,6 +286,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04-06]: apply_summary_reported always sets auto_generated: false and diff_ref: None on the agent-authored path — the mirror image of plan 04-02's fallback path, which fixes both at the opposite values.
 - [Phase 04]: git.rs's two pre-existing Command::new("git") sites (git_at, rev_parse_verify) consolidated into one private spawn_git helper — The file's own header claimed exactly one construction site; this task's own single-construction-site verify gate required it be true — pre-existing drift, not caused by the diff read, but blocking this task's own acceptance
 - [Phase 04]: diff_extras_for gates on BOTH a worktrees row existing AND the path being a real directory on disk — D-45's missing status means a recorded row can outlive its directory; diffing an absent path would turn a preview into an error instead of an omitted section
+- [Phase 04]: [Phase 04-08]: Ordinals in render_prompt's Prior Sessions section continue across the fold boundary (folded 1..folded_count, verbatim continues at folded_count+1..total) rather than restarting per subsection — the section reads as one continuous chronological sequence across the boundary.
+- [Phase 04]: [Phase 04-08]: compact_summaries is called via its fully-qualified path at both call sites in context_packet.rs, never imported by bare name — a use import would itself count toward the plan's own two-call-sites verify gate and falsely fail it.
+- [Phase 04]: [Phase 04-08]: SessionSummaryDto.folded is computed once in Rust from ContextPacket.compaction (index < folded_count) inside the single From<ContextPacket> impl, never recomputed in TypeScript — the launch sheet's marker and the agent's rendered prompt read the same boundary and can never disagree.
 
 ### Pending Todos
 
@@ -327,6 +331,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T01:41:19.613Z
-Stopped at: Completed 04-07-PLAN.md
+Last session: 2026-09-23T01:58:09.347Z
+Stopped at: Completed 04-08-PLAN.md
 Resume file: None
