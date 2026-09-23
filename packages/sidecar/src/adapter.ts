@@ -162,6 +162,34 @@ export interface GitLockExhaustedEvent extends AgentEventBase {
 }
 
 /**
+ * D-64/D-65 (plan 04-03): the agent's own closing summary, reported through the `report_summary`
+ * MCP tool relayed over the SAME per-run permission socket `GitRetryEvent` already travels (a
+ * second message `kind`, not a second socket). The four content fields (`changedProse`,
+ * `remains`, `nextSessionMustKnow`, `decisions`) are D-65's LOCKED shape — a first pass to be
+ * refined later is explicitly what 04-RESEARCH.md Pitfall 3 warns against, so these are not that.
+ *
+ * `runId` (from {@link AgentEventBase}) is filled by the sidecar from the session closure this
+ * event fires inside — NEVER from the model's own tool-call arguments (T-04-01's spoofing
+ * mitigation: the input schema the model calls against carries no run/task/project/worktree
+ * field at all; identity comes from which socket the call arrived on).
+ *
+ * `acknowledgedDecisions` is an id list ONLY — never free text — because D-73's read-back flow is
+ * id matching against previously recorded decisions, never a semantic comparison.
+ */
+export interface SummaryReportedEvent extends AgentEventBase {
+  type: "summary_reported";
+  /** Repo-relative paths the session claims it touched. */
+  changedFiles: string[];
+  changedProse?: string;
+  remains?: string;
+  nextSessionMustKnow?: string;
+  decisions: Array<{ id: string; statement: string }>;
+  /** D-73's read-back input: the ids of already-recorded decisions this session states it is
+   * working under. An id list only — never free text. */
+  acknowledgedDecisions: string[];
+}
+
+/**
  * The normalised event union every adapter emits, in exactly the order the backend process
  * produced them (AGNT-01 ordering) — no reordering, no batching, no coalescing.
  */
@@ -177,13 +205,19 @@ export type AgentEvent =
   | UnknownEvent
   | SessionClosedEvent
   | GitRetryEvent
-  | GitLockExhaustedEvent;
+  | GitLockExhaustedEvent
+  | SummaryReportedEvent;
 
 /** What an adapter declares it can do — gates which `AgentAdapter` methods are safe to call. */
 export interface AdapterCapabilities {
   supportsResume: boolean;
   supportsPermissionPrompt: boolean;
   supportsCostReporting: boolean;
+  /** D-64 (plan 04-03): `false` means this adapter never reports its own closing summary — the
+   * Supervisor should expect ONLY `auto_generated` fallback summaries (plan 04-02) for it. This
+   * is not an error path: D-64's fallback synthesizer exists precisely to cover an adapter with
+   * no summary-reporting capability at all. */
+  supportsSummaryReporting: boolean;
 }
 
 /**

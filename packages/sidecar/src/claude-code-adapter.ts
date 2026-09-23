@@ -435,6 +435,7 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsResume: false,
   supportsPermissionPrompt: true,
   supportsCostReporting: true,
+  supportsSummaryReporting: true,
 };
 
 /**
