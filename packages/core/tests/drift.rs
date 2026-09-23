@@ -4,17 +4,36 @@
 //! database at all. `04-PATTERNS.md` names this file as having no in-crate analog and borrows
 //! `compaction.rs`'s pure-fold, fixture-free style as its structural template. Task 2 extends
 //! this file with the packet-rendering behaviours (real board state, `common::seeded_project`),
-//! and Task 3 extends it again with the clears-without-a-write proof.
+//! and Task 3 extends it again with the clears-without-a-write proof, following
+//! `session_summary_lifecycle.rs`'s `seeded_git_project`/`start_agent_run` fixture shape.
 
 mod common;
 
 use core::context_packet::{
-    assemble_context_packet_with_extras, render_prompt, PacketExtras, SummaryEntry,
+    assemble_context_packet, assemble_context_packet_with_extras, render_prompt, PacketExtras,
+    SummaryEntry,
 };
+use core::domain::agent_run::start_agent_run;
 use core::domain::epic::create_epic;
-use core::domain::session_summary::DecisionEntry;
+use core::domain::session_summary::{create_summary, DecisionEntry, SummaryFields};
 use core::domain::task::create_task;
+use core::domain::worktree::ensure_worktree;
 use core::drift::{detect_drift, DriftInputs, DriftKind, DriftWarning};
+
+// `FLYWHEEL_WORKTREE_ROOT` is process-wide state (mirrors `context_packet.rs`'s own
+// `WORKTREE_ROOT_ENV_LOCK` — each `tests/*.rs` file is its own binary, so this lock only needs to
+// scope Task 3's two tests against each other, never against another file).
+static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
+    // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK` above.
+    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
+    let result = f();
+    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
+    result
+}
 
 /// A minimal `SummaryEntry` a test can override selectively — `agent_run_id`/`created_at` carry
 /// the ordinal so a failure names which entry it means.
@@ -450,4 +469,100 @@ fn two_renders_of_the_same_packet_are_byte_identical_with_warnings_present() {
     let first = render_prompt(&packet, "");
     let second = render_prompt(&packet, "");
     assert_eq!(first, second);
+}
+
+// ============================================================================================
+// Task 3: the warning clears the moment the underlying fact clears — no write, ever
+// ============================================================================================
+
+fn claim_only_fields(claimed_path: &str) -> SummaryFields {
+    SummaryFields {
+        changed_files: vec![claimed_path.to_string()],
+        changed_prose: None,
+        remains: None,
+        next_session_must_know: None,
+        decisions: Vec::new(),
+        acknowledged_decisions: Vec::new(),
+        diff_ref: None,
+        auto_generated: false,
+    }
+}
+
+#[test]
+fn a_claimed_path_the_real_diff_does_not_contain_produces_a_warning_in_the_assembled_packet() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Ghost claim", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        create_summary(&mut conn, &run.id, claim_only_fields("ghost.txt"), &actor_id)
+            .expect("create_summary should succeed");
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        // The real diff does not contain the claimed path.
+        let real_paths: Vec<String> = vec!["real.txt".to_string()];
+        let current_criteria: Vec<String> = Vec::new();
+        let inputs = DriftInputs {
+            summaries: &packet.summaries,
+            real_changed_paths: Some(&real_paths),
+            head_ref: None,
+            working_tree_dirty: false,
+            pinned_criterion_ids: None,
+            current_criterion_ids: &current_criteria,
+        };
+        let drift = detect_drift(&inputs);
+        assert_eq!(drift.len(), 1);
+        assert_eq!(drift[0].kind, DriftKind::ClaimedFilesMismatch);
+
+        let packet = assemble_context_packet_with_extras(
+            &conn,
+            &task.id,
+            PacketExtras { diff: None, drift },
+        )
+        .expect("assembly with extras should succeed");
+        let prompt = render_prompt(&packet, "");
+        assert!(prompt.contains("## Warnings"));
+        assert!(prompt.contains("ghost.txt"));
+    });
+}
+
+#[test]
+fn the_same_claim_produces_no_warning_once_the_path_really_exists_in_the_diff() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Ghost claim clears", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        create_summary(&mut conn, &run.id, claim_only_fields("ghost.txt"), &actor_id)
+            .expect("create_summary should succeed");
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        // No write happened to the summary row between the two assemblies — only the real-diff
+        // fact fed into `detect_drift` changed, proving the warning clears by itself.
+        let real_paths: Vec<String> = vec!["ghost.txt".to_string()];
+        let current_criteria: Vec<String> = Vec::new();
+        let inputs = DriftInputs {
+            summaries: &packet.summaries,
+            real_changed_paths: Some(&real_paths),
+            head_ref: None,
+            working_tree_dirty: false,
+            pinned_criterion_ids: None,
+            current_criterion_ids: &current_criteria,
+        };
+        let drift = detect_drift(&inputs);
+        assert!(drift.is_empty(), "a claim that now matches the real diff must fire nothing");
+
+        let packet = assemble_context_packet_with_extras(
+            &conn,
+            &task.id,
+            PacketExtras { diff: None, drift },
+        )
+        .expect("assembly with extras should succeed");
+        let prompt = render_prompt(&packet, "");
+        assert!(!prompt.contains("## Warnings"));
+    });
 }

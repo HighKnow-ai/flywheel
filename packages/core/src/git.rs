@@ -160,11 +160,18 @@ pub struct DiffStat {
 /// (D-71, PROC-02) — the changes on this branch since it diverged from `base_ref`, never every
 /// change on either side. Two calls through [`git_at`] (never a second `Command::new("git")`
 /// construction site), mirroring [`git_status_porcelain`]'s exact one-line-body convention: `git
-/// diff --stat <range>` for the stat text, `git diff --name-only <range>` for the path list. The
-/// only parsing this function performs is splitting the name-only text on `'\n'` and dropping
-/// empty elements — mirrors [`worktree_list`]'s own "no parsing of its own" note. A base ref that
-/// does not resolve returns an `Err` carrying git's own stderr, never an empty success; a branch
-/// with nothing ahead of its base returns `Ok` with both fields empty, never an error.
+/// diff --no-renames --stat <range>` for the stat text, `git diff --no-renames --name-only
+/// <range>` for the path list. The only parsing this function performs is splitting the
+/// name-only text on `'\n'` and dropping empty elements — mirrors [`worktree_list`]'s own "no
+/// parsing of its own" note. A base ref that does not resolve returns an `Err` carrying git's own
+/// stderr, never an empty success; a branch with nothing ahead of its base returns `Ok` with both
+/// fields empty, never an error.
+///
+/// `--no-renames` (plan 04-11) is load-bearing, not a style choice: with rename detection on,
+/// `--name-only` reports a moved file under its NEW path alone, so an honest agent claim of the
+/// file's old path would never match. Disabled, a move is reported as a delete-plus-add — both
+/// the old and the new path appear in `changed_paths` — so either side of a legitimate rename
+/// matches the claimed-files drift detector, and the detector never cries wolf on a real move.
 ///
 /// D-71: the stat and the path list are what the packet carries, never hunk bodies — the agent is
 /// standing in the worktree it is briefed about, and the packet's size must depend only on how
@@ -172,10 +179,10 @@ pub struct DiffStat {
 pub fn diff_stat_and_names(repo_path: &Path, base_ref: &str) -> anyhow::Result<DiffStat> {
     let range = format!("{base_ref}...HEAD");
 
-    let stat_output = git_at(repo_path, &["diff", "--stat", &range])?;
+    let stat_output = git_at(repo_path, &["diff", "--no-renames", "--stat", &range])?;
     let stat = String::from_utf8_lossy(&stat_output.stdout).into_owned();
 
-    let names_output = git_at(repo_path, &["diff", "--name-only", &range])?;
+    let names_output = git_at(repo_path, &["diff", "--no-renames", "--name-only", &range])?;
     let names_text = String::from_utf8_lossy(&names_output.stdout).into_owned();
     let changed_paths: Vec<String> =
         names_text.split('\n').filter(|line| !line.is_empty()).map(str::to_string).collect();

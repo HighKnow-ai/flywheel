@@ -224,8 +224,8 @@ pub struct ContextPacketDto {
     pub base_ref: String,
     pub worktree_path: String,
     /// `None` for a task with no worktree on disk yet, or one that has vanished (D-70/D-71, plan
-    /// 04-07 Task 3) — never an error. Populated by [`diff_extras_for`], one layer above the pure
-    /// `assemble_context_packet`.
+    /// 04-07 Task 3) — never an error. Populated by [`packet_extras_for`], one layer above the
+    /// pure `assemble_context_packet`.
     pub diff: Option<DiffSoFarDto>,
     pub rendered_prompt: String,
 }
@@ -286,19 +286,66 @@ impl From<ContextPacket> for ContextPacketDto {
     }
 }
 
-/// Compose the diff extras for an already-assembled `packet` (D-70/D-71, plan 04-07 Task 3,
-/// 04-RESEARCH.md Open Question 2) — the ONE place in this command's composition path a git call
-/// happens, one layer above the pure `assemble_context_packet`. Returns
-/// [`PacketExtras::default`] (no diff at all) unless BOTH hold:
+/// Read the real diff facts for a worktree already known to exist on disk (D-70/D-71, D-72/D-73,
+/// plan 04-11 Task 3) — the committed stat/paths, the working-tree porcelain text, and `HEAD`'s
+/// own resolved ref, all through the crate's one git wrapper. `head_ref` is resolved via `git_at`
+/// directly (`rev-parse HEAD`) rather than a dedicated wrapper function, since this is the only
+/// call site that needs it. Returns `None` on ANY git failure — short-circuiting before the
+/// second/third read runs — degrading exactly like [`packet_extras_for`]'s caller already did for
+/// the diff alone (plan 04-07).
+fn read_worktree_facts(
+    worktree_path: &Path,
+    base_ref: &str,
+) -> Option<(flywheel_core::git::DiffStat, String, Option<String>)> {
+    let diff_stat = flywheel_core::git::diff_stat_and_names(worktree_path, base_ref).ok()?;
+    let working_tree_porcelain = flywheel_core::git::git_status_porcelain(worktree_path).ok()?;
+    let head_ref = flywheel_core::git::git_at(worktree_path, &["rev-parse", "HEAD"])
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
+    Some((diff_stat, working_tree_porcelain, head_ref))
+}
+
+/// Compose both the diff and the drift extras for an already-assembled `packet` (D-70/D-71,
+/// D-72/D-73/D-75, plan 04-07 Task 3, plan 04-11 Task 3, 04-RESEARCH.md Open Question 2) — the
+/// ONE place in this command's composition path a git call happens, one layer above the pure
+/// `assemble_context_packet`. Widened from `diff_extras_for` (plan 04-07) to also compute this
+/// briefing's drift warnings from the same reads: the committed-range stat/paths and the
+/// working-tree porcelain text this function already fetches for the diff section are reused for
+/// the claimed-files and staleness detectors rather than issuing a second pair of git calls.
+/// Calls `detect_drift` exactly once and stores nothing — no column, no cache, no memo — so a
+/// briefing assembled a moment later, after the underlying fact clears, carries no warning at all
+/// (D-75's derive-at-read-time rule).
+///
+/// The diff half still degrades to `None` (never an error) exactly as `diff_extras_for` already
+/// did, unless BOTH hold:
 /// - a `worktrees` row exists for `task_id` (a single literal `&str` existence query), and
 /// - `packet.worktree.path` names a directory present on disk RIGHT NOW.
 ///
 /// The second check is not redundant: D-45's `missing` status exists precisely because a recorded
 /// row can outlive its directory, and diffing a path that is not there would turn a preview into
-/// an error. A git error from either `diff_stat_and_names` or `git_status_porcelain` also degrades
-/// to no diff section rather than failing the whole preview — a worktree in a strange state must
-/// still let the launch sheet open, exactly as a task with no epic has no epic section.
-fn diff_extras_for(conn: &Connection, packet: &ContextPacket, task_id: &str) -> PacketExtras {
+/// an error. A git error from any of [`read_worktree_facts`]'s three reads also degrades to no
+/// diff section — a worktree in a strange state must still let the launch sheet open, exactly as
+/// a task with no epic has no epic section. `drift` is still computed in every case: the
+/// criteria-revision and read-back detectors need no git facts at all, so a missing/vanished
+/// worktree still surfaces those two.
+fn packet_extras_for(conn: &Connection, packet: &ContextPacket, task_id: &str) -> PacketExtras {
+    let current_criterion_ids: Vec<String> =
+        flywheel_core::domain::acceptance_criterion::list_current_criteria(conn, "task", task_id)
+            .map(|criteria| criteria.into_iter().map(|c| c.id).collect())
+            .unwrap_or_default();
+
+    // D-78: the pin belongs to the task's most recent run — a task with no run yet reaches
+    // `detect_drift` as `None`, never as an empty set, so the revision detector stays silent for
+    // it (never "do not fire" vs "empty set" confusion).
+    let pinned_criterion_ids: Option<Vec<String>> =
+        match flywheel_core::query::permissions::latest_run_id_for_task(conn, task_id) {
+            Ok(Some(run_id)) => {
+                flywheel_core::domain::agent_run::criteria_revision_pin_for_run(conn, &run_id)
+                    .unwrap_or(None)
+            }
+            _ => None,
+        };
+
     let has_worktree_row = conn
         .query_row(
             "SELECT 1 FROM worktrees WHERE task_id = ?1",
@@ -306,46 +353,54 @@ fn diff_extras_for(conn: &Connection, packet: &ContextPacket, task_id: &str) -> 
             |_row| Ok(()),
         )
         .is_ok();
-    if !has_worktree_row {
-        return PacketExtras::default();
-    }
 
-    let worktree_path = Path::new(&packet.worktree.path);
-    if !worktree_path.is_dir() {
-        return PacketExtras::default();
-    }
-
-    let diff_stat =
-        match flywheel_core::git::diff_stat_and_names(worktree_path, &packet.worktree.base_ref) {
-            Ok(stat) => stat,
-            Err(_) => return PacketExtras::default(),
-        };
-    let working_tree_porcelain = match flywheel_core::git::git_status_porcelain(worktree_path) {
-        Ok(porcelain) => porcelain,
-        Err(_) => return PacketExtras::default(),
+    let worktree_facts = if has_worktree_row {
+        let worktree_path = Path::new(&packet.worktree.path);
+        if worktree_path.is_dir() {
+            read_worktree_facts(worktree_path, &packet.worktree.base_ref)
+        } else {
+            None
+        }
+    } else {
+        None
     };
 
-    PacketExtras {
-        diff: Some(DiffSoFar {
-            base_ref: packet.worktree.base_ref.clone(),
-            committed_stat: diff_stat.stat,
-            committed_paths: diff_stat.changed_paths,
-            working_tree_porcelain,
-        }),
-        // Task 3 (this plan) widens this function to compute drift warnings from the same reads;
-        // until then this call site carries none.
-        drift: Vec::new(),
-    }
+    let (diff_stat, working_tree_porcelain, head_ref) = match worktree_facts {
+        Some((stat, porcelain, head)) => (Some(stat), porcelain, head),
+        None => (None, String::new(), None),
+    };
+    let working_tree_dirty = !working_tree_porcelain.is_empty();
+    let real_changed_paths: Option<&[String]> =
+        diff_stat.as_ref().map(|stat| stat.changed_paths.as_slice());
+
+    let inputs = flywheel_core::drift::DriftInputs {
+        summaries: &packet.summaries,
+        real_changed_paths,
+        head_ref: head_ref.as_deref(),
+        working_tree_dirty,
+        pinned_criterion_ids: pinned_criterion_ids.as_deref(),
+        current_criterion_ids: &current_criterion_ids,
+    };
+    let drift = flywheel_core::drift::detect_drift(&inputs);
+
+    let diff = diff_stat.map(|stat| DiffSoFar {
+        base_ref: packet.worktree.base_ref.clone(),
+        committed_stat: stat.stat,
+        committed_paths: stat.changed_paths,
+        working_tree_porcelain,
+    });
+
+    PacketExtras { diff, drift }
 }
 
 /// The actual preview logic, split out from [`agent_run_preview`] so it is unit-testable without
 /// going through Tauri's `State<AppState>` extraction machinery — the same reasoning
 /// [`read_log_window`] documents for its own split. Performs no insert, update or delete: every
 /// call inside is a `SELECT` (`assemble_context_packet`'s own contract, D-28) or a read-only git
-/// invocation (`diff_extras_for`).
+/// invocation (`packet_extras_for`).
 fn build_preview_dto(conn: &Connection, task_id: &str) -> Result<ContextPacketDto, String> {
     let packet = assemble_context_packet(conn, task_id).map_err(|e| e.to_string())?;
-    let extras = diff_extras_for(conn, &packet, task_id);
+    let extras = packet_extras_for(conn, &packet, task_id);
     let packet =
         assemble_context_packet_with_extras(conn, task_id, extras).map_err(|e| e.to_string())?;
     Ok(packet.into())
@@ -429,11 +484,12 @@ pub fn agent_run_start(
     // Re-read the packet now that the worktree is real (not predicted) — the same assembler
     // `agent_run_preview` calls, so this run's prompt is exactly what the sheet most recently
     // previewed, modulo the operator's own instruction (T-02-21). Composed through the same
-    // assemble_context_packet -> diff_extras_for -> assemble_context_packet_with_extras path as
-    // build_preview_dto (plan 04-07 Task 3), so the launch sheet's preview and this run's actual
-    // prompt can never carry a different diff section.
+    // assemble_context_packet -> packet_extras_for -> assemble_context_packet_with_extras path as
+    // build_preview_dto (plan 04-07 Task 3, plan 04-11 Task 3), so the launch sheet's preview and
+    // this run's actual prompt can never carry a different diff section or a different set of
+    // drift warnings.
     let packet = assemble_context_packet(&conn, &task_id).map_err(|e| e.to_string())?;
-    let extras = diff_extras_for(&conn, &packet, &task_id);
+    let extras = packet_extras_for(&conn, &packet, &task_id);
     let packet =
         assemble_context_packet_with_extras(&conn, &task_id, extras).map_err(|e| e.to_string())?;
     let prompt = render_prompt(&packet, &instruction);

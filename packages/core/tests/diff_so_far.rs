@@ -1,7 +1,9 @@
 //! `diff_stat_and_names`/`DiffStat` (D-70/D-71, plan 04-07): the committed-half read through the
 //! one git wrapper, tested against real git repositories via `common::seeded_git_project`. Task 2
 //! extends this file with the packet/render_prompt behaviours (D-70's both-halves contract), and
-//! Task 3 extends it again with the command-layer gating tests (no worktree on disk).
+//! Task 3 extends it again with the command-layer gating tests (no worktree on disk). Plan 04-11
+//! Task 3 adds one more case (below): `diff_stat_and_names` reads with rename detection disabled,
+//! so a legitimately moved file appears under both its old and its new path.
 
 mod common;
 
@@ -118,6 +120,41 @@ fn both_reads_pass_the_repo_path_through_the_existing_wrapper() {
     assert_eq!(diff.changed_paths, vec!["delta.txt".to_string()]);
 }
 
+#[test]
+fn a_renamed_file_appears_under_both_its_old_and_its_new_path() {
+    // Plan 04-11 Task 3: rename detection is disabled so the claimed-files drift detector never
+    // cries wolf on a legitimate move — an honest claim of either the old or the new path must
+    // match against this function's own output.
+    let (_conn, _actor_id, _project, repo_dir) = common::seeded_git_project();
+    let repo_path = repo_dir.path();
+
+    // The file must exist at the base ref itself for a rename against that ref to be observable
+    // at all — a two-tree diff only compares the trees at its two endpoints, never the
+    // intervening commit history, so a file created and renamed entirely inside the range would
+    // never show up under either name regardless of rename detection.
+    std::fs::write(repo_path.join("echo.txt"), b"echo content that is long enough to not look like a copy\n")
+        .expect("failed to write echo.txt");
+    run(repo_path, &["add", "echo.txt"]);
+    run(repo_path, &["commit", "-m", "add echo on main"]);
+
+    run(repo_path, &["checkout", "-b", "feature"]);
+    run(repo_path, &["mv", "echo.txt", "foxtrot.txt"]);
+    run(repo_path, &["commit", "-m", "rename echo to foxtrot"]);
+
+    let diff = diff_stat_and_names(repo_path, "main").expect("diff_stat_and_names should succeed");
+
+    assert!(
+        diff.changed_paths.contains(&"echo.txt".to_string()),
+        "the old path must still appear with rename detection disabled, got: {:?}",
+        diff.changed_paths
+    );
+    assert!(
+        diff.changed_paths.contains(&"foxtrot.txt".to_string()),
+        "the new path must appear too, got: {:?}",
+        diff.changed_paths
+    );
+}
+
 // --- Task 2: the packet carries both halves, and the assembler stays pure -----------------
 
 #[test]
@@ -147,7 +184,11 @@ fn a_diff_with_an_empty_committed_half_and_a_dirty_working_tree_renders_only_the
         working_tree_porcelain: " M src/lib.rs\n".to_string(),
     };
     let packet =
-        assemble_context_packet_with_extras(&conn, &task.id, PacketExtras { diff: Some(diff) })
+        assemble_context_packet_with_extras(
+            &conn,
+            &task.id,
+            PacketExtras { diff: Some(diff), drift: Vec::new() },
+        )
             .expect("assembly should succeed");
 
     let prompt = render_prompt(&packet, "");
@@ -174,7 +215,11 @@ fn a_diff_with_a_clean_working_tree_renders_only_the_committed_subsection() {
         working_tree_porcelain: String::new(),
     };
     let packet =
-        assemble_context_packet_with_extras(&conn, &task.id, PacketExtras { diff: Some(diff) })
+        assemble_context_packet_with_extras(
+            &conn,
+            &task.id,
+            PacketExtras { diff: Some(diff), drift: Vec::new() },
+        )
             .expect("assembly should succeed");
 
     let prompt = render_prompt(&packet, "");
@@ -199,7 +244,11 @@ fn the_rendered_diff_section_never_contains_a_hunk_marker_line() {
         working_tree_porcelain: " M src/lib.rs\n".to_string(),
     };
     let packet =
-        assemble_context_packet_with_extras(&conn, &task.id, PacketExtras { diff: Some(diff) })
+        assemble_context_packet_with_extras(
+            &conn,
+            &task.id,
+            PacketExtras { diff: Some(diff), drift: Vec::new() },
+        )
             .expect("assembly should succeed");
 
     let prompt = render_prompt(&packet, "");
@@ -226,7 +275,11 @@ fn the_rendered_diff_section_ends_with_the_read_what_you_need_invitation() {
         working_tree_porcelain: String::new(),
     };
     let packet =
-        assemble_context_packet_with_extras(&conn, &task.id, PacketExtras { diff: Some(diff) })
+        assemble_context_packet_with_extras(
+            &conn,
+            &task.id,
+            PacketExtras { diff: Some(diff), drift: Vec::new() },
+        )
             .expect("assembly should succeed");
 
     let prompt = render_prompt(&packet, "");
@@ -264,8 +317,8 @@ fn assemble_context_packet_with_extras_twice_with_the_same_extras_returns_equal_
         committed_paths: vec!["src/lib.rs".to_string()],
         working_tree_porcelain: String::new(),
     };
-    let extras_a = PacketExtras { diff: Some(diff.clone()) };
-    let extras_b = PacketExtras { diff: Some(diff) };
+    let extras_a = PacketExtras { diff: Some(diff.clone()), drift: Vec::new() };
+    let extras_b = PacketExtras { diff: Some(diff), drift: Vec::new() };
 
     let packet_a = assemble_context_packet_with_extras(&conn, &task.id, extras_a)
         .expect("first assembly should succeed");
@@ -342,6 +395,7 @@ fn a_task_with_a_real_worktree_and_a_dirty_file_produces_a_diff_naming_that_file
                 committed_paths: diff_stat.changed_paths,
                 working_tree_porcelain,
             }),
+            drift: Vec::new(),
         };
         let packet = assemble_context_packet_with_extras(&conn, &task.id, extras)
             .expect("assembly should succeed");
