@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-15-PLAN.md
-last_updated: "2026-09-23T08:17:27.548Z"
+stopped_at: Completed 04-16-PLAN.md
+last_updated: "2026-09-23T08:47:24.580Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: d95790b4673a5dbd06417f1a61bae6fdb2fd6950
+state_head: cf439d24a2a6756b23bbb89162fa9884cf6252c5
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 93
-  completed_plans: 92
+  completed_plans: 93
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 2 of 16
+Plan: 3 of 16
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -150,6 +150,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04-clear-is-free P13 | 14min | 3 tasks | 9 files |
 | Phase 04 P14 | 40min | 3 tasks | 4 files |
 | Phase 04 P15 | 55min | 3 tasks | 4 files |
+| Phase 04 P16 | 45min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -312,6 +313,8 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04-14]: Zero-padded cycle markers (cycle-01 not cycle-1) in the five-cycle harness — an unpadded marker is a Rust-string prefix of a later cycle's, which made an absence assertion spuriously pass by matching inside a later cycle's own text. — Found by a real failing test, not anticipated by the plan; fixed structurally rather than by weakening the assertion.
 - [Phase 04]: [Phase 04-14]: A client socket that never enters flowing mode (no reader attached) never emits 'close' for the far side's FIN — fixed with an explicit client.resume() in the sidecar five-cycle harness rather than attaching an unused readline consumer. — Traced a real hang from an apparent long-running full-suite stall to this specific missing call; the fix is minimal and matches the test's own intent (assert closure, not content).
 - [Phase 04]: [Phase 04-15]: interrupt_agent_run_in_tx added beside close_agent_run_in_tx (add-alongside, not a generalized terminate_agent_run_in_tx) -- the two terminal variants differ in event type, payload label, which figures are written, and guard shape; a promoted function would mean refactoring close_agent_run_in_tx, out of this gap's scope. mark_abandoned stays a deliberately excluded third terminal path.
+- [Phase 04]: [Phase 04-16]: packet_extras_for takes previous_run_id: Option<&str> as an explicit 4th parameter rather than an internal re-derivation — the caller resolves the predecessor before start_agent_run's insert, closing gap #2 of 04-VERIFICATION.md (CTX-06).
+- [Phase 04]: [Phase 04-16]: seeded_git_conn_with_task's fixture git calls route through flywheel_core::git::git_at, never a bare Command::new("git") — that would trip supervisor_cwd.rs's PROC-02 gate, which scans the whole packages/desktop/src-tauri/src tree including test modules.
 
 ### Pending Todos
 
@@ -354,6 +357,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T08:17:27.431Z
-Stopped at: Completed 04-15-PLAN.md
+Last session: 2026-09-23T08:47:24.473Z
+Stopped at: Completed 04-16-PLAN.md
 Resume file: None
