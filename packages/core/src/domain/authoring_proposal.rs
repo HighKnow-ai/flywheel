@@ -235,6 +235,20 @@ fn create_proposal_in_tx(
         .context("failed to read the tail sibling's position")?;
     let position = rank_after(tail_position.as_deref())?;
 
+    // WR-01 (plan 05-09 code review): the create path never enforced the same length/emptiness
+    // bounds `amend_proposal` already does via this same `validate_payload` — an agent's
+    // `propose_*` call (or a malformed inbound `proposal_created` event) could stage a row with
+    // arbitrarily long text that would then materialise onto a canonical `tasks`/`epics`/
+    // `acceptance_criteria` row unchecked. Validated here, before the INSERT, so every caller of
+    // `create_proposal_in_tx` (both `create_proposal` and `apply_proposal_created`) gets the same
+    // guarantee `amend_proposal` already has. Skipped for `Delete`: a delete proposal's payload is
+    // a placeholder carrying the target's own type discriminant (see every `ProposalPayload::Task
+    // { title: String::new(), .. }` delete-proposal construction in this crate's own tests) — the
+    // content that actually matters for a delete is `target_id`, not the payload's text fields.
+    if verb != ProposalVerb::Delete {
+        validate_payload(&payload)?;
+    }
+
     let id = new_id();
     let target_type = payload.target_type();
     let payload_json = serde_json::to_string(&payload).context("failed to serialise proposal payload")?;
@@ -358,6 +372,16 @@ pub fn apply_proposal_created(
     let Ok(payload) = serde_json::from_value::<ProposalPayload>(payload_value.clone()) else {
         return Ok(ProposalOutcome::Ignored);
     };
+    // WR-01: an inbound event whose payload parses but fails the same length/emptiness bounds
+    // `amend_proposal` already enforces is malformed input crossing a process boundary, treated
+    // exactly like every other guard above it — Ignored, never a panic, never a stored row.
+    // `create_proposal_in_tx` also validates internally (defense in depth for its other caller,
+    // `create_proposal`), but checking here BEFORE opening a transaction keeps this function's own
+    // established "no DB statement before every guard passes" shape. Skipped for `Delete`, same
+    // placeholder-payload reason `create_proposal_in_tx` skips it.
+    if verb != ProposalVerb::Delete && validate_payload(&payload).is_err() {
+        return Ok(ProposalOutcome::Ignored);
+    }
 
     let target_id = event.get("targetId").and_then(|v| v.as_str());
     let parent_proposal_id = event.get("parentProposalId").and_then(|v| v.as_str());

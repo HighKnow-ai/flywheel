@@ -565,7 +565,10 @@ export const proposeEpicToolDefinition = {
     type: "object",
     properties: {
       title: { type: "string", minLength: 1, maxLength: 500 },
-      description: { type: "string" },
+      // WR-01 (plan 05-09 code review): matches core's own MAX_PROPOSAL_TEXT_LEN (1000), now
+      // actually enforced by `create_proposal_in_tx`'s call to `validate_payload` — the schema
+      // documents the bound that will now really run, not a stale aspiration.
+      description: { type: "string", maxLength: 1000 },
     },
     required: ["title"],
   },
@@ -584,9 +587,11 @@ export const proposeCriterionToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      statement: { type: "string", minLength: 1 },
+      // WR-01: maxLength 1000 matches core's MAX_PROPOSAL_TEXT_LEN, now actually enforced via
+      // `validate_payload` on the create path (previously only `amend_proposal` enforced it).
+      statement: { type: "string", minLength: 1, maxLength: 1000 },
       parent_proposal_id: { type: "string", minLength: 1 },
-      verification_hint: { type: "string" },
+      verification_hint: { type: "string", maxLength: 1000 },
     },
     required: ["statement", "parent_proposal_id"],
   },
@@ -607,8 +612,10 @@ export const proposeAssumptionToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      assumption: { type: "string", minLength: 1 },
-      answer: { type: "string" },
+      // WR-01: maxLength 1000 matches core's MAX_PROPOSAL_TEXT_LEN, now actually enforced via
+      // `validate_payload` on the create path.
+      assumption: { type: "string", minLength: 1, maxLength: 1000 },
+      answer: { type: "string", maxLength: 1000 },
     },
     required: ["assumption"],
   },

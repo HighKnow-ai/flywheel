@@ -12,8 +12,9 @@ use core::domain::agent_run::{
     close_agent_run, interrupt_agent_run, mark_abandoned, start_agent_run, AgentRunStatus,
 };
 use core::domain::authoring_proposal::{
-    accept_proposal, accept_subtree, amend_proposal, create_proposal, pending_proposals_for_run,
-    reject_proposal, ProposalPayload, ProposalUndecidable, ProposalVerb,
+    accept_proposal, accept_subtree, amend_proposal, apply_proposal_created, create_proposal,
+    pending_proposals_for_run, reject_proposal, ProposalOutcome, ProposalPayload,
+    ProposalUndecidable, ProposalVerb,
 };
 use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::project::Project;
@@ -651,6 +652,80 @@ fn amend_proposal_refuses_to_change_a_proposals_target_type() {
         )
         .unwrap_err();
         assert!(err.to_string().contains("target type"), "{err}");
+    });
+}
+
+// ============================================================================================
+// WR-01 (plan 05-09 code review): create_proposal_in_tx now enforces the same length/emptiness
+// bounds amend_proposal already did — parity between the agent-staged path and the human amend
+// path, for both entry points (the direct call and the inbound sidecar event).
+// ============================================================================================
+
+#[test]
+fn create_proposal_refuses_a_title_over_the_amend_length_bound_and_stages_no_row() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _human_actor_id, _project, run_id) = ready_run();
+        let before = pending_proposals_for_run(&conn, &run_id, 10).expect("should read pending proposals").len();
+        let oversized_title = "x".repeat(501);
+        let err = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: oversized_title, description: None },
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("title"), "{err}");
+        let after = pending_proposals_for_run(&conn, &run_id, 10).expect("should read pending proposals").len();
+        assert_eq!(before, after, "a validation failure must stage no row at all");
+    });
+}
+
+#[test]
+fn create_proposal_refuses_an_empty_statement() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _human_actor_id, _project, run_id) = ready_run();
+        let err = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Criterion { statement: String::new(), verification_hint: None },
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("statement"), "{err}");
+    });
+}
+
+#[test]
+fn apply_proposal_created_ignores_an_inbound_event_whose_payload_fails_validation_and_stages_no_row() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _human_actor_id, _project, run_id) = ready_run();
+        let before = pending_proposals_for_run(&conn, &run_id, 10).expect("should read pending proposals").len();
+        let oversized_assumption = "x".repeat(1001);
+        let event = serde_json::json!({
+            "type": "proposal_created",
+            "runId": run_id,
+            "verb": "create",
+            "targetType": "assumption",
+            "targetId": null,
+            "parentProposalId": null,
+            "payload": {
+                "kind": "assumption",
+                "assumption": oversized_assumption,
+                "answer": "",
+            },
+        });
+        let outcome = apply_proposal_created(&mut conn, &event).expect("apply_proposal_created should succeed");
+        assert_eq!(
+            outcome, ProposalOutcome::Ignored,
+            "an inbound event failing the same length bound amend_proposal enforces must be \
+             Ignored, never a panic, never a stored row"
+        );
+        let after = pending_proposals_for_run(&conn, &run_id, 10).expect("should read pending proposals").len();
+        assert_eq!(before, after);
     });
 }
 
