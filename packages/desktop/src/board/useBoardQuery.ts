@@ -8,7 +8,6 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import {
   agentRunLogWindow,
   agentRunsForTask,
-  authoringProposalsForRun,
   blockedSummary,
   boardRecoverySummary,
   invokeCommand,
@@ -586,52 +585,6 @@ export function usePendingPermissionRequests(agentRunId: string | null | undefin
   return useQuery({
     queryKey: pendingPermissionRequestsQueryKey(agentRunId ?? "none"),
     queryFn: () => pendingPermissionRequests(agentRunId as string),
-    enabled: Boolean(agentRunId),
-  });
-}
-
-/** `useAuthoringProposals`' query key, keyed by `agentRunId` — mirrors
- * `pendingPermissionRequestsQueryKey`'s own shape (plan 05-02, D-80/D-82). */
-export function authoringProposalsQueryKey(agentRunId: string) {
-  return ["authoring-proposals", agentRunId] as const;
-}
-
-/**
- * The proposal tray's own read (D-80/D-82, plan 05-02) — every pending proposal staged for
- * `agentRunId`, mirroring `usePendingPermissionRequests`' own composition exactly: `null`/
- * `undefined` disables the query entirely, invalidated on both `subscribeBoardChanged` (the
- * accept round trip's own emit) and `subscribeAgentEvent` (a fresh `proposal_created` event
- * arrives on this channel too, per `sidecar.rs`'s reader loop) — never polled.
- */
-export function useAuthoringProposals(agentRunId: string | null | undefined) {
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (!agentRunId) return undefined;
-    const queryKey = authoringProposalsQueryKey(agentRunId);
-    let unlistenBoard: (() => void) | undefined;
-    let unlistenAgent: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlistenBoard = fn;
-    });
-    subscribeAgentEvent(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlistenAgent = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlistenBoard?.();
-      unlistenAgent?.();
-    };
-  }, [agentRunId, queryClient]);
-
-  return useQuery({
-    queryKey: authoringProposalsQueryKey(agentRunId ?? "none"),
-    queryFn: () => authoringProposalsForRun(agentRunId as string),
     enabled: Boolean(agentRunId),
   });
 }
