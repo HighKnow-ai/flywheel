@@ -16,6 +16,21 @@ fn run(repo_path: &std::path::Path, args: &[&str]) {
     git_at(repo_path, args).unwrap_or_else(|e| panic!("git {args:?} failed: {e}"));
 }
 
+// `FLYWHEEL_WORKTREE_ROOT` is process-wide state (mirrors `context_packet.rs`'s own
+// `WORKTREE_ROOT_ENV_LOCK` — each `tests/*.rs` file is its own binary, so this lock only needs to
+// scope the two Task 3 tests below against each other, never against another file).
+static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
+    // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK` above.
+    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
+    let result = f();
+    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
+    result
+}
+
 #[test]
 fn a_branch_two_commits_ahead_of_its_base_reports_the_stat_and_exactly_two_changed_paths() {
     let (_conn, _actor_id, _project, repo_dir) = common::seeded_git_project();
@@ -261,4 +276,81 @@ fn assemble_context_packet_with_extras_twice_with_the_same_extras_returns_equal_
         packet_a, packet_b,
         "two calls with the same database and the same extras must be structurally equal"
     );
+}
+
+// --- Task 3: the command-layer gate, exercised at the core level --------------------------
+
+#[test]
+fn a_task_whose_worktree_directory_has_been_removed_from_disk_yields_no_diff_when_gated() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Vanished worktree", None)
+            .expect("create_task should succeed");
+        let worktree = core::domain::worktree::ensure_worktree(&mut conn, &task.id, &actor_id)
+            .expect("ensure_worktree should succeed");
+
+        // The directory is gone, but the `worktrees` row still claims it — D-45's exact scenario.
+        std::fs::remove_dir_all(&worktree.path).expect("failed to remove the worktree directory");
+
+        // Replicates the command layer's own gate (`diff_extras_for` in
+        // packages/desktop/src-tauri/src/commands/agent_run.rs): a `worktrees` row exists, but
+        // the path it names is not a directory on disk right now — the extras must stay absent,
+        // never an attempt to diff a path that is not there.
+        let has_worktree_row = core::domain::worktree::worktree_for_task(&conn, &task.id)
+            .expect("worktree_for_task should succeed")
+            .is_some();
+        assert!(has_worktree_row, "the worktrees row itself must still exist");
+        assert!(
+            !std::path::Path::new(&worktree.path).is_dir(),
+            "the worktree directory must be gone from disk"
+        );
+
+        let packet = assemble_context_packet_with_extras(&conn, &task.id, PacketExtras::default())
+            .expect("assembly should succeed even for a vanished worktree");
+        assert!(packet.diff.is_none());
+
+        let prompt = render_prompt(&packet, "");
+        assert!(
+            !prompt.contains("Diff So Far"),
+            "no diff heading for a worktree that has vanished from disk"
+        );
+    });
+}
+
+#[test]
+fn a_task_with_a_real_worktree_and_a_dirty_file_produces_a_diff_naming_that_file() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Dirty worktree", None)
+            .expect("create_task should succeed");
+        let worktree = core::domain::worktree::ensure_worktree(&mut conn, &task.id, &actor_id)
+            .expect("ensure_worktree should succeed");
+
+        let worktree_path = std::path::Path::new(&worktree.path);
+        let dirty_file = worktree_path.join("scratch.txt");
+        std::fs::write(&dirty_file, b"dirty\n").expect("failed to write the dirty file");
+
+        let diff_stat = diff_stat_and_names(worktree_path, &worktree.base_branch)
+            .expect("diff_stat_and_names should succeed");
+        let working_tree_porcelain = core::git::git_status_porcelain(worktree_path)
+            .expect("git_status_porcelain should succeed");
+
+        let extras = PacketExtras {
+            diff: Some(DiffSoFar {
+                base_ref: worktree.base_branch.clone(),
+                committed_stat: diff_stat.stat,
+                committed_paths: diff_stat.changed_paths,
+                working_tree_porcelain,
+            }),
+        };
+        let packet = assemble_context_packet_with_extras(&conn, &task.id, extras)
+            .expect("assembly should succeed");
+
+        let prompt = render_prompt(&packet, "");
+        assert!(prompt.contains("### Working tree (uncommitted)"));
+        assert!(
+            prompt.contains("scratch.txt"),
+            "the working-tree section must name the dirty file, got:\n{prompt}"
+        );
+    });
 }

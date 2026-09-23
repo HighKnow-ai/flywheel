@@ -28,8 +28,12 @@
 //! ends on its own — completed or failed — previously stayed `running` on the board forever.
 
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 
-use flywheel_core::context_packet::{assemble_context_packet, render_prompt, ContextPacket};
+use flywheel_core::context_packet::{
+    assemble_context_packet, assemble_context_packet_with_extras, render_prompt, ContextPacket,
+    DiffSoFar, PacketExtras,
+};
 use rusqlite::Connection;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -80,6 +84,28 @@ pub struct CriterionDto {
     pub verification_hint: Option<String>,
 }
 
+/// One `DiffSoFar` value, projected for the wire (camelCase) — mirrors
+/// `context_packet::DiffSoFar` field-for-field (plan 04-07 Task 3).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffSoFarDto {
+    pub base_ref: String,
+    pub committed_stat: String,
+    pub committed_paths: Vec<String>,
+    pub working_tree_porcelain: String,
+}
+
+impl From<DiffSoFar> for DiffSoFarDto {
+    fn from(diff: DiffSoFar) -> Self {
+        Self {
+            base_ref: diff.base_ref,
+            committed_stat: diff.committed_stat,
+            committed_paths: diff.committed_paths,
+            working_tree_porcelain: diff.working_tree_porcelain,
+        }
+    }
+}
+
 /// The launch sheet's read-only briefing (D-27/D-28) — the packet's structured fields AND the
 /// rendered prompt string, so the sheet displays exactly the text that will be sent rather than
 /// re-deriving its own rendering in TypeScript (one renderer, in Rust, used by both the preview
@@ -96,6 +122,10 @@ pub struct ContextPacketDto {
     pub branch: String,
     pub base_ref: String,
     pub worktree_path: String,
+    /// `None` for a task with no worktree on disk yet, or one that has vanished (D-70/D-71, plan
+    /// 04-07 Task 3) — never an error. Populated by [`diff_extras_for`], one layer above the pure
+    /// `assemble_context_packet`.
+    pub diff: Option<DiffSoFarDto>,
     pub rendered_prompt: String,
 }
 
@@ -123,17 +153,71 @@ impl From<ContextPacket> for ContextPacketDto {
             branch: packet.worktree.branch,
             base_ref: packet.worktree.base_ref,
             worktree_path: packet.worktree.path,
+            diff: packet.diff.map(DiffSoFarDto::from),
             rendered_prompt,
         }
+    }
+}
+
+/// Compose the diff extras for an already-assembled `packet` (D-70/D-71, plan 04-07 Task 3,
+/// 04-RESEARCH.md Open Question 2) — the ONE place in this command's composition path a git call
+/// happens, one layer above the pure `assemble_context_packet`. Returns
+/// [`PacketExtras::default`] (no diff at all) unless BOTH hold:
+/// - a `worktrees` row exists for `task_id` (a single literal `&str` existence query), and
+/// - `packet.worktree.path` names a directory present on disk RIGHT NOW.
+///
+/// The second check is not redundant: D-45's `missing` status exists precisely because a recorded
+/// row can outlive its directory, and diffing a path that is not there would turn a preview into
+/// an error. A git error from either `diff_stat_and_names` or `git_status_porcelain` also degrades
+/// to no diff section rather than failing the whole preview — a worktree in a strange state must
+/// still let the launch sheet open, exactly as a task with no epic has no epic section.
+fn diff_extras_for(conn: &Connection, packet: &ContextPacket, task_id: &str) -> PacketExtras {
+    let has_worktree_row = conn
+        .query_row(
+            "SELECT 1 FROM worktrees WHERE task_id = ?1",
+            rusqlite::params![task_id],
+            |_row| Ok(()),
+        )
+        .is_ok();
+    if !has_worktree_row {
+        return PacketExtras::default();
+    }
+
+    let worktree_path = Path::new(&packet.worktree.path);
+    if !worktree_path.is_dir() {
+        return PacketExtras::default();
+    }
+
+    let diff_stat =
+        match flywheel_core::git::diff_stat_and_names(worktree_path, &packet.worktree.base_ref) {
+            Ok(stat) => stat,
+            Err(_) => return PacketExtras::default(),
+        };
+    let working_tree_porcelain = match flywheel_core::git::git_status_porcelain(worktree_path) {
+        Ok(porcelain) => porcelain,
+        Err(_) => return PacketExtras::default(),
+    };
+
+    PacketExtras {
+        diff: Some(DiffSoFar {
+            base_ref: packet.worktree.base_ref.clone(),
+            committed_stat: diff_stat.stat,
+            committed_paths: diff_stat.changed_paths,
+            working_tree_porcelain,
+        }),
     }
 }
 
 /// The actual preview logic, split out from [`agent_run_preview`] so it is unit-testable without
 /// going through Tauri's `State<AppState>` extraction machinery — the same reasoning
 /// [`read_log_window`] documents for its own split. Performs no insert, update or delete: every
-/// call inside is a `SELECT` (`assemble_context_packet`'s own contract, D-28).
+/// call inside is a `SELECT` (`assemble_context_packet`'s own contract, D-28) or a read-only git
+/// invocation (`diff_extras_for`).
 fn build_preview_dto(conn: &Connection, task_id: &str) -> Result<ContextPacketDto, String> {
     let packet = assemble_context_packet(conn, task_id).map_err(|e| e.to_string())?;
+    let extras = diff_extras_for(conn, &packet, task_id);
+    let packet =
+        assemble_context_packet_with_extras(conn, task_id, extras).map_err(|e| e.to_string())?;
     Ok(packet.into())
 }
 
@@ -214,8 +298,14 @@ pub fn agent_run_start(
 
     // Re-read the packet now that the worktree is real (not predicted) — the same assembler
     // `agent_run_preview` calls, so this run's prompt is exactly what the sheet most recently
-    // previewed, modulo the operator's own instruction (T-02-21).
+    // previewed, modulo the operator's own instruction (T-02-21). Composed through the same
+    // assemble_context_packet -> diff_extras_for -> assemble_context_packet_with_extras path as
+    // build_preview_dto (plan 04-07 Task 3), so the launch sheet's preview and this run's actual
+    // prompt can never carry a different diff section.
     let packet = assemble_context_packet(&conn, &task_id).map_err(|e| e.to_string())?;
+    let extras = diff_extras_for(&conn, &packet, &task_id);
+    let packet =
+        assemble_context_packet_with_extras(&conn, &task_id, extras).map_err(|e| e.to_string())?;
     let prompt = render_prompt(&packet, &instruction);
 
     let worktree_path: String = conn
