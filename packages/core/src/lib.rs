@@ -11,6 +11,7 @@ pub mod db;
 pub mod destructive;
 pub mod domain;
 pub mod drift;
+pub mod epic_context_packet;
 pub mod git;
 pub mod git_retry;
 pub mod ids;
