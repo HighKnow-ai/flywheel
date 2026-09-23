@@ -220,6 +220,143 @@ pub fn authoring_proposal_accept(
     Ok(())
 }
 
+/// Accept a subtree — a proposed task together with its drafted criteria (D-95, plan 05-06's ONE
+/// bulk path). Resolves the local human actor server-side, calls straight through to
+/// `domain::authoring_proposal::accept_subtree`, and emits `board:changed` for both the
+/// materialised root task and the run the proposal came from.
+#[tauri::command]
+pub fn authoring_subtree_accept(
+    state: State<AppState>,
+    app: AppHandle,
+    root_proposal_id: String,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let human_actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let outcome = flywheel_core::domain::authoring_proposal::accept_subtree(
+        &mut conn,
+        &root_proposal_id,
+        &human_actor_id,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let agent_run_id: String = conn
+        .query_row(
+            "SELECT agent_run_id FROM authoring_proposals WHERE id = ?1",
+            rusqlite::params![root_proposal_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "task", "id": outcome.root_materialised_id }),
+    )
+    .ok();
+    app.emit("board:changed", serde_json::json!({ "entity": "agent_run", "id": agent_run_id }))
+        .ok();
+
+    Ok(())
+}
+
+/// Reject a pending proposal (D-93) — the deciding human actor is resolved server-side, exactly
+/// like every other command in this workspace. Delegates to `domain::authoring_proposal::reject_proposal`
+/// (DB-only), then relays the decision to the live session as an `authoring_turn` (D-93's "not a
+/// verdict, propose something better" wording) — a missing sidecar handle or a delivery failure is
+/// swallowed here, never surfaced as a command error, matching `authoring_stage_advance`'s
+/// identical "delivery is best-effort" discipline.
+#[tauri::command]
+pub fn authoring_proposal_reject(
+    state: State<AppState>,
+    app: AppHandle,
+    proposal_id: String,
+    reason: Option<String>,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let human_actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let proposal = flywheel_core::domain::authoring_proposal::reject_proposal(
+        &mut conn,
+        &proposal_id,
+        &human_actor_id,
+        reason.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "agent_run", "id": proposal.agent_run_id }),
+    )
+    .ok();
+
+    if let Some(sidecar) = state.sidecar.as_ref() {
+        let turn = flywheel_core::domain::authoring_session::ProposalDecisionTurn::Rejected {
+            target_type: proposal.target_type.clone(),
+            label: proposal.payload.label().to_string(),
+            reason: proposal.rejection_reason.clone(),
+        };
+        let text = flywheel_core::domain::authoring_session::render_decision_turn(&turn);
+        let _ = sidecar.send_authoring_turn(&proposal.agent_run_id, &text);
+    }
+
+    Ok(())
+}
+
+/// Amend a pending proposal (D-94) — edit the staged row's payload to the developer's own text,
+/// leaving it `pending`. `payload` is the same JSON shape `ProposalDto.payload` carries (a
+/// `ProposalPayload` with its `kind` discriminant). Resolves the human actor server-side, delegates
+/// to `domain::authoring_proposal::amend_proposal` (DB-only), then relays D-94's "this is my own
+/// text" wording to the live session — the same best-effort delivery discipline
+/// [`authoring_proposal_reject`] follows immediately above.
+#[tauri::command]
+pub fn authoring_proposal_amend(
+    state: State<AppState>,
+    app: AppHandle,
+    proposal_id: String,
+    payload: serde_json::Value,
+) -> Result<ProposalDto, String> {
+    let payload: flywheel_core::domain::authoring_proposal::ProposalPayload =
+        serde_json::from_value(payload).map_err(|e| e.to_string())?;
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let human_actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let outcome = flywheel_core::domain::authoring_proposal::amend_proposal(
+        &mut conn,
+        &proposal_id,
+        &human_actor_id,
+        payload,
+    )
+    .map_err(|e| e.to_string())?;
+
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "agent_run", "id": outcome.proposal.agent_run_id }),
+    )
+    .ok();
+
+    if let Some(sidecar) = state.sidecar.as_ref() {
+        let turn = flywheel_core::domain::authoring_session::ProposalDecisionTurn::Amended {
+            target_type: outcome.proposal.target_type.clone(),
+            original_label: outcome.original_label.clone(),
+            new_text: outcome.proposal.payload.label().to_string(),
+        };
+        let text = flywheel_core::domain::authoring_session::render_decision_turn(&turn);
+        let _ = sidecar.send_authoring_turn(&outcome.proposal.agent_run_id, &text);
+    }
+
+    Ok(outcome.proposal.into())
+}
+
 /// Advance `agent_run_id` to its next authoring stage (D-88, D-90, plan 05-03) — the ONE gate the
 /// whole phase depends on, resolving the local human actor server-side (never from the renderer,
 /// matching `authoring_proposal_accept`'s own discipline immediately above). Thin wrapper over

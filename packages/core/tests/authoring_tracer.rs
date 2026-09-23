@@ -178,12 +178,19 @@ fn pending_proposals_for_run_clamps_to_max_limit_body() {
     assert_eq!(pending.len(), 3, "clamping the limit must not drop real rows below MAX_LIMIT");
 }
 
+// Plan 05-06 replaced `accept_proposal`'s old typed "not yet implemented in this plan" error with
+// the full verb/target-type matrix — `create`/`criterion` (this test's own original scenario) now
+// materialises successfully (see `packages/core/tests/authoring_proposal.rs`, the plan's own test
+// file, for that coverage). This test is repointed at a combination the matrix still genuinely
+// refuses: a `create`/`criterion` proposal with NO `parent_proposal_id` at all — every drafted
+// criterion must hang off a proposed task or epic (D-07), so a parentless one has nowhere to
+// materialise and returns a typed error naming exactly that, never a silent no-op.
 #[test]
-fn accepting_an_unsupported_verb_returns_a_typed_error_not_a_silent_no_op() {
-    with_scratch_runtime_dir(|| accepting_an_unsupported_verb_returns_a_typed_error_not_a_silent_no_op_body());
+fn accepting_a_parentless_criterion_proposal_returns_a_typed_error_not_a_silent_no_op() {
+    with_scratch_runtime_dir(|| accepting_a_parentless_criterion_proposal_returns_a_typed_error_not_a_silent_no_op_body());
 }
 
-fn accepting_an_unsupported_verb_returns_a_typed_error_not_a_silent_no_op_body() {
+fn accepting_a_parentless_criterion_proposal_returns_a_typed_error_not_a_silent_no_op_body() {
     let (mut conn, human_actor_id, project) = common::seeded_project();
     let run = start_authoring_run(&mut conn, &project.id, None, "default", &human_actor_id).unwrap();
     advance_stage(&mut conn, &run.id, &human_actor_id).unwrap();
@@ -199,8 +206,8 @@ fn accepting_an_unsupported_verb_returns_a_typed_error_not_a_silent_no_op_body()
     .unwrap();
 
     let err = accept_proposal(&mut conn, &proposal.id, &human_actor_id)
-        .expect_err("accepting a criterion proposal is not yet implemented in this plan");
-    assert!(err.to_string().contains("not yet implemented"));
+        .expect_err("a parentless criterion proposal has nowhere to materialise");
+    assert!(err.to_string().contains("parent_proposal_id"), "{err}");
 }
 
 // --- Assumption-delta invariant (a): the CHECK rejects a row carrying both ids. ---

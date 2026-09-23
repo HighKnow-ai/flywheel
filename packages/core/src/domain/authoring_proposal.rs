@@ -1,15 +1,19 @@
-//! `create_proposal` / `apply_proposal_created` / `accept_proposal` / `pending_proposals_for_run`
-//! (D-80/D-81/D-83/D-92/D-96, plan 05-02): the staging write path. Follows
-//! `domain::session_summary::create_summary`'s discipline to the letter — every SQL statement here
-//! is a compile-time literal `&str` bound through `params![]`/`named_params!`, and every identity
-//! field (`project_id`, `epic_id`, the acting actor) is resolved from the `agent_runs` row INSIDE
-//! the write transaction, never accepted as a caller argument (T-05-02-01): a caller cannot
-//! attribute a proposal to a run it does not drive.
+//! `create_proposal` / `apply_proposal_created` / `accept_proposal` / `reject_proposal` /
+//! `amend_proposal` / `accept_subtree` / `pending_proposals_for_run` (D-80/D-81/D-83/D-92/D-93/
+//! D-94/D-95/D-96, plans 05-02 and 05-06): the staging write path, and every way a staged proposal
+//! becomes real, rejected or corrected. Follows `domain::session_summary::create_summary`'s
+//! discipline to the letter — every SQL statement here is a compile-time literal `&str` bound
+//! through `params![]`/`named_params!`, and every identity field (`project_id`, `epic_id`, the
+//! acting actor) is resolved from the `agent_runs` row INSIDE the write transaction, never accepted
+//! as a caller argument (T-05-02-01): a caller cannot attribute a proposal to a run it does not
+//! drive.
 //!
-//! This module never issues `INSERT INTO tasks`/`epics`/`acceptance_criteria` — [`accept_proposal`]
-//! materialises exclusively through the canonical writers those tables already have
-//! (`domain::task::create_task` for this plan's one supported path), matching T-05-02-03's own
-//! mitigation.
+//! This module never issues `INSERT INTO tasks`/`epics`/`acceptance_criteria` or
+//! `UPDATE acceptance_criteria` — [`accept_proposal`]/[`accept_subtree`] materialise EXCLUSIVELY
+//! through the canonical writers those tables already own (`domain::task`, `domain::epic`,
+//! `domain::acceptance_criterion`'s own `_in_tx` siblings), matching T-05-02-03's and T-05-06-02's
+//! mitigations. `authoring_proposals` rows themselves are never deleted (D-83) — a decided row is a
+//! status transition, never a `DELETE FROM authoring_proposals`.
 
 use anyhow::Context;
 use rusqlite::{named_params, params, Connection, OptionalExtension, Row, Transaction};
@@ -97,6 +101,18 @@ impl ProposalPayload {
             ProposalPayload::Task { .. } => ProposalTargetType::Task,
             ProposalPayload::Criterion { .. } => ProposalTargetType::Criterion,
             ProposalPayload::Assumption { .. } => ProposalTargetType::Assumption,
+        }
+    }
+
+    /// The one human-readable string a decision turn (D-93/D-94) or an event payload's own
+    /// `"label"` field quotes back — a title for `Epic`/`Task`, a statement for `Criterion`, the
+    /// challenged assumption itself for `Assumption`.
+    pub fn label(&self) -> &str {
+        match self {
+            ProposalPayload::Epic { title, .. } => title,
+            ProposalPayload::Task { title, .. } => title,
+            ProposalPayload::Criterion { statement, .. } => statement,
+            ProposalPayload::Assumption { assumption, .. } => assumption,
         }
     }
 }
@@ -380,58 +396,268 @@ pub struct AcceptOutcome {
     pub materialised_id: String,
 }
 
-/// Accept a pending proposal (D-92, D-96) — for this plan, the `create`/`task` path only. In ONE
-/// transaction: reads the pending row, materialises it through the canonical
-/// `domain::task::create_task` writer (never a statement of its own — T-05-02-03's mitigation, and
-/// the reason `domain::task::create_task`, not a duplicate `INSERT INTO tasks`, is the single
-/// place a task's key and rank are allocated: D-96's key-allocation-in-acceptance-order fact falls
-/// out of this by construction), sets `status = 'accepted'`, `materialised_id`, `decided_by` and
-/// `decided_at`, and appends one `proposal.accepted` event. The row is never deleted (D-83). The
-/// **human** actor supplied here is recorded as `decided_by`; `created_by` stays the proposing
-/// agent actor untouched — the audit trail's whole point.
+/// A staged `amend`/`delete` (or a `create`/`criterion`'s parent link) names a canonical row that
+/// no longer exists — because D-44's task deletion cascade, or some other path, ran underneath it
+/// (`05-CONTEXT.md` Claude's Discretion). Never auto-rejected and never silently dropped (D-16):
+/// this is a typed, downcastable error naming the missing row and its type, so the caller can
+/// surface it as an explicit undecidable state rather than a generic failure.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProposalUndecidable {
+    pub proposal_id: String,
+    pub target_id: String,
+    pub target_type: String,
+}
+
+impl std::fmt::Display for ProposalUndecidable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "authoring_proposal {:?} names a {} {:?} that no longer exists — undecidable, not \
+             auto-rejected",
+            self.proposal_id, self.target_type, self.target_id
+        )
+    }
+}
+
+impl std::error::Error for ProposalUndecidable {}
+
+/// Read one `authoring_proposals` row by id, inside the caller's own transaction — the single
+/// query every mutating function in this module reads through, so the 17-column projection has
+/// exactly one shape here (mirrors [`PROPOSAL_COLUMNS`]'s own "one definition in the crate"
+/// discipline).
+fn fetch_proposal(tx: &Transaction, proposal_id: &str) -> anyhow::Result<Proposal> {
+    let sql: String = ["SELECT ", PROPOSAL_COLUMNS, " FROM authoring_proposals WHERE id = ?1"].concat();
+    tx.query_row(&sql, params![proposal_id], row_to_proposal)
+        .with_context(|| format!("authoring_proposal {proposal_id:?} not found"))
+}
+
+/// `target_id` exists in the canonical table its `target_type` names — cardinality-one, no
+/// `LIMIT` needed. An `Assumption` target has no canonical table at all (an accepted assumption
+/// never materialises a board row — see [`materialise_proposal`]), so it is vacuously present.
+fn target_row_exists(tx: &Transaction, target_type: ProposalTargetType, target_id: &str) -> anyhow::Result<bool> {
+    let exists: Option<i64> = match target_type {
+        ProposalTargetType::Task => tx
+            .query_row("SELECT 1 FROM tasks WHERE id = ?1", params![target_id], |row| row.get(0))
+            .optional()?,
+        ProposalTargetType::Epic => tx
+            .query_row("SELECT 1 FROM epics WHERE id = ?1", params![target_id], |row| row.get(0))
+            .optional()?,
+        ProposalTargetType::Criterion => tx
+            .query_row(
+                "SELECT 1 FROM acceptance_criteria WHERE id = ?1",
+                params![target_id],
+                |row| row.get(0),
+            )
+            .optional()?,
+        ProposalTargetType::Assumption => return Ok(true),
+    };
+    Ok(exists.is_some())
+}
+
+fn ensure_target_exists(
+    tx: &Transaction,
+    proposal: &Proposal,
+    target_type: ProposalTargetType,
+    target_id: &str,
+) -> anyhow::Result<()> {
+    if target_row_exists(tx, target_type, target_id)? {
+        Ok(())
+    } else {
+        Err(ProposalUndecidable {
+            proposal_id: proposal.id.clone(),
+            target_id: target_id.to_string(),
+            target_type: target_type.as_str().to_string(),
+        }
+        .into())
+    }
+}
+
+fn require_target<'a>(proposal: &'a Proposal) -> anyhow::Result<&'a str> {
+    proposal
+        .target_id
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("{} proposal {:?} carries no target_id", proposal.verb, proposal.id))
+}
+
+/// Materialise one proposal's content into the canonical table its `target_type` names, through
+/// the writer that already owns that table — never a local `INSERT`/`UPDATE` of this module's own
+/// (T-05-02-03, extended here to every verb/target_type combination). `parent_outcome` is `Some`
+/// only for a `create`/`criterion` proposal whose `parent_proposal_id` was just accepted (or was
+/// already accepted) by the caller — see [`accept_proposal_in_tx`]'s implied-parent walk.
+fn materialise_proposal(
+    tx: &Transaction,
+    proposal: &Proposal,
+    parent_outcome: Option<&AcceptOutcome>,
+    now: &str,
+) -> anyhow::Result<String> {
+    match (proposal.verb.as_str(), &proposal.payload) {
+        ("create", ProposalPayload::Task { title, .. }) => {
+            let epic_id = proposal.epic_id.as_deref();
+            let task = crate::domain::task::create_task_in_tx(
+                tx,
+                &proposal.project_id,
+                &proposal.created_by,
+                title,
+                epic_id,
+                now,
+            )?;
+            Ok(task.id)
+        }
+        ("create", ProposalPayload::Epic { title, description }) => {
+            let epic = crate::domain::epic::create_epic_in_tx(
+                tx,
+                &proposal.project_id,
+                &proposal.created_by,
+                title,
+                description.as_deref(),
+                now,
+            )?;
+            Ok(epic.id)
+        }
+        ("create", ProposalPayload::Criterion { statement, verification_hint }) => {
+            let parent = parent_outcome.ok_or_else(|| {
+                anyhow::anyhow!("criterion proposal {:?} carries no parent_proposal_id", proposal.id)
+            })?;
+            let parent_type = parent.proposal.target_type.as_str();
+            anyhow::ensure!(
+                matches!(parent_type, "task" | "epic"),
+                "criterion proposal {:?}'s parent proposal targets {parent_type:?}, expected task \
+                 or epic",
+                proposal.id
+            );
+            let criterion = crate::domain::acceptance_criterion::create_criterion_in_tx(
+                tx,
+                &proposal.project_id,
+                &proposal.created_by,
+                parent_type,
+                &parent.materialised_id,
+                statement,
+                verification_hint.as_deref(),
+                now,
+            )?;
+            Ok(criterion.id)
+        }
+        // D-89: an accepted assumption is reasoning about the epic, not an item on it — accepted
+        // staging history is the whole record, so there is no canonical row to point at.
+        // `materialised_id` self-references the proposal's own id, which is what makes a second
+        // accept idempotent (the "already accepted" branch in `accept_proposal_in_tx` reads it
+        // back unchanged).
+        ("create", ProposalPayload::Assumption { .. }) => Ok(proposal.id.clone()),
+        ("amend", ProposalPayload::Criterion { statement, verification_hint }) => {
+            let target_id = require_target(proposal)?;
+            ensure_target_exists(tx, proposal, ProposalTargetType::Criterion, target_id)?;
+            // T-05-06-02: the ONLY mechanism through which an amend reaches a criterion — never a
+            // local `UPDATE acceptance_criteria` — so the lock check and the revision chain stay
+            // this module's single source of truth.
+            let criterion = crate::domain::acceptance_criterion::revise_criterion_in_tx(
+                tx,
+                &proposal.created_by,
+                target_id,
+                statement,
+                verification_hint.as_deref(),
+                now,
+            )?;
+            Ok(criterion.id)
+        }
+        ("amend", ProposalPayload::Task { title, description }) => {
+            let target_id = require_target(proposal)?;
+            ensure_target_exists(tx, proposal, ProposalTargetType::Task, target_id)?;
+            crate::domain::task::update_task_in_tx(
+                tx,
+                &proposal.created_by,
+                target_id,
+                Some(title.as_str()),
+                description.as_deref(),
+                now,
+            )?;
+            Ok(target_id.to_string())
+        }
+        ("amend", ProposalPayload::Epic { title, description }) => {
+            let target_id = require_target(proposal)?;
+            ensure_target_exists(tx, proposal, ProposalTargetType::Epic, target_id)?;
+            crate::domain::epic::update_epic_in_tx(
+                tx,
+                &proposal.created_by,
+                target_id,
+                Some(title.as_str()),
+                description.as_deref(),
+                now,
+            )?;
+            Ok(target_id.to_string())
+        }
+        ("delete", _) => {
+            let target_id = require_target(proposal)?;
+            match proposal.target_type.as_str() {
+                "task" => {
+                    ensure_target_exists(tx, proposal, ProposalTargetType::Task, target_id)?;
+                    crate::domain::task::delete_task_in_tx(tx, &proposal.created_by, target_id, now)?;
+                }
+                "epic" => {
+                    ensure_target_exists(tx, proposal, ProposalTargetType::Epic, target_id)?;
+                    crate::domain::epic::delete_epic_in_tx(tx, &proposal.created_by, target_id, now)?;
+                }
+                "criterion" => {
+                    ensure_target_exists(tx, proposal, ProposalTargetType::Criterion, target_id)?;
+                    crate::domain::acceptance_criterion::delete_criterion_in_tx(
+                        tx,
+                        &proposal.created_by,
+                        target_id,
+                        now,
+                    )?;
+                }
+                other => anyhow::bail!("cannot delete a {other:?} target"),
+            }
+            Ok(target_id.to_string())
+        }
+        (verb, payload) => anyhow::bail!(
+            "accepting a {verb:?} proposal for {:?} is not supported",
+            payload.target_type().as_str()
+        ),
+    }
+}
+
+/// Accept one proposal, inside a transaction the caller already owns — [`accept_proposal`] and
+/// [`accept_subtree`] both call this, so the implied-parent walk and the idempotent-already-
+/// accepted branch exist in exactly one place. Reads the row FRESH from the database every call
+/// (never trusts a caller-supplied copy), so a self-recursive implied-parent walk always sees the
+/// parent's just-written status.
 ///
-/// Any other verb/target_type combination returns a typed "not yet implemented in this plan"
-/// error — plan 05-05 replaces it — never a silent no-op.
-pub fn accept_proposal(
-    conn: &mut Connection,
+/// D-96's implied-parent accept: when `parent_proposal_id` names a still-`pending` proposal, that
+/// parent is accepted FIRST, in this SAME transaction, before this proposal materialises — so the
+/// tree this builds can never reference a row that does not exist. Only a criterion may carry a
+/// parent, and only a task or epic proposal may BE one (T-05-06-07), so this recursion is bounded
+/// to depth one by construction, not by a counter.
+///
+/// An already-`accepted` proposal is a no-op: the existing `materialised_id` is returned unchanged,
+/// no second canonical row is written, and no second `proposal.accepted` event is appended. Any
+/// other non-`pending` status (i.e. `rejected`) is an error naming that status — a decided row is
+/// terminal (D-83).
+fn accept_proposal_in_tx(
+    tx: &Transaction,
     proposal_id: &str,
     human_actor_id: &str,
+    now: &str,
 ) -> anyhow::Result<AcceptOutcome> {
-    let now = chrono::Utc::now().to_rfc3339();
-    let tx = conn.transaction()?;
+    let proposal = fetch_proposal(tx, proposal_id)?;
 
-    let proposal: Proposal = tx
-        .query_row(
-            &format!("SELECT {PROPOSAL_COLUMNS} FROM authoring_proposals WHERE id = ?1"),
-            params![proposal_id],
-            row_to_proposal,
-        )
-        .with_context(|| format!("authoring_proposal {proposal_id:?} not found"))?;
-
+    if proposal.status == "accepted" {
+        let materialised_id = proposal.materialised_id.clone().ok_or_else(|| {
+            anyhow::anyhow!("authoring_proposal {proposal_id:?} is accepted but carries no materialised_id")
+        })?;
+        return Ok(AcceptOutcome { proposal, materialised_id });
+    }
     anyhow::ensure!(
         proposal.status == "pending",
         "authoring_proposal {proposal_id:?} is not pending (status = {:?})",
         proposal.status
     );
 
-    let materialised_id = match (proposal.verb.as_str(), &proposal.payload) {
-        ("create", ProposalPayload::Task { title, .. }) => {
-            let epic_id = proposal.epic_id.as_deref();
-            let task = crate::domain::task::create_task_in_tx(
-                &tx,
-                &proposal.project_id,
-                &proposal.created_by,
-                title,
-                epic_id,
-                &now,
-            )?;
-            task.id
-        }
-        (verb, payload) => anyhow::bail!(
-            "accepting a {verb:?} proposal for {:?} is not yet implemented in this plan",
-            payload.target_type().as_str()
-        ),
+    let parent_outcome = match &proposal.parent_proposal_id {
+        Some(parent_id) => Some(accept_proposal_in_tx(tx, parent_id, human_actor_id, now)?),
+        None => None,
     };
+
+    let materialised_id = materialise_proposal(tx, &proposal, parent_outcome.as_ref(), now)?;
 
     tx.execute(
         "UPDATE authoring_proposals SET status = 'accepted', materialised_id = ?1, \
@@ -440,16 +666,16 @@ pub fn accept_proposal(
     )
     .context("failed to mark authoring_proposal accepted")?;
 
-    let sequence = next_sequence(&tx, &proposal.project_id, "local")?;
+    let sequence = next_sequence(tx, &proposal.project_id, "local")?;
     let event_payload = serde_json::json!({
         "field": "authoring_proposal",
         "before": "pending",
         "after": "accepted",
         "materialisedId": materialised_id,
-        "label": "Accepted a proposal",
+        "label": format!("Accepted a {} proposal", proposal.target_type),
     });
     append_event(
-        &tx,
+        tx,
         &proposal.project_id,
         "local",
         sequence,
@@ -460,18 +686,322 @@ pub fn accept_proposal(
         human_actor_id,
         "proposal.accepted",
         &event_payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit accept_proposal transaction")?;
 
     let mut accepted_proposal = proposal;
     accepted_proposal.status = "accepted".to_string();
     accepted_proposal.materialised_id = Some(materialised_id.clone());
     accepted_proposal.decided_by = Some(human_actor_id.to_string());
-    accepted_proposal.decided_at = Some(now);
+    accepted_proposal.decided_at = Some(now.to_string());
 
     Ok(AcceptOutcome { proposal: accepted_proposal, materialised_id })
+}
+
+/// Accept a pending proposal (D-92, D-96) across every verb and target type. In ONE transaction:
+/// reads the pending row (and, per D-96, any still-pending ancestor), materialises it through the
+/// canonical writer its `target_type` already owns, sets `status = 'accepted'`, `materialised_id`,
+/// `decided_by` and `decided_at`, and appends one `proposal.accepted` event. The row is never
+/// deleted (D-83). The **human** actor supplied here is recorded as `decided_by`; `created_by`
+/// stays the proposing agent actor untouched — the audit trail's whole point.
+///
+/// Accepting an already-accepted proposal is a no-op returning the existing `materialised_id`.
+/// Accepting a proposal whose `target_id` names a row that no longer exists returns
+/// [`ProposalUndecidable`]. See [`accept_proposal_in_tx`] for the full contract.
+pub fn accept_proposal(
+    conn: &mut Connection,
+    proposal_id: &str,
+    human_actor_id: &str,
+) -> anyhow::Result<AcceptOutcome> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let outcome = accept_proposal_in_tx(&tx, proposal_id, human_actor_id, &now)?;
+    tx.commit().context("failed to commit accept_proposal transaction")?;
+    Ok(outcome)
+}
+
+/// Reject a pending proposal (D-93). One transaction: sets `status = 'rejected'`, records the
+/// optional `reason` and the deciding human actor, appends one `proposal.rejected` event, and
+/// leaves the row in place forever (D-83) — never deleted, never overwritten again. Rejecting a
+/// proposal with pending children does not touch them: a drafted criterion under a rejected task
+/// stays `pending` and decidable on its own (D-92's per-row granularity). Rejecting an
+/// already-decided proposal is an error naming the existing status, never a silent overwrite of
+/// an earlier decision. The caller (the command layer) is responsible for relaying this decision
+/// to the live session as an `authoring_turn` via [`crate::domain::authoring_session::render_decision_turn`]
+/// — this function is DB-only, exactly like [`accept_proposal`].
+pub fn reject_proposal(
+    conn: &mut Connection,
+    proposal_id: &str,
+    human_actor_id: &str,
+    reason: Option<&str>,
+) -> anyhow::Result<Proposal> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let existing = fetch_proposal(&tx, proposal_id)?;
+    anyhow::ensure!(
+        existing.status == "pending",
+        "authoring_proposal {proposal_id:?} is not pending (status = {:?}) — a decided proposal \
+         cannot be rejected a second time",
+        existing.status
+    );
+
+    tx.execute(
+        "UPDATE authoring_proposals SET status = 'rejected', rejection_reason = ?1, \
+         decided_by = ?2, decided_at = ?3 WHERE id = ?4",
+        params![reason, human_actor_id, now, proposal_id],
+    )
+    .context("failed to mark authoring_proposal rejected")?;
+
+    let sequence = next_sequence(&tx, &existing.project_id, "local")?;
+    let event_payload = serde_json::json!({
+        "field": "authoring_proposal",
+        "before": "pending",
+        "after": "rejected",
+        "reason": reason,
+        "label": format!("Rejected a {} proposal", existing.target_type),
+    });
+    append_event(
+        &tx,
+        &existing.project_id,
+        "local",
+        sequence,
+        "authoring_proposal",
+        proposal_id,
+        None,
+        existing.epic_id.as_deref(),
+        human_actor_id,
+        "proposal.rejected",
+        &event_payload,
+        &now,
+    )?;
+
+    tx.commit().context("failed to commit reject_proposal transaction")?;
+
+    let mut rejected = existing;
+    rejected.status = "rejected".to_string();
+    rejected.rejection_reason = reason.map(str::to_string);
+    rejected.decided_by = Some(human_actor_id.to_string());
+    rejected.decided_at = Some(now);
+    Ok(rejected)
+}
+
+/// What [`amend_proposal`] did — the amended [`Proposal`] plus the label its PRE-amendment payload
+/// carried, which the command layer needs to render D-94's decision turn (the wording names both
+/// what the agent originally proposed and what the developer replaced it with) without a second
+/// read racing this one's write.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AmendOutcome {
+    pub original_label: String,
+    pub proposal: Proposal,
+}
+
+const MAX_PROPOSAL_TITLE_LEN: usize = 500;
+const MAX_PROPOSAL_TEXT_LEN: usize = 1000;
+
+/// Validate an amended payload with the same rules the tool schemas apply (D-81's action text):
+/// non-empty title/statement/assumption, length bounds matching `commands/epic.rs`'s
+/// `MAX_TITLE_LEN` (500) and `commands/criterion.rs`'s `MAX_STATEMENT_LEN`/`MAX_HINT_LEN` (1000) —
+/// so an amendment cannot introduce text the agent's own tool would have been refused for
+/// (T-05-06-05).
+fn validate_payload(payload: &ProposalPayload) -> anyhow::Result<()> {
+    match payload {
+        ProposalPayload::Epic { title, description } | ProposalPayload::Task { title, description } => {
+            anyhow::ensure!(
+                !title.is_empty() && title.len() <= MAX_PROPOSAL_TITLE_LEN,
+                "title must be 1-{MAX_PROPOSAL_TITLE_LEN} characters, got {} characters",
+                title.len()
+            );
+            if let Some(d) = description {
+                anyhow::ensure!(
+                    d.len() <= MAX_PROPOSAL_TEXT_LEN,
+                    "description must be at most {MAX_PROPOSAL_TEXT_LEN} characters, got {} characters",
+                    d.len()
+                );
+            }
+        }
+        ProposalPayload::Criterion { statement, verification_hint } => {
+            anyhow::ensure!(
+                !statement.is_empty() && statement.len() <= MAX_PROPOSAL_TEXT_LEN,
+                "statement must be 1-{MAX_PROPOSAL_TEXT_LEN} characters, got {} characters",
+                statement.len()
+            );
+            if let Some(h) = verification_hint {
+                anyhow::ensure!(
+                    h.len() <= MAX_PROPOSAL_TEXT_LEN,
+                    "verification hint must be at most {MAX_PROPOSAL_TEXT_LEN} characters, got {} \
+                     characters",
+                    h.len()
+                );
+            }
+        }
+        ProposalPayload::Assumption { assumption, answer } => {
+            anyhow::ensure!(
+                !assumption.is_empty() && assumption.len() <= MAX_PROPOSAL_TEXT_LEN,
+                "assumption must be 1-{MAX_PROPOSAL_TEXT_LEN} characters, got {} characters",
+                assumption.len()
+            );
+            anyhow::ensure!(
+                answer.len() <= MAX_PROPOSAL_TEXT_LEN,
+                "answer must be at most {MAX_PROPOSAL_TEXT_LEN} characters, got {} characters",
+                answer.len()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Amend a pending proposal (D-94) — edit the staged row's `payload` and leave it `pending`. The
+/// board receives nothing at this moment: amending does not accept. `payload`'s `target_type` must
+/// match the proposal's existing one (an amend corrects the drafted content, never repurposes the
+/// row to a different kind of thing). The event carries BOTH the agent's original payload and the
+/// developer's replacement (D-19's human-renderable trail), so the activity trail shows what
+/// changed, not only the end state. Amending an already-decided proposal is an error, mirroring
+/// [`reject_proposal`]'s identical discipline. The caller relays this to the live session via
+/// [`crate::domain::authoring_session::render_decision_turn`] — this function is DB-only.
+pub fn amend_proposal(
+    conn: &mut Connection,
+    proposal_id: &str,
+    human_actor_id: &str,
+    payload: ProposalPayload,
+) -> anyhow::Result<AmendOutcome> {
+    validate_payload(&payload)?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let existing = fetch_proposal(&tx, proposal_id)?;
+    anyhow::ensure!(
+        existing.status == "pending",
+        "authoring_proposal {proposal_id:?} is not pending (status = {:?}) — a decided proposal \
+         cannot be amended",
+        existing.status
+    );
+    anyhow::ensure!(
+        payload.target_type() == existing.payload.target_type(),
+        "amend_proposal cannot change a proposal's target type ({:?} -> {:?})",
+        existing.payload.target_type().as_str(),
+        payload.target_type().as_str()
+    );
+
+    let original_label = existing.payload.label().to_string();
+    let original_payload_json =
+        serde_json::to_value(&existing.payload).unwrap_or(serde_json::Value::Null);
+    let new_payload_json = serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null);
+    let payload_json = serde_json::to_string(&payload).context("failed to serialise amended payload")?;
+
+    tx.execute(
+        "UPDATE authoring_proposals SET payload = ?1 WHERE id = ?2",
+        params![payload_json, proposal_id],
+    )
+    .context("failed to amend authoring_proposal payload")?;
+
+    let sequence = next_sequence(&tx, &existing.project_id, "local")?;
+    let event_payload = serde_json::json!({
+        "field": "payload",
+        "before": original_payload_json,
+        "after": new_payload_json,
+        "label": format!("Amended a {} proposal", existing.target_type),
+    });
+    append_event(
+        &tx,
+        &existing.project_id,
+        "local",
+        sequence,
+        "authoring_proposal",
+        proposal_id,
+        None,
+        existing.epic_id.as_deref(),
+        human_actor_id,
+        "proposal.amended",
+        &event_payload,
+        &now,
+    )?;
+
+    tx.commit().context("failed to commit amend_proposal transaction")?;
+
+    let mut amended = existing;
+    amended.payload = payload;
+    Ok(AmendOutcome { original_label, proposal: amended })
+}
+
+/// What [`accept_subtree`] did (D-95) — how many rows were newly accepted in this call (the root
+/// plus every pending drafted criterion under it) versus how many were already decided and
+/// skipped, so the surface can say what happened rather than just refreshing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AcceptSubtreeOutcome {
+    pub root_materialised_id: String,
+    pub accepted_count: i64,
+    pub skipped_count: i64,
+}
+
+/// Accept a subtree — a proposed task together with its drafted criteria (D-95, the ONE bulk path
+/// this module offers). One transaction: the root task proposal first (so
+/// [`accept_proposal_in_tx`]'s own implied-parent rule has nothing left to do for its children),
+/// then every proposal whose `parent_proposal_id` is this root, in staging `position` order.
+///
+/// `root_proposal_id` MUST name a `task` proposal — any other `target_type` is refused with a
+/// typed error, never generalised: the moment the subtree unit becomes "any node and its
+/// descendants", a root at the epic level is a tray-wide accept-all wearing a different name
+/// (D-95's own reasoning).
+///
+/// Already-decided members (the root or any child) are SKIPPED, not errors — a developer who
+/// accepted one criterion individually and then reaches for the subtree action gets the rest, not
+/// a refusal. A subtree that is already fully decided (root and every child) returns
+/// `accepted_count: 0` and appends no event.
+pub fn accept_subtree(
+    conn: &mut Connection,
+    root_proposal_id: &str,
+    human_actor_id: &str,
+) -> anyhow::Result<AcceptSubtreeOutcome> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let root = fetch_proposal(&tx, root_proposal_id)?;
+    anyhow::ensure!(
+        root.target_type == "task",
+        "accept_subtree's root must be a task proposal, got a {:?} proposal",
+        root.target_type
+    );
+
+    let mut accepted_count: i64 = 0;
+    let mut skipped_count: i64 = 0;
+
+    let root_materialised_id = if root.status == "pending" {
+        let outcome = accept_proposal_in_tx(&tx, root_proposal_id, human_actor_id, &now)?;
+        accepted_count += 1;
+        outcome.materialised_id
+    } else {
+        skipped_count += 1;
+        root.materialised_id.clone().ok_or_else(|| {
+            anyhow::anyhow!("a decided task proposal {root_proposal_id:?} carries no materialised_id")
+        })?
+    };
+
+    let children_sql: String = [
+        "SELECT ",
+        PROPOSAL_COLUMNS,
+        " FROM authoring_proposals WHERE parent_proposal_id = ?1 ORDER BY position ASC, id ASC",
+    ]
+    .concat();
+    let mut children_stmt = tx.prepare(&children_sql)?;
+    let children: Vec<Proposal> = children_stmt
+        .query_map(params![root_proposal_id], row_to_proposal)?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the subtree's drafted criteria")?;
+    drop(children_stmt);
+
+    for child in children {
+        if child.status != "pending" {
+            skipped_count += 1;
+            continue;
+        }
+        accept_proposal_in_tx(&tx, &child.id, human_actor_id, &now)?;
+        accepted_count += 1;
+    }
+
+    tx.commit().context("failed to commit accept_subtree transaction")?;
+
+    Ok(AcceptSubtreeOutcome { root_materialised_id, accepted_count, skipped_count })
 }
 
 /// The default and maximum row counts [`pending_proposals_for_run`] will ever return — the

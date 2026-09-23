@@ -148,7 +148,23 @@ pub fn update_task(
 ) -> anyhow::Result<Task> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    let task = update_task_in_tx(&tx, actor_id, task_id, title, description, &now)?;
+    tx.commit()
+        .context("failed to commit update_task transaction")?;
+    Ok(task)
+}
 
+/// The statement body [`update_task`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise an `amend`/`task` proposal inside its own already-open transaction — mirrors
+/// [`create_task_in_tx`]'s identical factoring reason.
+pub fn update_task_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    task_id: &str,
+    title: Option<&str>,
+    description: Option<&str>,
+    now: &str,
+) -> anyhow::Result<Task> {
     let (project_id, epic_id, key, current_title, current_description, status, rank, priority): (
         String,
         Option<String>,
@@ -186,7 +202,7 @@ pub fn update_task(
     )
     .context("failed to update task")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "title",
         "before": current_title,
@@ -194,7 +210,7 @@ pub fn update_task(
         "label": format!("Edited title to \"{new_title}\""),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -205,10 +221,8 @@ pub fn update_task(
         actor_id,
         "task.updated",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit update_task transaction")?;
 
     Ok(Task {
         id: task_id.to_string(),
@@ -253,7 +267,19 @@ pub fn update_task(
 pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    delete_task_in_tx(&tx, actor_id, task_id, &now)?;
+    tx.commit()
+        .context("failed to commit delete_task transaction")?;
+    Ok(())
+}
 
+/// The statement body [`delete_task`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise a `delete`/`task` proposal inside its own already-open transaction — mirrors
+/// [`create_task_in_tx`]'s identical factoring reason. Idempotent, exactly like [`delete_task`]
+/// itself: an id that no longer exists is a no-op, no event appended. The worktree-only guard
+/// (D-44) is unchanged: a live `worktrees` row still refuses the delete with the same actionable
+/// message.
+pub fn delete_task_in_tx(tx: &Transaction, actor_id: &str, task_id: &str, now: &str) -> anyhow::Result<()> {
     let existing: Option<(String, Option<String>, String)> = tx
         .query_row(
             "SELECT project_id, epic_id, title FROM tasks WHERE id = ?1",
@@ -264,7 +290,6 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
         .context("failed to read task before delete")?;
 
     let Some((project_id, epic_id, title)) = existing else {
-        tx.commit().context("failed to commit no-op delete_task transaction")?;
         return Ok(());
     };
 
@@ -379,7 +404,6 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
         &now,
     )?;
 
-    tx.commit().context("failed to commit delete_task transaction")?;
     Ok(())
 }
 

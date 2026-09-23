@@ -123,10 +123,29 @@ pub fn create_epic(
     title: &str,
     description: Option<&str>,
 ) -> anyhow::Result<Epic> {
-    let id = new_id();
     let now = Utc::now().to_rfc3339();
-
     let tx = conn.transaction()?;
+    let epic = create_epic_in_tx(&tx, project_id, actor_id, title, description, &now)?;
+    tx.commit().context("failed to commit create_epic transaction")?;
+    Ok(epic)
+}
+
+/// The statement body [`create_epic`] issues, factored out so a caller composing an epic creation
+/// with something else in the SAME transaction —
+/// `domain::authoring_proposal::accept_proposal`, which must never write `epics` through a second
+/// statement of its own (T-05-02-03, mirrors `task::create_task_in_tx`'s identical precedent) —
+/// can run it inside a transaction it already owns. `create_epic`'s own body and signature are
+/// otherwise unchanged; this is the same statements, callable from inside the caller's
+/// transaction.
+pub fn create_epic_in_tx(
+    tx: &rusqlite::Transaction,
+    project_id: &str,
+    actor_id: &str,
+    title: &str,
+    description: Option<&str>,
+    now: &str,
+) -> anyhow::Result<Epic> {
+    let id = new_id();
 
     let last_rank: Option<String> = tx
         .query_row(
@@ -159,7 +178,7 @@ pub fn create_epic(
     )
     .context("failed to insert epic")?;
 
-    let sequence = next_sequence(&tx, project_id, "local")?;
+    let sequence = next_sequence(tx, project_id, "local")?;
     let payload = serde_json::json!({
         "field": "status",
         "before": null,
@@ -168,7 +187,7 @@ pub fn create_epic(
         "label": format!("Created epic \"{title}\""),
     });
     append_event(
-        &tx,
+        tx,
         project_id,
         "local",
         sequence,
@@ -179,10 +198,8 @@ pub fn create_epic(
         actor_id,
         "epic.created",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit create_epic transaction")?;
 
     Ok(Epic {
         id,
@@ -207,7 +224,22 @@ pub fn update_epic(
 ) -> anyhow::Result<Epic> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    let epic = update_epic_in_tx(&tx, actor_id, epic_id, title, description, &now)?;
+    tx.commit().context("failed to commit update_epic transaction")?;
+    Ok(epic)
+}
 
+/// The statement body [`update_epic`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise an `amend`/`epic` proposal inside its own already-open transaction — mirrors
+/// [`create_epic_in_tx`]'s identical factoring reason.
+pub fn update_epic_in_tx(
+    tx: &rusqlite::Transaction,
+    actor_id: &str,
+    epic_id: &str,
+    title: Option<&str>,
+    description: Option<&str>,
+    now: &str,
+) -> anyhow::Result<Epic> {
     let (project_id, key, current_title, current_description, status, rank, priority): (
         String,
         String,
@@ -243,7 +275,7 @@ pub fn update_epic(
     )
     .context("failed to update epic")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "title",
         "before": current_title,
@@ -251,7 +283,7 @@ pub fn update_epic(
         "label": format!("Edited title to \"{new_title}\""),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -262,10 +294,8 @@ pub fn update_epic(
         actor_id,
         "epic.updated",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit update_epic transaction")?;
 
     Ok(Epic {
         id: epic_id.to_string(),
@@ -287,7 +317,16 @@ pub fn update_epic(
 pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    delete_epic_in_tx(&tx, actor_id, epic_id, &now)?;
+    tx.commit().context("failed to commit delete_epic transaction")?;
+    Ok(())
+}
 
+/// The statement body [`delete_epic`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise a `delete`/`epic` proposal inside its own already-open transaction — mirrors
+/// [`create_epic_in_tx`]'s identical factoring reason. Idempotent, exactly like [`delete_epic`]
+/// itself: an id that no longer exists is a no-op, no event appended.
+pub fn delete_epic_in_tx(tx: &rusqlite::Transaction, actor_id: &str, epic_id: &str, now: &str) -> anyhow::Result<()> {
     let existing: Option<(String, String)> = tx
         .query_row(
             "SELECT project_id, title FROM epics WHERE id = ?1",
@@ -299,7 +338,6 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
 
     let Some((project_id, title)) = existing else {
         // Already gone — idempotent success, no second event.
-        tx.commit().context("failed to commit no-op delete_epic transaction")?;
         return Ok(());
     };
 
@@ -322,12 +360,12 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
 
     // The epic's own criteria are deleted with it (unlike its child tasks, which are orphaned,
     // not cascaded) — one `criterion.deleted` event per row, inside this same transaction.
-    delete_criteria_for_parent(&tx, &project_id, actor_id, "epic", epic_id, &now)?;
+    delete_criteria_for_parent(tx, &project_id, actor_id, "epic", epic_id, now)?;
 
     tx.execute("DELETE FROM epics WHERE id = ?1", params![epic_id])
         .context("failed to delete epic")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "status",
         "before": "existing",
@@ -336,7 +374,7 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
         "label": format!("Deleted epic \"{title}\""),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -347,10 +385,9 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
         actor_id,
         "epic.deleted",
         &payload,
-        &now,
+        now,
     )?;
 
-    tx.commit().context("failed to commit delete_epic transaction")?;
     Ok(())
 }
 

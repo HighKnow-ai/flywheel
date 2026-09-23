@@ -169,6 +169,9 @@ fn main() {
             commands::authoring::authoring_run_start,
             commands::authoring::authoring_proposals_for_run,
             commands::authoring::authoring_proposal_accept,
+            commands::authoring::authoring_subtree_accept,
+            commands::authoring::authoring_proposal_reject,
+            commands::authoring::authoring_proposal_amend,
             commands::authoring::authoring_stage_advance,
             commands::authoring::authoring_stage_return,
         ])

@@ -133,10 +133,37 @@ pub fn create_criterion(
     statement: &str,
     verification_hint: Option<&str>,
 ) -> anyhow::Result<AcceptanceCriterion> {
-    let id = new_id();
     let now = Utc::now().to_rfc3339();
-
     let tx = conn.transaction()?;
+    let criterion = create_criterion_in_tx(
+        &tx,
+        project_id,
+        actor_id,
+        parent_type,
+        parent_id,
+        statement,
+        verification_hint,
+        &now,
+    )?;
+    tx.commit().context("failed to commit create_criterion transaction")?;
+    Ok(criterion)
+}
+
+/// The statement body [`create_criterion`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise a `create`/`criterion` proposal inside its own already-open transaction —
+/// mirrors `task::create_task_in_tx`'s identical factoring reason.
+#[allow(clippy::too_many_arguments)]
+pub fn create_criterion_in_tx(
+    tx: &Transaction,
+    project_id: &str,
+    actor_id: &str,
+    parent_type: &str,
+    parent_id: &str,
+    statement: &str,
+    verification_hint: Option<&str>,
+    now: &str,
+) -> anyhow::Result<AcceptanceCriterion> {
+    let id = new_id();
 
     // Restricted to current revisions (D-79, plan 04-04 Task 3): a superseded row may sort after
     // the current tail by rank alone, and a newly added criterion must rank after the last
@@ -163,7 +190,7 @@ pub fn create_criterion(
     .context("failed to insert acceptance criterion — parent_type must be 'task' or 'epic'")?;
 
     let (task_id, epic_id) = parent_columns(parent_type, parent_id);
-    let sequence = next_sequence(&tx, project_id, "local")?;
+    let sequence = next_sequence(tx, project_id, "local")?;
     let payload = serde_json::json!({
         "field": "statement",
         "before": null,
@@ -171,7 +198,7 @@ pub fn create_criterion(
         "label": format!("Added criterion \"{statement}\""),
     });
     append_event(
-        &tx,
+        tx,
         project_id,
         "local",
         sequence,
@@ -182,10 +209,8 @@ pub fn create_criterion(
         actor_id,
         "criterion.created",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit create_criterion transaction")?;
 
     Ok(AcceptanceCriterion {
         id,
@@ -195,8 +220,8 @@ pub fn create_criterion(
         verification_hint: verification_hint.map(|s| s.to_string()),
         checked: false,
         rank,
-        created_at: now.clone(),
-        updated_at: now,
+        created_at: now.to_string(),
+        updated_at: now.to_string(),
         revision: 1,
         revision_of: None,
         superseded_at: None,
@@ -381,7 +406,24 @@ pub fn revise_criterion(
 ) -> anyhow::Result<AcceptanceCriterion> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    let criterion = revise_criterion_in_tx(&tx, actor_id, criterion_id, statement, verification_hint, &now)?;
+    tx.commit().context("failed to commit revise_criterion transaction")?;
+    Ok(criterion)
+}
 
+/// The statement body [`revise_criterion`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise an `amend`/`criterion` proposal inside its own already-open transaction —
+/// mirrors `task::create_task_in_tx`'s identical factoring reason (T-05-06-02: this is the ONLY
+/// mechanism through which an accepted amend against a locked criterion may reach the database —
+/// the accept path calls this function directly rather than reimplementing the lock check).
+pub fn revise_criterion_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    criterion_id: &str,
+    statement: &str,
+    verification_hint: Option<&str>,
+    now: &str,
+) -> anyhow::Result<AcceptanceCriterion> {
     let (
         parent_type,
         parent_id,
@@ -411,18 +453,18 @@ pub fn revise_criterion(
         )
         .with_context(|| format!("criterion {criterion_id:?} not found"))?;
 
-    let project_id = resolve_parent_project_id(&tx, &parent_type, &parent_id)?;
+    let project_id = resolve_parent_project_id(tx, &parent_type, &parent_id)?;
     let (task_id, epic_id) = parent_columns(&parent_type, &parent_id);
 
     let locked = match parent_type.as_str() {
-        "task" => criteria_locked_for_task(&tx, &parent_id)?,
+        "task" => criteria_locked_for_task(tx, &parent_id)?,
         _ => false,
     };
 
     if !locked {
-        update_criterion_in_tx(&tx, criterion_id, statement, verification_hint, &now)?;
+        update_criterion_in_tx(tx, criterion_id, statement, verification_hint, now)?;
 
-        let sequence = next_sequence(&tx, &project_id, "local")?;
+        let sequence = next_sequence(tx, &project_id, "local")?;
         let payload = serde_json::json!({
             "field": "statement",
             "before": current_statement,
@@ -430,7 +472,7 @@ pub fn revise_criterion(
             "label": format!("Edited criterion to \"{statement}\""),
         });
         append_event(
-            &tx,
+            tx,
             &project_id,
             "local",
             sequence,
@@ -441,10 +483,8 @@ pub fn revise_criterion(
             actor_id,
             "criterion.updated",
             &payload,
-            &now,
+            now,
         )?;
-
-        tx.commit().context("failed to commit revise_criterion (unlocked) transaction")?;
 
         return Ok(AcceptanceCriterion {
             id: criterion_id.to_string(),
@@ -454,8 +494,8 @@ pub fn revise_criterion(
             verification_hint: verification_hint.map(|s| s.to_string()),
             checked: checked != 0,
             rank,
-            created_at: now.clone(),
-            updated_at: now,
+            created_at: now.to_string(),
+            updated_at: now.to_string(),
             revision,
             revision_of,
             superseded_at: None,
@@ -496,7 +536,7 @@ pub fn revise_criterion(
     )
     .context("failed to mark the predecessor criterion superseded")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "statement",
         "before": current_statement,
@@ -504,7 +544,7 @@ pub fn revise_criterion(
         "label": format!("Revised criterion \"{statement}\""),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -515,10 +555,8 @@ pub fn revise_criterion(
         actor_id,
         "criterion.revised",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit revise_criterion (locked) transaction")?;
 
     Ok(AcceptanceCriterion {
         id: successor_id,
@@ -528,8 +566,8 @@ pub fn revise_criterion(
         verification_hint: verification_hint.map(|s| s.to_string()),
         checked: checked != 0,
         rank,
-        created_at: now.clone(),
-        updated_at: now,
+        created_at: now.to_string(),
+        updated_at: now.to_string(),
         revision: new_revision,
         revision_of: Some(chain_root),
         superseded_at: None,
@@ -766,7 +804,16 @@ pub fn reorder_criterion(
 pub fn delete_criterion(conn: &mut Connection, actor_id: &str, criterion_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    delete_criterion_in_tx(&tx, actor_id, criterion_id, &now)?;
+    tx.commit().context("failed to commit delete_criterion transaction")?;
+    Ok(())
+}
 
+/// The statement body [`delete_criterion`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise a `delete`/`criterion` proposal inside its own already-open transaction —
+/// mirrors `task::create_task_in_tx`'s identical factoring reason. Idempotent, exactly like
+/// [`delete_criterion`] itself: an id that no longer exists is a no-op, no event appended.
+pub fn delete_criterion_in_tx(tx: &Transaction, actor_id: &str, criterion_id: &str, now: &str) -> anyhow::Result<()> {
     let existing: Option<(String, String, String)> = tx
         .query_row(
             "SELECT parent_type, parent_id, statement FROM acceptance_criteria WHERE id = ?1",
@@ -777,17 +824,16 @@ pub fn delete_criterion(conn: &mut Connection, actor_id: &str, criterion_id: &st
         .context("failed to read criterion before delete")?;
 
     let Some((parent_type, parent_id, statement)) = existing else {
-        tx.commit().context("failed to commit no-op delete_criterion transaction")?;
         return Ok(());
     };
 
-    let project_id = resolve_parent_project_id(&tx, &parent_type, &parent_id)?;
+    let project_id = resolve_parent_project_id(tx, &parent_type, &parent_id)?;
 
     tx.execute("DELETE FROM acceptance_criteria WHERE id = ?1", params![criterion_id])
         .context("failed to delete criterion")?;
 
     let (task_id, epic_id) = parent_columns(&parent_type, &parent_id);
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "statement",
         "before": statement,
@@ -795,7 +841,7 @@ pub fn delete_criterion(conn: &mut Connection, actor_id: &str, criterion_id: &st
         "label": format!("Deleted criterion \"{statement}\""),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -806,10 +852,9 @@ pub fn delete_criterion(conn: &mut Connection, actor_id: &str, criterion_id: &st
         actor_id,
         "criterion.deleted",
         &payload,
-        &now,
+        now,
     )?;
 
-    tx.commit().context("failed to commit delete_criterion transaction")?;
     Ok(())
 }
 
