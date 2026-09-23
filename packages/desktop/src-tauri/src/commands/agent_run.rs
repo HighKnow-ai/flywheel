@@ -36,7 +36,7 @@ use flywheel_core::context_packet::{
     DiffSoFar, PacketExtras,
 };
 use flywheel_core::domain::session_summary::{DecisionEntry, SessionSummary};
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -627,6 +627,53 @@ pub struct AgentRunStopDto {
     pub sidecar_warning: Option<String>,
 }
 
+/// The Stop/Discard termination unit (D-64, CTX-01, gap #1 of 04-VERIFICATION.md): runs, inside
+/// the CALLER's transaction, the core in-tx interrupt sibling followed by the presence-checked
+/// fallback-summary insert — mirroring the shape `apply_session_closed` already gives the
+/// natural-close variant via `close_agent_run_in_tx`. Composing these two writes on the same
+/// `&Transaction` is what makes "a terminated run always has a summary" a property of the
+/// database rather than of call ordering: a crash between the two writes now rolls back BOTH,
+/// leaving the run exactly as it was, instead of leaving a terminal run with no summary at all.
+///
+/// The status read happens AFTER `interrupt_agent_run_in_tx`'s write, and is issued against this
+/// same `tx` — never a separate connection-level read — so the synthesized fallback summary
+/// records the run's terminal status, never the pre-terminal one. This ordering is load-bearing:
+/// reading the status before the interrupt write, or off a different connection/transaction,
+/// would let the fallback summary claim a status the run never actually reached (or claim the
+/// wrong one if a concurrent write raced in between).
+///
+/// Returns the run's terminal status string, read back from `agent_runs` on this same `tx`.
+pub(crate) fn stop_agent_run_in_tx(
+    tx: &Transaction,
+    agent_run_id: &str,
+    actor_id: &str,
+) -> Result<String, String> {
+    flywheel_core::domain::agent_run::interrupt_agent_run_in_tx(tx, agent_run_id, actor_id)
+        .map_err(|e| e.to_string())?;
+
+    let status: String = tx
+        .query_row(
+            "SELECT status FROM agent_runs WHERE id = ?1",
+            rusqlite::params![agent_run_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    // If the agent already recorded its own summary, leave it exactly as it is — never write a
+    // second, synthesized row over an agent-authored one. Only an ABSENT summary triggers the
+    // fallback (D-64). The presence check and the insert both run on THIS `tx`, so the decision
+    // and the write cannot disagree with a concurrent insert on a different connection.
+    if flywheel_core::domain::session_summary::latest_summary_for_run(tx, agent_run_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        flywheel_core::domain::session_summary::synthesize_fallback_summary(tx, agent_run_id, &status)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(status)
+}
+
 /// The DB-only half of [`agent_run_stop`] (CR-04): records the run's terminal status
 /// UNCONDITIONALLY, regardless of what `interrupt` returns. `interrupt` is invoked exactly once,
 /// FIRST, but its `Result` is captured in a local rather than propagated with `?` or an early
@@ -637,11 +684,14 @@ pub struct AgentRunStopDto {
 /// `SidecarHandle::INTERRUPT_ACK_TIMEOUT` left the run stuck `running`/`blocked` forever with no
 /// force path — precisely the moment a user most needs Stop to work (PROC-06 "at any time").
 ///
-/// `actor_id` is resolved server-side (T-01-04) — never accepted from the renderer.
-/// `interrupt_agent_run` is idempotent on an already-terminal run (D-35), so calling this seam
-/// twice on the same run appends no second `agent_run.interrupted` event and does not overwrite
-/// the recorded status. `Err` from this function means only that the terminal write itself
-/// failed — never that the sidecar did not answer.
+/// `actor_id` is resolved server-side (T-01-04) — never accepted from the renderer. The terminal
+/// write and the presence-checked fallback-summary insert now run inside ONE transaction, via
+/// [`stop_agent_run_in_tx`] (D-64, CTX-01, gap #1 of 04-VERIFICATION.md) — mirroring the pattern
+/// `apply_session_closed` documents for the natural-close variant. `interrupt_agent_run_in_tx` is
+/// idempotent on an already-terminal run (D-35), so calling this seam twice on the same run
+/// appends no second `agent_run.interrupted` event and does not overwrite the recorded status.
+/// `Err` from this function means only that the terminal write itself failed — never that the
+/// sidecar did not answer.
 pub(crate) fn stop_agent_run_recording_first(
     conn: &mut Connection,
     agent_run_id: &str,
@@ -651,35 +701,10 @@ pub(crate) fn stop_agent_run_recording_first(
 
     let human_actor_id =
         flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::agent_run::interrupt_agent_run(conn, agent_run_id, &human_actor_id)
-        .map_err(|e| e.to_string())?;
 
-    let status: String = conn
-        .query_row(
-            "SELECT status FROM agent_runs WHERE id = ?1",
-            rusqlite::params![agent_run_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-
-    // D-64/CTX-01/T-04-38 (plan 04-13): a run reaching a terminal status through THIS path — the
-    // synchronous interrupt-then-force transition, never the natural `session_closed` event — has
-    // no caller that would otherwise give it a fallback summary. `apply_session_closed`'s own
-    // fallback hook (plan 04-02) fires only the FIRST time a run becomes terminal; a run
-    // stopped/discarded through here is already terminal by the time any later `session_closed`
-    // event for it arrives at `apply_session_closed`, so that hook's "already terminal" branch
-    // never reaches the presence check. Mirrors `apply_session_closed`'s own "check existing
-    // state; write only the missing piece" shape: never overwrites an agent-authored summary
-    // (the presence check below), never runs a second time for the same run once one exists.
-    if flywheel_core::domain::session_summary::latest_summary_for_run(conn, agent_run_id)
-        .map_err(|e| e.to_string())?
-        .is_none()
-    {
-        let tx = conn.transaction().map_err(|e| e.to_string())?;
-        flywheel_core::domain::session_summary::synthesize_fallback_summary(&tx, agent_run_id, &status)
-            .map_err(|e| e.to_string())?;
-        tx.commit().map_err(|e| e.to_string())?;
-    }
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let status = stop_agent_run_in_tx(&tx, agent_run_id, &human_actor_id)?;
+    tx.commit().map_err(|e| e.to_string())?;
 
     let sidecar_warning = interrupt_result.err().map(|e| {
         format!(
@@ -2395,6 +2420,78 @@ mod tests {
         .expect("failed to insert fixture agent_runs row");
 
         (conn, task_id, run_id)
+    }
+
+    /// D-64/CTX-01, gap #1 of 04-VERIFICATION.md: opening a transaction, running
+    /// `stop_agent_run_in_tx` inside it, and dropping the transaction WITHOUT committing must
+    /// leave the run exactly as it was before — `running`, no `ended_at`, no `exit_summary_id`,
+    /// zero `session_summaries` rows and zero `agent_run.interrupted` events for it. The pre-fix
+    /// shape could not satisfy this at all: its terminal write committed on its own connection-
+    /// level transaction, so there was no encompassing transaction a caller could roll back to
+    /// undo it (RED evidence, captured empirically before this rewrite landed: calling the old
+    /// `stop_agent_run_recording_first` and then attempting the equivalent of a rollback left the
+    /// run already committed as `status = "interrupted"`, `ended_at = Some(...)` — both writes
+    /// were already durable by the time the function returned).
+    #[test]
+    fn a_rolled_back_stop_leaves_the_run_running_with_no_summary_and_no_terminal_event() {
+        let (mut conn, _task_id, run_id) = seeded_conn_with_running_run();
+        let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .expect("seeded human actor should exist");
+
+        let tx = conn.transaction().expect("opening a transaction should succeed");
+        let status = stop_agent_run_in_tx(&tx, &run_id, &human_actor_id)
+            .expect("stop_agent_run_in_tx should succeed inside an open transaction");
+        assert_eq!(status, "interrupted", "the in-tx write must still report the terminal status it wrote");
+
+        // Roll back instead of committing — simulates a crash between the write and the commit.
+        drop(tx);
+
+        let status_after_rollback: String = conn
+            .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |row| {
+                row.get(0)
+            })
+            .expect("agent_runs row should exist");
+        assert_eq!(
+            status_after_rollback, "running",
+            "a rolled-back termination unit must leave the run exactly as it was: status running"
+        );
+
+        let ended_at: Option<String> = conn
+            .query_row("SELECT ended_at FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |row| {
+                row.get(0)
+            })
+            .expect("agent_runs row should exist");
+        assert!(ended_at.is_none(), "a rolled-back termination unit must leave ended_at NULL");
+
+        let exit_summary_id: Option<String> = conn
+            .query_row(
+                "SELECT exit_summary_id FROM agent_runs WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
+            .expect("agent_runs row should exist");
+        assert!(exit_summary_id.is_none(), "a rolled-back termination unit must leave exit_summary_id NULL");
+
+        let summary_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_summaries WHERE agent_run_id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(summary_count, 0, "a rolled-back termination unit must leave zero session_summaries rows");
+
+        let terminal_event_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE event_type = 'agent_run.interrupted' AND stream_id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(
+            terminal_event_count, 0,
+            "a rolled-back termination unit must leave zero agent_run.interrupted events"
+        );
     }
 
     /// CR-04's failure mode as a red-if-regressed test: a stop whose sidecar closure returns
