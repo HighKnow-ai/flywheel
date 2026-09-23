@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 5/10 plans executed in 8 waves
+**Plans**: 7/10 plans executed in 8 waves
 **UI hint**: yes
 
 Plans:
@@ -521,8 +521,8 @@ Plans:
 
 **Wave 5** *(both blocked on 05-05; they share no file and run in parallel)*
 
-- [ ] 05-06-PLAN.md — Every proposal decided individually: all verbs and target types, reject-with-reason, amend-the-staged-row, the implied-parent rule, the one subtree bulk path and the gate that keeps it the only one (SHAPE-02, SHAPE-03, SHAPE-04)
-- [ ] 05-09-PLAN.md — The conversation's lifecycle: a summary's subject generalised, Stop and Discard for a run with no worktree, `mark_abandoned`'s answer, and the cost/needs-you/spawn-floor readings (SHAPE-01, SHAPE-05)
+- [x] 05-06-PLAN.md — Every proposal decided individually: all verbs and target types, reject-with-reason, amend-the-staged-row, the implied-parent rule, the one subtree bulk path and the gate that keeps it the only one (SHAPE-02, SHAPE-03, SHAPE-04)
+- [x] 05-09-PLAN.md — The conversation's lifecycle: a summary's subject generalised, Stop and Discard for a run with no worktree, `mark_abandoned`'s answer, and the cost/needs-you/spawn-floor readings (SHAPE-01, SHAPE-05)
 
 **Wave 6** *(blocked on 05-06)*
 
@@ -785,7 +785,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 5/10 | In Progress|  |
+| 5. Socratic Epic Authoring | 7/10 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |

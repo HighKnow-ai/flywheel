@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-06-PLAN.md
-last_updated: "2026-09-23T15:57:02.614Z"
+stopped_at: Completed 05-09-PLAN.md
+last_updated: "2026-09-23T16:38:00.670Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 05 execution started
-state_head: 85e05a65340e6d6b6bb7e04e870058402868ae0a
+state_head: ff8e3ea0a289e90ccf9af2c9c401cbbe6c92bda2
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 103
-  completed_plans: 98
+  completed_plans: 100
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 7 of 10
+Plan: 8 of 10
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 05 execution started
 
@@ -158,6 +158,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P04 | 110min | 3 tasks | 19 files |
 | Phase 05-socratic-epic-authoring P05 | 240 min | 3 tasks | 14 files |
 | Phase 05 P06 | ~150min | 3 tasks | 8 files |
+| Phase 05 P09 | 170min | 3 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -341,6 +342,8 @@ Recent decisions affecting current work:
 - [Phase 05]: accept_proposal materialises every verb x target-type combination through _in_tx siblings factored onto domain::task/epic/acceptance_criterion, never a local INSERT/UPDATE — T-05-02-03/T-05-06-02: the canonical writer stays the only writer, so key/rank allocation and the criterion lock check keep one implementation each
 - [Phase 05]: reject_proposal/amend_proposal are DB-only; the command layer relays the decision to the live session via render_decision_turn + send_authoring_turn, best-effort — mirrors authoring_stage_advance's delivery-is-best-effort discipline; a decision must land even if the session already closed
 - [Phase 05]: accept_subtree is the ONE bulk path (a task plus its drafted criteria); a source-scanning test fails the build if any accept-all/accept-remaining identifier appears in core or desktop src — SHAPE-04/D-95: bulk acceptance may exist, but never as the only option — the gate makes the prohibition a build failure, not a review comment
+- [Phase 05]: [Phase 05]: mark_abandoned now writes a fallback summary inside its own transaction for both task and authoring runs, closing the Phase 4 STATE.md warning that it was a third terminal path writing no summary.
+- [Phase 05]: [Phase 05]: session_summaries and permission_requests both generalised to the same nullable task_id/epic_id/never-both-CHECK shape D-84 gave agent_runs — an authoring run genuinely blocked on a permission request is now representable at all.
 
 ### Pending Todos
 
@@ -386,6 +389,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T15:57:02.502Z
-Stopped at: Completed 05-06-PLAN.md
+Last session: 2026-09-23T16:38:00.557Z
+Stopped at: Completed 05-09-PLAN.md
 Resume file: None
