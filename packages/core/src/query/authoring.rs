@@ -1,0 +1,275 @@
+//! The agent's own board reads (D-87), plus the board-level triage-lane read (D-82) and the
+//! rejected-proposal read [`crate::epic_context_packet`]'s `RejectedSet` consumes (D-83). Every
+//! function here is bounded from the first line by the SAME `DEFAULT_LIMIT`/`MAX_LIMIT`/clamp
+//! idiom `commands/board.rs` established (Don't Hand-Roll a second one) — none takes an `Option`
+//! that defaults to unbounded, and none can be asked for `i64::MAX` and comply (05-RESEARCH.md
+//! Pitfall 4). This is `01-SECURITY.md` AR-01-04's other half: `domain::epic::list_epics` closes
+//! the RENDERER's roster read; this module closes the AGENT's — two reads, two ceilings, one
+//! reason each, never one function serving both.
+//!
+//! Every SQL statement below is a literal `&str`, bound through `params![]`/`named_params![]` —
+//! never assembled by `format!`/string interpolation, matching this crate's `query/` discipline
+//! everywhere else.
+
+use anyhow::Context;
+use rusqlite::{named_params, params, Connection};
+
+use crate::domain::authoring_proposal::{row_to_proposal, Proposal, PROPOSAL_COLUMNS};
+use crate::domain::epic::EpicSummary;
+use crate::epic_context_packet::TaskRosterEntry;
+
+/// The Rust core returns a page, never the whole board (D-03) — same value `commands/board.rs`
+/// uses, redeclared here because an agent-reachable tool call never crosses the Tauri command
+/// boundary `commands/board.rs`'s own constants live behind.
+pub const DEFAULT_LIMIT: i64 = 200;
+
+/// The domain layer's own cap on the requested limit — independent of, and applied from, the
+/// FIRST line of every function below, never retrofitted (05-RESEARCH.md Pitfall 4: a handler that
+/// passes `i64::MAX` or omits the parameter "to keep it simple for the agent" is exactly the
+/// failure this constant exists to prevent).
+pub const MAX_LIMIT: i64 = 500;
+
+/// A caller-supplied `limit` of zero or less falls back to [`DEFAULT_LIMIT`]; any value is
+/// clamped to [`MAX_LIMIT`] before the query runs — a 10,000,000 request never reaches SQLite
+/// as-is.
+fn resolve_limit(limit: i64) -> i64 {
+    let base = if limit <= 0 { DEFAULT_LIMIT } else { limit };
+    base.min(MAX_LIMIT)
+}
+
+/// The agent's own bounded epic read — the sibling of `domain::epic::list_epics` that closes
+/// AR-01-04 from the OTHER side: the renderer's roster carries a high ceiling with a surfaced
+/// truncation flag; this is the clamped, cursor-resumable page an agent's `search`/`get_epic`
+/// tool set actually calls. `cursor` resumes at the exact `(status, priority, rank, id)` tuple
+/// `crate::query::ORDER_BY` sorts by — the same keyset-pagination contract `list_board` already
+/// uses, applied here to an epics-only window.
+pub fn list_epics_page(
+    conn: &Connection,
+    project_id: &str,
+    limit: i64,
+    cursor: Option<&super::BoardCursor>,
+) -> anyhow::Result<Vec<EpicSummary>> {
+    let resolved_limit = resolve_limit(limit);
+
+    let sql: String = match cursor {
+        None => [
+            "SELECT b.id, b.key, b.title FROM (",
+            "SELECT id, key, title, status, rank, priority FROM epics WHERE project_id = :project_id",
+            ") b ",
+            super::ORDER_BY,
+            " LIMIT :limit",
+        ]
+        .concat(),
+        Some(_) => [
+            "SELECT b.id, b.key, b.title FROM (",
+            "SELECT id, key, title, status, rank, priority FROM epics WHERE project_id = :project_id",
+            ") b WHERE ",
+            super::CURSOR_WHERE,
+            " ",
+            super::ORDER_BY,
+            " LIMIT :limit",
+        ]
+        .concat(),
+    };
+
+    let mut stmt = conn.prepare(&sql)?;
+    let row_mapper = |row: &rusqlite::Row| {
+        Ok(EpicSummary { id: row.get(0)?, key: row.get(1)?, title: row.get(2)? })
+    };
+
+    let rows = match cursor {
+        None => stmt
+            .query_map(
+                named_params! { ":project_id": project_id, ":limit": resolved_limit },
+                row_mapper,
+            )?
+            .collect::<Result<Vec<_>, _>>(),
+        Some(c) => stmt
+            .query_map(
+                named_params! {
+                    ":project_id": project_id,
+                    ":cursor_status": c.status_sort_key,
+                    ":cursor_priority": c.priority_sort_key,
+                    ":cursor_rank": &c.rank,
+                    ":cursor_id": &c.id,
+                    ":limit": resolved_limit,
+                },
+                row_mapper,
+            )?
+            .collect::<Result<Vec<_>, _>>(),
+    };
+    rows.context("failed to list the agent's epic page")
+}
+
+const AGENT_TASK_CRITERIA_SQL: &str = "SELECT statement, verification_hint FROM acceptance_criteria \
+    WHERE parent_type = 'task' AND parent_id = ?1 AND superseded_at IS NULL \
+    ORDER BY rank ASC, id ASC";
+
+/// The agent's own bounded task-roster read for one epic — same current-revision-criteria
+/// discipline `epic_context_packet.rs` holds (`superseded_at IS NULL`), bounded by `limit` from
+/// the first line rather than the packet's own unbounded (task-count-scoped, never agent-facing
+/// unbounded) roster walk.
+pub fn list_tasks_for_epic(
+    conn: &Connection,
+    epic_id: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<TaskRosterEntry>> {
+    let resolved_limit = resolve_limit(limit);
+
+    let mut task_stmt = conn.prepare(
+        "SELECT key, title, status, id FROM tasks WHERE epic_id = ?1 ORDER BY rank ASC, id ASC LIMIT ?2",
+    )?;
+    let tasks: Vec<(String, String, String, String)> = task_stmt
+        .query_map(params![epic_id, resolved_limit], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to list tasks for the agent's epic read")?;
+
+    let mut result = Vec::with_capacity(tasks.len());
+    for (key, title, status, task_id) in tasks {
+        let mut criteria_stmt = conn.prepare(AGENT_TASK_CRITERIA_SQL)?;
+        let criteria = criteria_stmt
+            .query_map(params![task_id], |row| {
+                Ok(crate::context_packet::CriterionEntry {
+                    statement: row.get(0)?,
+                    verification_hint: row.get(1)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to read a task's acceptance criteria for the agent's epic read")?;
+        result.push(TaskRosterEntry { key, title, status, criteria });
+    }
+    Ok(result)
+}
+
+/// The agent's own bounded free-text search — reuses `query::search::search_items`'s existing FTS
+/// path rather than a second search implementation (Don't Hand-Roll). Returns only the board
+/// items half of the window; the issues lane is not part of the agent's read surface in this plan.
+pub fn search_board_for_agent(
+    conn: &Connection,
+    project_id: &str,
+    term: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<super::BoardItem>> {
+    let resolved_limit = resolve_limit(limit);
+    let window = super::search::search_items(
+        conn,
+        project_id,
+        term,
+        &super::BoardFilter::default(),
+        resolved_limit,
+        None,
+    )?;
+    Ok(window.items)
+}
+
+/// Per-status proposal counts (mirrors `board_band_counts`'s own discipline: one grouped
+/// aggregate, never a per-row follow-up query) — lets the triage lane's header report scale
+/// without a second query.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProposalStatusCounts {
+    pub pending: i64,
+    pub accepted: i64,
+    pub rejected: i64,
+}
+
+/// [`list_pending_proposals`]'s return shape — the bounded window plus the project's per-status
+/// counts, so the triage lane can report "N pending, M total" without a second round trip.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProposalWindow {
+    pub proposals: Vec<Proposal>,
+    pub counts: ProposalStatusCounts,
+}
+
+fn proposal_status_counts(conn: &Connection, project_id: &str) -> anyhow::Result<ProposalStatusCounts> {
+    let mut stmt = conn.prepare(
+        "SELECT status, COUNT(*) FROM authoring_proposals WHERE project_id = ?1 GROUP BY status",
+    )?;
+    let rows = stmt.query_map(params![project_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+
+    let mut counts = ProposalStatusCounts::default();
+    for row in rows {
+        let (status, count) = row.context("failed to read proposal status counts")?;
+        match status.as_str() {
+            "pending" => counts.pending = count,
+            "accepted" => counts.accepted = count,
+            "rejected" => counts.rejected = count,
+            _ => {}
+        }
+    }
+    Ok(counts)
+}
+
+/// The board-level triage lane's own read (D-82) — every PENDING proposal across the project,
+/// newest first with `id` as a stable tie-break, bounded from the first line. Reads through
+/// `idx_authoring_proposals_project_status` (`project_id`, `status`, `created_at DESC`, migration
+/// `0012_authoring_proposals_project_status_index.sql`), so a project-wide scan of a
+/// potentially-large `authoring_proposals` table stays indexed, not a full table scan.
+pub fn list_pending_proposals(
+    conn: &Connection,
+    project_id: &str,
+    limit: i64,
+    cursor: Option<(&str, &str)>,
+) -> anyhow::Result<ProposalWindow> {
+    let resolved_limit = resolve_limit(limit);
+
+    let sql: String = match cursor {
+        None => [
+            "SELECT ",
+            PROPOSAL_COLUMNS,
+            " FROM authoring_proposals WHERE project_id = ?1 AND status = 'pending' \
+             ORDER BY created_at DESC, id DESC LIMIT ?2",
+        ]
+        .concat(),
+        Some(_) => [
+            "SELECT ",
+            PROPOSAL_COLUMNS,
+            " FROM authoring_proposals WHERE project_id = ?1 AND status = 'pending' \
+             AND (created_at, id) < (?3, ?4) \
+             ORDER BY created_at DESC, id DESC LIMIT ?2",
+        ]
+        .concat(),
+    };
+
+    let mut stmt = conn.prepare(&sql)?;
+    let proposals: Vec<Proposal> = match cursor {
+        None => stmt
+            .query_map(params![project_id, resolved_limit], row_to_proposal)?
+            .collect::<Result<Vec<_>, _>>(),
+        Some((created_at, id)) => stmt
+            .query_map(params![project_id, resolved_limit, created_at, id], row_to_proposal)?
+            .collect::<Result<Vec<_>, _>>(),
+    }
+    .context("failed to list pending proposals")?;
+
+    let counts = proposal_status_counts(conn, project_id)?;
+    Ok(ProposalWindow { proposals, counts })
+}
+
+/// The indexed, bounded read [`crate::epic_context_packet`]'s `RejectedSet` consumes (D-83) —
+/// every REJECTED proposal for one epic, newest first, bounded from the first line. Reads through
+/// `idx_authoring_proposals_epic_status` (`epic_id`, `status`, `created_at DESC`).
+pub fn list_rejected_for_epic(
+    conn: &Connection,
+    epic_id: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<Proposal>> {
+    let resolved_limit = resolve_limit(limit);
+
+    let sql: String = [
+        "SELECT ",
+        PROPOSAL_COLUMNS,
+        " FROM authoring_proposals WHERE epic_id = ?1 AND status = 'rejected' \
+         ORDER BY created_at DESC, id DESC LIMIT ?2",
+    ]
+    .concat();
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(params![epic_id, resolved_limit], row_to_proposal)?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to list rejected proposals for epic")
+}

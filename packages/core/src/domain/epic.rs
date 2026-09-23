@@ -38,12 +38,38 @@ pub struct EpicSummary {
     pub title: String,
 }
 
-/// List every epic in `project_id` — unwindowed, unlike every other board read (D-03). Epics are
-/// a small roster authored one at a time by a human, and resolving a label against a 200-row
-/// `list_board` page is UAT gap G-01-2: any epic sorting outside that window has no entry, so
-/// `BoardRow.tsx` fell back to rendering the epic's raw internal ULID. Placed here rather than in
-/// `query/mod.rs` because that module is framed specifically around the bounded, cursor-resumable
-/// board window, exactly as `list_actors` sits in `domain/actor.rs` rather than in `query/`.
+/// [`list_epics`]'s ceiling (D-87, plan 05-04, closing `01-SECURITY.md` AR-01-04): five hundred
+/// times `board.rs`'s `DEFAULT_LIMIT`, and NOT a page size — nothing in this crate paginates
+/// against it. AR-01-04's own objection to a naive cap was that a cap would *silently* truncate
+/// the roster and reintroduce G-01-2 (an epic sorting outside the window rendering as a raw
+/// internal ULID). A ceiling this far above any realistic human-authored roster, combined with
+/// [`EpicRoster::truncated`] — a fact the caller must render, never swallow (D-16: surface a
+/// mismatch, never silently repair it) — removes the unbounded read AR-01-04 flagged as this
+/// phase's re-rate trigger without recreating the silence that made the original exemption safe
+/// to reject.
+pub const EPIC_ROSTER_CEILING: i64 = 5000;
+
+/// [`list_epics`]'s return shape (D-16, D-87): the roster page (bounded by
+/// [`EPIC_ROSTER_CEILING`]), the project's TRUE epic count, and whether the two differ. A caller
+/// that ignores `truncated` gets exactly `EPIC_ROSTER_CEILING` rows and no signal that more exist
+/// — the renderer must check this field, not infer truncation from `epics.len()` alone.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EpicRoster {
+    pub epics: Vec<EpicSummary>,
+    pub total: i64,
+    pub truncated: bool,
+}
+
+/// List every epic in `project_id`, up to [`EPIC_ROSTER_CEILING`] — no longer literally unwindowed
+/// (closing `01-SECURITY.md` AR-01-04's re-rate trigger: Phase 5 gives an agent a board read
+/// path), but still deliberately NOT `board.rs`'s `DEFAULT_LIMIT`/200-row window: epics are a
+/// small roster, and resolving a label against a 200-row `list_board` page was UAT gap G-01-2 —
+/// any epic sorting outside that window had no entry, so `BoardRow.tsx` fell back to rendering the
+/// epic's raw internal ULID. Placed here rather than in `query/mod.rs` because that module is
+/// framed specifically around the bounded, cursor-resumable board window, exactly as `list_actors`
+/// sits in `domain/actor.rs` rather than in `query/`. `query::authoring::list_epics_page` is the
+/// SEPARATE, `DEFAULT_LIMIT`/`MAX_LIMIT`-clamped read an agent's own tools call (plan 05-04 Task
+/// 2) — two reads, two ceilings, one reason each, never one function serving both purposes.
 ///
 /// Orders by `crate::query::ORDER_BY` — the same status-band/priority/rank/id total order
 /// `list_board` uses (BOARD-05) — so this roster's own iteration order, where it happens to
@@ -55,15 +81,16 @@ pub struct EpicSummary {
 /// `format_sql` helper uses for the identical reason. Every fragment is a literal; the only
 /// runtime value is `project_id`, bound through `params![]`, never interpolated into the string
 /// (T-01-01/T-01-23) — this function contains no `format!`.
-pub fn list_epics(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<EpicSummary>> {
+pub fn list_epics(conn: &Connection, project_id: &str) -> anyhow::Result<EpicRoster> {
     let sql: String = [
         "SELECT b.id, b.key, b.title FROM epics b WHERE b.project_id = ?1 ",
         crate::query::ORDER_BY,
+        " LIMIT ?2",
     ]
     .concat();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
-        .query_map(params![project_id], |row| {
+        .query_map(params![project_id, EPIC_ROSTER_CEILING], |row| {
             Ok(EpicSummary {
                 id: row.get(0)?,
                 key: row.get(1)?,
@@ -71,7 +98,19 @@ pub fn list_epics(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<Epi
             })
         })?
         .collect::<Result<Vec<_>, _>>();
-    rows.context("failed to list the project's epics")
+    let epics = rows.context("failed to list the project's epics")?;
+
+    let total: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM epics WHERE project_id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .context("failed to count the project's epics")?;
+
+    let truncated = total > epics.len() as i64;
+
+    Ok(EpicRoster { epics, total, truncated })
 }
 
 /// Create an epic: one transaction allocates the tail rank for the backlog band, allocates the

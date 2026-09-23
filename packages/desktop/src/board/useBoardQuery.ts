@@ -72,12 +72,39 @@ export interface Actor {
 
 /** One row of the project's full epic roster (BOARD-06, G-01-2) — `id`, `key` and `title` only,
  * the three fields the epic pill, the filter chips and the `ParentPicker` option lists consume.
- * Deliberately not a `BoardItem`: the roster is unwindowed (see `useEpics` below), so it can
- * never carry `status`/`rank`/`priority`, which only make sense for the currently loaded page. */
+ * Deliberately not a `BoardItem`: the roster carries no `status`/`rank`/`priority`, which only
+ * make sense for the currently loaded page. */
 export interface EpicSummary {
   id: string;
   key: string;
   title: string;
+}
+
+/** `epic_list_all`'s wire shape (D-16, D-87, plan 05-04): the roster page, up to the core's
+ * `EPIC_ROSTER_CEILING`, plus `total` and `truncated` so a caller can tell "every epic" from "the
+ * first EPIC_ROSTER_CEILING" and surface the difference rather than swallow it (closing
+ * `01-SECURITY.md` AR-01-04 without reopening G-01-2 — a truncated roster must never silently
+ * degrade back into rendering a raw internal id). */
+export interface EpicRoster {
+  epics: EpicSummary[];
+  total: number;
+  truncated: boolean;
+}
+
+/** Mirrors `domain::epic::EPIC_ROSTER_CEILING` (`packages/core/src/domain/epic.rs`) — five
+ * hundred times `board_list`'s own `DEFAULT_LIMIT`, and NOT a page size the renderer ever
+ * paginates against. Kept in sync by hand since the two crates share no generated types yet; a
+ * mismatch here would only ever understate/overstate the notice's own wording, never affect what
+ * the core actually returns. */
+export const EPIC_ROSTER_CEILING = 5000;
+
+/** The plain-text truncation notice (D-16) `useEpics`'s consumers render when the roster's
+ * `truncated` flag is set — naming the ceiling and the project's true epic count, never silently
+ * showing a partial roster as though it were complete. Returns `null` when nothing is truncated,
+ * so a caller can render conditionally on the return value alone. */
+export function epicRosterTruncationNotice(roster: Pick<EpicRoster, "truncated" | "total"> | undefined): string | null {
+  if (!roster?.truncated) return null;
+  return `Showing the first ${EPIC_ROSTER_CEILING} of ${roster.total} epics — narrow your view to see the rest.`;
 }
 
 /** One row of the workflow-less issues lane (D-07) — issues carry no `status` field. */
@@ -340,7 +367,7 @@ export function useActors() {
 export function useEpics(projectId: string | undefined) {
   return useQuery({
     queryKey: epicsQueryKey(projectId),
-    queryFn: () => invokeCommand<EpicSummary[]>("epic_list_all", { projectId }),
+    queryFn: () => invokeCommand<EpicRoster>("epic_list_all", { projectId }),
     enabled: Boolean(projectId),
   });
 }

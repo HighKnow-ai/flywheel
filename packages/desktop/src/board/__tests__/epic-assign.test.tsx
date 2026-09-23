@@ -95,10 +95,14 @@ beforeEach(() => {
     // never from `items` — this suite's epic-pill assertion needs the same two epics `board_list`
     // already returns to also be resolvable through `epic_list_all`.
     if (command === "epic_list_all") {
-      return Promise.resolve([
-        { id: EPIC_1.id, key: EPIC_1.key, title: EPIC_1.title },
-        { id: EPIC_2.id, key: EPIC_2.key, title: EPIC_2.title },
-      ]);
+      return Promise.resolve({
+        epics: [
+          { id: EPIC_1.id, key: EPIC_1.key, title: EPIC_1.title },
+          { id: EPIC_2.id, key: EPIC_2.key, title: EPIC_2.title },
+        ],
+        total: 2,
+        truncated: false,
+      });
     }
     return Promise.resolve(undefined);
   });

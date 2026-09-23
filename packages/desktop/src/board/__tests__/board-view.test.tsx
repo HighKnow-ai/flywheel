@@ -38,7 +38,11 @@ beforeEach(() => {
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
     if (command === "epic_list_all") {
-      return Promise.resolve([{ id: "epic-1", key: "FLY-1", title: "Parent epic" }]);
+      return Promise.resolve({
+        epics: [{ id: "epic-1", key: "FLY-1", title: "Parent epic" }],
+        total: 1,
+        truncated: false,
+      });
     }
     return Promise.resolve(undefined);
   });

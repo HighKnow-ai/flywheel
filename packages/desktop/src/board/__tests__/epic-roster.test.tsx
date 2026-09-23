@@ -11,10 +11,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { FilterBar } from "../FilterBar";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import { useBoardChangedSubscription } from "../useBoardQuery";
-import type { BandCounts, BoardItem, IssueItem } from "../useBoardQuery";
+import { epicRosterTruncationNotice, useBoardChangedSubscription } from "../useBoardQuery";
+import type { BandCounts, BoardItem, EpicRoster, EpicSummary, IssueItem } from "../useBoardQuery";
 
 const invokeCommandMock = vi.fn();
+
+/** Wraps a plain array into `epic_list_all`'s real wire shape (`EpicRoster`, plan 05-04) — every
+ * mock in this file used to resolve `epic_list_all` to a bare array before the D-87/AR-01-04
+ * closure added `total`/`truncated`; this keeps every existing fixture's array literal unchanged
+ * while matching the shape `useEpics` actually parses today. `truncated` defaults to `false` since
+ * none of this file's fixtures approach `EPIC_ROSTER_CEILING`. */
+function epicRoster(epics: EpicSummary[], overrides: Partial<Pick<EpicRoster, "total" | "truncated">> = {}): EpicRoster {
+  return { epics, total: overrides.total ?? epics.length, truncated: overrides.truncated ?? false };
+}
 
 // Captures EVERY handler registered against `subscribeBoardChanged` — never a single overwritable
 // slot, which would let whichever subscriber mounts LAST silently win and every earlier one go
@@ -49,7 +58,7 @@ beforeEach(() => {
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
-    if (command === "epic_list_all") return Promise.resolve([OUTSIDE_EPIC]);
+    if (command === "epic_list_all") return Promise.resolve(epicRoster([OUTSIDE_EPIC]));
     return Promise.resolve(undefined);
   });
 });
@@ -178,7 +187,7 @@ describe("epic roster", () => {
     // The roster resolves to something that does NOT contain this task's epic id.
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
-      if (command === "epic_list_all") return Promise.resolve([OUTSIDE_EPIC]);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster([OUTSIDE_EPIC]));
       return Promise.resolve(undefined);
     });
 
@@ -266,7 +275,7 @@ describe("epic roster liveness (board:changed)", () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
       if (command === "epic_list_all") {
-        return Promise.resolve([{ id: "epic-a", key: "FLY-1", title: "Epic A" }]);
+        return Promise.resolve(epicRoster([{ id: "epic-a", key: "FLY-1", title: "Epic A" }]));
       }
       return Promise.resolve(undefined);
     });
@@ -293,10 +302,10 @@ describe("epic roster liveness (board:changed)", () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
       if (command === "epic_list_all") {
-        return Promise.resolve([
+        return Promise.resolve(epicRoster([
           { id: "epic-a", key: "FLY-1", title: "Epic A" },
           { id: "epic-b", key: "FLY-2", title: "Epic B" },
-        ]);
+        ]));
       }
       return Promise.resolve(undefined);
     });
@@ -313,7 +322,7 @@ describe("epic roster liveness (board:changed)", () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
       if (command === "epic_list_all") {
-        return Promise.resolve([{ id: "epic-a", key: "FLY-1", title: "Old Title" }]);
+        return Promise.resolve(epicRoster([{ id: "epic-a", key: "FLY-1", title: "Old Title" }]));
       }
       return Promise.resolve(undefined);
     });
@@ -336,7 +345,7 @@ describe("epic roster liveness (board:changed)", () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
       if (command === "epic_list_all") {
-        return Promise.resolve([{ id: "epic-a", key: "FLY-1", title: "New Title" }]);
+        return Promise.resolve(epicRoster([{ id: "epic-a", key: "FLY-1", title: "New Title" }]));
       }
       return Promise.resolve(undefined);
     });
@@ -351,7 +360,7 @@ describe("epic roster liveness (board:changed)", () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
       if (command === "epic_list_all") {
-        return Promise.resolve([{ id: "epic-a", key: "FLY-1", title: "Epic A" }]);
+        return Promise.resolve(epicRoster([{ id: "epic-a", key: "FLY-1", title: "Epic A" }]));
       }
       return Promise.resolve(undefined);
     });
@@ -373,7 +382,7 @@ describe("epic roster liveness (board:changed)", () => {
 
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
-      if (command === "epic_list_all") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster([]));
       return Promise.resolve(undefined);
     });
 
@@ -406,7 +415,7 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
   it("lists every epic in the project, not only those in the loaded window", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
-      if (command === "epic_list_all") return Promise.resolve(THIRTEEN_EPICS);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster(THIRTEEN_EPICS));
       return Promise.resolve(undefined);
     });
 
@@ -422,7 +431,7 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
     const unordered = [THIRTEEN_EPICS[5], THIRTEEN_EPICS[0], THIRTEEN_EPICS[9]];
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
-      if (command === "epic_list_all") return Promise.resolve(unordered);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster(unordered));
       return Promise.resolve(undefined);
     });
 
@@ -440,7 +449,7 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
   it("still renders the No epic chip first", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
-      if (command === "epic_list_all") return Promise.resolve(THIRTEEN_EPICS.slice(0, 2));
+      if (command === "epic_list_all") return Promise.resolve(epicRoster(THIRTEEN_EPICS.slice(0, 2)));
       return Promise.resolve(undefined);
     });
 
@@ -458,7 +467,7 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
   it("renders only the No epic chip for a project with no epics", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
-      if (command === "epic_list_all") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster([]));
       return Promise.resolve(undefined);
     });
 
@@ -475,7 +484,7 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
   it("issues no epic_list_all call without a project id", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
-      if (command === "epic_list_all") return Promise.resolve(THIRTEEN_EPICS);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster(THIRTEEN_EPICS));
       return Promise.resolve(undefined);
     });
 
@@ -489,7 +498,7 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
   it("selecting an epic chip writes only to the filter draft", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
-      if (command === "epic_list_all") return Promise.resolve(THIRTEEN_EPICS.slice(0, 1));
+      if (command === "epic_list_all") return Promise.resolve(epicRoster(THIRTEEN_EPICS.slice(0, 1)));
       return Promise.resolve(undefined);
     });
 
@@ -534,10 +543,10 @@ describe("parent pickers and issues lane resolve epics from the roster (01-18-PL
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
       if (command === "epic_list_all") {
-        return Promise.resolve([
+        return Promise.resolve(epicRoster([
           { id: "epic-x", key: "FLY-1", title: "Out-of-window Epic X" },
           { id: "epic-y", key: "FLY-2", title: "Out-of-window Epic Y" },
-        ]);
+        ]));
       }
       return Promise.resolve(undefined);
     });
@@ -557,11 +566,11 @@ describe("parent pickers and issues lane resolve epics from the roster (01-18-PL
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
       if (command === "epic_list_all") {
-        return Promise.resolve([
+        return Promise.resolve(epicRoster([
           // Collides with the picked task's own id — a future fixture edge case, per the plan.
           { id: TASK.id, key: "FLY-9", title: "Windowed task" },
           { id: "epic-real", key: "FLY-3", title: "Real Epic" },
-        ]);
+        ]));
       }
       return Promise.resolve(undefined);
     });
@@ -579,7 +588,7 @@ describe("parent pickers and issues lane resolve epics from the roster (01-18-PL
   it("renders the No epic empty option when the project has no epics", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
-      if (command === "epic_list_all") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster([]));
       return Promise.resolve(undefined);
     });
 
@@ -600,7 +609,7 @@ describe("parent pickers and issues lane resolve epics from the roster (01-18-PL
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
       if (command === "epic_list_all") {
-        return Promise.resolve([{ id: "epic-out", key: "FLY-7", title: "Out-of-window Epic" }]);
+        return Promise.resolve(epicRoster([{ id: "epic-out", key: "FLY-7", title: "Out-of-window Epic" }]));
       }
       return Promise.resolve(undefined);
     });
@@ -629,7 +638,7 @@ describe("parent pickers and issues lane resolve epics from the roster (01-18-PL
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "actor_list") return Promise.resolve([]);
       if (command === "epic_list_all") {
-        return Promise.resolve([{ id: "epic-out", key: "FLY-7", title: "Out-of-window Epic" }]);
+        return Promise.resolve(epicRoster([{ id: "epic-out", key: "FLY-7", title: "Out-of-window Epic" }]));
       }
       return Promise.resolve(undefined);
     });
@@ -651,5 +660,51 @@ describe("parent pickers and issues lane resolve epics from the roster (01-18-PL
     // render (which reads "No parent" until the roster resolves).
     expect(await within(row).findByRole("button", { name: /FLY-7/ })).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /No parent/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("epic roster truncation notice (D-16, D-87, plan 05-04 Task 2)", () => {
+  const A_FEW_EPICS = [OUTSIDE_EPIC, { id: "epic-2", key: "FLY-8", title: "Second epic" }];
+
+  it("epicRosterTruncationNotice returns null when the roster is not truncated", () => {
+    expect(epicRosterTruncationNotice(epicRoster(A_FEW_EPICS))).toBeNull();
+  });
+
+  it("epicRosterTruncationNotice returns null for an undefined (still-loading) roster", () => {
+    expect(epicRosterTruncationNotice(undefined)).toBeNull();
+  });
+
+  it("epicRosterTruncationNotice names the ceiling and the true total when truncated", () => {
+    const notice = epicRosterTruncationNotice(epicRoster(A_FEW_EPICS, { total: 5013, truncated: true }));
+    expect(notice).not.toBeNull();
+    expect(notice).toContain("5000");
+    expect(notice).toContain("5013");
+  });
+
+  it("BoardView renders the truncation notice when the roster reports truncated: true", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve(epicRoster(A_FEW_EPICS, { total: 5013, truncated: true }));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderBoard([], "proj-1");
+
+    expect(await screen.findByText(/Showing the first 5000 of 5013 epics/)).toBeInTheDocument();
+  });
+
+  it("BoardView renders no truncation notice when the roster is not truncated", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster(A_FEW_EPICS));
+      return Promise.resolve(undefined);
+    });
+
+    renderBoard([], "proj-1");
+
+    await screen.findByText("Backlog");
+    expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
   });
 });

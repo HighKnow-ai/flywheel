@@ -64,7 +64,7 @@ beforeEach(() => {
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
-    if (command === "epic_list_all") return Promise.resolve([]);
+    if (command === "epic_list_all") return Promise.resolve({ epics: [], total: 0, truncated: false });
     return Promise.resolve(undefined);
   });
 });

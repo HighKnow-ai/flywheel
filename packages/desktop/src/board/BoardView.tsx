@@ -59,6 +59,7 @@ import {
 } from "../state/keyboard";
 import { useUiStore, type PickerKind } from "../state/uiStore";
 import {
+  epicRosterTruncationNotice,
   openLiveSessionForTask,
   useActors,
   useBlockedSummary,
@@ -300,11 +301,14 @@ export function BoardView({
   // `epic_id` ULID. `BoardRow`'s pill and (from plan 01-18) `FilterBar`'s chips and both
   // `ParentPicker` option lists all resolve against this same roster.
   const epicsQuery = useEpics(projectId);
-  const epics = epicsQuery.data ?? [];
+  const epics = epicsQuery.data?.epics ?? [];
   const epicsById = useMemo<Record<string, EpicSummary>>(
     () => Object.fromEntries(epics.map((epic) => [epic.id, epic])),
     [epics],
   );
+  // D-16: a roster past EPIC_ROSTER_CEILING is surfaced, never silently shortened — closes
+  // `01-SECURITY.md` AR-01-04 without reopening G-01-2 (plan 05-04).
+  const epicRosterNotice = epicRosterTruncationNotice(epicsQuery.data);
 
   // D-37's board-visible blocked signal (plan 02-06 Task 3) — one project-scoped read, never a
   // per-row query, so `BoardRow`'s pill and the project rail's own read (`ProjectRail.tsx`) always
@@ -706,6 +710,20 @@ export function BoardView({
   return (
     <div style={{ height: "100%", display: "flex" }}>
       <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+      {epicRosterNotice && (
+        <div
+          role="status"
+          className="type-body"
+          style={{
+            padding: "var(--space-xs) var(--space-md)",
+            background: "var(--surface-secondary)",
+            borderBottom: "1px solid var(--divider)",
+            color: "var(--text-muted-rack)",
+          }}
+        >
+          {epicRosterNotice}
+        </div>
+      )}
       <div
         className="board-view"
         ref={parentRef}

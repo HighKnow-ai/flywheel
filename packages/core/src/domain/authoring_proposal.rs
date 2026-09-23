@@ -124,11 +124,15 @@ pub struct Proposal {
     pub decided_at: Option<String>,
 }
 
-const PROPOSAL_COLUMNS: &str = "id, agent_run_id, project_id, epic_id, verb, target_type, \
+// `pub(crate)` (plan 05-04, mirrors `query::ORDER_BY`'s own precedent in `query/mod.rs`):
+// `query::authoring`'s board-level proposal reads (`list_pending_proposals`,
+// `list_rejected_for_epic`) compose this exact column list and row mapper so a proposal's wire
+// shape has exactly one definition in the crate, rather than a second, driftable copy.
+pub(crate) const PROPOSAL_COLUMNS: &str = "id, agent_run_id, project_id, epic_id, verb, target_type, \
     target_id, parent_proposal_id, position, payload, status, rejection_reason, materialised_id, \
     created_by, created_at, decided_by, decided_at";
 
-fn row_to_proposal(row: &Row) -> rusqlite::Result<Proposal> {
+pub(crate) fn row_to_proposal(row: &Row) -> rusqlite::Result<Proposal> {
     let payload_json: String = row.get(9)?;
     let payload: ProposalPayload = serde_json::from_str(&payload_json).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(e))

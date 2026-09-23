@@ -90,7 +90,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
   // definition.
   const epicsQuery = useEpics(projectId);
   const epicOptions = useMemo(
-    () => (epicsQuery.data ?? []).map((epic) => [epic.id, `${epic.key} ${epic.title}`] as const),
+    () => (epicsQuery.data?.epics ?? []).map((epic) => [epic.id, `${epic.key} ${epic.title}`] as const),
     [epicsQuery.data],
   );
 

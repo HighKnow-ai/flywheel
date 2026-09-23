@@ -94,7 +94,11 @@ beforeEach(() => {
     // roster (G-01-2, 01-18-PLAN.md), never from `items` — this suite's assertions need the same
     // epic `board_list` already returns to also be resolvable through `epic_list_all`.
     if (command === "epic_list_all") {
-      return Promise.resolve([{ id: EPIC_1.id, key: EPIC_1.key, title: EPIC_1.title }]);
+      return Promise.resolve({
+        epics: [{ id: EPIC_1.id, key: EPIC_1.key, title: EPIC_1.title }],
+        total: 1,
+        truncated: false,
+      });
     }
     return Promise.resolve(undefined);
   });
