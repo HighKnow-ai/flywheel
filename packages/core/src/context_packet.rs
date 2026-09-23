@@ -73,6 +73,31 @@ pub struct WorktreeFacts {
     pub path: String,
 }
 
+/// Both halves of the diff-so-far briefing (D-70, D-71, CTX-03) — the committed range from
+/// `base_ref` to `HEAD`, and the working tree's own uncommitted state, kept as two labelled
+/// sections rather than merged into one blob. `committed_stat`/`committed_paths` are
+/// [`crate::git::DiffStat`]'s two fields verbatim; `working_tree_porcelain` is
+/// `crate::git::git_status_porcelain`'s raw output verbatim. Carries no hunk body of any kind —
+/// D-71's stat-plus-names shape is what keeps the packet's size bounded by the number of changed
+/// files, never by how large any one change is.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DiffSoFar {
+    pub base_ref: String,
+    pub committed_stat: String,
+    pub committed_paths: Vec<String>,
+    pub working_tree_porcelain: String,
+}
+
+/// Optional packet extras composed one layer above [`assemble_context_packet`] — a struct rather
+/// than a bare argument so a later plan (e.g. 04-10's drift field) can grow this without changing
+/// [`assemble_context_packet_with_extras`]'s signature. `diff` is `None` when the caller has
+/// nothing to attach (no worktree on disk yet, or a git error the caller chose to degrade rather
+/// than propagate).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PacketExtras {
+    pub diff: Option<DiffSoFar>,
+}
+
 /// The full context packet (D-28). Every field is data — no pre-rendered sentence is stored here;
 /// [`render_prompt`] is the only place prose is produced, matching this crate's "derive at read
 /// time, never store" rule (`query/events.rs`).
@@ -90,6 +115,10 @@ pub struct ContextPacket {
     /// because compaction is lossless for decisions — which is why the closing read-back can be
     /// checked against this list at all.
     pub decisions: Vec<DecisionEntry>,
+    /// Always `None` from [`assemble_context_packet`] itself (D-70/CTX-03) — this function makes
+    /// no git call and its purity contract is unchanged by this field's existence. Populated only
+    /// by [`assemble_context_packet_with_extras`], one layer above.
+    pub diff: Option<DiffSoFar>,
     pub worktree: WorktreeFacts,
 }
 
@@ -262,8 +291,31 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         criteria,
         summaries,
         decisions,
+        diff: None,
         worktree,
     })
+}
+
+/// Attach [`PacketExtras`] to an otherwise-normal [`assemble_context_packet`] call (D-70, plan
+/// 04-07 Task 2, 04-RESEARCH.md Pitfall 2/assumption A3). This wrapper is the ONLY place a
+/// non-`None` `diff` ever reaches a `ContextPacket` — `assemble_context_packet` itself never calls
+/// this function and never calls git. The git read that produced `extras.diff` (if any) happened
+/// one layer up, in the command handler that composes the briefing (`agent_run_preview`/
+/// `agent_run_start`), never here and never inside `assemble_context_packet`.
+///
+/// Determinism distinction (CTX-04): `assemble_context_packet` is byte-identical for two calls
+/// against an unchanged database, full stop. THIS wrapper is byte-identical for an unchanged
+/// database *and* unchanged `extras` — a worktree edited between two calls legitimately changes
+/// the diff section it returns, and that is the diff being ground truth, not a determinism
+/// failure. Callers must not mistake a changed `diff` field for a broken determinism contract.
+pub fn assemble_context_packet_with_extras(
+    conn: &Connection,
+    task_id: &str,
+    extras: PacketExtras,
+) -> anyhow::Result<ContextPacket> {
+    let mut packet = assemble_context_packet(conn, task_id)?;
+    packet.diff = extras.diff;
+    Ok(packet)
 }
 
 /// Render the initial prompt text (D-28) — stable headings, stable ordering, and an omitted
@@ -358,6 +410,36 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
             out.push_str("] ");
             out.push_str(&decision.statement);
             out.push('\n');
+        }
+    }
+
+    if let Some(diff) = &packet.diff {
+        let committed_present = !diff.committed_stat.is_empty() || !diff.committed_paths.is_empty();
+        let working_tree_present = !diff.working_tree_porcelain.is_empty();
+        if committed_present || working_tree_present {
+            out.push_str("\n## Diff So Far\n\n");
+
+            if committed_present {
+                out.push_str("### Committed since ");
+                out.push_str(&diff.base_ref);
+                out.push_str("\n\n");
+                out.push_str(&diff.committed_stat);
+                for path in &diff.committed_paths {
+                    out.push_str("- ");
+                    out.push_str(path);
+                    out.push('\n');
+                }
+            }
+
+            if working_tree_present {
+                out.push_str("\n### Working tree (uncommitted)\n\n");
+                out.push_str(&diff.working_tree_porcelain);
+            }
+
+            out.push_str(
+                "\nYou are in this worktree — read any of these files directly for the full \
+                 detail.\n",
+            );
         }
     }
 

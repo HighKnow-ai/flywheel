@@ -5,6 +5,11 @@
 
 mod common;
 
+use core::context_packet::{
+    assemble_context_packet, assemble_context_packet_with_extras, render_prompt, DiffSoFar,
+    PacketExtras,
+};
+use core::domain::task::create_task;
 use core::git::{diff_stat_and_names, git_at};
 
 fn run(repo_path: &std::path::Path, args: &[&str]) {
@@ -96,4 +101,164 @@ fn both_reads_pass_the_repo_path_through_the_existing_wrapper() {
 
     let diff = diff_stat_and_names(repo_path, "main").expect("diff_stat_and_names should succeed");
     assert_eq!(diff.changed_paths, vec!["delta.txt".to_string()]);
+}
+
+// --- Task 2: the packet carries both halves, and the assembler stays pure -----------------
+
+#[test]
+fn a_packet_assembled_with_no_extras_has_no_diff_and_renders_no_diff_heading() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "No extras", None)
+        .expect("create_task should succeed");
+
+    let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+    assert!(packet.diff.is_none(), "diff must be None when assembled with no extras");
+
+    let prompt = render_prompt(&packet, "");
+    assert!(!prompt.contains("Diff So Far"), "no diff heading should be emitted when diff is None");
+}
+
+#[test]
+fn a_diff_with_an_empty_committed_half_and_a_dirty_working_tree_renders_only_the_working_tree_subsection()
+{
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Dirty only", None)
+        .expect("create_task should succeed");
+
+    let diff = DiffSoFar {
+        base_ref: "main".to_string(),
+        committed_stat: String::new(),
+        committed_paths: Vec::new(),
+        working_tree_porcelain: " M src/lib.rs\n".to_string(),
+    };
+    let packet =
+        assemble_context_packet_with_extras(&conn, &task.id, PacketExtras { diff: Some(diff) })
+            .expect("assembly should succeed");
+
+    let prompt = render_prompt(&packet, "");
+    assert!(prompt.contains("## Diff So Far"));
+    assert!(prompt.contains("### Working tree (uncommitted)"));
+    assert!(prompt.contains("src/lib.rs"));
+    assert!(
+        !prompt.contains("### Committed since"),
+        "the committed subsection must be omitted when both committed fields are empty"
+    );
+}
+
+#[test]
+fn a_diff_with_a_clean_working_tree_renders_only_the_committed_subsection() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Clean tree", None)
+        .expect("create_task should succeed");
+
+    let diff = DiffSoFar {
+        base_ref: "main".to_string(),
+        committed_stat: " src/lib.rs | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\n"
+            .to_string(),
+        committed_paths: vec!["src/lib.rs".to_string()],
+        working_tree_porcelain: String::new(),
+    };
+    let packet =
+        assemble_context_packet_with_extras(&conn, &task.id, PacketExtras { diff: Some(diff) })
+            .expect("assembly should succeed");
+
+    let prompt = render_prompt(&packet, "");
+    assert!(prompt.contains("### Committed since main"));
+    assert!(prompt.contains("src/lib.rs"));
+    assert!(
+        !prompt.contains("### Working tree (uncommitted)"),
+        "the working-tree subsection must be omitted when the working tree is clean"
+    );
+}
+
+#[test]
+fn the_rendered_diff_section_never_contains_a_hunk_marker_line() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "No hunks", None)
+        .expect("create_task should succeed");
+
+    let diff = DiffSoFar {
+        base_ref: "main".to_string(),
+        committed_stat: " src/lib.rs | 4 ++--\n".to_string(),
+        committed_paths: vec!["src/lib.rs".to_string()],
+        working_tree_porcelain: " M src/lib.rs\n".to_string(),
+    };
+    let packet =
+        assemble_context_packet_with_extras(&conn, &task.id, PacketExtras { diff: Some(diff) })
+            .expect("assembly should succeed");
+
+    let prompt = render_prompt(&packet, "");
+    // Built from character literals so this assertion cannot accidentally match its own source.
+    let hunk_marker: String = ['@', '@'].iter().collect();
+    for line in prompt.lines() {
+        assert!(
+            !line.starts_with(&hunk_marker),
+            "rendered diff section must never contain a hunk header line, got: {line}"
+        );
+    }
+}
+
+#[test]
+fn the_rendered_diff_section_ends_with_the_read_what_you_need_invitation() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Invitation", None)
+        .expect("create_task should succeed");
+
+    let diff = DiffSoFar {
+        base_ref: "main".to_string(),
+        committed_stat: " src/lib.rs | 4 ++--\n".to_string(),
+        committed_paths: vec!["src/lib.rs".to_string()],
+        working_tree_porcelain: String::new(),
+    };
+    let packet =
+        assemble_context_packet_with_extras(&conn, &task.id, PacketExtras { diff: Some(diff) })
+            .expect("assembly should succeed");
+
+    let prompt = render_prompt(&packet, "");
+    assert!(
+        prompt.contains(
+            "You are in this worktree — read any of these files directly for the full detail."
+        ),
+        "the diff section must end with the read-what-you-need invitation, got:\n{prompt}"
+    );
+}
+
+#[test]
+fn assemble_context_packet_twice_against_an_unchanged_database_stays_diff_none_on_both() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Determinism", None)
+        .expect("create_task should succeed");
+
+    let packet_a = assemble_context_packet(&conn, &task.id).expect("first assembly should succeed");
+    let packet_b = assemble_context_packet(&conn, &task.id).expect("second assembly should succeed");
+
+    assert!(packet_a.diff.is_none());
+    assert!(packet_b.diff.is_none());
+    assert_eq!(packet_a, packet_b, "two calls against an unchanged database must be structurally equal");
+}
+
+#[test]
+fn assemble_context_packet_with_extras_twice_with_the_same_extras_returns_equal_packets() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Determinism with extras", None)
+        .expect("create_task should succeed");
+
+    let diff = DiffSoFar {
+        base_ref: "main".to_string(),
+        committed_stat: " src/lib.rs | 4 ++--\n".to_string(),
+        committed_paths: vec!["src/lib.rs".to_string()],
+        working_tree_porcelain: String::new(),
+    };
+    let extras_a = PacketExtras { diff: Some(diff.clone()) };
+    let extras_b = PacketExtras { diff: Some(diff) };
+
+    let packet_a = assemble_context_packet_with_extras(&conn, &task.id, extras_a)
+        .expect("first assembly should succeed");
+    let packet_b = assemble_context_packet_with_extras(&conn, &task.id, extras_b)
+        .expect("second assembly should succeed");
+
+    assert_eq!(
+        packet_a, packet_b,
+        "two calls with the same database and the same extras must be structurally equal"
+    );
 }
