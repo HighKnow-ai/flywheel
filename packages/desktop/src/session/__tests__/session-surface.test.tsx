@@ -14,12 +14,20 @@
  *   geometry instead (the inline `height` and the pixel value inside `transform`), which is the
  *   only geometry that exists in jsdom, and which is precisely the geometry the defect got wrong.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionSurface } from "../SessionSurface";
 import { sessionFeedQueryKey } from "../../board/useBoardQuery";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 import { FEED_ROW_HEIGHT } from "../FeedRow";
+
+// Every test in this file shares the same module-level Zustand store — the Discard describe
+// block below is the first one in this file to write to it (`setLaunchSheetTaskId`), so it must
+// leave no residue for a later test (mirrors `settings-surface.test.tsx`'s own precedent).
+afterEach(() => {
+  resetUiState();
+});
 
 const invokeCommandMock = vi.fn();
 
@@ -47,6 +55,12 @@ vi.mock("../../adapters/tauri", async () => {
     // (none of which assert on the resolved value) keeps working unchanged.
     stopAgentRun: (agentRunId: string) =>
       invokeCommandMock("agent_run_stop", { agentRunId }).then(
+        (result: unknown) => result ?? { status: "interrupted", sidecarWarning: null },
+      ),
+    // Discard's own wrapper (plan 04-13) — mirrors `stopAgentRun`'s mock shape exactly, routed
+    // through the SAME `invokeCommandMock`, under its own command name.
+    discardSession: (agentRunId: string) =>
+      invokeCommandMock("agent_run_discard", { agentRunId }).then(
         (result: unknown) => result ?? { status: "interrupted", sidecarWarning: null },
       ),
     // The permission-request card's feed mount (plan 02-06 Task 2) — no pending requests by
@@ -433,6 +447,123 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
       const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "agent_run_stop");
       expect(stopCalls).toHaveLength(2);
     });
+  });
+});
+
+describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () => {
+  // `impl`, when supplied, is installed INSTEAD OF the plain window-only mock below — never
+  // BEFORE it. `mockWindowReads` itself calls `invokeCommandMock.mockImplementation(...)`, so
+  // installing a caller's own `agent_run_discard` behavior before calling this helper would be
+  // silently overwritten the instant this helper's own default runs.
+  function renderDiscard(
+    status: "running" | "blocked" | "completed" | "failed" | "interrupted" = "running",
+    impl?: (command: string, args: { offset: number; limit: number }) => Promise<unknown>,
+  ) {
+    if (impl) {
+      invokeCommandMock.mockImplementation(impl);
+    } else {
+      mockWindowReads(() => []);
+    }
+    const queryClient = new QueryClient();
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="run-1" taskId="task-1" onBack={() => {}} initialStatus={status} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("renders neither Stop nor Discard for a terminal run", () => {
+    renderDiscard("completed");
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discarding…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stopping…" })).not.toBeInTheDocument();
+  });
+
+  it("reads Discard and is enabled for a running run, beside Stop", async () => {
+    renderDiscard("running");
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    expect(discardButton).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+  });
+
+  it(
+    "clicking Discard twice in one synchronous tick sends exactly one agent_run_discard command, " +
+      "with no confirmation dialog appearing in between",
+    async () => {
+      renderDiscard("running", (command) => {
+        if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+        if (command === "agent_run_discard") return new Promise(() => {}); // never resolves within the test
+        return Promise.resolve(undefined);
+      });
+
+      const discardButton = await screen.findByRole("button", { name: "Discard" });
+      discardButton.click();
+      discardButton.click();
+
+      // No dialog role is present between the activation and the call — CTX-08's "single action"
+      // promise, asserted as an absence rather than only checking the end state (a test that only
+      // checks the end state would pass for a two-step confirm-then-discard flow too).
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+      await waitFor(() => {
+        const discardCalls = invokeCommandMock.mock.calls.filter(
+          (call: unknown[]) => call[0] === "agent_run_discard",
+        );
+        expect(discardCalls).toHaveLength(1);
+      });
+    },
+  );
+
+  it("reads Discarding… and disables both Discard and Stop immediately after activation", async () => {
+    renderDiscard("running", (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") return new Promise(() => {}); // never resolves within the test
+      return Promise.resolve(undefined);
+    });
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    const discardingButton = await screen.findByRole("button", { name: "Discarding…" });
+    expect(discardingButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled();
+  });
+
+  it("opens the launch sheet for this run's own task once the discard resolves", async () => {
+    renderDiscard("running", (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") {
+        return Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    await waitFor(() => expect(useUiStore.getState().launchSheetTaskId).toBe("task-1"));
+  });
+
+  it("renders the muted warning notice and never opens the launch sheet when the discard call is rejected", async () => {
+    renderDiscard("running", (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") return Promise.reject(new Error("ipc failure"));
+      return Promise.resolve(undefined);
+    });
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    // Reuses the SAME muted notice `StopWarningNotice` renders for a rejected/unconfirmed Stop —
+    // no second notice component was introduced.
+    await screen.findByText(/could not confirm this discard completed/);
+    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+
+    // A genuine failure must leave the control usable — the discard button re-enables.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled());
   });
 });
 
