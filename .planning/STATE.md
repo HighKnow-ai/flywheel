@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-09-PLAN.md
-last_updated: "2026-09-23T03:56:08.651Z"
+stopped_at: Completed 04-10-PLAN.md
+last_updated: "2026-09-23T04:54:35.794Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: 930164b0a3a3c07fde13649f73b1c1eacd67e0da
+state_head: 7d9d67bfd5e4da1cb78cbbed9c8add67d6236558
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 86
+  completed_plans: 87
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 10 of 14
+Plan: 11 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -144,6 +144,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P07 | 18min | 3 tasks | 4 files |
 | Phase 04 P08 | 15min | 2 tasks | 3 files |
 | Phase 04 P09 | 114min | 3 tasks | 8 files |
+| Phase 04 P10 | 62min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -293,6 +294,8 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04-09]: ContextPacketDto (Rust) gained a top-level decisions field mapped from ContextPacket.decisions (D-73), since the plan's own acceptance criteria required the TS mirror to declare it but the field did not exist on the desktop DTO.
 - [Phase 04]: [Phase 04-09]: task_session_summaries' SessionSummaryDto.folded is always false — folding is a briefing-preview property, not an archive property; a second, documented From impl keeps the two conversion paths distinct.
 - [Phase 04]: [Phase 04-09]: PriorSessionsSection slices packet.summaries by packet.compaction.foldedCount rather than filtering each entry's own folded flag, keeping the folded/verbatim grouping provable from one property.
+- [Phase 04]: [Phase 04-10]: criterion_list restricted to list_current_criteria — plan 04-04 left this read path unfiltered since nothing could reach a locked criterion's revise path from the UI until this plan's edit affordance existed.
+- [Phase 04]: [Phase 04-10]: pin_criteria_revisions is a single guarded UPDATE (WHERE criteria_revision_pin IS NULL), never a read-then-write check or a transaction — an atomic single statement makes a double-write race structurally impossible.
 
 ### Pending Todos
 
@@ -335,6 +338,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T03:56:08.555Z
-Stopped at: Completed 04-09-PLAN.md
+Last session: 2026-09-23T04:54:35.695Z
+Stopped at: Completed 04-10-PLAN.md
 Resume file: None
