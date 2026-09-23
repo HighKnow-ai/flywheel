@@ -1308,14 +1308,17 @@ fn is_whole_line_comment(line: &str) -> bool {
     line.trim_start().starts_with("//")
 }
 
-fn rust_sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
+fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 walk(&path, out);
-            } else if path.extension().is_some_and(|e| e == "rs") {
+            } else if path
+                .extension()
+                .is_some_and(|e| e == "rs" || e == "ts" || e == "tsx")
+            {
                 out.push(path);
             }
         }
@@ -1340,7 +1343,7 @@ const FORBIDDEN_IDENTIFIERS: [&str; 4] = ["accept_all", "acceptAll", "accept_rem
 /// deliberately not shipped first so the per-subtree habit forms before a shortcut exists to skip
 /// it. The failure this protects against is not a bug — it is a future convenience that would pass
 /// every OTHER test while quietly ending the behaviour SHAPE-03's criterion-editing requirement
-/// exists to create. Scans `.rs` sources under the three trees an agent-reachable or
+/// exists to create. Scans `.rs`, `.ts` and `.tsx` sources under the three trees an agent-reachable or
 /// developer-reachable accept path could live in; this file's own `tests/` directory (where the
 /// forbidden strings above are legitimately named, as data) is never in that scan scope.
 #[test]
@@ -1354,7 +1357,7 @@ fn no_accept_all_identifier_exists_outside_this_gates_own_file() {
 
     let mut offenders = Vec::new();
     for dir in scan_dirs {
-        for (path, body) in rust_sources_under(&dir) {
+        for (path, body) in sources_under(&dir) {
             for (n, line) in body.lines().enumerate() {
                 if is_whole_line_comment(line) {
                     continue;
@@ -1383,4 +1386,33 @@ fn the_no_accept_all_gate_detects_the_shape_it_exists_to_catch() {
     let fine = "        pub fn accept_subtree(&self) -> Result<()> {";
     assert!(FORBIDDEN_IDENTIFIERS.iter().any(|f| shipped.contains(f)));
     assert!(!FORBIDDEN_IDENTIFIERS.iter().any(|f| fine.contains(f)));
+}
+
+/// The accept-all gate above names `packages/desktop/src` as a scan target, but that tree is
+/// entirely TypeScript/TSX — and two of `FORBIDDEN_IDENTIFIERS` (`acceptAll`, `acceptRemaining`)
+/// are camelCase precisely because a frontend accept-all is the shape they exist to catch. A
+/// walker that collects only `.rs` therefore turns the frontend half of that gate into a
+/// permanent no-op that still reads as protection (found by Phase 5 verification). This test is
+/// the gate on the gate: it fails if the walker ever stops reaching the frontend tree, so the
+/// coverage hole cannot silently reopen the way it originally opened.
+#[test]
+fn the_no_accept_all_gate_actually_reaches_the_frontend_tree() {
+    let frontend = workspace_root().join("packages/desktop/src");
+    let collected = sources_under(&frontend);
+
+    assert!(
+        !collected.is_empty(),
+        "the accept-all gate scans {} but collected no sources there — the frontend half of the \
+         gate is a no-op",
+        frontend.display()
+    );
+    assert!(
+        collected
+            .iter()
+            .any(|(p, _)| p.extension().is_some_and(|e| e == "tsx")),
+        "the accept-all gate collected {} sources under {} but not one .tsx file — the walker is \
+         not reaching the frontend components an accept-all control would live in",
+        collected.len(),
+        frontend.display()
+    );
 }
