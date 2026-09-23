@@ -497,14 +497,14 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 10 plans in 8 waves
+**Plans**: 1/10 plans executed in 8 waves
 **UI hint**: yes
 
 Plans:
 
 **Wave 1 — the measurement gate** *(`ROADMAP.md`'s own "spike the flow during planning" flag, and `05-RESEARCH.md`'s "do NOT write the plan assuming Option A works until this spike has run once against the real binary")*
 
-- [ ] 05-01-PLAN.md — The spike: the conversation transport, the MCP hook matcher, what a denial does to a session, the heartbeat cadence — plus the Nimbalyst re-scout and the product kill criterion (SHAPE-01, SHAPE-02)
+- [x] 05-01-PLAN.md — The spike: the conversation transport, the MCP hook matcher, what a denial does to a session, the heartbeat cadence — plus the Nimbalyst re-scout and the product kill criterion (SHAPE-01, SHAPE-02)
 
 **Wave 2 — the tracer** *(blocked on 05-01 — the transport is implemented from the recorded decision, never guessed)*
 
@@ -785,7 +785,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 0/10 | Planned     | - |
+| 5. Socratic Epic Authoring | 1/10 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
