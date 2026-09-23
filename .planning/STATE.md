@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-11-PLAN.md
-last_updated: "2026-09-23T05:27:01.065Z"
+stopped_at: Completed 04-12-PLAN.md
+last_updated: "2026-09-23T05:49:47.505Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: e9192d185dac9cf23854e7c0c6f2057ec975ad24
+state_head: 8826d7c392c2540714b96c613ac9ce1d90450fda
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 88
+  completed_plans: 89
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 12 of 14
+Plan: 13 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -146,6 +146,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P09 | 114min | 3 tasks | 8 files |
 | Phase 04 P10 | 62min | 3 tasks | 8 files |
 | Phase 04 P11 | 55min | 3 tasks | 9 files |
+| Phase 04 P12 | 20min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -300,6 +301,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04-11]: diff_stat_and_names now reads with --no-renames on both git diff calls -- resolves 04-CONTEXT.md open item on renamed files; a moved file appears under both its old and new path so the claimed-files drift detector never fires on a legitimate move.
 - [Phase 04]: [Phase 04-11]: The decision read-back detector checks unacknowledged ids before fabricated ids, firing at most one warning even when a summary both drops a real id and invents a fake one.
 - [Phase 04]: [Phase 04-11]: SummaryEntry (context_packet.rs) gained acknowledged_decisions/diff_ref fields the drift detectors need but the packet's read projection never carried -- SUMMARIES_SQL extended to select them.
+- [Phase 04]: [Phase 04-12]: record_drift_warnings takes a &Transaction and composes into the caller's own transaction, never opening its own — a rolled-back caller transaction leaves no drift trail at all, proven by a dedicated test rather than asserted by convention.
+- [Phase 04]: [Phase 04-12]: query/recovery.rs's third UNION arm requires recency (most recent run only) for drift, deliberately opposite the abandoned-run arm's own no-recency rule — a drift warning is a statement about the CURRENT board/repo relationship, so the signal clears itself the instant the next run comes back clean.
+- [Phase 04]: [Phase 04-12]: DriftWarningSection reuses --destructive-text-rack, the existing agent-signal warning role already spent on abandoned/worktree-missing/recovery-needed, rather than introducing a dedicated warning colour token.
 
 ### Pending Todos
 
@@ -342,6 +346,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T05:27:00.965Z
-Stopped at: Completed 04-11-PLAN.md
+Last session: 2026-09-23T05:49:47.405Z
+Stopped at: Completed 04-12-PLAN.md
 Resume file: None

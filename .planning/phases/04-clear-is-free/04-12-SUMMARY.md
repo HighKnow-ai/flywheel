@@ -297,3 +297,26 @@ None - no external service configuration required.
 ---
 *Phase: 04-clear-is-free*
 *Completed: 2026-09-23*
+
+## Self-Check: PASSED
+
+- FOUND: packages/core/src/domain/agent_run.rs
+- FOUND: packages/core/src/query/recovery.rs
+- FOUND: packages/core/tests/drift.rs
+- FOUND: packages/desktop/src-tauri/src/commands/agent_run.rs
+- FOUND: packages/desktop/src/adapters/tauri.ts
+- FOUND: packages/desktop/src/launch-sheet/LaunchSheet.tsx
+- FOUND: packages/desktop/src/launch-sheet/__tests__/launch-sheet.test.tsx
+- FOUND commit e063b65 in git log
+- FOUND commit 8fe171a in git log
+- FOUND commit 57c78a7 in git log
+- `cargo test -p core --test drift`: 30 passed, 0 failed
+- `cargo test -p core --test recovery_summary`: 7 passed, 0 failed
+- `cargo test -p core --test activity_trail`: 5 passed, 0 failed
+- `cargo test -p core --test context_packet`: 18 passed, 0 failed
+- `npm --prefix packages/desktop run test -- src/launch-sheet/__tests__/launch-sheet.test.tsx`: 23 passed, 0 failed
+- `npm --prefix packages/desktop run test`: 457 passed, 0 failed (32 test files)
+- `npm --prefix packages/desktop run build`: clean
+- `cargo build --workspace`: clean
+- `cargo test --workspace`: exit code 0, no FAILED lines anywhere (including the two
+  previously-flaky worktree_lifecycle tests, both passing this run)
