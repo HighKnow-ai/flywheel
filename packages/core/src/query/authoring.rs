@@ -12,7 +12,8 @@
 //! everywhere else.
 
 use anyhow::Context;
-use rusqlite::{named_params, params, Connection};
+use rusqlite::{named_params, params, Connection, OptionalExtension};
+use serde::Serialize;
 
 use crate::domain::authoring_proposal::{row_to_proposal, Proposal, PROPOSAL_COLUMNS};
 use crate::domain::epic::EpicSummary;
@@ -141,6 +142,47 @@ pub fn list_tasks_for_epic(
         result.push(TaskRosterEntry { key, title, status, criteria });
     }
     Ok(result)
+}
+
+/// Plan 05-05 (D-87): one epic's own facts, for the agent's `epic_get` read tool. A single-row
+/// lookup needs no `limit` — bounding is moot at cardinality one — but IS scoped SERVER-SIDE to
+/// `project_id`: an `epic_id` naming an epic outside this project (or naming no epic at all)
+/// returns `None` rather than the row, never a distinguishable "forbidden" — 05-RESEARCH.md's V4
+/// row (and T-05-05-03) requires exactly this: the difference between "not found" and "forbidden"
+/// is itself a disclosure.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEpicDetail {
+    pub id: String,
+    pub key: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: String,
+}
+
+/// Look up one epic by id, scoped server-side to `project_id` — the ONLY function `epic_get`'s
+/// inbound handler may call. Returns `Ok(None)` for an epic outside this project or one that does
+/// not exist at all; never distinguishes the two.
+pub fn get_epic_for_agent(
+    conn: &Connection,
+    project_id: &str,
+    epic_id: &str,
+) -> anyhow::Result<Option<AgentEpicDetail>> {
+    conn.query_row(
+        "SELECT id, key, title, description, status FROM epics WHERE id = ?1 AND project_id = ?2",
+        params![epic_id, project_id],
+        |row| {
+            Ok(AgentEpicDetail {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                title: row.get(2)?,
+                description: row.get(3)?,
+                status: row.get(4)?,
+            })
+        },
+    )
+    .optional()
+    .context("failed to read the agent's single-epic detail")
 }
 
 /// The agent's own bounded free-text search — reuses `query::search::search_items`'s existing FTS

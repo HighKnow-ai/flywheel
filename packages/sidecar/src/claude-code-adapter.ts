@@ -18,6 +18,7 @@ import {
   type AdapterCapabilities,
   type AgentAdapter,
   type AgentEvent,
+  type BoardReadRequestEvent,
   CapabilityUnsupportedError,
   defaultResumeSession,
   type ProposalCreatedEvent,
@@ -27,12 +28,14 @@ import {
   UnknownRunError,
 } from "./adapter.js";
 import {
-  AUTHORING_PROPOSE_TASK_TOOL_NAME,
+  AUTHORING_READ_TOOL_NAMES,
+  AUTHORING_WRITE_TOOL_NAMES,
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
   startPermissionServer,
   SUMMARY_TOOL_NAME,
   type AuthoringProposalPayload,
+  type BoardReadRequestPayload,
   type PermissionNoticePayload,
   type PermissionServerHandle,
   type SummaryReportPayload,
@@ -319,11 +322,14 @@ export function buildAuthoringClaudeArgv(options: {
   permissionPromptToolName?: string;
   mcpConfig?: string;
   settingsPath?: string;
-  /** D-80/D-81 (plan 05-02): the fully-qualified `propose_task` tool name, when supplied — pushed
-   * onto `--allowedTools` inside the SAME `permissionPromptToolName`/`mcpConfig` branch below,
-   * mirroring {@link buildClaudeArgv}'s own `summaryToolName` handling (D-46: staging a proposal
-   * burns no money and blocks nothing, so it must never sit waiting on a human). */
-  proposeTaskToolName?: string;
+  /** D-80/D-81/D-87 (plan 05-02, grown to all nine authoring tools by plan 05-05): every
+   * pre-approved tool's fully-qualified name, pushed onto ONE `--allowedTools` flag (the CLI's own
+   * variadic contract — every name a separate positional value) inside the SAME
+   * `permissionPromptToolName`/`mcpConfig` branch below, mirroring {@link buildClaudeArgv}'s own
+   * `summaryToolName` handling. D-46 extended to reads (05-RESEARCH.md): staging a proposal OR
+   * looking something up burns no money and blocks nothing, so neither must ever sit waiting on a
+   * human — the stage gate, not the permission gate, is what refuses a write at the wrong time. */
+  authoringToolNames?: string[];
 }): string[] {
   const argv = [
     "-p",
@@ -337,8 +343,8 @@ export function buildAuthoringClaudeArgv(options: {
   ];
   if (options.permissionPromptToolName && options.mcpConfig) {
     pushPermissionPromptFlags(argv, options.permissionPromptToolName, options.mcpConfig);
-    if (options.proposeTaskToolName) {
-      argv.push("--allowedTools", options.proposeTaskToolName);
+    if (options.authoringToolNames && options.authoringToolNames.length > 0) {
+      argv.push("--allowedTools", ...options.authoringToolNames);
     }
   }
   if (options.settingsPath) {
@@ -509,6 +515,33 @@ export function normalizeProposalNotice(
     targetId: payload.targetId,
     parentProposalId: payload.parentProposalId,
     payload: payload.payload,
+  };
+}
+
+/**
+ * D-87 (plan 05-05): map one parsed `board_read` request payload to exactly one
+ * {@link BoardReadRequestEvent}, mirroring {@link normalizeProposalNotice}'s own "map the wire
+ * shape, fill `runId`/`seq`/`at` from the caller's own closure" convention. `runId` NEVER comes
+ * from the payload itself — identity is this session's own run, exactly like every other
+ * authoring wire mapping in this file.
+ */
+export function normalizeBoardReadRequest(
+  payload: BoardReadRequestPayload,
+  runId: string,
+  seq: number,
+  at: string,
+): BoardReadRequestEvent {
+  return {
+    runId,
+    seq,
+    at,
+    raw: JSON.stringify(payload),
+    type: "board_read_request",
+    requestId: payload.requestId,
+    readKind: payload.readKind,
+    term: payload.term,
+    epicId: payload.epicId,
+    limit: payload.limit,
   };
 }
 
@@ -1107,6 +1140,15 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         session.nextSeq += 1;
         session.onEvent(event);
       },
+      (payload: BoardReadRequestPayload) => {
+        // D-87 (plan 05-05): a HELD board_read call, mapped by the pure normalizeBoardReadRequest
+        // above and relayed onto this SAME session's event stream — the Rust core answers it
+        // asynchronously via the `authoring_read_answer` op, which resolves this held connection
+        // through `resolveBoardRead` below, never here.
+        const event = normalizeBoardReadRequest(payload, options.runId, session.nextSeq, new Date().toISOString());
+        session.nextSeq += 1;
+        session.onEvent(event);
+      },
     );
 
     const bin = resolveClaudeBin();
@@ -1140,7 +1182,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionPromptToolName: PERMISSION_TOOL_NAME,
       mcpConfig,
       settingsPath,
-      proposeTaskToolName: AUTHORING_PROPOSE_TASK_TOOL_NAME,
+      // Plan 05-05: pre-approve all six write tools plus all three read tools — D-46 extended to
+      // reads, see buildAuthoringClaudeArgv's own doc comment above.
+      authoringToolNames: [...AUTHORING_WRITE_TOOL_NAMES, ...AUTHORING_READ_TOOL_NAMES],
     });
 
     const child = spawn(process.execPath, [watchdogEntryPath(), bin, ...argv], {
@@ -1316,6 +1360,34 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const session = liveSessions.get(runId);
     if (!session) throw new UnknownRunError(runId);
     session.permissionServer.resolvePermission(requestId, decision);
+  }
+
+  /** D-87 (plan 05-05): answer a held `board_read` call for `runId` with its result (or error) —
+   * the read-path sibling of {@link resolvePermission}, same "unknown runId rejects, mismatched
+   * requestId is a logged no-op" contract. */
+  resolveBoardRead(runId: string, requestId: string, result: unknown, error?: string): void {
+    const session = liveSessions.get(runId);
+    if (!session) throw new UnknownRunError(runId);
+    session.permissionServer.answerBoardRead(requestId, result, error);
+  }
+
+  /** D-89 (plan 05-05): send one turn's text to a LIVE authoring session — the one way anything
+   * above this adapter can say something to a running conversation (the distillation instruction
+   * the domain layer's own stage-advance step returns, and a developer decision on a proposal,
+   * both flow through this).
+   * Delivered by whatever mechanism `05-SPIKE-FINDINGS.md`'s recorded `transport_decision` uses —
+   * currently Option A's stdin-held-open shape, the SAME `authoringUserTurnLine` envelope the
+   * opening turn is written with in {@link startAuthoringSession}. Rejects with
+   * {@link UnknownRunError} for a `runId` this sidecar never spawned, BEFORE anything is written.
+   * A turn for a session that has already closed resolves rather than throwing — a decision made
+   * after the conversation ended is an ordinary board edit, not a lost message. */
+  async sendAuthoringTurn(runId: string, text: string): Promise<void> {
+    const session = liveSessions.get(runId);
+    if (!session) throw new UnknownRunError(runId);
+    if (session.closedEventEmitted || !session.child.stdin || session.child.stdin.destroyed) {
+      return;
+    }
+    session.child.stdin.write(`${authoringUserTurnLine(text)}\n`);
   }
 
   async killSession(runId: string): Promise<void> {

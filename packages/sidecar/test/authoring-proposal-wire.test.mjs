@@ -59,7 +59,10 @@ test("buildAuthoringClaudeArgv for an authoring spawn pushes the proposal tool o
     permissionMode: "default",
     permissionPromptToolName: "mcp__flywheel-permissions__approve_action",
     mcpConfig: "{}",
-    proposeTaskToolName: AUTHORING_PROPOSE_TASK_TOOL_NAME,
+    // Plan 05-05 widened buildAuthoringClaudeArgv's own field from a single proposeTaskToolName to
+    // a general authoringToolNames array (all nine authoring tools by the end of that plan) — this
+    // assertion keeps proving the ORIGINAL single-tool case still composes correctly.
+    authoringToolNames: [AUTHORING_PROPOSE_TASK_TOOL_NAME],
   });
   assert.deepEqual(argv, [
     "-p",

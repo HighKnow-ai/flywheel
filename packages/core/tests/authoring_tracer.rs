@@ -64,7 +64,7 @@ fn a_proposed_task_becomes_a_real_task_end_to_end_body() {
     assert_eq!(tasks_before, 0);
 
     // Advance to decompose (D-90: a human actor drives it).
-    let stage = advance_stage(&mut conn, &run.id, &human_actor_id).expect("advance_stage should succeed");
+    let (stage, _distillation) = advance_stage(&mut conn, &run.id, &human_actor_id).expect("advance_stage should succeed");
     assert_eq!(stage, AuthoringStage::Decompose);
     assert_eq!(current_stage(&conn, &run.id).unwrap(), Some(AuthoringStage::Decompose));
 

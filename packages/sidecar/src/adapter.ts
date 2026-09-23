@@ -215,6 +215,25 @@ export interface ProposalCreatedEvent extends AgentEventBase {
 }
 
 /**
+ * D-87 (plan 05-05): a HELD `board_search`/`epic_get`/`task_list` call, relayed over the SAME
+ * per-run permission socket {@link ProposalCreatedEvent} already travels (a FOURTH message kind,
+ * not a second socket). Unlike {@link ProposalCreatedEvent}, this event's `requestId` names a call
+ * still WAITING for an answer — the Rust core resolves it via `SidecarHandle::relay_authoring_read_answer`
+ * / the sidecar's own `authoring_read_answer` op, which reaches
+ * {@link AgentAdapter.resolveBoardRead}. `runId` (from {@link AgentEventBase}) is filled by the
+ * sidecar from the session this event fires inside — NEVER from the model's own tool-call
+ * arguments, matching every other authoring event in this union.
+ */
+export interface BoardReadRequestEvent extends AgentEventBase {
+  type: "board_read_request";
+  requestId: string;
+  readKind: "search" | "get_epic" | "list_tasks";
+  term?: string;
+  epicId?: string;
+  limit?: number;
+}
+
+/**
  * The normalised event union every adapter emits, in exactly the order the backend process
  * produced them (AGNT-01 ordering) — no reordering, no batching, no coalescing.
  */
@@ -232,7 +251,8 @@ export type AgentEvent =
   | GitRetryEvent
   | GitLockExhaustedEvent
   | SummaryReportedEvent
-  | ProposalCreatedEvent;
+  | ProposalCreatedEvent
+  | BoardReadRequestEvent;
 
 /** What an adapter declares it can do — gates which `AgentAdapter` methods are safe to call. */
 export interface AdapterCapabilities {
@@ -336,6 +356,16 @@ export interface AgentAdapter {
    * `capabilities.supportsAuthoring`; an adapter that does not override this rejects with
    * {@link CapabilityUnsupportedError} (AGNT-01), mirroring `resumeSession`'s own default shape. */
   startAuthoringSession(options: StartAuthoringSessionOptions): Promise<void>;
+
+  /** D-87 (plan 05-05): answer a held `board_read` call for `runId` — the read-path sibling of
+   * `resolvePermission`, reached from the sidecar's own `authoring_read_answer` op. */
+  resolveBoardRead(runId: string, requestId: string, result: unknown, error?: string): void;
+
+  /** D-89 (plan 05-05): send one turn's text to a LIVE authoring session — the one way anything
+   * above this adapter can say something to a running conversation. Rejects with
+   * {@link UnknownRunError} for a `runId` this sidecar never spawned; resolves (never throws) for
+   * a session that has already closed. */
+  sendAuthoringTurn(runId: string, text: string): Promise<void>;
 }
 
 /** The shared default for {@link AgentAdapter.startAuthoringSession} — mirrors

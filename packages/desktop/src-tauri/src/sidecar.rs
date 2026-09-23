@@ -429,6 +429,44 @@ impl SidecarHandle {
         self.send_request(&request.to_string())
     }
 
+    /// D-87 (plan 05-05): answer a held `board_read` call for `run_id`/`request_id` with the
+    /// core's own result (or error) — the read-path sibling of [`Self::relay_permission_answer_direct`],
+    /// following its identical fire-and-forget shape (no ack wait): the sidecar's own
+    /// `authoring_read_answer` ack is not something this call's caller needs to observe
+    /// synchronously.
+    pub fn relay_authoring_read_answer(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        result: Result<serde_json::Value, String>,
+    ) -> anyhow::Result<()> {
+        let mut request = serde_json::json!({
+            "id": format!("board-read-answer-{request_id}"),
+            "op": "authoring_read_answer",
+            "runId": run_id,
+            "requestId": request_id,
+        });
+        match result {
+            Ok(value) => request["result"] = value,
+            Err(message) => request["error"] = serde_json::Value::String(message),
+        }
+        self.send_request(&request.to_string())
+    }
+
+    /// D-89 (plan 05-05): send one turn's text to a live authoring session — the seam
+    /// `advance_stage`'s distillation instruction and a developer's decision on a proposal both
+    /// use to reach the running conversation. Follows [`Self::relay_permission_answer_direct`]'s
+    /// own shape exactly: fire-and-forget, no ack wait.
+    pub fn send_authoring_turn(&self, run_id: &str, text: &str) -> anyhow::Result<()> {
+        let request = serde_json::json!({
+            "id": format!("authoring-turn-{}", flywheel_core::ids::new_id()),
+            "op": "authoring_turn",
+            "runId": run_id,
+            "text": text,
+        });
+        self.send_request(&request.to_string())
+    }
+
     /// Ask the sidecar to tear down every live session's process group, and wait a bounded
     /// moment for its ack (CR-02, plan 02-14). This must be called BEFORE [`Self::kill`] on app
     /// exit: every `claude` session is spawned `detached: true`
@@ -1173,6 +1211,21 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                 == Some("proposal_created")
                             {
                                 crate::commands::authoring::handle_inbound_proposal_created(
+                                    &app_for_reader,
+                                    &event,
+                                );
+                            }
+
+                            // D-87 (plan 05-05): a HELD board_read call — resolved by relaying an
+                            // authoring_read_answer request back to the sidecar's own stdin
+                            // (never here, never blocking this loop). Placed AFTER the
+                            // `agent:event` emit for the same reason every other inbound branch
+                            // sits there: a fault in the query it runs can never delay or
+                            // suppress the live event the developer is watching.
+                            if event.get("type").and_then(|v| v.as_str())
+                                == Some("board_read_request")
+                            {
+                                crate::commands::authoring::handle_inbound_board_read_request(
                                     &app_for_reader,
                                     &event,
                                 );

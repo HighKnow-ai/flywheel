@@ -55,6 +55,25 @@ interface PermissionAnswerRequest {
   decision: "allow" | "deny";
 }
 
+/** D-87 (plan 05-05): the Rust core's answer to one held `board_read` call — the read-path
+ * sibling of {@link PermissionAnswerRequest}. Carries EITHER `result` OR `error`, never both. */
+interface AuthoringReadAnswerRequest {
+  id: string;
+  op: "authoring_read_answer";
+  runId: string;
+  requestId: string;
+  result?: unknown;
+  error?: string;
+}
+
+/** D-89 (plan 05-05): send one turn's text to a live authoring session. */
+interface AuthoringTurnRequest {
+  id: string;
+  op: "authoring_turn";
+  runId: string;
+  text: string;
+}
+
 /** D-39, plan 02-09 Task 3: ask whether the backend binary this adapter would spawn is
  * resolvable, and its reported version. Read-only — never spawns a session, never touches a
  * credential; carries no `runId` because it names no run. */
@@ -94,6 +113,8 @@ type SidecarRequest =
   | InterruptRequest
   | KillRequest
   | PermissionAnswerRequest
+  | AuthoringReadAnswerRequest
+  | AuthoringTurnRequest
   | CapabilityProbeRequest
   | ShutdownRequest
   | PingRequest;
@@ -239,6 +260,27 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       // sidecar itself decides nothing).
       try {
         adapter.resolvePermission(request.runId, request.requestId, request.decision);
+        emitAck(request.id, true);
+      } catch (err: unknown) {
+        emitAck(request.id, false, String(err));
+      }
+      return;
+    }
+    case "authoring_read_answer": {
+      // D-87: the ONLY caller of resolveBoardRead — resolves a held board_read call with the
+      // Rust core's own result (or error), mirroring "permission_answer"'s own shape above.
+      try {
+        adapter.resolveBoardRead(request.runId, request.requestId, request.result, request.error);
+        emitAck(request.id, true);
+      } catch (err: unknown) {
+        emitAck(request.id, false, String(err));
+      }
+      return;
+    }
+    case "authoring_turn": {
+      // D-89: deliver one turn's text to a live authoring session.
+      try {
+        await adapter.sendAuthoringTurn(request.runId, request.text);
         emitAck(request.id, true);
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));

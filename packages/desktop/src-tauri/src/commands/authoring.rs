@@ -14,6 +14,7 @@
 //! without a real spawned sidecar, and this half performs the IPC-adjacent `board:changed` emit
 //! the outcome implies.
 
+use anyhow::Context;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -224,6 +225,14 @@ pub fn authoring_proposal_accept(
 /// matching `authoring_proposal_accept`'s own discipline immediately above). Thin wrapper over
 /// `domain::authoring_session::advance_stage`; emits `board:changed` for the run so the stage
 /// indicator (`SessionSurface.tsx`) and any other consumer of this run's row re-read it.
+///
+/// D-89 (plan 05-05): when `advance_stage` returns a distillation instruction (advancing OUT of
+/// `challenge`), it is relayed to the live session as an `authoring_turn` — AFTER the stage row
+/// has already committed above. Distillation is a REQUEST, not a precondition: a missing sidecar
+/// handle or a delivery failure is swallowed here (never surfaced as a command error), matching
+/// the plan's own "the stage advances even when the turn cannot be delivered" requirement — a
+/// stage machine that cannot move because a model declined (or a process is not reachable) to
+/// emit a row is a worse failure than a thin assumption record.
 #[tauri::command]
 pub fn authoring_stage_advance(
     state: State<AppState>,
@@ -234,7 +243,7 @@ pub fn authoring_stage_advance(
     let human_actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
 
-    let stage = flywheel_core::domain::authoring_session::advance_stage(
+    let (stage, distillation) = flywheel_core::domain::authoring_session::advance_stage(
         &mut conn,
         &agent_run_id,
         &human_actor_id,
@@ -248,6 +257,12 @@ pub fn authoring_stage_advance(
         serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
     )
     .ok();
+
+    if let Some(instruction) = distillation {
+        if let Some(sidecar) = state.sidecar.as_ref() {
+            let _ = sidecar.send_authoring_turn(&agent_run_id, &instruction.text);
+        }
+    }
 
     Ok(stage.as_str().to_string())
 }
@@ -313,4 +328,127 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
             serde_json::json!({ "entity": "agent_run", "id": proposal.agent_run_id }),
         );
     }
+}
+
+/// D-87 (plan 05-05): the inbound half of the board-read round trip — called from `sidecar.rs`'s
+/// reader loop for every `board_read_request` event. Resolves the run's own `project_id` from
+/// `agent_runs` INSIDE the query it runs (never trusts anything the event itself might claim
+/// about scope — T-05-05-03), dispatches on `readKind` to exactly one `query::authoring` function
+/// (never anything outside that module — 05-RESEARCH.md Pitfall 4), and relays the answer back
+/// over the sidecar's own stdin via `SidecarHandle::relay_authoring_read_answer`. This function must
+/// never panic: a malformed event, a poisoned lock, or a query error becomes an `error` string
+/// relayed back to the waiting call, never a crash of this shared reader loop (mirrors
+/// `handle_inbound_proposal_created`'s own discipline).
+pub fn handle_inbound_board_read_request(app: &AppHandle, event: &serde_json::Value) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let Some(sidecar) = state.sidecar.as_ref() else { return };
+
+    let (Some(run_id), Some(request_id), Some(read_kind)) = (
+        event.get("runId").and_then(|v| v.as_str()),
+        event.get("requestId").and_then(|v| v.as_str()),
+        event.get("readKind").and_then(|v| v.as_str()),
+    ) else {
+        return;
+    };
+
+    // Resolved the SAME way `query::authoring::resolve_limit` resolves it — computed here (not
+    // only inside the query function, which clamps a second time regardless — belt-and-suspenders)
+    // so this handler can request one row PAST the resolved limit and detect truncation itself,
+    // rather than trusting a page's own length to tell it (05-RESEARCH.md Pitfall 4: a reader that
+    // thinks it has seen everything is the exact failure a bounded-but-silent page produces).
+    let requested_limit = event.get("limit").and_then(|v| v.as_i64()).unwrap_or(0);
+    let resolved_limit = if requested_limit <= 0 {
+        flywheel_core::query::authoring::DEFAULT_LIMIT
+    } else {
+        requested_limit
+    }
+    .min(flywheel_core::query::authoring::MAX_LIMIT);
+    // One past the resolved limit, itself clamped at MAX_LIMIT — a request already sitting at the
+    // ceiling cannot peek past it, which is an accepted, documented edge case (truncation at the
+    // exact ceiling reads `false` rather than `true`), not a silent unbounded read.
+    let peek_limit = (resolved_limit + 1).min(flywheel_core::query::authoring::MAX_LIMIT);
+
+    let result: Result<serde_json::Value, String> = (|| -> anyhow::Result<serde_json::Value> {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("db mutex poisoned"))?;
+        let project_id: String = conn
+            .query_row(
+                "SELECT project_id FROM agent_runs WHERE id = ?1",
+                rusqlite::params![run_id],
+                |row| row.get(0),
+            )
+            .context("agent_run not found for a board read request")?;
+
+        match read_kind {
+            "search" => {
+                let term = event.get("term").and_then(|v| v.as_str()).unwrap_or("");
+                let mut items = flywheel_core::query::authoring::search_board_for_agent(
+                    &conn, &project_id, term, peek_limit,
+                )?;
+                let truncated = items.len() as i64 > resolved_limit;
+                items.truncate(resolved_limit.max(0) as usize);
+                let items_json: Vec<serde_json::Value> = items
+                    .iter()
+                    .map(|item| {
+                        serde_json::json!({
+                            "id": item.id,
+                            "kind": item.kind,
+                            "key": item.key,
+                            "title": item.title,
+                            "status": item.status,
+                            "epicId": item.epic_id,
+                        })
+                    })
+                    .collect();
+                // 05-RESEARCH.md Pitfall 4 / D-87: a true `total` for an FTS match count would
+                // need a second, separately-maintained count query mirroring `search_items`'s own
+                // predicate — out of this plan's proportionate scope. `truncated` alone already
+                // tells the model it is looking at a page, never the whole board.
+                Ok(serde_json::json!({ "items": items_json, "truncated": truncated }))
+            }
+            "get_epic" => {
+                let epic_id = event.get("epicId").and_then(|v| v.as_str()).unwrap_or("");
+                let epic = flywheel_core::query::authoring::get_epic_for_agent(
+                    &conn, &project_id, epic_id,
+                )?;
+                let found = epic.is_some();
+                Ok(serde_json::json!({ "epic": epic, "found": found }))
+            }
+            "list_tasks" => {
+                let epic_id = event.get("epicId").and_then(|v| v.as_str()).unwrap_or("");
+                // Server-side scoping (T-05-05-03): confirm the epic is this run's own project's
+                // BEFORE listing its tasks — an epic_id from another project reads not-found
+                // rather than the row, never distinguishable from "this epic does not exist".
+                let scoped = flywheel_core::query::authoring::get_epic_for_agent(
+                    &conn, &project_id, epic_id,
+                )?;
+                if scoped.is_none() {
+                    return Ok(serde_json::json!({
+                        "tasks": [], "found": false, "truncated": false, "total": 0
+                    }));
+                }
+                let mut tasks = flywheel_core::query::authoring::list_tasks_for_epic(
+                    &conn, epic_id, peek_limit,
+                )?;
+                let truncated = tasks.len() as i64 > resolved_limit;
+                tasks.truncate(resolved_limit.max(0) as usize);
+                let total: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM tasks WHERE epic_id = ?1",
+                        rusqlite::params![epic_id],
+                        |row| row.get(0),
+                    )
+                    .context("failed to count the epic's own tasks")?;
+                Ok(serde_json::json!({
+                    "tasks": tasks, "found": true, "truncated": truncated, "total": total
+                }))
+            }
+            other => anyhow::bail!("unknown board read kind {other:?}"),
+        }
+    })()
+    .map_err(|e| e.to_string());
+
+    let _ = sidecar.relay_authoring_read_answer(run_id, request_id, result);
 }

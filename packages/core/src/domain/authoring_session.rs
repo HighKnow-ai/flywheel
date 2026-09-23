@@ -268,8 +268,38 @@ fn transition_stage(
     Ok(next)
 }
 
+/// D-89 (plan 05-05): the distillation instruction [`advance_stage`] returns exactly once — when
+/// the transition just landed on the far side of `challenge` (i.e. `challenge -> decompose`). The
+/// command layer sends this text as an `authoring_turn`, asking the agent to distil what it
+/// challenged into staged `propose_assumption` rows — one call per assumption, never a list, and
+/// never prose folded into another row's field (`PITFALLS.md` pitfall 3's general rule, applied
+/// here). Those rows go through the SAME accept/amend path as every other proposal (D-92), which
+/// is what makes the model's reading of the conversation *correctable rather than authoritative*
+/// (D-89's own sentence) — the only reason a distilled record is acceptable at all.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DistillationInstruction {
+    pub text: String,
+}
+
+/// The distillation instruction's own fixed text (D-89) — names `propose_assumption` by its exact
+/// tool name and states the one-call-per-assumption rule explicitly, so the agent never has to
+/// guess either. Also states what the rows are FOR (a draft the developer decides on, primed into
+/// a later session only once accepted) — the framing D-89 says is what makes a distilled record
+/// acceptable at all.
+const DISTILLATION_INSTRUCTION_TEXT: &str = "Before we move on: call `propose_assumption` once for \
+    EACH assumption you challenged in this stage, each call carrying that one assumption and the \
+    answer I gave you — one tool call per assumption, never a single call carrying a list, and \
+    never folding more than one assumption's text into a single call. These rows are a DRAFT of \
+    your own reasoning: I will accept, amend or reject each one myself, and only the ones I accept \
+    will be primed into a later session on this epic. Go ahead now.";
+
 /// Advance `agent_run_id` to the next stage (D-88, D-90) — `challenge -> decompose -> criteria`,
-/// erroring at the last stage rather than wrapping or no-opping.
+/// erroring at the last stage rather than wrapping or no-opping. Returns the new stage alongside
+/// D-89's distillation instruction, present ONLY when this transition just left `challenge` (i.e.
+/// the new stage is `decompose`) — advancing out of `decompose` (into `criteria`) returns `None`.
+/// Distillation is a REQUEST, not a precondition (D-90): this function's own job is done the
+/// moment the row transitions; delivering the returned instruction as a live `authoring_turn` is
+/// the command layer's job, and its own success or failure never unwinds this transition.
 ///
 /// **Takes a human actor id and has no agent-reachable caller anywhere in this workspace**: D-90
 /// gives Cyril — the developer — the SOLE advance gate. An agent that could end its own challenge
@@ -282,8 +312,8 @@ pub fn advance_stage(
     conn: &mut Connection,
     agent_run_id: &str,
     human_actor_id: &str,
-) -> anyhow::Result<AuthoringStage> {
-    transition_stage(
+) -> anyhow::Result<(AuthoringStage, Option<DistillationInstruction>)> {
+    let next = transition_stage(
         conn,
         agent_run_id,
         |current| {
@@ -294,7 +324,55 @@ pub fn advance_stage(
         human_actor_id,
         "authoring_run.stage_changed",
         |before, after| format!("Advanced from {before} to {after}"),
-    )
+    )?;
+
+    let distillation = if next == AuthoringStage::Decompose {
+        Some(DistillationInstruction { text: DISTILLATION_INSTRUCTION_TEXT.to_string() })
+    } else {
+        None
+    };
+
+    Ok((next, distillation))
+}
+
+/// D-93/D-94 (plan 05-05 Task 3(c)): one developer decision on a proposal, as the turn
+/// [`render_decision_turn`] renders it. Plan 05-06 owns the write path that constructs this and
+/// relays the rendered text via `SidecarHandle::send_authoring_turn`; this module owns only the
+/// relay's WORDING, so the two are argued and tested independently of who ends up calling it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProposalDecisionTurn {
+    /// D-93: a rejection is an invitation to propose something better, never a verdict to argue
+    /// with — `reason` is the developer's own, optional explanation.
+    Rejected { target_type: String, label: String, reason: Option<String> },
+    /// D-94: an amendment is the developer's OWN text, which the next batch of drafts should move
+    /// toward rather than repeating the original.
+    Amended { target_type: String, original_label: String, new_text: String },
+}
+
+/// Render one [`ProposalDecisionTurn`] into the text a live authoring session receives as an
+/// `authoring_turn` (D-93/D-94). A pure function — no I/O, no transaction, no clock read — so its
+/// wording is unit-testable independent of the write path that will eventually call it.
+pub fn render_decision_turn(decision: &ProposalDecisionTurn) -> String {
+    match decision {
+        ProposalDecisionTurn::Rejected { target_type, label, reason } => {
+            let mut text = format!("I rejected the {target_type} proposal \"{label}\".");
+            if let Some(reason) = reason {
+                text.push_str(&format!(" Reason: {reason}."));
+            }
+            text.push_str(
+                " This isn't a verdict to argue with — if you still think this is the right \
+                 shape, propose something better that answers the reason above.",
+            );
+            text
+        }
+        ProposalDecisionTurn::Amended { target_type, original_label, new_text } => {
+            format!(
+                "I amended the {target_type} proposal \"{original_label}\" to: \"{new_text}\". \
+                 This is my own text, not a suggestion to consider — move your next drafts toward \
+                 it rather than repeating the original."
+            )
+        }
+    }
 }
 
 /// Return `agent_run_id` to an earlier (or, degenerately, the same) stage (D-90) — going back is

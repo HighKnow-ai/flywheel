@@ -455,6 +455,10 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
     "AGENT_TASK_CRITERIA_SQL",  // authoring.rs (plan 05-04) — bounded by one task's own criteria count,
                                  // the same un-LIMIT'd-by-design shape context_packet.rs's own CRITERIA_SQL uses
     "proposal_status_counts",   // authoring.rs (plan 05-04) — GROUP BY over the fixed 3-value proposal status domain
+    "get_epic_for_agent",       // authoring.rs (plan 05-05) — query_row keyed by epics.id (PRIMARY KEY),
+                                 // additionally scoped by project_id; at most one row by construction,
+                                 // the same cardinality-one shape BLOCKED_COUNT_SQL/RECOVERY_COUNT_SQL
+                                 // are already allowlisted for
 ];
 
 fn strip_comment_lines(source: &str) -> String {
