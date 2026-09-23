@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 7
+open_count: 9
 waived_count: 0
 fixed_count: 6
-total_count: 13
-last_updated: 2026-09-23T13:08:43.755Z
+total_count: 15
+last_updated: 2026-09-23T13:47:22.146Z
 ---
 
 # Broken Windows Ledger
@@ -28,6 +28,8 @@ last_updated: 2026-09-23T13:08:43.755Z
 | 11 | 03 | deviation | scripts/uat/run-all.sh |  | Plan 03-34's own end-of-phase run-all.sh (verification step 6) FAILED 4/6 scriptable items (UAT 3, 5, 6a, 6b — all live-claude-session scripts unrelated to this plan's test-corpus/docs-only diff); judged pre-existing live-session flakiness matching the phase's own repeated 03-24/03-26/03-29/03-30/03-32 pattern, not chased; see 03-34-SUMMARY.md Issues Encountered | open |  | 2026-09-22T02:12:43.740Z |  |
 | 12 | 03 | deviation | scripts/uat/run-all.sh |  | Plan 03-36's own end-of-phase run-all.sh (verification step 6) FAILED 4/6 scriptable items (UAT 3, 5, 6a, 6b — all live-claude-session scripts) again, repeating entry 11's exact pattern; this plan's diff is test-corpus+docs only (packages/sidecar/test/destructive-gate.test.mjs, 03-REQUIREMENTS-BOOKKEEPING.md), cannot plausibly cause a live-claude-session failure; judged the same pre-existing flakiness as entry 11, not chased; see 03-36-SUMMARY.md | open |  | 2026-09-22T05:17:16.542Z |  |
 | 13 | 05 | unrun-verify | .planning/phases/05-socratic-epic-authoring/05-02-PLAN.md |  | Task 3 human-check (product kill criterion: timed in-app shaping run vs. terminal comparison arm) not executed by the autonomous executor — deferred to end-of-phase UAT per human_verify_mode=end-of-phase. | open |  | 2026-09-23T13:08:43.755Z |  |
+| 14 | 05 | unrun-verify | .planning/phases/05-socratic-epic-authoring/05-03-PLAN.md |  | SHAPE-01 flagged prohibition (values, unverified): 'MUST NOT let the challenge stage become agreeable validation' — whether the agent's live conversational behaviour during the challenge stage is genuinely challenging vs. sycophantic is a live-conversation quality judgment no autonomous executor can perform or fabricate; the structural mechanism (no proposal tool reachable during challenge) is proven by this plan's own tests, but the QUALITY of the challenge itself is deferred to end-of-phase UAT alongside WINDOWS.md entry #13's product kill criterion. | open |  | 2026-09-23T13:47:09.513Z |  |
+| 15 | 05 | deviation | .planning/phases/05-socratic-epic-authoring/05-03-PLAN.md |  | Task 3's own <verify> hex-literal gate (grep -cE '#[0-9a-fA-F]{3,8}' over TWO files) can never equal the literal string "0" it is compared against, because grep -c over multiple files prints one 'file:count' line per file rather than a single combined total — a shell-scripting bug in the plan's own verify command, not a code defect. Checked per-file instead: both packages/desktop/src/session/__tests__/authoring-stage.test.tsx and packages/desktop/src/legend/marks.ts report 0 hex-literal matches individually, so the underlying invariant (no hex literal introduced) genuinely holds. | open |  | 2026-09-23T13:47:22.146Z |  |
 
 ````json
 [
@@ -185,6 +187,30 @@ last_updated: 2026-09-23T13:08:43.755Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-23T13:08:43.755Z",
+    "resolved_at": null
+  },
+  {
+    "id": 14,
+    "kind": "unrun-verify",
+    "phase": "05",
+    "file": ".planning/phases/05-socratic-epic-authoring/05-03-PLAN.md",
+    "line": null,
+    "description": "SHAPE-01 flagged prohibition (values, unverified): 'MUST NOT let the challenge stage become agreeable validation' — whether the agent's live conversational behaviour during the challenge stage is genuinely challenging vs. sycophantic is a live-conversation quality judgment no autonomous executor can perform or fabricate; the structural mechanism (no proposal tool reachable during challenge) is proven by this plan's own tests, but the QUALITY of the challenge itself is deferred to end-of-phase UAT alongside WINDOWS.md entry #13's product kill criterion.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-23T13:47:09.513Z",
+    "resolved_at": null
+  },
+  {
+    "id": 15,
+    "kind": "deviation",
+    "phase": "05",
+    "file": ".planning/phases/05-socratic-epic-authoring/05-03-PLAN.md",
+    "line": null,
+    "description": "Task 3's own <verify> hex-literal gate (grep -cE '#[0-9a-fA-F]{3,8}' over TWO files) can never equal the literal string \"0\" it is compared against, because grep -c over multiple files prints one 'file:count' line per file rather than a single combined total — a shell-scripting bug in the plan's own verify command, not a code defect. Checked per-file instead: both packages/desktop/src/session/__tests__/authoring-stage.test.tsx and packages/desktop/src/legend/marks.ts report 0 hex-literal matches individually, so the underlying invariant (no hex literal introduced) genuinely holds.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-23T13:47:22.146Z",
     "resolved_at": null
   }
 ]
