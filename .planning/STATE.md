@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-04-PLAN.md
-last_updated: "2026-09-23T14:29:06.991Z"
+stopped_at: Completed 05-05-PLAN.md
+last_updated: "2026-09-23T15:25:26.948Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 05 execution started
-state_head: 770965124f44c57186bd29501ccb2fe636bcab4d
+state_head: c6c80923da3e7f3b3d2bdfb98b32a2f01ec8038e
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 103
-  completed_plans: 96
+  completed_plans: 98
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 5 of 10
+Plan: 6 of 10
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 05 execution started
 
@@ -156,6 +156,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P02 | 130min | 3 tasks | 28 files |
 | Phase 05 P03 | 150min | 3 tasks | 18 files |
 | Phase 05 P04 | 110min | 3 tasks | 19 files |
+| Phase 05-socratic-epic-authoring P05 | 240 min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -334,6 +335,8 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05-04]: query::authoring.rs holds every agent-reachable board read (list_epics_page, list_tasks_for_epic, search_board_for_agent, list_pending_proposals, list_rejected_for_epic) as a distinct module from domain::epic::list_epics -- two reads, two ceilings, one reason each: the renderer's roster needs a high ceiling with surfaced truncation, the agent's reads need the DEFAULT_LIMIT/MAX_LIMIT clamp every other agent-reachable read already uses.
 - [Phase 05]: [Phase 05-04]: Migration 0012 adds idx_authoring_proposals_project_status (project_id, status, created_at DESC) -- deviation Rule 2, since D-82's board-level triage lane query has no existing index over that column pair and this plan's own purpose is closing unindexed/unbounded reads before an agent can reach them.
 - [Phase 05]: [Phase 05-04]: RejectedSet folds D-83's rejected-proposal history by POSITION past REJECTED_VERBATIM_WINDOW (5), copying compaction.rs's own contract exactly -- the most recent 5 rejected proposals are carried whole, older ones fold to target_type + payload label only, with a RejectionBoundary sentence stating where the fold begins, never a size/character/token ceiling.
+- [Phase 05-socratic-epic-authoring]: Read tools (board_search/epic_get/task_list) are pre-approved via --allowedTools alongside the six write tools — D-46's 'never wait on a human for a cost-free action' reasoning extended from writes to bounded, server-side-scoped reads. — Without pre-approval every board lookup would route through approve_action and block on a human, defeating the challenge stage's need to look things up freely.
+- [Phase 05-socratic-epic-authoring]: board_read is a FOURTH, HELD socket message kind on the existing per-run Unix socket (unlike the fire-and-forget notice/summary/proposal kinds) — reuses the permission gate's own pending-map-and-resolve shape since a read needs an actual answer back. — Zero new socket, zero new process — D-64's precedent extended a third time, this time for a request that genuinely needs a reply.
 
 ### Pending Todos
 
@@ -379,6 +382,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T14:28:53.196Z
-Stopped at: Completed 05-04-PLAN.md
+Last session: 2026-09-23T15:25:03.660Z
+Stopped at: Completed 05-05-PLAN.md
 Resume file: None

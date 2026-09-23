@@ -517,7 +517,7 @@ Plans:
 
 **Wave 4** *(blocked on 05-03 and 05-04)*
 
-- [ ] 05-05-PLAN.md — The full authoring tool set: six write tools, three capped read tools answered by the core, the distillation turn, and the decision relay (SHAPE-01, SHAPE-02, SHAPE-03, SHAPE-05)
+- [x] 05-05-PLAN.md — The full authoring tool set: six write tools, three capped read tools answered by the core, the distillation turn, and the decision relay (SHAPE-01, SHAPE-02, SHAPE-03, SHAPE-05)
 
 **Wave 5** *(both blocked on 05-05; they share no file and run in parallel)*
 
