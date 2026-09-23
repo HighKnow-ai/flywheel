@@ -213,6 +213,38 @@ pub fn start_agent_run(
     })
 }
 
+/// Record, on the run row, which criterion revisions its briefing actually carried (D-78, plan
+/// 04-10). Serialises `criterion_ids` to a JSON array (`serde_json::to_string`) and writes it to
+/// `agent_runs.criteria_revision_pin` in ONE statement, guarded `WHERE criteria_revision_pin IS
+/// NULL` so a second call for the same run is a no-op: the pin records exactly what the run was
+/// started with, and overwriting it later would be the retroactive rewrite D-40 protects against.
+/// Never opens a transaction of its own — a single guarded `UPDATE` is already atomic.
+///
+/// RED-phase stub (Task 3, plan 04-10): does not write anything yet.
+pub fn pin_criteria_revisions(
+    conn: &mut Connection,
+    agent_run_id: &str,
+    criterion_ids: &[String],
+) -> anyhow::Result<()> {
+    let _ = (conn, agent_run_id, criterion_ids);
+    Ok(())
+}
+
+/// Read back the criterion-revision pin for `agent_run_id` (D-78, plan 04-10). `None` when the
+/// column is `NULL` — a run that predates this column, or one whose pin write has not landed —
+/// `Some(vec![])` when it holds an empty JSON array (the task had zero criteria at start). The
+/// distinction is load-bearing for plan 04-11's third drift detector, which must not fire on a
+/// pre-pinning run.
+///
+/// RED-phase stub (Task 3, plan 04-10): always reports `None`.
+pub fn criteria_revision_pin_for_run(
+    conn: &Connection,
+    agent_run_id: &str,
+) -> anyhow::Result<Option<Vec<String>>> {
+    let _ = (conn, agent_run_id);
+    Ok(None)
+}
+
 /// The statement body [`close_agent_run`] issues, factored out so [`apply_session_closed`] can run
 /// it inside ITS OWN transaction — alongside the fallback-summary presence check — rather than
 /// calling `close_agent_run`'s `&mut Connection` entry point, which would open a second, separate
