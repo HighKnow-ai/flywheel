@@ -361,23 +361,33 @@ fn read_worktree_facts(
 /// a task with no epic has no epic section. `drift` is still computed in every case: the
 /// criteria-revision and read-back detectors need no git facts at all, so a missing/vanished
 /// worktree still surfaces those two.
-fn packet_extras_for(conn: &Connection, packet: &ContextPacket, task_id: &str) -> PacketExtras {
+fn packet_extras_for(
+    conn: &Connection,
+    packet: &ContextPacket,
+    task_id: &str,
+    previous_run_id: Option<&str>,
+) -> PacketExtras {
     let current_criterion_ids: Vec<String> =
         flywheel_core::domain::acceptance_criterion::list_current_criteria(conn, "task", task_id)
             .map(|criteria| criteria.into_iter().map(|c| c.id).collect())
             .unwrap_or_default();
 
-    // D-78: the pin belongs to the task's most recent run — a task with no run yet reaches
-    // `detect_drift` as `None`, never as an empty set, so the revision detector stays silent for
-    // it (never "do not fire" vs "empty set" confusion).
-    let pinned_criterion_ids: Option<Vec<String>> =
-        match flywheel_core::query::permissions::latest_run_id_for_task(conn, task_id) {
-            Ok(Some(run_id)) => {
-                flywheel_core::domain::agent_run::criteria_revision_pin_for_run(conn, &run_id)
-                    .unwrap_or(None)
-            }
-            _ => None,
-        };
+    // D-78 (rewritten, gap #2 of 04-VERIFICATION.md): the pin belongs to the run that PRECEDED
+    // this briefing — `previous_run_id`, resolved by the CALLER before any new `agent_runs` row
+    // for THIS start exists. This function must never re-derive "the task's latest run" itself:
+    // for `agent_run_start`'s call site, doing so after `start_agent_run`'s insert would resolve
+    // the brand-new, not-yet-pinned run instead of its predecessor — `criteria_revision_pin_for_run`
+    // would then read a NULL pin off that new row, and `detect_criteria_revision`'s early-return
+    // guard would silently collapse to `None` even when the criteria really did move. `None` still
+    // means "no predecessor": a task's first-ever run reaches `detect_drift` as `None`, never as
+    // an empty set, so the revision detector stays silent for it exactly as it always has.
+    let pinned_criterion_ids: Option<Vec<String>> = match previous_run_id {
+        Some(run_id) => {
+            flywheel_core::domain::agent_run::criteria_revision_pin_for_run(conn, run_id)
+                .unwrap_or(None)
+        }
+        None => None,
+    };
 
     let has_worktree_row = conn
         .query_row(
@@ -430,10 +440,16 @@ fn packet_extras_for(conn: &Connection, packet: &ContextPacket, task_id: &str) -
 /// going through Tauri's `State<AppState>` extraction machinery — the same reasoning
 /// [`read_log_window`] documents for its own split. Performs no insert, update or delete: every
 /// call inside is a `SELECT` (`assemble_context_packet`'s own contract, D-28) or a read-only git
-/// invocation (`packet_extras_for`).
+/// invocation (`packet_extras_for`). For a preview, the task's own most recent run IS the
+/// predecessor the criteria-revision pin should compare against — a preview creates no new
+/// `agent_runs` row, so `latest_run_id_for_task` genuinely resolves the run that preceded this
+/// (hypothetical) briefing, unlike `agent_run_start`'s call site (gap #2 of 04-VERIFICATION.md),
+/// which resolves it BEFORE its own insert instead.
 fn build_preview_dto(conn: &Connection, task_id: &str) -> Result<ContextPacketDto, String> {
     let packet = assemble_context_packet(conn, task_id).map_err(|e| e.to_string())?;
-    let extras = packet_extras_for(conn, &packet, task_id);
+    let previous_run_id = flywheel_core::query::permissions::latest_run_id_for_task(conn, task_id)
+        .map_err(|e| e.to_string())?;
+    let extras = packet_extras_for(conn, &packet, task_id, previous_run_id.as_deref());
     let packet =
         assemble_context_packet_with_extras(conn, task_id, extras).map_err(|e| e.to_string())?;
     Ok(packet.into())
@@ -460,16 +476,135 @@ pub struct AgentRunDto {
     pub permission_mode: String,
 }
 
+/// What [`start_agent_run_recording_first`] produced (gap #2 of 04-VERIFICATION.md, CTX-06) — the
+/// DB-only half of a Start Work run's outcome, everything [`agent_run_start`] itself needs to
+/// finish the Tauri- and process-facing half (merge the shim env, send the spawn request, emit
+/// `board:changed`, build the returned DTO) without touching the database again.
+pub(crate) struct StartRunOutcome {
+    pub run_id: String,
+    pub actor_id: String,
+    pub worktree_id: Option<String>,
+    pub worktree_path: String,
+    pub prompt: String,
+    pub drift_event_count: usize,
+}
+
+/// The DB-only half of [`agent_run_start`] (gap #2 of 04-VERIFICATION.md, CTX-06), extracted so
+/// the fix at its heart is unit-testable against a bare `&mut Connection`, with no
+/// `State<AppState>` and no `AppHandle` — named after [`stop_agent_run_recording_first`]'s
+/// identical precedent in this file, for the identical reason.
+///
+/// Performs, in exactly this order — the order IS the fix:
+/// 1. Resolve `previous_run_id`, the run that PRECEDED this one, via
+///    `query::permissions::latest_run_id_for_task` — BEFORE anything inserts a row. This step
+///    MUST stay strictly before step 2: `latest_run_id_for_task` orders by
+///    `started_at DESC LIMIT 1`, so calling it AFTER `start_agent_run`'s insert would resolve the
+///    brand-new, not-yet-pinned run instead of its predecessor, silently collapsing
+///    `detect_criteria_revision` to `None` even when the criteria really did move (gap #2 of
+///    04-VERIFICATION.md).
+/// 2. `start_agent_run`.
+/// 3. `assemble_context_packet`.
+/// 4. `packet_extras_for`, fed `previous_run_id` so the pin comparison resolves the run that
+///    actually preceded this one, never the run being started.
+/// 5. `assemble_context_packet_with_extras`.
+/// 6. `render_prompt`.
+/// 7. the `record_drift_warnings` transaction, unchanged in shape.
+/// 8. `list_current_criteria` then `pin_criteria_revisions`, unchanged.
+/// 9. the `SELECT path FROM worktrees WHERE id = ?1` read for the worktree path.
+pub(crate) fn start_agent_run_recording_first(
+    conn: &mut Connection,
+    task_id: &str,
+    permission_mode: &str,
+    instruction: &str,
+    human_actor_id: &str,
+) -> Result<StartRunOutcome, String> {
+    // Step 1 — see this function's own doc comment for why this MUST stay first.
+    let previous_run_id = flywheel_core::query::permissions::latest_run_id_for_task(conn, task_id)
+        .map_err(|e| e.to_string())?;
+
+    // Step 2.
+    let run = flywheel_core::domain::agent_run::start_agent_run(
+        conn,
+        task_id,
+        permission_mode,
+        human_actor_id,
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Steps 3-6: re-read the packet now that the worktree is real (not predicted) — the same
+    // assembler `agent_run_preview` calls, so this run's prompt is exactly what the sheet most
+    // recently previewed, modulo the operator's own instruction (T-02-21). Composed through the
+    // same assemble_context_packet -> packet_extras_for -> assemble_context_packet_with_extras
+    // path as build_preview_dto (plan 04-07 Task 3, plan 04-11 Task 3), so the launch sheet's
+    // preview and this run's actual prompt can never carry a different diff section or a
+    // different set of drift warnings — including the criteria-revision one, now that
+    // `previous_run_id` is threaded correctly (gap #2 of 04-VERIFICATION.md).
+    let packet = assemble_context_packet(conn, task_id).map_err(|e| e.to_string())?;
+    let extras = packet_extras_for(conn, &packet, task_id, previous_run_id.as_deref());
+    let packet =
+        assemble_context_packet_with_extras(conn, task_id, extras).map_err(|e| e.to_string())?;
+    let prompt = render_prompt(&packet, instruction);
+
+    // Step 7 (D-72/D-73/D-74/D-75, plan 04-12): give every fired detector a durable activity-
+    // trail trace, one event per warning, appended in one atomic transaction right after the
+    // extras (and therefore the drift) have been computed. Called from this function only — never
+    // from `build_preview_dto`, whose whole value is that opening the launch sheet writes
+    // nothing; a single-call-site `<verify>` grep gate over this file asserts that.
+    // `record_drift_warnings` itself is a no-op (zero events, zero database reads) for an empty
+    // `packet.drift`, so this call is unconditional.
+    let drift_event_count = {
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let count = flywheel_core::domain::agent_run::record_drift_warnings(
+            &tx,
+            &run.id,
+            &packet.drift,
+            &run.actor_id,
+            &now,
+        )
+        .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        count
+    };
+
+    // Step 8 (D-78, plan 04-10): pin, on the run row, exactly which criterion revisions this
+    // briefing carried — read via `list_current_criteria` in the same rank order the packet
+    // assembly above uses, so the pin and the prompt agree by construction.
+    let criteria_ids: Vec<String> =
+        flywheel_core::domain::acceptance_criterion::list_current_criteria(conn, "task", task_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+    flywheel_core::domain::agent_run::pin_criteria_revisions(conn, &run.id, &criteria_ids)
+        .map_err(|e| e.to_string())?;
+
+    // Step 9.
+    let worktree_path: String = conn
+        .query_row(
+            "SELECT path FROM worktrees WHERE id = ?1",
+            rusqlite::params![run.worktree_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(StartRunOutcome {
+        run_id: run.id,
+        actor_id: run.actor_id,
+        worktree_id: run.worktree_id,
+        worktree_path,
+        prompt,
+        drift_event_count,
+    })
+}
+
 /// Start a fresh agent run against `task_id` (D-30: always fresh, never `--resume`). Validates
 /// `permission_mode` and the operator's free-text `instruction` (T-02-19/T-02-20) before any DB
-/// or sidecar call happens, resolves the human actor server-side (T-01-04), calls
-/// `domain::agent_run::start_agent_run` (which itself ensures the task's worktree exists —
-/// create-or-reuse, WORK-01/WORK-08), then re-assembles the context packet against the
-/// now-created worktree and renders it through the SAME `render_prompt` function
-/// `agent_run_preview` uses (T-02-21: one Rust-side renderer, no second implementation in the
-/// renderer) — replacing plan 02-01's title-and-description placeholder. Persists
-/// `permission_mode` on the run row via `start_agent_run` itself. Emits `board:changed` after the
-/// domain write commits (D-04).
+/// or sidecar call happens, resolves the human actor server-side (T-01-04), then delegates the
+/// entire DB-only half to [`start_agent_run_recording_first`] (gap #2 of 04-VERIFICATION.md) —
+/// this command itself keeps only what is Tauri- or process-facing: credential resolution before
+/// any run/worktree state exists (D-39, T-02-42), the shim env merge, the spawn request, and the
+/// `board:changed` emit.
 #[tauri::command]
 pub fn agent_run_start(
     state: State<AppState>,
@@ -489,7 +624,8 @@ pub fn agent_run_start(
     // `resolve_credential` errors when the credential mode is api_key and no key is stored
     // (T-02-42) — that failure must never leave behind an already-`running` `agent_runs` row and
     // a freshly created worktree that will never actually be spawned into, so the project id is
-    // looked up (read-only) and the credential resolved BEFORE `start_agent_run` runs.
+    // looked up (read-only) and the credential resolved BEFORE `start_agent_run_recording_first`
+    // runs.
     // D-52 (plan 03-04): `repo_path` is read in this SAME `query_row` call, one extra column, no
     // extra round trip — `agent_run_start`'s own spawn request needs it to key the per-repository
     // spawn floor (`send_spawn_request`, below).
@@ -506,88 +642,28 @@ pub fn agent_run_start(
     let mut env =
         crate::sidecar::resolved_env_for_run(&conn, &project_id).map_err(|e| e.to_string())?;
 
-    let run = flywheel_core::domain::agent_run::start_agent_run(
+    let outcome = start_agent_run_recording_first(
         &mut conn,
         &task_id,
         &permission_mode,
+        &instruction,
         &human_actor_id,
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
 
-    // Re-read the packet now that the worktree is real (not predicted) — the same assembler
-    // `agent_run_preview` calls, so this run's prompt is exactly what the sheet most recently
-    // previewed, modulo the operator's own instruction (T-02-21). Composed through the same
-    // assemble_context_packet -> packet_extras_for -> assemble_context_packet_with_extras path as
-    // build_preview_dto (plan 04-07 Task 3, plan 04-11 Task 3), so the launch sheet's preview and
-    // this run's actual prompt can never carry a different diff section or a different set of
-    // drift warnings.
-    let packet = assemble_context_packet(&conn, &task_id).map_err(|e| e.to_string())?;
-    let extras = packet_extras_for(&conn, &packet, &task_id);
-    let packet =
-        assemble_context_packet_with_extras(&conn, &task_id, extras).map_err(|e| e.to_string())?;
-    let prompt = render_prompt(&packet, &instruction);
-
-    // D-72/D-73/D-74/D-75 (plan 04-12): give every fired detector a durable activity-trail trail,
-    // one event per warning, appended in one atomic transaction right after the extras (and
-    // therefore the drift) have been computed and before the spawn request is sent below. Called
-    // from THIS command only — never from `agent_run_preview`/`build_preview_dto`, whose whole
-    // value is that opening the launch sheet writes nothing; a single-call-site `<verify>` grep
-    // gate over this file asserts that. `record_drift_warnings` itself is a no-op (zero events,
-    // zero database reads) for an empty `packet.drift`, so this call is unconditional.
-    {
-        let now = chrono::Utc::now().to_rfc3339();
-        let tx = conn.transaction().map_err(|e| e.to_string())?;
-        flywheel_core::domain::agent_run::record_drift_warnings(
-            &tx,
-            &run.id,
-            &packet.drift,
-            &run.actor_id,
-            &now,
-        )
-        .map_err(|e| e.to_string())?;
-        tx.commit().map_err(|e| e.to_string())?;
-    }
-
-    // D-78 (plan 04-10): pin, on the run row, exactly which criterion revisions this briefing
-    // carried — read via `list_current_criteria` in the same rank order `CRITERIA_SQL` above
-    // uses, so the pin and the prompt agree by construction. Pinned while the database lock is
-    // still held, before `drop(conn)` below and before the spawn request is sent: a pin failure
-    // must not leave a run spawned without one, mirroring the credential-resolution ordering
-    // discipline already followed above.
-    let criteria_ids: Vec<String> = flywheel_core::domain::acceptance_criterion::list_current_criteria(
-        &conn,
-        "task",
-        &task_id,
-    )
-    .map_err(|e| e.to_string())?
-    .into_iter()
-    .map(|c| c.id)
-    .collect();
-    flywheel_core::domain::agent_run::pin_criteria_revisions(&mut conn, &run.id, &criteria_ids)
-        .map_err(|e| e.to_string())?;
-
-    let worktree_path: String = conn
-        .query_row(
-            "SELECT path FROM worktrees WHERE id = ?1",
-            rusqlite::params![run.worktree_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-
-    // D-51: the shim's per-run directory is keyed by `run.id`, which only exists from this point
-    // on — a shim-install failure here refuses the spawn (see `merge_shim_env_for_run`'s own doc
-    // comment for why this cannot live inside `resolved_env_for_run` above).
-    crate::sidecar::merge_shim_env_for_run(&mut env, &run.id).map_err(|e| e.to_string())?;
+    // D-51: the shim's per-run directory is keyed by the run id, which only exists from this
+    // point on — a shim-install failure here refuses the spawn (see `merge_shim_env_for_run`'s
+    // own doc comment for why this cannot live inside `resolved_env_for_run` above).
+    crate::sidecar::merge_shim_env_for_run(&mut env, &outcome.run_id).map_err(|e| e.to_string())?;
 
     drop(conn);
 
     if let Some(sidecar) = state.sidecar.as_ref() {
         let request = serde_json::json!({
-            "id": run.id,
+            "id": outcome.run_id,
             "op": "spawn",
-            "runId": run.id,
-            "worktreePath": worktree_path,
-            "prompt": prompt,
+            "runId": outcome.run_id,
+            "worktreePath": outcome.worktree_path,
+            "prompt": outcome.prompt,
             "permissionMode": permission_mode,
             "env": env,
         });
@@ -607,10 +683,12 @@ pub fn agent_run_start(
     .ok();
 
     Ok(AgentRunDto {
-        id: run.id,
-        task_id: run.task_id,
-        status: run.status.as_str().to_string(),
-        permission_mode: run.permission_mode,
+        id: outcome.run_id,
+        task_id,
+        // `start_agent_run` always inserts a fresh run with `status = 'running'` — see
+        // `start_agent_run_recording_first`'s own step 2.
+        status: "running".to_string(),
+        permission_mode,
     })
 }
 
@@ -2558,5 +2636,255 @@ mod tests {
             })
             .expect("agent_runs row should exist");
         assert_eq!(status, "interrupted", "the status must remain interrupted, not overwritten");
+    }
+
+    /// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — verbatim in shape
+    /// to `packages/core/tests/discard_lifecycle.rs`'s and `stop_lifecycle.rs`'s own identical
+    /// guard: `FLYWHEEL_WORKTREE_ROOT` is process-global mutable state, and two tests racing here
+    /// could let one test's worktree creation fall through to the real default
+    /// (`~/Flywheel/...`) between the other test's `set_var`/`remove_var` pair.
+    static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
+        let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
+        // SAFETY: the mutex above serializes every caller in this binary, so no other thread
+        // reads or mutates this var while it's set, and this helper always clears it before
+        // returning.
+        unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
+        let result = f();
+        unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
+        result
+    }
+
+    /// A fresh migrated database, one project pointing at a REAL git repository (one commit on
+    /// `main`), and one task under it — the desktop-crate mirror of
+    /// `packages/core/tests/common/mod.rs`'s `seeded_git_project`, needed here because
+    /// `start_agent_run_recording_first` calls straight through to `start_agent_run`, which
+    /// creates a real worktree (`ensure_worktree`) and therefore needs a real repository to clone
+    /// from — a placeholder path (as `seeded_conn_with_task` uses) is not enough once a run
+    /// actually starts. Returns the connection, the human actor id, the project id, the task id,
+    /// and the repository's own `TempDir` (kept alive by the caller for the test's duration).
+    fn seeded_git_conn_with_task() -> (Connection, String, String, String, tempfile::TempDir) {
+        let repo_dir = tempfile::tempdir().expect("failed to create scratch repo dir");
+        let repo_path = repo_dir.path();
+
+        // `flywheel_core::git::git_at` — never a bare `Command::new("git")` here — so this test
+        // helper stays inside `packages/core/tests/supervisor_cwd.rs`'s own PROC-02 gate, which
+        // requires every `Command::new("git")` construction in the workspace to live in
+        // `packages/core/src/git.rs`.
+        let run = |args: &[&str]| {
+            flywheel_core::git::git_at(repo_path, args)
+                .unwrap_or_else(|e| panic!("git {args:?} failed: {e}"));
+        };
+
+        run(&["init", "--initial-branch=main"]);
+        run(&["config", "user.email", "fixture@flywheel.test"]);
+        run(&["config", "user.name", "Fixture"]);
+        std::fs::write(repo_path.join("README.md"), "fixture repo\n")
+            .expect("failed to write README");
+        run(&["add", "README.md"]);
+        run(&["commit", "-m", "initial commit"]);
+
+        let dir = tempfile::tempdir().expect("failed to create scratch db dir");
+        let db_path = dir.path().join("flywheel.db");
+        let backups_dir = dir.path().join("backups");
+        std::mem::forget(dir);
+
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
+            .expect("open_and_migrate should succeed");
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .expect("seeded human actor should exist");
+        let project = flywheel_core::domain::project::create_project(
+            &mut conn,
+            &actor_id,
+            "Test Project",
+            &repo_path.to_string_lossy(),
+            "FLY",
+            "main",
+        )
+        .expect("create_project should succeed");
+        let task = flywheel_core::domain::task::create_task(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Test task",
+            None,
+        )
+        .expect("create_task should succeed");
+
+        (conn, actor_id, project.id, task.id, repo_dir)
+    }
+
+    /// Gap #2 of 04-VERIFICATION.md (CTX-06), driven end-to-end through the real start path:
+    /// starting run 1, revising a criterion, then starting run 2 must put the
+    /// `CriteriaRevisionMoved` sentence in run 2's OWN prompt and persist exactly one matching
+    /// `drift.detected` event for run 2 — the same warning the launch sheet preview already
+    /// showed, now reaching the run the developer actually starts.
+    #[test]
+    fn criteria_revision_moved_reaches_the_prompt_and_the_event_log_when_a_run_actually_starts() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, human_actor_id, project_id, task_id, _repo_dir) =
+                seeded_git_conn_with_task();
+
+            let criterion_a = flywheel_core::domain::acceptance_criterion::create_criterion(
+                &mut conn,
+                &project_id,
+                &human_actor_id,
+                "task",
+                &task_id,
+                "First criterion",
+                None,
+            )
+            .expect("create_criterion should succeed");
+            flywheel_core::domain::acceptance_criterion::create_criterion(
+                &mut conn,
+                &project_id,
+                &human_actor_id,
+                "task",
+                &task_id,
+                "Second criterion",
+                None,
+            )
+            .expect("create_criterion should succeed");
+
+            let run_1 = start_agent_run_recording_first(
+                &mut conn,
+                &task_id,
+                "acceptEdits",
+                "",
+                &human_actor_id,
+            )
+            .expect("run 1 should start");
+            assert!(
+                !run_1.prompt.contains("## Warnings"),
+                "a task's first-ever run must carry no drift warnings, got:\n{}",
+                run_1.prompt
+            );
+
+            flywheel_core::domain::acceptance_criterion::revise_criterion(
+                &mut conn,
+                &human_actor_id,
+                &criterion_a.id,
+                "First criterion, revised",
+                None,
+            )
+            .expect("revise_criterion should succeed");
+
+            let run_2 = start_agent_run_recording_first(
+                &mut conn,
+                &task_id,
+                "acceptEdits",
+                "",
+                &human_actor_id,
+            )
+            .expect("run 2 should start");
+
+            assert!(
+                run_2.prompt.contains("## Warnings"),
+                "run 2's own prompt must carry a ## Warnings heading after the criteria \
+                 revision (the same one the launch sheet preview already showed) — got:\n{}",
+                run_2.prompt
+            );
+            assert!(
+                run_2.prompt.contains(
+                    "The acceptance criteria set has changed since this run's briefing was pinned"
+                ),
+                "run 2's own prompt must carry the criteria-revision sentence — got:\n{}",
+                run_2.prompt
+            );
+
+            let revision_event_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM events WHERE event_type = 'drift.detected' \
+                     AND stream_id = ?1 AND json_extract(payload, '$.kind') = 'CriteriaRevisionMoved'",
+                    rusqlite::params![run_2.run_id],
+                    |row| row.get(0),
+                )
+                .expect("count query should succeed");
+            assert_eq!(
+                revision_event_count, 1,
+                "starting run 2 must persist exactly one drift.detected event for \
+                 CriteriaRevisionMoved, so the board's own Needs Decision signal can fire for \
+                 this detector through the real start path (roadmap Success Criterion 4)"
+            );
+
+            let pin: Option<String> = conn
+                .query_row(
+                    "SELECT criteria_revision_pin FROM agent_runs WHERE id = ?1",
+                    rusqlite::params![run_2.run_id],
+                    |row| row.get(0),
+                )
+                .expect("agent_runs row should exist");
+            assert!(
+                pin.is_some(),
+                "run 2's own criteria_revision_pin must still be written, recording the CURRENT \
+                 criterion ids, unchanged from today's behaviour"
+            );
+        });
+    }
+
+    /// The empty/first-element edge the `None`-vs-`Some(vec![])` distinction exists for: a task's
+    /// FIRST-EVER run has no predecessor, so the criteria-revision detector must stay silent for
+    /// it — reaching `detect_drift` as `None`, never as an empty pinned set.
+    #[test]
+    fn a_first_run_has_no_predecessor_so_the_revision_detector_stays_silent() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, human_actor_id, project_id, task_id, _repo_dir) =
+                seeded_git_conn_with_task();
+
+            flywheel_core::domain::acceptance_criterion::create_criterion(
+                &mut conn,
+                &project_id,
+                &human_actor_id,
+                "task",
+                &task_id,
+                "First criterion",
+                None,
+            )
+            .expect("create_criterion should succeed");
+            flywheel_core::domain::acceptance_criterion::create_criterion(
+                &mut conn,
+                &project_id,
+                &human_actor_id,
+                "task",
+                &task_id,
+                "Second criterion",
+                None,
+            )
+            .expect("create_criterion should succeed");
+
+            let run_1 = start_agent_run_recording_first(
+                &mut conn,
+                &task_id,
+                "acceptEdits",
+                "",
+                &human_actor_id,
+            )
+            .expect("run 1 should start");
+
+            assert!(
+                !run_1.prompt.contains(
+                    "The acceptance criteria set has changed since this run's briefing was pinned"
+                ),
+                "a task's first-ever run must carry no criteria-revision sentence — got:\n{}",
+                run_1.prompt
+            );
+
+            let revision_event_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM events WHERE event_type = 'drift.detected' \
+                     AND json_extract(payload, '$.kind') = 'CriteriaRevisionMoved'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("count query should succeed");
+            assert_eq!(
+                revision_event_count, 0,
+                "a task's first-ever run must produce zero CriteriaRevisionMoved drift.detected \
+                 events — a task with no predecessor reaches the detector as None, never as an \
+                 empty set"
+            );
+        });
     }
 }
