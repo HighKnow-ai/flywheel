@@ -33,6 +33,7 @@ import { execSync, spawnSync } from "node:child_process";
 import path from "node:path";
 
 import {
+  drainIncidentalPermissionRequests,
   HEARTBEAT_TICK_MS,
   probeClaudeAvailable,
   resolveHarnessBinary,
@@ -178,6 +179,16 @@ const OPENING_PROMPT =
 const SECOND_TURN =
   "Just in-app for now, nothing external. Let's move on when you're ready.";
 
+/**
+ * This script drives a conversation, never a destructive shell invocation — it reserves no gated
+ * command of its own, so no `permission_request` it observes is ever one this script measures.
+ * Named (rather than an inline arrow) so a future reader who assumes this script is about a gated
+ * command finds the reason stated here instead of guessing.
+ */
+function isDeliberateRequest() {
+  return false;
+}
+
 // `--self-test` short-circuits BEFORE the live `runScript` call below is ever reached — it must
 // never spawn a sidecar, a claude process, or even resolve REPO_ROOT-relative binaries as a
 // precondition, mirroring `authoring-stage-gate-spike.mjs`'s own "no child process, ever" rule.
@@ -242,6 +253,21 @@ await runScript(
       permissionMode: "default",
       env,
     });
+
+    // Fire-and-forget, deliberately not awaited: Claude Code's own internal session-startup git
+    // housekeeping raises incidental permission requests outside the agent's visible Bash loop,
+    // and an unanswered one would starve the turn before it ever reaches the agent's first reply.
+    // Stopped via `onCleanup` so it never outlives this run. See the shared helper's own doc
+    // comment in `lib/sidecar-harness.mjs` for the full mechanism.
+    let draining = true;
+    harness.onCleanup(() => {
+      draining = false;
+    });
+    step(
+      "draining incidental startup permission requests (this script reserves no gated command " +
+        "of its own, so nothing here is ever the request under test)",
+    );
+    drainIncidentalPermissionRequests(sidecar, runId, isDeliberateRequest, () => !draining);
 
     step("waiting for the agent's first reply");
     const firstReply = await sidecar.waitForEvent(
