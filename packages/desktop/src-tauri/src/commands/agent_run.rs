@@ -662,6 +662,25 @@ pub(crate) fn stop_agent_run_recording_first(
         )
         .map_err(|e| e.to_string())?;
 
+    // D-64/CTX-01/T-04-38 (plan 04-13): a run reaching a terminal status through THIS path — the
+    // synchronous interrupt-then-force transition, never the natural `session_closed` event — has
+    // no caller that would otherwise give it a fallback summary. `apply_session_closed`'s own
+    // fallback hook (plan 04-02) fires only the FIRST time a run becomes terminal; a run
+    // stopped/discarded through here is already terminal by the time any later `session_closed`
+    // event for it arrives at `apply_session_closed`, so that hook's "already terminal" branch
+    // never reaches the presence check. Mirrors `apply_session_closed`'s own "check existing
+    // state; write only the missing piece" shape: never overwrites an agent-authored summary
+    // (the presence check below), never runs a second time for the same run once one exists.
+    if flywheel_core::domain::session_summary::latest_summary_for_run(conn, agent_run_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        flywheel_core::domain::session_summary::synthesize_fallback_summary(&tx, agent_run_id, &status)
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     let sidecar_warning = interrupt_result.err().map(|e| {
         format!(
             "Flywheel recorded this run as interrupted, but could not confirm the agent process stopped: {e}"
@@ -698,6 +717,110 @@ pub fn agent_run_stop(
     agent_run_id: String,
 ) -> Result<AgentRunStopDto, String> {
     // Resolve the interrupt outcome BEFORE touching `state.db` — see the CR-01 note above.
+    let interrupt_result = match state.sidecar.as_ref() {
+        Some(sidecar) => sidecar.interrupt_run(&agent_run_id).map_err(|e| e.to_string()),
+        None => Ok(()),
+    };
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let dto = stop_agent_run_recording_first(&mut conn, &agent_run_id, move || interrupt_result)?;
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
+    )
+    .ok();
+
+    Ok(dto)
+}
+
+/// The bounded wait a discard gives the agent's own closing summary before falling through to the
+/// same interrupt-then-force path [`agent_run_stop`] already walks (D-66, plan 04-13's own
+/// resolution of D-66's open timing item — the backend runs headless, so there is no channel to
+/// inject an extra user turn into a live session; every briefing's own Closing Requirement section
+/// already tells the agent, by exact tool name, to record its summary as its final turn, and this
+/// constant is discard's only contribution: time for that turn to land before the interrupt).
+/// Longer than the sidecar's `STOP_GRACE_MS` (5_000ms, `claude-code-adapter.ts` — the
+/// SIGINT-to-SIGTERM grace window), because this window waits for a MODEL to finish a tool call
+/// rather than for a process to notice a signal; shorter than twice `STOP_GRACE_MS`, because
+/// discard has to keep feeling like one action. The two windows are sequential, so the worst case
+/// before the force step fires is thirteen seconds (`DISCARD_SUMMARY_WAIT_MS` + `STOP_GRACE_MS` =
+/// 8_000 + 5_000).
+pub const DISCARD_SUMMARY_WAIT_MS: u64 = 8_000;
+
+/// How often [`agent_run_discard`]'s own loop re-checks for a recorded summary or a terminal
+/// status — modest enough not to hammer the shared DB mutex, short enough that the bounded wait
+/// actually behaves like a poll rather than one long sleep.
+const DISCARD_POLL_INTERVAL_MS: u64 = 200;
+
+/// One poll iteration's read: has a summary landed for this run yet, and has the run already
+/// reached a terminal status on its own? Takes a plain `&Connection` — never the lock itself — so
+/// [`agent_run_discard`]'s own loop can take and release `state.db.lock()` once per poll, never
+/// holding it across the whole wait (T-04-36): `agent_run_stop`'s own CR-01 comment states the
+/// reason in this exact file — holding the app's one `Mutex<Connection>` across a multi-second wait
+/// freezes every other board read in the app — and that reasoning applies here with more force,
+/// because this window is longer. A read error on either query degrades to "no summary yet, not
+/// terminal yet" (T-04-37) — a poll must never fail the discard because it happened to error once.
+fn discard_poll_snapshot(conn: &Connection, agent_run_id: &str) -> (bool, bool) {
+    let has_summary =
+        flywheel_core::domain::session_summary::latest_summary_for_run(conn, agent_run_id)
+            .ok()
+            .flatten()
+            .is_some();
+    let status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM agent_runs WHERE id = ?1",
+            rusqlite::params![agent_run_id],
+            |row| row.get(0),
+        )
+        .ok();
+    let is_terminal = matches!(
+        status.as_deref(),
+        Some("completed") | Some("failed") | Some("interrupted") | Some("abandoned")
+    );
+    (has_summary, is_terminal)
+}
+
+/// Discard a live run in one action (D-66/D-67, plan 04-13, CTX-08 — the phase's flagship path,
+/// the user-visible half of everything the previous twelve plans built): give the agent's own
+/// closing summary a bounded window to land, then end the session through the EXACT SAME path
+/// [`agent_run_stop`] already walks — a thin wrapper around it, never a second termination
+/// implementation. A surfaced contradiction or a missing summary must never stand between the
+/// developer and a fresh session (T-04-37): the wait is bounded by [`DISCARD_SUMMARY_WAIT_MS`]
+/// regardless of whether the agent ever answers, and a poll error along the way is simply treated
+/// as "no summary yet" rather than aborting the discard.
+///
+/// Returns the SAME [`AgentRunStopDto`] `agent_run_stop` returns, so the renderer's existing
+/// handling applies unchanged — the caller cannot tell, from the return shape alone, whether the
+/// summary that ended up recorded was agent-authored or the fallback synthesizer's.
+#[tauri::command]
+pub fn agent_run_discard(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_id: String,
+) -> Result<AgentRunStopDto, String> {
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_millis(DISCARD_SUMMARY_WAIT_MS);
+    loop {
+        // Lock taken and released each iteration — never held across the wait (T-04-36, see
+        // discard_poll_snapshot's own doc comment).
+        let (has_summary, is_terminal) = match state.db.lock() {
+            Ok(conn) => discard_poll_snapshot(&conn, &agent_run_id),
+            Err(_) => (false, false),
+        };
+        if has_summary || is_terminal {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(DISCARD_POLL_INTERVAL_MS));
+    }
+
+    // From here on, exactly what agent_run_stop performs: the CR-01 resolve-the-interrupt-before-
+    // locking-the-shared-db-mutex ordering, then the ONE shared termination tail
+    // (stop_agent_run_recording_first), then the same board:changed emit shape agent_run_stop uses.
     let interrupt_result = match state.sidecar.as_ref() {
         Some(sidecar) => sidecar.interrupt_run(&agent_run_id).map_err(|e| e.to_string()),
         None => Ok(()),
