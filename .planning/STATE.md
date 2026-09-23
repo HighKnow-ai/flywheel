@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 04
-current_phase_name: clear-is-free
+current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-14-PLAN.md
-last_updated: "2026-09-23T07:50:34.250Z"
+stopped_at: Completed 04-15-PLAN.md
+last_updated: "2026-09-23T08:17:27.548Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: 6acd8895f78dd2712cd0cee11d0cc0d494a2f7e9
+state_head: d95790b4673a5dbd06417f1a61bae6fdb2fd6950
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 93
-  completed_plans: 91
+  completed_plans: 92
   percent: 0
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 
 ## Current Position
 
-Phase: 04 (clear-is-free) — READY TO EXECUTE
-Plan: 14 of 14
+Phase: 04 (`/clear` Is Free) — EXECUTING
+Plan: 2 of 16
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -149,6 +149,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P12 | 20min | 3 tasks | 7 files |
 | Phase 04-clear-is-free P13 | 14min | 3 tasks | 9 files |
 | Phase 04 P14 | 40min | 3 tasks | 4 files |
+| Phase 04 P15 | 55min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -310,6 +311,7 @@ Recent decisions affecting current work:
 - [Phase 04]: uiStore's setActiveAgentRunId gained an optional taskId parameter, threaded from its 3 already-informed call sites — SessionSurface had no source for its own task id anywhere in props/state, and the Discard hand-off to the launch sheet needed one; avoided adding a new backend query
 - [Phase 04]: [Phase 04-14]: Zero-padded cycle markers (cycle-01 not cycle-1) in the five-cycle harness — an unpadded marker is a Rust-string prefix of a later cycle's, which made an absence assertion spuriously pass by matching inside a later cycle's own text. — Found by a real failing test, not anticipated by the plan; fixed structurally rather than by weakening the assertion.
 - [Phase 04]: [Phase 04-14]: A client socket that never enters flowing mode (no reader attached) never emits 'close' for the far side's FIN — fixed with an explicit client.resume() in the sidecar five-cycle harness rather than attaching an unused readline consumer. — Traced a real hang from an apparent long-running full-suite stall to this specific missing call; the fix is minimal and matches the test's own intent (assert closure, not content).
+- [Phase 04]: [Phase 04-15]: interrupt_agent_run_in_tx added beside close_agent_run_in_tx (add-alongside, not a generalized terminate_agent_run_in_tx) -- the two terminal variants differ in event type, payload label, which figures are written, and guard shape; a promoted function would mean refactoring close_agent_run_in_tx, out of this gap's scope. mark_abandoned stays a deliberately excluded third terminal path.
 
 ### Pending Todos
 
@@ -352,6 +354,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T06:55:37.309Z
-Stopped at: Completed 04-14-PLAN.md
+Last session: 2026-09-23T08:17:27.431Z
+Stopped at: Completed 04-15-PLAN.md
 Resume file: None

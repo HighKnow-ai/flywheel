@@ -418,7 +418,7 @@ versions during planning.
   4. When a new session states an understanding that contradicts a decision already recorded on the board, the user is told rather than left to discover it in the diff.
   5. An automated test runs one task through at least five session cycles and proves its acceptance criteria are unchanged; a user editing criteria after work has started creates a new revision instead of overwriting the original.
 
-**Plans**: 14/16 plans executed (14 shipped + 2 gap-closure plans from 04-VERIFICATION.md)
+**Plans**: 15/16 plans executed (14 shipped + 2 gap-closure plans from 04-VERIFICATION.md)
 **UI hint**: yes
 
 **Wave 1 — the tracer** *(the thinnest end-to-end slice, proven before anything expands out from it)*
@@ -470,7 +470,7 @@ versions during planning.
 
 **Gap closure — wave 1** *(from 04-VERIFICATION.md `status: gaps_found`, 3/5 must-haves; closes Success Criterion 1)*
 
-- [ ] 04-15-PLAN.md — One transaction for every Stop/Discard termination: `interrupt_agent_run_in_tx`, and a crash-window assertion the two-transaction shape cannot satisfy (CTX-01)
+- [x] 04-15-PLAN.md — One transaction for every Stop/Discard termination: `interrupt_agent_run_in_tx`, and a crash-window assertion the two-transaction shape cannot satisfy (CTX-01)
 
 **Gap closure — wave 2** *(blocked on 04-15 — shares `packages/desktop/src-tauri/src/commands/agent_run.rs`; closes Success Criterion 4)*
 
@@ -748,7 +748,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
-| 4. `/clear` Is Free | 14/14 | In Progress|  |
+| 4. `/clear` Is Free | 15/16 | In Progress|  |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |

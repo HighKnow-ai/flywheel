@@ -79,7 +79,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Context Reconstitution
 
-- [ ] **CTX-01**: Every agent session ends by writing a structured summary to the board recording what changed, what remains, and what the next session must know
+- [x] **CTX-01**: Every agent session ends by writing a structured summary to the board recording what changed, what remains, and what the next session must know
 - [ ] **CTX-02**: Session summaries are append-only; an existing summary is never overwritten or rewritten in place
 - [ ] **CTX-03**: A new session is primed automatically from the board — task, epic context, immutable acceptance criteria, prior session summaries, and the diff so far — with no chat transcript involved
 - [ ] **CTX-04**: Context assembly is a deterministic query, not a model call, so the same board state always produces the same context packet
@@ -271,7 +271,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | AGNT-06 | Phase 2 | Complete |
 | AGNT-07 | Phase 3 | Complete |
 | AGNT-08 | Phase 10 | Pending |
-| CTX-01 | Phase 4 | Gaps Found |
+| CTX-01 | Phase 4 | Complete |
 | CTX-02 | Phase 4 | Gaps Found |
 | CTX-03 | Phase 4 | Gaps Found |
 | CTX-04 | Phase 4 | Gaps Found |
