@@ -44,6 +44,21 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
   requirement IDs verified; 277 automated tests green. **The half still owed is agents writing to it**
   — Phase 1 proved the store, not yet the agent loop over it (Phase 6).
 
+- ✓ **Ephemeral agent sessions, reconstituted from the board** — Phase 4. Discarding an agent's whole
+  context is a single action, and the next session is primed automatically from the task, its epic,
+  its acceptance criteria, prior session summaries and the diff so far — no chat transcript anywhere
+  in the path. The same board state deterministically produces the same context packet; the user is
+  shown which summaries are carried verbatim and exactly where compaction begins. Every session ends
+  by writing a structured summary in the same transaction that marks the run terminal, on both the
+  natural-close and the Stop/Discard path, so there is no committed state in which a run is terminal
+  and its narrative is missing — and summaries are append-only, never overwritten. When a new
+  session's understanding contradicts something already on the board (criteria revised since the last
+  run, claimed files that do not match, a stale summary), the user is told in the run's own prompt
+  rather than left to find it in the diff. 5/5 roadmap success criteria and all 9 requirement IDs
+  (CTX-01…CTX-08, BOARD-03) verified; a 10-cycle reconstitution harness proves criteria survive
+  unchanged across sessions. **This is the phase that makes the core-value corollary true rather than
+  merely intended** — it took a gap-closure round (plans 04-15/04-16) to get there.
+
 ### Active
 
 - [ ] Board-native work model: epics, tasks and issues are the primary artifact, replacing `.planning/` files as the store of record for phase structure
@@ -52,7 +67,6 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
 - [ ] Multi-project fleet supervision: one view answering "what is every agent, everywhere, doing — and what needs me?"
 - [ ] Git worktree multiplexing with fixed topology: task worktree → epic integration branch → main
 - [ ] Planner-sized fan-out: the planner decides parallel width and wave grouping from declared file-sets, with a runtime file-overlap guard as a safety net
-- [ ] Ephemeral agent sessions: many disposable sessions per durable task worktree, each reconstituted from the board rather than from a transcript
 - [ ] Claude Code as the v1 agent backend, using the developer's existing local credentials
 - [ ] Agent adapter seam: a documented interface so Codex, Gemini CLI and others can be added later without a core rewrite
 - [ ] Extension-ready foundations — **2 of 3 landed in Phase 1.** Multi-actor identity ships
@@ -66,6 +80,19 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
   (`01-SECURITY.md` AR-01-04). It is safe only because one human creates epics one at a time; it
   becomes an unbounded response the moment an agent or a bulk import gets that path. Recorded here
   rather than left as an accepted-risk row, because the trigger is a scheduled later phase.
+- [ ] Bound the context packet before task histories get long — **emerged in Phase 4.**
+  `context_packet.rs`'s `SUMMARIES_SQL` reads every summary and decision for a task with no cap
+  (`04-VERIFICATION.md`, Anti-Patterns). Reconstitution is deterministic but has no tested scale
+  ceiling, so a long-lived task's packet grows without bound — which would degrade the exact
+  mechanism Phase 4 just validated. Not a correctness bug today; it is the scale ceiling that makes
+  `/clear` stop being free.
+- [ ] Decide what `mark_abandoned` owes the board — **emerged in Phase 4.** Natural close and
+  Stop/Discard now write a summary in the same transaction as the terminal status, but
+  `mark_abandoned` (the launch reconciler's verb for runs whose app died) is a third terminal path
+  that opens its own transaction and writes no summary. Phase 4 deliberately left it alone and said
+  so. The open question is genuine rather than an oversight: a reconciler marking a process nobody
+  watched die may have no session worth summarizing at all. Answer it in a phase that can reason
+  about reconciliation, not as a gap-closure edit.
 
 ### Out of Scope
 
@@ -122,7 +149,7 @@ explicitly left to the competitive and architecture research to argue.
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Board replaces `.planning/` as the store of record | Agents must write to the work model, not just read plans from it; a live board enables Socratic authoring and agent-proposed backlog items | ✓ Half-validated (Phase 1) — the board exists, is durable across crash and migration, and holds the full work model. Agents reading/writing it is unproven until Phase 6 |
-| Board is the context-reconstitution mechanism | Decouples durable work state from ephemeral agent context, making `/clear` free instead of lossy — the core differentiator vs chat-native tools | — Pending |
+| Board is the context-reconstitution mechanism | Decouples durable work state from ephemeral agent context, making `/clear` free instead of lossy — the core differentiator vs chat-native tools | ✓ Validated (Phase 4) — the falsification test passed. Discard is one action, the next session is primed from board state alone with no transcript, the same board state yields the same packet, and a 10-cycle harness proves criteria survive. What the thesis did not anticipate is how much of the difficulty is *transactional*: the guarantee is only as good as the atomicity of the write that ends a session, and two of the five success criteria initially failed on exactly that |
 | Worktree topology is fixed: task → epic integration branch → main | Planner-chosen topology creates a combinatorial testing surface for little gain; the epic integration branch prevents N agents racing merges into main and gives the board one reviewable PR per epic | — Pending |
 | Planner decides fan-out width and wave grouping, not topology | Parallelism is bounded by file-set disjointness; the planner's job is declaring file-sets and grouping waves, with a runtime overlap guard for when the forecast is wrong | — Pending |
 | Worktrees are durable; agent sessions are ephemeral | A worktree is cheap and owned by a task; contexts are expensive and rot. Many sessions per worktree, each reconstituted from the board | — Pending |
@@ -152,4 +179,9 @@ This document evolves at phase transitions and milestone boundaries.
 5. Update Context with current state
 
 ---
-*Last updated: 2026-09-10 after Phase 1*
+*Last updated: 2026-09-23 after Phase 4*
+
+> Note: this file was last evolved after Phase 1; Phases 2 and 3 completed without a
+> PROJECT.md evolution pass, so their requirement and decision outcomes are not yet
+> reflected above. Worth a catch-up read of `02-VERIFICATION.md` and `03-VERIFICATION.md`
+> before the next milestone review.

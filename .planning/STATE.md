@@ -20,10 +20,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-10)
+See: .planning/PROJECT.md (updated 2026-09-23)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 04 — `/clear` Is Free
+**Current focus:** Phase 5 — Socratic Epic Authoring
 
 ## Current Position
 
@@ -325,7 +325,10 @@ None yet.
 
 - **Anthropic credential policy is an external dependency, not a solved problem.** A policy shift on third-party harness use of subscription credentials could invalidate v1 overnight. AGNT-04 (explicit API-key path) is first-class in Phase 2 as the hedge; review this at every milestone boundary.
 - **Nimbalyst competitive checkpoint.** Ships local desktop + Claude Code + worktrees + kanban already. Re-scout before Phase 5 (Socratic authoring) to confirm the moat is still where the research said it was.
-- **Phase 4 needs evidence, not vibes.** Do not ship context reconstitution without the synthetic multi-cycle test suite and explicit context-quality metrics built during planning.
+- ✅ **[Phase 04] RESOLVED — "Phase 4 needs evidence, not vibes."** Context reconstitution did not ship on vibes: `five_cycle_reconstitution.rs` drives one task through 10 session cycles proving criteria survive unchanged, and two structural gates (`termination_atomicity_call_site.rs`, `start_pin_ordering.rs`) go red the instant a future edit reintroduces either of the two bugs the first verification pass caught. 5/5 roadmap success criteria verified, all 9 requirement IDs Complete.
+- ⚠️ **[Phase 04] The context packet has no tested scale ceiling.** `context_packet.rs`'s `SUMMARIES_SQL` (lines 166-168) reads every summary and decision for a task with no cap. Reconstitution is deterministic but unbounded, so a long-lived task's packet grows without limit — degrading the exact mechanism Phase 4 just validated. Not a correctness bug today; it is the thing that makes `/clear` stop being free. Bound it before tasks accumulate long histories.
+- ⚠️ **[Phase 04] `mark_abandoned` is a third terminal path that writes no summary.** Natural close and Stop/Discard now write a summary in the same transaction as the terminal status; the launch reconciler's `mark_abandoned` (`packages/core/src/domain/agent_run.rs:749-808`) opens its own transaction and writes none. Phase 4 excluded it deliberately and said so in 04-15-PLAN.md — the open question is genuine (a run nobody watched die may have no session worth summarizing), not an oversight. Answer it in a phase that can reason about reconciliation.
+- ℹ️ **[Phase 04] `StartRunOutcome` has three unread fields.** `actor_id`, `worktree_id`, `drift_event_count` are computed on every call and read by nothing — a live `cargo build` `dead_code` warning (04-REVIEW.md WR-01, independently reproduced by the verifier). Cosmetic today; breaks a build under a future `-D warnings` CI gate.
 - **Phase 5 rests on an unvalidated assumption** that Socratic epic authoring beats prompting in a terminal. Spike it during planning before building the full surface.
 - **Phase 11 has a hard prerequisite** outside the codebase: an Apple Developer account ($99/yr) for signing and notarization.
 - ⚠️ **[Phase 01] The generic trigger abstraction was never built.** It is one of the three named extension-ready foundations (PROJECT.md), and the other two shipped — but no scheduler crate is vendored and no trigger type is stubbed, so schedule-as-trigger-source is still a structural retrofit, which is exactly what the architecture constraint forbids. Close it before the automations milestone, not at it.
