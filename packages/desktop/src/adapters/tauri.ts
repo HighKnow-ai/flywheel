@@ -143,6 +143,17 @@ export interface DiffSoFarDto {
 }
 
 /**
+ * One fired drift warning (D-72 through D-75, plan 04-12 Task 3) — mirrors
+ * `commands/agent_run.rs`'s `DriftWarningDto` field-for-field. `sentence` is the exact line the
+ * agent's own rendered prompt carries in its `## Warnings` section — composed once, in Rust, and
+ * rendered verbatim here, never re-worded in TypeScript.
+ */
+export interface DriftWarningDto {
+  kind: string;
+  sentence: string;
+}
+
+/**
  * The launch sheet's read-only briefing (D-27/D-28, plan 02-04): the assembled context packet's
  * structured fields plus the exact prompt string `agent_run_start` would send for an empty
  * instruction — one Rust-side renderer, so the sheet never shows a briefing that differs from
@@ -163,6 +174,9 @@ export interface ContextPacketDto {
   /** The packet's deduplicated decision list (D-73) — every decision recorded across every
    * summary for this task, independent of any single summary or fold (plan 04-09 Task 1). */
   decisions: DecisionDto[];
+  /** Every fired drift warning (D-72 through D-75, plan 04-12 Task 3) — the developer-facing half
+   * of the same warnings the agent's own rendered prompt carries. Empty when nothing drifted. */
+  drift: DriftWarningDto[];
   branch: string;
   baseRef: string;
   worktreePath: string;

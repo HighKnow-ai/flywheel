@@ -195,6 +195,30 @@ impl From<&CompactionBoundary> for CompactionBoundaryDto {
     }
 }
 
+/// One fired drift warning, projected for the wire (camelCase, plan 04-12 Task 3) — mirrors
+/// `flywheel_core::drift::DriftWarning` field-for-field, except `kind` travels as the same string
+/// its `Serialize` impl would already produce (a fieldless enum's variant name) rather than a
+/// nested JSON value — the launch sheet never inspects `kind`, only renders `sentence` verbatim,
+/// so there is no reason to hand it a richer shape than that.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriftWarningDto {
+    pub kind: String,
+    pub sentence: String,
+}
+
+impl From<flywheel_core::drift::DriftWarning> for DriftWarningDto {
+    fn from(warning: flywheel_core::drift::DriftWarning) -> Self {
+        Self {
+            kind: serde_json::to_value(&warning.kind)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .unwrap_or_default(),
+            sentence: warning.sentence,
+        }
+    }
+}
+
 /// The launch sheet's read-only briefing (D-27/D-28) — the packet's structured fields AND the
 /// rendered prompt string, so the sheet displays exactly the text that will be sent rather than
 /// re-deriving its own rendering in TypeScript (one renderer, in Rust, used by both the preview
@@ -220,6 +244,12 @@ pub struct ContextPacketDto {
     /// order preserved (plan 04-09 Task 1). Complete regardless of how many summaries folded,
     /// because `ContextPacket.decisions` is itself lossless for decisions.
     pub decisions: Vec<DecisionDto>,
+    /// Every fired drift warning (D-72 through D-75, plan 04-12 Task 3) — the developer-facing
+    /// half of the same warnings `packet.rendered_prompt`'s `## Warnings` section already carries
+    /// for the agent. Always the SAME `PacketExtras.drift` this packet's `render_prompt`d
+    /// `rendered_prompt` was rendered from — one Rust-side computation (`packet_extras_for`), two
+    /// renderings of the identical data, never two different derivations of "did anything drift."
+    pub drift: Vec<DriftWarningDto>,
     pub branch: String,
     pub base_ref: String,
     pub worktree_path: String,
@@ -260,6 +290,8 @@ impl From<ContextPacket> for ContextPacketDto {
             .collect();
         let decisions: Vec<DecisionDto> =
             packet.decisions.into_iter().map(DecisionDto::from).collect();
+        let drift: Vec<DriftWarningDto> =
+            packet.drift.into_iter().map(DriftWarningDto::from).collect();
         Self {
             task_key: packet.task_key,
             task_title: packet.task_title,
@@ -277,6 +309,7 @@ impl From<ContextPacket> for ContextPacketDto {
             summaries,
             compaction,
             decisions,
+            drift,
             branch: packet.worktree.branch,
             base_ref: packet.worktree.base_ref,
             worktree_path: packet.worktree.path,

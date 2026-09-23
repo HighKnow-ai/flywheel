@@ -28,6 +28,7 @@ import {
   type ContextPacketDto,
   type DecisionDto,
   type DiffSoFarDto,
+  type DriftWarningDto,
   type SessionSummaryDto,
 } from "../adapters/tauri";
 
@@ -224,6 +225,35 @@ function PriorSessionsSection({ packet }: { packet: ContextPacketDto }) {
   );
 }
 
+/** The developer-facing half of D-74's fired-detector warnings (D-72 through D-75) — the same
+ * sentences `render_prompt`'s own `## Warnings` section carries for the agent, rendered verbatim
+ * and first inside the packet body, above the epic section, so the developer reads them in the
+ * same position the agent does. Reuses `--destructive-text-rack`, the existing agent-signal
+ * warning role already spent on `worktree-missing`/`recovery-needed`/`abandoned` (never a new
+ * colour role, and no hex literal). Purely informational: no button, no acknowledgement — D-46
+ * reserves friction for money burning, and drift is not money burning. Omitted entirely when
+ * `packet.drift` is empty. */
+function DriftWarningSection({ drift }: { drift: DriftWarningDto[] }) {
+  if (drift.length === 0) return null;
+  return (
+    <section>
+      <div
+        className="type-label"
+        style={{ color: "var(--destructive-text-rack)", display: "flex", alignItems: "center", gap: "var(--space-xs)" }}
+      >
+        Warnings
+      </div>
+      <ul style={{ margin: 0, paddingLeft: "var(--space-md)" }}>
+        {drift.map((warning, index) => (
+          <li key={index} className="type-body" style={{ color: "var(--destructive-text-rack)" }}>
+            {warning.sentence}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** The read-what-you-need line ending both `render_prompt`'s Diff So Far section and this one —
  * verbatim, so the developer reads exactly the instruction the agent is given. */
 const DIFF_READ_INVITATION =
@@ -298,6 +328,8 @@ function DiffSoFarSection({ diff }: { diff: DiffSoFarDto }) {
 function PacketBody({ packet }: { packet: ContextPacketDto }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
+      <DriftWarningSection drift={packet.drift} />
+
       {packet.epicTitle && (
         <section>
           <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>

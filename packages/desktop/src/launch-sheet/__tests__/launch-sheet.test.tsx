@@ -59,6 +59,7 @@ function makePacket(overrides: Partial<Record<string, unknown>> = {}) {
     summaries: [],
     compaction: makeCompaction(),
     decisions: [],
+    drift: [],
     branch: "flywheel/fly-42-wire-the-launch-sheet",
     baseRef: "main",
     worktreePath: "/Users/dev/Flywheel/FLY/FLY-42",
@@ -346,5 +347,73 @@ describe("LaunchSheet — Prior Sessions, compaction boundary, diff so far (plan
     expect(screen.getByText("M src/dirty.ts")).toBeInTheDocument();
     expect(screen.queryByText(/Committed since/)).not.toBeInTheDocument();
     expect(screen.getByText("You are in this worktree — read any of these files directly for the full detail.")).toBeInTheDocument();
+  });
+});
+
+describe("LaunchSheet — drift warnings (plan 04-12 Task 3)", () => {
+  it("renders both warning sentences verbatim, above the epic section, when the packet carries two", async () => {
+    previewMock.mockReset().mockResolvedValue(
+      makePacket({
+        drift: [
+          { kind: "ClaimedFilesMismatch", sentence: "The latest session summary claims a path the real diff does not contain: ghost.txt." },
+          { kind: "StaleSinceLastSummary", sentence: "The head ref has moved since the latest session summary was written." },
+        ],
+      }),
+    );
+    startMock.mockReset();
+    renderSheet();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("The latest session summary claims a path the real diff does not contain: ghost.txt."),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText("The head ref has moved since the latest session summary was written."),
+    ).toBeInTheDocument();
+
+    const warningsHeading = screen.getByText("Warnings");
+    const epicHeading = screen.getByText("Epic");
+    expect(
+      warningsHeading.compareDocumentPosition(epicHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("renders no warning section when the packet carries none", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket({ drift: [] }));
+    startMock.mockReset();
+    renderSheet();
+
+    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+
+    expect(screen.queryByText("Warnings")).not.toBeInTheDocument();
+  });
+
+  it("keeps the primary action enabled when the packet carries warnings", async () => {
+    previewMock.mockReset().mockResolvedValue(
+      makePacket({ drift: [{ kind: "StaleSinceLastSummary", sentence: "Something drifted." }] }),
+    );
+    startMock.mockReset();
+    renderSheet();
+
+    await waitFor(() => expect(screen.getByText("Something drifted.")).toBeInTheDocument());
+
+    const startButton = screen.getByRole("button", { name: "Start Work" });
+    expect(startButton).not.toBeDisabled();
+  });
+
+  it("fires the start call immediately on activation, with no confirmation in between", async () => {
+    previewMock.mockReset().mockResolvedValue(
+      makePacket({ drift: [{ kind: "StaleSinceLastSummary", sentence: "Something drifted." }] }),
+    );
+    startMock.mockReset().mockResolvedValue({ id: "run-1", taskId: "task-1", status: "running", permissionMode: "acceptEdits" });
+    renderSheet();
+
+    await waitFor(() => expect(screen.getByText("Something drifted.")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
+
+    await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });
