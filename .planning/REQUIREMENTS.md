@@ -22,7 +22,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 - [x] **BOARD-01**: User can create, edit and delete epics, tasks and issues in a fixed three-level hierarchy that cannot be reconfigured
 - [x] **BOARD-02**: Every task carries structured acceptance criteria as discrete, individually checkable items — not free prose
-- [x] **BOARD-03**: Acceptance criteria are immutable once a task starts work; changing them creates a new revision rather than overwriting
+- [ ] **BOARD-03**: Acceptance criteria are immutable once a task starts work; changing them creates a new revision rather than overwriting
 - [x] **BOARD-04**: Items move through a fixed workflow (Backlog → Todo → In Progress → In Review → Done) that cannot be customised
 - [x] **BOARD-05**: User can reorder and reprioritise items within an epic and within the backlog
 - [x] **BOARD-06**: User can filter and search across all items in a project by text, status, epic and assignee
@@ -79,14 +79,14 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Context Reconstitution
 
-- [x] **CTX-01**: Every agent session ends by writing a structured summary to the board recording what changed, what remains, and what the next session must know
-- [x] **CTX-02**: Session summaries are append-only; an existing summary is never overwritten or rewritten in place
-- [x] **CTX-03**: A new session is primed automatically from the board — task, epic context, immutable acceptance criteria, prior session summaries, and the diff so far — with no chat transcript involved
-- [x] **CTX-04**: Context assembly is a deterministic query, not a model call, so the same board state always produces the same context packet
-- [x] **CTX-05**: Recent summaries are carried verbatim and older ones compacted, with the compaction boundary visible to the user
-- [x] **CTX-06**: The system detects and surfaces when a new session's stated understanding contradicts a decision already recorded on the board
-- [x] **CTX-07**: A task can be run through repeated session cycles with its acceptance criteria verifiably unchanged, demonstrated by an automated test over at least five cycles
-- [x] **CTX-08**: User can discard a session's context and start a fresh one on the same worktree in a single action, losing no board state
+- [ ] **CTX-01**: Every agent session ends by writing a structured summary to the board recording what changed, what remains, and what the next session must know
+- [ ] **CTX-02**: Session summaries are append-only; an existing summary is never overwritten or rewritten in place
+- [ ] **CTX-03**: A new session is primed automatically from the board — task, epic context, immutable acceptance criteria, prior session summaries, and the diff so far — with no chat transcript involved
+- [ ] **CTX-04**: Context assembly is a deterministic query, not a model call, so the same board state always produces the same context packet
+- [ ] **CTX-05**: Recent summaries are carried verbatim and older ones compacted, with the compaction boundary visible to the user
+- [ ] **CTX-06**: The system detects and surfaces when a new session's stated understanding contradicts a decision already recorded on the board
+- [ ] **CTX-07**: A task can be run through repeated session cycles with its acceptance criteria verifiably unchanged, demonstrated by an automated test over at least five cycles
+- [ ] **CTX-08**: User can discard a session's context and start a fresh one on the same worktree in a single action, losing no board state
 
 ### Socratic Epic Authoring
 
@@ -229,7 +229,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | DATA-08 | Phase 1 | Complete |
 | BOARD-01 | Phase 1 | Complete |
 | BOARD-02 | Phase 1 | Complete |
-| BOARD-03 | Phase 4 | Complete |
+| BOARD-03 | Phase 4 | Gaps Found |
 | BOARD-04 | Phase 1 | Complete |
 | BOARD-05 | Phase 1 | Complete |
 | BOARD-06 | Phase 1 | Complete |
@@ -271,14 +271,14 @@ Which phases cover which requirements. Populated during roadmap creation.
 | AGNT-06 | Phase 2 | Complete |
 | AGNT-07 | Phase 3 | Complete |
 | AGNT-08 | Phase 10 | Pending |
-| CTX-01 | Phase 4 | Complete |
-| CTX-02 | Phase 4 | Complete |
-| CTX-03 | Phase 4 | Complete |
-| CTX-04 | Phase 4 | Complete |
-| CTX-05 | Phase 4 | Complete |
-| CTX-06 | Phase 4 | Complete |
-| CTX-07 | Phase 4 | Complete |
-| CTX-08 | Phase 4 | Complete |
+| CTX-01 | Phase 4 | Gaps Found |
+| CTX-02 | Phase 4 | Gaps Found |
+| CTX-03 | Phase 4 | Gaps Found |
+| CTX-04 | Phase 4 | Gaps Found |
+| CTX-05 | Phase 4 | Gaps Found |
+| CTX-06 | Phase 4 | Gaps Found |
+| CTX-07 | Phase 4 | Gaps Found |
+| CTX-08 | Phase 4 | Gaps Found |
 | SHAPE-01 | Phase 5 | Pending |
 | SHAPE-02 | Phase 5 | Pending |
 | SHAPE-03 | Phase 5 | Pending |
