@@ -156,6 +156,34 @@ function scratchEnv() {
   return { cwd, env };
 }
 
+test("buildClaudeArgv pre-approves the summary tool via --allowedTools when supplied, and omits the flag when it isn't", () => {
+  const permissionPromptToolName = "mcp__flywheel-permissions__approve_action";
+  const mcpConfig = JSON.stringify({ mcpServers: { "flywheel-permissions": { command: "node", args: ["x.js"] } } });
+  const summaryToolName = "mcp__flywheel-permissions__report_summary";
+
+  const withSummary = buildClaudeArgv({
+    prompt: "say hi",
+    permissionMode: "acceptEdits",
+    permissionPromptToolName,
+    mcpConfig,
+    summaryToolName,
+  });
+  const allowedToolsIndex = withSummary.indexOf("--allowedTools");
+  assert.ok(allowedToolsIndex !== -1, "expected --allowedTools to be present when a summary tool name is supplied");
+  assert.equal(withSummary[allowedToolsIndex + 1], summaryToolName);
+
+  const withoutSummary = buildClaudeArgv({
+    prompt: "say hi",
+    permissionMode: "acceptEdits",
+    permissionPromptToolName,
+    mcpConfig,
+  });
+  assert.ok(
+    !withoutSummary.includes("--allowedTools"),
+    "expected --allowedTools to be absent when no summary tool name is supplied",
+  );
+});
+
 test("the real cli accepts the argv the adapter builds", { skip: SKIP_REASON }, async () => {
   // Built by calling the function under test, never written out by hand — a hand-written array
   // here would reintroduce exactly the exact-literal problem this file exists to close.
