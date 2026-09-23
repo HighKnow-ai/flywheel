@@ -418,7 +418,7 @@ versions during planning.
   4. When a new session states an understanding that contradicts a decision already recorded on the board, the user is told rather than left to discover it in the diff.
   5. An automated test runs one task through at least five session cycles and proves its acceptance criteria are unchanged; a user editing criteria after work has started creates a new revision instead of overwriting the original.
 
-**Plans**: 14/14 plans executed
+**Plans**: 14/16 plans executed (14 shipped + 2 gap-closure plans from 04-VERIFICATION.md)
 **UI hint**: yes
 
 **Wave 1 — the tracer** *(the thinnest end-to-end slice, proven before anything expands out from it)*
@@ -467,6 +467,14 @@ versions during planning.
 **Wave 11** *(blocked on 04-13 — the phase's ship gate)*
 
 - [x] 04-14-PLAN.md — Ten cycles, criteria byte-identical, plus the context-quality metrics the roadmap flagged (CTX-07, CTX-04, CTX-02)
+
+**Gap closure — wave 1** *(from 04-VERIFICATION.md `status: gaps_found`, 3/5 must-haves; closes Success Criterion 1)*
+
+- [ ] 04-15-PLAN.md — One transaction for every Stop/Discard termination: `interrupt_agent_run_in_tx`, and a crash-window assertion the two-transaction shape cannot satisfy (CTX-01)
+
+**Gap closure — wave 2** *(blocked on 04-15 — shares `packages/desktop/src-tauri/src/commands/agent_run.rs`; closes Success Criterion 4)*
+
+- [ ] 04-16-PLAN.md — The criteria-revision pin compares against the run that actually preceded this one, so the warning reaches the started run's own prompt and the board (CTX-06)
 
 **Notes**: This phase is the falsification test for the whole product thesis and it completes the
 thinnest vertical slice — one task, two sequential sessions on one worktree, the second
