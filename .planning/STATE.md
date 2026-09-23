@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-06-PLAN.md
-last_updated: "2026-09-23T01:21:47.594Z"
+stopped_at: Completed 04-07-PLAN.md
+last_updated: "2026-09-23T01:41:19.709Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: 12c61564b951815d05b18e26dcce0cbbc3868399
+state_head: 554208b7059ba9884f4b7cc035bca734b9e3fb28
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 83
+  completed_plans: 84
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 7 of 14
+Plan: 8 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -141,6 +141,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P04 | 36min | 3 tasks | 6 files |
 | Phase 04 P05 | 10min | 2 tasks | 3 files |
 | Phase 04 P06 | 12min | 3 tasks | 5 files |
+| Phase 04 P07 | 18min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -282,6 +283,8 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04-06]: handle_inbound_summary_reported resolves the run's own task_id from agent_runs for the second board:changed emit, never reusing the run id as the task id — the plan's own worked emit-convention example left the id source for a second, distinct entity underspecified.
 - [Phase 04]: [Phase 04-06]: The Closing Requirement section's own prose legitimately names 'the Decisions On Record section' even when that section is omitted, so render_prompt's omit-test asserts the literal heading marker ('## Decisions On Record'), not the bare phrase.
 - [Phase 04]: [Phase 04-06]: apply_summary_reported always sets auto_generated: false and diff_ref: None on the agent-authored path — the mirror image of plan 04-02's fallback path, which fixes both at the opposite values.
+- [Phase 04]: git.rs's two pre-existing Command::new("git") sites (git_at, rev_parse_verify) consolidated into one private spawn_git helper — The file's own header claimed exactly one construction site; this task's own single-construction-site verify gate required it be true — pre-existing drift, not caused by the diff read, but blocking this task's own acceptance
+- [Phase 04]: diff_extras_for gates on BOTH a worktrees row existing AND the path being a real directory on disk — D-45's missing status means a recorded row can outlive its directory; diffing an absent path would turn a preview into an error instead of an omitted section
 
 ### Pending Todos
 
@@ -324,6 +327,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T01:21:40.491Z
-Stopped at: Completed 04-06-PLAN.md
+Last session: 2026-09-23T01:41:19.613Z
+Stopped at: Completed 04-07-PLAN.md
 Resume file: None
