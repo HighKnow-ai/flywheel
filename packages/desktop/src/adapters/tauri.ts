@@ -707,3 +707,55 @@ export interface BackendCapabilityDto {
 export async function backendCapabilityProbe(): Promise<BackendCapabilityDto> {
   return invokeCommand<BackendCapabilityDto>("backend_capability_probe");
 }
+
+/**
+ * D-84/D-86 (plan 05-02): start a fresh epic-authoring session against no existing epic
+ * (SHAPE-01). Mirrors `commands/authoring.rs`'s `AuthoringRunDto` field-for-field. Thin typed
+ * wrapper over `authoring_run_start`, following `invokeCommand`'s own single-seam rule.
+ */
+export interface AuthoringRunDto {
+  id: string;
+  epicId: string | null;
+  status: string;
+  authoringStage: string | null;
+}
+
+export async function startAuthoringRun(projectId: string): Promise<AuthoringRunDto> {
+  return invokeCommand<AuthoringRunDto>("authoring_run_start", { projectId });
+}
+
+/**
+ * One staged `authoring_proposals` row — mirrors `commands/authoring.rs`'s `ProposalDto`
+ * field-for-field (D-80/D-81). `payload` is the raw, `kind`-discriminated JSON
+ * `domain::authoring_proposal::ProposalPayload` serialises to; the tray reads `title`/`kind` off
+ * it directly rather than a duplicated typed shape.
+ */
+export interface AuthoringProposalDto {
+  id: string;
+  agentRunId: string;
+  epicId: string | null;
+  verb: string;
+  targetType: string;
+  targetId: string | null;
+  parentProposalId: string | null;
+  position: string;
+  payload: { kind: string; title?: string; [key: string]: unknown };
+  status: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** Every pending proposal staged for `agentRunId`, bounded server-side — the proposal tray's own
+ * read. Thin typed wrapper over `authoring_proposals_for_run`. */
+export async function authoringProposalsForRun(
+  agentRunId: string,
+  limit?: number,
+): Promise<AuthoringProposalDto[]> {
+  return invokeCommand<AuthoringProposalDto[]>("authoring_proposals_for_run", { agentRunId, limit });
+}
+
+/** Accept a pending proposal (D-92/D-96) — the ONLY path that turns a staged proposal into a real
+ * board row. Thin typed wrapper over `authoring_proposal_accept`. */
+export async function acceptAuthoringProposal(proposalId: string): Promise<void> {
+  await invokeCommand<void>("authoring_proposal_accept", { proposalId });
+}

@@ -1162,6 +1162,21 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                     &event,
                                 );
                             }
+
+                            // D-80/D-81 (plan 05-02): the agent's own `propose_task` tool call,
+                            // relayed here as a `proposal_created` event. Placed AFTER both the
+                            // `agent:event` emit and the `session_closed` branch above, for the
+                            // same reason `summary_reported`'s own branch sits there: a fault in
+                            // this database write can never delay or suppress the live event the
+                            // developer is watching.
+                            if event.get("type").and_then(|v| v.as_str())
+                                == Some("proposal_created")
+                            {
+                                crate::commands::authoring::handle_inbound_proposal_created(
+                                    &app_for_reader,
+                                    &event,
+                                );
+                            }
                         }
                         Ok(SidecarStdoutLine::Ack {
                             id,

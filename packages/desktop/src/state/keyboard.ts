@@ -70,7 +70,12 @@ export type ActionId =
   | "answer-permission-allow"
   | "answer-permission-deny"
   | "answer-permission-allow-always"
-  | "open-settings";
+  | "open-settings"
+  // D-84/D-88 (plan 05-02): start a fresh epic-authoring session. Command-palette-only in this
+  // plan (no key binding yet), mirroring `create-issue`/`open-legend`'s own palette-only entries
+  // above — the palette is the least invasive entry point and it re-enters the same
+  // `dispatchAction` pipeline every other action uses.
+  | "shape-epic";
 
 export interface Binding {
   id: ActionId;
@@ -167,6 +172,7 @@ export const BINDINGS: Binding[] = [
   { id: "filter-epic", region: "command-palette", label: "Filter by Epic" },
   { id: "filter-assignee", region: "command-palette", label: "Filter by Assignee" },
   { id: "filter-priority", region: "command-palette", label: "Filter by Priority" },
+  { id: "shape-epic", region: "command-palette", label: "Shape an Epic" },
 ];
 
 /** True when `target` is a live text-entry element (input/textarea/contentEditable) — the

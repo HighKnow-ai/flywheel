@@ -8,6 +8,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import {
   agentRunLogWindow,
   agentRunsForTask,
+  authoringProposalsForRun,
   blockedSummary,
   boardRecoverySummary,
   invokeCommand,
@@ -15,6 +16,7 @@ import {
   pendingOrphans,
   pendingPermissionRequests,
   sessionSummariesForTask,
+  startAuthoringRun,
   subscribeAgentEvent,
   subscribeBoardChanged,
   worktreeRemovalCheck,
@@ -561,6 +563,52 @@ export function usePendingPermissionRequests(agentRunId: string | null | undefin
   });
 }
 
+/** `useAuthoringProposals`' query key, keyed by `agentRunId` — mirrors
+ * `pendingPermissionRequestsQueryKey`'s own shape (plan 05-02, D-80/D-82). */
+export function authoringProposalsQueryKey(agentRunId: string) {
+  return ["authoring-proposals", agentRunId] as const;
+}
+
+/**
+ * The proposal tray's own read (D-80/D-82, plan 05-02) — every pending proposal staged for
+ * `agentRunId`, mirroring `usePendingPermissionRequests`' own composition exactly: `null`/
+ * `undefined` disables the query entirely, invalidated on both `subscribeBoardChanged` (the
+ * accept round trip's own emit) and `subscribeAgentEvent` (a fresh `proposal_created` event
+ * arrives on this channel too, per `sidecar.rs`'s reader loop) — never polled.
+ */
+export function useAuthoringProposals(agentRunId: string | null | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!agentRunId) return undefined;
+    const queryKey = authoringProposalsQueryKey(agentRunId);
+    let unlistenBoard: (() => void) | undefined;
+    let unlistenAgent: (() => void) | undefined;
+    let cancelled = false;
+
+    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
+      if (cancelled) fn();
+      else unlistenBoard = fn;
+    });
+    subscribeAgentEvent(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
+      if (cancelled) fn();
+      else unlistenAgent = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlistenBoard?.();
+      unlistenAgent?.();
+    };
+  }, [agentRunId, queryClient]);
+
+  return useQuery({
+    queryKey: authoringProposalsQueryKey(agentRunId ?? "none"),
+    queryFn: () => authoringProposalsForRun(agentRunId as string),
+    enabled: Boolean(agentRunId),
+  });
+}
+
 /** `useLatestAgentRunId`'s query key, keyed by `taskId`. */
 function latestAgentRunIdQueryKey(taskId: string) {
   return ["latest-agent-run", taskId] as const;
@@ -971,4 +1019,15 @@ export function useRemoveWorktree(taskId: string | undefined) {
 export async function openLiveSessionForTask(taskId: string): Promise<void> {
   const agentRunId = await latestAgentRunIdForTask(taskId);
   if (agentRunId) useUiStore.getState().setActiveAgentRunId(agentRunId, taskId);
+}
+
+/** D-84/D-86 (plan 05-02): the `shape-epic` command's own entry point — starts a fresh
+ * epic-authoring session against no existing epic (SHAPE-01) and opens the session surface on the
+ * returned run id, mirroring `openLiveSessionForTask`'s own "call the command, then set
+ * `activeAgentRunId` from its result" shape. `run.authoringStage` is threaded through as the
+ * third `setActiveAgentRunId` argument so `SessionSurface.tsx` mounts `ProposalTray` immediately,
+ * without a second round trip to learn the run is an authoring session. */
+export async function startAuthoringSessionForProject(projectId: string): Promise<void> {
+  const run = await startAuthoringRun(projectId);
+  useUiStore.getState().setActiveAgentRunId(run.id, null, run.authoringStage);
 }

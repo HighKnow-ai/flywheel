@@ -26,6 +26,7 @@ import { useEffect, useMemo, useRef, useState, type ComponentType, type UIEvent 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import * as icons from "lucide-react";
 import { answerPermissionRequest, discardSession, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
+import { ProposalTray } from "../authoring/ProposalTray";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
@@ -221,6 +222,11 @@ export interface SessionSurfaceProps {
    * affordance for an already-terminal run should pass its real starting status here instead of
    * relying on this default. */
   initialStatus?: RunStatus;
+  /** D-88/D-84 (plan 05-02): the run's `agent_runs.authoring_stage`, or `null`/`undefined` for an
+   * ordinary task-execution run. `ProposalTray` mounts beside the feed ONLY when this is present —
+   * an authoring run's own distinguishing fact, carried from `App.tsx`'s `activeAgentRunAuthoringStage`
+   * (`state/uiStore.ts`), since this surface never itself queries which kind of run it is showing. */
+  authoringStage?: string | null;
 }
 
 /** Event kinds the feed suppresses from its own row list — each is either consumed elsewhere
@@ -521,6 +527,7 @@ export function SessionSurface({
   onBack,
   taskId = null,
   initialStatus = "running",
+  authoringStage = null,
 }: SessionSurfaceProps) {
   const [status, setStatus] = useState<RunStatus>(initialStatus);
   const [stopping, setStopping] = useState(false);
@@ -796,6 +803,7 @@ export function SessionSurface({
         )}
       </header>
 
+      <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
       {rawViewOpen ? (
         <RawLogView agentRunId={agentRunId} />
       ) : (
@@ -855,6 +863,23 @@ export function SessionSurface({
           <div ref={tailRef} />
         </div>
       )}
+      {authoringStage && (
+        // D-88: the proposal tray mounts ONLY when this run carries an authoring stage — a
+        // sibling panel beside the feed, never woven into FeedRow.tsx's per-event rendering
+        // (ProposalTray.tsx's own doc comment).
+        <div
+          style={{
+            width: 320,
+            flexShrink: 0,
+            borderLeft: "1px solid var(--divider)",
+            padding: "var(--space-md)",
+            overflowY: "auto",
+          }}
+        >
+          <ProposalTray agentRunId={agentRunId} />
+        </div>
+      )}
+      </div>
     </div>
   );
 }

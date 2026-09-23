@@ -143,6 +143,12 @@ interface UiState {
    * surface's Discard verb can hand off to the launch sheet for the SAME task without adding a
    * new backend read — the session surface itself has no other source for this id. */
   activeAgentRunTaskId: string | null;
+  /** `activeAgentRunId`'s own `authoringStage` (D-88, plan 05-02), or `null` for an ordinary
+   * task-execution run — set together with `activeAgentRunId`/`activeAgentRunTaskId` at the one
+   * call site that opens an authoring session (`BoardView.tsx`'s `shape-epic` handler). This is
+   * what `SessionSurface.tsx` reads to decide whether to mount `ProposalTray` at all: the tray has
+   * no other source for "is this run an authoring session." */
+  activeAgentRunAuthoringStage: string | null;
   /** The task id the launch sheet (D-27, plan 02-04) is currently open for, or `null` when it is
    * closed. Lives here for the same cross-tree reasoning as `activeAgentRunId`: the sheet is
    * mounted once at the `App.tsx` level (a peer of `CommandPalette`, per its own "briefing gate
@@ -184,7 +190,11 @@ interface UiState {
    * mirrors `openQuickAdd`'s own "N related fields, one writer" shape. `taskId` defaults to
    * `null` so every pre-existing call site (none of which needs to change) keeps working exactly
    * as before. */
-  setActiveAgentRunId: (agentRunId: string | null, taskId?: string | null) => void;
+  setActiveAgentRunId: (
+    agentRunId: string | null,
+    taskId?: string | null,
+    authoringStage?: string | null,
+  ) => void;
   setLaunchSheetTaskId: (taskId: string | null) => void;
   setSettingsOpen: (open: boolean) => void;
 }
@@ -204,6 +214,7 @@ export const useUiStore = create<UiState>((set) => ({
   quickAddFocusPending: false,
   activeAgentRunId: null,
   activeAgentRunTaskId: null,
+  activeAgentRunAuthoringStage: null,
   launchSheetTaskId: null,
   settingsOpen: false,
 
@@ -266,8 +277,12 @@ export const useUiStore = create<UiState>((set) => ({
   openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true, quickAddFocusPending: true }),
   setPendingDone: (pending) => set({ pendingDone: pending }),
   clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
-  setActiveAgentRunId: (agentRunId, taskId = null) =>
-    set({ activeAgentRunId: agentRunId, activeAgentRunTaskId: taskId }),
+  setActiveAgentRunId: (agentRunId, taskId = null, authoringStage = null) =>
+    set({
+      activeAgentRunId: agentRunId,
+      activeAgentRunTaskId: taskId,
+      activeAgentRunAuthoringStage: authoringStage,
+    }),
   setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 }));
@@ -294,6 +309,7 @@ export function resetUiState() {
     quickAddFocusPending: false,
     activeAgentRunId: null,
     activeAgentRunTaskId: null,
+    activeAgentRunAuthoringStage: null,
     launchSheetTaskId: null,
     settingsOpen: false,
   });

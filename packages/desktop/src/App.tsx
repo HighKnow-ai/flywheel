@@ -97,6 +97,7 @@ function AppShell() {
   // stays the board (this state is `null` whenever no session is being watched).
   const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
   const activeAgentRunTaskId = useUiStore((state) => state.activeAgentRunTaskId);
+  const activeAgentRunAuthoringStage = useUiStore((state) => state.activeAgentRunAuthoringStage);
   const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
   // D-27: the launch sheet, mounted once here as a peer of CommandPalette below — `null` means
   // closed. `ItemDetailPanel.tsx`'s "Start Work" affordance and the board-list `start-work`
@@ -236,6 +237,7 @@ function AppShell() {
             <SessionSurface
               agentRunId={activeAgentRunId}
               taskId={activeAgentRunTaskId}
+              authoringStage={activeAgentRunAuthoringStage}
               onBack={() => setActiveAgentRunId(null)}
             />
           ) : project.status === "unreachable" ? (

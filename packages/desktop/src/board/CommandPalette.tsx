@@ -41,6 +41,7 @@ import {
 import { useUiStore } from "../state/uiStore";
 import {
   openLiveSessionForTask,
+  startAuthoringSessionForProject,
   useActors,
   useBoardQuery,
   useCreateIssue,
@@ -350,6 +351,23 @@ export function CommandPalette() {
           continue;
         case "open-legend":
           out.push({ id, label, group: "Reference", run: () => setOverlay("legend") });
+          continue;
+        case "shape-epic":
+          // D-84/D-86 (plan 05-02): starts a fresh epic-authoring session and opens the session
+          // surface on the returned run id (`startAuthoringSessionForProject`,
+          // `board/useBoardQuery.ts`) — the least invasive entry point (SHAPE-01), re-entering the
+          // same `activeAgentRunId` plumbing every task-execution run already uses.
+          out.push({
+            id,
+            label,
+            group: "Create",
+            disabled: !effectiveProjectId,
+            run: () => {
+              if (!effectiveProjectId) return;
+              close();
+              void startAuthoringSessionForProject(effectiveProjectId);
+            },
+          });
           continue;
         case "filter-status":
         case "filter-epic":

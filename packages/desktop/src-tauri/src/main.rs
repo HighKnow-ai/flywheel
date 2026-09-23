@@ -166,6 +166,9 @@ fn main() {
             commands::settings::settings_store_api_key,
             commands::settings::settings_clear_api_key,
             commands::settings::backend_capability_probe,
+            commands::authoring::authoring_run_start,
+            commands::authoring::authoring_proposals_for_run,
+            commands::authoring::authoring_proposal_accept,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
