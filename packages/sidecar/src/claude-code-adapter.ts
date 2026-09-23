@@ -21,14 +21,17 @@ import {
   CapabilityUnsupportedError,
   defaultResumeSession,
   type StartSessionOptions,
+  type SummaryReportedEvent,
   UnknownRunError,
 } from "./adapter.js";
 import {
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
   startPermissionServer,
+  SUMMARY_TOOL_NAME,
   type PermissionNoticePayload,
   type PermissionServerHandle,
+  type SummaryReportPayload,
 } from "./mcp-permission-server.js";
 
 /** The binary name/path this adapter spawns — overridable via `FLYWHEEL_CLAUDE_BIN` so tests can
@@ -223,6 +226,12 @@ export function buildClaudeArgv(options: {
   permissionPromptToolName?: string;
   mcpConfig?: string;
   settingsPath?: string;
+  /** D-64/D-46 (plan 04-03): the fully-qualified `report_summary` tool name, when supplied —
+   * pushed onto `--allowedTools` inside the SAME `permissionPromptToolName`/`mcpConfig` branch
+   * below, never on its own. Without this, the agent's own closing summary call would route
+   * through `approve_action` and sit waiting on a human — the exact friction D-46 reserves for
+   * money-burning actions, not for writing a summary. */
+  summaryToolName?: string;
 }): string[] {
   const argv = [
     "-p",
@@ -242,6 +251,11 @@ export function buildClaudeArgv(options: {
   ];
   if (options.permissionPromptToolName && options.mcpConfig) {
     argv.push("--permission-prompt-tool", options.permissionPromptToolName, "--mcp-config", options.mcpConfig);
+    if (options.summaryToolName) {
+      // D-64/D-46: pre-approve exactly the summary tool so the agent's own closing
+      // report_summary call never waits on a human the way a gated tool call would.
+      argv.push("--allowedTools", options.summaryToolName);
+    }
   }
   if (options.settingsPath) {
     argv.push("--settings", options.settingsPath);
@@ -351,8 +365,38 @@ export function noticeToAgentEvent(
 }
 
 /**
+ * D-64/D-65 (plan 04-03): map one parsed `session_summary` wire payload to exactly one
+ * {@link SummaryReportedEvent}, mirroring {@link noticeToAgentEvent}'s own "map the wire shape,
+ * fill `runId`/`seq`/`at` from the caller's own closure" convention. `runId` NEVER comes from the
+ * payload itself — it is this session's own `runId`, matching T-04-01's spoofing mitigation.
+ * `raw` is the verbatim serialised payload — never empty, the same discipline every other
+ * `AgentEvent`'s `raw` field follows. Exported so this mapping is unit-testable without a live
+ * session, mirroring {@link noticeToAgentEvent}'s own export.
+ */
+export function normalizeSummaryNotice(
+  payload: SummaryReportPayload,
+  runId: string,
+  seq: number,
+  at: string,
+): SummaryReportedEvent {
+  return {
+    runId,
+    seq,
+    at,
+    raw: JSON.stringify(payload),
+    type: "summary_reported",
+    changedFiles: payload.changedFiles,
+    changedProse: payload.changedProse,
+    remains: payload.remains,
+    nextSessionMustKnow: payload.nextSessionMustKnow,
+    decisions: payload.decisions,
+    acknowledgedDecisions: payload.acknowledgedDecisions,
+  };
+}
+
+/**
  * Map one parsed `stream-json` object to exactly one {@link AgentEvent}. A shape this function
- * does not recognise becomes `unknown` — still carrying the verbatim `raw` text, never dropped
+ * does not recognise becomes `unknown`, still carrying the verbatim `raw` text, never dropped
  * (AGNT-02's flagged assumption).
  */
 export function normaliseStreamEvent(
@@ -695,6 +739,13 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         session.nextSeq += 1;
         session.onEvent(event);
       }
+    }, (payload) => {
+      // D-64 (plan 04-03): the agent's own closing summary, mapped by the pure
+      // `normalizeSummaryNotice` above and relayed onto this SAME session's event stream as its
+      // own event type — `runId` filled from THIS closure, never from the payload (T-04-01).
+      const event = normalizeSummaryNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
+      session.nextSeq += 1;
+      session.onEvent(event);
     });
 
     const bin = resolveClaudeBin();
@@ -740,6 +791,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionPromptToolName: PERMISSION_TOOL_NAME,
       mcpConfig,
       settingsPath,
+      summaryToolName: SUMMARY_TOOL_NAME,
     });
 
     // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the

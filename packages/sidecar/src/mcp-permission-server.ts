@@ -60,10 +60,41 @@ export const MCP_SERVER_NAME = "flywheel-permissions";
  * Claude Code's own CLI reference documents. Declared exactly once in this sidecar's source. */
 export const PERMISSION_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${APPROVE_TOOL_NAME}`;
 
+/** Plan 04-03 (D-64): the raw tool name for the agent's own closing-summary report — a SECOND
+ * tool on this SAME server, declared here beside {@link APPROVE_TOOL_NAME} so the two names can
+ * never be confused with each other. */
+export const REPORT_SUMMARY_TOOL_NAME = "report_summary";
+
+/** The fully-qualified string `buildClaudeArgv` pushes onto `--allowedTools` so the agent's own
+ * closing `report_summary` call is pre-approved and never routes through `approve_action` waiting
+ * on a human (D-46 reserves that friction for money-burning actions, not for writing a summary).
+ * Composed exactly the way {@link PERMISSION_TOOL_NAME} already composes, declared exactly once. */
+export const SUMMARY_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${REPORT_SUMMARY_TOOL_NAME}`;
+
 export interface PermissionRequestPayload {
   requestId: string;
   toolName: string;
   input: unknown;
+}
+
+/** Plan 04-03 (D-64/D-65): the wire shape `report_summary`'s standalone-server handler writes
+ * over the per-run socket, and {@link startPermissionServer}'s `onSummary` callback receives.
+ * `kind: "session_summary"` is the EXACT string {@link isSummaryPayload} checks — distinguished
+ * from {@link PermissionNoticePayload}'s broader "carries some string `kind`" check, which would
+ * otherwise also match this shape; the summary branch in the connection handler below runs FIRST,
+ * before the notice check ever sees the line. `version: 1` is what keeps a future shape change an
+ * additive `version: 2` branch rather than a breaking one. The six content fields mirror
+ * `SummaryReportedEvent` minus `runId` — identity is derived from the socket the call arrives on,
+ * never accepted as a caller-supplied argument (T-04-01). */
+export interface SummaryReportPayload {
+  kind: "session_summary";
+  version: 1;
+  changedFiles: string[];
+  changedProse?: string;
+  remains?: string;
+  nextSessionMustKnow?: string;
+  decisions: Array<{ id: string; statement: string }>;
+  acknowledgedDecisions: string[];
 }
 
 /** Plan 03-13 (D-53): the shim's fire-and-forget notice shape — `kind` is what distinguishes this
@@ -112,6 +143,18 @@ function isNoticePayload(parsed: unknown): parsed is PermissionNoticePayload {
   );
 }
 
+/** Plan 04-03 (D-64): checks the EXACT `kind: "session_summary"` string — never merely "carries a
+ * `kind` field," which is {@link isNoticePayload}'s broader check and would otherwise also match
+ * this shape. A summary can never be mistaken for a git notice, or vice versa, because the
+ * connection handler checks this guard FIRST. */
+function isSummaryPayload(parsed: unknown): parsed is SummaryReportPayload {
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    (parsed as { kind?: unknown }).kind === "session_summary"
+  );
+}
+
 export interface PermissionServerHandle {
   /** The Unix domain socket path the standalone server (spawned by the backend) connects to —
    * embedded verbatim into the `--mcp-config` JSON `buildClaudeArgv` builds. */
@@ -135,10 +178,17 @@ export interface PermissionServerHandle {
  * `onNotice` (plan 03-13, D-53) is invoked once per incoming connection whose parsed line carries
  * a `kind` field — a fire-and-forget message from the shim, never a held request. That
  * connection is closed IMMEDIATELY after `onNotice` runs and is never added to `pending`.
+ *
+ * `onSummary` (plan 04-03, D-64) is invoked once per incoming connection whose parsed line carries
+ * `kind: "session_summary"` — the agent's own closing-summary report, relayed as a SECOND message
+ * kind on this SAME socket. Checked BEFORE the `onNotice` branch (see {@link isSummaryPayload}),
+ * answered with a receipt acknowledgement, and closed IMMEDIATELY — also never added to `pending`,
+ * for the identical reason a notice is not: a summary is not a held call either.
  */
 export function startPermissionServer(
   onRequest: (payload: PermissionRequestPayload) => void,
   onNotice: (payload: PermissionNoticePayload) => void,
+  onSummary: (payload: SummaryReportPayload) => void,
 ): PermissionServerHandle {
   const socketPath = path.join(socketBaseDir(), `flywheel-permission-${randomUUID()}.sock`);
   // A stale socket file from a previous run that was killed without cleanup would make `listen`
@@ -161,6 +211,18 @@ export function startPermissionServer(
         parsed = JSON.parse(line);
       } catch {
         socket.destroy();
+        return;
+      }
+
+      // Plan 04-03 (D-64): a summary report carries `kind: "session_summary"` EXACTLY — checked
+      // BEFORE the broader isNoticePayload check below, which would otherwise also match on the
+      // mere presence of a string `kind` field. Answered with a receipt acknowledgement and closed
+      // IMMEDIATELY, never added to `pending` — a summary is not a held call, and this branch must
+      // never share a code path with the held-request logic below (T-04-10: a flood of summary
+      // calls cannot exhaust the pending-connection map the permission gate depends on).
+      if (isSummaryPayload(parsed)) {
+        onSummary(parsed);
+        socket.end(JSON.stringify({ received: true }) + "\n");
         return;
       }
 
@@ -228,6 +290,41 @@ export function startPermissionServer(
  * shape (`{behavior: "allow"|"deny", ...}`) matches Claude Code's own documented
  * `--permission-prompt-tool` contract.
  */
+/** Plan 04-03 (D-64): the `report_summary` tool's own registration object, exported so the test
+ * suite's structural "no board-entity id" assertion reads the SAME object this server registers,
+ * never a duplicated literal copy that could drift from what is actually served. No property name
+ * contains `run`, `task`, `project` or `worktree` — identity is derived from the socket the call
+ * arrives on, never accepted as an argument (T-04-01, 04-RESEARCH.md Pattern 4). The description's
+ * wording is deliberately true to what the acknowledgement means: a receipt, not a database
+ * commit (the tool's own text must never tell the model something untrue). */
+export const summaryToolDefinition = {
+  name: REPORT_SUMMARY_TOOL_NAME,
+  description:
+    "Record this session's closing summary on the Flywheel board. Resolves once the supervisor has received it.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      changed_files: { type: "array", items: { type: "string" } },
+      changed_prose: { type: "string" },
+      remains: { type: "string" },
+      next_session_must_know: { type: "string" },
+      decisions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            statement: { type: "string" },
+          },
+          required: ["id", "statement"],
+        },
+      },
+      acknowledged_decisions: { type: "array", items: { type: "string" } },
+    },
+    required: ["changed_files", "decisions"],
+  },
+} as const;
+
 async function runStandaloneServer(socketPath: string): Promise<void> {
   const server = new Server({ name: MCP_SERVER_NAME, version: "0.1.0" }, { capabilities: { tools: {} } });
 
@@ -245,49 +342,99 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
           required: ["tool_name"],
         },
       },
+      summaryToolDefinition,
     ],
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    if (request.params.name !== APPROVE_TOOL_NAME) {
-      throw new Error(`unknown tool: ${request.params.name}`);
-    }
-    const args = (request.params.arguments ?? {}) as { tool_name?: string; input?: unknown };
-    const requestId = randomUUID();
+    if (request.params.name === APPROVE_TOOL_NAME) {
+      const args = (request.params.arguments ?? {}) as { tool_name?: string; input?: unknown };
+      const requestId = randomUUID();
 
-    return new Promise((resolve, reject) => {
-      const socket = net.createConnection(socketPath, () => {
-        socket.write(
-          JSON.stringify({
-            requestId,
-            toolName: args.tool_name ?? "unknown_tool",
-            input: args.input ?? null,
-          }) + "\n",
-        );
+      return new Promise((resolve, reject) => {
+        const socket = net.createConnection(socketPath, () => {
+          socket.write(
+            JSON.stringify({
+              requestId,
+              toolName: args.tool_name ?? "unknown_tool",
+              input: args.input ?? null,
+            }) + "\n",
+          );
+        });
+        socket.on("error", (err) => reject(err));
+        const rl = createInterface({ input: socket });
+        rl.once("line", (line) => {
+          let parsed: { decision: "allow" | "deny" };
+          try {
+            parsed = JSON.parse(line) as { decision: "allow" | "deny" };
+          } catch (err) {
+            reject(err);
+            return;
+          }
+          if (parsed.decision === "allow") {
+            resolve({
+              content: [{ type: "text", text: JSON.stringify({ behavior: "allow", updatedInput: args.input ?? {} }) }],
+            });
+          } else {
+            resolve({
+              content: [{ type: "text", text: JSON.stringify({ behavior: "deny", message: "Denied by user" }) }],
+            });
+          }
+        });
+        // Deliberately no setTimeout/setInterval anywhere in this function — the promise settles
+        // ONLY when the socket answers (AGNT-06's central falsifiability requirement).
       });
-      socket.on("error", (err) => reject(err));
-      const rl = createInterface({ input: socket });
-      rl.once("line", (line) => {
-        let parsed: { decision: "allow" | "deny" };
-        try {
-          parsed = JSON.parse(line) as { decision: "allow" | "deny" };
-        } catch (err) {
-          reject(err);
-          return;
-        }
-        if (parsed.decision === "allow") {
-          resolve({
-            content: [{ type: "text", text: JSON.stringify({ behavior: "allow", updatedInput: args.input ?? {} }) }],
-          });
-        } else {
-          resolve({
-            content: [{ type: "text", text: JSON.stringify({ behavior: "deny", message: "Denied by user" }) }],
-          });
-        }
+    }
+
+    if (request.params.name === REPORT_SUMMARY_TOOL_NAME) {
+      // Plan 04-03 (D-64): snake_case tool arguments mapped to the camelCase SummaryReportPayload
+      // fields. No argument here names a run, task, project or worktree (T-04-01) — identity is
+      // whichever socket this connection reaches, exactly like the approve branch above.
+      const args = (request.params.arguments ?? {}) as {
+        changed_files?: string[];
+        changed_prose?: string;
+        remains?: string;
+        next_session_must_know?: string;
+        decisions?: Array<{ id: string; statement: string }>;
+        acknowledged_decisions?: string[];
+      };
+      const payload: SummaryReportPayload = {
+        kind: "session_summary",
+        version: 1,
+        changedFiles: args.changed_files ?? [],
+        changedProse: args.changed_prose,
+        remains: args.remains,
+        nextSessionMustKnow: args.next_session_must_know,
+        decisions: args.decisions ?? [],
+        acknowledgedDecisions: args.acknowledged_decisions ?? [],
+      };
+
+      return new Promise((resolve, reject) => {
+        const socket = net.createConnection(socketPath, () => {
+          socket.write(JSON.stringify(payload) + "\n");
+        });
+        socket.on("error", (err) => reject(err));
+        const rl = createInterface({ input: socket });
+        rl.once("line", (line) => {
+          let parsed: { received?: boolean };
+          try {
+            parsed = JSON.parse(line) as { received?: boolean };
+          } catch (err) {
+            reject(err);
+            return;
+          }
+          if (parsed.received === true) {
+            resolve({ content: [{ type: "text", text: JSON.stringify({ recorded: true }) }] });
+          } else {
+            reject(new Error(`unexpected summary acknowledgement shape: ${line}`));
+          }
+        });
+        // Deliberately no setTimeout/setInterval anywhere in this function — matches the approve
+        // branch above: the promise settles ONLY when the socket answers.
       });
-      // Deliberately no setTimeout/setInterval anywhere in this function — the promise settles
-      // ONLY when the socket answers (AGNT-06's central falsifiability requirement).
-    });
+    }
+
+    throw new Error(`unknown tool: ${request.params.name}`);
   });
 
   const transport = new StdioServerTransport();
