@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 8/10 plans executed in 8 waves
+**Plans**: 9/10 plans executed in 8 waves
 **UI hint**: yes
 
 Plans:
@@ -530,7 +530,7 @@ Plans:
 
 **Wave 7** *(blocked on 05-07)*
 
-- [ ] 05-08-PLAN.md — The triage lane on the board, the epic-row proposal count, and proof that an abandoned session leaves decidable work behind (SHAPE-02, SHAPE-04)
+- [x] 05-08-PLAN.md — The triage lane on the board, the epic-row proposal count, and proof that an abandoned session leaves decidable work behind (SHAPE-02, SHAPE-04)
 
 **Wave 8** *(blocked on 05-08 and 05-09 — the phase's ship gate)*
 
@@ -785,7 +785,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 8/10 | In Progress|  |
+| 5. Socratic Epic Authoring | 9/10 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |

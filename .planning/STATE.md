@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-07-PLAN.md
-last_updated: "2026-09-23T17:25:54.746Z"
+stopped_at: Completed 05-08-PLAN.md
+last_updated: "2026-09-23T17:54:47.836Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 05 execution started
-state_head: f2ac3092dfa7162e7e67597127ef3794bb1455fc
+state_head: 883348fafe07aa471e613054d8559f10146d9de9
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 103
-  completed_plans: 101
+  completed_plans: 102
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 9 of 10
+Plan: 10 of 10
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 05 execution started
 
@@ -160,6 +160,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P06 | ~150min | 3 tasks | 8 files |
 | Phase 05 P09 | 170min | 3 tasks | 21 files |
 | Phase 05 P07 | 180min | 3 tasks | 9 files |
+| Phase 05 P08 | 55min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -347,6 +348,8 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05]: session_summaries and permission_requests both generalised to the same nullable task_id/epic_id/never-both-CHECK shape D-84 gave agent_runs — an authoring run genuinely blocked on a permission request is now representable at all.
 - [Phase 05]: 05-07: useRunProposals invalidates on board:changed only, never agent:event -- proposal_created already re-emits board:changed, so a second subscription would defeat the tray/feed re-render isolation D-85 depends on.
 - [Phase 05]: 05-07: the undecidable proposal state is detected reactively on an accept failure carrying the core's ProposalUndecidable marker text, since this plan carries no Rust changes and target-existence is only checked at accept time.
+- [Phase 05]: TriageLane.tsx reuses ProposalRow.tsx and groups its project-scoped proposal window exactly as ProposalTray.tsx groups its run-scoped one; each row carries its own proposal.agentRunId since the lane can span several authoring runs at once. — One query layer, two surfaces (D-82) - the tray and the lane can never disagree about what is pending.
+- [Phase 05]: The epic-row pending-proposal count reuses the field-epic-pill slot (empty on an epic row) and the accent-text-strip/accent-text-rack role pair - never a new token, never the blocked role. — D-46: only money burning blocks; the badge must never be mistaken for a blocked signal, and must never collide with the Blocked/Needs Decision pills.
 
 ### Pending Todos
 
@@ -392,6 +395,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T17:25:54.632Z
-Stopped at: Completed 05-07-PLAN.md
+Last session: 2026-09-23T17:54:47.721Z
+Stopped at: Completed 05-08-PLAN.md
 Resume file: None
