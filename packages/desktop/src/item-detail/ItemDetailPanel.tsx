@@ -73,6 +73,13 @@ export interface ItemDetailPanelProps {
    * convention `onStartWork` already follows), and an epic/issue never renders the Runs section
    * that would need it (D-37). */
   onOpenRun?: (agentRunId: string) => void;
+  /** Called when the "Continue Shaping" affordance is pressed (D-91, plan 05-10) — the caller
+   * resolves whether a session is already running for this epic and either routes to it or opens
+   * the authoring launch sheet (`useBoardQuery.ts`'s `continueShapingEpic`, the SAME entry point
+   * `board/BoardView.tsx`'s own `r` keyboard binding calls). This component stays free of any
+   * store import, per `onStartWork`'s own established convention above. Only rendered for an epic
+   * (the fixed three-level hierarchy gives only an epic a shaping session of its own). */
+  onContinueShaping?: () => void;
 }
 
 export function ItemDetailPanel({
@@ -83,6 +90,7 @@ export function ItemDetailPanel({
   trapped = true,
   onStartWork,
   onOpenRun,
+  onContinueShaping,
 }: ItemDetailPanelProps) {
   const [titleDraft, setTitleDraft] = useState(item.title);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
@@ -233,6 +241,25 @@ export function ItemDetailPanel({
               }}
             >
               Start Work
+            </button>
+          )}
+
+          {item.kind === "epic" && (
+            <button
+              type="button"
+              onClick={onContinueShaping}
+              className="type-body"
+              style={{
+                alignSelf: "flex-start",
+                background: "var(--accent-nontext)",
+                border: "none",
+                borderRadius: "var(--radius-chrome)",
+                color: "var(--text-primary-rack)",
+                padding: "var(--space-xs) var(--space-md)",
+                cursor: "pointer",
+              }}
+            >
+              Continue Shaping
             </button>
           )}
 

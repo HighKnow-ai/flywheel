@@ -11,6 +11,9 @@ import { LaunchSheet } from "../LaunchSheet";
 const previewMock = vi.fn();
 const startMock = vi.fn();
 
+const previewEpicMock = vi.fn();
+const startAuthoringMock = vi.fn();
+
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
@@ -18,6 +21,9 @@ vi.mock("../../adapters/tauri", async () => {
     previewContextPacket: (taskId: string) => previewMock(taskId),
     startAgentRun: (taskId: string, permissionMode: string, instruction?: string) =>
       startMock(taskId, permissionMode, instruction),
+    previewEpicContextPacket: (projectId: string, epicId: string | null) =>
+      previewEpicMock(projectId, epicId),
+    startAuthoringRun: (projectId: string, epicId?: string | null) => startAuthoringMock(projectId, epicId),
   };
 });
 
@@ -65,6 +71,18 @@ function makePacket(overrides: Partial<Record<string, unknown>> = {}) {
     worktreePath: "/Users/dev/Flywheel/FLY/FLY-42",
     diff: null,
     renderedPrompt: "# Wire the launch sheet",
+    ...overrides,
+  };
+}
+
+function makeEpicPacket(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    epic: { key: "FLY-9", title: "Ship the thing", description: "Epic body", status: "backlog" },
+    taskRoster: [],
+    answeredAssumptions: [],
+    rejected: { verbatim: [], folded: [], boundary: { total: 0, verbatimCount: 0, foldedCount: 0, boundarySentence: null } },
+    priorAuthoringRuns: [],
+    renderedPrompt: "## Epic\n\nShip the thing\n",
     ...overrides,
   };
 }
@@ -415,5 +433,132 @@ describe("LaunchSheet — drift warnings (plan 04-12 Task 3)", () => {
 
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+});
+
+describe("LaunchSheet — the epic-authoring variant (D-91, plan 05-10 Task 1(c))", () => {
+  function renderAuthoringSheet(authoring: { projectId: string; epicId: string | null }) {
+    const queryClient = new QueryClient();
+    const onClose = vi.fn();
+    const onAuthoringStarted = vi.fn();
+    const utils = render(
+      <QueryClientProvider client={queryClient}>
+        <LaunchSheet
+          taskId={null}
+          authoring={authoring}
+          onClose={onClose}
+          onStarted={vi.fn()}
+          onAuthoringStarted={onAuthoringStarted}
+        />
+      </QueryClientProvider>,
+    );
+    return { ...utils, onClose, onAuthoringStarted };
+  }
+
+  it("previews the epic packet against projectId/epicId and renders the epic's key in the header", async () => {
+    previewEpicMock.mockReset().mockResolvedValue(makeEpicPacket());
+    startAuthoringMock.mockReset();
+    renderAuthoringSheet({ projectId: "proj-1", epicId: "epic-9" });
+
+    await waitFor(() => expect(screen.getByText("Continue Shaping FLY-9")).toBeInTheDocument());
+    expect(previewEpicMock).toHaveBeenCalledWith("proj-1", "epic-9");
+    expect(screen.getByText("Ship the thing")).toBeInTheDocument();
+    expect(screen.getByText("Epic body")).toBeInTheDocument();
+  });
+
+  it("renders a short sheet with most sections absent for a brand-new epic (epicId: null)", async () => {
+    previewEpicMock.mockReset().mockResolvedValue(
+      makeEpicPacket({ epic: null, renderedPrompt: "## Your Task\n\n" }),
+    );
+    startAuthoringMock.mockReset();
+    renderAuthoringSheet({ projectId: "proj-1", epicId: null });
+
+    await waitFor(() => expect(screen.getByText("Shape a New Epic")).toBeInTheDocument());
+    expect(previewEpicMock).toHaveBeenCalledWith("proj-1", null);
+    expect(screen.queryByText("Epic")).not.toBeInTheDocument();
+    expect(screen.queryByText("Task Roster")).not.toBeInTheDocument();
+    expect(screen.queryByText("Answered Assumptions")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rejected Proposals")).not.toBeInTheDocument();
+  });
+
+  it("renders the task roster, answered assumptions and the rejected set's fold boundary for a reopened epic", async () => {
+    previewEpicMock.mockReset().mockResolvedValue(
+      makeEpicPacket({
+        taskRoster: [
+          {
+            key: "FLY-10",
+            title: "Wire the packet",
+            status: "backlog",
+            criteria: [{ statement: "Does the thing", verificationHint: "run it" }],
+          },
+        ],
+        answeredAssumptions: [{ assumption: "Is X in scope?", answer: "No." }],
+        rejected: {
+          verbatim: [
+            { targetType: "task", label: "A rejected task", rejectionReason: "Wrong shape", createdAt: "2026-01-01T00:00:00.000Z" },
+          ],
+          folded: [{ targetType: "criterion", label: "An older rejected criterion", createdAt: "2025-12-01T00:00:00.000Z" }],
+          boundary: {
+            total: 2,
+            verbatimCount: 1,
+            foldedCount: 1,
+            boundarySentence:
+              "The 1 most recently rejected proposals are shown in full; 1 older rejected proposal is summarized only, by type and title/statement.",
+          },
+        },
+      }),
+    );
+    startAuthoringMock.mockReset();
+    renderAuthoringSheet({ projectId: "proj-1", epicId: "epic-9" });
+
+    await waitFor(() => expect(screen.getByText(/Wire the packet/)).toBeInTheDocument());
+    expect(screen.getByText("Does the thing")).toBeInTheDocument();
+    expect(screen.getByText("Is X in scope? — No.")).toBeInTheDocument();
+    expect(screen.getByText(/A rejected task/)).toBeInTheDocument();
+    expect(screen.getByText(/An older rejected criterion \(older, summarized\)/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The 1 most recently rejected proposals are shown in full; 1 older rejected proposal is summarized only, by type and title/statement.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("has no instruction field and no permission-mode control — D-86 fixes the mode unconditionally", async () => {
+    previewEpicMock.mockReset().mockResolvedValue(makeEpicPacket());
+    startAuthoringMock.mockReset();
+    renderAuthoringSheet({ projectId: "proj-1", epicId: "epic-9" });
+
+    await waitFor(() => expect(screen.getByText("Continue Shaping FLY-9")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Instruction")).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Permission mode" })).not.toBeInTheDocument();
+  });
+
+  it("Start Shaping calls startAuthoringRun with projectId/epicId and reports the started run", async () => {
+    previewEpicMock.mockReset().mockResolvedValue(makeEpicPacket());
+    startAuthoringMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-9", epicId: "epic-9", status: "running", authoringStage: "challenge", resumed: false });
+    const { onAuthoringStarted } = renderAuthoringSheet({ projectId: "proj-1", epicId: "epic-9" });
+
+    await waitFor(() => expect(screen.getByText("Continue Shaping FLY-9")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Continue Shaping" }));
+
+    await waitFor(() => expect(startAuthoringMock).toHaveBeenCalledWith("proj-1", "epic-9"));
+    await waitFor(() =>
+      expect(onAuthoringStarted).toHaveBeenCalledWith({ id: "run-9", authoringStage: "challenge", epicId: "epic-9" }),
+    );
+  });
+
+  it("renders nothing when authoring is null and taskId is null", () => {
+    previewEpicMock.mockReset();
+    startAuthoringMock.mockReset();
+    const queryClient = new QueryClient();
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <LaunchSheet taskId={null} onClose={() => {}} onStarted={() => {}} />
+      </QueryClientProvider>,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(previewEpicMock).not.toHaveBeenCalled();
   });
 });

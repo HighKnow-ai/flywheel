@@ -709,19 +709,115 @@ export async function backendCapabilityProbe(): Promise<BackendCapabilityDto> {
 }
 
 /**
- * D-84/D-86 (plan 05-02): start a fresh epic-authoring session against no existing epic
- * (SHAPE-01). Mirrors `commands/authoring.rs`'s `AuthoringRunDto` field-for-field. Thin typed
- * wrapper over `authoring_run_start`, following `invokeCommand`'s own single-seam rule.
+ * D-84/D-86 (plan 05-02, widened plan 05-10): start an epic-authoring session — a fresh one
+ * against no existing epic (SHAPE-01) when `epicId` is omitted/`null`, or a reopened one
+ * (SHAPE-05) when it names an existing epic. Mirrors `commands/authoring.rs`'s `AuthoringRunDto`
+ * field-for-field, including `resumed` (plan 05-10): `true` when the epic already had a
+ * running/blocked authoring session and this call routed to it rather than starting a second one.
+ * Thin typed wrapper over `authoring_run_start`, following `invokeCommand`'s own single-seam rule.
  */
 export interface AuthoringRunDto {
   id: string;
   epicId: string | null;
   status: string;
   authoringStage: string | null;
+  resumed: boolean;
 }
 
-export async function startAuthoringRun(projectId: string): Promise<AuthoringRunDto> {
-  return invokeCommand<AuthoringRunDto>("authoring_run_start", { projectId });
+export async function startAuthoringRun(
+  projectId: string,
+  epicId?: string | null,
+): Promise<AuthoringRunDto> {
+  return invokeCommand<AuthoringRunDto>("authoring_run_start", { projectId, epicId: epicId ?? null });
+}
+
+/**
+ * The door's own pre-flight read (plan 05-10): does `epicId` already have a running/blocked
+ * authoring session? `null` when it does not. Thin typed wrapper over `authoring_run_for_epic` —
+ * a pure read, never starts anything.
+ */
+export async function authoringRunForEpic(epicId: string): Promise<AuthoringRunDto | null> {
+  return invokeCommand<AuthoringRunDto | null>("authoring_run_for_epic", { epicId });
+}
+
+/**
+ * The epic-authoring launch sheet's read-only briefing (D-27's launch sheet, extended to an
+ * authoring subject — plan 05-10 Task 1(c)). Mirrors `commands/authoring.rs`'s
+ * `EpicContextPacketDto` field-for-field.
+ */
+export interface EpicFactsDto {
+  key: string;
+  title: string;
+  description: string | null;
+  status: string;
+}
+
+export interface TaskRosterEntryDto {
+  key: string;
+  title: string;
+  status: string;
+  criteria: CriterionDto[];
+}
+
+export interface AssumptionEntryDto {
+  assumption: string;
+  answer: string;
+}
+
+export interface RejectedProposalEntryDto {
+  targetType: string;
+  label: string;
+  rejectionReason: string | null;
+  createdAt: string;
+}
+
+export interface FoldedRejectedProposalDto {
+  targetType: string;
+  label: string;
+  createdAt: string;
+}
+
+export interface RejectionBoundaryDto {
+  total: number;
+  verbatimCount: number;
+  foldedCount: number;
+  boundarySentence: string | null;
+}
+
+export interface RejectedSetDto {
+  verbatim: RejectedProposalEntryDto[];
+  folded: FoldedRejectedProposalDto[];
+  boundary: RejectionBoundaryDto;
+}
+
+export interface AuthoringRunEntryDto {
+  id: string;
+  startedAt: string;
+  endedAt: string | null;
+  stageReached: string | null;
+  summaryChangedProse: string | null;
+}
+
+export interface EpicContextPacketDto {
+  epic: EpicFactsDto | null;
+  taskRoster: TaskRosterEntryDto[];
+  answeredAssumptions: AssumptionEntryDto[];
+  rejected: RejectedSetDto;
+  priorAuthoringRuns: AuthoringRunEntryDto[];
+  renderedPrompt: string;
+}
+
+/**
+ * Preview the epic-scoped briefing an [`startAuthoringRun`] against `projectId`/`epicId` would
+ * send (D-27's launch sheet, extended here) — a read: it mutates nothing and starts no process.
+ * `epicId = null` previews the fresh-epic case. Thin typed wrapper over
+ * `authoring_preview_epic_packet`.
+ */
+export async function previewEpicContextPacket(
+  projectId: string,
+  epicId: string | null,
+): Promise<EpicContextPacketDto> {
+  return invokeCommand<EpicContextPacketDto>("authoring_preview_epic_packet", { projectId, epicId });
 }
 
 /**

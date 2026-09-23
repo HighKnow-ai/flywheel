@@ -77,6 +77,12 @@ export type ActionId =
   // above — the palette is the least invasive entry point and it re-enters the same
   // `dispatchAction` pipeline every other action uses.
   | "shape-epic"
+  // D-91 (plan 05-10): reopen an existing epic's authoring session (SHAPE-05) — a `board-list`
+  // binding, epic-row-only, mirroring `open-epic-picker`'s own row-kind refusal pattern (inverted:
+  // refused on a TASK row rather than an epic row). Also reachable from `ItemDetailPanel.tsx`'s
+  // own Continue Shaping section for the same reason `start-work`'s own button exists beside its
+  // keyboard binding.
+  | "continue-shaping"
   // D-88/D-90 (plan 05-03): the human-only stage-transition verbs. `advance-stage` is bound to a
   // real key in the `session-surface` region (below); `return-stage` is command-palette-only,
   // mirroring `shape-epic`'s own palette-only entry — neither is reachable from a tool call, which
@@ -157,6 +163,10 @@ export const BINDINGS: Binding[] = [
   // time from this table rather than restated (02-03-PLAN.md Task 3).
   { id: "start-work", region: "board-list", key: "w", label: "Start Work" },
   { id: "open-live-session", region: "board-list", key: "l", label: "Open Live Session" },
+  // `r` — free in this region (verified against every entry above, none of which claims it) and
+  // the mnemonic for "reshape"/"reopen" (D-91, plan 05-10 Task 1). Epic-row-only, mirroring
+  // `open-epic-picker`'s own row-kind guard above, inverted.
+  { id: "continue-shaping", region: "board-list", key: "r", label: "Continue Shaping" },
 
   // ---- Live session surface (D-31) --------------------------------------------------------
   { id: "stop-session", region: "session-surface", key: ".", meta: true, label: "Stop Session" },

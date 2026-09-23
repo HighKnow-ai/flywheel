@@ -8,6 +8,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import {
   agentRunLogWindow,
   agentRunsForTask,
+  authoringRunForEpic,
   blockedSummary,
   boardRecoverySummary,
   invokeCommand,
@@ -1010,4 +1011,23 @@ export async function openLiveSessionForTask(taskId: string): Promise<void> {
 export async function startAuthoringSessionForProject(projectId: string): Promise<void> {
   const run = await startAuthoringRun(projectId);
   useUiStore.getState().setActiveAgentRunId(run.id, null, run.authoringStage, run.epicId);
+}
+
+/** D-84/D-86/D-91 (plan 05-10): "Continue shaping" — the ONE entry point both new reopen doors
+ * (the board row's `r` action and `ItemDetailPanel.tsx`'s own section, both in `BoardView.tsx`)
+ * call, so a running-session collision is caught in exactly one place regardless of which door
+ * fired. First asks `authoringRunForEpic` (a pure read) whether `epicId` already has a
+ * running/blocked authoring session — if so, routes straight to it (`setActiveAgentRunId`) and
+ * starts no second run, asserted by a call count (`authoring_run_start` is never invoked on this
+ * path). Otherwise opens the authoring launch sheet against `epicId` (reusing
+ * `launchSheetAuthoringHandoff`, D-85/plan 05-09's own Discard hand-off channel) so the epic
+ * packet is shown BEFORE any token is spent — the sheet's own Start Shaping button is what
+ * eventually calls `startAuthoringRun`. */
+export async function continueShapingEpic(epicId: string): Promise<void> {
+  const running = await authoringRunForEpic(epicId);
+  if (running) {
+    useUiStore.getState().setActiveAgentRunId(running.id, null, running.authoringStage, running.epicId);
+    return;
+  }
+  useUiStore.getState().setLaunchSheetAuthoringHandoff(epicId);
 }

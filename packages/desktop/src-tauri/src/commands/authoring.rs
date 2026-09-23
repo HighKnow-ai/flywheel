@@ -15,9 +15,11 @@
 //! the outcome implies.
 
 use anyhow::Context;
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::commands::agent_run::CriterionDto;
 use crate::state::AppState;
 
 /// The tray's own read window, mirroring `commands/board.rs`'s `DEFAULT_LIMIT`/`MAX_LIMIT`/
@@ -36,14 +38,8 @@ fn resolve_limit(limit: Option<i64>) -> i64 {
 /// unconditionally, so this is a fixed literal, not a parameter.
 const AUTHORING_PERMISSION_MODE: &str = "default";
 
-/// The opening turn every fresh authoring session is started with (D-88's `challenge` stage: the
-/// agent is told to challenge, not interview, and that it has no proposal tool yet).
-const AUTHORING_OPENING_PROMPT: &str = "I want to shape a new epic. Challenge my framing with \
-    clarifying questions before proposing any structure — you have no tool to stage a proposal \
-    until I tell you the challenge is done.";
-
 /// One `agent_runs` row projected for the renderer (camelCase), as read back after
-/// [`authoring_run_start`].
+/// [`authoring_run_start`] or [`authoring_run_for_epic`].
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthoringRunDto {
@@ -51,6 +47,12 @@ pub struct AuthoringRunDto {
     pub epic_id: Option<String>,
     pub status: String,
     pub authoring_stage: Option<String>,
+    /// `true` when this row names an ALREADY-running/blocked authoring session for the epic a
+    /// caller named — plan 05-10's "route to it, start no second run" guard
+    /// ([`find_running_authoring_run`]). `false` for a genuinely fresh start. The renderer treats
+    /// both cases identically (open the session surface on `id`) — this field exists so a test
+    /// can assert "no second run was created" by call count without inspecting the database.
+    pub resumed: bool,
 }
 
 /// One `authoring_proposals` row projected for the renderer (camelCase) — mirrors
@@ -94,19 +96,80 @@ impl From<flywheel_core::domain::authoring_proposal::Proposal> for ProposalDto {
     }
 }
 
-/// Start a fresh epic-authoring session against no existing epic (SHAPE-01's own case; a
-/// reopened-epic session is a later plan's concern). Mirrors `agent_run::agent_run_start`'s own
-/// body order for the same reason: read `projects.repo_path` and resolve the credential BEFORE
-/// any row is created (D-39), then call `domain::authoring_session::start_authoring_run`, merge
-/// the shim env, and send an `authoring_spawn` request carrying `repo_path` as the session's
-/// `cwd` — never a worktree path (D-86). Emits `board:changed` exactly as `agent_run_start` does.
+/// The run currently `running`/`blocked` for `epic_id`, if any (plan 05-10) — the ONE place "is
+/// this epic already being shaped" is answered, shared by [`authoring_run_start`]'s own
+/// defensive re-check and [`authoring_run_for_epic`]'s door-level pre-flight read, so the two can
+/// never disagree about what counts as "already running". `authoring_stage IS NOT NULL` is what
+/// scopes this to an authoring run specifically — an ordinary task-execution run never carries a
+/// stage, and shares no identity space with an epic id regardless.
+fn find_running_authoring_run(
+    conn: &rusqlite::Connection,
+    epic_id: &str,
+) -> Result<Option<AuthoringRunDto>, String> {
+    conn.query_row(
+        "SELECT id, epic_id, status, authoring_stage FROM agent_runs \
+         WHERE epic_id = ?1 AND authoring_stage IS NOT NULL AND status IN ('running', 'blocked') \
+         ORDER BY started_at DESC LIMIT 1",
+        rusqlite::params![epic_id],
+        |row| {
+            Ok(AuthoringRunDto {
+                id: row.get(0)?,
+                epic_id: row.get(1)?,
+                status: row.get(2)?,
+                authoring_stage: row.get(3)?,
+                resumed: true,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+/// The door's own pre-flight read (plan 05-10): does `epic_id` already have a running/blocked
+/// authoring session? A pure read — never starts anything, never spends anything — so a "Continue
+/// shaping" action can decide whether to open the briefing preview (nothing running yet) or route
+/// straight to the live session (one already is) before doing either.
+#[tauri::command]
+pub fn authoring_run_for_epic(
+    state: State<AppState>,
+    epic_id: String,
+) -> Result<Option<AuthoringRunDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    find_running_authoring_run(&conn, &epic_id)
+}
+
+/// Start an epic-authoring session — a fresh one when `epic_id` is `None` (SHAPE-01) or a
+/// reopened one when it names an existing epic (SHAPE-05, plan 05-10). Reopening is the SAME start
+/// path with a subject, not a second flow: `epic_id` threads straight through to both
+/// `start_authoring_run` and `assemble_epic_context_packet`, and the packet's own rendered prompt
+/// — never a hand-written opening line — is what the session is spawned with in every case,
+/// including the fresh-epic one (a short sheet, per `render_epic_prompt`'s own omit-the-heading
+/// rule, is still a real briefing). If `epic_id` already has a running/blocked authoring session,
+/// this returns THAT run (`resumed: true`) instead of starting a second one
+/// ([`find_running_authoring_run`]) — two concurrent shaping sessions on one epic would stage two
+/// proposal sets against the same rejected history with no way to reconcile them.
+///
+/// Mirrors `agent_run::agent_run_start`'s own body order for the same reason: read
+/// `projects.repo_path` and resolve the credential BEFORE any row is created (D-39), then call
+/// `domain::authoring_session::start_authoring_run`, merge the shim env, and send an
+/// `authoring_spawn` request carrying `repo_path` as the session's `cwd` — never a worktree path
+/// (D-86). Emits `board:changed` exactly as `agent_run_start` does.
 #[tauri::command]
 pub fn authoring_run_start(
     state: State<AppState>,
     app: AppHandle,
     project_id: String,
+    epic_id: Option<String>,
 ) -> Result<AuthoringRunDto, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+
+    // T-05-10-02: refuse a second concurrent session on the same epic, plainly — the caller
+    // (either door) already has enough to route straight to the running one instead.
+    if let Some(epic_id) = epic_id.as_deref() {
+        if let Some(existing) = find_running_authoring_run(&conn, epic_id)? {
+            return Ok(existing);
+        }
+    }
 
     let human_actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
@@ -123,10 +186,22 @@ pub fn authoring_run_start(
         .map_err(|e| e.to_string())?;
     let mut env = crate::sidecar::resolved_env_for_run(&conn, &project_id).map_err(|e| e.to_string())?;
 
+    // T-05-10-01: the packet is assembled with BOTH `project_id` and `epic_id` bound through
+    // `params![]` — `assemble_epic_context_packet` itself refuses (`Err`) an `epic_id` outside
+    // `project_id`, so a renderer-supplied epic id can never prime a session with another
+    // project's facts.
+    let packet = flywheel_core::epic_context_packet::assemble_epic_context_packet(
+        &conn,
+        &project_id,
+        epic_id.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    let opening_prompt = flywheel_core::epic_context_packet::render_epic_prompt(&packet);
+
     let run = flywheel_core::domain::authoring_session::start_authoring_run(
         &mut conn,
         &project_id,
-        None,
+        epic_id.as_deref(),
         AUTHORING_PERMISSION_MODE,
         &human_actor_id,
     )
@@ -144,7 +219,7 @@ pub fn authoring_run_start(
             "op": "authoring_spawn",
             "runId": run.id,
             "repoPath": repo_path,
-            "prompt": AUTHORING_OPENING_PROMPT,
+            "prompt": opening_prompt,
             "permissionMode": AUTHORING_PERMISSION_MODE,
             "env": env,
         });
@@ -164,7 +239,214 @@ pub fn authoring_run_start(
         epic_id: run.epic_id,
         status: "running".to_string(),
         authoring_stage: run.authoring_stage,
+        resumed: false,
     })
+}
+
+// ---------------------------------------------------------------------------------------------
+// The epic-authoring briefing preview (D-27's launch sheet, extended to an authoring subject —
+// plan 05-10 Task 1(c)). Mirrors `commands/agent_run.rs`'s `ContextPacketDto`/`agent_run_preview`
+// pair field-for-field in spirit: a read-only DTO plus a thin command, so "what will this session
+// be told" is visible before Start Shaping ever spends a token. `EpicContextPacket`'s own fields
+// are snake_case Rust with no `serde(rename_all)` of their own (`epic_context_packet.rs`'s own
+// purity contract has nothing to say about wire casing) — every DTO below is the camelCase
+// projection this command layer owns, exactly as `ContextPacketDto` owns it for the task-scoped
+// packet.
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicFactsDto {
+    pub key: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRosterEntryDto {
+    pub key: String,
+    pub title: String,
+    pub status: String,
+    pub criteria: Vec<CriterionDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssumptionEntryDto {
+    pub assumption: String,
+    pub answer: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RejectedProposalEntryDto {
+    pub target_type: String,
+    /// The payload's own title/statement/assumption text alone (`ProposalPayload::label`) —
+    /// never the full typed payload, matching `FoldedRejectedProposal`'s own narrative-dropped
+    /// shape one field down.
+    pub label: String,
+    pub rejection_reason: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldedRejectedProposalDto {
+    pub target_type: String,
+    pub label: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RejectionBoundaryDto {
+    pub total: usize,
+    pub verbatim_count: usize,
+    pub folded_count: usize,
+    /// `None` when nothing folded (`RejectionBoundary::boundary_sentence`'s own omit contract) —
+    /// the sheet renders the fold boundary only when there is one to show.
+    pub boundary_sentence: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RejectedSetDto {
+    pub verbatim: Vec<RejectedProposalEntryDto>,
+    pub folded: Vec<FoldedRejectedProposalDto>,
+    pub boundary: RejectionBoundaryDto,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthoringRunEntryDto {
+    pub id: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub stage_reached: Option<String>,
+    pub summary_changed_prose: Option<String>,
+}
+
+/// The epic-authoring launch sheet's read-only briefing (plan 05-10 Task 1(c)) — the packet's
+/// structured fields AND the rendered prompt string (`render_epic_prompt`), so the sheet displays
+/// exactly the text the session will be spawned with rather than re-deriving its own rendering in
+/// TypeScript. Mirrors `ContextPacketDto`'s own "one renderer, in Rust" discipline.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicContextPacketDto {
+    pub epic: Option<EpicFactsDto>,
+    pub task_roster: Vec<TaskRosterEntryDto>,
+    pub answered_assumptions: Vec<AssumptionEntryDto>,
+    pub rejected: RejectedSetDto,
+    pub prior_authoring_runs: Vec<AuthoringRunEntryDto>,
+    pub rendered_prompt: String,
+}
+
+impl From<flywheel_core::epic_context_packet::EpicContextPacket> for EpicContextPacketDto {
+    fn from(packet: flywheel_core::epic_context_packet::EpicContextPacket) -> Self {
+        // Rendered from the packet BEFORE any field below is consumed — the same "one renderer"
+        // rule `ContextPacketDto::from` follows for the task-scoped packet.
+        let rendered_prompt = flywheel_core::epic_context_packet::render_epic_prompt(&packet);
+
+        let epic = packet.epic.map(|e| EpicFactsDto {
+            key: e.key,
+            title: e.title,
+            description: e.description,
+            status: e.status,
+        });
+
+        let task_roster = packet
+            .task_roster
+            .into_iter()
+            .map(|t| TaskRosterEntryDto {
+                key: t.key,
+                title: t.title,
+                status: t.status,
+                criteria: t
+                    .criteria
+                    .into_iter()
+                    .map(|c| CriterionDto {
+                        statement: c.statement,
+                        verification_hint: c.verification_hint,
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        let answered_assumptions = packet
+            .answered_assumptions
+            .into_iter()
+            .map(|a| AssumptionEntryDto { assumption: a.assumption, answer: a.answer })
+            .collect();
+
+        let boundary_sentence = packet.rejected.boundary.boundary_sentence();
+        let rejected = RejectedSetDto {
+            verbatim: packet
+                .rejected
+                .verbatim
+                .into_iter()
+                .map(|r| RejectedProposalEntryDto {
+                    target_type: r.target_type,
+                    label: r.payload.label().to_string(),
+                    rejection_reason: r.rejection_reason,
+                    created_at: r.created_at,
+                })
+                .collect(),
+            folded: packet
+                .rejected
+                .folded
+                .into_iter()
+                .map(|f| FoldedRejectedProposalDto {
+                    target_type: f.target_type,
+                    label: f.label,
+                    created_at: f.created_at,
+                })
+                .collect(),
+            boundary: RejectionBoundaryDto {
+                total: packet.rejected.boundary.total,
+                verbatim_count: packet.rejected.boundary.verbatim_count,
+                folded_count: packet.rejected.boundary.folded_count,
+                boundary_sentence,
+            },
+        };
+
+        let prior_authoring_runs = packet
+            .prior_authoring_runs
+            .into_iter()
+            .map(|r| AuthoringRunEntryDto {
+                id: r.id,
+                started_at: r.started_at,
+                ended_at: r.ended_at,
+                stage_reached: r.stage_reached,
+                summary_changed_prose: r.summary_changed_prose,
+            })
+            .collect();
+
+        Self { epic, task_roster, answered_assumptions, rejected, prior_authoring_runs, rendered_prompt }
+    }
+}
+
+/// Preview the epic-scoped briefing an [`authoring_run_start`] against `project_id`/`epic_id`
+/// would send (D-27's launch sheet, extended here) — a read: it mutates nothing, spawns nothing,
+/// writes no trigger row and starts no process, exactly the "nothing happens until Start Shaping
+/// fires" property [`agent_run_preview`](super::agent_run::agent_run_preview) already holds for
+/// the task-scoped sheet. `epic_id = None` previews the fresh-epic case — a short sheet with most
+/// sections absent, never an error.
+#[tauri::command]
+pub fn authoring_preview_epic_packet(
+    state: State<AppState>,
+    project_id: String,
+    epic_id: Option<String>,
+) -> Result<EpicContextPacketDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let packet = flywheel_core::epic_context_packet::assemble_epic_context_packet(
+        &conn,
+        &project_id,
+        epic_id.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(packet.into())
 }
 
 /// Every pending proposal staged for `agent_run_id`, bounded — the proposal tray's own read.

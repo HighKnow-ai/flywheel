@@ -40,6 +40,7 @@ import {
 } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import {
+  continueShapingEpic,
   openLiveSessionForTask,
   startAuthoringSessionForProject,
   useActors,
@@ -82,6 +83,10 @@ const SELECTION_INDEPENDENT_ACTION_IDS = new Set<ActionId>([
  * hierarchy gives an epic no epic parent of its own (G-01-EPIC-ASSIGN). The palette disables
  * these when an epic is selected, in addition to the no-selection case above. */
 const TASK_ONLY_ACTION_IDS = new Set<ActionId>(["open-epic-picker"]);
+
+/** Board-list action ids that only apply to an epic, never a task (D-91, plan 05-10) — the
+ * inverse of `TASK_ONLY_ACTION_IDS` above. The palette disables these when a task is selected. */
+const EPIC_ONLY_ACTION_IDS = new Set<ActionId>(["continue-shaping"]);
 
 interface Command {
   id: string;
@@ -246,6 +251,15 @@ export function CommandPalette() {
         // palette and the real keystroke never compute "which run is active" two different ways.
         if (selectedItem && (selectedItem.kind ?? "task") === "task") {
           void openLiveSessionForTask(selectedItem.id);
+        }
+        break;
+      case "continue-shaping":
+        // D-91 (plan 05-10): epic-only, the inverse of `open-epic-picker`'s task-only refusal
+        // above — resolved through the ONE shared entry point (`continueShapingEpic`,
+        // `useBoardQuery.ts`) so the palette and `BoardView.tsx`'s real `r` keystroke never
+        // compute "is a session already running for this epic" two different ways.
+        if (selectedItem && (selectedItem.kind ?? "task") === "epic") {
+          void continueShapingEpic(selectedItem.id);
         }
         break;
       default:
@@ -436,7 +450,8 @@ export function CommandPalette() {
         group: "Selected item",
         disabled:
           (!selectedItemId && !SELECTION_INDEPENDENT_ACTION_IDS.has(id)) ||
-          (TASK_ONLY_ACTION_IDS.has(id) && (selectedItem?.kind ?? "task") === "epic"),
+          (TASK_ONLY_ACTION_IDS.has(id) && (selectedItem?.kind ?? "task") === "epic") ||
+          (EPIC_ONLY_ACTION_IDS.has(id) && (selectedItem?.kind ?? "task") === "task"),
         run: () => {
           runBoardListAction(id);
           if (!OVERLAY_ACTION_IDS.has(id)) close();

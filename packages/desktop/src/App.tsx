@@ -105,6 +105,12 @@ function AppShell() {
   // action id (`w`) both open it purely by setting this task id (`board/BoardView.tsx`).
   const launchSheetTaskId = useUiStore((state) => state.launchSheetTaskId);
   const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
+  // D-91 (plan 05-10): the SAME channel `SessionSurface.tsx`'s Discard hand-off (plan 05-09)
+  // already writes to — reused here as the general "open the authoring launch sheet" trigger, so
+  // `continueShapingEpic` (a fresh reopen) and a post-Discard hand-off (an interrupted one) both
+  // land on the one authoring variant of this sheet rather than two independently-wired copies.
+  const launchSheetAuthoringHandoff = useUiStore((state) => state.launchSheetAuthoringHandoff);
+  const clearLaunchSheetAuthoringHandoff = useUiStore((state) => state.clearLaunchSheetAuthoringHandoff);
   // D-39: the Settings surface, mounted once here like the session surface and the launch sheet
   // above — opened by the native menu's "Settings…" item, the global `⌘,` binding, and the
   // command palette (plan 02-10 Task 3), all through this one `open-settings` action id.
@@ -256,12 +262,24 @@ function AppShell() {
       <OrphanRecoveryModal />
       <LaunchSheet
         taskId={launchSheetTaskId}
-        onClose={() => setLaunchSheetTaskId(null)}
+        authoring={
+          launchSheetAuthoringHandoff
+            ? { projectId: project.id, epicId: launchSheetAuthoringHandoff.epicId }
+            : null
+        }
+        onClose={() => {
+          if (launchSheetAuthoringHandoff) clearLaunchSheetAuthoringHandoff();
+          else setLaunchSheetTaskId(null);
+        }}
         onStarted={(agentRunId) => {
           // `launchSheetTaskId` is captured in this closure at its render-time value, still the
           // task this run just started for — read BEFORE it is cleared below.
           setActiveAgentRunId(agentRunId, launchSheetTaskId);
           setLaunchSheetTaskId(null);
+        }}
+        onAuthoringStarted={(run) => {
+          setActiveAgentRunId(run.id, null, run.authoringStage, run.epicId);
+          clearLaunchSheetAuthoringHandoff();
         }}
       />
       {registerNoticeNode}

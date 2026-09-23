@@ -65,7 +65,9 @@ describe("board-list additions", () => {
     expect(existingLetters.has("w")).toBe(false);
     expect(existingLetters.has("l")).toBe(false);
     // Sanity check against the known Phase 1 set, so a change to that set is visible here too.
-    expect([...existingLetters].sort()).toEqual(["a", "c", "e", "j", "k", "m", "o", "p", "s"]);
+    // "r" ("continue-shaping", D-91, plan 05-10) is the one addition since this list was last
+    // updated.
+    expect([...existingLetters].sort()).toEqual(["a", "c", "e", "j", "k", "m", "o", "p", "r", "s"]);
   });
 });
 

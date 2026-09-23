@@ -61,6 +61,7 @@ import {
 } from "../state/keyboard";
 import { useUiStore, type PickerKind } from "../state/uiStore";
 import {
+  continueShapingEpic,
   epicRosterTruncationNotice,
   openLiveSessionForTask,
   useActors,
@@ -633,6 +634,15 @@ export function BoardView({
           void openLiveSessionForTask(selectedId);
         }
         break;
+      case "continue-shaping":
+        // Refused on a task row — the fixed three-level hierarchy gives only an epic a shaping
+        // session of its own (D-91, plan 05-10). Resolution of "is a session already running for
+        // this epic" is the ONE shared `continueShapingEpic` entry point (`useBoardQuery.ts`),
+        // the same one `ItemDetailPanel`'s own Continue Shaping section below calls.
+        if (selectedId && selectedItem && (selectedItem.kind ?? "task") === "epic") {
+          void continueShapingEpic(selectedId);
+        }
+        break;
       default:
         break;
     }
@@ -1111,6 +1121,7 @@ export function BoardView({
           onSetStatus={(status) => requestStatusChange(selectedItem.kind ?? "task", selectedItem.id, status)}
           onStartWork={() => setLaunchSheetTaskId(selectedItem.id)}
           onOpenRun={(agentRunId) => setActiveAgentRunId(agentRunId, selectedItem.id)}
+          onContinueShaping={() => void continueShapingEpic(selectedItem.id)}
           // The palette renders over this panel by design (the Escape ladder's fixed order) —
           // release the trap while the palette owns focus so the panel stays open instead of
           // fighting Radix's `FocusScope` for it (01-13-PLAN.md, G-01-FOCUS instance 5).

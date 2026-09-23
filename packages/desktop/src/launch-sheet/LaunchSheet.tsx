@@ -23,13 +23,19 @@ import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useQuery } from "@tanstack/react-query";
 import {
   previewContextPacket,
+  previewEpicContextPacket,
   startAgentRun,
+  startAuthoringRun,
   type CompactionBoundaryDto,
   type ContextPacketDto,
   type DecisionDto,
   type DiffSoFarDto,
   type DriftWarningDto,
+  type EpicContextPacketDto,
+  type RejectedSetDto,
   type SessionSummaryDto,
+  type TaskRosterEntryDto,
+  type AssumptionEntryDto,
 } from "../adapters/tauri";
 
 const MONO_FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
@@ -399,43 +405,198 @@ function PacketBody({ packet }: { packet: ContextPacketDto }) {
   );
 }
 
+/** The epic-authoring briefing's own Task Roster section (D-87, plan 05-10 Task 1(c)) — one entry
+ * per task the epic already has, its current-revision criteria nested underneath. Omitted
+ * entirely for an epic with no tasks yet, mirroring every other section's own omit-when-empty
+ * rule. */
+function TaskRosterSection({ roster }: { roster: TaskRosterEntryDto[] }) {
+  if (roster.length === 0) return null;
+  return (
+    <section>
+      <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        Task Roster
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+        {roster.map((task, index) => (
+          <div key={`${task.key}-${index}`}>
+            <div className="type-body">
+              [{task.key}] {task.title}
+              <span style={{ color: "var(--text-muted-rack)" }}> ({task.status})</span>
+            </div>
+            {task.criteria.length > 0 && (
+              <ul style={{ margin: 0, paddingLeft: "var(--space-md)" }}>
+                {task.criteria.map((criterion, criterionIndex) => (
+                  <li key={criterionIndex} className="type-body">
+                    {criterion.statement}
+                    {criterion.verificationHint && (
+                      <span style={{ color: "var(--text-muted-rack)" }}> — {criterion.verificationHint}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** The epic-authoring briefing's own Answered Assumptions section (D-89) — what a prior session on
+ * this epic already asked and Cyril already answered, so the reopened session is told not to ask
+ * again. Omitted entirely for an epic with none yet (including a brand-new one). */
+function AnsweredAssumptionsSection({ assumptions }: { assumptions: AssumptionEntryDto[] }) {
+  if (assumptions.length === 0) return null;
+  return (
+    <section>
+      <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        Answered Assumptions
+      </div>
+      <ul style={{ margin: 0, paddingLeft: "var(--space-md)" }}>
+        {assumptions.map((assumption, index) => (
+          <li key={index} className="type-body">
+            {assumption.assumption} — {assumption.answer}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** The epic-authoring briefing's own Rejected Proposals section (D-83) — the re-proposal guard
+ * made visible, verbatim entries first, folded entries after, with the fold boundary sentence
+ * shown exactly where `render_epic_prompt` places it (never re-derived here). Omitted entirely
+ * when nothing has ever been rejected for this epic. */
+function RejectedProposalsSection({ rejected }: { rejected: RejectedSetDto }) {
+  if (rejected.verbatim.length === 0 && rejected.folded.length === 0) return null;
+  return (
+    <section>
+      <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        Rejected Proposals
+      </div>
+      <ul style={{ margin: 0, paddingLeft: "var(--space-md)" }}>
+        {rejected.verbatim.map((entry, index) => (
+          <li key={`verbatim-${index}`} className="type-body">
+            [{entry.targetType}] {entry.label}
+            {entry.rejectionReason && (
+              <span style={{ color: "var(--text-muted-rack)" }}> — rejected: {entry.rejectionReason}</span>
+            )}
+          </li>
+        ))}
+        {rejected.folded.map((entry, index) => (
+          <li key={`folded-${index}`} className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+            [{entry.targetType}] {entry.label} (older, summarized)
+          </li>
+        ))}
+      </ul>
+      {rejected.boundary.boundarySentence && (
+        <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+          {rejected.boundary.boundarySentence}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** The epic-authoring launch sheet's own briefing body (D-27's reasoning applied to an authoring
+ * subject, D-87's packet, plan 05-10 Task 1(c)) — the epic's own facts (absent for a brand-new
+ * epic, per `render_epic_prompt`'s own omit-the-heading rule, making this a short sheet rather
+ * than a sheet full of "none"), its task roster, its answered assumptions, and the rejected set
+ * with its fold boundary visible. */
+function EpicPacketBody({ packet }: { packet: EpicContextPacketDto }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
+      {packet.epic && (
+        <section>
+          <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+            Epic
+          </div>
+          <div className="type-body">{packet.epic.title}</div>
+          {packet.epic.description && (
+            <p className="type-body" style={{ color: "var(--text-muted-rack)", whiteSpace: "pre-wrap" }}>
+              {packet.epic.description}
+            </p>
+          )}
+        </section>
+      )}
+
+      <TaskRosterSection roster={packet.taskRoster} />
+      <AnsweredAssumptionsSection assumptions={packet.answeredAssumptions} />
+      <RejectedProposalsSection rejected={packet.rejected} />
+    </div>
+  );
+}
+
 export interface LaunchSheetProps {
   /** The task the sheet is open for, or `null` to render nothing (App.tsx-level mount pattern —
-   * mirrors `SessionSurface`'s own `activeAgentRunId === null` convention). */
+   * mirrors `SessionSurface`'s own `activeAgentRunId === null` convention). Ignored while
+   * `authoring` (below) is set. */
   taskId: string | null;
+  /** When set, this sheet previews and starts an epic-authoring session instead of a task run
+   * (D-91, plan 05-10 Task 1(c)) — takes precedence over `taskId`. `epicId: null` previews the
+   * fresh-epic case (SHAPE-01); a real id previews a reopened one (SHAPE-05). `null`/omitted
+   * renders the ordinary task-scoped sheet, matching every existing call site unchanged. */
+  authoring?: { projectId: string; epicId: string | null } | null;
   onClose: () => void;
   /** Called with the new run's id once `startAgentRun` resolves — the caller decides what
    * "route to the session surface" means, matching `ItemDetailPanel.tsx`'s own
-   * `onSessionStarted` precedent before this plan replaced it. */
+   * `onSessionStarted` precedent before this plan replaced it. Only fires for the task-scoped
+   * flow (`authoring` unset). */
   onStarted: (agentRunId: string) => void;
+  /** Called once `startAuthoringRun` resolves for the `authoring` flow — carries the full run
+   * shape (never just the id) since the caller needs `authoringStage`/`epicId` to open the
+   * session surface with `SessionSurface.tsx`'s `ProposalTray` mounted immediately, matching
+   * `startAuthoringSessionForProject`'s own established shape. Optional and defaulted to a no-op:
+   * a caller that never opens this sheet in authoring mode need not supply it. */
+  onAuthoringStarted?: (run: { id: string; authoringStage: string | null; epicId: string | null }) => void;
 }
 
-export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
+export function LaunchSheet({
+  taskId,
+  authoring = null,
+  onClose,
+  onStarted,
+  onAuthoringStarted,
+}: LaunchSheetProps) {
+  const isAuthoring = authoring !== null;
   const [instruction, setInstruction] = useState("");
   const [permissionMode, setPermissionMode] = useState(DEFAULT_PERMISSION_MODE);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const instructionRef = useRef<HTMLTextAreaElement>(null);
 
-  const previewQuery = useQuery({
+  const authoringEpicId = authoring?.epicId ?? null;
+  const authoringProjectId = authoring?.projectId ?? null;
+
+  const taskPreviewQuery = useQuery({
     queryKey: taskId ? launchSheetPreviewQueryKey(taskId) : ["launch-sheet-preview", "none"],
     queryFn: () => previewContextPacket(taskId as string),
-    enabled: taskId !== null,
+    enabled: !isAuthoring && taskId !== null,
   });
 
-  // Reset the per-open draft state whenever the sheet opens for a (possibly different) task —
-  // reopening on a task that already has a worktree must not carry over a previous task's typed
-  // instruction or mode choice.
+  const epicPreviewQuery = useQuery({
+    // `epicId ?? "none"` keys the fresh-epic case distinctly from any real epic id — two
+    // different projects' fresh-epic previews still share this key, which is fine: neither
+    // mutates anything, and the sheet re-fetches on every open regardless of cache hit.
+    queryKey: ["launch-sheet-preview-authoring", authoringProjectId ?? "none", authoringEpicId ?? "none"],
+    queryFn: () => previewEpicContextPacket(authoringProjectId as string, authoringEpicId),
+    enabled: isAuthoring && authoringProjectId !== null,
+  });
+
+  // Reset the per-open draft state whenever the sheet opens for a (possibly different) subject —
+  // reopening on a task that already has a worktree, or on a different epic, must not carry over
+  // a previous subject's typed instruction or mode choice.
   useEffect(() => {
-    if (taskId !== null) {
+    if (isAuthoring || taskId !== null) {
       setInstruction("");
       setPermissionMode(DEFAULT_PERMISSION_MODE);
       setStarting(false);
       setError(null);
     }
-  }, [taskId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId, isAuthoring, authoringEpicId, authoringProjectId]);
 
-  if (taskId === null) return null;
+  if (!isAuthoring && taskId === null) return null;
 
   function handleCancel() {
     onClose();
@@ -445,6 +606,17 @@ export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
     if (starting) return;
     setStarting(true);
     setError(null);
+    if (isAuthoring) {
+      startAuthoringRun(authoringProjectId as string, authoringEpicId)
+        .then((run) => {
+          onAuthoringStarted?.({ id: run.id, authoringStage: run.authoringStage, epicId: run.epicId });
+        })
+        .catch((err: unknown) => {
+          setStarting(false);
+          setError(err instanceof Error ? err.message : String(err));
+        });
+      return;
+    }
     startAgentRun(taskId as string, permissionMode, instruction)
       .then((run) => {
         onStarted(run.id);
@@ -470,8 +642,24 @@ export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
     }
   }
 
-  const packet = previewQuery.data;
+  const previewQuery = isAuthoring ? epicPreviewQuery : taskPreviewQuery;
+  const taskPacket = taskPreviewQuery.data;
+  const epicPacket = epicPreviewQuery.data;
   const showSkeleton = previewQuery.isPending;
+  const headerLabel = isAuthoring
+    ? authoringEpicId
+      ? `Continue Shaping ${epicPacket?.epic?.key ?? ""}`
+      : "Shape a New Epic"
+    : `Start Work on ${taskPacket?.taskKey ?? ""}`;
+  const submitLabel = isAuthoring
+    ? starting
+      ? "Starting…"
+      : authoringEpicId
+        ? "Continue Shaping"
+        : "Start Shaping"
+    : starting
+      ? "Starting…"
+      : "Start Work";
 
   return createPortal(
     <FocusScope trapped loop asChild>
@@ -519,18 +707,20 @@ export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
                 flexShrink: 0,
               }}
             >
-              <span className="type-heading">Start Work on {packet?.taskKey ?? ""}</span>
+              <span className="type-heading">{headerLabel}</span>
             </header>
 
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}>
               {showSkeleton && <PreviewSkeleton />}
               {previewQuery.isError && (
                 <p className="type-body" style={{ color: "var(--destructive-text-rack)" }}>
-                  Could not load the briefing for this task. Close this sheet and try Start Work
-                  again.
+                  {isAuthoring
+                    ? "Could not load the briefing for this epic. Close this sheet and try again."
+                    : "Could not load the briefing for this task. Close this sheet and try Start Work again."}
                 </p>
               )}
-              {packet && <PacketBody packet={packet} />}
+              {!isAuthoring && taskPacket && <PacketBody packet={taskPacket} />}
+              {isAuthoring && epicPacket && <EpicPacketBody packet={epicPacket} />}
               {error && (
                 <p className="type-body" style={{ color: "var(--destructive-text-rack)" }}>
                   {error}
@@ -548,50 +738,57 @@ export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
                 gap: "var(--space-md)",
               }}
             >
-              <textarea
-                ref={instructionRef}
-                aria-label="Instruction"
-                placeholder={INSTRUCTION_PLACEHOLDER}
-                value={instruction}
-                onChange={(event) => setInstruction(event.target.value)}
-                rows={3}
-                className="type-body"
-                style={{
-                  resize: "vertical",
-                  background: "var(--surface-dominant)",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "inherit",
-                  padding: "var(--space-sm)",
-                }}
-              />
+              {/* D-86 (plan 05-10): the authoring flow has no instruction/permission-mode choice
+                  — the agent runs read-only in the main checkout unconditionally, so neither
+                  control applies. */}
+              {!isAuthoring && (
+                <textarea
+                  ref={instructionRef}
+                  aria-label="Instruction"
+                  placeholder={INSTRUCTION_PLACEHOLDER}
+                  value={instruction}
+                  onChange={(event) => setInstruction(event.target.value)}
+                  rows={3}
+                  className="type-body"
+                  style={{
+                    resize: "vertical",
+                    background: "var(--surface-dominant)",
+                    border: "1px solid var(--divider)",
+                    borderRadius: "var(--radius-chrome)",
+                    color: "inherit",
+                    padding: "var(--space-sm)",
+                  }}
+                />
+              )}
 
-              <div role="radiogroup" aria-label="Permission mode" style={{ display: "flex", gap: "var(--space-xs)" }}>
-                {PERMISSION_MODE_OPTIONS.map((option) => {
-                  const selected = option.value === permissionMode;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => setPermissionMode(option.value)}
-                      className="type-label"
-                      style={{
-                        flex: 1,
-                        padding: "var(--space-xs) var(--space-sm)",
-                        border: "1px solid var(--divider)",
-                        borderRadius: "var(--radius-chrome)",
-                        background: selected ? "var(--accent-nontext)" : "transparent",
-                        color: selected ? "var(--text-primary-rack)" : "inherit",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
+              {!isAuthoring && (
+                <div role="radiogroup" aria-label="Permission mode" style={{ display: "flex", gap: "var(--space-xs)" }}>
+                  {PERMISSION_MODE_OPTIONS.map((option) => {
+                    const selected = option.value === permissionMode;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => setPermissionMode(option.value)}
+                        className="type-label"
+                        style={{
+                          flex: 1,
+                          padding: "var(--space-xs) var(--space-sm)",
+                          border: "1px solid var(--divider)",
+                          borderRadius: "var(--radius-chrome)",
+                          background: selected ? "var(--accent-nontext)" : "transparent",
+                          color: selected ? "var(--text-primary-rack)" : "inherit",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-sm)" }}>
                 <button
@@ -616,7 +813,7 @@ export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
                     cursor: starting ? "default" : "pointer",
                   }}
                 >
-                  {starting ? "Starting…" : "Start Work"}
+                  {submitLabel}
                 </button>
               </div>
             </div>

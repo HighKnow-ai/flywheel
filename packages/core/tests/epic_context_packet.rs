@@ -333,6 +333,85 @@ fn packet_never_leaks_a_row_from_a_different_project() {
     assert!(!prompt.contains("B's rejected proposal"));
 }
 
+// --- Plan 05-10 Task 1: the end-to-end priming assertion — reopening a primed epic produces a
+// prompt containing the roster, the answered assumptions, the rejected set and the
+// do-not-re-propose sentence, all at once, the way a real reopened session actually reads it.
+// (Individual sections are each covered above; this test is the journey, proving the three never
+// silently stop fitting together in the SAME assembled packet.)
+
+#[test]
+fn reopening_a_primed_epic_produces_a_prompt_with_the_roster_assumptions_and_do_not_re_propose_sentence(
+) {
+    let (mut conn, actor_id, project) = seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Ship the reopen flow", Some("Epic body"))
+        .expect("create_epic should succeed");
+    let task = create_task(&mut conn, &project.id, &actor_id, "Wire the door", Some(&epic.id))
+        .expect("create_task should succeed");
+    create_criterion(&mut conn, &project.id, &actor_id, "task", &task.id, "Two doors exist", Some("read the plan"))
+        .expect("create_criterion should succeed");
+
+    // A first authoring run on this epic: an answered assumption, and a rejected proposal — the
+    // exact two things D-83/D-89 exist to prime into the SECOND session.
+    let run_1 = start_authoring_run(&mut conn, &project.id, Some(&epic.id), "default", &actor_id)
+        .expect("start_authoring_run (first session) should succeed");
+    stage_and_decide(
+        &mut conn,
+        &run_1.id,
+        ProposalPayload::Assumption {
+            assumption: "Should this ship behind a flag?".to_string(),
+            answer: "No, ship it plainly.".to_string(),
+        },
+        "accepted",
+        &actor_id,
+        "2026-03-01T00:00:00Z",
+    );
+    stage_and_decide(
+        &mut conn,
+        &run_1.id,
+        ProposalPayload::Task { title: "A task the developer already rejected".to_string(), description: None },
+        "rejected",
+        &actor_id,
+        "2026-03-01T00:01:00Z",
+    );
+
+    // Reopening: a SECOND authoring run against the SAME epic (SHAPE-05) — the same start path
+    // with a subject, not a second flow.
+    let run_2 = start_authoring_run(&mut conn, &project.id, Some(&epic.id), "default", &actor_id)
+        .expect("start_authoring_run (reopened session) should succeed");
+    assert_eq!(run_2.epic_id.as_deref(), Some(epic.id.as_str()));
+    assert_eq!(
+        run_2.authoring_stage.as_deref(),
+        Some("challenge"),
+        "a reopened run starts in challenge like any other (D-88) — the door does not skip it"
+    );
+
+    let packet = assemble_epic_context_packet(&conn, &project.id, Some(&epic.id))
+        .expect("assembling the reopened epic's packet should succeed");
+    let prompt = render_epic_prompt(&packet);
+
+    // The task roster with its current-revision criteria.
+    assert!(prompt.contains("## Task Roster"));
+    assert!(prompt.contains("Wire the door"));
+    assert!(prompt.contains("Two doors exist"));
+
+    // The answered assumption from the first session.
+    assert!(prompt.contains("## Answered Assumptions"));
+    assert!(prompt.contains("Should this ship behind a flag?"));
+    assert!(prompt.contains("No, ship it plainly."));
+
+    // The rejected set, and the literal sentence telling the model not to re-propose it.
+    assert!(prompt.contains("## Rejected Proposals"));
+    assert!(prompt.contains("A task the developer already rejected"));
+    assert!(
+        prompt.contains("Do not re-propose any of them"),
+        "the priming prompt must literally tell the model not to re-propose what was rejected"
+    );
+
+    // Both authoring runs on this epic are visible as prior sessions.
+    assert!(prompt.contains("## Prior Authoring Sessions"));
+    assert_eq!(packet.prior_authoring_runs.len(), 2);
+}
+
 // --- Task 3(a): determinism, extended to a second scope, and write-freedom proven directly by a
 // row-count snapshot rather than by grep.
 
