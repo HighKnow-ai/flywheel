@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 6
+open_count: 7
 waived_count: 0
 fixed_count: 6
-total_count: 12
-last_updated: 2026-09-22T05:17:16.542Z
+total_count: 13
+last_updated: 2026-09-23T13:08:43.755Z
 ---
 
 # Broken Windows Ledger
@@ -27,6 +27,7 @@ last_updated: 2026-09-22T05:17:16.542Z
 | 10 | 03 | deviation | packages/sidecar/test |  | ORCHESTRATOR CORRECTION 2026-09-15: did NOT reproduce. Plan 03-13 observed 38/55 and did not re-run. The execute-phase orchestrator re-ran the full sidecar suite twice at HEAD 4cb50f0: 55/55 pass, 0 fail, both times. The 16 failures were transient under concurrent load. Standing caveat kept for future readers: packages/sidecar/test/destructive-gate.test.mjs drives the real `claude` binary, so this suite spends real API budget per run and is sensitive to machine load. Closed as not-a-defect. | fixed |  | 2026-09-15T08:03:19.318Z | 2026-09-15T08:11:47.167Z |
 | 11 | 03 | deviation | scripts/uat/run-all.sh |  | Plan 03-34's own end-of-phase run-all.sh (verification step 6) FAILED 4/6 scriptable items (UAT 3, 5, 6a, 6b — all live-claude-session scripts unrelated to this plan's test-corpus/docs-only diff); judged pre-existing live-session flakiness matching the phase's own repeated 03-24/03-26/03-29/03-30/03-32 pattern, not chased; see 03-34-SUMMARY.md Issues Encountered | open |  | 2026-09-22T02:12:43.740Z |  |
 | 12 | 03 | deviation | scripts/uat/run-all.sh |  | Plan 03-36's own end-of-phase run-all.sh (verification step 6) FAILED 4/6 scriptable items (UAT 3, 5, 6a, 6b — all live-claude-session scripts) again, repeating entry 11's exact pattern; this plan's diff is test-corpus+docs only (packages/sidecar/test/destructive-gate.test.mjs, 03-REQUIREMENTS-BOOKKEEPING.md), cannot plausibly cause a live-claude-session failure; judged the same pre-existing flakiness as entry 11, not chased; see 03-36-SUMMARY.md | open |  | 2026-09-22T05:17:16.542Z |  |
+| 13 | 05 | unrun-verify | .planning/phases/05-socratic-epic-authoring/05-02-PLAN.md |  | Task 3 human-check (product kill criterion: timed in-app shaping run vs. terminal comparison arm) not executed by the autonomous executor — deferred to end-of-phase UAT per human_verify_mode=end-of-phase. | open |  | 2026-09-23T13:08:43.755Z |  |
 
 ````json
 [
@@ -172,6 +173,18 @@ last_updated: 2026-09-22T05:17:16.542Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-22T05:17:16.542Z",
+    "resolved_at": null
+  },
+  {
+    "id": 13,
+    "kind": "unrun-verify",
+    "phase": "05",
+    "file": ".planning/phases/05-socratic-epic-authoring/05-02-PLAN.md",
+    "line": null,
+    "description": "Task 3 human-check (product kill criterion: timed in-app shaping run vs. terminal comparison arm) not executed by the autonomous executor — deferred to end-of-phase UAT per human_verify_mode=end-of-phase.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-23T13:08:43.755Z",
     "resolved_at": null
   }
 ]
