@@ -22,6 +22,19 @@ interface SpawnRequest {
   env?: Record<string, string>;
 }
 
+/** D-84/D-86 (plan 05-02): start a fresh epic-authoring session — the sibling of {@link SpawnRequest}
+ * for a run with no task and no worktree. `repoPath` is the project's registered main checkout,
+ * never a worktree path. */
+interface AuthoringSpawnRequest {
+  id: string;
+  op: "authoring_spawn";
+  runId: string;
+  repoPath: string;
+  prompt: string;
+  permissionMode: string;
+  env?: Record<string, string>;
+}
+
 interface InterruptRequest {
   id: string;
   op: "interrupt";
@@ -77,6 +90,7 @@ interface PingRequest {
 
 type SidecarRequest =
   | SpawnRequest
+  | AuthoringSpawnRequest
   | InterruptRequest
   | KillRequest
   | PermissionAnswerRequest
@@ -159,6 +173,36 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
             raw: String(err),
             type: "system_notice",
             text: `session failed to start: ${String(err)}`,
+          });
+        })
+        .finally(() => {
+          sessions.delete(request.runId);
+        });
+      sessions.set(request.runId, sessionPromise);
+      emitAck(request.id, true);
+      return;
+    }
+    case "authoring_spawn": {
+      // D-84/D-86: the sibling of the "spawn" branch above for an epic-authoring session —
+      // fire-and-forget, tracked in the SAME `sessions` map (Stop/Discard/shutdown do not need to
+      // know which spawn method created an entry).
+      const sessionPromise = adapter
+        .startAuthoringSession({
+          runId: request.runId,
+          repoPath: request.repoPath,
+          prompt: request.prompt,
+          permissionMode: request.permissionMode,
+          env: request.env,
+          onEvent: emitEvent,
+        })
+        .catch((err: unknown) => {
+          emitEvent({
+            runId: request.runId,
+            seq: -1,
+            at: new Date().toISOString(),
+            raw: String(err),
+            type: "system_notice",
+            text: `authoring session failed to start: ${String(err)}`,
           });
         })
         .finally(() => {

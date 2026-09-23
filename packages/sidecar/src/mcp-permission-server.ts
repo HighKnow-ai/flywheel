@@ -34,6 +34,16 @@
  *    request, and settles ONLY when the socket answers — no timer, no default, no local cache of
  *    a prior decision, no allowlist (02-RESEARCH.md pitfall 4: every allow-always lookup happens
  *    in the Rust core, never here — the sidecar asks and waits).
+ *
+ * Plan 05-02 (D-64's own precedent, applied a second time): this server now carries a THIRD role
+ * — Phase 5's epic-authoring write surface (`propose_task`, the first of a `propose_`/`amend_`/
+ * `delete_` family plan 05-05 grows). It lives on this SAME server rather than a second one —
+ * zero new socket, zero new spawned process, zero new `--mcp-config` entry, exactly like
+ * `report_summary` before it. Every write-capable authoring tool is named with a `propose_`/
+ * `amend_`/`delete_` prefix ON PURPOSE: plan 05-03's stage gate needs a single `PreToolUse`
+ * matcher (`mcp__<server>__(propose|amend|delete)_.*`) to separate these tools from
+ * `approve_action`/`report_summary` WITHOUT enumerating names — that prefix convention is
+ * load-bearing, not cosmetic.
  */
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -71,6 +81,16 @@ export const REPORT_SUMMARY_TOOL_NAME = "report_summary";
  * Composed exactly the way {@link PERMISSION_TOOL_NAME} already composes, declared exactly once. */
 export const SUMMARY_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${REPORT_SUMMARY_TOOL_NAME}`;
 
+/** Plan 05-02 (D-80/D-81): the raw tool name for the agent's own "stage a proposed task" call —
+ * the first of the `propose_`/`amend_`/`delete_` family this module's own header comment
+ * describes. Declared beside {@link APPROVE_TOOL_NAME}/{@link REPORT_SUMMARY_TOOL_NAME} so the
+ * three names can never be confused with each other. */
+export const PROPOSE_TASK_TOOL_NAME = "propose_task";
+
+/** The fully-qualified string composed exactly like {@link PERMISSION_TOOL_NAME}/
+ * {@link SUMMARY_TOOL_NAME} — declared exactly once. */
+export const AUTHORING_PROPOSE_TASK_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${PROPOSE_TASK_TOOL_NAME}`;
+
 export interface PermissionRequestPayload {
   requestId: string;
   toolName: string;
@@ -95,6 +115,22 @@ export interface SummaryReportPayload {
   nextSessionMustKnow?: string;
   decisions: Array<{ id: string; statement: string }>;
   acknowledgedDecisions: string[];
+}
+
+/** Plan 05-02 (D-80/D-81/D-83): the wire shape `propose_task`'s standalone-server handler writes
+ * over the per-run socket, and {@link startPermissionServer}'s `onProposal` callback receives —
+ * mirrors {@link SummaryReportPayload}'s own precedent exactly. `kind: "authoring_proposal"` is
+ * the EXACT string {@link isAuthoringProposalPayload} checks, mirroring {@link isSummaryPayload}'s
+ * own discipline. Carries NO `runId`/`projectId`/`epicId` field — identity is derived from the
+ * socket the call arrives on, never accepted as a caller-supplied argument (T-05-02-01), exactly
+ * like {@link SummaryReportPayload}'s own header comment states of itself. */
+export interface AuthoringProposalPayload {
+  kind: "authoring_proposal";
+  verb: "create" | "amend" | "delete";
+  targetType: "epic" | "task" | "criterion" | "assumption";
+  targetId?: string;
+  parentProposalId?: string;
+  payload: Record<string, unknown>;
 }
 
 /** Plan 03-13 (D-53): the shim's fire-and-forget notice shape — `kind` is what distinguishes this
@@ -155,6 +191,18 @@ function isSummaryPayload(parsed: unknown): parsed is SummaryReportPayload {
   );
 }
 
+/** Plan 05-02 (D-80/D-81): checks the EXACT `kind: "authoring_proposal"` string — mirrors
+ * {@link isSummaryPayload}'s own discipline. Checked BEFORE {@link isNoticePayload}'s broader
+ * "carries some string `kind`" check in the connection handler below, for the identical reason a
+ * summary payload is: `isNoticePayload` would otherwise also match this shape. */
+function isAuthoringProposalPayload(parsed: unknown): parsed is AuthoringProposalPayload {
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    (parsed as { kind?: unknown }).kind === "authoring_proposal"
+  );
+}
+
 export interface PermissionServerHandle {
   /** The Unix domain socket path the standalone server (spawned by the backend) connects to —
    * embedded verbatim into the `--mcp-config` JSON `buildClaudeArgv` builds. */
@@ -184,11 +232,21 @@ export interface PermissionServerHandle {
  * kind on this SAME socket. Checked BEFORE the `onNotice` branch (see {@link isSummaryPayload}),
  * answered with a receipt acknowledgement, and closed IMMEDIATELY — also never added to `pending`,
  * for the identical reason a notice is not: a summary is not a held call either.
+ *
+ * `onProposal` (plan 05-02, D-80/D-81) is invoked once per incoming connection whose parsed line
+ * carries `kind: "authoring_proposal"` — a THIRD message kind on this SAME socket, mirroring
+ * `onSummary`'s own precedent exactly. Checked BEFORE the `onNotice` branch (see
+ * {@link isAuthoringProposalPayload}), answered with a receipt acknowledgement, and closed
+ * IMMEDIATELY — never added to `pending`, for the identical reason a summary is not. Optional,
+ * defaulting to a no-op, so every existing call site (production and test) that predates this
+ * plan keeps compiling unchanged — this server's THIRD role is additive, not a breaking change to
+ * its first two.
  */
 export function startPermissionServer(
   onRequest: (payload: PermissionRequestPayload) => void,
   onNotice: (payload: PermissionNoticePayload) => void,
   onSummary: (payload: SummaryReportPayload) => void,
+  onProposal: (payload: AuthoringProposalPayload) => void = () => {},
 ): PermissionServerHandle {
   const socketPath = path.join(socketBaseDir(), `flywheel-permission-${randomUUID()}.sock`);
   // A stale socket file from a previous run that was killed without cleanup would make `listen`
@@ -222,6 +280,17 @@ export function startPermissionServer(
       // calls cannot exhaust the pending-connection map the permission gate depends on).
       if (isSummaryPayload(parsed)) {
         onSummary(parsed);
+        socket.end(JSON.stringify({ received: true }) + "\n");
+        return;
+      }
+
+      // Plan 05-02 (D-80/D-81): an authoring proposal carries `kind: "authoring_proposal"`
+      // EXACTLY — checked BEFORE the broader isNoticePayload check below, mirroring the summary
+      // branch immediately above. Answered with the SAME receipt-acknowledgement shape a summary
+      // gets and closed IMMEDIATELY, never added to `pending` — staging a proposal is not a held
+      // call either.
+      if (isAuthoringProposalPayload(parsed)) {
+        onProposal(parsed);
         socket.end(JSON.stringify({ received: true }) + "\n");
         return;
       }
@@ -325,6 +394,53 @@ export const summaryToolDefinition = {
   },
 } as const;
 
+/** Plan 05-02 (D-80/D-81): the `propose_task` tool's own registration object — exported so the
+ * test suite reads the SAME object this server registers, mirroring {@link summaryToolDefinition}'s
+ * own precedent exactly. `title`/`description` only — no `run`/`task`/`project`/`epic` id
+ * property anywhere in this schema (T-05-02-01): identity is resolved from the socket the call
+ * arrives on. The description tells the model plainly that this STAGES a proposal for a human to
+ * accept — it does not create a task — so the tool's own text is never untrue about what calling
+ * it does. `title`'s max length matches `commands/epic.rs::MAX_TITLE_LEN` (500). */
+export const proposeTaskToolDefinition = {
+  name: PROPOSE_TASK_TOOL_NAME,
+  description:
+    "Stage a proposed task for this epic on the Flywheel board. This does NOT create a task — it " +
+    "drafts one for a human to review, edit and accept.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      title: { type: "string", minLength: 1, maxLength: 500 },
+      description: { type: "string" },
+    },
+    required: ["title"],
+  },
+} as const;
+
+/** Plan 05-02 (D-80/D-81, T-05-02-01): build the `authoring_proposal` wire payload for one
+ * `propose_task` tool call, or throw for malformed input — extracted as a pure function so this
+ * validation is unit-testable without a live MCP transport, mirroring {@link buildClaudeArgv}'s
+ * own "pure function, no spawning" precedent in `claude-code-adapter.ts`. Rejects an
+ * empty/whitespace-only title BEFORE anything reaches the socket, matching every other tool in
+ * this module's own validation posture. No `run`/`project`/`epic` id field anywhere in the
+ * returned payload — identity is derived from the socket the call arrives on, never accepted as
+ * an argument. */
+export function buildProposeTaskPayload(args: { title?: unknown; description?: unknown }): AuthoringProposalPayload {
+  const title = typeof args.title === "string" ? args.title.trim() : "";
+  if (title.length === 0) {
+    throw new Error("propose_task requires a non-empty title");
+  }
+  return {
+    kind: "authoring_proposal",
+    verb: "create",
+    targetType: "task",
+    payload: {
+      kind: "task",
+      title,
+      ...(typeof args.description === "string" ? { description: args.description } : {}),
+    },
+  };
+}
+
 async function runStandaloneServer(socketPath: string): Promise<void> {
   const server = new Server({ name: MCP_SERVER_NAME, version: "0.1.0" }, { capabilities: { tools: {} } });
 
@@ -343,6 +459,7 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
         },
       },
       summaryToolDefinition,
+      proposeTaskToolDefinition,
     ],
   }));
 
@@ -431,6 +548,39 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
         });
         // Deliberately no setTimeout/setInterval anywhere in this function — matches the approve
         // branch above: the promise settles ONLY when the socket answers.
+      });
+    }
+
+    if (request.params.name === PROPOSE_TASK_TOOL_NAME) {
+      // Plan 05-02 (D-80/D-81, T-05-02-01): no argument here names a run, project or epic —
+      // identity is whichever socket this connection reaches, exactly like the approve/summary
+      // branches above. buildProposeTaskPayload throws (rejecting BEFORE any socket write) for
+      // malformed input, matching the existing tools' own validation posture.
+      const args = (request.params.arguments ?? {}) as { title?: unknown; description?: unknown };
+      const payload = buildProposeTaskPayload(args);
+
+      return new Promise((resolve, reject) => {
+        const socket = net.createConnection(socketPath, () => {
+          socket.write(JSON.stringify(payload) + "\n");
+        });
+        socket.on("error", (err) => reject(err));
+        const rl = createInterface({ input: socket });
+        rl.once("line", (line) => {
+          let parsed: { received?: boolean };
+          try {
+            parsed = JSON.parse(line) as { received?: boolean };
+          } catch (err) {
+            reject(err);
+            return;
+          }
+          if (parsed.received === true) {
+            resolve({ content: [{ type: "text", text: JSON.stringify({ staged: true }) }] });
+          } else {
+            reject(new Error(`unexpected proposal acknowledgement shape: ${line}`));
+          }
+        });
+        // Deliberately no setTimeout/setInterval — matches the approve/summary branches above:
+        // the promise settles ONLY when the socket answers.
       });
     }
 

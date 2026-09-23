@@ -20,15 +20,19 @@ import {
   type AgentEvent,
   CapabilityUnsupportedError,
   defaultResumeSession,
+  type ProposalCreatedEvent,
+  type StartAuthoringSessionOptions,
   type StartSessionOptions,
   type SummaryReportedEvent,
   UnknownRunError,
 } from "./adapter.js";
 import {
+  AUTHORING_PROPOSE_TASK_TOOL_NAME,
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
   startPermissionServer,
   SUMMARY_TOOL_NAME,
+  type AuthoringProposalPayload,
   type PermissionNoticePayload,
   type PermissionServerHandle,
   type SummaryReportPayload,
@@ -220,6 +224,15 @@ function writeRunDescriptor(runtimeDir: string, runId: string, wrapperPid: numbe
  * anything else, so a caller that has a permission-prompt-tool pair but no settings file (or vice
  * versa) still gets a valid argv.
  */
+/** Push the paired `--permission-prompt-tool <toolName> --mcp-config <mcpConfig>` flags onto
+ * `argv` — the ONE place this repeated flag pair is constructed, shared by {@link buildClaudeArgv}
+ * and {@link buildAuthoringClaudeArgv} so the `--mcp-config` flag is registered from exactly one
+ * code path in this file, never two independently-drifting copies (both spawns name the SAME
+ * `MCP_SERVER_NAME` — this repository's own acceptance bar for "no second MCP server process"). */
+function pushPermissionPromptFlags(argv: string[], toolName: string, mcpConfig: string): void {
+  argv.push("--permission-prompt-tool", toolName, "--mcp-config", mcpConfig);
+}
+
 export function buildClaudeArgv(options: {
   prompt: string;
   permissionMode: string;
@@ -250,7 +263,7 @@ export function buildClaudeArgv(options: {
     options.permissionMode,
   ];
   if (options.permissionPromptToolName && options.mcpConfig) {
-    argv.push("--permission-prompt-tool", options.permissionPromptToolName, "--mcp-config", options.mcpConfig);
+    pushPermissionPromptFlags(argv, options.permissionPromptToolName, options.mcpConfig);
     if (options.summaryToolName) {
       // D-64/D-46: pre-approve exactly the summary tool so the agent's own closing
       // report_summary call never waits on a human the way a gated tool call would.
@@ -261,6 +274,56 @@ export function buildClaudeArgv(options: {
     argv.push("--settings", options.settingsPath);
   }
   return argv;
+}
+
+/**
+ * Build the argv an authoring session is spawned with (plan 05-02, D-84/D-88). Implements EXACTLY
+ * `05-SPIKE-FINDINGS.md`'s `transport_decision: option-a` line — a single long-lived `claude`
+ * process driven with `--input-format stream-json` and NO positional prompt (turns arrive over
+ * stdin instead, per `scripts/spike/authoring-transport-spike.mjs::buildOptionAArgv`, the exact
+ * shape measured live against the real binary) — and no conditional on Option B anywhere in this
+ * function. Otherwise mirrors {@link buildClaudeArgv}'s own structure: the mandatory
+ * `--output-format stream-json --verbose` pair, the permission-prompt-tool/mcp-config pairing,
+ * and the independently-optional `--settings` flag.
+ */
+export function buildAuthoringClaudeArgv(options: {
+  permissionMode: string;
+  permissionPromptToolName?: string;
+  mcpConfig?: string;
+  settingsPath?: string;
+  /** D-80/D-81 (plan 05-02): the fully-qualified `propose_task` tool name, when supplied — pushed
+   * onto `--allowedTools` inside the SAME `permissionPromptToolName`/`mcpConfig` branch below,
+   * mirroring {@link buildClaudeArgv}'s own `summaryToolName` handling (D-46: staging a proposal
+   * burns no money and blocks nothing, so it must never sit waiting on a human). */
+  proposeTaskToolName?: string;
+}): string[] {
+  const argv = [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--permission-mode",
+    options.permissionMode,
+  ];
+  if (options.permissionPromptToolName && options.mcpConfig) {
+    pushPermissionPromptFlags(argv, options.permissionPromptToolName, options.mcpConfig);
+    if (options.proposeTaskToolName) {
+      argv.push("--allowedTools", options.proposeTaskToolName);
+    }
+  }
+  if (options.settingsPath) {
+    argv.push("--settings", options.settingsPath);
+  }
+  return argv;
+}
+
+/** The `--input-format stream-json` input envelope Option A's spike measured live against the
+ * real binary (`scripts/spike/authoring-transport-spike.mjs::userTurnLine`) — one JSON line per
+ * user turn, written to the child's own stdin. */
+function authoringUserTurnLine(text: string): string {
+  return JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } });
 }
 
 interface ClaudeStreamInit {
@@ -395,6 +458,33 @@ export function normalizeSummaryNotice(
 }
 
 /**
+ * D-80/D-81 (plan 05-02): map one parsed `authoring_proposal` wire payload to exactly one
+ * {@link ProposalCreatedEvent}, mirroring {@link normalizeSummaryNotice}'s own "map the wire
+ * shape, fill `runId`/`seq`/`at` from the caller's own closure" convention. `runId` NEVER comes
+ * from the payload itself (T-05-02-01). Exported so this mapping is unit-testable without a live
+ * session, mirroring {@link normalizeSummaryNotice}'s own export.
+ */
+export function normalizeProposalNotice(
+  payload: AuthoringProposalPayload,
+  runId: string,
+  seq: number,
+  at: string,
+): ProposalCreatedEvent {
+  return {
+    runId,
+    seq,
+    at,
+    raw: JSON.stringify(payload),
+    type: "proposal_created",
+    verb: payload.verb,
+    targetType: payload.targetType,
+    targetId: payload.targetId,
+    parentProposalId: payload.parentProposalId,
+    payload: payload.payload,
+  };
+}
+
+/**
  * Map one parsed `stream-json` object to exactly one {@link AgentEvent}. A shape this function
  * does not recognise becomes `unknown`, still carrying the verbatim `raw` text, never dropped
  * (AGNT-02's flagged assumption).
@@ -480,6 +570,7 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsPermissionPrompt: true,
   supportsCostReporting: true,
   supportsSummaryReporting: true,
+  supportsAuthoring: true,
 };
 
 /**
@@ -930,6 +1021,207 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         resolve();
       });
     });
+  }
+
+  /**
+   * D-84/D-86/D-88 (plan 05-02): start a fresh epic-authoring session. `options.repoPath` becomes
+   * the child's `cwd` DIRECTLY — the project's registered main checkout, never a worktree path
+   * (D-86 overrides D-36's `acceptEdits` default; the caller supplies `options.permissionMode`
+   * and this function has no opinion of its own about it). Otherwise mirrors {@link startSession}'s
+   * own plumbing exactly: the permission server starts first (AGNT-06), the watchdog wrapper is
+   * the process-group leader (PROC-03/D-47), the PATH shim and `PreToolUse` hook wrap the spawn
+   * unchanged, and every `LiveSession` bookkeeping field (including `interruptSession`/
+   * `killSession`/`resolvePermission`'s shared `liveSessions` map) is populated identically — an
+   * authoring run is a first-class member of the SAME live-session registry a task-execution run
+   * is, so nothing about Stop/Discard/permission-answering needs to know which spawn method
+   * created the entry. The one genuine difference: `buildAuthoringClaudeArgv`'s Option A shape
+   * (no positional prompt) and the opening turn written to the child's OWN stdin once it is
+   * spawned, per `05-SPIKE-FINDINGS.md`'s `transport_decision: option-a` line — stdin is left
+   * open afterwards (Option A's own "held open across turns" contract), never closed.
+   */
+  async startAuthoringSession(options: StartAuthoringSessionOptions): Promise<void> {
+    let session!: LiveSession;
+    const permissionServer = startPermissionServer(
+      (payload) => {
+        const destructiveCategory =
+          payload.input !== null && typeof payload.input === "object" && "destructiveCategory" in payload.input
+            ? (payload.input as { destructiveCategory?: unknown }).destructiveCategory
+            : undefined;
+        session.onEvent({
+          runId: options.runId,
+          seq: session.nextSeq++,
+          at: new Date().toISOString(),
+          raw: JSON.stringify({ type: "permission_request", ...payload }),
+          type: "permission_request",
+          requestId: payload.requestId,
+          toolName: payload.toolName,
+          input: payload.input,
+          ...(typeof destructiveCategory === "string" ? { destructiveCategory } : {}),
+        });
+      },
+      (payload) => {
+        const event = noticeToAgentEvent(payload, options.runId, session.nextSeq, new Date().toISOString());
+        if (event) {
+          session.nextSeq += 1;
+          session.onEvent(event);
+        }
+      },
+      (payload) => {
+        const event = normalizeSummaryNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
+        session.nextSeq += 1;
+        session.onEvent(event);
+      },
+      (payload: AuthoringProposalPayload) => {
+        // D-80/D-81: the agent's own staged proposal, mapped by the pure normalizeProposalNotice
+        // above and relayed onto this SAME session's event stream — `runId` filled from THIS
+        // closure, never from the payload (T-05-02-01).
+        const event = normalizeProposalNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
+        session.nextSeq += 1;
+        session.onEvent(event);
+      },
+    );
+
+    const bin = resolveClaudeBin();
+
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...options.env,
+      FLYWHEEL_RUN_ID: options.runId,
+      FLYWHEEL_PERMISSION_SOCKET: permissionServer.socketPath,
+    };
+
+    const shimBin = shimBinFromEnv(env);
+    if (shimBin) {
+      env.FLYWHEEL_SHIM_BIN = shimBin;
+    }
+
+    const settingsPath = env.FLYWHEEL_RUNTIME_DIR
+      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId)
+      : undefined;
+
+    const mcpConfig = JSON.stringify({
+      mcpServers: {
+        [MCP_SERVER_NAME]: {
+          command: process.execPath,
+          args: [permissionServerScriptPath(), permissionServer.socketPath],
+        },
+      },
+    });
+    const argv = buildAuthoringClaudeArgv({
+      permissionMode: options.permissionMode,
+      permissionPromptToolName: PERMISSION_TOOL_NAME,
+      mcpConfig,
+      settingsPath,
+      proposeTaskToolName: AUTHORING_PROPOSE_TASK_TOOL_NAME,
+    });
+
+    const child = spawn(process.execPath, [watchdogEntryPath(), bin, ...argv], {
+      cwd: options.repoPath,
+      env,
+      detached: true,
+    });
+
+    if (typeof child.pid === "number" && env.FLYWHEEL_RUNTIME_DIR) {
+      writeRunDescriptor(env.FLYWHEEL_RUNTIME_DIR, options.runId, child.pid);
+    }
+
+    let resolveClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      resolveClosed = resolve;
+    });
+
+    session = {
+      child,
+      closed,
+      closedEventEmitted: false,
+      interruptionRequested: false,
+      lastResult: undefined,
+      stderrTail: "",
+      exitCode: null,
+      exitSignal: null,
+      runtimeDir: env.FLYWHEEL_RUNTIME_DIR,
+      onEvent: options.onEvent,
+      nextSeq: 0,
+      permissionServer,
+    };
+    liveSessions.set(options.runId, session);
+
+    const rl = createInterface({ input: child.stdout });
+
+    if (child.stderr) {
+      const stderrRl = createInterface({ input: child.stderr });
+      stderrRl.on("line", (line: string) => {
+        const at = new Date().toISOString();
+        const seq = session.nextSeq++;
+        options.onEvent({ runId: options.runId, seq, at, raw: line, type: "system_notice", text: line });
+        if (session.stderrTail.length < STDERR_DETAIL_MAX_CHARS) {
+          session.stderrTail += `${line}\n`;
+          session.stderrTail = session.stderrTail.slice(0, STDERR_DETAIL_MAX_CHARS);
+        }
+      });
+    }
+
+    const streamClosed = new Promise<void>((resolve, reject) => {
+      rl.on("line", (line: string) => {
+        const at = new Date().toISOString();
+        const seq = session.nextSeq++;
+        let parsed: ClaudeStreamEvent | undefined;
+        try {
+          parsed = JSON.parse(line) as ClaudeStreamEvent;
+        } catch {
+          options.onEvent({ runId: options.runId, seq, at, raw: line, type: "system_notice", text: line });
+          return;
+        }
+
+        const maybeSpawnError = parsed as unknown as {
+          __flywheelWatchdogSpawnError?: boolean;
+          message?: string;
+        };
+        if (maybeSpawnError.__flywheelWatchdogSpawnError === true) {
+          const message = maybeSpawnError.message ?? "the backend failed to spawn";
+          session.stderrTail = message;
+          emitSessionClosed(options.runId, session, "failed");
+          resolveClosed();
+          reject(new Error(message));
+          return;
+        }
+        const normalised = normaliseStreamEvent(parsed, line, options.runId, seq, at);
+        if (normalised.type === "result") {
+          session.lastResult = {
+            subtype: normalised.subtype,
+            totalCostUsd: normalised.totalCostUsd,
+            sessionId: normalised.sessionId,
+            inputTokens: normalised.inputTokens,
+            outputTokens: normalised.outputTokens,
+          };
+        }
+        options.onEvent(normalised);
+      });
+
+      child.on("error", (err) => {
+        session.stderrTail = err.message;
+        emitSessionClosed(options.runId, session, "failed");
+        resolveClosed();
+        reject(err);
+      });
+
+      child.on("close", (code, signal) => {
+        session.exitCode = code;
+        session.exitSignal = signal;
+        const reason = session.interruptionRequested ? "interrupted" : code === 0 ? "completed" : "failed";
+        emitSessionClosed(options.runId, session, reason);
+        resolveClosed();
+        resolve();
+      });
+    });
+
+    // Option A's own shape (05-SPIKE-FINDINGS.md): the opening turn is written to the child's OWN
+    // stdin — never a positional argv prompt — once the process exists. Stdin is left OPEN
+    // afterwards; this function resolves when the process itself closes, exactly like
+    // startSession, so a caller awaiting it is not implicitly ending the conversation.
+    child.stdin?.write(`${authoringUserTurnLine(options.prompt)}\n`);
+
+    await streamClosed;
   }
 
   async interruptSession(runId: string): Promise<void> {

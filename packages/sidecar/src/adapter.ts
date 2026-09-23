@@ -190,6 +190,25 @@ export interface SummaryReportedEvent extends AgentEventBase {
 }
 
 /**
+ * D-80/D-81 (plan 05-02): the agent's own staged proposal, reported through the `propose_task`
+ * MCP tool relayed over the SAME per-run permission socket {@link SummaryReportedEvent} already
+ * travels (a THIRD message `kind`, not a second socket — mirroring D-53's own precedent a second
+ * time). `verb`/`targetType`/`targetId`/`parentProposalId`/`payload` are the wire fields
+ * `mcp-permission-server.ts`'s `AuthoringProposalPayload` carries; `runId` (from
+ * {@link AgentEventBase}) is filled by the sidecar from the session this event fires inside —
+ * NEVER from the model's own tool-call arguments, matching {@link SummaryReportedEvent}'s own
+ * spoofing mitigation (T-05-02-01).
+ */
+export interface ProposalCreatedEvent extends AgentEventBase {
+  type: "proposal_created";
+  verb: "create" | "amend" | "delete";
+  targetType: "epic" | "task" | "criterion" | "assumption";
+  targetId?: string;
+  parentProposalId?: string;
+  payload: Record<string, unknown>;
+}
+
+/**
  * The normalised event union every adapter emits, in exactly the order the backend process
  * produced them (AGNT-01 ordering) — no reordering, no batching, no coalescing.
  */
@@ -206,7 +225,8 @@ export type AgentEvent =
   | SessionClosedEvent
   | GitRetryEvent
   | GitLockExhaustedEvent
-  | SummaryReportedEvent;
+  | SummaryReportedEvent
+  | ProposalCreatedEvent;
 
 /** What an adapter declares it can do — gates which `AgentAdapter` methods are safe to call. */
 export interface AdapterCapabilities {
@@ -218,6 +238,10 @@ export interface AdapterCapabilities {
    * is not an error path: D-64's fallback synthesizer exists precisely to cover an adapter with
    * no summary-reporting capability at all. */
   supportsSummaryReporting: boolean;
+  /** D-84/D-88 (plan 05-02): `false` means this adapter cannot drive an epic-authoring session at
+   * all — {@link AgentAdapter.startAuthoringSession} should be expected to reject with
+   * {@link CapabilityUnsupportedError} rather than silently degrading (AGNT-01). */
+  supportsAuthoring: boolean;
 }
 
 /**
@@ -256,6 +280,23 @@ export interface StartSessionOptions {
 }
 
 /**
+ * D-84/D-86 (plan 05-02): options for an epic-authoring session. `repoPath` is the project's
+ * REGISTERED MAIN CHECKOUT — never a worktree path (D-86 overrides D-36's accept-edits default;
+ * this session runs read-only in the developer's real working tree, not an isolated worktree).
+ * `prompt` is the conversation's opening turn — the transport this is driven over (05-SPIKE-
+ * FINDINGS.md's `transport_decision:` line) holds stdin open for further turns rather than
+ * exiting after one.
+ */
+export interface StartAuthoringSessionOptions {
+  runId: string;
+  repoPath: string;
+  prompt: string;
+  permissionMode: string;
+  env?: Record<string, string>;
+  onEvent: (event: AgentEvent) => void;
+}
+
+/**
  * The one interface every agent backend implements. `AGNT-01 adjacency`: adding a second adapter
  * changes only the sidecar's own adapter registry — no code in `packages/desktop/src-tauri`
  * compares against an adapter or backend name.
@@ -283,6 +324,18 @@ export interface AgentAdapter {
   /** D-30: deliberately unimplemented on every adapter that does not override it — rejects with
    * {@link CapabilityUnsupportedError}, gated by `capabilities.supportsResume === false`. */
   resumeSession(runId: string, externalSessionId: string): Promise<void>;
+
+  /** D-84/D-86/D-88 (plan 05-02): start a fresh epic-authoring session — the sibling of
+   * {@link startSession} for a run with no task and no worktree. Gated by
+   * `capabilities.supportsAuthoring`; an adapter that does not override this rejects with
+   * {@link CapabilityUnsupportedError} (AGNT-01), mirroring `resumeSession`'s own default shape. */
+  startAuthoringSession(options: StartAuthoringSessionOptions): Promise<void>;
+}
+
+/** The shared default for {@link AgentAdapter.startAuthoringSession} — mirrors
+ * {@link defaultResumeSession}'s own shape exactly. */
+export async function defaultStartAuthoringSession(): Promise<never> {
+  throw new CapabilityUnsupportedError("supportsAuthoring");
 }
 
 /** Every capability-gated method an adapter does not implement rejects with this error rather
