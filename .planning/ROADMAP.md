@@ -418,7 +418,7 @@ versions during planning.
   4. When a new session states an understanding that contradicts a decision already recorded on the board, the user is told rather than left to discover it in the diff.
   5. An automated test runs one task through at least five session cycles and proves its acceptance criteria are unchanged; a user editing criteria after work has started creates a new revision instead of overwriting the original.
 
-**Plans**: 4/14 plans executed
+**Plans**: 5/14 plans executed
 **UI hint**: yes
 
 **Wave 1 — the tracer** *(the thinnest end-to-end slice, proven before anything expands out from it)*
@@ -430,7 +430,7 @@ versions during planning.
 - [x] 04-02-PLAN.md — No session ends without a summary: D-64's `auto_generated` fallback, inside the terminal event's own transaction (CTX-01)
 - [x] 04-03-PLAN.md — The agent authors its own summary: `report_summary` as a second tool on the existing per-run MCP socket (CTX-01, CTX-06)
 - [x] 04-04-PLAN.md — Criteria lock and revisions: the lock is the first agent run, an edit appends, and no agent ever reads superseded wording (BOARD-03)
-- [ ] 04-05-PLAN.md — Compaction: a pure fold, five verbatim, lossless for decisions and total for narrative (CTX-05)
+- [x] 04-05-PLAN.md — Compaction: a pure fold, five verbatim, lossless for decisions and total for narrative (CTX-05)
 
 **Wave 3** *(blocked on 04-02 and 04-03 — the write surface meets the board)*
 
@@ -740,7 +740,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 1. The Board Is The Store Of Record | 21/21 | Complete    | 2026-09-10 |
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
-| 4. `/clear` Is Free | 4/14 | In Progress|  |
+| 4. `/clear` Is Free | 5/14 | In Progress|  |
 | 5. Socratic Epic Authoring | 0/TBD | Not started | - |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |

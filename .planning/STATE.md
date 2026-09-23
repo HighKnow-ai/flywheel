@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-04-PLAN.md
-last_updated: "2026-09-23T00:49:41.473Z"
+stopped_at: Completed 04-05-PLAN.md
+last_updated: "2026-09-23T01:01:15.494Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: 4c0944729eae0f85701b169dcafaa6f97256d21d
+state_head: 136c8921ed35ddf08ba870ba58a25218ebe6aa8a
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 81
+  completed_plans: 82
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 5 of 14
+Plan: 6 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -139,6 +139,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P02 | 35min | 2 tasks | 3 files |
 | Phase 04 P03 | 10min | 3 tasks | 5 files |
 | Phase 04 P04 | 36min | 3 tasks | 6 files |
+| Phase 04 P05 | 10min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -275,6 +276,8 @@ Recent decisions affecting current work:
 - [Phase 04]: report_summary is a SECOND tool on the existing MCP permission server, relayed as a second message kind (session_summary) on the existing per-run Unix socket -- zero new socket, zero new spawned process, zero new --mcp-config entry
 - [Phase 04]: The call resolves on a receipt acknowledgement from the supervisor, not on the database commit; the summary tool is pre-approved via --allowedTools so the agent's closing call never waits on a human
 - [Phase 04]: 04-04: revision_of always points at the chain root (never the immediate predecessor), and criteria_locked_for_task queries agent_runs directly rather than tasks.status.
+- [Phase 04]: [Phase 04-05]: boundary_sentence() renders a singleton ordinal range as a bare number ("1") rather than "1-1", so the six-summary case reads naturally — Keeps a natural-language sentence without a second template; the plan's own nine-summary literal is unaffected since neither of its ranges is a singleton
+- [Phase 04]: [Phase 04-05]: CompactedSummary is a genuinely distinct struct from SummaryEntry (narrative fields absent, not present-and-cleared) — Makes 'total for narrative' checkable by reading the type; proven at runtime by a JSON-serialization test showing dropped prose is absent from the wire format
 
 ### Pending Todos
 
@@ -317,6 +320,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T00:49:41.377Z
-Stopped at: Completed 04-04-PLAN.md
+Last session: 2026-09-23T01:01:06.633Z
+Stopped at: Completed 04-05-PLAN.md
 Resume file: None
