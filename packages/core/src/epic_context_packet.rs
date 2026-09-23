@@ -81,6 +81,14 @@ pub struct FoldedRejectedProposal {
 /// The fold's own accounting of where it split the rejected-proposal list (mirrors
 /// `compaction::CompactionBoundary`'s shape). `folded_count == 0` means nothing folded — an epic
 /// with at most [`REJECTED_VERBATIM_WINDOW`] rejected proposals has no boundary to name.
+///
+/// WR-02 (plan 05-09 code review): `total` is the count of rows `REJECTED_PROPOSALS_SQL` actually
+/// fetched, capped at `CONTEXT_PACKET_READ_LIMIT` (200) — for the astronomically unlikely epic
+/// with more than 200 rejected proposals in its lifetime, `total` undercounts the true database
+/// count. The fetch is newest-first, so the verbatim window and the sentence's own "most recent N"
+/// framing are unaffected; only the folded tail's reported size could be short. Accepted the same
+/// way `compaction.rs`'s own bounded reads are: an approximation that is honest about what it
+/// rendered, never a claim about everything that ever happened.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RejectionBoundary {
     pub total: usize,
@@ -158,15 +166,31 @@ const TASK_CRITERIA_SQL: &str = "SELECT statement, verification_hint FROM accept
     WHERE parent_type = 'task' AND parent_id = ?1 AND superseded_at IS NULL \
     ORDER BY rank ASC, id ASC";
 
+// WR-02 (plan 05-09 code review): both reads below used to carry no `LIMIT` at all — an epic
+// reopened and reshaped many times over its life read its ENTIRE rejected-proposal and
+// answered-assumption history into memory on every single "Continue Shaping" preview or real
+// session start, regardless of how few of those rows `fold_rejected`'s own
+// `REJECTED_VERBATIM_WINDOW` (5) actually renders verbatim afterward. Bounded generously above
+// that window, matching `query::authoring`'s own `DEFAULT_LIMIT` convention (200) rather than
+// inventing a third magic number.
+pub const CONTEXT_PACKET_READ_LIMIT: i64 = 200;
+
+// Ordered NEWEST-first (`DESC`) so the `LIMIT` keeps the most recently answered assumptions, not
+// the oldest — the read-out below reverses the fetched rows back to ascending chronological order
+// for `render_epic_prompt`'s stable narrative ordering, the same presentation the unbounded read
+// always produced.
 const ANSWERED_ASSUMPTIONS_SQL: &str = "SELECT payload FROM authoring_proposals \
     WHERE epic_id = ?1 AND status = 'accepted' AND target_type = 'assumption' \
-    ORDER BY created_at ASC, id ASC";
+    ORDER BY created_at DESC, id DESC LIMIT ?2";
 
 // Names `idx_authoring_proposals_epic_status`'s own columns (`epic_id`, `status`, `created_at
 // DESC`) in both `WHERE` and `ORDER BY` — the bounded rejected-set read is also an indexed one.
+// Already newest-first, matching `fold_rejected`'s own "first REJECTED_VERBATIM_WINDOW entries are
+// the most recent" contract — the added `LIMIT` only trims the tail this function already folds
+// down to a label, never the verbatim window itself.
 const REJECTED_PROPOSALS_SQL: &str = "SELECT target_type, payload, rejection_reason, created_at \
     FROM authoring_proposals WHERE epic_id = ?1 AND status = 'rejected' \
-    ORDER BY created_at DESC, id DESC";
+    ORDER BY created_at DESC, id DESC LIMIT ?2";
 
 // Plan 05-09: LEFT JOIN session_summaries via agent_runs.exit_summary_id — the one pointer
 // `domain::session_summary::insert_summary_row` keeps current — so a prior run's own closing
@@ -288,10 +312,13 @@ pub fn assemble_epic_context_packet(
     }
 
     let mut assumptions_stmt = conn.prepare(ANSWERED_ASSUMPTIONS_SQL)?;
-    let assumption_payloads: Vec<String> = assumptions_stmt
-        .query_map(params![epic_id], |row| row.get(0))?
+    let mut assumption_payloads: Vec<String> = assumptions_stmt
+        .query_map(params![epic_id, CONTEXT_PACKET_READ_LIMIT], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read answered assumption proposals")?;
+    // The SQL reads newest-first so the LIMIT keeps the most recent rows — reverse back to
+    // ascending chronological order here, matching the unbounded read's original presentation.
+    assumption_payloads.reverse();
 
     let mut answered_assumptions = Vec::with_capacity(assumption_payloads.len());
     for payload_json in assumption_payloads {
@@ -312,7 +339,7 @@ pub fn assemble_epic_context_packet(
 
     let mut rejected_stmt = conn.prepare(REJECTED_PROPOSALS_SQL)?;
     let raw_rejected: Vec<RawRejectedProposal> = rejected_stmt
-        .query_map(params![epic_id], |row| {
+        .query_map(params![epic_id, CONTEXT_PACKET_READ_LIMIT], |row| {
             let target_type: String = row.get(0)?;
             let payload_json: String = row.get(1)?;
             let rejection_reason: Option<String> = row.get(2)?;

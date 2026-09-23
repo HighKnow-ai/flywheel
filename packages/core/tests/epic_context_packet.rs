@@ -21,7 +21,9 @@ use core::domain::epic::create_epic;
 use core::domain::project::create_project;
 use core::domain::task::create_task;
 use core::domain::worktree::ensure_worktree;
-use core::epic_context_packet::{assemble_epic_context_packet, render_epic_prompt, REJECTED_VERBATIM_WINDOW};
+use core::epic_context_packet::{
+    assemble_epic_context_packet, render_epic_prompt, CONTEXT_PACKET_READ_LIMIT, REJECTED_VERBATIM_WINDOW,
+};
 use rusqlite::{params, Connection};
 
 use common::{seeded_git_project, seeded_project};
@@ -251,6 +253,88 @@ fn rejected_fold_begins_one_past_the_verbatim_window_with_a_boundary_sentence() 
     let prompt = render_epic_prompt(&packet);
     assert!(prompt.contains(&sentence));
     assert!(prompt.contains("proposal-01 (older, summarized)") || prompt.contains("proposal-01"));
+}
+
+// WR-02 (plan 05-09 code review): both the rejected-proposal and answered-assumption reads used
+// to have no LIMIT at all — an epic reshaped many times over its life would read its entire
+// history on every packet assembly. These two tests prove both reads are now actually bounded at
+// CONTEXT_PACKET_READ_LIMIT, not merely documented as bounded.
+
+#[test]
+fn rejected_proposals_read_is_bounded_at_the_context_packet_read_limit_and_keeps_the_newest() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Rejection-heavy epic", None)
+        .expect("create_epic should succeed");
+    let run = start_authoring_run(&mut conn, &project.id, Some(&epic.id), "readOnly", &actor_id)
+        .expect("start_authoring_run should succeed");
+
+    let total = CONTEXT_PACKET_READ_LIMIT + 10;
+    for n in 1..=total {
+        stage_and_decide(
+            &mut conn,
+            &run.id,
+            ProposalPayload::Task { title: format!("proposal-{n:04}"), description: None },
+            "rejected",
+            &actor_id,
+            &format!("2026-06-{:02}T{:02}:{:02}:00Z", 1 + (n / 1440) % 28, (n / 60) % 24, n % 60),
+        );
+    }
+
+    let packet = assemble_epic_context_packet(&conn, &project.id, Some(&epic.id))
+        .expect("assembling the packet should succeed");
+    assert_eq!(
+        packet.rejected.boundary.total as i64, CONTEXT_PACKET_READ_LIMIT,
+        "the read itself must be capped at CONTEXT_PACKET_READ_LIMIT rows, not the whole \
+         rejected-proposal history for this epic"
+    );
+    // The newest proposal (the highest ordinal, since created_at increases with n) must still be
+    // present in the verbatim window — the LIMIT trims the TAIL of the newest-first read, never
+    // the head.
+    assert!(
+        packet.rejected.verbatim.iter().any(|entry| match &entry.payload {
+            ProposalPayload::Task { title, .. } => title == &format!("proposal-{total:04}"),
+            _ => false,
+        }),
+        "the most recently rejected proposal must survive the bound"
+    );
+}
+
+#[test]
+fn answered_assumptions_read_is_bounded_at_the_context_packet_read_limit_and_keeps_the_newest() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Assumption-heavy epic", None)
+        .expect("create_epic should succeed");
+    let run = start_authoring_run(&mut conn, &project.id, Some(&epic.id), "readOnly", &actor_id)
+        .expect("start_authoring_run should succeed");
+
+    let total = CONTEXT_PACKET_READ_LIMIT + 10;
+    for n in 1..=total {
+        stage_and_decide(
+            &mut conn,
+            &run.id,
+            ProposalPayload::Assumption {
+                assumption: format!("assumption-{n:04}"),
+                answer: format!("answer-{n:04}"),
+            },
+            "accepted",
+            &actor_id,
+            &format!("2026-07-{:02}T{:02}:{:02}:00Z", 1 + (n / 1440) % 28, (n / 60) % 24, n % 60),
+        );
+    }
+
+    let packet = assemble_epic_context_packet(&conn, &project.id, Some(&epic.id))
+        .expect("assembling the packet should succeed");
+    assert_eq!(
+        packet.answered_assumptions.len() as i64, CONTEXT_PACKET_READ_LIMIT,
+        "the read itself must be capped at CONTEXT_PACKET_READ_LIMIT rows"
+    );
+    // Reversed back to ascending order for presentation — the LAST entry must be the newest
+    // assumption actually staged, proving the bound kept the most recent rows, not the oldest.
+    assert_eq!(
+        packet.answered_assumptions.last().map(|a| a.assumption.as_str()),
+        Some(format!("assumption-{total:04}").as_str()),
+        "the most recently answered assumption must survive the bound and sort last"
+    );
 }
 
 #[test]
@@ -510,13 +594,23 @@ fn five_consecutive_assemblies_are_equal_byte_identical_and_write_nothing() {
 /// a real diff here, not a silent pass.
 ///
 /// This allowlist does NOT include `context_packet.rs`'s own `SUMMARIES_SQL` — that file is
-/// OUTSIDE `packages/core/src/query` (this gate's own scope) and is a real, already-recorded
-/// `STATE.md` debt ("Bound the context packet before task histories get long", PROJECT.md Active
-/// requirements). Widening this gate to also cover `context_packet.rs` and then allowlisting
-/// `SUMMARIES_SQL` away would quietly fold a Phase-4-owned debt into this plan's own closure —
-/// exactly what this plan's own action text forbids. `SUMMARIES_SQL` stays unfixed, named here
-/// only so this gate is honest about what it is currently tolerating, not because the scanner
-/// below ever reaches it.
+/// OUTSIDE this gate's scope and is a real, already-recorded `STATE.md` debt ("Bound the context
+/// packet before task histories get long", PROJECT.md Active requirements). Widening this gate to
+/// also cover `context_packet.rs` and then allowlisting `SUMMARIES_SQL` away would quietly fold a
+/// Phase-4-owned debt into this plan's own closure — exactly what this plan's own action text
+/// forbids. `SUMMARIES_SQL` stays unfixed, named here only so this gate is honest about what it is
+/// currently tolerating, not because the scanner below ever reaches it.
+///
+/// WR-02 (plan 05-09 code review): the scanner below now ALSO covers `epic_context_packet.rs` —
+/// this file's own review finding was exactly the class this gate exists to catch structurally
+/// ("silently outside the scanner's directory scope"), so leaving it unscanned after fixing the
+/// two reads the review named would just relocate the same blind spot one file over. Every OTHER
+/// still-unbounded read already in `epic_context_packet.rs` at the time of this fix is named below
+/// with its own bounding justification — `PRIOR_AUTHORING_RUNS_SQL` is the one exception: it is
+/// the same "grows once per session over an epic's lifetime" shape `ANSWERED_ASSUMPTIONS_SQL`/
+/// `REJECTED_PROPOSALS_SQL` were, genuinely unbounded today, and deliberately NOT silently swept
+/// into this allowlist without a fix — it is named here, honestly, as a recorded, tracked debt
+/// (mirroring `SUMMARIES_SQL`'s own precedent above) rather than left for the scanner to miss.
 const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
     "WORKTREE_SUMMARY_SQL",     // agent_runs.rs — filtered on worktrees.task_id, a UNIQUE column
     "CRITERIA_JOIN",            // mod.rs — a correlated subquery LEFT JOINed into a LIMIT'd outer query
@@ -538,6 +632,15 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
                                  // additionally scoped by project_id; at most one row by construction,
                                  // the same cardinality-one shape BLOCKED_COUNT_SQL/RECOVERY_COUNT_SQL
                                  // are already allowlisted for
+    "EPIC_ROW_SQL",              // epic_context_packet.rs — query_row keyed by epics.id (PRIMARY KEY),
+                                  // additionally scoped by project_id; at most one row by construction
+    "EPIC_TASKS_SQL",            // epic_context_packet.rs — bounded by the one epic's own task count,
+                                  // the same un-LIMIT'd-by-design shape AGENT_TASK_CRITERIA_SQL uses
+    "TASK_CRITERIA_SQL",         // epic_context_packet.rs — bounded by one task's own current-revision
+                                  // criteria count, the same shape AGENT_TASK_CRITERIA_SQL uses
+    "PRIOR_AUTHORING_RUNS_SQL",  // epic_context_packet.rs — GENUINELY UNBOUNDED, a recorded debt (see
+                                  // this constant's own doc comment above), not a bounded-some-other-way
+                                  // exception — left here so the gate stays honest about what it tolerates
 ];
 
 fn strip_comment_lines(source: &str) -> String {
@@ -625,9 +728,37 @@ fn chunk_identifier(chunk: &str) -> String {
         .to_string()
 }
 
+/// WR-02 (plan 05-09 code review): a single file path is scanned exactly like one entry of a
+/// scanned directory — [`unbounded_reads_in_query_module_and_epic_context_packet_are_all_named_in_the_allowlist`]
+/// treats `epic_context_packet.rs` as a one-file "directory" alongside every `.rs` file under
+/// `src/query`, so both are checked by the identical chunk/literal/allowlist logic below.
+fn scan_file_for_unbounded_selects(path: &std::path::Path, offenders: &mut Vec<String>) {
+    let source = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("reading {} should succeed: {e}", path.display()));
+    let stripped = strip_comment_lines(&source);
+
+    for chunk in split_into_chunks(&stripped) {
+        let literal_text = extract_string_literals(&chunk);
+        if !literal_text.contains("SELECT") {
+            continue;
+        }
+        if literal_text.contains("LIMIT") {
+            continue;
+        }
+        let identifier = chunk_identifier(&chunk);
+        if !ALLOWED_UNBOUNDED_SELECTS.contains(&identifier.as_str()) {
+            offenders.push(format!(
+                "{}: {identifier} contains a SELECT with no LIMIT and is not in ALLOWED_UNBOUNDED_SELECTS",
+                path.display()
+            ));
+        }
+    }
+}
+
 #[test]
-fn unbounded_reads_in_query_module_are_all_named_in_the_allowlist() {
-    let query_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/query");
+fn unbounded_reads_in_query_module_and_epic_context_packet_are_all_named_in_the_allowlist() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let query_dir = manifest_dir.join("src/query");
     let mut offenders = Vec::new();
 
     for entry in std::fs::read_dir(&query_dir).expect("reading src/query should succeed") {
@@ -636,30 +767,20 @@ fn unbounded_reads_in_query_module_are_all_named_in_the_allowlist() {
         if path.extension().and_then(|e| e.to_str()) != Some("rs") {
             continue;
         }
-        let source = std::fs::read_to_string(&path).expect("reading a src/query file should succeed");
-        let stripped = strip_comment_lines(&source);
-
-        for chunk in split_into_chunks(&stripped) {
-            let literal_text = extract_string_literals(&chunk);
-            if !literal_text.contains("SELECT") {
-                continue;
-            }
-            if literal_text.contains("LIMIT") {
-                continue;
-            }
-            let identifier = chunk_identifier(&chunk);
-            if !ALLOWED_UNBOUNDED_SELECTS.contains(&identifier.as_str()) {
-                offenders.push(format!(
-                    "{}: {identifier} contains a SELECT with no LIMIT and is not in ALLOWED_UNBOUNDED_SELECTS",
-                    path.display()
-                ));
-            }
-        }
+        scan_file_for_unbounded_selects(&path, &mut offenders);
     }
+
+    // WR-02: `epic_context_packet.rs` sat in the identical blind spot `context_packet.rs` is
+    // explicitly, deliberately NOT swept into (see this file's own module doc comment and
+    // `ALLOWED_UNBOUNDED_SELECTS`'s doc comment) — silently outside this gate's directory scope.
+    // Scanned here, one file, with the same logic, so a fourth unbounded read is never added
+    // silently to THIS file either.
+    scan_file_for_unbounded_selects(&manifest_dir.join("src/epic_context_packet.rs"), &mut offenders);
 
     assert!(
         offenders.is_empty(),
-        "unbounded, unallowlisted SELECT(s) found under packages/core/src/query:\n{}",
+        "unbounded, unallowlisted SELECT(s) found under packages/core/src/query or in \
+         epic_context_packet.rs:\n{}",
         offenders.join("\n")
     );
 }
