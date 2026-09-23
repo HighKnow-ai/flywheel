@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 10/10 plans executed in 8 waves
+**Plans**: 13 plans — 10/10 executed in 8 waves, plus 3 gap-closure plans (05-11 through 05-13) in 2 waves opened by conversational UAT
 **UI hint**: yes
 
 Plans:
@@ -535,6 +535,15 @@ Plans:
 **Wave 8** *(blocked on 05-08 and 05-09 — the phase's ship gate)*
 
 - [x] 05-10-PLAN.md — Reopen an epic and be argued with about the change, one automated run proving all four success criteria, and a live acceptance script (all five SHAPE ids)
+
+**Gap closure — wave 1** *(opened by `05-UAT.md`; G-05-1 and G-05-2 share no file and run in parallel)*
+
+- [ ] 05-11-PLAN.md — G-05-1: uat-08's live arm answers the startup permission requests that starved it, the drain loop is proven offline, and the ledger stops claiming an arm that never ran (all five SHAPE ids)
+- [ ] 05-12-PLAN.md — G-05-2: the human-turn surface — a turn command, its wrapper, a composer on the session surface, and a transcript that records both sides exactly once (SHAPE-01, SHAPE-05)
+
+**Gap closure — wave 2** *(blocked on 05-12 for the turn seam and on 05-11 for the validation ledger)*
+
+- [ ] 05-13-PLAN.md — G-05-2: the epic's premise stated before a token is spent, a prompt that asks when it has nothing to challenge, and the Product Kill Criterion measured from the board (all five SHAPE ids)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is
