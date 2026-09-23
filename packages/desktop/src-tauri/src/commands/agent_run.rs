@@ -30,10 +30,12 @@
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
+use flywheel_core::compaction::CompactionBoundary;
 use flywheel_core::context_packet::{
     assemble_context_packet, assemble_context_packet_with_extras, render_prompt, ContextPacket,
     DiffSoFar, PacketExtras,
 };
+use flywheel_core::domain::session_summary::DecisionEntry;
 use rusqlite::Connection;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -106,6 +108,71 @@ impl From<DiffSoFar> for DiffSoFarDto {
     }
 }
 
+/// One decision entry inside a summary's `decisions` list, projected for the wire (camelCase) —
+/// mirrors `domain::session_summary::DecisionEntry` field-for-field (plan 04-08 Task 2).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecisionDto {
+    pub id: String,
+    pub statement: String,
+}
+
+impl From<DecisionEntry> for DecisionDto {
+    fn from(entry: DecisionEntry) -> Self {
+        Self { id: entry.id, statement: entry.statement }
+    }
+}
+
+/// One prior-session summary, projected for the wire (camelCase) — mirrors
+/// `context_packet::SummaryEntry` field-for-field, plus `folded` (plan 04-08 Task 2, T-04-23):
+/// whether this entry falls in the compaction boundary's folded region. `folded` is computed here,
+/// in Rust, from the packet's own `CompactionBoundary` — never recomputed in TypeScript — so the
+/// marker the developer sees on the launch sheet and the fold the agent receives in the rendered
+/// prompt can never disagree.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSummaryDto {
+    pub agent_run_id: String,
+    pub created_at: String,
+    pub auto_generated: bool,
+    pub changed_files: Vec<String>,
+    pub changed_prose: Option<String>,
+    pub remains: Option<String>,
+    pub next_session_must_know: Option<String>,
+    pub decisions: Vec<DecisionDto>,
+    pub folded: bool,
+}
+
+/// The compaction boundary, projected for the wire (camelCase, plan 04-08 Task 2) — both the
+/// structured counts (what `SessionSummaryDto.folded` is derived from, above) and the sentence a
+/// developer can read verbatim (`CompactionBoundary::boundary_sentence`), so the renderer never
+/// has to compose that phrasing itself. `folded_range`/`verbatim_range` travel as two-element
+/// arrays rather than tuples — `serde` has no native tuple-as-JSON-array-of-two-numbers shape that
+/// TypeScript would consume as a fixed-length tuple without an extra decode step.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionBoundaryDto {
+    pub total: usize,
+    pub folded_count: usize,
+    pub verbatim_count: usize,
+    pub folded_range: Option<[usize; 2]>,
+    pub verbatim_range: Option<[usize; 2]>,
+    pub sentence: Option<String>,
+}
+
+impl From<&CompactionBoundary> for CompactionBoundaryDto {
+    fn from(boundary: &CompactionBoundary) -> Self {
+        Self {
+            total: boundary.total,
+            folded_count: boundary.folded_count,
+            verbatim_count: boundary.verbatim_count,
+            folded_range: boundary.folded_range.map(|(start, end)| [start, end]),
+            verbatim_range: boundary.verbatim_range.map(|(start, end)| [start, end]),
+            sentence: boundary.boundary_sentence(),
+        }
+    }
+}
+
 /// The launch sheet's read-only briefing (D-27/D-28) — the packet's structured fields AND the
 /// rendered prompt string, so the sheet displays exactly the text that will be sent rather than
 /// re-deriving its own rendering in TypeScript (one renderer, in Rust, used by both the preview
@@ -119,6 +186,13 @@ pub struct ContextPacketDto {
     pub epic_title: Option<String>,
     pub epic_description: Option<String>,
     pub criteria: Vec<CriterionDto>,
+    /// Every prior-session summary, oldest-first, each carrying its own `folded` marker (plan
+    /// 04-08 Task 2).
+    pub summaries: Vec<SessionSummaryDto>,
+    /// The compaction boundary `summaries`' `folded` markers are derived from — carried
+    /// separately so the launch sheet can render the boundary sentence and counts without
+    /// re-deriving them from `summaries` itself (plan 04-08 Task 2).
+    pub compaction: CompactionBoundaryDto,
     pub branch: String,
     pub base_ref: String,
     pub worktree_path: String,
@@ -136,6 +210,27 @@ impl From<ContextPacket> for ContextPacketDto {
         // own (T-02-21), not to show the operator a raw prompt dump (the sheet renders the
         // structured fields below it instead).
         let rendered_prompt = render_prompt(&packet, "");
+        // `folded` is derived here, from the packet's own compaction boundary, before
+        // `packet.summaries` is consumed below — the same 0-based-position-under-folded_count
+        // check `compact_summaries` itself uses to split the oldest-first list (T-04-23).
+        let compaction = CompactionBoundaryDto::from(&packet.compaction);
+        let folded_count = packet.compaction.folded_count;
+        let summaries: Vec<SessionSummaryDto> = packet
+            .summaries
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| SessionSummaryDto {
+                agent_run_id: s.agent_run_id,
+                created_at: s.created_at,
+                auto_generated: s.auto_generated,
+                changed_files: s.changed_files,
+                changed_prose: s.changed_prose,
+                remains: s.remains,
+                next_session_must_know: s.next_session_must_know,
+                decisions: s.decisions.into_iter().map(DecisionDto::from).collect(),
+                folded: i < folded_count,
+            })
+            .collect();
         Self {
             task_key: packet.task_key,
             task_title: packet.task_title,
@@ -150,6 +245,8 @@ impl From<ContextPacket> for ContextPacketDto {
                     verification_hint: c.verification_hint,
                 })
                 .collect(),
+            summaries,
+            compaction,
             branch: packet.worktree.branch,
             base_ref: packet.worktree.base_ref,
             worktree_path: packet.worktree.path,
