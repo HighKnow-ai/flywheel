@@ -601,6 +601,13 @@ export function normaliseStreamEvent(
     }
     const textBlock = content.find((block) => block.type === "text");
     if (textBlock) {
+      // Task 3, plan 05-12: a user-role text block is the backend RESTATING a turn it received
+      // (Task 2's own `developer_turn` transcript row already recorded it) — never the agent's
+      // own prose. The tool-use/tool-result checks above stay unchanged and unconditional for
+      // both roles; only this text-block outcome splits on `parsed.type`.
+      if (parsed.type === "user") {
+        return { ...base, type: "backend_echo", text: textBlock.text ?? "" };
+      }
       return { ...base, type: "assistant_text", text: textBlock.text ?? "" };
     }
     return { ...base, type: "unknown" };

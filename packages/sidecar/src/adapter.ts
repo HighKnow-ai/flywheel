@@ -33,6 +33,21 @@ export interface AssistantTextEvent extends AgentEventBase {
   text: string;
 }
 
+/**
+ * Task 3, plan 05-12: the backend restating a turn the Rust core has already recorded (Task 2's
+ * own `developer_turn` transcript row) — the backend's stream echoes the same text back as a
+ * user-role message, in the exact shape the agent's own prose arrives in. This event exists so
+ * `claude-code-adapter.ts`'s normaliser can label that restatement for what it is, rather than as
+ * the agent's own {@link AssistantTextEvent}; the Rust core's own record is the one that renders
+ * (the renderer suppresses this event from its feed, per `SessionSurface.tsx`'s
+ * `SUPPRESSED_EVENT_TYPES`) — the same words are already on screen, written by the component that
+ * knows who actually said them.
+ */
+export interface BackendEchoEvent extends AgentEventBase {
+  type: "backend_echo";
+  text: string;
+}
+
 export interface ToolCallEvent extends AgentEventBase {
   type: "tool_call";
   toolName: string;
@@ -240,6 +255,7 @@ export interface BoardReadRequestEvent extends AgentEventBase {
 export type AgentEvent =
   | InitEvent
   | AssistantTextEvent
+  | BackendEchoEvent
   | ToolCallEvent
   | ToolResultEvent
   | PermissionRequestEvent
