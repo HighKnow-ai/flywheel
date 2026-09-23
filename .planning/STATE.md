@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-09-22T23:57:57.621Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-09-23T00:11:49.057Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: e643371eac35b46ad891ec8aa4ce661a7d34d70d
+state_head: a2e92eabf6b2867e29ee169822f5469e90a1b501
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 79
+  completed_plans: 80
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 3 of 14
+Plan: 4 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -137,6 +137,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P38 | 30min | 3 tasks | 2 files |
 | Phase 04 P01 | 13min | 2 tasks | 8 files |
 | Phase 04 P02 | 35min | 2 tasks | 3 files |
+| Phase 04 P03 | 10min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -270,6 +271,8 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04-01]: task_id/project_id/worktree_id in create_summary are resolved from the agent_runs row inside its own transaction, never accepted as caller parameters — T-04-01's spoofing mitigation -- a caller cannot attribute a summary to a run it does not drive, matching create_pending_request's identical discipline
 - [Phase 04]: [Phase 04-02]: insert_summary_row(tx: &Transaction, ...) is the ONE insert site create_summary and synthesize_fallback_summary both call — never two INSERT statements against session_summaries, enforced by a crate-wide grep <verify> gate.
 - [Phase 04]: [Phase 04-02]: close_agent_run_in_tx factors close_agent_run's statement body out so apply_session_closed can run it inside its OWN transaction alongside the fallback-summary presence check — a run can never be terminal while its fallback summary is missing.
+- [Phase 04]: report_summary is a SECOND tool on the existing MCP permission server, relayed as a second message kind (session_summary) on the existing per-run Unix socket -- zero new socket, zero new spawned process, zero new --mcp-config entry
+- [Phase 04]: The call resolves on a receipt acknowledgement from the supervisor, not on the database commit; the summary tool is pre-approved via --allowedTools so the agent's closing call never waits on a human
 
 ### Pending Todos
 
@@ -312,6 +315,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-22T23:57:57.523Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-09-23T00:11:48.962Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
