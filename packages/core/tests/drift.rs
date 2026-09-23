@@ -13,12 +13,15 @@ use core::context_packet::{
     assemble_context_packet, assemble_context_packet_with_extras, render_prompt, PacketExtras,
     SummaryEntry,
 };
-use core::domain::agent_run::{record_drift_warnings, start_agent_run};
+use core::domain::agent_run::{
+    close_agent_run, mark_abandoned, record_drift_warnings, start_agent_run, AgentRunStatus,
+};
 use core::domain::epic::create_epic;
 use core::domain::session_summary::{create_summary, DecisionEntry, SummaryFields};
 use core::domain::task::create_task;
-use core::domain::worktree::ensure_worktree;
+use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
 use core::drift::{detect_drift, DriftInputs, DriftKind, DriftWarning};
+use core::query::recovery::{recovery_count_for_project, recovery_task_ids_for_project};
 
 // `FLYWHEEL_WORKTREE_ROOT` is process-wide state (mirrors `context_packet.rs`'s own
 // `WORKTREE_ROOT_ENV_LOCK` — each `tests/*.rs` file is its own binary, so this lock only needs to
@@ -769,3 +772,156 @@ fn record_drift_warnings_in_a_rolled_back_transaction_leaves_no_trace() {
     });
 }
 
+// ============================================================================================
+// Plan 04-12 Task 2: the board says so — drift as a third needs-you fact, not a fourth badge
+// ============================================================================================
+
+fn record_one_drift_warning(conn: &mut rusqlite::Connection, actor_id: &str, run_id: &str) {
+    let warning = DriftWarning {
+        kind: DriftKind::StaleSinceLastSummary,
+        sentence: "drift".to_string(),
+    };
+    let tx = conn.transaction().expect("failed to open transaction");
+    record_drift_warnings(&tx, run_id, std::slice::from_ref(&warning), actor_id, "2026-01-01T00:00:00Z")
+        .expect("record_drift_warnings should succeed");
+    tx.commit().expect("failed to commit");
+}
+
+#[test]
+fn a_task_whose_latest_run_drifted_appears_in_the_recovery_set() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Drifted task", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        record_one_drift_warning(&mut conn, &actor_id, &run.id);
+
+        let ids = recovery_task_ids_for_project(&conn, &project.id)
+            .expect("recovery_task_ids_for_project should succeed");
+        let count = recovery_count_for_project(&conn, &project.id)
+            .expect("recovery_count_for_project should succeed");
+
+        assert_eq!(ids, vec![task.id.clone()]);
+        assert_eq!(count, 1);
+        assert_eq!(count as usize, ids.len());
+    });
+}
+
+#[test]
+fn a_task_whose_latest_run_is_clean_does_not_appear_even_though_an_earlier_run_drifted() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Recovered task", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+
+        let first_run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        record_one_drift_warning(&mut conn, &actor_id, &first_run.id);
+        close_agent_run(&mut conn, &first_run.id, AgentRunStatus::Completed, None, None, None)
+            .expect("close_agent_run should succeed");
+
+        // A second, later run for the SAME task — no drift recorded against it.
+        let _second_run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+
+        let ids = recovery_task_ids_for_project(&conn, &project.id)
+            .expect("recovery_task_ids_for_project should succeed");
+        assert!(
+            !ids.contains(&task.id),
+            "a task whose MOST RECENT run is clean must not appear even though an earlier run drifted"
+        );
+    });
+}
+
+#[test]
+fn a_task_with_both_a_missing_worktree_and_a_drift_signal_appears_exactly_once() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Both signals task", None)
+            .expect("create_task should succeed");
+        let worktree =
+            ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        record_one_drift_warning(&mut conn, &actor_id, &run.id);
+
+        std::fs::remove_dir_all(&worktree.path).expect("failed to delete the worktree directory");
+        reconcile_worktrees(&mut conn, &actor_id).expect("reconcile_worktrees should succeed");
+
+        let ids = recovery_task_ids_for_project(&conn, &project.id)
+            .expect("recovery_task_ids_for_project should succeed");
+        let count = recovery_count_for_project(&conn, &project.id)
+            .expect("recovery_count_for_project should succeed");
+
+        assert_eq!(
+            ids,
+            vec![task.id.clone()],
+            "a task with a missing worktree AND a drift signal must appear exactly once"
+        );
+        assert_eq!(count, 1, "UNION ALL would double-count this task — UNION must not");
+        assert_eq!(count as usize, ids.len());
+    });
+}
+
+#[test]
+fn a_project_with_only_clean_runs_reports_zero_recovery_items() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Clean task", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        close_agent_run(&mut conn, &run.id, AgentRunStatus::Completed, None, None, None)
+            .expect("close_agent_run should succeed");
+
+        let ids = recovery_task_ids_for_project(&conn, &project.id)
+            .expect("recovery_task_ids_for_project should succeed");
+        let count = recovery_count_for_project(&conn, &project.id)
+            .expect("recovery_count_for_project should succeed");
+
+        assert!(ids.is_empty(), "a project with no drift and no other outstanding item must be empty");
+        assert_eq!(count, 0);
+    });
+}
+
+#[test]
+fn count_and_ids_agree_when_drift_is_mixed_with_the_other_recovery_facts() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+
+        // Task 1: drift only.
+        let task1 = create_task(&mut conn, &project.id, &actor_id, "Drift only", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task1.id, &actor_id).expect("ensure_worktree should succeed");
+        let run1 = start_agent_run(&mut conn, &task1.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        record_one_drift_warning(&mut conn, &actor_id, &run1.id);
+
+        // Task 2: an unacknowledged abandoned run (the pre-existing arm) — never touched by drift.
+        let task2 = create_task(&mut conn, &project.id, &actor_id, "Abandoned only", None)
+            .expect("create_task should succeed");
+        let run2 = start_agent_run(&mut conn, &task2.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        mark_abandoned(&mut conn, &run2.id, &actor_id, None).expect("mark_abandoned should succeed");
+
+        // Task 3: healthy — no recovery item at all.
+        create_task(&mut conn, &project.id, &actor_id, "Healthy", None)
+            .expect("create_task should succeed");
+
+        let mut ids = recovery_task_ids_for_project(&conn, &project.id)
+            .expect("recovery_task_ids_for_project should succeed");
+        ids.sort();
+        let count = recovery_count_for_project(&conn, &project.id)
+            .expect("recovery_count_for_project should succeed");
+
+        let mut expected = vec![task1.id.clone(), task2.id.clone()];
+        expected.sort();
+        assert_eq!(ids, expected);
+        assert_eq!(count, 2);
+        assert_eq!(count as usize, ids.len());
+    });
+}
