@@ -166,15 +166,35 @@ pub fn current_stage(conn: &Connection, agent_run_id: &str) -> anyhow::Result<Op
     raw.map(|value| AuthoringStage::from_db_str(&value)).transpose()
 }
 
-/// Advance `agent_run_id` to the next stage (D-88, D-90) — `challenge -> decompose -> criteria`,
-/// erroring at the last stage rather than wrapping or no-opping. **Takes a human actor id and has
-/// no agent-reachable caller anywhere in this workspace**: D-90 gives Cyril the sole advance gate,
-/// and the agent may only recommend advancing, never perform it itself. In ONE transaction: reads
-/// the current stage, writes the next one, and appends one `authoring_run.stage_changed` event.
-pub fn advance_stage(
+/// The shared guarded-transition body [`advance_stage`] and [`return_to_stage`] both call (plan
+/// 05-03, finishing what plan 05-02 left as a bare `UPDATE`). ONE transaction:
+///
+/// 1. Read the current stage FRESH, inside this transaction — never from a caller-supplied value,
+///    so the guard below is checked against what the row actually holds right now.
+/// 2. `compute_next(current)` decides the target stage — [`advance_stage`] walks `.next()`,
+///    [`return_to_stage`] takes the caller's own target unconditionally (D-90: going back asserts
+///    nothing about the target being earlier than `current`).
+/// 3. The `UPDATE` is guarded with `WHERE id = ?1 AND authoring_stage = ?2` (`?2` bound to the
+///    JUST-READ `current`) — this is what makes a concurrent double-transition fail loudly
+///    (`rows_affected != 1`) rather than silently racing past a stage.
+/// 4. `append_event` records the transition — a human-renderable sentence naming both stages
+///    (D-19).
+/// 5. **Only now**, as the LAST step before `commit`, is the runtime marker
+///    ([`crate::runtime_protocol::write_authoring_stage`]) written. This ordering is deliberate
+///    (T-05-03-05): the marker and the row must never be able to disagree. Writing it any earlier
+///    risks a marker showing the NEW stage while a later failure (e.g. the `UPDATE` itself, or
+///    `append_event`) rolls the row back to the OLD one — a committed-on-disk stage the database
+///    never actually reached. Writing it here means a marker-write failure returns an `Err`
+///    BEFORE `commit` is ever called, so the transaction rolls back and the row simply never
+///    moves — exactly the "marker-write failure treated as a transaction failure" contract this
+///    plan requires.
+fn transition_stage(
     conn: &mut Connection,
     agent_run_id: &str,
+    compute_next: impl FnOnce(AuthoringStage) -> anyhow::Result<AuthoringStage>,
     human_actor_id: &str,
+    event_type: &str,
+    label: impl FnOnce(&str, &str) -> String,
 ) -> anyhow::Result<AuthoringStage> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
@@ -198,22 +218,25 @@ pub fn advance_stage(
         .transpose()?
         .ok_or_else(|| anyhow::anyhow!("agent_run {agent_run_id:?} carries no authoring_stage"))?;
 
-    let next = current
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("agent_run {agent_run_id:?} is already at the last authoring stage"))?;
+    let next = compute_next(current)?;
 
-    tx.execute(
-        "UPDATE agent_runs SET authoring_stage = ?1 WHERE id = ?2",
-        params![next.as_str(), agent_run_id],
-    )
-    .context("failed to advance authoring_stage")?;
+    let rows_affected = tx
+        .execute(
+            "UPDATE agent_runs SET authoring_stage = ?1 WHERE id = ?2 AND authoring_stage = ?3",
+            params![next.as_str(), agent_run_id, current.as_str()],
+        )
+        .context("failed to write the guarded authoring_stage transition")?;
+    anyhow::ensure!(
+        rows_affected == 1,
+        "agent_run {agent_run_id:?}'s authoring_stage changed concurrently — refusing to overwrite it"
+    );
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "authoring_stage",
         "before": current.as_str(),
         "after": next.as_str(),
-        "label": format!("Advanced authoring stage to {}", next.as_str()),
+        "label": label(current.as_str(), next.as_str()),
     });
     append_event(
         &tx,
@@ -225,13 +248,76 @@ pub fn advance_stage(
         None,
         epic_id.as_deref(),
         human_actor_id,
-        "authoring_run.stage_changed",
+        event_type,
         &payload,
         &now,
     )?;
 
+    // T-05-03-05: last step before commit — see this function's own doc comment above.
+    if let crate::runtime_protocol::RuntimeIo::WriteFailed(reason) =
+        crate::runtime_protocol::write_authoring_stage(agent_run_id, next.as_str())
+    {
+        anyhow::bail!(
+            "failed to write the authoring stage runtime marker for {agent_run_id:?}: {reason}"
+        );
+    }
+
     tx.commit()
-        .context("failed to commit advance_stage transaction")?;
+        .context("failed to commit authoring_stage transition")?;
 
     Ok(next)
+}
+
+/// Advance `agent_run_id` to the next stage (D-88, D-90) — `challenge -> decompose -> criteria`,
+/// erroring at the last stage rather than wrapping or no-opping.
+///
+/// **Takes a human actor id and has no agent-reachable caller anywhere in this workspace**: D-90
+/// gives Cyril — the developer — the SOLE advance gate. An agent that could end its own challenge
+/// stage would be able to end it on the first turn, which is the exact failure D-88 exists to
+/// prevent; the agent may only ever RECOMMEND advancing (in the conversation itself), never call
+/// this function. `packages/core/tests/authoring_stage.rs`'s own source-scanning gate asserts no
+/// file under `packages/sidecar/src` names this function — this is the one mechanism the whole
+/// phase depends on.
+pub fn advance_stage(
+    conn: &mut Connection,
+    agent_run_id: &str,
+    human_actor_id: &str,
+) -> anyhow::Result<AuthoringStage> {
+    transition_stage(
+        conn,
+        agent_run_id,
+        |current| {
+            current.next().ok_or_else(|| {
+                anyhow::anyhow!("agent_run {agent_run_id:?} is already at the last authoring stage")
+            })
+        },
+        human_actor_id,
+        "authoring_run.stage_changed",
+        |before, after| format!("Advanced from {before} to {after}"),
+    )
+}
+
+/// Return `agent_run_id` to an earlier (or, degenerately, the same) stage (D-90) — going back is
+/// ALWAYS allowed and leaves every already-staged proposal untouched (D-83's proposals live in
+/// their own table, keyed by `agent_run_id`, never touched by this function). This function
+/// asserts nothing about `stage` being earlier than the run's current stage beyond it being a
+/// valid stage NAME (`AuthoringStage::from_db_str`) — D-90 says the return is free, and a cost on
+/// the return is what would make D-88's rigidity bite. **Takes a human actor id, for the exact
+/// same reason [`advance_stage`] does**: this is the other half of the one gate D-90 reserves for
+/// the developer, and no file under `packages/sidecar/src` may name it either.
+pub fn return_to_stage(
+    conn: &mut Connection,
+    agent_run_id: &str,
+    stage: &str,
+    human_actor_id: &str,
+) -> anyhow::Result<AuthoringStage> {
+    let target = AuthoringStage::from_db_str(stage)?;
+    transition_stage(
+        conn,
+        agent_run_id,
+        move |_current| Ok(target),
+        human_actor_id,
+        "authoring_run.stage_returned",
+        |before, after| format!("Returned from {before} to {after}"),
+    )
 }

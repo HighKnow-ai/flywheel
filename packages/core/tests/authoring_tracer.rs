@@ -17,8 +17,34 @@ use core::domain::authoring_proposal::{
 use core::domain::authoring_session::{advance_stage, current_stage, start_authoring_run, AuthoringStage};
 use rusqlite::params;
 
+/// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `FLYWHEEL_RUNTIME_DIR`
+/// is process-global mutable state, and `cargo test` runs `#[test]` functions concurrently by
+/// default. Mirrors `runtime_protocol.rs`'s/`launch_reconciliation.rs`'s own identically-named
+/// lock: as of plan 05-03, `advance_stage` writes the D-88 authoring-stage runtime marker as part
+/// of its own transaction, so every test in this file that calls it needs an isolated scratch
+/// runtime dir — without this, `cargo test` would write real files into the developer's actual
+/// application-data directory.
+static RUNTIME_DIR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_scratch_runtime_dir<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = RUNTIME_DIR_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
+    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads
+    // or mutates this var while it's set, and this helper always clears it before returning.
+    unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", dir.path()) };
+    let result = f();
+    unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
+    result
+}
+
 #[test]
 fn a_proposed_task_becomes_a_real_task_end_to_end() {
+    with_scratch_runtime_dir(|| a_proposed_task_becomes_a_real_task_end_to_end_body());
+}
+
+fn a_proposed_task_becomes_a_real_task_end_to_end_body() {
     let (mut conn, human_actor_id, project) = common::seeded_project();
 
     // Start an authoring run against no existing epic (SHAPE-01's own case).
@@ -128,6 +154,10 @@ fn a_proposed_task_becomes_a_real_task_end_to_end() {
 
 #[test]
 fn pending_proposals_for_run_clamps_to_max_limit() {
+    with_scratch_runtime_dir(|| pending_proposals_for_run_clamps_to_max_limit_body());
+}
+
+fn pending_proposals_for_run_clamps_to_max_limit_body() {
     let (mut conn, human_actor_id, project) = common::seeded_project();
     let run = start_authoring_run(&mut conn, &project.id, None, "default", &human_actor_id).unwrap();
     advance_stage(&mut conn, &run.id, &human_actor_id).unwrap();
@@ -150,6 +180,10 @@ fn pending_proposals_for_run_clamps_to_max_limit() {
 
 #[test]
 fn accepting_an_unsupported_verb_returns_a_typed_error_not_a_silent_no_op() {
+    with_scratch_runtime_dir(|| accepting_an_unsupported_verb_returns_a_typed_error_not_a_silent_no_op_body());
+}
+
+fn accepting_an_unsupported_verb_returns_a_typed_error_not_a_silent_no_op_body() {
     let (mut conn, human_actor_id, project) = common::seeded_project();
     let run = start_authoring_run(&mut conn, &project.id, None, "default", &human_actor_id).unwrap();
     advance_stage(&mut conn, &run.id, &human_actor_id).unwrap();

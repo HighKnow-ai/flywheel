@@ -219,6 +219,73 @@ pub fn authoring_proposal_accept(
     Ok(())
 }
 
+/// Advance `agent_run_id` to its next authoring stage (D-88, D-90, plan 05-03) — the ONE gate the
+/// whole phase depends on, resolving the local human actor server-side (never from the renderer,
+/// matching `authoring_proposal_accept`'s own discipline immediately above). Thin wrapper over
+/// `domain::authoring_session::advance_stage`; emits `board:changed` for the run so the stage
+/// indicator (`SessionSurface.tsx`) and any other consumer of this run's row re-read it.
+#[tauri::command]
+pub fn authoring_stage_advance(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_id: String,
+) -> Result<String, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let human_actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let stage = flywheel_core::domain::authoring_session::advance_stage(
+        &mut conn,
+        &agent_run_id,
+        &human_actor_id,
+    )
+    .map_err(|e| e.to_string())?;
+
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
+    )
+    .ok();
+
+    Ok(stage.as_str().to_string())
+}
+
+/// Return `agent_run_id` to an earlier authoring stage (D-90, plan 05-03) — the other half of the
+/// one gate D-90 reserves for the developer. Mirrors [`authoring_stage_advance`] exactly: resolves
+/// the human actor server-side, calls straight through to
+/// `domain::authoring_session::return_to_stage`, and emits the same `board:changed` shape.
+#[tauri::command]
+pub fn authoring_stage_return(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_id: String,
+    stage: String,
+) -> Result<String, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let human_actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let resolved = flywheel_core::domain::authoring_session::return_to_stage(
+        &mut conn,
+        &agent_run_id,
+        &stage,
+        &human_actor_id,
+    )
+    .map_err(|e| e.to_string())?;
+
+    drop(conn);
+
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
+    )
+    .ok();
+
+    Ok(resolved.as_str().to_string())
+}
+
 /// The Tauri-facing half of the inbound `proposal_created` path (D-80/D-81), called from
 /// `sidecar.rs`'s reader loop for every `proposal_created` event — mirrors
 /// `agent_run::handle_inbound_summary_reported` line for line: the DB-only decision stays
