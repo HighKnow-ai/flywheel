@@ -53,6 +53,8 @@ import {
   useSetStatus,
   useSetTaskEpic,
 } from "./useBoardQuery";
+import { authoringStageReturn } from "../adapters/tauri";
+import { previousAuthoringStage } from "../session/SessionSurface";
 
 /** Board-list action ids whose palette command opens its OWN overlay (a picker, or the delete
  * confirmation via `BoardView.tsx`'s `deleteTarget` in `uiStore`) rather than completing
@@ -119,6 +121,10 @@ export function CommandPalette() {
   const setSelectedItemId = useUiStore((state) => state.setSelectedItemId);
   const setDetailItemId = useUiStore((state) => state.setDetailItemId);
   const setDeleteTarget = useUiStore((state) => state.setDeleteTarget);
+  // D-90 (plan 05-03): the `return-stage` palette entry's own gate — disabled unless the CURRENT
+  // session (if any) is an authoring run with somewhere earlier to return to.
+  const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
+  const activeAgentRunAuthoringStage = useUiStore((state) => state.activeAgentRunAuthoringStage);
 
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -369,6 +375,28 @@ export function CommandPalette() {
             },
           });
           continue;
+        case "return-stage": {
+          // D-90 (plan 05-03): the palette's own reachable path to the same verb
+          // `SessionSurface.tsx`'s inline "way back" control calls — disabled unless the CURRENT
+          // session is an authoring run with somewhere earlier to return to. `run()` fires the
+          // command directly (mirrors `shape-epic`'s own direct-run pattern) rather than routing
+          // through `dispatchAction`, which only works for bindings that carry a real key.
+          const target = activeAgentRunAuthoringStage
+            ? previousAuthoringStage(activeAgentRunAuthoringStage)
+            : undefined;
+          out.push({
+            id,
+            label,
+            group: "Session",
+            disabled: !activeAgentRunId || !target,
+            run: () => {
+              if (!activeAgentRunId || !target) return;
+              close();
+              void authoringStageReturn(activeAgentRunId, target);
+            },
+          });
+          continue;
+        }
         case "filter-status":
         case "filter-epic":
         case "filter-assignee":

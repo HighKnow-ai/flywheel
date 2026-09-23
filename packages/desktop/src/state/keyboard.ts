@@ -75,7 +75,13 @@ export type ActionId =
   // plan (no key binding yet), mirroring `create-issue`/`open-legend`'s own palette-only entries
   // above — the palette is the least invasive entry point and it re-enters the same
   // `dispatchAction` pipeline every other action uses.
-  | "shape-epic";
+  | "shape-epic"
+  // D-88/D-90 (plan 05-03): the human-only stage-transition verbs. `advance-stage` is bound to a
+  // real key in the `session-surface` region (below); `return-stage` is command-palette-only,
+  // mirroring `shape-epic`'s own palette-only entry — neither is reachable from a tool call, which
+  // is the whole point of D-90.
+  | "advance-stage"
+  | "return-stage";
 
 export interface Binding {
   id: ActionId;
@@ -146,6 +152,10 @@ export const BINDINGS: Binding[] = [
   // ---- Live session surface (D-31) --------------------------------------------------------
   { id: "stop-session", region: "session-surface", key: ".", meta: true, label: "Stop Session" },
   { id: "toggle-raw-view", region: "session-surface", key: "r", label: "Toggle Raw View" },
+  // D-88/D-90 (plan 05-03): `n` is free in this region — the global `Cmd+N` create-task binding
+  // carries `meta`, and `resolveBinding` requires `Boolean(binding.meta) === event.metaKey`, so a
+  // bare `n` here can never match that global entry regardless of scan order.
+  { id: "advance-stage", region: "session-surface", key: "n", label: "Advance Authoring Stage" },
 
   // ---- Permission-request card (AGNT-06, D-37/D-38) — region-scoped so a bare `a`/`d` here
   // never collides with the board list's own `a` (assignee picker); `bindingAllowedInLayer` below
@@ -173,6 +183,7 @@ export const BINDINGS: Binding[] = [
   { id: "filter-assignee", region: "command-palette", label: "Filter by Assignee" },
   { id: "filter-priority", region: "command-palette", label: "Filter by Priority" },
   { id: "shape-epic", region: "command-palette", label: "Shape an Epic" },
+  { id: "return-stage", region: "command-palette", label: "Return to Previous Authoring Stage" },
 ];
 
 /** True when `target` is a live text-entry element (input/textarea/contentEditable) — the
@@ -339,7 +350,7 @@ export function topLayer(state: LayerState): UiLayer {
  * here because it is an inline input inside the list, not a trapped scope — a bare letter typed
  * into it is separately suppressed by `resolveBinding`'s `isTypingTarget` check, which this
  * function does not touch. */
-const SESSION_SURFACE_ACTION_IDS = new Set<ActionId>(["stop-session", "toggle-raw-view"]);
+const SESSION_SURFACE_ACTION_IDS = new Set<ActionId>(["stop-session", "toggle-raw-view", "advance-stage"]);
 
 const PERMISSION_CARD_ACTION_IDS = new Set<ActionId>([
   "answer-permission-allow",

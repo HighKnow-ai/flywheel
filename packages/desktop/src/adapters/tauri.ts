@@ -759,3 +759,16 @@ export async function authoringProposalsForRun(
 export async function acceptAuthoringProposal(proposalId: string): Promise<void> {
   await invokeCommand<void>("authoring_proposal_accept", { proposalId });
 }
+
+/** Advance an authoring run to its next stage (D-88, D-90, plan 05-03) — the one gate the whole
+ * phase depends on. Thin typed wrapper over `authoring_stage_advance`; resolves to the NEW stage
+ * name. */
+export async function authoringStageAdvance(agentRunId: string): Promise<string> {
+  return invokeCommand<string>("authoring_stage_advance", { agentRunId });
+}
+
+/** Return an authoring run to an earlier stage (D-90, plan 05-03) — always allowed, free. Thin
+ * typed wrapper over `authoring_stage_return`; resolves to the stage returned to. */
+export async function authoringStageReturn(agentRunId: string, stage: string): Promise<string> {
+  return invokeCommand<string>("authoring_stage_return", { agentRunId, stage });
+}

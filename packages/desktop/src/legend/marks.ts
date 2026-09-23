@@ -369,6 +369,39 @@ export const MARKS: Mark[] = [
     meaning:
       "This tool call would destroy work; it needs an explicit answer and cannot be granted standing permission (D-56, D-57). A stop-sign shape, categorically different from the ShieldAlert shield used everywhere else in this product's permission vocabulary — the shape itself is part of the signal.",
   },
+  // D-88 (plan 05-03): the three-stage authoring machine's own marks, plus the tray's
+  // proposal-pending mark. A proposal waiting on a decision burns no money (D-46: only money
+  // burning blocks), so it deliberately does NOT reuse the `blocked-indicator`/`run-blocked` glyph
+  // or the blocked colour role — it is a distinct signal, not a blocked one.
+  {
+    id: "authoring-stage-challenge",
+    channel: "agent",
+    glyph: "MessageCircleQuestion",
+    label: "Challenge",
+    meaning: "The agent is challenging the framing — it has no tool to stage a proposal yet (D-88).",
+  },
+  {
+    id: "authoring-stage-decompose",
+    channel: "agent",
+    glyph: "ListTree",
+    label: "Decompose",
+    meaning: "The agent may draft tasks for this epic.",
+  },
+  {
+    id: "authoring-stage-criteria",
+    channel: "agent",
+    glyph: "ListChecks",
+    label: "Criteria",
+    meaning: "The agent may draft acceptance criteria for each task.",
+  },
+  {
+    id: "proposal-pending",
+    channel: "agent",
+    glyph: "FileClock",
+    label: "Pending proposal",
+    meaning:
+      "A staged proposal awaiting your accept/reject/amend decision — not a blocked state (D-46: only money burning blocks).",
+  },
 ];
 
 /**

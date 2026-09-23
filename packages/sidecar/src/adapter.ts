@@ -70,6 +70,12 @@ export interface CostUpdateEvent extends AgentEventBase {
 export interface SystemNoticeEvent extends AgentEventBase {
   type: "system_notice";
   text: string;
+  /** D-88 (plan 05-03): set ONLY on the one notice `claude-code-adapter.ts::startAuthoringSession`
+   * emits when `writeHookSettings` returns `undefined` for an authoring run — the challenge-stage
+   * gate could not be installed. Mirrors `sidecar.rs::emit_persistence_failure_notice`'s own
+   * `flywheelPersistenceFailure` discriminant so the renderer can find THIS specific notice among
+   * every other `system_notice` a session emits, rather than matching on its prose. */
+  flywheelStageGateMissing?: boolean;
 }
 
 export interface ResultEvent extends AgentEventBase {

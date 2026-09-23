@@ -1178,8 +1178,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // skipped entirely, directly defeating SHAPE-01 — unlike `startSession`'s own posture (the
     // shim is the load-bearing guarantee there), this failure is surfaced rather than silently
     // degraded. A `system_notice` on this SAME session stream — never a thrown error, never a
-    // refused session — so Task 3's banner can render it exactly as `PersistenceFailureBanner`
-    // renders its own session-scoped I/O-fault notice.
+    // refused session — carrying its own `flywheelStageGateMissing` discriminant, mirroring
+    // `sidecar.rs::emit_persistence_failure_notice`'s own `flywheelPersistenceFailure` field, so
+    // Task 3's banner can find THIS specific notice among every other `system_notice` a session
+    // emits, rather than matching on its prose (which could drift).
     if (settingsPath === undefined) {
       session.onEvent({
         runId: options.runId,
@@ -1190,6 +1192,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         text:
           "The challenge-stage gate could not be installed for this session — a proposal could be " +
           "staged before the stage advances.",
+        flywheelStageGateMissing: true,
       });
     }
 

@@ -25,7 +25,14 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type UIEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import * as icons from "lucide-react";
-import { answerPermissionRequest, discardSession, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
+import {
+  answerPermissionRequest,
+  authoringStageAdvance,
+  authoringStageReturn,
+  discardSession,
+  stopAgentRun,
+  subscribeAgentEvent,
+} from "../adapters/tauri";
 import { ProposalTray } from "../authoring/ProposalTray";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
@@ -208,6 +215,160 @@ function StatusStrip({
     </div>
   );
 }
+
+/** D-88's three named stages, in their fixed order — mirrors
+ * `core::domain::authoring_session::AUTHORING_STAGES` exactly (that Rust constant's own doc
+ * comment: "the single list every reader ... derives from"). The stage indicator below renders
+ * every one of these, always, so the developer can see both where the session is and that there
+ * are exactly three — a bare "Stage: decompose" label would hide the shape of the machine. */
+export const AUTHORING_STAGES = ["challenge", "decompose", "criteria"] as const;
+
+const AUTHORING_STAGE_LABELS: Record<string, string> = {
+  challenge: "Challenge",
+  decompose: "Decompose",
+  criteria: "Criteria",
+};
+
+/** `authoring_stage` value -> the matching published `agent`-channel mark id (`legend/marks.ts`,
+ * plan 05-03) — mirrors `RUN_STATUS_MARK_ID`'s own role for run status, above. */
+const AUTHORING_STAGE_MARK_ID: Record<string, string> = {
+  challenge: "authoring-stage-challenge",
+  decompose: "authoring-stage-decompose",
+  criteria: "authoring-stage-criteria",
+};
+
+/** The stage AFTER `stage` in `AUTHORING_STAGES`' fixed order, or `undefined` at `criteria` —
+ * there is nowhere further forward to go (mirrors `AuthoringStage::next`'s own `None` at the last
+ * stage). */
+function nextAuthoringStage(stage: string): string | undefined {
+  const index = AUTHORING_STAGES.indexOf(stage as (typeof AUTHORING_STAGES)[number]);
+  return index === -1 ? undefined : AUTHORING_STAGES[index + 1];
+}
+
+/** The stage BEFORE `stage`, or `undefined` at `challenge` — there is nothing earlier to return
+ * to. The "way back" control below only renders when this returns a real stage. Exported so
+ * `CommandPalette.tsx`'s `return-stage` entry can compute the same target without a second,
+ * independently-maintained copy of D-88's fixed stage order. */
+export function previousAuthoringStage(stage: string): string | undefined {
+  const index = AUTHORING_STAGES.indexOf(stage as (typeof AUTHORING_STAGES)[number]);
+  return index > 0 ? AUTHORING_STAGES[index - 1] : undefined;
+}
+
+/** The stage indicator (D-88, plan 05-03) — its own independently-rendering sibling of
+ * `StatusStrip`, mounted the same way (never woven into `FeedRow.tsx`). Shows all three stages in
+ * their fixed order with the current one marked (current = `--accent-text-rack`, the same role
+ * `RUN_STATUS_COLOR.running` already reuses; the others = `--text-muted-rack`) — no new colour
+ * token, reusing the existing agent signal vocabulary block. */
+function AuthoringStageIndicator({ stage }: { stage: string }) {
+  return (
+    <span
+      role="list"
+      aria-label="Authoring stage"
+      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-md)" }}
+    >
+      {AUTHORING_STAGES.map((candidate) => {
+        const isCurrent = candidate === stage;
+        const mark = MARKS_BY_ID[AUTHORING_STAGE_MARK_ID[candidate]];
+        return (
+          <span
+            key={candidate}
+            role="listitem"
+            aria-current={isCurrent ? "step" : undefined}
+            className="type-label"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "var(--space-xs)",
+              color: isCurrent ? "var(--accent-text-rack)" : "var(--text-muted-rack)",
+            }}
+          >
+            <span aria-hidden="true" style={{ display: "inline-flex" }}>
+              <Icon name={mark?.glyph ?? "Circle"} size={12} />
+            </span>
+            {AUTHORING_STAGE_LABELS[candidate]}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+const ADVANCE_STAGE_GLOSS =
+  "The agent may recommend advancing, but only you can advance the stage — it can never advance itself.";
+
+/** The Advance/Return controls (D-90, plan 05-03) — the one gate the whole mechanism depends on,
+ * exposed here as the two verbs `authoring_stage_advance`/`authoring_stage_return` back. Purely
+ * presentational: `onAdvance`/`onReturn` are the SAME synchronously-guarded handlers the `n`
+ * keyboard binding calls (`SessionSurface`'s own `handleAdvanceStage`/`handleReturnStage`), so a
+ * click and a keypress can never race each other into two backend calls. */
+function AuthoringStageControls({
+  stage,
+  advancing,
+  returning,
+  onAdvance,
+  onReturn,
+}: {
+  stage: string;
+  advancing: boolean;
+  returning: boolean;
+  onAdvance: () => void;
+  onReturn: () => void;
+}) {
+  const next = nextAuthoringStage(stage);
+  const previous = previousAuthoringStage(stage);
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-sm)" }}>
+      {previous && (
+        <button
+          type="button"
+          onClick={onReturn}
+          disabled={returning}
+          aria-label={`Return to ${previous}`}
+          className="type-label"
+          style={{
+            background: "transparent",
+            border: "1px solid var(--divider)",
+            borderRadius: "var(--radius-chrome)",
+            color: "var(--text-primary-rack)",
+            padding: "var(--space-xs) var(--space-sm)",
+            cursor: returning ? "default" : "pointer",
+          }}
+        >
+          ← {AUTHORING_STAGE_LABELS[previous]}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={onAdvance}
+        disabled={advancing || !next}
+        aria-label={next ? `Advance to ${next}` : "Advance (already at the last stage)"}
+        title={ADVANCE_STAGE_GLOSS}
+        className="type-label"
+        style={{
+          background: next ? "var(--accent-nontext)" : "transparent",
+          border: next ? "none" : "1px solid var(--divider)",
+          borderRadius: "var(--radius-chrome)",
+          color: "var(--text-primary-rack)",
+          padding: "var(--space-xs) var(--space-md)",
+          cursor: advancing || !next ? "default" : "pointer",
+          opacity: !next ? 0.6 : 1,
+        }}
+      >
+        {advancing ? "Advancing…" : next ? `Advance to ${next}` : "At last stage"}
+      </button>
+    </span>
+  );
+}
+
+/** The gate-missing banner (T-05-03-01, plan 05-03) — the `system_notice` `startAuthoringSession`
+ * emits when `writeHookSettings` fails, rendered with `PersistenceFailureBanner`'s own visual
+ * shape (reused directly, below): visible, non-blocking, once per run (this surface's own
+ * `gateMissingText` state is set once and never cleared). Fallback text for the (never actually
+ * reached in production, since the sidecar always supplies real text) case where the event's own
+ * `text` field is somehow absent. */
+const GATE_MISSING_FALLBACK_TEXT =
+  "The challenge-stage gate could not be installed for this session — a proposal could be staged before the stage advances.";
 
 export interface SessionSurfaceProps {
   agentRunId: string;
@@ -553,11 +714,69 @@ export function SessionSurface({
   const parentRef = useRef<HTMLDivElement>(null);
   const { expanded, toggle } = useExpandedRows();
 
+  // D-88 (plan 05-03): the run's OWN live stage — initialised from the mount-time
+  // `authoringStage` prop, then advanced/returned by the handlers below. `null` for an ordinary
+  // task-execution run, matching the prop's own `null`/`undefined` meaning.
+  const [stage, setStage] = useState<string | null>(authoringStage ?? null);
+  // T-05-03-01: set once, never cleared — the gate-missing banner stays visible for the rest of
+  // this run once its notice has arrived.
+  const [gateMissingText, setGateMissingText] = useState<string | null>(null);
+
+  // D-90 (plan 05-03): synchronously-guarded advance/return, shared by the `n` keyboard binding
+  // below AND `AuthoringStageControls`' own buttons — the SAME `ackActingRef`/`answeringRef`/
+  // `stoppingRef` pattern this codebase applies repeatedly (`PermissionRequestCard.tsx`,
+  // `ProposalTray.tsx`, `handleStop`/`handleDiscard` above), so a click and a keypress can never
+  // race each other into two backend calls.
+  const [advancingStage, setAdvancingStage] = useState(false);
+  const advancingStageRef = useRef(false);
+  const [returningStage, setReturningStage] = useState(false);
+  const returningStageRef = useRef(false);
+
+  function handleAdvanceStage() {
+    if (advancingStageRef.current || !stage) return;
+    const next = nextAuthoringStage(stage);
+    if (!next) return;
+    advancingStageRef.current = true;
+    setAdvancingStage(true);
+    authoringStageAdvance(agentRunId)
+      .then((resolved) => setStage(resolved))
+      .catch(() => {
+        // Best-effort — no dedicated error surface specified for this control; the stage
+        // indicator simply stays at its prior value and the developer can try again.
+      })
+      .finally(() => {
+        advancingStageRef.current = false;
+        setAdvancingStage(false);
+      });
+  }
+
+  function handleReturnStage() {
+    if (returningStageRef.current || !stage) return;
+    const previous = previousAuthoringStage(stage);
+    if (!previous) return;
+    returningStageRef.current = true;
+    setReturningStage(true);
+    authoringStageReturn(agentRunId, previous)
+      .then((resolved) => setStage(resolved))
+      .catch(() => {
+        // Best-effort, mirroring handleAdvanceStage above.
+      })
+      .finally(() => {
+        returningStageRef.current = false;
+        setReturningStage(false);
+      });
+  }
+
   // The "View raw" toggle (02-UI-SPEC.md "View raw" affordance, plan 02-07 Task 3) — subscribes
   // to the `toggle-raw-view` action id rather than owning a key of its own; the window-level
-  // listener lives inside `useRegionBindings` (state/keyboard.ts), not here.
+  // listener lives inside `useRegionBindings` (state/keyboard.ts), not here. `advance-stage`
+  // (plan 05-03) joins the same call: `n` in this region re-enters `handleAdvanceStage` above —
+  // the exact function the Advance button's own `onClick` calls — so it is a no-op for an ordinary
+  // task-execution run (`stage` is `null`) or once already at `criteria`, and cannot double-fire
+  // alongside a synchronous button click.
   useRegionBindings("session-surface", "session-surface", {
     "toggle-raw-view": () => setRawViewOpen((prev) => !prev),
+    "advance-stage": handleAdvanceStage,
   });
 
   const feedQuery = useSessionFeed(agentRunId);
@@ -589,6 +808,12 @@ export function SessionSurface({
       if (event.flywheelPersistenceFailure === true && event.runId === agentRunId) {
         setPersistenceFailed(true);
         setPersistenceFailureText(typeof event.text === "string" ? event.text : null);
+      }
+      // T-05-03-01 (plan 05-03): the challenge-stage gate could not be installed for this
+      // session — scoped to THIS surface's own run, mirroring the persistence-failure notice
+      // immediately above exactly.
+      if (event.flywheelStageGateMissing === true && event.runId === agentRunId) {
+        setGateMissingText(typeof event.text === "string" ? event.text : GATE_MISSING_FALLBACK_TEXT);
       }
     }).then((fn) => {
       unlisten = fn;
@@ -744,6 +969,19 @@ export function SessionSurface({
 
         <StatusStrip entries={entries} running={status === "running" || status === "blocked"} />
 
+        {stage && (
+          <>
+            <AuthoringStageIndicator stage={stage} />
+            <AuthoringStageControls
+              stage={stage}
+              advancing={advancingStage}
+              returning={returningStage}
+              onAdvance={handleAdvanceStage}
+              onReturn={handleReturnStage}
+            />
+          </>
+        )}
+
         <button
           type="button"
           onClick={() => setRawViewOpen((prev) => !prev)}
@@ -818,6 +1056,8 @@ export function SessionSurface({
               text={persistenceFailureText ?? "Flywheel could not write this session's log — the transcript below may be incomplete."}
             />
           )}
+
+          {gateMissingText && <PersistenceFailureBanner text={gateMissingText} />}
 
           {showStartingPulse && <StartingSessionRow />}
 
