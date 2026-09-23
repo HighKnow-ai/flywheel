@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 2/10 plans executed in 8 waves
+**Plans**: 3/10 plans executed in 8 waves
 **UI hint**: yes
 
 Plans:
@@ -512,7 +512,7 @@ Plans:
 
 **Wave 3** *(both blocked on the tracer; they share no file and run in parallel)*
 
-- [ ] 05-03-PLAN.md — The challenge stage made unbypassable: the per-run stage marker, the second `PreToolUse` matcher, the human-only advance gate, and a gate that fails visibly when it cannot install (SHAPE-01)
+- [x] 05-03-PLAN.md — The challenge stage made unbypassable: the per-run stage marker, the second `PreToolUse` matcher, the human-only advance gate, and a gate that fails visibly when it cannot install (SHAPE-01)
 - [ ] 05-04-PLAN.md — The epic-scoped packet, the bounded rejected set, and `epic_roster`'s exemption closed with two ceilings instead of one cap (SHAPE-01, SHAPE-05)
 
 **Wave 4** *(blocked on 05-03 and 05-04)*
@@ -785,7 +785,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 2/10 | In Progress|  |
+| 5. Socratic Epic Authoring | 3/10 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-09-23T13:10:50.067Z"
+stopped_at: Completed 05-03-PLAN.md
+last_updated: "2026-09-23T13:49:52.416Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 05 execution started
-state_head: 67f8d693d2d3249f1c7b8fe55f93e20eaeb9c987
+state_head: dbd6126bfac7ddd33d2a613c252febc9ada3867c
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 103
-  completed_plans: 95
+  completed_plans: 96
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 3 of 10
+Plan: 4 of 10
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 05 execution started
 
@@ -154,6 +154,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P16 | 45min | 2 tasks | 2 files |
 | Phase 05 P01 | 55min | 3 tasks | 4 files |
 | Phase 05 P02 | 130min | 3 tasks | 28 files |
+| Phase 05 P03 | 150min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -325,6 +326,9 @@ Recent decisions affecting current work:
 - [Phase 05]: accept_proposal materialises through a newly-factored domain::task::create_task_in_tx rather than a duplicated INSERT. — T-05-02-03's mitigation: the agent-reachable staging path must never touch a canonical table directly.
 - [Phase 05]: propose_task is a third role on the existing flywheel-permissions MCP server; startPermissionServer's onProposal callback is optional (default no-op). — D-64's precedent applied a second time; additive capability growth on a shared signature.
 - [Phase 05]: The product kill criterion (timed in-app vs terminal comparison) was NOT judged by this autonomous run. — Requires a live human-paced conversation and human judgement; recorded in WINDOWS.md as an unrun-verify for end-of-phase UAT.
+- [Phase 05]: [Phase 05-03]: transition_stage writes the D-88 runtime marker as the LAST step before commit — a marker-write failure rolls the whole transaction back, so agent_runs.authoring_stage and the on-disk stage marker can never disagree (T-05-03-05).
+- [Phase 05]: [Phase 05-03]: The stage gate is the SAME PreToolUse hook mechanism the destructive-command gate uses (plan 03-07), extended with a second matcher entry — never a second gating layer, and the hook resolves its own run from FLYWHEEL_RUN_ID only, never the tool-call payload (T-05-03-02).
+- [Phase 05]: [Phase 05-03]: advance_stage/return_to_stage take a human actor id and have no agent-reachable caller anywhere in this workspace, proven by a source-scanning gate over packages/sidecar/src (D-90).
 
 ### Pending Todos
 
@@ -370,6 +374,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T13:10:22.577Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-09-23T13:49:52.252Z
+Stopped at: Completed 05-03-PLAN.md
 Resume file: None
