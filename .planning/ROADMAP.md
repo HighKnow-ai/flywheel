@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 13 plans — 10/10 executed in 8 waves, plus 3 gap-closure plans (05-11 through 05-13) in 2 waves opened by conversational UAT
+**Plans**: 11/13 plans executed — 10/10 executed in 8 waves, plus 3 gap-closure plans (05-11 through 05-13) in 2 waves opened by conversational UAT
 **UI hint**: yes
 
 Plans:
@@ -538,7 +538,7 @@ Plans:
 
 **Gap closure — wave 1** *(opened by `05-UAT.md`; G-05-1 and G-05-2 share no file and run in parallel)*
 
-- [ ] 05-11-PLAN.md — G-05-1: uat-08's live arm answers the startup permission requests that starved it, the drain loop is proven offline, and the ledger stops claiming an arm that never ran (all five SHAPE ids)
+- [x] 05-11-PLAN.md — G-05-1: uat-08's live arm answers the startup permission requests that starved it, the drain loop is proven offline, and the ledger stops claiming an arm that never ran (all five SHAPE ids)
 - [ ] 05-12-PLAN.md — G-05-2: the human-turn surface — a turn command, its wrapper, a composer on the session surface, and a transcript that records both sides exactly once (SHAPE-01, SHAPE-05)
 
 **Gap closure — wave 2** *(blocked on 05-12 for the turn seam and on 05-11 for the validation ledger)*
@@ -794,7 +794,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 10/10 | In Progress|  |
+| 5. Socratic Epic Authoring | 11/13 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
