@@ -96,6 +96,7 @@ function AppShell() {
   // D-31: the live session surface, pushed into from a task and popped back out of — the board
   // stays the board (this state is `null` whenever no session is being watched).
   const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
+  const activeAgentRunTaskId = useUiStore((state) => state.activeAgentRunTaskId);
   const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
   // D-27: the launch sheet, mounted once here as a peer of CommandPalette below — `null` means
   // closed. `ItemDetailPanel.tsx`'s "Start Work" affordance and the board-list `start-work`
@@ -232,7 +233,11 @@ function AppShell() {
           ) : activeAgentRunId ? (
             // D-31: pushed into from a task, popped back out of on "← Board" — the board itself
             // (and its own state — filters, selection, scroll) is untouched underneath this.
-            <SessionSurface agentRunId={activeAgentRunId} onBack={() => setActiveAgentRunId(null)} />
+            <SessionSurface
+              agentRunId={activeAgentRunId}
+              taskId={activeAgentRunTaskId}
+              onBack={() => setActiveAgentRunId(null)}
+            />
           ) : project.status === "unreachable" ? (
             // D-16: an unreachable project's marker no longer matches its cached path — this
             // surface replaces the board entirely and offers only explicit relocation, never a
@@ -249,8 +254,10 @@ function AppShell() {
         taskId={launchSheetTaskId}
         onClose={() => setLaunchSheetTaskId(null)}
         onStarted={(agentRunId) => {
+          // `launchSheetTaskId` is captured in this closure at its render-time value, still the
+          // task this run just started for — read BEFORE it is cleared below.
+          setActiveAgentRunId(agentRunId, launchSheetTaskId);
           setLaunchSheetTaskId(null);
-          setActiveAgentRunId(agentRunId);
         }}
       />
       {registerNoticeNode}

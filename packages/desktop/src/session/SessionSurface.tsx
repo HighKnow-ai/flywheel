@@ -25,10 +25,11 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type UIEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import * as icons from "lucide-react";
-import { answerPermissionRequest, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
+import { answerPermissionRequest, discardSession, stopAgentRun, subscribeAgentEvent } from "../adapters/tauri";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
+import { useUiStore } from "../state/uiStore";
 import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
 import { FeedRow, feedRowEstimateSize, useExpandedRows, type FeedRowData } from "./FeedRow";
 import { RawLogView } from "./RawLogView";
@@ -210,6 +211,11 @@ function StatusStrip({
 export interface SessionSurfaceProps {
   agentRunId: string;
   onBack: () => void;
+  /** The task this run belongs to (D-66/D-67, plan 04-13) — `null` only for a caller that has not
+   * been updated to thread it through yet (defensive; every current caller supplies it). Needed
+   * so `handleDiscard` can hand off to the launch sheet for the SAME task on resolution — the
+   * surface has no other source for this id (it is never itself queried from the backend). */
+  taskId?: string | null;
   /** The run's status when this surface first mounts. Defaults to `"running"` — in this phase
    * the surface is only ever pushed into right after Start Work; a later plan that adds a "View"
    * affordance for an already-terminal run should pass its real starting status here instead of
@@ -510,7 +516,12 @@ function StartingSessionRow() {
 
 const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 
-export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }: SessionSurfaceProps) {
+export function SessionSurface({
+  agentRunId,
+  onBack,
+  taskId = null,
+  initialStatus = "running",
+}: SessionSurfaceProps) {
   const [status, setStatus] = useState<RunStatus>(initialStatus);
   const [stopping, setStopping] = useState(false);
   // `stopping` alone is not a sufficient guard against two activations in one synchronous tick —
@@ -520,7 +531,14 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
   // `killingRef`, 03-17-PLAN.md Task 1). `stopping` stays the source of truth for what renders;
   // this ref only guards dispatch.
   const stoppingRef = useRef(false);
+  // Discard's own pair of the same guard (D-66/D-67, plan 04-13) — copies `stopping`/`stoppingRef`
+  // structure exactly, for the same reason: the discard's own bounded wait can run up to eight
+  // seconds, so the window for a second synchronous activation before React flushes the disabled
+  // attribute is, if anything, more likely to matter here, not less.
+  const [discarding, setDiscarding] = useState(false);
+  const discardingRef = useRef(false);
   const [stopWarning, setStopWarning] = useState<string | null>(null);
+  const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
   const [persistenceFailed, setPersistenceFailed] = useState(false);
   const [persistenceFailureText, setPersistenceFailureText] = useState<string | null>(null);
   const [rawViewOpen, setRawViewOpen] = useState(false);
@@ -598,6 +616,45 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
         // keeps spending.
         stoppingRef.current = false;
         setStopping(false);
+      });
+  }
+
+  // D-66/D-67, CTX-08 (plan 04-13): the phase's flagship action. One activation ends the session
+  // — giving the agent's own closing summary a bounded window to land first — and lands the
+  // developer on the launch sheet, pre-filled for the SAME task, with no intermediate step.
+  // Copies `handleStop`'s own structure line for line, including the ref-based double-activation
+  // guard: React has not necessarily flushed the disabling re-render before a second activation in
+  // the same synchronous tick.
+  function handleDiscard() {
+    if (discardingRef.current) return;
+    discardingRef.current = true;
+    setDiscarding(true);
+    discardSession(agentRunId)
+      .then((result) => {
+        // Mirrors `handleStop`'s own resolution handling exactly — a real `session_closed` push
+        // (the effect above) remains the source for what the agent process actually did and still
+        // wins if it arrives; this is an ADDITIONAL source.
+        if (isRunStatus(result.status)) {
+          setStatus(result.status);
+        }
+        setStopWarning(result.sidecarWarning);
+        // One action in, one Enter out (D-67): land on the launch sheet, pre-filled for this
+        // run's own task, the instant the discard resolves — no intermediate confirmation.
+        if (taskId) {
+          setLaunchSheetTaskId(taskId);
+        }
+      })
+      .catch(() => {
+        // On rejection, reuse the SAME muted `StopWarningNotice` treatment `handleStop` never
+        // needed a rejection path for — the plan's own instruction: no second notice component.
+        // Clear the ref before re-enabling, matching `handleStop`'s own "a genuine failure must
+        // leave the control usable" reasoning — a surfaced contradiction must never stand between
+        // the developer and a fresh session.
+        discardingRef.current = false;
+        setDiscarding(false);
+        setStopWarning(
+          "Flywheel could not confirm this discard completed. The session may still be live — try again.",
+        );
       });
   }
 
@@ -700,7 +757,7 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
           <button
             type="button"
             onClick={handleStop}
-            disabled={stopping}
+            disabled={stopping || discarding}
             className="type-label"
             style={{
               background: "transparent",
@@ -708,10 +765,33 @@ export function SessionSurface({ agentRunId, onBack, initialStatus = "running" }
               borderRadius: "var(--radius-chrome)",
               color: "var(--text-primary-rack)",
               padding: "var(--space-xs) var(--space-md)",
-              cursor: stopping ? "default" : "pointer",
+              cursor: stopping || discarding ? "default" : "pointer",
             }}
           >
             {stopping ? "Stopping…" : "Stop"}
+          </button>
+        )}
+
+        {showStop && (
+          // D-67: the flagship verb, beside Stop — never a modifier folded into it. Styled with
+          // the same filled-accent treatment the launch sheet's own primary action
+          // (`LaunchSheet.tsx`'s "Start Work" button) uses, so the control this hands off TO and
+          // the control that starts this hand-off read as one visual family.
+          <button
+            type="button"
+            onClick={handleDiscard}
+            disabled={stopping || discarding}
+            className="type-label"
+            style={{
+              background: "var(--accent-nontext)",
+              border: "none",
+              borderRadius: "var(--radius-chrome)",
+              color: "var(--text-primary-rack)",
+              padding: "var(--space-xs) var(--space-md)",
+              cursor: stopping || discarding ? "default" : "pointer",
+            }}
+          >
+            {discarding ? "Discarding…" : "Discard"}
           </button>
         )}
       </header>

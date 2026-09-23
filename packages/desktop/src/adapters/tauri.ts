@@ -445,6 +445,19 @@ export async function stopAgentRun(agentRunId: string): Promise<AgentRunStopResu
 }
 
 /**
+ * Discard a live agent run in one action (D-66/D-67, CTX-08, plan 04-13) — the phase's flagship
+ * verb. Gives the agent's own closing summary a bounded window to land, then ends the session
+ * through the EXACT SAME interrupt-then-force path `stopAgentRun` uses. Thin typed wrapper over
+ * `agent_run_discard`, mirroring `stopAgentRun`'s own wrapper shape exactly and returning the same
+ * DTO type — the renderer's existing status/warning handling applies unchanged, since the caller
+ * cannot (and does not need to) tell from the return shape alone whether the summary that ended up
+ * recorded was agent-authored or the fallback synthesizer's.
+ */
+export async function discardSession(agentRunId: string): Promise<AgentRunStopResult> {
+  return invokeCommand<AgentRunStopResult>("agent_run_discard", { agentRunId });
+}
+
+/**
  * Every session summary recorded for `taskId` (plan 04-09 Task 3) — the item detail panel's own
  * read. `folded` is always `false` on every entry this returns: folding is a property of the
  * launch sheet's briefing preview, not of this archive view. Read-only. Thin typed wrapper over

@@ -1069,7 +1069,7 @@ export function BoardView({
           }
           onSetStatus={(status) => requestStatusChange(selectedItem.kind ?? "task", selectedItem.id, status)}
           onStartWork={() => setLaunchSheetTaskId(selectedItem.id)}
-          onOpenRun={(agentRunId) => setActiveAgentRunId(agentRunId)}
+          onOpenRun={(agentRunId) => setActiveAgentRunId(agentRunId, selectedItem.id)}
           // The palette renders over this panel by design (the Escape ladder's fixed order) —
           // release the trap while the palette owns focus so the panel stays open instead of
           // fighting Radix's `FocusScope` for it (01-13-PLAN.md, G-01-FOCUS instance 5).

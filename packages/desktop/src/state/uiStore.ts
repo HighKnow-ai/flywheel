@@ -136,6 +136,13 @@ interface UiState {
    * deep inside `BoardView`'s tree, but the session surface it routes to replaces the whole
    * board/detail layout at the `AppShell` level. */
   activeAgentRunId: string | null;
+  /** The task id `activeAgentRunId` belongs to (plan 04-13, D-66/D-67) — set together with
+   * `activeAgentRunId` at every call site that opens the live session surface, each of which
+   * already has the task id in scope (the launch sheet's own `taskId` prop, `RunsSection.tsx`'s
+   * task-scoped `taskId` prop, `openLiveSessionForTask`'s own parameter). Exists so the session
+   * surface's Discard verb can hand off to the launch sheet for the SAME task without adding a
+   * new backend read — the session surface itself has no other source for this id. */
+  activeAgentRunTaskId: string | null;
   /** The task id the launch sheet (D-27, plan 02-04) is currently open for, or `null` when it is
    * closed. Lives here for the same cross-tree reasoning as `activeAgentRunId`: the sheet is
    * mounted once at the `App.tsx` level (a peer of `CommandPalette`, per its own "briefing gate
@@ -173,7 +180,11 @@ interface UiState {
    * that actually moved the cursor (`board/QuickAdd.tsx`'s focus effect) — so a request is
    * honoured once and never twice (G-01-4). */
   clearQuickAddFocusPending: () => void;
-  setActiveAgentRunId: (agentRunId: string | null) => void;
+  /** Sets `activeAgentRunId` and `activeAgentRunTaskId` together in one `set` call (plan 04-13) —
+   * mirrors `openQuickAdd`'s own "N related fields, one writer" shape. `taskId` defaults to
+   * `null` so every pre-existing call site (none of which needs to change) keeps working exactly
+   * as before. */
+  setActiveAgentRunId: (agentRunId: string | null, taskId?: string | null) => void;
   setLaunchSheetTaskId: (taskId: string | null) => void;
   setSettingsOpen: (open: boolean) => void;
 }
@@ -192,6 +203,7 @@ export const useUiStore = create<UiState>((set) => ({
   pendingDone: null,
   quickAddFocusPending: false,
   activeAgentRunId: null,
+  activeAgentRunTaskId: null,
   launchSheetTaskId: null,
   settingsOpen: false,
 
@@ -254,7 +266,8 @@ export const useUiStore = create<UiState>((set) => ({
   openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true, quickAddFocusPending: true }),
   setPendingDone: (pending) => set({ pendingDone: pending }),
   clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
-  setActiveAgentRunId: (agentRunId) => set({ activeAgentRunId: agentRunId }),
+  setActiveAgentRunId: (agentRunId, taskId = null) =>
+    set({ activeAgentRunId: agentRunId, activeAgentRunTaskId: taskId }),
   setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 }));
@@ -280,6 +293,7 @@ export function resetUiState() {
     pendingDone: null,
     quickAddFocusPending: false,
     activeAgentRunId: null,
+    activeAgentRunTaskId: null,
     launchSheetTaskId: null,
     settingsOpen: false,
   });

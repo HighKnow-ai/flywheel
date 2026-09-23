@@ -970,5 +970,5 @@ export function useRemoveWorktree(taskId: string | undefined) {
  */
 export async function openLiveSessionForTask(taskId: string): Promise<void> {
   const agentRunId = await latestAgentRunIdForTask(taskId);
-  if (agentRunId) useUiStore.getState().setActiveAgentRunId(agentRunId);
+  if (agentRunId) useUiStore.getState().setActiveAgentRunId(agentRunId, taskId);
 }
