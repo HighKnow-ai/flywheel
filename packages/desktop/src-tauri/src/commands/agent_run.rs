@@ -2887,4 +2887,84 @@ mod tests {
             );
         });
     }
+
+    /// The truth-level assertion for this gap (04-16 Task 2): the launch sheet preview and the
+    /// run started from it must carry the SAME drift sentences — a warning shown in the preview
+    /// must never silently disappear from the run that preview described. Fails on the pre-fix
+    /// code for the same reason the Task 1 tests do, and additionally catches any FUTURE
+    /// divergence between the two paths, including one introduced by a detector other than this
+    /// one.
+    #[test]
+    fn the_preview_and_the_started_run_carry_the_same_drift_warnings() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, human_actor_id, project_id, task_id, _repo_dir) =
+                seeded_git_conn_with_task();
+
+            flywheel_core::domain::acceptance_criterion::create_criterion(
+                &mut conn,
+                &project_id,
+                &human_actor_id,
+                "task",
+                &task_id,
+                "First criterion",
+                None,
+            )
+            .expect("create_criterion should succeed");
+            let criterion_b = flywheel_core::domain::acceptance_criterion::create_criterion(
+                &mut conn,
+                &project_id,
+                &human_actor_id,
+                "task",
+                &task_id,
+                "Second criterion",
+                None,
+            )
+            .expect("create_criterion should succeed");
+
+            start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &human_actor_id)
+                .expect("run 1 should start");
+
+            flywheel_core::domain::acceptance_criterion::revise_criterion(
+                &mut conn,
+                &human_actor_id,
+                &criterion_b.id,
+                "Second criterion, revised",
+                None,
+            )
+            .expect("revise_criterion should succeed");
+
+            // What the developer is looking at in the launch sheet, without starting anything.
+            let preview = build_preview_dto(&conn, &task_id).expect("build_preview_dto should succeed");
+            let preview_sentences: Vec<String> =
+                preview.drift.iter().map(|w| w.sentence.clone()).collect();
+            assert!(
+                !preview_sentences.is_empty(),
+                "the preview must show at least one drift warning after the criteria revision"
+            );
+            assert!(
+                preview_sentences.iter().any(|s| s.contains(
+                    "The acceptance criteria set has changed since this run's briefing was pinned"
+                )),
+                "the preview must carry the criteria-revision sentence, got: {preview_sentences:?}"
+            );
+
+            let run_2 = start_agent_run_recording_first(
+                &mut conn,
+                &task_id,
+                "acceptEdits",
+                "",
+                &human_actor_id,
+            )
+            .expect("run 2 should start");
+
+            for sentence in &preview_sentences {
+                assert!(
+                    run_2.prompt.contains(sentence.as_str()),
+                    "a warning the launch sheet showed must never be absent from the prompt the \
+                     agent receives moments later — missing sentence: {sentence:?}, prompt:\n{}",
+                    run_2.prompt
+                );
+            }
+        });
+    }
 }
