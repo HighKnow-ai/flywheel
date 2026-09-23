@@ -79,11 +79,11 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Context Reconstitution
 
-- [ ] **CTX-01**: Every agent session ends by writing a structured summary to the board recording what changed, what remains, and what the next session must know
+- [x] **CTX-01**: Every agent session ends by writing a structured summary to the board recording what changed, what remains, and what the next session must know
 - [ ] **CTX-02**: Session summaries are append-only; an existing summary is never overwritten or rewritten in place
-- [ ] **CTX-03**: A new session is primed automatically from the board — task, epic context, immutable acceptance criteria, prior session summaries, and the diff so far — with no chat transcript involved
+- [x] **CTX-03**: A new session is primed automatically from the board — task, epic context, immutable acceptance criteria, prior session summaries, and the diff so far — with no chat transcript involved
 - [ ] **CTX-04**: Context assembly is a deterministic query, not a model call, so the same board state always produces the same context packet
-- [ ] **CTX-05**: Recent summaries are carried verbatim and older ones compacted, with the compaction boundary visible to the user
+- [x] **CTX-05**: Recent summaries are carried verbatim and older ones compacted, with the compaction boundary visible to the user
 - [ ] **CTX-06**: The system detects and surfaces when a new session's stated understanding contradicts a decision already recorded on the board
 - [ ] **CTX-07**: A task can be run through repeated session cycles with its acceptance criteria verifiably unchanged, demonstrated by an automated test over at least five cycles
 - [ ] **CTX-08**: User can discard a session's context and start a fresh one on the same worktree in a single action, losing no board state
@@ -271,11 +271,11 @@ Which phases cover which requirements. Populated during roadmap creation.
 | AGNT-06 | Phase 2 | Complete |
 | AGNT-07 | Phase 3 | Complete |
 | AGNT-08 | Phase 10 | Pending |
-| CTX-01 | Phase 4 | Pending |
+| CTX-01 | Phase 4 | Complete |
 | CTX-02 | Phase 4 | Pending |
-| CTX-03 | Phase 4 | Pending |
+| CTX-03 | Phase 4 | Complete |
 | CTX-04 | Phase 4 | Pending |
-| CTX-05 | Phase 4 | Pending |
+| CTX-05 | Phase 4 | Complete |
 | CTX-06 | Phase 4 | Pending |
 | CTX-07 | Phase 4 | Pending |
 | CTX-08 | Phase 4 | Pending |

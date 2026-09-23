@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-08-PLAN.md
-last_updated: "2026-09-23T01:58:09.445Z"
+stopped_at: Completed 04-09-PLAN.md
+last_updated: "2026-09-23T03:56:08.651Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: a609f61cae1a8f22e4e5d5f38d3f6bb0d3fdc9d7
+state_head: 930164b0a3a3c07fde13649f73b1c1eacd67e0da
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 85
+  completed_plans: 86
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 9 of 14
+Plan: 10 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -143,6 +143,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P06 | 12min | 3 tasks | 5 files |
 | Phase 04 P07 | 18min | 3 tasks | 4 files |
 | Phase 04 P08 | 15min | 2 tasks | 3 files |
+| Phase 04 P09 | 114min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -289,6 +290,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04-08]: Ordinals in render_prompt's Prior Sessions section continue across the fold boundary (folded 1..folded_count, verbatim continues at folded_count+1..total) rather than restarting per subsection — the section reads as one continuous chronological sequence across the boundary.
 - [Phase 04]: [Phase 04-08]: compact_summaries is called via its fully-qualified path at both call sites in context_packet.rs, never imported by bare name — a use import would itself count toward the plan's own two-call-sites verify gate and falsely fail it.
 - [Phase 04]: [Phase 04-08]: SessionSummaryDto.folded is computed once in Rust from ContextPacket.compaction (index < folded_count) inside the single From<ContextPacket> impl, never recomputed in TypeScript — the launch sheet's marker and the agent's rendered prompt read the same boundary and can never disagree.
+- [Phase 04]: [Phase 04-09]: ContextPacketDto (Rust) gained a top-level decisions field mapped from ContextPacket.decisions (D-73), since the plan's own acceptance criteria required the TS mirror to declare it but the field did not exist on the desktop DTO.
+- [Phase 04]: [Phase 04-09]: task_session_summaries' SessionSummaryDto.folded is always false — folding is a briefing-preview property, not an archive property; a second, documented From impl keeps the two conversion paths distinct.
+- [Phase 04]: [Phase 04-09]: PriorSessionsSection slices packet.summaries by packet.compaction.foldedCount rather than filtering each entry's own folded flag, keeping the folded/verbatim grouping provable from one property.
 
 ### Pending Todos
 
@@ -331,6 +335,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T01:58:09.347Z
-Stopped at: Completed 04-08-PLAN.md
+Last session: 2026-09-23T03:56:08.555Z
+Stopped at: Completed 04-09-PLAN.md
 Resume file: None
