@@ -332,6 +332,9 @@ fn diff_extras_for(conn: &Connection, packet: &ContextPacket, task_id: &str) -> 
             committed_paths: diff_stat.changed_paths,
             working_tree_porcelain,
         }),
+        // Task 3 (this plan) widens this function to compute drift warnings from the same reads;
+        // until then this call site carries none.
+        drift: Vec::new(),
     }
 }
 

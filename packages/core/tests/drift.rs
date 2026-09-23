@@ -1,14 +1,20 @@
 //! Four fact-based drift detectors (D-72, D-73, D-75, CTX-06) — one fire case and one non-fire
-//! case per detector, plus the purity and ordering guarantees. No database anywhere in this
-//! section — `SummaryEntry` values are constructed directly, since `detect_drift` needs no
+//! case per detector, plus the purity and ordering guarantees (Task 1). No database anywhere in
+//! that section — `SummaryEntry` values are constructed directly, since `detect_drift` needs no
 //! database at all. `04-PATTERNS.md` names this file as having no in-crate analog and borrows
 //! `compaction.rs`'s pure-fold, fixture-free style as its structural template. Task 2 extends
-//! this file with the packet-rendering behaviours, and Task 3 extends it again with the
-//! clears-without-a-write proof.
+//! this file with the packet-rendering behaviours (real board state, `common::seeded_project`),
+//! and Task 3 extends it again with the clears-without-a-write proof.
 
-use core::context_packet::SummaryEntry;
+mod common;
+
+use core::context_packet::{
+    assemble_context_packet_with_extras, render_prompt, PacketExtras, SummaryEntry,
+};
+use core::domain::epic::create_epic;
 use core::domain::session_summary::DecisionEntry;
-use core::drift::{detect_drift, DriftInputs, DriftKind};
+use core::domain::task::create_task;
+use core::drift::{detect_drift, DriftInputs, DriftKind, DriftWarning};
 
 /// A minimal `SummaryEntry` a test can override selectively — `agent_run_id`/`created_at` carry
 /// the ordinal so a failure names which entry it means.
@@ -368,4 +374,80 @@ fn warnings_come_back_in_the_fixed_claimed_files_staleness_criteria_read_back_or
             DriftKind::UnacknowledgedDecision,
         ]
     );
+}
+
+// ============================================================================================
+// Task 2: the warning reaches the agent, at the top of the briefing
+// ============================================================================================
+
+#[test]
+fn two_warnings_render_both_sentences_before_the_epic_heading() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "An epic", None)
+        .expect("create_epic should succeed");
+    let task = create_task(&mut conn, &project.id, &actor_id, "Warned task", Some(&epic.id))
+        .expect("create_task should succeed");
+
+    let warnings = vec![
+        DriftWarning {
+            kind: DriftKind::ClaimedFilesMismatch,
+            sentence: "first warning sentence".to_string(),
+        },
+        DriftWarning {
+            kind: DriftKind::StaleSinceLastSummary,
+            sentence: "second warning sentence".to_string(),
+        },
+    ];
+    let packet = assemble_context_packet_with_extras(
+        &conn,
+        &task.id,
+        PacketExtras { diff: None, drift: warnings },
+    )
+    .expect("assembly should succeed");
+
+    let prompt = render_prompt(&packet, "");
+    let warnings_pos = prompt.find("## Warnings").expect("warnings heading must be present");
+    let epic_pos = prompt.find("## Epic Context").expect("epic heading must be present");
+    assert!(warnings_pos < epic_pos, "warnings heading must appear before the epic heading");
+    assert!(prompt.contains("first warning sentence"));
+    assert!(prompt.contains("second warning sentence"));
+}
+
+#[test]
+fn no_warnings_renders_no_warnings_heading_at_all() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Quiet task", None)
+        .expect("create_task should succeed");
+
+    let packet = assemble_context_packet_with_extras(
+        &conn,
+        &task.id,
+        PacketExtras { diff: None, drift: Vec::new() },
+    )
+    .expect("assembly should succeed");
+
+    let prompt = render_prompt(&packet, "");
+    assert!(!prompt.contains("## Warnings"));
+}
+
+#[test]
+fn two_renders_of_the_same_packet_are_byte_identical_with_warnings_present() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Determinism task", None)
+        .expect("create_task should succeed");
+
+    let warnings = vec![DriftWarning {
+        kind: DriftKind::CriteriaRevisionMoved,
+        sentence: "criteria moved sentence".to_string(),
+    }];
+    let packet = assemble_context_packet_with_extras(
+        &conn,
+        &task.id,
+        PacketExtras { diff: None, drift: warnings },
+    )
+    .expect("assembly should succeed");
+
+    let first = render_prompt(&packet, "");
+    let second = render_prompt(&packet, "");
+    assert_eq!(first, second);
 }

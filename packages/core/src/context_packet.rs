@@ -24,6 +24,7 @@ use crate::branch::{epic_integration_branch_name, task_branch_name};
 use crate::compaction::{CompactedSummary, CompactionBoundary};
 use crate::domain::session_summary::DecisionEntry;
 use crate::domain::worktree::worktree_root;
+use crate::drift::DriftWarning;
 
 /// The fully-qualified `report_summary` MCP tool name, exactly as `packages/sidecar/src/
 /// mcp-permission-server.ts`'s `SUMMARY_TOOL_NAME` composes it (`mcp__${MCP_SERVER_NAME}__
@@ -98,13 +99,16 @@ pub struct DiffSoFar {
 }
 
 /// Optional packet extras composed one layer above [`assemble_context_packet`] — a struct rather
-/// than a bare argument so a later plan (e.g. 04-10's drift field) can grow this without changing
+/// than a bare argument so a later plan can grow this without changing
 /// [`assemble_context_packet_with_extras`]'s signature. `diff` is `None` when the caller has
 /// nothing to attach (no worktree on disk yet, or a git error the caller chose to degrade rather
-/// than propagate).
+/// than propagate). `drift` (plan 04-11, D-72/D-73/D-75) is the caller's own
+/// `crate::drift::detect_drift` result — empty when the caller has nothing to report, never
+/// stored anywhere: recomputed on every call that builds one of these.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PacketExtras {
     pub diff: Option<DiffSoFar>,
+    pub drift: Vec<DriftWarning>,
 }
 
 /// The full context packet (D-28). Every field is data — no pre-rendered sentence is stored here;
@@ -136,6 +140,12 @@ pub struct ContextPacket {
     /// no git call and its purity contract is unchanged by this field's existence. Populated only
     /// by [`assemble_context_packet_with_extras`], one layer above.
     pub diff: Option<DiffSoFar>,
+    /// Always empty from [`assemble_context_packet`] itself (D-72/D-73/D-75, plan 04-11) — the
+    /// claimed-files and staleness detectors need git state, which only the caller one layer up
+    /// has, exactly the seam plan 04-07 established for `diff`. Populated only by
+    /// [`assemble_context_packet_with_extras`]. Never stored: re-derived on every assembly, so a
+    /// warning clears the instant the fact behind it clears.
+    pub drift: Vec<DriftWarning>,
     pub worktree: WorktreeFacts,
 }
 
@@ -320,6 +330,7 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         compaction,
         decisions,
         diff: None,
+        drift: Vec::new(),
         worktree,
     })
 }
@@ -343,6 +354,7 @@ pub fn assemble_context_packet_with_extras(
 ) -> anyhow::Result<ContextPacket> {
     let mut packet = assemble_context_packet(conn, task_id)?;
     packet.diff = extras.diff;
+    packet.drift = extras.drift;
     Ok(packet)
 }
 
@@ -432,6 +444,24 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
         out.push('\n');
         out.push_str(description);
         out.push('\n');
+    }
+
+    // First in the body, before the epic section — D-74's whole argument is that the agent reads
+    // this too, and a warning at the bottom of a long briefing is a warning the model may weight
+    // least. Emitted only when non-empty (this file's own omit-the-heading rule). These are
+    // observed facts to reconcile, not a block: D-46 already settled the blocking question for
+    // this product, and drift is not money burning.
+    if !packet.drift.is_empty() {
+        out.push_str("\n## Warnings\n\n");
+        out.push_str(
+            "These are facts the board observed since the last session. Reconcile them before \
+             proceeding — they do not block you.\n\n",
+        );
+        for warning in &packet.drift {
+            out.push_str("- ");
+            out.push_str(&warning.sentence);
+            out.push('\n');
+        }
     }
 
     if let Some(epic) = &packet.epic {
