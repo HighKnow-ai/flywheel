@@ -14,6 +14,7 @@ import {
   latestAgentRunIdForTask,
   pendingOrphans,
   pendingPermissionRequests,
+  sessionSummariesForTask,
   subscribeAgentEvent,
   subscribeBoardChanged,
   worktreeRemovalCheck,
@@ -828,6 +829,48 @@ export function useAgentRuns(taskId: string | undefined) {
   return useQuery({
     queryKey,
     queryFn: () => agentRunsForTask(taskId as string),
+    enabled: Boolean(taskId),
+  });
+}
+
+/** `useTaskSessionSummaries`' query key, keyed by `taskId` (plan 04-09 Task 3). */
+function taskSessionSummariesQueryKey(taskId: string) {
+  return ["task-session-summaries", taskId] as const;
+}
+
+/**
+ * Every session summary recorded for `taskId` (plan 04-09 Task 3) — the item detail panel's Runs
+ * section mounts each summary under the run row that produced it. Invalidated on
+ * `subscribeBoardChanged` — `handle_inbound_summary_reported` (Rust) emits `{ entity: "task", id
+ * }` alongside its `{ entity: "agent_run", id }` emit specifically so this query refetches
+ * whenever a new summary lands, mirroring `useAgentRuns`' own invalidation shape.
+ * `undefined` disables the query entirely.
+ */
+export function useTaskSessionSummaries(taskId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = taskId
+    ? taskSessionSummariesQueryKey(taskId)
+    : (["task-session-summaries", "none"] as const);
+
+  useEffect(() => {
+    if (!taskId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: taskSessionSummariesQueryKey(taskId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [taskId, queryClient]);
+
+  return useQuery({
+    queryKey,
+    queryFn: () => sessionSummariesForTask(taskId as string),
     enabled: Boolean(taskId),
   });
 }

@@ -386,6 +386,17 @@ export async function stopAgentRun(agentRunId: string): Promise<AgentRunStopResu
 }
 
 /**
+ * Every session summary recorded for `taskId` (plan 04-09 Task 3) — the item detail panel's own
+ * read. `folded` is always `false` on every entry this returns: folding is a property of the
+ * launch sheet's briefing preview, not of this archive view. Read-only. Thin typed wrapper over
+ * `task_session_summaries`, reusing the same `SessionSummaryDto` the launch sheet already uses —
+ * no second DTO shape.
+ */
+export async function sessionSummariesForTask(taskId: string): Promise<SessionSummaryDto[]> {
+  return invokeCommand<SessionSummaryDto[]>("task_session_summaries", { taskId });
+}
+
+/**
  * D-49's abandoned-run acknowledgment (plan 03-10). Thin typed wrapper over
  * `agent_run_acknowledge`. Changes nothing about the underlying record — the run is already
  * abandoned, already terminal, already exactly what it will remain — this call records only that

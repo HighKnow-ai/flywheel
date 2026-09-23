@@ -35,7 +35,7 @@ use flywheel_core::context_packet::{
     assemble_context_packet, assemble_context_packet_with_extras, render_prompt, ContextPacket,
     DiffSoFar, PacketExtras,
 };
-use flywheel_core::domain::session_summary::DecisionEntry;
+use flywheel_core::domain::session_summary::{DecisionEntry, SessionSummary};
 use rusqlite::Connection;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -141,6 +141,28 @@ pub struct SessionSummaryDto {
     pub next_session_must_know: Option<String>,
     pub decisions: Vec<DecisionDto>,
     pub folded: bool,
+}
+
+/// The item detail panel's own summary read (`task_session_summaries`, plan 04-09 Task 3) —
+/// `folded` is always `false` here, never derived from a `CompactionBoundary`. Folding is a
+/// property of a *briefing* (the launch sheet's prior-sessions preview, computed once per
+/// preview from that packet's own compaction boundary — see the `From<ContextPacket>` impl
+/// above); this conversion is the item detail panel's *archive* view of the same rows, with no
+/// briefing and no boundary to fold against.
+impl From<SessionSummary> for SessionSummaryDto {
+    fn from(summary: SessionSummary) -> Self {
+        Self {
+            agent_run_id: summary.agent_run_id,
+            created_at: summary.created_at,
+            auto_generated: summary.auto_generated,
+            changed_files: summary.changed_files,
+            changed_prose: summary.changed_prose,
+            remains: summary.remains,
+            next_session_must_know: summary.next_session_must_know,
+            decisions: summary.decisions.into_iter().map(DecisionDto::from).collect(),
+            folded: false,
+        }
+    }
 }
 
 /// The compaction boundary, projected for the wire (camelCase, plan 04-08 Task 2) — both the
@@ -1288,6 +1310,24 @@ pub fn agent_runs_for_task(
     let rows = flywheel_core::query::agent_runs::runs_for_task(&conn, &task_id, limit, offset)
         .map_err(|e| e.to_string())?;
     Ok(rows.into_iter().map(RunSummaryDto::from).collect())
+}
+
+/// Every session summary recorded for `task_id` (plan 04-09 Task 3) — the item detail panel's
+/// own read, resolving CONTEXT.md's open question about where summaries render: under the run
+/// row that produced them, not a separate top-level section. Delegates straight to
+/// `flywheel_core::domain::session_summary::list_summaries_for_task`, reusing the same
+/// `SessionSummaryDto` the launch sheet's preview already declares — no second DTO shape. A
+/// read: locks the database, calls the domain read, maps, returns; no mutation and no emit,
+/// mirroring `agent_runs_for_task`'s own shape immediately above.
+#[tauri::command]
+pub fn task_session_summaries(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<Vec<SessionSummaryDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let rows = flywheel_core::domain::session_summary::list_summaries_for_task(&conn, &task_id)
+        .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(SessionSummaryDto::from).collect())
 }
 
 /// D-49's abandoned-run acknowledgment (plan 03-10 Task 2). `actor_id` is resolved server-side
