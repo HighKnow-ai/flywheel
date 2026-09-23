@@ -149,6 +149,13 @@ interface UiState {
    * what `SessionSurface.tsx` reads to decide whether to mount `ProposalTray` at all: the tray has
    * no other source for "is this run an authoring session." */
   activeAgentRunAuthoringStage: string | null;
+  /** `activeAgentRunId`'s own `epicId` (D-84, plan 05-09) — `null` for an ordinary task-execution
+   * run AND for a fresh-epic authoring run (SHAPE-01's own case), `Some` only for an authoring run
+   * reopening an existing epic (SHAPE-05). Set together with `activeAgentRunId`/
+   * `activeAgentRunAuthoringStage`. Exists for the same reason `activeAgentRunTaskId` does: the
+   * Discard hand-off needs the epic id to prime a fresh authoring launch for the SAME epic, and
+   * the session surface has no other source for it. */
+  activeAgentRunEpicId: string | null;
   /** The task id the launch sheet (D-27, plan 02-04) is currently open for, or `null` when it is
    * closed. Lives here for the same cross-tree reasoning as `activeAgentRunId`: the sheet is
    * mounted once at the `App.tsx` level (a peer of `CommandPalette`, per its own "briefing gate
@@ -156,6 +163,14 @@ interface UiState {
    * Work" affordance (deep inside `BoardView`'s tree) and from the board-list `start-work` action
    * id (`w`) — neither of which imports the sheet component itself. */
   launchSheetTaskId: string | null;
+  /** D-66's authoring hand-off (plan 05-09): the epic id a Discard on an authoring run wants a
+   * fresh authoring launch primed for, or `null` (not `undefined`) to distinguish "not pending" —
+   * an object rather than a bare `string | null` field because a fresh-epic authoring run's own
+   * epic id IS `null`, so a bare field could not tell "no hand-off pending" from "hand-off pending
+   * for a new epic" apart. Mirrors `launchSheetTaskId`'s own cross-tree reasoning: no authoring
+   * launch surface consumes this yet (Discretion item, `05-CONTEXT.md`), but the channel exists so
+   * a future one has somewhere to read the hand-off from without a second backend round trip. */
+  launchSheetAuthoringHandoff: { epicId: string | null } | null;
   /** Whether the Settings surface (D-39, plan 02-10) is currently open — same cross-tree
    * reasoning as `activeAgentRunId`/`launchSheetTaskId`: the surface is mounted once at the
    * `App.tsx` level (a peer of the board/session surface, replacing the same content area), but
@@ -194,8 +209,15 @@ interface UiState {
     agentRunId: string | null,
     taskId?: string | null,
     authoringStage?: string | null,
+    epicId?: string | null,
   ) => void;
   setLaunchSheetTaskId: (taskId: string | null) => void;
+  /** Opens the authoring hand-off channel for `epicId` (`null` for a fresh epic) — the Discard
+   * verb's own call, mirroring `setLaunchSheetTaskId`'s shape. */
+  setLaunchSheetAuthoringHandoff: (epicId: string | null) => void;
+  /** Clears the authoring hand-off channel — the future authoring launch surface's own consume
+   * call, mirroring `setLaunchSheetTaskId(null)`'s "closed" convention. */
+  clearLaunchSheetAuthoringHandoff: () => void;
   setSettingsOpen: (open: boolean) => void;
 }
 
@@ -215,7 +237,9 @@ export const useUiStore = create<UiState>((set) => ({
   activeAgentRunId: null,
   activeAgentRunTaskId: null,
   activeAgentRunAuthoringStage: null,
+  activeAgentRunEpicId: null,
   launchSheetTaskId: null,
+  launchSheetAuthoringHandoff: null,
   settingsOpen: false,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
@@ -277,13 +301,16 @@ export const useUiStore = create<UiState>((set) => ({
   openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true, quickAddFocusPending: true }),
   setPendingDone: (pending) => set({ pendingDone: pending }),
   clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
-  setActiveAgentRunId: (agentRunId, taskId = null, authoringStage = null) =>
+  setActiveAgentRunId: (agentRunId, taskId = null, authoringStage = null, epicId = null) =>
     set({
       activeAgentRunId: agentRunId,
       activeAgentRunTaskId: taskId,
       activeAgentRunAuthoringStage: authoringStage,
+      activeAgentRunEpicId: epicId,
     }),
   setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
+  setLaunchSheetAuthoringHandoff: (epicId) => set({ launchSheetAuthoringHandoff: { epicId } }),
+  clearLaunchSheetAuthoringHandoff: () => set({ launchSheetAuthoringHandoff: null }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 }));
 
@@ -310,7 +337,9 @@ export function resetUiState() {
     activeAgentRunId: null,
     activeAgentRunTaskId: null,
     activeAgentRunAuthoringStage: null,
+    activeAgentRunEpicId: null,
     launchSheetTaskId: null,
+    launchSheetAuthoringHandoff: null,
     settingsOpen: false,
   });
 }

@@ -9,6 +9,18 @@
 //! happened to end blocked (impossible today since `interrupt_agent_run`/`close_agent_run` always
 //! move a run to a terminal status, but the query is written to be correct under that definition
 //! regardless).
+//!
+//! Plan 05-09: an authoring run is an ordinary run (D-46's "only money burning blocks" rule
+//! applies identically), so a permission-blocked authoring run must join the SAME rail count a
+//! permission-blocked task run does — it is burning money and waiting on a human exactly the same
+//! way. It carries no `task_id`, so `blocked_task_ids_for_project` (the board's TASK-row
+//! indicator) genuinely has nowhere to put it — there is no task row to mark. `blocked_count_for_project`
+//! is different: it is the rail's aggregate "how many things are burning money and waiting on me"
+//! signal, not a set of task ids, so it is widened to also count a blocked authoring run, keyed by
+//! `COALESCE(epic_id, id)` rather than `task_id` — an authoring run reopening the same epic twice
+//! is still "the same subject" for the most-recent-run rule; a fresh-epic run (`epic_id IS NULL`)
+//! has no natural sibling to be "most recent" among, so it is keyed by its own id instead, which
+//! trivially satisfies the MAX(started_at) self-comparison.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -18,9 +30,18 @@ const BLOCKED_TASK_IDS_SQL: &str = "SELECT ar.task_id FROM agent_runs ar \
     AND ar.started_at = (SELECT MAX(started_at) FROM agent_runs WHERE task_id = ar.task_id) \
     ORDER BY ar.task_id ASC";
 
-const BLOCKED_COUNT_SQL: &str = "SELECT COUNT(*) FROM agent_runs ar \
-    WHERE ar.project_id = ?1 AND ar.status = 'blocked' \
-    AND ar.started_at = (SELECT MAX(started_at) FROM agent_runs WHERE task_id = ar.task_id)";
+const BLOCKED_COUNT_SQL: &str = "SELECT COUNT(*) FROM ( \
+    SELECT ar.task_id AS subject FROM agent_runs ar \
+    WHERE ar.project_id = ?1 AND ar.status = 'blocked' AND ar.task_id IS NOT NULL \
+    AND ar.started_at = (SELECT MAX(started_at) FROM agent_runs WHERE task_id = ar.task_id) \
+    UNION \
+    SELECT COALESCE(ar.epic_id, ar.id) AS subject FROM agent_runs ar \
+    WHERE ar.project_id = ?1 AND ar.status = 'blocked' AND ar.task_id IS NULL \
+    AND ar.started_at = ( \
+        SELECT MAX(started_at) FROM agent_runs \
+        WHERE task_id IS NULL AND COALESCE(epic_id, id) = COALESCE(ar.epic_id, ar.id) \
+    ) \
+    )";
 
 /// Every distinct task id in `project_id` whose most recent agent run is `blocked` (D-37) — feeds
 /// the board's blocked task-row indicator. A project with no runs at all returns an empty vector,
@@ -33,8 +54,9 @@ pub fn blocked_task_ids_for_project(conn: &Connection, project_id: &str) -> anyh
     rows.context("failed to list blocked task ids for project")
 }
 
-/// The count of distinct tasks in `project_id` whose most recent agent run is `blocked` (D-37) —
-/// feeds the project-rail count. Returns `0`, not an error, for a project with no runs at all.
+/// The count of distinct tasks in `project_id` whose most recent agent run is `blocked` (D-37),
+/// PLUS (plan 05-09) any of the project's own authoring runs currently `blocked` — feeds the
+/// project-rail count. Returns `0`, not an error, for a project with no runs at all.
 pub fn blocked_count_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<i64> {
     let count: i64 = conn
         .query_row(BLOCKED_COUNT_SQL, params![project_id], |row| row.get(0))

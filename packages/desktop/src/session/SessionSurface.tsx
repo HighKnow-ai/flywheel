@@ -378,6 +378,11 @@ export interface SessionSurfaceProps {
    * so `handleDiscard` can hand off to the launch sheet for the SAME task on resolution — the
    * surface has no other source for this id (it is never itself queried from the backend). */
   taskId?: string | null;
+  /** The epic this run belongs to (D-84/D-86, plan 05-09) — `null` for an ordinary task-execution
+   * run AND for a fresh-epic authoring run alike. Needed so `handleDiscard` can hand off to a
+   * fresh authoring launch for the SAME epic on resolution, mirroring `taskId`'s own reasoning:
+   * the surface has no other source for this id. */
+  epicId?: string | null;
   /** The run's status when this surface first mounts. Defaults to `"running"` — in this phase
    * the surface is only ever pushed into right after Start Work; a later plan that adds a "View"
    * affordance for an already-terminal run should pass its real starting status here instead of
@@ -534,7 +539,16 @@ const TERMINAL_DETAIL_MAX_HEIGHT = 240;
 
 const FAILED_RUN_GLOSS = "This run ended in an error. The worktree was left as-is — nothing was lost.";
 
-function TerminalRow({ info }: { info: TerminalInfo }) {
+/** D-35's Stop gloss, generalised for a conversation (plan 05-09): a task run's worktree is left
+ * exactly as the agent left it (PROC-06 — nothing committed on the user's behalf); an authoring
+ * run has no worktree, so the true reassurance is that every proposal it staged is still sitting
+ * on the board, untouched, waiting on a decision. Neither sentence mentions the other subject. */
+const TASK_STOPPED_GLOSS =
+  "This run was stopped. The worktree was left exactly as the agent left it — nothing was lost.";
+const AUTHORING_STOPPED_GLOSS =
+  "This conversation was stopped. Every staged proposal is still waiting on the board.";
+
+function TerminalRow({ info, isAuthoring }: { info: TerminalInfo; isAuthoring: boolean }) {
   if (info.reason === "failed") {
     return (
       <div
@@ -585,6 +599,11 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
       style={{ marginTop: "var(--space-sm)", padding: "var(--space-sm) var(--space-md)", color: "var(--text-muted-rack)" }}
     >
       {RUN_STATUS_LABELS[info.reason]}
+      {info.reason === "interrupted" && (
+        <p style={{ margin: "var(--space-xs) 0 0 0" }}>
+          {isAuthoring ? AUTHORING_STOPPED_GLOSS : TASK_STOPPED_GLOSS}
+        </p>
+      )}
     </div>
   );
 }
@@ -687,6 +706,7 @@ export function SessionSurface({
   agentRunId,
   onBack,
   taskId = null,
+  epicId = null,
   initialStatus = "running",
   authoringStage = null,
 }: SessionSurfaceProps) {
@@ -707,6 +727,10 @@ export function SessionSurface({
   const discardingRef = useRef(false);
   const [stopWarning, setStopWarning] = useState<string | null>(null);
   const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
+  // D-66's hand-off, generalised for a conversation (plan 05-09): an authoring run's Discard
+  // primes a fresh authoring launch for the SAME epic rather than the task launch sheet — see
+  // `handleDiscard` below.
+  const setLaunchSheetAuthoringHandoff = useUiStore((state) => state.setLaunchSheetAuthoringHandoff);
   const [persistenceFailed, setPersistenceFailed] = useState(false);
   const [persistenceFailureText, setPersistenceFailureText] = useState<string | null>(null);
   const [rawViewOpen, setRawViewOpen] = useState(false);
@@ -872,7 +896,14 @@ export function SessionSurface({
         setStopWarning(result.sidecarWarning);
         // One action in, one Enter out (D-67): land on the launch sheet, pre-filled for this
         // run's own task, the instant the discard resolves — no intermediate confirmation.
-        if (taskId) {
+        // Plan 05-09: an authoring run (`stage` non-null — set once at mount from the
+        // `authoringStage` prop and never cleared) has no task and no worktree, so its own
+        // discard hand-off primes a fresh authoring launch for the SAME epic instead — carrying
+        // `epicId` (possibly `null`, for a fresh-epic run) through the SAME `uiStore` channel
+        // shape `taskId` uses for the task case.
+        if (stage !== null) {
+          setLaunchSheetAuthoringHandoff(epicId);
+        } else if (taskId) {
           setLaunchSheetTaskId(taskId);
         }
       })
@@ -1090,7 +1121,7 @@ export function SessionSurface({
             })}
           </div>
 
-          {terminalInfo && <TerminalRow info={terminalInfo} />}
+          {terminalInfo && <TerminalRow info={terminalInfo} isAuthoring={stage !== null} />}
 
           {stopWarning && <StopWarningNotice warning={stopWarning} />}
 

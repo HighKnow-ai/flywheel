@@ -1056,5 +1056,5 @@ export async function openLiveSessionForTask(taskId: string): Promise<void> {
  * without a second round trip to learn the run is an authoring session. */
 export async function startAuthoringSessionForProject(projectId: string): Promise<void> {
   const run = await startAuthoringRun(projectId);
-  useUiStore.getState().setActiveAgentRunId(run.id, null, run.authoringStage);
+  useUiStore.getState().setActiveAgentRunId(run.id, null, run.authoringStage, run.epicId);
 }

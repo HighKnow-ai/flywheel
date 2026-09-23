@@ -981,12 +981,19 @@ pub fn process_inbound_permission_request(
     input_payload: Option<&str>,
     destructive_category: Option<&str>,
 ) -> Result<PermissionRequestOutcome, String> {
-    let lookup: Result<(String, String), rusqlite::Error> = conn.query_row(
-        "SELECT project_id, task_id FROM agent_runs WHERE id = ?1",
+    // D-84's assumption-delta promote (plan 05-09): the run raising this request may be an
+    // authoring session, wrapped by the SAME destructive gate/PATH shim (D-86) — `task_id` is
+    // `Option<String>`, `epic_id` read alongside it. Reading `task_id` as a non-optional `String`
+    // here previously failed the whole query (an `InvalidColumnType` error) for any authoring
+    // run, which this function's own `Err(_) => UnknownRun` branch then silently mistook for "no
+    // such run" — an authoring run genuinely blocked on a permission request never reached
+    // `create_pending_request` at all.
+    let lookup: Result<(String, Option<String>, Option<String>), rusqlite::Error> = conn.query_row(
+        "SELECT project_id, task_id, epic_id FROM agent_runs WHERE id = ?1",
         rusqlite::params![run_id],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     );
-    let (project_id, task_id) = match lookup {
+    let (project_id, task_id, epic_id) = match lookup {
         Ok(v) => v,
         Err(_) => return Ok(PermissionRequestOutcome::UnknownRun),
     };
@@ -1027,8 +1034,8 @@ pub fn process_inbound_permission_request(
             sequence,
             "permission_request",
             &flywheel_core::ids::new_id(),
-            Some(&task_id),
-            None,
+            task_id.as_deref(),
+            epic_id.as_deref(),
             &agent_id,
             "permission_request.auto_resolved",
             &payload,

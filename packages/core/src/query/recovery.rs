@@ -30,6 +30,18 @@
 //! recent run recorded none," never "some run, ever, recorded one." Two arms with two different
 //! recency rules, each with its own reason written down here, is more honest than reusing one rule
 //! that is wrong for one of them.
+//!
+//! Plan 05-09's own reading, recorded rather than re-argued later: a PENDING authoring proposal
+//! (`authoring_proposals.status = 'pending'`) does NOT join either read here, and none of the
+//! three `UNION` arms above is widened to include one. D-46's rule is that only money burning
+//! blocks, and a proposal waiting on a decision burns nothing — the authoring session that staged
+//! it may already have ended (05-08's own assertion). This module answers "what is burning money
+//! and waiting on me" (D-46's rail signal); it deliberately does NOT answer "what is waiting on me
+//! at all" — that broader question is answered elsewhere: D-82's board-level triage lane
+//! (`query::authoring::list_pending_proposals`) and the per-epic proposal count on the epic row.
+//! The opposite case — an authoring run BLOCKED on a permission request — IS money-burning and
+//! already joins `query::permissions::blocked_count_for_project`'s rail count unchanged, because a
+//! blocked authoring run is an ordinary run for that purpose; see that module's own doc comment.
 
 use anyhow::Context;
 use rusqlite::{params, Connection};

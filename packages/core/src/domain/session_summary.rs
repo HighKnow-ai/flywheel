@@ -13,10 +13,20 @@
 //! promise a later change could quietly break.
 //!
 //! Follows `domain::permission_request::create_pending_request`'s one-transaction
-//! row-write-plus-event shape exactly: resolve `task_id`/`project_id`/`worktree_id` from the
-//! `agent_runs` row INSIDE the transaction (T-04-01 — `create_summary` accepts no caller-supplied
-//! `task_id` or `project_id`, so a caller can never attribute a summary to a run it does not
-//! drive), insert the row, update the pointer, append one event, one commit.
+//! row-write-plus-event shape exactly: resolve `task_id`/`epic_id`/`project_id`/`worktree_id`
+//! from the `agent_runs` row INSIDE the transaction (T-04-01 — `create_summary` accepts no
+//! caller-supplied `task_id`/`epic_id`/`project_id`, so a caller can never attribute a summary to
+//! a run it does not drive), insert the row, update the pointer, append one event, one commit.
+//!
+//! Plan 05-09 generalises the subject exactly as D-84 already generalised `agent_runs`'s own:
+//! `task_id` is nullable and a nullable `epic_id` joins it (migration
+//! `0013_authoring_summaries.sql`), with the same never-both CHECK. A summary's subject is a task
+//! **or** an epic, never both and — for a run whose subject is not yet real (a fresh-epic
+//! authoring session, D-84's `RunSubject::Unbound`) — sometimes neither. Nothing here is
+//! repurposed: the six content fields (`changed_files`, `changed_prose`, `remains`,
+//! `next_session_must_know`, `decisions`, `diff_ref`) keep their existing meanings for a task run,
+//! and for an authoring run the fields that do not apply are simply absent, per this crate's
+//! `Option<T>`-for-absent discipline — never a repurposed value.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
@@ -37,11 +47,18 @@ pub struct DecisionEntry {
 /// The caller-supplied content of a summary (D-65) — the shape every producer (the agent's own
 /// `report_summary` tool, the fallback synthesizer, tests) passes to [`create_summary`], so every
 /// producer writes through the identical shape regardless of where the content originated.
+///
+/// Plan 05-09: for an authoring run (a shaping conversation, not a coding session), `changed_files`
+/// is empty and `diff_ref` is `None` — a conversation has no diff — and `decisions` carries what
+/// the conversation actually settled, which is the field `epic_context_packet.rs`'s
+/// `prior_authoring_runs` reads back into a later session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SummaryFields {
-    /// Repo-relative file paths (D-65's machine-checkable half).
+    /// Repo-relative file paths (D-65's machine-checkable half). Always empty for an authoring run
+    /// — a conversation changes no file.
     pub changed_files: Vec<String>,
-    /// D-65's prose half — what changed, in the agent's own words.
+    /// D-65's prose half — what changed, in the agent's own words. For an authoring run, what the
+    /// conversation shaped.
     pub changed_prose: Option<String>,
     pub remains: Option<String>,
     pub next_session_must_know: Option<String>,
@@ -51,7 +68,7 @@ pub struct SummaryFields {
     /// when none.
     pub acknowledged_decisions: Vec<String>,
     /// The git ref the claims in this summary were made against (D-72's second detector reads
-    /// this).
+    /// this). Always `None` for an authoring run — there is no diff to reference.
     pub diff_ref: Option<String>,
     /// True only for a row synthesized by the fallback path (plan 04-02) — never presented as
     /// though the agent authored it (P2). This flag travels with the row into every read, DTO
@@ -61,12 +78,18 @@ pub struct SummaryFields {
 
 /// A `session_summaries` row, as read back after [`create_summary`], [`list_summaries_for_task`]
 /// or [`latest_summary_for_run`].
+///
+/// Plan 05-09: `task_id` and `epic_id` are both `Option<String>` — a row's subject is a task, an
+/// epic, or (for a run whose subject is not yet real) neither, mirroring
+/// `domain::agent_run::AgentRun`'s own generalised shape. The schema's own
+/// `CHECK (NOT (task_id IS NOT NULL AND epic_id IS NOT NULL))` makes "both" unrepresentable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionSummary {
     pub id: String,
     pub agent_run_id: String,
     pub worktree_id: Option<String>,
-    pub task_id: String,
+    pub task_id: Option<String>,
+    pub epic_id: Option<String>,
     pub project_id: String,
     pub changed_files: Vec<String>,
     pub changed_prose: Option<String>,
@@ -81,20 +104,20 @@ pub struct SessionSummary {
 }
 
 const LIST_SUMMARIES_FOR_TASK_SQL: &str = "SELECT id, agent_run_id, worktree_id, task_id, \
-    project_id, changed_files, changed_prose, remains, next_session_must_know, decisions, \
-    acknowledged_decisions, diff_ref, auto_generated, created_by, created_at \
+    epic_id, project_id, changed_files, changed_prose, remains, next_session_must_know, \
+    decisions, acknowledged_decisions, diff_ref, auto_generated, created_by, created_at \
     FROM session_summaries WHERE task_id = ?1 ORDER BY created_at ASC, id ASC";
 
 const LATEST_SUMMARY_FOR_RUN_SQL: &str = "SELECT id, agent_run_id, worktree_id, task_id, \
-    project_id, changed_files, changed_prose, remains, next_session_must_know, decisions, \
-    acknowledged_decisions, diff_ref, auto_generated, created_by, created_at \
+    epic_id, project_id, changed_files, changed_prose, remains, next_session_must_know, \
+    decisions, acknowledged_decisions, diff_ref, auto_generated, created_by, created_at \
     FROM session_summaries WHERE agent_run_id = ?1 ORDER BY created_at DESC, id DESC LIMIT 1";
 
 fn row_to_summary(row: &Row) -> rusqlite::Result<SessionSummary> {
-    let changed_files_json: String = row.get(5)?;
-    let decisions_json: String = row.get(9)?;
-    let acknowledged_json: String = row.get(10)?;
-    let auto_generated_int: i64 = row.get(12)?;
+    let changed_files_json: String = row.get(6)?;
+    let decisions_json: String = row.get(10)?;
+    let acknowledged_json: String = row.get(11)?;
+    let auto_generated_int: i64 = row.get(13)?;
 
     let changed_files: Vec<String> = serde_json::from_str(&changed_files_json)
         .unwrap_or_else(|_| Vec::new());
@@ -108,17 +131,18 @@ fn row_to_summary(row: &Row) -> rusqlite::Result<SessionSummary> {
         agent_run_id: row.get(1)?,
         worktree_id: row.get(2)?,
         task_id: row.get(3)?,
-        project_id: row.get(4)?,
+        epic_id: row.get(4)?,
+        project_id: row.get(5)?,
         changed_files,
-        changed_prose: row.get(6)?,
-        remains: row.get(7)?,
-        next_session_must_know: row.get(8)?,
+        changed_prose: row.get(7)?,
+        remains: row.get(8)?,
+        next_session_must_know: row.get(9)?,
         decisions,
         acknowledged_decisions,
-        diff_ref: row.get(11)?,
+        diff_ref: row.get(12)?,
         auto_generated: auto_generated_int != 0,
-        created_by: row.get(13)?,
-        created_at: row.get(14)?,
+        created_by: row.get(14)?,
+        created_at: row.get(15)?,
     })
 }
 
@@ -128,6 +152,11 @@ fn row_to_summary(row: &Row) -> rusqlite::Result<SessionSummary> {
 /// its own transaction) and [`synthesize_fallback_summary`] (the fallback, runs inside the
 /// caller's transaction — plan 04-02) both call this and nothing else ever issues `INSERT INTO
 /// session_summaries` (a `<verify>` gate greps the whole crate for exactly one occurrence).
+///
+/// `task_id`/`epic_id` are resolved from the `agent_runs` row (plan 05-09: `RunSubject`'s own two
+/// nullable columns, never both) rather than accepted as a parameter — the same T-04-01 discipline
+/// this function has always held, now covering a run whose subject is an epic or, for a fresh-epic
+/// authoring run, neither.
 ///
 /// The event payload is human-renderable per D-19 and deliberately narrow: the summary id, the
 /// `auto_generated` flag and the changed-file count — never the prose fields, so the activity
@@ -141,11 +170,16 @@ fn insert_summary_row(
 ) -> anyhow::Result<SessionSummary> {
     let id = new_id();
 
-    let (task_id, project_id, worktree_id): (String, String, Option<String>) = tx
+    let (task_id, epic_id, project_id, worktree_id): (
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+    ) = tx
         .query_row(
-            "SELECT task_id, project_id, worktree_id FROM agent_runs WHERE id = ?1",
+            "SELECT task_id, epic_id, project_id, worktree_id FROM agent_runs WHERE id = ?1",
             params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
 
@@ -158,15 +192,16 @@ fn insert_summary_row(
 
     tx.execute(
         "INSERT INTO session_summaries (
-            id, agent_run_id, worktree_id, task_id, project_id, changed_files, changed_prose,
-            remains, next_session_must_know, decisions, acknowledged_decisions, diff_ref,
-            auto_generated, created_by, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            id, agent_run_id, worktree_id, task_id, epic_id, project_id, changed_files,
+            changed_prose, remains, next_session_must_know, decisions, acknowledged_decisions,
+            diff_ref, auto_generated, created_by, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             id,
             agent_run_id,
             worktree_id,
             task_id,
+            epic_id,
             project_id,
             changed_files_json,
             fields.changed_prose,
@@ -208,8 +243,8 @@ fn insert_summary_row(
         sequence,
         "session_summary",
         &id,
-        Some(&task_id),
-        None,
+        task_id.as_deref(),
+        epic_id.as_deref(),
         actor_id,
         "summary.recorded",
         &payload,
@@ -221,6 +256,7 @@ fn insert_summary_row(
         agent_run_id: agent_run_id.to_string(),
         worktree_id,
         task_id,
+        epic_id,
         project_id,
         changed_files: fields.changed_files.clone(),
         changed_prose: fields.changed_prose.clone(),
@@ -254,7 +290,7 @@ pub fn create_summary(
     Ok(summary)
 }
 
-/// The literal `&str` SQL [`synthesize_fallback_summary`] reads to derive its `changed_prose`
+/// The literal `&str` SQL a TASK run's own fallback synthesis reads to derive its `changed_prose`
 /// fact — every event whose `stream_id` names this run directly (its own bookkeeping and
 /// tool-call-derived rows), plus every event attached to the run's own task whose `occurred_at`
 /// falls inside the run's `[started_at, ended_at]` window (a permission request raised during
@@ -262,44 +298,30 @@ pub fn create_summary(
 const FALLBACK_EVENT_COUNT_SQL: &str = "SELECT COUNT(*) FROM events \
     WHERE stream_id = ?1 OR (task_id = ?2 AND occurred_at >= ?3 AND occurred_at <= ?4)";
 
-/// Write a best-effort summary for a run that reached a terminal state with no summary of its own
-/// (D-64, plan 04-02) — called by `domain::agent_run::apply_session_closed` INSIDE the same
-/// transaction that writes the run's terminal status, never in a transaction it opens itself.
-/// That is what makes "a run can never be terminal while its fallback summary is missing" a
-/// property of the database rather than of call ordering.
-///
-/// Resolves `actor_id` from the `agent_runs` row itself — the row is attributed to the run's own
-/// agent actor, never the local human actor, so DATA-03's actor model stays honest even though the
-/// core, not the agent, is the one writing this row.
-///
-/// What this may claim, resolving CONTEXT.md's open discretion item explicitly: `changed_files` is
-/// always an empty `Vec` (plan 04-07 fills it from a real `git diff --name-only`); `changed_prose`
+/// Every staged proposal for an authoring run's own fallback, grouped by target type — plan
+/// 05-09's own board-derived fact: what the run actually produced, never invented.
+const AUTHORING_PROPOSAL_COUNTS_BY_TARGET_TYPE_SQL: &str = "SELECT target_type, COUNT(*) \
+    FROM authoring_proposals WHERE agent_run_id = ?1 GROUP BY target_type ORDER BY target_type ASC";
+
+/// How many of THIS run's own staged proposals are no longer `pending` (accepted or rejected) —
+/// the fallback's "already decided" fact.
+const AUTHORING_PROPOSAL_DECIDED_COUNT_SQL: &str = "SELECT COUNT(*) FROM authoring_proposals \
+    WHERE agent_run_id = ?1 AND status != 'pending'";
+
+const EPIC_LABEL_SQL: &str = "SELECT key, title FROM epics WHERE id = ?1";
+
+/// A TASK run's own fallback fields (plan 04-02's original synthesis, unchanged): `changed_prose`
 /// and `remains` are `Some(...)`, built only from facts already in the database (the close reason,
 /// the run's own timestamps, and a literal event count — never a model call, never free prose);
-/// `next_session_must_know` is **always `None`** — the one field only the agent can fill, and a
-/// synthesized value here would be an invented claim (P2); `decisions`/`acknowledged_decisions`
-/// are always empty — a decision the agent did not state is not a decision; `diff_ref` is always
-/// `None` (plan 04-07 fills it); `auto_generated` is always `true`.
-///
-/// Has no dedupe of its own — calling this twice for one run writes two rows. The caller's own
-/// presence check (`latest_summary_for_run` returning `None`) is the only guard, matching
-/// [`insert_summary_row`]'s "one insert site, no second guard duplicated here" shape.
-pub fn synthesize_fallback_summary(
+/// `next_session_must_know` is always `None` — the one field only the agent can fill.
+fn synthesize_task_fallback_fields(
     tx: &Transaction,
     agent_run_id: &str,
+    task_id: &str,
+    started_at: &str,
+    ended_at: &str,
     close_reason: &str,
-) -> anyhow::Result<String> {
-    let now = chrono::Utc::now().to_rfc3339();
-
-    let (actor_id, task_id, started_at, ended_at): (String, String, String, Option<String>) = tx
-        .query_row(
-            "SELECT actor_id, task_id, started_at, ended_at FROM agent_runs WHERE id = ?1",
-            params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
-    let ended_at = ended_at.unwrap_or_else(|| now.clone());
-
+) -> anyhow::Result<SummaryFields> {
     let event_count: i64 = tx
         .query_row(
             FALLBACK_EVENT_COUNT_SQL,
@@ -319,7 +341,7 @@ pub fn synthesize_fallback_summary(
             .to_string(),
     );
 
-    let fields = SummaryFields {
+    Ok(SummaryFields {
         changed_files: Vec::new(),
         changed_prose,
         remains,
@@ -328,6 +350,155 @@ pub fn synthesize_fallback_summary(
         acknowledged_decisions: Vec::new(),
         diff_ref: None,
         auto_generated: true,
+    })
+}
+
+/// An AUTHORING run's own fallback fields (plan 05-09, D-64 extended to a conversation). An
+/// authoring run has no diff, so this is synthesised from what the run actually produced: the
+/// stage it reached, how many proposals it staged by target type, how many were already decided,
+/// and the epic (or "a new epic") it was shaping — exactly what a developer reopening this epic in
+/// three weeks wants to know, and derived from board state, not from prose, so it cannot degrade.
+///
+/// `changed_files`/`diff_ref` are always empty/`None` — a conversation has no diff, permanently,
+/// unlike the task fallback's own "filled in by a later plan" fields. `next_session_must_know`
+/// stays `None` for the same reason the task fallback leaves it `None`: only the agent can fill
+/// it, and a synthesized value here would be an invented claim (P2).
+fn synthesize_authoring_fallback_fields(
+    tx: &Transaction,
+    agent_run_id: &str,
+    epic_id: Option<&str>,
+    authoring_stage: Option<&str>,
+    close_reason: &str,
+) -> anyhow::Result<SummaryFields> {
+    let mut counts_stmt = tx.prepare(AUTHORING_PROPOSAL_COUNTS_BY_TARGET_TYPE_SQL)?;
+    let counts: Vec<(String, i64)> = counts_stmt
+        .query_map(params![agent_run_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to count staged proposals by target type for the fallback summary")?;
+
+    let total: i64 = counts.iter().map(|(_, n)| n).sum();
+    let decided: i64 = tx
+        .query_row(AUTHORING_PROPOSAL_DECIDED_COUNT_SQL, params![agent_run_id], |row| row.get(0))
+        .context("failed to count decided proposals for the fallback summary")?;
+
+    let epic_label = match epic_id {
+        Some(epic_id) => {
+            let (key, title): (String, String) = tx
+                .query_row(EPIC_LABEL_SQL, params![epic_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })
+                .with_context(|| format!("epic {epic_id:?} not found"))?;
+            format!("epic {key} ({title})")
+        }
+        None => "a new epic".to_string(),
+    };
+
+    let stage_label = authoring_stage.unwrap_or("an unrecorded stage");
+
+    let breakdown = if counts.is_empty() {
+        String::new()
+    } else {
+        let parts: Vec<String> =
+            counts.iter().map(|(target_type, n)| format!("{n} {target_type}")).collect();
+        format!(" ({})", parts.join(", "))
+    };
+
+    let changed_prose = Some(format!(
+        "This session closed as {close_reason} with no agent summary recorded. It reached the \
+         {stage_label} stage while shaping {epic_label}. It staged {total} proposal{plural}{breakdown}, \
+         of which {decided} {decided_plural} already decided.",
+        plural = if total == 1 { "" } else { "s" },
+        decided_plural = if decided == 1 { "was" } else { "were" },
+    ));
+    let remains = Some(
+        "The session ended without recording its own closing summary; the staged proposals on \
+         the board are the authority on what this session actually produced."
+            .to_string(),
+    );
+
+    Ok(SummaryFields {
+        changed_files: Vec::new(),
+        changed_prose,
+        remains,
+        next_session_must_know: None,
+        decisions: Vec::new(),
+        acknowledged_decisions: Vec::new(),
+        diff_ref: None,
+        auto_generated: true,
+    })
+}
+
+/// Write a best-effort summary for a run that reached a terminal state with no summary of its own
+/// (D-64, plan 04-02) — called by `domain::agent_run::apply_session_closed`,
+/// `commands::agent_run::stop_agent_run_in_tx` and `domain::agent_run::mark_abandoned` INSIDE the
+/// same transaction that writes the run's terminal status, never in a transaction it opens itself.
+/// That is what makes "a run can never be terminal while its fallback summary is missing" a
+/// property of the database rather than of call ordering, for every terminal path — natural
+/// close, Stop/Discard, and (plan 05-09) an abandoned reconciliation, alike.
+///
+/// Resolves `actor_id` from the `agent_runs` row itself — the row is attributed to the run's own
+/// agent actor, never the local human actor, so DATA-03's actor model stays honest even though the
+/// core, not the agent, is the one writing this row.
+///
+/// Plan 05-09: dispatches on the run's own subject, read fresh from `agent_runs` inside this same
+/// transaction — a task run's fallback is [`synthesize_task_fallback_fields`] (plan 04-02's
+/// original event-derived synthesis, unchanged), an authoring run's (task-less) fallback is
+/// [`synthesize_authoring_fallback_fields`] (board-derived: stage reached and staged-proposal
+/// counts). Both dispatch to the SAME [`insert_summary_row`] — there is still exactly one insert
+/// site in this module regardless of which branch ran.
+///
+/// Has no dedupe of its own — calling this twice for one run writes two rows. The caller's own
+/// presence check (`latest_summary_for_run` returning `None`) is the only guard, matching
+/// [`insert_summary_row`]'s "one insert site, no second guard duplicated here" shape.
+pub fn synthesize_fallback_summary(
+    tx: &Transaction,
+    agent_run_id: &str,
+    close_reason: &str,
+) -> anyhow::Result<String> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let (actor_id, task_id, epic_id, authoring_stage, started_at, ended_at): (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+    ) = tx
+        .query_row(
+            "SELECT actor_id, task_id, epic_id, authoring_stage, started_at, ended_at \
+             FROM agent_runs WHERE id = ?1",
+            params![agent_run_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
+    let ended_at = ended_at.unwrap_or_else(|| now.clone());
+
+    let fields = match task_id {
+        Some(task_id) => synthesize_task_fallback_fields(
+            tx,
+            agent_run_id,
+            &task_id,
+            &started_at,
+            &ended_at,
+            close_reason,
+        )?,
+        None => synthesize_authoring_fallback_fields(
+            tx,
+            agent_run_id,
+            epic_id.as_deref(),
+            authoring_stage.as_deref(),
+            close_reason,
+        )?,
     };
 
     let summary = insert_summary_row(tx, agent_run_id, &fields, &actor_id, &now)?;
@@ -351,7 +522,7 @@ pub fn list_summaries_for_task(
 }
 
 /// The most recent summary recorded for `agent_run_id`, if one exists — the fallback
-/// synthesizer's presence check (plan 04-02): "did this run already produce a summary before I
+/// synthesizer's presence check (plan 04-02): "did this run already produce one before I
 /// synthesize one."
 pub fn latest_summary_for_run(
     conn: &Connection,
@@ -385,16 +556,17 @@ pub enum SummaryReportOutcome {
 ///
 /// `taskId`, `projectId` and `worktreeId` — if present on the event at all — are never read.
 /// Identity comes ONLY from the `agent_runs` row the (already-validated) `runId` resolves to,
-/// exactly like [`insert_summary_row`]'s own resolution. This is what makes the spoofing
-/// property checkable by grep, not only by test: this function's body contains no lookup of
-/// those three keys.
+/// exactly like [`insert_summary_row`]'s own resolution (plan 05-09: that resolution now also
+/// covers `epicId`). This is what makes the spoofing property checkable by grep, not only by
+/// test: this function's body contains no lookup of those keys.
 ///
 /// Deserialises the six wire content fields from their camelCase names (`changedFiles`,
 /// `changedProse`, `remains`, `nextSessionMustKnow`, `decisions`, `acknowledgedDecisions`).
 /// Absent optional strings become `None`; absent arrays become empty vectors — never an error,
-/// never a fabricated value. A `decisions` element that is not an object carrying string `id`
-/// and `statement` fields is dropped; its well-formed siblings are kept, so one malformed entry
-/// never fails the whole write.
+/// never a fabricated value (plan 05-09 widened the sidecar's own tool schema so `changedFiles` is
+/// no longer required, precisely so an authoring run's closing call can omit it). A `decisions`
+/// element that is not an object carrying string `id` and `statement` fields is dropped; its
+/// well-formed siblings are kept, so one malformed entry never fails the whole write.
 ///
 /// `auto_generated` is always `false` and `diff_ref` is always `None` — the agent-authored path
 /// never claims the fallback flag, and the diff reference is filled at packet-assembly time by a

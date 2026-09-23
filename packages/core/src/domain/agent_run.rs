@@ -385,16 +385,18 @@ fn close_agent_run_in_tx(
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
 
-    let existing: Option<(String, String, Option<String>)> = tx
+    // D-84's assumption-delta promote (plan 05-09): `task_id`/`epic_id` are both `Option<String>`
+    // — a run this closes may be an authoring session with no task at all.
+    let existing: Option<(String, Option<String>, Option<String>, Option<String>)> = tx
         .query_row(
-            "SELECT project_id, task_id, worktree_id FROM agent_runs WHERE id = ?1",
+            "SELECT project_id, task_id, epic_id, worktree_id FROM agent_runs WHERE id = ?1",
             params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .context("failed to read agent_runs row before close")?;
 
-    let Some((project_id, task_id, _worktree_id)) = existing else {
+    let Some((project_id, task_id, epic_id, _worktree_id)) = existing else {
         return Ok(());
     };
 
@@ -420,8 +422,8 @@ fn close_agent_run_in_tx(
         sequence,
         "agent_run",
         run_id,
-        Some(&task_id),
-        None,
+        task_id.as_deref(),
+        epic_id.as_deref(),
         &agent_id,
         "agent_run.closed",
         &payload,
@@ -698,16 +700,19 @@ pub fn interrupt_agent_run_in_tx(
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
 
-    let existing: Option<(String, String, String)> = tx
+    // D-84's assumption-delta promote (plan 05-09): a run Stop reaches may be an authoring
+    // session — `task_id` is `Option<String>`, and `epic_id` is read alongside it so the event's
+    // label can name the epic instead of a task that does not exist for this run.
+    let existing: Option<(String, Option<String>, Option<String>, String)> = tx
         .query_row(
-            "SELECT project_id, task_id, status FROM agent_runs WHERE id = ?1",
+            "SELECT project_id, task_id, epic_id, status FROM agent_runs WHERE id = ?1",
             params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .context("failed to read agent_runs row before interrupt")?;
 
-    let Some((project_id, task_id, current_status)) = existing else {
+    let Some((project_id, task_id, epic_id, current_status)) = existing else {
         return Ok(());
     };
 
@@ -722,16 +727,34 @@ pub fn interrupt_agent_run_in_tx(
     )
     .context("failed to interrupt agent run")?;
 
-    let task_key: String = tx
-        .query_row("SELECT key FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
-        .context("failed to read task key for the interrupt event's label")?;
+    // D-35's premise ("interrupt, then force the whole process group") holds unchanged for a
+    // conversation — it is a statement about processes, not about worktrees. Only the event's own
+    // label text differs by subject (plan 05-09): a task run names the task key it stopped, an
+    // authoring run names the epic it was shaping (or "a new epic" for one still unbound).
+    let label = match &task_id {
+        Some(task_id) => {
+            let task_key: String = tx
+                .query_row("SELECT key FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
+                .context("failed to read task key for the interrupt event's label")?;
+            format!("Stopped agent run on {task_key}")
+        }
+        None => match &epic_id {
+            Some(epic_id) => {
+                let epic_key: String = tx
+                    .query_row("SELECT key FROM epics WHERE id = ?1", params![epic_id], |row| row.get(0))
+                    .context("failed to read epic key for the interrupt event's label")?;
+                format!("Stopped an epic-authoring session on {epic_key}")
+            }
+            None => "Stopped an epic-authoring session for a new epic".to_string(),
+        },
+    };
 
     let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "agent_run",
         "before": current_status,
         "after": "interrupted",
-        "label": format!("Stopped agent run on {task_key}"),
+        "label": label,
     });
     append_event(
         tx,
@@ -740,8 +763,8 @@ pub fn interrupt_agent_run_in_tx(
         sequence,
         "agent_run",
         agent_run_id,
-        Some(&task_id),
-        None,
+        task_id.as_deref(),
+        epic_id.as_deref(),
         actor_id,
         "agent_run.interrupted",
         &payload,
@@ -791,6 +814,19 @@ pub fn interrupt_agent_run(conn: &mut Connection, agent_run_id: &str, actor_id: 
 /// On a real transition: `UPDATE agent_runs SET status = 'abandoned', ended_at = ?` and appends
 /// `agent_run.abandoned`, carrying `reason` in the payload when the caller supplied one (the
 /// watchdog's own kill-record reason, plan 03-06). Returns `Ok(true)` only when it actually wrote.
+///
+/// Plan 05-09 closes the `STATE.md` warning this function carried since Phase 4: "`mark_abandoned`
+/// is a third terminal path that writes no summary." Phase 4's own reasoning for excluding it — a
+/// run nobody watched die may have nothing worth summarising, since its fallback would be
+/// synthesised from a diff that may be empty — does not survive contact with D-84's second run
+/// kind: an authoring run's fallback is synthesised from staged proposals and the stage reached,
+/// both of which are facts that exist whether or not anyone was watching. Rather than leave this
+/// the one terminal path with different behaviour for the two run kinds, the rule is made uniform:
+/// on a REAL transition, [`crate::domain::session_summary::synthesize_fallback_summary`] runs
+/// inside THIS SAME transaction, guarded by the identical presence check every other terminal path
+/// already uses (never overwriting an agent-authored summary that somehow landed first). A crash
+/// between the status write and the summary insert now rolls back both, exactly as every other
+/// terminal path already guarantees.
 pub fn mark_abandoned(
     conn: &mut Connection,
     run_id: &str,
@@ -800,16 +836,18 @@ pub fn mark_abandoned(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let existing: Option<(String, String, String)> = tx
+    // D-84's assumption-delta promote (plan 05-09): the run this reconciles may be an authoring
+    // session — `task_id` is `Option<String>`, `epic_id` read alongside it.
+    let existing: Option<(String, String, Option<String>, Option<String>)> = tx
         .query_row(
-            "SELECT status, project_id, task_id FROM agent_runs WHERE id = ?1",
+            "SELECT status, project_id, task_id, epic_id FROM agent_runs WHERE id = ?1",
             params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .context("failed to read agent_runs row before marking abandoned")?;
 
-    let Some((current_status, project_id, task_id)) = existing else {
+    let Some((current_status, project_id, task_id, epic_id)) = existing else {
         tx.commit().context("failed to commit no-op mark_abandoned transaction (run not found)")?;
         return Ok(false);
     };
@@ -842,13 +880,20 @@ pub fn mark_abandoned(
         sequence,
         "agent_run",
         run_id,
-        Some(&task_id),
-        None,
+        task_id.as_deref(),
+        epic_id.as_deref(),
         actor_id,
         "agent_run.abandoned",
         &payload,
         &now,
     )?;
+
+    // T-05-09-01 (plan 05-09): no terminal status exists without a summary, for THIS path too —
+    // an abandoned run gets a fallback summary written inside this same transaction, guarded by
+    // the same presence check every other terminal path already uses.
+    if crate::domain::session_summary::latest_summary_for_run(&tx, run_id)?.is_none() {
+        crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, "abandoned")?;
+    }
 
     tx.commit().context("failed to commit mark_abandoned transaction")?;
     Ok(true)

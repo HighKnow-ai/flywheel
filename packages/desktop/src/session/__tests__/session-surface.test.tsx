@@ -567,6 +567,84 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
   });
 });
 
+describe("SessionSurface Stop/Discard for an authoring run (plan 05-09)", () => {
+  function renderAuthoring(
+    epicId: string | null,
+    impl?: (command: string, args?: { offset: number; limit: number }) => Promise<unknown>,
+  ) {
+    if (impl) {
+      invokeCommandMock.mockImplementation(impl);
+    } else {
+      mockWindowReads(() => []);
+    }
+    const queryClient = new QueryClient();
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface
+          agentRunId="run-1"
+          taskId={null}
+          epicId={epicId}
+          authoringStage="challenge"
+          onBack={() => {}}
+          initialStatus="running"
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("carries the epic id into the authoring launch hand-off once discard resolves", async () => {
+    renderAuthoring("epic-123", (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") {
+        return Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    expect(useUiStore.getState().launchSheetAuthoringHandoff).toBeNull();
+    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    await waitFor(() =>
+      expect(useUiStore.getState().launchSheetAuthoringHandoff).toEqual({ epicId: "epic-123" }),
+    );
+    // The TASK hand-off channel must never be used for an authoring run.
+    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+  });
+
+  it("carries a null epic id (a fresh-epic run) into the same hand-off channel", async () => {
+    renderAuthoring(null, (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") {
+        return Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    await waitFor(() =>
+      expect(useUiStore.getState().launchSheetAuthoringHandoff).toEqual({ epicId: null }),
+    );
+  });
+
+  it("renders the authoring-specific Stop gloss, never mentioning a worktree", async () => {
+    const events = [makeSessionClosed(0, "interrupted")];
+    renderAuthoring("epic-123", (command: string, args?: { offset: number; limit: number }) => {
+      if (command === "agent_run_log_window") {
+        return Promise.resolve(windowFor(events, args?.offset ?? 0, args?.limit ?? 50));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await screen.findByText(/Every staged proposal is still waiting on the board/);
+    expect(screen.queryByText(/worktree/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)", () => {
   function makePersistenceFailureNotice(runId: string, text: string) {
     return {

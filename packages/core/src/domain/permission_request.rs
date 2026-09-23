@@ -26,11 +26,18 @@ use crate::ids::new_id;
 
 /// A `permission_requests` row, as read back after [`create_pending_request`] or
 /// [`answer_request`] commits.
+///
+/// Plan 05-09: `task_id` is `Option<String>` and a sibling `epic_id` joins it — a genuine
+/// permission request can be raised by an authoring run (D-86's read-only posture is still
+/// wrapped by the destructive gate, so a bash command it wants to run can still need a human's
+/// answer), and that run has no task. Mirrors `domain::agent_run::AgentRun`'s own generalised
+/// shape; the never-both CHECK on the table makes "both" unrepresentable.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PermissionRequest {
     pub id: String,
     pub agent_run_id: String,
-    pub task_id: String,
+    pub task_id: Option<String>,
+    pub epic_id: Option<String>,
     pub project_id: String,
     pub tool_name: String,
     pub input_payload: Option<String>,
@@ -97,23 +104,24 @@ fn row_to_request(row: &Row) -> rusqlite::Result<PermissionRequest> {
         id: row.get(0)?,
         agent_run_id: row.get(1)?,
         task_id: row.get(2)?,
-        project_id: row.get(3)?,
-        tool_name: row.get(4)?,
-        input_payload: row.get(5)?,
-        status: row.get(6)?,
-        resolved_by: row.get(7)?,
-        resolved_at: row.get(8)?,
-        created_at: row.get(9)?,
-        destructive_category: row.get(10)?,
+        epic_id: row.get(3)?,
+        project_id: row.get(4)?,
+        tool_name: row.get(5)?,
+        input_payload: row.get(6)?,
+        status: row.get(7)?,
+        resolved_by: row.get(8)?,
+        resolved_at: row.get(9)?,
+        created_at: row.get(10)?,
+        destructive_category: row.get(11)?,
     })
 }
 
-const REQUEST_SELECT_SQL: &str = "SELECT id, agent_run_id, task_id, project_id, tool_name, \
-    input_payload, status, resolved_by, resolved_at, created_at, destructive_category \
+const REQUEST_SELECT_SQL: &str = "SELECT id, agent_run_id, task_id, epic_id, project_id, \
+    tool_name, input_payload, status, resolved_by, resolved_at, created_at, destructive_category \
     FROM permission_requests WHERE id = ?1";
 
-const PENDING_FOR_RUN_SQL: &str = "SELECT id, agent_run_id, task_id, project_id, tool_name, \
-    input_payload, status, resolved_by, resolved_at, created_at, destructive_category \
+const PENDING_FOR_RUN_SQL: &str = "SELECT id, agent_run_id, task_id, epic_id, project_id, \
+    tool_name, input_payload, status, resolved_by, resolved_at, created_at, destructive_category \
     FROM permission_requests WHERE agent_run_id = ?1 AND status = 'pending' \
     ORDER BY created_at DESC LIMIT 1";
 
@@ -172,23 +180,26 @@ pub fn create_pending_request(
 
     let tx = conn.transaction()?;
 
-    let (task_id, project_id): (String, String) = tx
+    // D-84's assumption-delta promote (plan 05-09): the run raising this request may be an
+    // authoring session — `task_id` is `Option<String>`, `epic_id` read alongside it.
+    let (task_id, epic_id, project_id): (Option<String>, Option<String>, String) = tx
         .query_row(
-            "SELECT task_id, project_id FROM agent_runs WHERE id = ?1",
+            "SELECT task_id, epic_id, project_id FROM agent_runs WHERE id = ?1",
             params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
 
     tx.execute(
         "INSERT INTO permission_requests (
-            id, agent_run_id, task_id, project_id, tool_name, input_payload, status,
+            id, agent_run_id, task_id, epic_id, project_id, tool_name, input_payload, status,
             resolved_by, resolved_at, created_by, created_at, destructive_category
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', NULL, NULL, ?7, ?8, ?9)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', NULL, NULL, ?8, ?9, ?10)",
         params![
             id,
             agent_run_id,
             task_id,
+            epic_id,
             project_id,
             tool_name,
             input_payload,
@@ -216,8 +227,8 @@ pub fn create_pending_request(
         sequence,
         "permission_request",
         &id,
-        Some(&task_id),
-        None,
+        task_id.as_deref(),
+        epic_id.as_deref(),
         actor_id,
         "permission_request.raised",
         &payload,
@@ -230,6 +241,7 @@ pub fn create_pending_request(
         id,
         agent_run_id: agent_run_id.to_string(),
         task_id,
+        epic_id,
         project_id,
         tool_name: tool_name.to_string(),
         input_payload: input_payload.map(|s| s.to_string()),
@@ -299,17 +311,18 @@ pub fn answer_request(
         return Err(AlreadyAnsweredError { request_id: request_id.to_string() }.into());
     }
 
-    let (agent_run_id, task_id, project_id, tool_name, created_at, answered_category): (
+    let (agent_run_id, task_id, epic_id, project_id, tool_name, created_at, answered_category): (
         String,
-        String,
+        Option<String>,
+        Option<String>,
         String,
         String,
         String,
         Option<String>,
     ) = tx
         .query_row(
-            "SELECT agent_run_id, task_id, project_id, tool_name, created_at, destructive_category \
-             FROM permission_requests WHERE id = ?1",
+            "SELECT agent_run_id, task_id, epic_id, project_id, tool_name, created_at, \
+             destructive_category FROM permission_requests WHERE id = ?1",
             params![request_id],
             |row| {
                 Ok((
@@ -319,6 +332,7 @@ pub fn answer_request(
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
@@ -347,8 +361,8 @@ pub fn answer_request(
         sequence,
         "permission_request",
         request_id,
-        Some(&task_id),
-        None,
+        task_id.as_deref(),
+        epic_id.as_deref(),
         actor_id,
         "permission_request.answered",
         &payload,
@@ -361,6 +375,7 @@ pub fn answer_request(
         id: request_id.to_string(),
         agent_run_id,
         task_id,
+        epic_id,
         project_id,
         tool_name,
         input_payload: None,

@@ -379,7 +379,16 @@ fn permission_requests_status_outside_the_accepted_set_is_rejected_by_the_schema
 #[test]
 fn migration_source_list_registers_the_permission_gate_tables_exactly_once() {
     let sources = core::db::migration_sources();
-    let request_table_count = sources.iter().filter(|s| s.contains("CREATE TABLE permission_requests")).count();
+    // The trailing `(` (matching this codebase's own `CREATE TABLE <name> (` formatting, one
+    // space then the open paren on the same line) is load-bearing, not decorative: plan 05-09's
+    // `0014_permission_requests_authoring.sql` rebuild (the SAME `<name>_new` / `RENAME TO`
+    // sequence `0006_recovery_statuses.sql` established) creates a transient
+    // `permission_requests_new` table, and a bare `.contains("CREATE TABLE permission_requests")`
+    // matches that line too (`permission_requests_new` starts with `permission_requests`) — which
+    // is exactly the false positive this narrower literal avoids, without weakening the real
+    // property under test: the BASE table is still created by exactly one migration.
+    let request_table_count =
+        sources.iter().filter(|s| s.contains("CREATE TABLE permission_requests (")).count();
     let rule_table_count = sources.iter().filter(|s| s.contains("CREATE TABLE permission_rules")).count();
     assert_eq!(request_table_count, 1, "permission_requests must be created by exactly one migration");
     assert_eq!(rule_table_count, 1, "permission_rules must be created by exactly one migration");

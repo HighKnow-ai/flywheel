@@ -498,7 +498,10 @@ export function startPermissionServer(
 export const summaryToolDefinition = {
   name: REPORT_SUMMARY_TOOL_NAME,
   description:
-    "Record this session's closing summary on the Flywheel board. Resolves once the supervisor has received it.",
+    "Record this session's closing summary on the Flywheel board. Resolves once the supervisor " +
+    "has received it. For a coding session, describe what changed. For a shaping (epic-authoring) " +
+    "session, describe what the epic is now understood to be, what is still unsettled, and what " +
+    "the next session on this epic must know — `changed_files` does not apply and may be omitted.",
   inputSchema: {
     type: "object",
     properties: {
@@ -519,7 +522,11 @@ export const summaryToolDefinition = {
       },
       acknowledged_decisions: { type: "array", items: { type: "string" } },
     },
-    required: ["changed_files", "decisions"],
+    // Plan 05-09: `changed_files` is no longer required — a shaping (epic-authoring) session has
+    // no diff to describe, and asking the model to supply an empty array on every closing call
+    // for a run that structurally can never have one is friction with no benefit. `decisions`
+    // stays required: every session, coding or shaping, should be able to say what it settled.
+    required: ["decisions"],
   },
 } as const;
 

@@ -31,6 +31,8 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0010_authoring_runs.sql"),
         include_str!("migrations/0011_authoring_staging.sql"),
         include_str!("migrations/0012_authoring_proposals_project_status_index.sql"),
+        include_str!("migrations/0013_authoring_summaries.sql"),
+        include_str!("migrations/0014_permission_requests_authoring.sql"),
     ]
 }
 

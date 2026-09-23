@@ -561,11 +561,14 @@ fn a_rolled_back_termination_unit_leaves_no_trace() {
 /// a second run to terminal through the committing Stop/Discard helper.
 ///
 /// `mark_abandoned` is a THIRD path to a terminal `agent_runs` status (the launch reconciler's
-/// verb for runs whose app died) and is deliberately EXCLUDED here. `04-VERIFICATION.md` does not
-/// name it as a gap, and it also opens its own transaction and writes no summary — but whether a
-/// reconciled-abandoned run owes the board a summary at all is a different question (there may be
-/// no session worth summarizing) than the one this gap-closure run has a mandate to answer. Stated
-/// explicitly so a future reader sees a decision, not an oversight.
+/// verb for runs whose app died) and was, at the time this test was written, deliberately EXCLUDED
+/// — `04-VERIFICATION.md` did not name it as a gap, and it wrote no summary of its own. Plan 05-09
+/// closed that gap (the `STATE.md` warning it left open): `mark_abandoned` now writes a fallback
+/// summary inside its own transaction too, for both a task run and an authoring run alike — see
+/// `launch_reconciliation.rs`'s own coverage of that path (`authoring_lifecycle.rs`,
+/// `mark_abandoned_writes_a_fallback_summary_inside_its_own_transaction`). Left excluded from
+/// THIS test rather than folded in, since this test's own mandate is the two gaps
+/// `04-VERIFICATION.md` named, not every terminal path in the crate.
 #[test]
 fn a_terminal_transition_never_commits_without_a_summary() {
     with_scratch_worktree_root(|| {

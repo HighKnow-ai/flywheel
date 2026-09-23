@@ -93,6 +93,20 @@ describe("ProjectRail", () => {
   });
 });
 
+describe("ProjectRail's own proposal-badge absence (plan 05-09, D-46/D-82)", () => {
+  // D-46's rule is that only money-burning work blocks; a pending authoring proposal burns
+  // nothing (the session that staged it may already have ended). D-82 already answered where
+  // "waiting on me at all" surfaces instead: the board-level triage lane and the epic-row count,
+  // never this rail. A source-scanning gate (mirroring this codebase's own established idiom for
+  // "a property that must never quietly return") is the structural companion to that reading —
+  // it fails the moment a future edit wires a third badge here, whether or not any behavioral
+  // test happens to render it yet.
+  it("contains no proposal-badge source at all — the rail renders blocked/recovery counts only", () => {
+    const source = ProjectRail.toString();
+    expect(source.toLowerCase()).not.toContain("proposal");
+  });
+});
+
 describe("ProjectUnreachable", () => {
   it("offers exactly one action and no automatic-recovery affordance", () => {
     renderWithClient(

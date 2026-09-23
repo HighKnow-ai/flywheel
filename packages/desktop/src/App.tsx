@@ -98,6 +98,7 @@ function AppShell() {
   const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
   const activeAgentRunTaskId = useUiStore((state) => state.activeAgentRunTaskId);
   const activeAgentRunAuthoringStage = useUiStore((state) => state.activeAgentRunAuthoringStage);
+  const activeAgentRunEpicId = useUiStore((state) => state.activeAgentRunEpicId);
   const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
   // D-27: the launch sheet, mounted once here as a peer of CommandPalette below — `null` means
   // closed. `ItemDetailPanel.tsx`'s "Start Work" affordance and the board-list `start-work`
@@ -238,6 +239,7 @@ function AppShell() {
               agentRunId={activeAgentRunId}
               taskId={activeAgentRunTaskId}
               authoringStage={activeAgentRunAuthoringStage}
+              epicId={activeAgentRunEpicId}
               onBack={() => setActiveAgentRunId(null)}
             />
           ) : project.status === "unreachable" ? (
