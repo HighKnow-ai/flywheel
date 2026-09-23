@@ -435,6 +435,24 @@ pub fn agent_run_start(
         assemble_context_packet_with_extras(&conn, &task_id, extras).map_err(|e| e.to_string())?;
     let prompt = render_prompt(&packet, &instruction);
 
+    // D-78 (plan 04-10): pin, on the run row, exactly which criterion revisions this briefing
+    // carried — read via `list_current_criteria` in the same rank order `CRITERIA_SQL` above
+    // uses, so the pin and the prompt agree by construction. Pinned while the database lock is
+    // still held, before `drop(conn)` below and before the spawn request is sent: a pin failure
+    // must not leave a run spawned without one, mirroring the credential-resolution ordering
+    // discipline already followed above.
+    let criteria_ids: Vec<String> = flywheel_core::domain::acceptance_criterion::list_current_criteria(
+        &conn,
+        "task",
+        &task_id,
+    )
+    .map_err(|e| e.to_string())?
+    .into_iter()
+    .map(|c| c.id)
+    .collect();
+    flywheel_core::domain::agent_run::pin_criteria_revisions(&mut conn, &run.id, &criteria_ids)
+        .map_err(|e| e.to_string())?;
+
     let worktree_path: String = conn
         .query_row(
             "SELECT path FROM worktrees WHERE id = ?1",

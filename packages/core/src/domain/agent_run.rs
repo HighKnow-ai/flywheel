@@ -219,14 +219,18 @@ pub fn start_agent_run(
 /// NULL` so a second call for the same run is a no-op: the pin records exactly what the run was
 /// started with, and overwriting it later would be the retroactive rewrite D-40 protects against.
 /// Never opens a transaction of its own — a single guarded `UPDATE` is already atomic.
-///
-/// RED-phase stub (Task 3, plan 04-10): does not write anything yet.
 pub fn pin_criteria_revisions(
     conn: &mut Connection,
     agent_run_id: &str,
     criterion_ids: &[String],
 ) -> anyhow::Result<()> {
-    let _ = (conn, agent_run_id, criterion_ids);
+    let pin =
+        serde_json::to_string(criterion_ids).context("failed to serialise criteria_revision_pin")?;
+    conn.execute(
+        "UPDATE agent_runs SET criteria_revision_pin = ?1 WHERE id = ?2 AND criteria_revision_pin IS NULL",
+        params![pin, agent_run_id],
+    )
+    .context("failed to write criteria_revision_pin")?;
     Ok(())
 }
 
@@ -235,14 +239,25 @@ pub fn pin_criteria_revisions(
 /// `Some(vec![])` when it holds an empty JSON array (the task had zero criteria at start). The
 /// distinction is load-bearing for plan 04-11's third drift detector, which must not fire on a
 /// pre-pinning run.
-///
-/// RED-phase stub (Task 3, plan 04-10): always reports `None`.
 pub fn criteria_revision_pin_for_run(
     conn: &Connection,
     agent_run_id: &str,
 ) -> anyhow::Result<Option<Vec<String>>> {
-    let _ = (conn, agent_run_id);
-    Ok(None)
+    let raw: Option<String> = conn
+        .query_row(
+            "SELECT criteria_revision_pin FROM agent_runs WHERE id = ?1",
+            params![agent_run_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
+    match raw {
+        None => Ok(None),
+        Some(json) => {
+            let ids: Vec<String> = serde_json::from_str(&json)
+                .context("failed to parse criteria_revision_pin as a JSON array")?;
+            Ok(Some(ids))
+        }
+    }
 }
 
 /// The statement body [`close_agent_run`] issues, factored out so [`apply_session_closed`] can run
