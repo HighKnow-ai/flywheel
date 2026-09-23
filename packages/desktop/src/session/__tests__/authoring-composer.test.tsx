@@ -196,3 +196,40 @@ describe("SessionSurface — developer-turn feed rows (Task 2)", () => {
     }
   });
 });
+
+describe("SessionSurface — the backend's own restatement (Task 3)", () => {
+  it("a feed window holding both a core-written turn and the backend's echo of the same text renders one row", async () => {
+    mockWindowReads(() => [
+      makeDeveloperTurn("turn-1", "hello from the developer"),
+      {
+        runId: "run-1",
+        seq: 0,
+        at: "2026-01-01T00:00:01.000Z",
+        raw: "hello from the developer",
+        type: "backend_echo",
+        text: "hello from the developer",
+      },
+    ]);
+    renderSurface("challenge");
+
+    // The developer_turn row (Task 2) is the one that renders.
+    expect(await screen.findByText("hello from the developer")).toBeInTheDocument();
+    // The backend's echo of the SAME text must never produce a second row — SUPPRESSED_EVENT_TYPES
+    // suppresses it entirely, the same way `session_closed`/`init`/etc. are suppressed.
+    expect(screen.getAllByText("hello from the developer")).toHaveLength(1);
+
+    mockWindowReads(() => []);
+  });
+
+  it("a bare Advance keypress while the composer holds focus does not advance the stage", async () => {
+    renderSurface("challenge");
+    const composer = await findComposer();
+    composer.focus();
+    fireEvent.keyDown(composer, { key: "n" });
+
+    // `resolveBinding`'s own `isTypingTarget` guard already declines a bare unmodified key while
+    // the real event target is a text field — this test confirms that settlement holds for the
+    // composer specifically, rather than reimplementing it.
+    expect(authoringStageAdvanceMock).not.toHaveBeenCalled();
+  });
+});
