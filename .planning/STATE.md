@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-09-PLAN.md
-last_updated: "2026-09-23T16:38:00.670Z"
+stopped_at: Completed 05-07-PLAN.md
+last_updated: "2026-09-23T17:25:54.746Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 05 execution started
-state_head: ff8e3ea0a289e90ccf9af2c9c401cbbe6c92bda2
+state_head: f2ac3092dfa7162e7e67597127ef3794bb1455fc
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 103
-  completed_plans: 100
+  completed_plans: 101
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 8 of 10
+Plan: 9 of 10
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 05 execution started
 
@@ -159,6 +159,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05-socratic-epic-authoring P05 | 240 min | 3 tasks | 14 files |
 | Phase 05 P06 | ~150min | 3 tasks | 8 files |
 | Phase 05 P09 | 170min | 3 tasks | 21 files |
+| Phase 05 P07 | 180min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -344,6 +345,8 @@ Recent decisions affecting current work:
 - [Phase 05]: accept_subtree is the ONE bulk path (a task plus its drafted criteria); a source-scanning test fails the build if any accept-all/accept-remaining identifier appears in core or desktop src — SHAPE-04/D-95: bulk acceptance may exist, but never as the only option — the gate makes the prohibition a build failure, not a review comment
 - [Phase 05]: [Phase 05]: mark_abandoned now writes a fallback summary inside its own transaction for both task and authoring runs, closing the Phase 4 STATE.md warning that it was a third terminal path writing no summary.
 - [Phase 05]: [Phase 05]: session_summaries and permission_requests both generalised to the same nullable task_id/epic_id/never-both-CHECK shape D-84 gave agent_runs — an authoring run genuinely blocked on a permission request is now representable at all.
+- [Phase 05]: 05-07: useRunProposals invalidates on board:changed only, never agent:event -- proposal_created already re-emits board:changed, so a second subscription would defeat the tray/feed re-render isolation D-85 depends on.
+- [Phase 05]: 05-07: the undecidable proposal state is detected reactively on an accept failure carrying the core's ProposalUndecidable marker text, since this plan carries no Rust changes and target-existence is only checked at accept time.
 
 ### Pending Todos
 
@@ -389,6 +392,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T16:38:00.557Z
-Stopped at: Completed 05-09-PLAN.md
+Last session: 2026-09-23T17:25:54.632Z
+Stopped at: Completed 05-07-PLAN.md
 Resume file: None
