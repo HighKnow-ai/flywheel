@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
-status: executing
-stopped_at: Completed 05-08-PLAN.md
-last_updated: "2026-09-23T17:54:47.836Z"
+status: verifying
+stopped_at: Completed 05-10-PLAN.md
+last_updated: "2026-09-23T18:55:05.152Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 05 execution started
-state_head: 883348fafe07aa471e613054d8559f10146d9de9
+state_head: "0b2240fc7fa7c166db3149f576fae34ac5e245ef"
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 103
-  completed_plans: 102
+  completed_plans: 103
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
 Plan: 10 of 10
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-23 — Phase 05 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -161,6 +161,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P09 | 170min | 3 tasks | 21 files |
 | Phase 05 P07 | 180min | 3 tasks | 9 files |
 | Phase 05 P08 | 55min | 3 tasks | 10 files |
+| Phase 05 P10 | 75min | 3 tasks | 23 files |
 
 ## Accumulated Context
 
@@ -350,6 +351,10 @@ Recent decisions affecting current work:
 - [Phase 05]: 05-07: the undecidable proposal state is detected reactively on an accept failure carrying the core's ProposalUndecidable marker text, since this plan carries no Rust changes and target-existence is only checked at accept time.
 - [Phase 05]: TriageLane.tsx reuses ProposalRow.tsx and groups its project-scoped proposal window exactly as ProposalTray.tsx groups its run-scoped one; each row carries its own proposal.agentRunId since the lane can span several authoring runs at once. — One query layer, two surfaces (D-82) - the tray and the lane can never disagree about what is pending.
 - [Phase 05]: The epic-row pending-proposal count reuses the field-epic-pill slot (empty on an epic row) and the accent-text-strip/accent-text-rack role pair - never a new token, never the blocked role. — D-46: only money burning blocks; the badge must never be mistaken for a blocked signal, and must never collide with the Blocked/Needs Decision pills.
+- [Phase 05]: [Phase 05-10]: authoring_run_start's opening prompt is now render_epic_prompt(assemble_epic_context_packet(...)) for EVERY start, fresh or reopened -- the hand-written AUTHORING_OPENING_PROMPT constant was removed since a hard-coded line and a real epic-scoped briefing cannot both be 'the same start path with a subject'.
+- [Phase 05]: [Phase 05-10]: authoring_run_for_epic (a pre-flight read) plus a defensive re-check inside authoring_run_start itself share one find_running_authoring_run helper -- an epic with a running/blocked session routes to it and starts no second run, even under a race between the two reopen doors.
+- [Phase 05]: [Phase 05-10]: Criterion 2/4's board construction in authoring_acceptance.rs uses two authoring runs (propose+accept the epic, then reopen it to propose+accept tasks/criteria), not one -- this documents the actual shipped shape rather than working around it: a task proposal's own epic_id is fixed at its OWN run's start (D-84) and is never retroactively updated by an accept inside the same run.
+- [Phase 05]: [Phase 05-10]: uat_authoring_ops.rs (new harness binary) is the live UAT script's bridge to a real board write path -- apply-proposal-created calls authoring_proposal::apply_proposal_created directly, the SAME function the real desktop app's own inbound handler calls, so the live run's accept/reject/amend half is the real write path, not a simulation.
 
 ### Pending Todos
 
@@ -395,6 +400,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T17:54:47.721Z
-Stopped at: Completed 05-08-PLAN.md
+Last session: 2026-09-23T18:55:05.036Z
+Stopped at: Completed 05-10-PLAN.md
 Resume file: None
