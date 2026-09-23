@@ -227,6 +227,44 @@ describe("LaunchSheet", () => {
     expect(startMock).toHaveBeenCalledWith("task-1", "acceptEdits", "");
   });
 
+  /**
+   * WR-03 (plan 05-09 code review): `handleSubmit` previously guarded double-activation with only
+   * `if (starting) return`, a React state read — not necessarily flushed to the DOM (or to the
+   * closure a second synchronous call reads) before a second activation fires in the same tick.
+   * Raw `element.click()` calls (never `fireEvent.click`, which wraps every dispatch in its own
+   * `act()` and flushes state between calls) reproduce the exact race, mirroring this codebase's
+   * own established pattern for proving a synchronous-tick guard
+   * (`session/SessionSurface.tsx`'s "clicking Stop three times in one synchronous tick" test).
+   */
+  it("clicking Start Work three times in one synchronous tick calls the start command exactly once", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket());
+    startMock.mockReset().mockReturnValue(new Promise(() => {})); // never resolves within the test
+    renderSheet();
+
+    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+
+    const submitButton = screen.getByRole("button", { name: "Start Work" }) as HTMLButtonElement;
+    submitButton.click();
+    submitButton.click();
+    submitButton.click();
+
+    await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("two synchronous Enter keydowns on the dialog call the start command exactly once", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket());
+    startMock.mockReset().mockReturnValue(new Promise(() => {})); // never resolves within the test
+    renderSheet();
+
+    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+
+    const dialog = screen.getByRole("dialog");
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
+  });
+
   it("renders the sheet at 640px wide with an 80vh maximum height", async () => {
     previewMock.mockReset().mockResolvedValue(makePacket());
     startMock.mockReset();

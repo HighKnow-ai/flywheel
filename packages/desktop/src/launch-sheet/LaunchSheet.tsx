@@ -564,6 +564,14 @@ export function LaunchSheet({
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const instructionRef = useRef<HTMLTextAreaElement>(null);
+  // WR-03 (plan 05-09 code review): `handleSubmit` is reachable both from a click on the submit
+  // button and, independently, from `handleDialogKeyDown`'s own Enter branch — React has not
+  // necessarily flushed the `starting` state's disabling re-render before a second activation
+  // fires in the same synchronous tick, so a ref (synchronous read/write) is the guard, mirroring
+  // this codebase's own established pattern (`ProposalRow.tsx`'s `acceptingRef`/`rejectingRef`,
+  // `ProposalTray.tsx`'s `acceptingSubtreeRef`, `ProposalAmendEditor.tsx`'s `savingRef`,
+  // `SessionSurface.tsx`'s `stoppingRef`/`discardingRef`/`advancingStageRef`/`returningStageRef`).
+  const startingRef = useRef(false);
 
   const authoringEpicId = authoring?.epicId ?? null;
   const authoringProjectId = authoring?.projectId ?? null;
@@ -591,6 +599,7 @@ export function LaunchSheet({
       setInstruction("");
       setPermissionMode(DEFAULT_PERMISSION_MODE);
       setStarting(false);
+      startingRef.current = false;
       setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -603,7 +612,12 @@ export function LaunchSheet({
   }
 
   function handleSubmit() {
-    if (starting) return;
+    // The synchronous-tick guard (WR-03, see startingRef's own doc comment above) — checked and
+    // set BEFORE the `starting` state guard, since the ref is what is actually safe against two
+    // activations racing in the same tick; `starting` state still drives the disabled button and
+    // the "Starting…" label as before.
+    if (startingRef.current) return;
+    startingRef.current = true;
     setStarting(true);
     setError(null);
     if (isAuthoring) {
@@ -612,6 +626,7 @@ export function LaunchSheet({
           onAuthoringStarted?.({ id: run.id, authoringStage: run.authoringStage, epicId: run.epicId });
         })
         .catch((err: unknown) => {
+          startingRef.current = false;
           setStarting(false);
           setError(err instanceof Error ? err.message : String(err));
         });
@@ -622,6 +637,7 @@ export function LaunchSheet({
         onStarted(run.id);
       })
       .catch((err: unknown) => {
+        startingRef.current = false;
         setStarting(false);
         setError(err instanceof Error ? err.message : String(err));
       });
