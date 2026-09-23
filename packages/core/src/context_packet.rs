@@ -21,6 +21,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::branch::{epic_integration_branch_name, task_branch_name};
+use crate::compaction::{CompactedSummary, CompactionBoundary};
 use crate::domain::session_summary::DecisionEntry;
 use crate::domain::worktree::worktree_root;
 
@@ -109,6 +110,14 @@ pub struct ContextPacket {
     pub epic: Option<EpicSection>,
     pub criteria: Vec<CriterionEntry>,
     pub summaries: Vec<SummaryEntry>,
+    /// Where `render_prompt`'s Prior Sessions section splits older sessions from recent ones
+    /// (CTX-05) — computed once, here, by folding this packet's own `summaries` list through
+    /// `crate::compaction`'s pure fold. A no-query, no-I/O derivation over data this function
+    /// already read. Kept alongside the full `summaries` list rather than replacing it: this is a
+    /// presentation of that list, not a substitute for it — the accumulated `decisions` list below
+    /// and a later plan's drift detectors both need every summary regardless of where the fold
+    /// falls.
+    pub compaction: CompactionBoundary,
     /// Every decision entry from `summaries`, deduplicated by id (first occurrence wins, order
     /// preserved) — a pure fold over data this function already read, issuing no additional
     /// query (D-73). Complete regardless of how many summaries have folded under compaction,
@@ -231,6 +240,11 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         .context("failed to read the task's session summaries")?;
     drop(summaries_stmt);
 
+    // Pure fold over `summaries` (this function's own already-read data) — no query, no I/O.
+    // This is the one call site of the two the crate's own `<verify>` gate expects; the other
+    // lives in `render_prompt`, which folds the same list again to produce the rendered split.
+    let compaction = crate::compaction::compact_summaries(&summaries).boundary;
+
     // Walk `summaries` oldest-first (their own read order, above) and collect every decision
     // entry, deduplicated by id — first occurrence wins, order preserved. Pure transform over
     // data already read; no additional query, no I/O (this file's own purity contract).
@@ -290,6 +304,7 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         epic,
         criteria,
         summaries,
+        compaction,
         decisions,
         diff: None,
         worktree,
@@ -316,6 +331,75 @@ pub fn assemble_context_packet_with_extras(
     let mut packet = assemble_context_packet(conn, task_id)?;
     packet.diff = extras.diff;
     Ok(packet)
+}
+
+/// Render one **verbatim** Prior Sessions block — the full narrative fields plus decisions,
+/// numbered by its position across the whole prior-sessions list (not restarting per subsection),
+/// so the section reads in one continuous chronological sequence even when it is split across a
+/// fold boundary.
+fn render_verbatim_summary_block(out: &mut String, ordinal: usize, summary: &SummaryEntry) {
+    out.push_str("### Session ");
+    out.push_str(&ordinal.to_string());
+    if summary.auto_generated {
+        out.push_str(" (auto-generated — no agent summary was recorded for this run)");
+    }
+    out.push('\n');
+
+    if !summary.changed_files.is_empty() {
+        out.push_str("Changed: ");
+        out.push_str(&summary.changed_files.join(", "));
+        out.push('\n');
+    }
+    if let Some(prose) = &summary.changed_prose {
+        out.push_str(prose);
+        out.push('\n');
+    }
+    if let Some(remains) = &summary.remains {
+        out.push_str("Remains: ");
+        out.push_str(remains);
+        out.push('\n');
+    }
+    if let Some(next) = &summary.next_session_must_know {
+        out.push_str("Next session must know: ");
+        out.push_str(next);
+        out.push('\n');
+    }
+    for decision in &summary.decisions {
+        out.push_str("- [");
+        out.push_str(&decision.id);
+        out.push_str("] ");
+        out.push_str(&decision.statement);
+        out.push('\n');
+    }
+    out.push('\n');
+}
+
+/// Render one **folded** Prior Sessions block (T-04-22) — ordinal, the `auto_generated` marker
+/// when set, a comma-separated `Changed:` line, and decision bullets. Nothing else:
+/// `CompactedSummary` has no field for `changed_prose`/`remains`/`next_session_must_know`, so
+/// there is nothing here that could accidentally leak a folded summary's narrative text — a
+/// structural guarantee, not a rendering convention this function could quietly violate.
+fn render_folded_summary_block(out: &mut String, ordinal: usize, summary: &CompactedSummary) {
+    out.push_str("### Session ");
+    out.push_str(&ordinal.to_string());
+    if summary.auto_generated {
+        out.push_str(" (auto-generated — no agent summary was recorded for this run)");
+    }
+    out.push('\n');
+
+    if !summary.changed_files.is_empty() {
+        out.push_str("Changed: ");
+        out.push_str(&summary.changed_files.join(", "));
+        out.push('\n');
+    }
+    for decision in &summary.decisions {
+        out.push_str("- [");
+        out.push_str(&decision.id);
+        out.push_str("] ");
+        out.push_str(&decision.statement);
+        out.push('\n');
+    }
+    out.push('\n');
 }
 
 /// Render the initial prompt text (D-28) — stable headings, stable ordering, and an omitted
@@ -364,41 +448,37 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
 
     if !packet.summaries.is_empty() {
         out.push_str("\n## Prior Sessions\n\n");
-        for (i, summary) in packet.summaries.iter().enumerate() {
-            out.push_str("### Session ");
-            out.push_str(&(i + 1).to_string());
-            if summary.auto_generated {
-                out.push_str(" (auto-generated — no agent summary was recorded for this run)");
-            }
-            out.push('\n');
 
-            if !summary.changed_files.is_empty() {
-                out.push_str("Changed: ");
-                out.push_str(&summary.changed_files.join(", "));
+        // Second (and last) call site of the crate's compaction fold in this file — the boundary
+        // computed here from `packet.summaries` is the same fold the assembler already ran over
+        // the identical list, so the prompt's split and `ContextPacket.compaction` can never
+        // disagree (T-04-23): both read only the list's length and order.
+        let history = crate::compaction::compact_summaries(&packet.summaries);
+
+        if history.boundary.folded_count == 0 {
+            // Nothing folded (five or fewer summaries): the flat list, unchanged from before this
+            // plan — no subsection headings, no boundary line.
+            for (i, summary) in packet.summaries.iter().enumerate() {
+                render_verbatim_summary_block(&mut out, i + 1, summary);
+            }
+        } else {
+            out.push_str("### Earlier sessions (folded)\n\n");
+            for (i, folded) in history.folded.iter().enumerate() {
+                render_folded_summary_block(&mut out, i + 1, folded);
+            }
+
+            if let Some(sentence) = history.boundary.boundary_sentence() {
+                out.push_str(&sentence);
                 out.push('\n');
             }
-            if let Some(prose) = &summary.changed_prose {
-                out.push_str(prose);
-                out.push('\n');
+
+            out.push_str("\n### Recent sessions (verbatim)\n\n");
+            // Ordinals continue from where the folded block left off, so the section reads as one
+            // continuous chronological sequence across the fold boundary rather than restarting.
+            let verbatim_start = history.folded.len();
+            for (i, summary) in history.verbatim.iter().enumerate() {
+                render_verbatim_summary_block(&mut out, verbatim_start + i + 1, summary);
             }
-            if let Some(remains) = &summary.remains {
-                out.push_str("Remains: ");
-                out.push_str(remains);
-                out.push('\n');
-            }
-            if let Some(next) = &summary.next_session_must_know {
-                out.push_str("Next session must know: ");
-                out.push_str(next);
-                out.push('\n');
-            }
-            for decision in &summary.decisions {
-                out.push_str("- [");
-                out.push_str(&decision.id);
-                out.push_str("] ");
-                out.push_str(&decision.statement);
-                out.push('\n');
-            }
-            out.push('\n');
         }
     }
 

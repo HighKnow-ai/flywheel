@@ -9,7 +9,7 @@ use core::context_packet::{assemble_context_packet, render_prompt};
 use core::domain::acceptance_criterion::{create_criterion, reorder_criterion};
 use core::domain::agent_run::start_agent_run;
 use core::domain::epic::create_epic;
-use core::domain::session_summary::{create_summary, SummaryFields};
+use core::domain::session_summary::{create_summary, DecisionEntry, SummaryFields};
 use core::domain::task::create_task;
 use core::domain::worktree::ensure_worktree;
 
@@ -318,5 +318,256 @@ fn assembling_the_packet_never_mutates_triggers_worktrees_or_agent_runs_row_coun
         assert_eq!(count("triggers"), triggers_before);
         assert_eq!(count("worktrees"), worktrees_before);
         assert_eq!(count("agent_runs"), agent_runs_before);
+    });
+}
+
+// --- Compaction wiring (plan 04-08, CTX-05): the folded/verbatim split in `render_prompt` and
+// `ContextPacket.compaction`. Every summary's content below is tagged with a distinctive,
+// index-specific marker string so the narrative-absence assertions can prove a folded summary's
+// prose does not merely go unrendered somewhere else, but is genuinely gone from the output.
+
+fn distinctive_summary_fields(n: usize) -> SummaryFields {
+    SummaryFields {
+        changed_files: vec![format!("distinctive/file-{n}.rs")],
+        changed_prose: Some(format!("distinctive-prose-marker-{n}")),
+        remains: Some(format!("distinctive-remains-marker-{n}")),
+        next_session_must_know: Some(format!("distinctive-next-marker-{n}")),
+        decisions: vec![DecisionEntry {
+            id: format!("dec-{n}"),
+            statement: format!("distinctive-decision-statement-{n}"),
+        }],
+        acknowledged_decisions: vec![],
+        diff_ref: None,
+        // Mark the very first (oldest) summary auto-generated so a 9-summary run always has an
+        // auto-generated entry among the four that fold — exercises the marker-survives-the-fold
+        // behaviour without needing a dedicated fixture.
+        auto_generated: n == 0,
+    }
+}
+
+fn create_task_with_n_summaries(
+    conn: &mut rusqlite::Connection,
+    project_id: &str,
+    actor_id: &str,
+    task_name: &str,
+    n: usize,
+) -> core::domain::task::Task {
+    let task = create_task(conn, project_id, actor_id, task_name, None)
+        .expect("create_task should succeed");
+    ensure_worktree(conn, &task.id, actor_id).expect("ensure_worktree should succeed");
+    let run = start_agent_run(conn, &task.id, "acceptEdits", actor_id)
+        .expect("start_agent_run should succeed");
+    for i in 0..n {
+        create_summary(conn, &run.id, distinctive_summary_fields(i), actor_id)
+            .expect("create_summary should succeed");
+    }
+    task
+}
+
+#[test]
+fn four_summaries_render_a_flat_list_with_no_folded_subsection_heading_or_boundary_line() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task =
+            create_task_with_n_summaries(&mut conn, &project.id, &actor_id, "Four summaries", 4);
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        assert_eq!(packet.compaction.total, 4);
+        assert_eq!(packet.compaction.folded_count, 0, "four summaries must fold nothing");
+
+        let prompt = render_prompt(&packet, "");
+        assert!(!prompt.contains("Earlier sessions (folded)"));
+        assert!(!prompt.contains("Recent sessions (verbatim)"));
+        assert!(
+            !prompt.contains("are folded;"),
+            "no boundary sentence should be emitted when nothing folded"
+        );
+    });
+}
+
+#[test]
+fn nine_summaries_render_a_folded_subsection_with_four_entries_a_boundary_line_and_a_verbatim_subsection_with_five_entries(
+) {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task =
+            create_task_with_n_summaries(&mut conn, &project.id, &actor_id, "Nine summaries", 9);
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        assert_eq!(packet.compaction.total, 9);
+        assert_eq!(packet.compaction.folded_count, 4);
+        assert_eq!(packet.compaction.verbatim_count, 5);
+
+        let prompt = render_prompt(&packet, "");
+        assert!(prompt.contains("### Earlier sessions (folded)"));
+        assert!(prompt.contains("### Recent sessions (verbatim)"));
+        assert!(
+            prompt.contains("Summaries 1-4 are folded; 5-9 are carried verbatim."),
+            "the boundary sentence must state both ranges as arithmetic: {prompt}"
+        );
+
+        // Exactly four "### Session" headers must appear before the folded heading's counterpart
+        // boundary line, and the section overall must carry nine Session headers total.
+        let session_header_count = prompt.matches("### Session ").count();
+        assert_eq!(session_header_count, 9, "all nine sessions must be rendered, folded or not");
+    });
+}
+
+#[test]
+fn every_decision_from_folded_summaries_appears_and_no_folded_prose_appears() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task_with_n_summaries(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Folded decisions and prose",
+            9,
+        );
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        let prompt = render_prompt(&packet, "");
+
+        // Folded entries are summaries 0..4 (0-based n), which fold under a nine-summary window.
+        for n in 0..4 {
+            assert!(
+                prompt.contains(&format!("distinctive-decision-statement-{n}")),
+                "folded summary {n}'s decision statement must survive the fold"
+            );
+            assert!(
+                !prompt.contains(&format!("distinctive-prose-marker-{n}")),
+                "folded summary {n}'s changed_prose must not appear anywhere in the rendered output"
+            );
+            assert!(
+                !prompt.contains(&format!("distinctive-remains-marker-{n}")),
+                "folded summary {n}'s remains text must not appear anywhere in the rendered output"
+            );
+            assert!(
+                !prompt.contains(&format!("distinctive-next-marker-{n}")),
+                "folded summary {n}'s next_session_must_know text must not appear anywhere in the \
+                 rendered output"
+            );
+        }
+
+        // Verbatim entries (4..9) keep every field, prose included.
+        for n in 4..9 {
+            assert!(prompt.contains(&format!("distinctive-prose-marker-{n}")));
+            assert!(prompt.contains(&format!("distinctive-decision-statement-{n}")));
+        }
+    });
+}
+
+#[test]
+fn every_changed_file_path_from_folded_summaries_appears_in_the_rendered_output() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task_with_n_summaries(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Folded changed files",
+            9,
+        );
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        let prompt = render_prompt(&packet, "");
+
+        for n in 0..4 {
+            assert!(
+                prompt.contains(&format!("distinctive/file-{n}.rs")),
+                "folded summary {n}'s changed_files path must survive the fold"
+            );
+        }
+    });
+}
+
+#[test]
+fn a_folded_auto_generated_summary_still_renders_the_auto_generated_marker() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        // The oldest summary (n=0) is auto_generated: true per `distinctive_summary_fields`, and
+        // falls inside the folded region for a nine-summary run.
+        let task = create_task_with_n_summaries(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Folded auto-generated marker",
+            9,
+        );
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        assert!(packet.summaries[0].auto_generated);
+
+        let prompt = render_prompt(&packet, "");
+        assert!(
+            prompt.contains("### Session 1 (auto-generated — no agent summary was recorded for this run)"),
+            "the folded, auto-generated first session must still carry its marker: {prompt}"
+        );
+    });
+}
+
+#[test]
+fn context_packet_compaction_reports_total_folded_and_verbatim_counts_and_ranges() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task_with_n_summaries(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Compaction boundary fields",
+            9,
+        );
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        assert_eq!(packet.compaction.total, 9);
+        assert_eq!(packet.compaction.folded_count, 4);
+        assert_eq!(packet.compaction.verbatim_count, 5);
+        assert_eq!(packet.compaction.folded_range, Some((1, 4)));
+        assert_eq!(packet.compaction.verbatim_range, Some((5, 9)));
+    });
+}
+
+#[test]
+fn two_render_prompt_calls_for_the_same_packet_are_byte_identical_with_folding_in_effect() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task_with_n_summaries(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Folding determinism",
+            9,
+        );
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        let prompt_a = render_prompt(&packet, "");
+        let prompt_b = render_prompt(&packet, "");
+        assert_eq!(
+            prompt_a, prompt_b,
+            "two render_prompt calls for the same packet must be byte-identical with folding in effect"
+        );
+    });
+}
+
+#[test]
+fn two_assemble_context_packet_calls_against_an_unchanged_database_with_nine_summaries_return_equal_packets_including_equal_compaction(
+) {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task_with_n_summaries(
+            &mut conn,
+            &project.id,
+            &actor_id,
+            "Compaction determinism",
+            9,
+        );
+
+        let packet_a = assemble_context_packet(&conn, &task.id).expect("first assembly should succeed");
+        let packet_b = assemble_context_packet(&conn, &task.id).expect("second assembly should succeed");
+        assert_eq!(
+            packet_a, packet_b,
+            "two calls against an unchanged database must be structurally equal, compaction included"
+        );
+        assert_eq!(packet_a.compaction, packet_b.compaction);
     });
 }
