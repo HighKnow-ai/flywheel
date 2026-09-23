@@ -104,6 +104,13 @@ export function pretoolUseHookScriptPath(): string {
   return fileURLToPath(new URL("./pretooluse-hook.js", import.meta.url));
 }
 
+/** The compiled standalone authoring stage-gate hook script's absolute path (D-88, plan 05-03) —
+ * resolved relative to THIS compiled module's own location, the same sibling-file idiom
+ * [`pretoolUseHookScriptPath`] already uses. */
+export function stageGateHookScriptPath(): string {
+  return fileURLToPath(new URL("./stage-gate-hook.js", import.meta.url));
+}
+
 /** Where a per-run `--settings` JSON injecting the `PreToolUse` hook is written (plan 03-07):
  * `<runtimeDir>/settings/<runId>.json`, alongside `runtime_protocol.rs`'s own per-run file
  * conventions (`runs/<runId>.json`, `shim/<runId>/`). */
@@ -133,12 +140,29 @@ function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
   return fs.existsSync(candidate) ? candidate : undefined;
 }
 
+/** D-88 (plan 05-03): the second `PreToolUse` matcher — every write-capable tool on the
+ * authoring MCP server, by the `propose_`/`amend_`/`delete_` name-prefix convention plan 05-02
+ * established. Built from the SAME `MCP_SERVER_NAME` constant `mcp-permission-server.ts` declares
+ * its tool names against, so this matcher and the server's own registration can never drift
+ * apart. Exported so `authoring-stage-gate.test.mjs` can compile it as a real `RegExp` and assert
+ * it matches `propose_task` while NOT matching `approve_action`/`report_summary`/a read tool name,
+ * rather than asserting on the literal string alone. */
+export const AUTHORING_STAGE_GATE_MATCHER = `mcp__${MCP_SERVER_NAME}__(propose|amend|delete)_.*`;
+
 /** Write `<runtimeDir>/settings/<runId>.json` — the exact `PreToolUse`/`matcher: "Bash"` shape
  * RESEARCH.md confirmed working live against the real `claude` binary this session (§ "The hook
- * mechanism verified working this session") — and return its path. A write failure here degrades
- * to "no hook injected for this session" (logged, never thrown): the shim (D-51/D-58) is the
- * load-bearing guarantee: `startSession` must not refuse an entire session over this
- * defense-in-depth layer failing to write one file. */
+ * mechanism verified working this session"), EXTENDED (plan 05-03, D-88) with a SECOND
+ * `PreToolUse` entry gating the authoring MCP server's write tools — and return its path. The
+ * first entry stays byte-identical: the destructive-command gate must keep working unchanged for
+ * any `Bash` call an authoring session's read-only posture still permits (e.g. `git log`).
+ *
+ * A write failure here degrades to "no hook injected for this session" (logged, never thrown) —
+ * unchanged for `startSession` (the shim, D-51/D-58, is that path's load-bearing guarantee, so a
+ * settings-write failure must not refuse an entire task-execution session over this
+ * defense-in-depth layer). `startAuthoringSession` does NOT share that reasoning: for an
+ * authoring run a missing stage gate means the challenge stage can be skipped entirely, directly
+ * defeating SHAPE-01 — see that function's own handling of an `undefined` return from this
+ * function. */
 function writeHookSettings(runtimeDir: string, runId: string): string | undefined {
   try {
     const settingsPath = permissionSettingsPath(runtimeDir, runId);
@@ -149,6 +173,10 @@ function writeHookSettings(runtimeDir: string, runId: string): string | undefine
           {
             matcher: "Bash",
             hooks: [{ type: "command", command: `${process.execPath} ${pretoolUseHookScriptPath()}` }],
+          },
+          {
+            matcher: AUTHORING_STAGE_GATE_MATCHER,
+            hooks: [{ type: "command", command: `${process.execPath} ${stageGateHookScriptPath()}` }],
           },
         ],
       },
@@ -1145,6 +1173,25 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionServer,
     };
     liveSessions.set(options.runId, session);
+
+    // T-05-03-01: for an authoring run, a missing stage gate means the challenge stage can be
+    // skipped entirely, directly defeating SHAPE-01 — unlike `startSession`'s own posture (the
+    // shim is the load-bearing guarantee there), this failure is surfaced rather than silently
+    // degraded. A `system_notice` on this SAME session stream — never a thrown error, never a
+    // refused session — so Task 3's banner can render it exactly as `PersistenceFailureBanner`
+    // renders its own session-scoped I/O-fault notice.
+    if (settingsPath === undefined) {
+      session.onEvent({
+        runId: options.runId,
+        seq: session.nextSeq++,
+        at: new Date().toISOString(),
+        raw: "system_notice: the challenge-stage gate could not be installed for this session",
+        type: "system_notice",
+        text:
+          "The challenge-stage gate could not be installed for this session — a proposal could be " +
+          "staged before the stage advances.",
+      });
+    }
 
     const rl = createInterface({ input: child.stdout });
 
