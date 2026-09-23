@@ -23,7 +23,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::event::{append_event, next_sequence};
-use crate::ids::new_id;
+use crate::ids::{is_ulid, new_id};
 
 /// One decision entry inside a summary's `decisions` list (D-65) — a discrete, stable-id-bearing
 /// entry, never a single prose blob. `id` is the stable identifier D-73's acknowledgement flow
@@ -360,4 +360,121 @@ pub fn latest_summary_for_run(
     conn.query_row(LATEST_SUMMARY_FOR_RUN_SQL, params![agent_run_id], row_to_summary)
         .optional()
         .context("failed to look up the latest summary for this run")
+}
+
+/// What [`apply_summary_reported`] did with one inbound `summary_reported` event (plan 04-06).
+/// The `String` carried by `Recorded` is the new summary's id.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SummaryReportOutcome {
+    /// The event's `type` was not `summary_reported`, or it carried no `runId`, or the `runId`
+    /// was not a well-formed ULID. Nothing was read from or written to the database.
+    Ignored,
+    /// The `runId` was a well-formed ULID, but it names no `agent_runs` row.
+    UnknownRun,
+    /// One row was written, attributed to the run's own task/project/actor.
+    Recorded(String),
+}
+
+/// Apply one inbound `summary_reported` event (D-64/D-65, plan 04-03's wire shape) — the
+/// database-only half of the sidecar's `report_summary` write surface, testable without a
+/// spawned sidecar. Copies [`crate::domain::agent_run::apply_session_closed`]'s own guard
+/// sequence, in the same order and for the same stated reasons: wrong event type is ignored,
+/// a missing `runId` is ignored, and a non-ULID `runId` is rejected with [`SummaryReportOutcome::Ignored`]
+/// BEFORE any database statement is issued — a run id read off a sidecar stdout line is exactly
+/// as trusted as any other value crossing that process boundary, never more (T-04-01).
+///
+/// `taskId`, `projectId` and `worktreeId` — if present on the event at all — are never read.
+/// Identity comes ONLY from the `agent_runs` row the (already-validated) `runId` resolves to,
+/// exactly like [`insert_summary_row`]'s own resolution. This is what makes the spoofing
+/// property checkable by grep, not only by test: this function's body contains no lookup of
+/// those three keys.
+///
+/// Deserialises the six wire content fields from their camelCase names (`changedFiles`,
+/// `changedProse`, `remains`, `nextSessionMustKnow`, `decisions`, `acknowledgedDecisions`).
+/// Absent optional strings become `None`; absent arrays become empty vectors — never an error,
+/// never a fabricated value. A `decisions` element that is not an object carrying string `id`
+/// and `statement` fields is dropped; its well-formed siblings are kept, so one malformed entry
+/// never fails the whole write.
+///
+/// `auto_generated` is always `false` and `diff_ref` is always `None` — the agent-authored path
+/// never claims the fallback flag, and the diff reference is filled at packet-assembly time by a
+/// later plan, not here. The actor is resolved from the run's own `agent_runs.actor_id`, and the
+/// write is delegated to [`create_summary`] so there is still exactly one insert site in this
+/// module.
+pub fn apply_summary_reported(
+    conn: &mut Connection,
+    event: &serde_json::Value,
+) -> anyhow::Result<SummaryReportOutcome> {
+    if event.get("type").and_then(|v| v.as_str()) != Some("summary_reported") {
+        return Ok(SummaryReportOutcome::Ignored);
+    }
+
+    let Some(run_id) = event.get("runId").and_then(|v| v.as_str()) else {
+        return Ok(SummaryReportOutcome::Ignored);
+    };
+
+    if !is_ulid(run_id) {
+        return Ok(SummaryReportOutcome::Ignored);
+    }
+
+    let actor_id: Option<String> = conn
+        .query_row(
+            "SELECT actor_id FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("failed to read agent_runs row before applying summary_reported")?;
+
+    let Some(actor_id) = actor_id else {
+        return Ok(SummaryReportOutcome::UnknownRun);
+    };
+
+    let changed_files: Vec<String> = event
+        .get("changedFiles")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+
+    let changed_prose =
+        event.get("changedProse").and_then(|v| v.as_str()).map(str::to_string);
+    let remains = event.get("remains").and_then(|v| v.as_str()).map(str::to_string);
+    let next_session_must_know =
+        event.get("nextSessionMustKnow").and_then(|v| v.as_str()).map(str::to_string);
+
+    let decisions: Vec<DecisionEntry> = event
+        .get("decisions")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|entry| {
+                    let obj = entry.as_object()?;
+                    let id = obj.get("id")?.as_str()?.to_string();
+                    let statement = obj.get("statement")?.as_str()?.to_string();
+                    Some(DecisionEntry { id, statement })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let acknowledged_decisions: Vec<String> = event
+        .get("acknowledgedDecisions")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+
+    let fields = SummaryFields {
+        changed_files,
+        changed_prose,
+        remains,
+        next_session_must_know,
+        decisions,
+        acknowledged_decisions,
+        diff_ref: None,
+        auto_generated: false,
+    };
+
+    let summary = create_summary(conn, run_id, fields, &actor_id)?;
+
+    Ok(SummaryReportOutcome::Recorded(summary.id))
 }
