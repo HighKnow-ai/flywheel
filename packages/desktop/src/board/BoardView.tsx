@@ -39,6 +39,7 @@ import { BoardRow, ROW_HEIGHT } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
 import { IssuesLane } from "./IssuesLane";
 import { TriageLane } from "./TriageLane";
+import { useProjectProposals } from "../authoring/useAuthoringQuery";
 import { QuickAdd } from "./QuickAdd";
 import { DoneWarning } from "./DoneWarning";
 import { DeleteConfirm } from "./DeleteConfirm";
@@ -329,6 +330,21 @@ export function BoardView({
     () => new Set(recoverySummaryQuery.data?.recoveryTaskIds ?? []),
     [recoverySummaryQuery.data],
   );
+
+  // D-82's epic-row pending-proposal count (plan 05-08 Task 3) — derived client-side from the
+  // SAME project-scoped proposal window `TriageLane.tsx` reads through `useProjectProposals`
+  // (TanStack Query dedupes the identical query key, so this is a second subscriber to the same
+  // cached read, never a second network round trip). Never joins `blockedTaskIds`/`recoveryTaskIds`
+  // above or `board_blocked_summary` (T-05-08's own rule: a pending proposal burns no money, D-46).
+  const proposalsQuery = useProjectProposals(projectId);
+  const pendingProposalCountByEpicId = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const proposal of proposalsQuery.data?.proposals ?? []) {
+      if (!proposal.epicId) continue;
+      counts[proposal.epicId] = (counts[proposal.epicId] ?? 0) + 1;
+    }
+    return counts;
+  }, [proposalsQuery.data]);
 
   // Item id -> {key, title, kind} for both epics and tasks — `IssuesLane.tsx` looks an issue's
   // `epicId`/`taskId` up against this map to render its parent button (G-01-EPIC-ASSIGN, plan
@@ -816,6 +832,7 @@ export function BoardView({
                   setSize={counts[BAND_COUNT_KEY[row.item.status as BandStatus]]}
                   blocked={blockedTaskIds.has(row.item.id)}
                   needsDecision={recoveryTaskIds.has(row.item.id)}
+                  pendingProposalCount={pendingProposalCountByEpicId[row.item.id] ?? 0}
                   onSelect={() => setSelectedId(row.item.id)}
                   onOpenDetail={() => {
                     setSelectedId(row.item.id);

@@ -8,6 +8,8 @@
  * - Per-row accept and reject call the shared mutation hooks (the same command names the tray
  *   uses — `authoring_proposal_accept`/`authoring_proposal_reject`).
  * - The lane header offers no accept/reject/amend/decision control (D-95, SHAPE-04).
+ * - A proposal belonging to a run that has already reached a terminal status still renders with
+ *   its actions enabled (plan 05-08 Task 3(b), D-82/D-83: staging outlives the session).
  * - The lane renders nothing at all (not an empty shell) when there are no pending proposals.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -191,6 +193,36 @@ describe("TriageLane", () => {
     expect(within(header).queryByText("Accept")).not.toBeInTheDocument();
     expect(within(header).queryByText("Reject")).not.toBeInTheDocument();
     expect(within(header).queryByText("Amend")).not.toBeInTheDocument();
+  });
+
+  it("renders a proposal belonging to a terminal run with its actions enabled (D-82/D-83: staging outlives the session)", async () => {
+    // The lane's own read (`query::authoring::list_pending_proposals`) is scoped to proposal
+    // status, never run status — a proposal from a run that has already reached `completed`/
+    // `failed`/`interrupted`/`abandoned` is indistinguishable, on the wire, from one whose run is
+    // still `running`. This is the React half of the property `authoring_proposal.rs`'s own
+    // `a_pending_proposal_survives_its_run_reaching_*` tests prove on the Rust side: the row
+    // renders exactly the same, with accept/reject enabled, regardless of what became of the
+    // session that produced it.
+    mockPendingWindow([
+      makeProposal({
+        id: "task-1",
+        agentRunId: "run-ended",
+        payload: { kind: "task", title: "Left behind by an ended session" },
+      }),
+    ]);
+
+    renderWithClient(<TriageLane projectId="proj-1" />);
+
+    await waitFor(() => expect(screen.getByText("Left behind by an ended session")).toBeInTheDocument());
+    const acceptButton = screen.getByRole("button", { name: "Accept" });
+    const rejectButton = screen.getByRole("button", { name: "Reject" });
+    expect(acceptButton).toBeEnabled();
+    expect(rejectButton).toBeEnabled();
+
+    fireEvent.click(acceptButton);
+    await waitFor(() =>
+      expect(invokeCommandMock).toHaveBeenCalledWith("authoring_proposal_accept", { proposalId: "task-1" }),
+    );
   });
 
   it("renders nothing at all when there are no pending proposals", async () => {

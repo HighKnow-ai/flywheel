@@ -8,7 +8,9 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use core::domain::acceptance_criterion::{create_criterion, list_current_criteria};
-use core::domain::agent_run::start_agent_run;
+use core::domain::agent_run::{
+    close_agent_run, interrupt_agent_run, mark_abandoned, start_agent_run, AgentRunStatus,
+};
 use core::domain::authoring_proposal::{
     accept_proposal, accept_subtree, amend_proposal, create_proposal, pending_proposals_for_run,
     reject_proposal, ProposalPayload, ProposalUndecidable, ProposalVerb,
@@ -17,6 +19,7 @@ use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::project::Project;
 use core::domain::task::{create_task, delete_task};
 use core::query::authoring::list_pending_proposals;
+use core::query::permissions::{blocked_count_for_project, blocked_task_ids_for_project};
 use rusqlite::{params, Connection};
 
 /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `advance_stage` writes
@@ -1093,6 +1096,125 @@ fn pending_proposals_lane_clamp_holds_for_a_ten_million_request() {
             core::query::authoring::MAX_LIMIT,
             "a 10,000,000 request must never reach SQLite as-is — it is clamped to MAX_LIMIT"
         );
+    });
+}
+
+// ============================================================================================
+// Task 3(b): the property this whole plan exists for — a session that ends while proposals are
+// still pending leaves them pending, visible and decidable, for all four terminal run statuses.
+// ============================================================================================
+
+/// Starts a fresh project + authoring run advanced to `decompose`, stages one `create`/`task`
+/// proposal under it, and returns everything the four status-transition tests below need.
+fn ready_run_with_one_pending_proposal(
+) -> (Connection, String, Project, String, core::domain::authoring_proposal::Proposal) {
+    let (mut conn, human_actor_id, project, run_id) = ready_run();
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Task { title: "Survives the session ending".to_string(), description: None },
+        None,
+        None,
+    )
+    .unwrap();
+    (conn, human_actor_id, project, run_id, proposal)
+}
+
+/// Asserts the three-part property Task 3(b) exists to prove, after a run has reached ANY
+/// terminal status: the proposal is still `pending`, still returned by the project-scoped lane
+/// read, and still acceptable — producing the canonical row exactly as it would have mid-session.
+fn assert_proposal_survives_terminal_run(
+    conn: &mut Connection,
+    human_actor_id: &str,
+    project: &Project,
+    proposal: &core::domain::authoring_proposal::Proposal,
+) {
+    assert_eq!(proposal_status(conn, &proposal.id), "pending");
+
+    let window = list_pending_proposals(conn, &project.id, 10, None).unwrap();
+    let ids: Vec<&str> = window.proposals.iter().map(|p| p.id.as_str()).collect();
+    assert!(
+        ids.contains(&proposal.id.as_str()),
+        "a proposal from a terminal run must still appear in the project-scoped lane read"
+    );
+
+    let before = count_tasks(conn);
+    let outcome = accept_proposal(conn, &proposal.id, human_actor_id).unwrap();
+    assert_eq!(count_tasks(conn), before + 1);
+    let status: String = conn
+        .query_row("SELECT status FROM tasks WHERE id = ?1", params![outcome.materialised_id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        status, "backlog",
+        "accepting a proposal after its session ended must produce the canonical row exactly as \
+         it would have during the session"
+    );
+}
+
+#[test]
+fn a_pending_proposal_survives_its_run_reaching_completed() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id, proposal) = ready_run_with_one_pending_proposal();
+        close_agent_run(&mut conn, &run_id, AgentRunStatus::Completed, None, None, None).unwrap();
+        assert_proposal_survives_terminal_run(&mut conn, &human_actor_id, &project, &proposal);
+    });
+}
+
+#[test]
+fn a_pending_proposal_survives_its_run_reaching_failed() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id, proposal) = ready_run_with_one_pending_proposal();
+        close_agent_run(&mut conn, &run_id, AgentRunStatus::Failed, None, None, None).unwrap();
+        assert_proposal_survives_terminal_run(&mut conn, &human_actor_id, &project, &proposal);
+    });
+}
+
+#[test]
+fn a_pending_proposal_survives_its_run_reaching_interrupted() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id, proposal) = ready_run_with_one_pending_proposal();
+        interrupt_agent_run(&mut conn, &run_id, &human_actor_id).unwrap();
+        assert_proposal_survives_terminal_run(&mut conn, &human_actor_id, &project, &proposal);
+    });
+}
+
+#[test]
+fn a_pending_proposal_survives_its_run_reaching_abandoned() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id, proposal) = ready_run_with_one_pending_proposal();
+        let wrote = mark_abandoned(&mut conn, &run_id, &human_actor_id, None).unwrap();
+        assert!(wrote, "mark_abandoned should have performed a real transition from running");
+        assert_proposal_survives_terminal_run(&mut conn, &human_actor_id, &project, &proposal);
+    });
+}
+
+// --- T-05-08's own money-burning distinction (D-46): a pending proposal never joins the blocked
+// rollup, in either shape that rollup is read (the board's task-row indicator and the rail count) ---
+
+#[test]
+fn pending_proposals_never_join_the_blocked_task_ids_or_the_blocked_count() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _human_actor_id, project, run_id) = ready_run();
+        for i in 0..3 {
+            create_proposal(
+                &mut conn,
+                &run_id,
+                ProposalVerb::Create,
+                ProposalPayload::Task { title: format!("unrelated to blocked {i}"), description: None },
+                None,
+                None,
+            )
+            .unwrap();
+        }
+
+        let blocked_ids = blocked_task_ids_for_project(&conn, &project.id).unwrap();
+        assert!(blocked_ids.is_empty(), "a pending proposal must never appear as a blocked task id");
+
+        let blocked_count = blocked_count_for_project(&conn, &project.id).unwrap();
+        assert_eq!(blocked_count, 0, "a pending proposal must never be counted as blocked (D-46)");
     });
 }
 

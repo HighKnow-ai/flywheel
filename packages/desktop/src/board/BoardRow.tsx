@@ -50,6 +50,18 @@
  * exempt from the row's progressive-disclosure ladder, not one, per 03-UI-SPEC.md's own rule that
  * when a long title and both pills compete for row width, both pills hold their space and the
  * title truncates instead.
+ *
+ * Plan 05-08 Task 3 adds a third signal, the pending-proposal count (D-82's count, "free from
+ * D-37's board-visible-state-plus-rail-count precedent") — but it is deliberately NOT a third pill
+ * beside Blocked/Needs Decision: a proposal waiting on a decision burns no money (D-46: only money
+ * burning blocks), so it must never be mistaken for one at a glance. It renders ONLY on an epic's
+ * own row (`isEpic`), in the `field-epic-pill` slot that field is never used for on an epic row
+ * (the epic-pill field renders nothing for an epic — an epic has no epic of its own), which is
+ * what keeps it from ever occupying the same row real estate as the two corner pills near the
+ * status glyph. It reuses `--accent-text-strip` — the strip-stock sibling of `--accent-text-rack`,
+ * already the "agent, non-blocking" informational role everywhere else in this product (the
+ * authoring-stage indicator, the proposal tray's own target-type label) — never the blocked role
+ * two pills above already carry, and no new token was added.
  */
 import type { CSSProperties, ComponentType, MouseEvent } from "react";
 import * as icons from "lucide-react";
@@ -110,6 +122,13 @@ export interface BoardRowProps {
    * read, never a per-row query of its own. Renders the Needs Decision pill trailing the Blocked
    * pill (or the status glyph alone); absent (not a visible zero) when `false`. */
   needsDecision?: boolean;
+  /** How many pending authoring proposals target this epic (D-82, plan 05-08 Task 3) — computed
+   * client-side by `BoardView` from the same project-scoped proposal window `TriageLane.tsx`
+   * reads, never a per-row query of its own (mirrors `blocked`/`needsDecision` above). Ignored for
+   * a task row: only an epic's own row carries this count (a proposed task with no epic yet has no
+   * row to carry it — that is D-82's own reason the triage lane exists). Absent (not a visible
+   * zero) when `0`/`undefined`. */
+  pendingProposalCount?: number;
   onSelect?: () => void;
   onOpenDetail?: () => void;
   onOpenStatusPicker?: () => void;
@@ -137,6 +156,7 @@ export function BoardRow({
   setSize,
   blocked = false,
   needsDecision = false,
+  pendingProposalCount = 0,
   onSelect,
   onOpenDetail,
   onOpenStatusPicker,
@@ -157,6 +177,7 @@ export function BoardRow({
   // readable word rather than back to an internal identifier.
   const epicUnresolvedMark = MARKS_BY_ID["epic-pill-unresolved"];
   const criteriaBadgeMark = MARKS_BY_ID["criteria-count-badge"];
+  const proposalPendingMark = MARKS_BY_ID["proposal-pending"];
   const estimateId = estimateMarkId(item.estimate);
   const estimateMark = estimateId ? MARKS_BY_ID[estimateId] : undefined;
   const assignee = item.assigneeId ? actorsById?.[item.assigneeId] : undefined;
@@ -363,6 +384,22 @@ export function BoardRow({
           title={!item.epicId ? epicMark?.meaning : epic ? undefined : epicUnresolvedMark?.meaning}
         >
           {epicLabel}
+        </span>
+      )}
+      {isEpic && pendingProposalCount > 0 && (
+        // D-82 (plan 05-08 Task 3): the epic-pill field slot is never used for an epic row itself
+        // (an epic has no epic of its own, see `!isEpic` above) — reused here rather than adding a
+        // new field, so this signal never competes with the Blocked/Needs Decision pills near the
+        // status glyph for the same row space. Not a `blocked`-role colour (D-46: a pending
+        // proposal burns no money) — `--accent-text-strip`, the same "agent, informational" role
+        // `--accent-text-rack` already carries elsewhere in this product.
+        <span
+          className="field-epic-pill type-label tabular-nums"
+          title={proposalPendingMark?.meaning}
+          style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0, color: "var(--accent-text-strip)" }}
+        >
+          <Icon name={proposalPendingMark?.glyph ?? "FileClock"} size={12} />
+          {pendingProposalCount}
         </span>
       )}
       <span
