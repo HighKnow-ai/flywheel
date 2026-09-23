@@ -15,7 +15,7 @@
 //! the outcome implies.
 
 use anyhow::Context;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::AppState;
@@ -183,6 +183,69 @@ pub fn authoring_proposals_for_run(
     )
     .map_err(|e| e.to_string())?;
     Ok(proposals.into_iter().map(ProposalDto::from).collect())
+}
+
+/// Per-status proposal counts (`query::authoring::ProposalStatusCounts`), projected for the
+/// renderer — the triage lane header's own "N pending, M total" read.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalStatusCountsDto {
+    pub pending: i64,
+    pub accepted: i64,
+    pub rejected: i64,
+}
+
+impl From<flywheel_core::query::authoring::ProposalStatusCounts> for ProposalStatusCountsDto {
+    fn from(counts: flywheel_core::query::authoring::ProposalStatusCounts) -> Self {
+        Self { pending: counts.pending, accepted: counts.accepted, rejected: counts.rejected }
+    }
+}
+
+/// [`authoring_proposals_pending`]'s return shape — the bounded window plus the project's
+/// per-status counts, so the triage lane can report its own scale without a second round trip.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalWindowDto {
+    pub proposals: Vec<ProposalDto>,
+    pub counts: ProposalStatusCountsDto,
+}
+
+/// The opaque resume point the triage lane echoes back unchanged from the last row of the prior
+/// window it received — mirrors `commands/board.rs`'s `BoardCursorInput` doc comment: the
+/// renderer never constructs one from scratch, only forwards it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalCursorInput {
+    pub created_at: String,
+    pub id: String,
+}
+
+/// The board-level triage lane's own read (D-82) — every PENDING proposal across `project_id`,
+/// bounded and clamped through the SAME `resolve_limit` idiom `commands/board.rs` uses (redeclared
+/// at this module's own top, per this file's own header comment). Calls only
+/// `query::authoring::list_pending_proposals` — never a second read path the tray and this lane
+/// could disagree about.
+#[tauri::command]
+pub fn authoring_proposals_pending(
+    state: State<AppState>,
+    project_id: String,
+    limit: Option<i64>,
+    cursor: Option<ProposalCursorInput>,
+) -> Result<ProposalWindowDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let resolved_limit = resolve_limit(limit);
+    let cursor_ref = cursor.as_ref().map(|c| (c.created_at.as_str(), c.id.as_str()));
+    let window = flywheel_core::query::authoring::list_pending_proposals(
+        &conn,
+        &project_id,
+        resolved_limit,
+        cursor_ref,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(ProposalWindowDto {
+        proposals: window.proposals.into_iter().map(ProposalDto::from).collect(),
+        counts: window.counts.into(),
+    })
 }
 
 /// Accept a pending proposal (D-92/D-96) — the ONLY path that ever turns a staged proposal into a

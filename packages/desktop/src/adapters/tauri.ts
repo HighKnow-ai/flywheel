@@ -760,6 +760,37 @@ export async function acceptAuthoringProposal(proposalId: string): Promise<void>
   await invokeCommand<void>("authoring_proposal_accept", { proposalId });
 }
 
+/**
+ * D-82 (plan 05-08): the board-level triage lane's own read — every pending proposal across a
+ * project, bounded server-side, plus the per-status counts the lane header needs. Mirrors
+ * `commands/authoring.rs`'s `ProposalWindowDto`/`ProposalStatusCountsDto` field-for-field.
+ */
+export interface ProposalStatusCountsDto {
+  pending: number;
+  accepted: number;
+  rejected: number;
+}
+
+export interface ProposalWindowDto {
+  proposals: AuthoringProposalDto[];
+  counts: ProposalStatusCountsDto;
+}
+
+export interface ProposalCursorInput {
+  createdAt: string;
+  id: string;
+}
+
+/** Every pending proposal staged across `projectId`, bounded server-side — the board triage
+ * lane's own read. Thin typed wrapper over `authoring_proposals_pending`. */
+export async function authoringProposalsPending(
+  projectId: string,
+  limit?: number,
+  cursor?: ProposalCursorInput,
+): Promise<ProposalWindowDto> {
+  return invokeCommand<ProposalWindowDto>("authoring_proposals_pending", { projectId, limit, cursor });
+}
+
 /** Advance an authoring run to its next stage (D-88, D-90, plan 05-03) — the one gate the whole
  * phase depends on. Thin typed wrapper over `authoring_stage_advance`; resolves to the NEW stage
  * name. */

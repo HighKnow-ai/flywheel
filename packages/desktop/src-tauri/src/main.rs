@@ -168,6 +168,7 @@ fn main() {
             commands::settings::backend_capability_probe,
             commands::authoring::authoring_run_start,
             commands::authoring::authoring_proposals_for_run,
+            commands::authoring::authoring_proposals_pending,
             commands::authoring::authoring_proposal_accept,
             commands::authoring::authoring_subtree_accept,
             commands::authoring::authoring_proposal_reject,

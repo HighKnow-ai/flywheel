@@ -74,6 +74,71 @@ fn search_at_1000_items_is_under_50ms() {
     );
 }
 
+/// D-82/BOARD-08 (plan 05-08, Task 1): the board-level triage lane's own read stays inside the
+/// SAME 50ms budget at the SAME 1,000-item order of magnitude the board window already holds
+/// itself to — and populating the lane must not regress `list_board`'s own budget either.
+/// `authoring_proposals` carries no FTS sync trigger (unlike `tasks`), so a bulk `INSERT` here
+/// does not reintroduce the sync pitfall `seed_project`'s own header comment names for tasks.
+#[test]
+fn pending_proposals_lane_at_1000_items_stays_under_budget() {
+    let (mut conn, project_id) = fresh_seeded_1000();
+
+    let human_actor_id = core::domain::actor::local_human_actor_id(&conn)
+        .expect("the seeded human actor should exist");
+    let run = core::domain::authoring_session::start_authoring_run(
+        &mut conn,
+        &project_id,
+        None,
+        "default",
+        &human_actor_id,
+    )
+    .expect("start_authoring_run should succeed");
+
+    let now = "2026-01-01T00:00:00.000Z";
+    let tx = conn.transaction().expect("failed to open a fixture transaction");
+    for i in 0..1000 {
+        let id = core::ids::new_id();
+        let position = format!("{i:08}");
+        let payload =
+            serde_json::json!({ "kind": "task", "title": format!("proposed task {i}") }).to_string();
+        tx.execute(
+            "INSERT INTO authoring_proposals (
+                id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
+                parent_proposal_id, position, payload, status, rejection_reason, materialised_id,
+                created_by, created_at, decided_by, decided_at
+            ) VALUES (?1, ?2, ?3, NULL, 'create', 'task', NULL, NULL, ?4, ?5, 'pending', NULL, NULL, ?6, ?7, NULL, NULL)",
+            rusqlite::params![id, run.id, project_id, position, payload, human_actor_id, now],
+        )
+        .expect("failed to insert a fixture proposal");
+    }
+    tx.commit().expect("failed to commit fixture proposals");
+
+    let start = Instant::now();
+    let window = core::query::authoring::list_pending_proposals(&conn, &project_id, 200, None)
+        .expect("list_pending_proposals should succeed");
+    let lane_ms = start.elapsed().as_millis();
+    println!("pending-proposals lane at 1,000 proposals: {lane_ms}ms");
+    assert_eq!(window.proposals.len(), 200);
+    assert_eq!(window.counts.pending, 1000);
+    assert!(
+        lane_ms < BUDGET_MS,
+        "list_pending_proposals took {lane_ms}ms, budget is {BUDGET_MS}ms"
+    );
+
+    // BOARD-08: the board's own 1,000-item budget must hold unaffected by a populated proposal
+    // lane — this is the regression this task's own <verify> gate exists to catch.
+    let start = Instant::now();
+    let board_window = list_board(&conn, &project_id, &BoardFilter::default(), 200, None)
+        .expect("list_board should succeed");
+    let board_ms = start.elapsed().as_millis();
+    println!("unfiltered list_board at 1,000 items with a populated proposal lane: {board_ms}ms");
+    assert!(!board_window.items.is_empty());
+    assert!(
+        board_ms < BUDGET_MS,
+        "list_board took {board_ms}ms with a populated proposal lane, budget is {BUDGET_MS}ms"
+    );
+}
+
 #[test]
 fn board_window_uses_the_composite_index() {
     let (conn, project_id) = fresh_seeded_1000();

@@ -16,6 +16,7 @@ use core::domain::authoring_proposal::{
 use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::project::Project;
 use core::domain::task::{create_task, delete_task};
+use core::query::authoring::list_pending_proposals;
 use rusqlite::{params, Connection};
 
 /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `advance_stage` writes
@@ -871,6 +872,227 @@ fn pending_proposals_listing_is_stable_across_two_consecutive_reads() {
         let first_ids: Vec<&str> = first.iter().map(|p| p.id.as_str()).collect();
         let second_ids: Vec<&str> = second.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(first_ids, second_ids);
+    });
+}
+
+// ============================================================================================
+// The board-level triage lane's own read (D-82, plan 05-08 Task 1)
+// ============================================================================================
+
+#[test]
+fn pending_proposals_lane_includes_a_proposal_for_an_epic_that_does_not_exist_yet() {
+    with_scratch_runtime_dir(|| {
+        // `ready_run()` starts an authoring run with NO epic (a fresh-epic session, D-84) — its
+        // own proposals therefore carry `epic_id = NULL`. The lane read must not inner-join to
+        // `epics`, or this is exactly the row that would silently disappear (D-13's rule, in a
+        // new place — this IS SHAPE-01's primary case, not an edge case).
+        let (mut conn, _human_actor_id, project, run_id) = ready_run();
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Draft a task for a not-yet-real epic".to_string(), description: None },
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(proposal.epic_id.is_none());
+
+        let window = list_pending_proposals(&conn, &project.id, 10, None).unwrap();
+        let ids: Vec<&str> = window.proposals.iter().map(|p| p.id.as_str()).collect();
+        assert!(
+            ids.contains(&proposal.id.as_str()),
+            "a proposal whose epic does not exist yet must still appear in the lane"
+        );
+    });
+}
+
+#[test]
+fn pending_proposals_lane_is_scoped_to_one_project() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project_a) = common::seeded_project();
+        let project_b = core::domain::project::create_project(
+            &mut conn,
+            &human_actor_id,
+            "Second Project",
+            "/repo-b",
+            "SEC",
+            "main",
+        )
+        .unwrap();
+
+        let run_a = start_authoring_run(&mut conn, &project_a.id, None, "default", &human_actor_id).unwrap();
+        advance_stage(&mut conn, &run_a.id, &human_actor_id).unwrap();
+        let run_b = start_authoring_run(&mut conn, &project_b.id, None, "default", &human_actor_id).unwrap();
+        advance_stage(&mut conn, &run_b.id, &human_actor_id).unwrap();
+
+        let proposal_a = create_proposal(
+            &mut conn,
+            &run_a.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Project A's own task".to_string(), description: None },
+            None,
+            None,
+        )
+        .unwrap();
+        let proposal_b = create_proposal(
+            &mut conn,
+            &run_b.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Project B's own task".to_string(), description: None },
+            None,
+            None,
+        )
+        .unwrap();
+
+        let window_a = list_pending_proposals(&conn, &project_a.id, 10, None).unwrap();
+        let ids_a: Vec<&str> = window_a.proposals.iter().map(|p| p.id.as_str()).collect();
+        assert!(ids_a.contains(&proposal_a.id.as_str()));
+        assert!(
+            !ids_a.contains(&proposal_b.id.as_str()),
+            "project A's lane must never return project B's proposals"
+        );
+
+        let window_b = list_pending_proposals(&conn, &project_b.id, 10, None).unwrap();
+        let ids_b: Vec<&str> = window_b.proposals.iter().map(|p| p.id.as_str()).collect();
+        assert!(ids_b.contains(&proposal_b.id.as_str()));
+        assert!(!ids_b.contains(&proposal_a.id.as_str()));
+    });
+}
+
+#[test]
+fn pending_proposals_lane_ordering_is_stable_across_two_reads() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _human_actor_id, project, run_id) = ready_run();
+        for i in 0..5 {
+            create_proposal(
+                &mut conn,
+                &run_id,
+                ProposalVerb::Create,
+                ProposalPayload::Task { title: format!("lane task {i}"), description: None },
+                None,
+                None,
+            )
+            .unwrap();
+        }
+        let first = list_pending_proposals(&conn, &project.id, 10, None).unwrap();
+        let second = list_pending_proposals(&conn, &project.id, 10, None).unwrap();
+        let first_ids: Vec<&str> = first.proposals.iter().map(|p| p.id.as_str()).collect();
+        let second_ids: Vec<&str> = second.proposals.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(first_ids, second_ids);
+    });
+}
+
+#[test]
+fn pending_proposals_lane_excludes_decided_proposals_while_pending_ones_from_the_same_run_remain() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id) = ready_run();
+        let to_accept = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Will be accepted".to_string(), description: None },
+            None,
+            None,
+        )
+        .unwrap();
+        let to_reject = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Will be rejected".to_string(), description: None },
+            None,
+            None,
+        )
+        .unwrap();
+        let stays_pending = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Stays pending".to_string(), description: None },
+            None,
+            None,
+        )
+        .unwrap();
+
+        accept_proposal(&mut conn, &to_accept.id, &human_actor_id).unwrap();
+        reject_proposal(&mut conn, &to_reject.id, &human_actor_id, None).unwrap();
+
+        let window = list_pending_proposals(&conn, &project.id, 10, None).unwrap();
+        let ids: Vec<&str> = window.proposals.iter().map(|p| p.id.as_str()).collect();
+        assert!(!ids.contains(&to_accept.id.as_str()));
+        assert!(!ids.contains(&to_reject.id.as_str()));
+        assert!(ids.contains(&stays_pending.id.as_str()));
+    });
+}
+
+#[test]
+fn pending_proposals_lane_per_status_counts_match_the_rows() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id) = ready_run();
+        let mut pending_ids = Vec::new();
+        for i in 0..3 {
+            let p = create_proposal(
+                &mut conn,
+                &run_id,
+                ProposalVerb::Create,
+                ProposalPayload::Task { title: format!("count task {i}"), description: None },
+                None,
+                None,
+            )
+            .unwrap();
+            pending_ids.push(p.id);
+        }
+        let to_accept = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "counted accepted".to_string(), description: None },
+            None,
+            None,
+        )
+        .unwrap();
+        let to_reject = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "counted rejected".to_string(), description: None },
+            None,
+            None,
+        )
+        .unwrap();
+        accept_proposal(&mut conn, &to_accept.id, &human_actor_id).unwrap();
+        reject_proposal(&mut conn, &to_reject.id, &human_actor_id, None).unwrap();
+
+        let window = list_pending_proposals(&conn, &project.id, 10, None).unwrap();
+        assert_eq!(window.counts.pending, 3);
+        assert_eq!(window.counts.accepted, 1);
+        assert_eq!(window.counts.rejected, 1);
+        assert_eq!(window.proposals.len(), 3);
+    });
+}
+
+#[test]
+fn pending_proposals_lane_clamp_holds_for_a_ten_million_request() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _human_actor_id, project, run_id) = ready_run();
+        for i in 0..(core::query::authoring::MAX_LIMIT + 5) {
+            create_proposal(
+                &mut conn,
+                &run_id,
+                ProposalVerb::Create,
+                ProposalPayload::Task { title: format!("clamp task {i}"), description: None },
+                None,
+                None,
+            )
+            .unwrap();
+        }
+        let window = list_pending_proposals(&conn, &project.id, 10_000_000, None).unwrap();
+        assert_eq!(
+            window.proposals.len() as i64,
+            core::query::authoring::MAX_LIMIT,
+            "a 10,000,000 request must never reach SQLite as-is — it is clamped to MAX_LIMIT"
+        );
     });
 }
 

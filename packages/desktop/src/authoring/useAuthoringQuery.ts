@@ -22,9 +22,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   acceptAuthoringProposal,
   authoringProposalsForRun,
+  authoringProposalsPending,
   invokeCommand,
   subscribeBoardChanged,
   type AuthoringProposalDto,
+  type ProposalWindowDto,
 } from "../adapters/tauri";
 
 /** `useRunProposals`' query key, keyed by `agentRunId` — mirrors `board/useBoardQuery.ts`'s own
@@ -63,6 +65,46 @@ export function useRunProposals(agentRunId: string | null | undefined) {
     queryKey: authoringProposalsQueryKey(agentRunId ?? "none"),
     queryFn: () => authoringProposalsForRun(agentRunId as string),
     enabled: Boolean(agentRunId),
+  });
+}
+
+/** `useProjectProposals`' query key, keyed by `projectId` — the project-scoped sibling of
+ * [`authoringProposalsQueryKey`], read by plan 05-08's board triage lane. */
+export function projectProposalsQueryKey(projectId: string) {
+  return ["authoring-proposals-pending", projectId] as const;
+}
+
+/**
+ * Every pending proposal staged across `projectId` (D-82) — the board-level triage lane's own
+ * read. `useRunProposals`' project-scoped sibling: same mutation hooks, same `board:changed`-only
+ * invalidation discipline (see the module doc comment above), so the tray and the lane can never
+ * disagree about what is pending or what order things are in. `null`/`undefined` disables the
+ * query entirely, mirroring `useRunProposals`' own gated-mount pattern.
+ */
+export function useProjectProposals(projectId: string | null | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!projectId) return undefined;
+    const queryKey = projectProposalsQueryKey(projectId);
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [projectId, queryClient]);
+
+  return useQuery<ProposalWindowDto>({
+    queryKey: projectProposalsQueryKey(projectId ?? "none"),
+    queryFn: () => authoringProposalsPending(projectId as string),
+    enabled: Boolean(projectId),
   });
 }
 
