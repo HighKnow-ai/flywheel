@@ -24,6 +24,13 @@ use crate::branch::{epic_integration_branch_name, task_branch_name};
 use crate::domain::session_summary::DecisionEntry;
 use crate::domain::worktree::worktree_root;
 
+/// The fully-qualified `report_summary` MCP tool name, exactly as `packages/sidecar/src/
+/// mcp-permission-server.ts`'s `SUMMARY_TOOL_NAME` composes it (`mcp__${MCP_SERVER_NAME}__
+/// ${REPORT_SUMMARY_TOOL_NAME}`) — declared once on THIS side of the pair; the sidecar declares
+/// the other half. Both sides must agree exactly (T-04-17): a `<verify>` gate greps this file for
+/// exactly one occurrence of the literal string.
+pub const REPORT_SUMMARY_TOOL_NAME: &str = "mcp__flywheel-permissions__report_summary";
+
 /// One acceptance criterion entry, in rank order — statement plus its verification hint (D-05).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CriterionEntry {
@@ -77,6 +84,12 @@ pub struct ContextPacket {
     pub epic: Option<EpicSection>,
     pub criteria: Vec<CriterionEntry>,
     pub summaries: Vec<SummaryEntry>,
+    /// Every decision entry from `summaries`, deduplicated by id (first occurrence wins, order
+    /// preserved) — a pure fold over data this function already read, issuing no additional
+    /// query (D-73). Complete regardless of how many summaries have folded under compaction,
+    /// because compaction is lossless for decisions — which is why the closing read-back can be
+    /// checked against this list at all.
+    pub decisions: Vec<DecisionEntry>,
     pub worktree: WorktreeFacts,
 }
 
@@ -189,6 +202,19 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         .context("failed to read the task's session summaries")?;
     drop(summaries_stmt);
 
+    // Walk `summaries` oldest-first (their own read order, above) and collect every decision
+    // entry, deduplicated by id — first occurrence wins, order preserved. Pure transform over
+    // data already read; no additional query, no I/O (this file's own purity contract).
+    let mut decisions: Vec<DecisionEntry> = Vec::new();
+    let mut seen_decision_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for summary in &summaries {
+        for decision in &summary.decisions {
+            if seen_decision_ids.insert(decision.id.clone()) {
+                decisions.push(decision.clone());
+            }
+        }
+    }
+
     let existing_worktree: Option<(String, String, String)> = conn
         .query_row(WORKTREE_ROW_SQL, params![task_id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -235,6 +261,7 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         epic,
         criteria,
         summaries,
+        decisions,
         worktree,
     })
 }
@@ -323,12 +350,36 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
         }
     }
 
+    if !packet.decisions.is_empty() {
+        out.push_str("\n## Decisions On Record\n\n");
+        for decision in &packet.decisions {
+            out.push_str("- [");
+            out.push_str(&decision.id);
+            out.push_str("] ");
+            out.push_str(&decision.statement);
+            out.push('\n');
+        }
+    }
+
     let trimmed_instruction = instruction.trim();
     if !trimmed_instruction.is_empty() {
         out.push_str("\n## Additional Instructions\n\n");
         out.push_str(trimmed_instruction);
         out.push('\n');
     }
+
+    // The one section with no omit case (D-64) — every session must be told how to close, even a
+    // task with no criteria and no prior summaries. Placed last, so it is the final thing the
+    // agent reads.
+    out.push_str("\n## Closing Requirement\n\n");
+    out.push_str("Call the `");
+    out.push_str(REPORT_SUMMARY_TOOL_NAME);
+    out.push_str("` tool as your final turn to record this session's closing summary. Pass ");
+    out.push_str(
+        "changed_files, changed_prose, remains and next_session_must_know describing this \
+         session's own work, and set acknowledged_decisions to the ids — from the Decisions On \
+         Record section above, if any — that you are working under.\n",
+    );
 
     out
 }

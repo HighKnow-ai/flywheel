@@ -3,9 +3,12 @@
 
 mod common;
 
+use core::context_packet::{assemble_context_packet, render_prompt, REPORT_SUMMARY_TOOL_NAME};
 use core::domain::agent_run::{start_agent_run, AgentRun};
 use core::domain::project::Project;
-use core::domain::session_summary::{apply_summary_reported, SummaryReportOutcome};
+use core::domain::session_summary::{
+    apply_summary_reported, create_summary, DecisionEntry, SummaryFields, SummaryReportOutcome,
+};
 use core::domain::task::{create_task, Task};
 use core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
@@ -271,5 +274,141 @@ fn malformed_decisions_elements_are_dropped_and_well_formed_siblings_kept() {
         assert_eq!(decisions.len(), 2, "only the two well-formed entries must survive");
         assert_eq!(decisions[0]["id"], "D1");
         assert_eq!(decisions[1]["id"], "D3");
+    });
+}
+
+// --- Task 3: the accumulated decisions list and render_prompt's two new sections ------------
+
+#[test]
+fn the_accumulated_decisions_list_deduplicates_a_shared_id_and_preserves_first_occurrence_order() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, _project, _repo_dir, task, run) = seeded_task_and_run();
+
+        create_summary(
+            &mut conn,
+            &run.id,
+            SummaryFields {
+                changed_files: vec![],
+                changed_prose: Some("session one".to_string()),
+                remains: None,
+                next_session_must_know: None,
+                decisions: vec![
+                    DecisionEntry { id: "D1".to_string(), statement: "First statement of D1".to_string() },
+                    DecisionEntry { id: "D2".to_string(), statement: "Only ever stated once".to_string() },
+                ],
+                acknowledged_decisions: vec![],
+                diff_ref: None,
+                auto_generated: false,
+            },
+            &actor_id,
+        )
+        .expect("create_summary 1 should succeed");
+
+        create_summary(
+            &mut conn,
+            &run.id,
+            SummaryFields {
+                changed_files: vec![],
+                changed_prose: Some("session two".to_string()),
+                remains: None,
+                next_session_must_know: None,
+                // D1 restated with different wording — first occurrence must win.
+                decisions: vec![DecisionEntry {
+                    id: "D1".to_string(),
+                    statement: "Restated D1, must not overwrite the first occurrence".to_string(),
+                }],
+                acknowledged_decisions: vec![],
+                diff_ref: None,
+                auto_generated: false,
+            },
+            &actor_id,
+        )
+        .expect("create_summary 2 should succeed");
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        assert_eq!(packet.decisions.len(), 2, "D1 must be deduplicated to one entry");
+        assert_eq!(packet.decisions[0].id, "D1");
+        assert_eq!(
+            packet.decisions[0].statement, "First statement of D1",
+            "the FIRST occurrence's wording must win, never the later restatement"
+        );
+        assert_eq!(packet.decisions[1].id, "D2");
+    });
+}
+
+#[test]
+fn a_task_with_no_summaries_renders_no_decisions_heading_but_still_renders_the_closing_requirement() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "No summaries yet", None)
+            .expect("create_task should succeed");
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        assert!(packet.decisions.is_empty());
+
+        let prompt = render_prompt(&packet, "");
+        assert!(
+            !prompt.contains("## Decisions On Record"),
+            "an empty decisions list must render no heading at all (the closing requirement's own \
+             prose legitimately names the section, so the heading marker is what must be absent)"
+        );
+        assert!(
+            prompt.contains("## Closing Requirement"),
+            "the closing requirement has no omit case — it must always render"
+        );
+    });
+}
+
+#[test]
+fn the_rendered_closing_requirement_contains_the_fully_qualified_tool_string_character_for_character() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Closing requirement task", None)
+            .expect("create_task should succeed");
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        let prompt = render_prompt(&packet, "");
+
+        assert!(
+            prompt.contains(REPORT_SUMMARY_TOOL_NAME),
+            "the rendered prompt must name the exact tool string the sidecar registers"
+        );
+        assert_eq!(
+            REPORT_SUMMARY_TOOL_NAME, "mcp__flywheel-permissions__report_summary",
+            "the constant itself must match the sidecar's SUMMARY_TOOL_NAME composition"
+        );
+    });
+}
+
+#[test]
+fn render_prompt_is_byte_identical_across_two_calls_with_both_new_sections_present() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, _project, _repo_dir, task, run) = seeded_task_and_run();
+
+        create_summary(
+            &mut conn,
+            &run.id,
+            SummaryFields {
+                changed_files: vec!["src/lib.rs".to_string()],
+                changed_prose: Some("did the thing".to_string()),
+                remains: None,
+                next_session_must_know: None,
+                decisions: vec![DecisionEntry { id: "D1".to_string(), statement: "Statement".to_string() }],
+                acknowledged_decisions: vec![],
+                diff_ref: None,
+                auto_generated: false,
+            },
+            &actor_id,
+        )
+        .expect("create_summary should succeed");
+
+        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
+        assert!(!packet.decisions.is_empty());
+
+        let first = render_prompt(&packet, "steer it this way");
+        let second = render_prompt(&packet, "steer it this way");
+        assert_eq!(first, second);
+        assert!(first.contains("Decisions On Record"));
+        assert!(first.contains("Closing Requirement"));
     });
 }
