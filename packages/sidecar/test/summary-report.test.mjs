@@ -23,40 +23,7 @@ import { createInterface } from "node:readline";
 import { test } from "node:test";
 
 import { startPermissionServer, summaryToolDefinition } from "../dist/mcp-permission-server.js";
-
-/** Mirrors `socket-permissions.test.mjs::waitForListening` — `net.Server#listen`'s callback fires
- * on a later tick than `listen()` returns, so a successful connect is the observable proof the
- * server is actually accepting connections. */
-function waitForListening(socketPath) {
-  return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath);
-    client.once("connect", () => {
-      client.end();
-      resolve();
-    });
-    client.once("error", reject);
-  });
-}
-
-/** Connect a fresh socket to `socketPath`, write `rawLine` (already newline-terminated by the
- * caller convention this file uses — every call site below appends its own `"\n"`), and resolve
- * once the connection closes with whatever line (if any) was read before the close. Never
- * rejects on a connection error the caller expects (a destroyed socket after malformed input) —
- * callers that need to assert on an error path do so via the raw `client` handle instead. */
-function writeLineAndAwaitClose(socketPath, rawLine) {
-  return new Promise((resolve, reject) => {
-    const client = net.createConnection(socketPath, () => {
-      client.write(rawLine);
-    });
-    let receivedLine;
-    const rl = createInterface({ input: client });
-    rl.once("line", (line) => {
-      receivedLine = line;
-    });
-    client.once("error", reject);
-    client.once("close", () => resolve({ line: receivedLine }));
-  });
-}
+import { waitForListening, writeLineAndAwaitClose } from "./socket-test-helpers.mjs";
 
 test("a session_summary payload round-trips with a receipt ack and fires only onSummary", async () => {
   const summaryPayloads = [];
