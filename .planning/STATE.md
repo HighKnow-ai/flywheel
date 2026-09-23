@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-11-PLAN.md
-last_updated: "2026-09-23T23:09:13.789Z"
+stopped_at: Completed 05-12-PLAN.md
+last_updated: "2026-09-23T23:46:26.998Z"
 last_activity: 2026-09-24
 last_activity_desc: Phase 05 execution started
-state_head: c1bd6e27c165c07a9071fcbe66e22b85eef2ceb9
+state_head: 85bbd29ae684ebc0bc123161cdbfd89e518a8b6f
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 106
-  completed_plans: 104
+  completed_plans: 105
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 2 of 13
+Plan: 3 of 13
 Status: Ready to execute
 Last activity: 2026-09-24 — Phase 05 execution started
 
@@ -163,6 +163,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P08 | 55min | 3 tasks | 10 files |
 | Phase 05 P10 | 75min | 3 tasks | 23 files |
 | Phase 05 P11 | 20min | 3 tasks | 3 files |
+| Phase 05 P12 | 33min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -358,6 +359,9 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05-10]: uat_authoring_ops.rs (new harness binary) is the live UAT script's bridge to a real board write path -- apply-proposal-created calls authoring_proposal::apply_proposal_created directly, the SAME function the real desktop app's own inbound handler calls, so the live run's accept/reject/amend half is the real write path, not a simulation.
 - [Phase 05]: [Phase 05]: uat-08's live arm now imports and starts drainIncidentalPermissionRequests fire-and-forget after authoring_spawn, stopped via harness.onCleanup -- the same wiring uat-07/uat-06/uat-03 already had; uat-08 was the one live script that starved on its own session's startup git housekeeping.
 - [Phase 05]: [Phase 05]: 05-VALIDATION.md row 05-10-03 now names both uat-08 arms and marks the live arm 'pending a deliberate human run' rather than green -- the ledger had recorded the offline self-test as evidence for a live acceptance run that had never executed end to end.
+- [Phase 05]: [Phase 05]: authoring_turn_send surfaces its own delivery failure — the one authoring relay that does not swallow errors — since a developer who pressed send is entitled to know it did not land.
+- [Phase 05]: [Phase 05]: All four turn sources (developer-typed, reject/amend/distillation relays) render through the SAME developer_turn feed row kind, discriminated only by a persisted origin field, not a second row kind.
+- [Phase 05]: [Phase 05]: A developer_turn transcript line carries no seq (written directly by the Rust core, never through the sidecar's per-session counter) — keyForEvent keys it off its own minted turnId instead.
 
 ### Pending Todos
 
@@ -403,6 +407,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T23:08:48.076Z
-Stopped at: Completed 05-11-PLAN.md
+Last session: 2026-09-23T23:46:26.917Z
+Stopped at: Completed 05-12-PLAN.md
 Resume file: None
