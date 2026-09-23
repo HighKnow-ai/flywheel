@@ -535,6 +535,11 @@ const SUPPRESSED_EVENT_TYPES = new Set([
   // case. Suppressed here for the same reason `session_closed` is: it is rendered elsewhere (the
   // Activity Trail), never as a feed row at all.
   "git_lock_exhausted",
+  // Task 3, plan 05-12: the backend restating a turn the Rust core has already recorded — the
+  // developer_turn row (Task 2, above) is where that content renders. Suppressing here is not
+  // dropping: the same words are already on screen, written by the component that knows who
+  // actually said them.
+  "backend_echo",
 ]);
 
 /** A stable React/expand-tracking key for one raw log entry — `seq` (every normalised
