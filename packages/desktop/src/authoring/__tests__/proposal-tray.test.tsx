@@ -17,7 +17,7 @@
  * - `SessionSurface` mounts the tray ONLY when the run carries an `authoringStage`.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProposalTray } from "../ProposalTray";
 import { SessionSurface } from "../../session/SessionSurface";
@@ -321,6 +321,189 @@ describe("ProposalTray", () => {
   // shell gate (grep against the file contents), not something this suite re-derives — a runtime
   // test can only assert on rendered DOM, not on the source text a bundler has already compiled
   // away.
+});
+
+describe("ProposalTray — the four verbs, at the row (Task 2)", () => {
+  it("three synchronous clicks on Reject issue exactly one authoring_proposal_reject call", async () => {
+    let resolveReject: (() => void) | undefined;
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "authoring_proposals_for_run") return Promise.resolve([makeProposal()]);
+      if (command === "authoring_proposal_reject") {
+        return new Promise<void>((resolve) => {
+          resolveReject = resolve;
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderWithClient(<ProposalTray agentRunId="run-1" />);
+
+    const rejectButton = await screen.findByRole("button", { name: "Reject" });
+    rejectButton.click();
+    rejectButton.click();
+    rejectButton.click();
+
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("authoring_proposal_reject", expect.anything()));
+    expect(
+      invokeCommandMock.mock.calls.filter(([command]) => command === "authoring_proposal_reject"),
+    ).toHaveLength(1);
+    resolveReject?.();
+  });
+
+  it("rejecting with an empty reason succeeds", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "authoring_proposals_for_run") return Promise.resolve([makeProposal()]);
+      return Promise.resolve(undefined);
+    });
+
+    renderWithClient(<ProposalTray agentRunId="run-1" />);
+
+    const rejectButton = await screen.findByRole("button", { name: "Reject" });
+    rejectButton.click();
+    await waitFor(() =>
+      expect(invokeCommandMock).toHaveBeenCalledWith("authoring_proposal_reject", {
+        proposalId: "prop-1",
+        reason: undefined,
+      }),
+    );
+  });
+
+  it("a typed reason is passed to the backend verbatim", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "authoring_proposals_for_run") return Promise.resolve([makeProposal({ id: "prop-2" })]);
+      return Promise.resolve(undefined);
+    });
+
+    renderWithClient(<ProposalTray agentRunId="run-1" />);
+
+    const reasonInput = await screen.findByLabelText(/Reason for rejecting/);
+    fireEvent.change(reasonInput, { target: { value: "not what I asked for" } });
+    const rejectButton = screen.getByRole("button", { name: "Reject" });
+    rejectButton.click();
+
+    await waitFor(() =>
+      expect(invokeCommandMock).toHaveBeenCalledWith("authoring_proposal_reject", {
+        proposalId: "prop-2",
+        reason: "not what I asked for",
+      }),
+    );
+  });
+
+  it("the amend editor saves and the row stays pending with the new text; a subsequent accept sends the amended payload", async () => {
+    let currentTitle = "Write the onboarding doc";
+    invokeCommandMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === "authoring_proposals_for_run") {
+        return Promise.resolve([
+          makeProposal({ id: "prop-1", payload: { kind: "task", title: currentTitle } }),
+        ]);
+      }
+      if (command === "authoring_proposal_amend") {
+        const payload = args?.payload as { title?: string };
+        currentTitle = payload.title ?? currentTitle;
+        return Promise.resolve({ ...makeProposal(), payload: { kind: "task", title: currentTitle } });
+      }
+      if (command === "authoring_proposal_accept") {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderWithClient(<ProposalTray agentRunId="run-1" />);
+
+    const amendButton = await screen.findByRole("button", { name: "Amend" });
+    amendButton.click();
+
+    const titleInput = await screen.findByLabelText("Title");
+    fireEvent.change(titleInput, { target: { value: "Write the amended doc" } });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    saveButton.click();
+
+    await waitFor(() =>
+      expect(invokeCommandMock).toHaveBeenCalledWith(
+        "authoring_proposal_amend",
+        expect.objectContaining({ proposalId: "prop-1" }),
+      ),
+    );
+    // The row stays pending (it never disappears) and shows the new text once the query re-reads.
+    await waitFor(() => expect(screen.getByText("Write the amended doc")).toBeInTheDocument());
+
+    const acceptButton = screen.getByRole("button", { name: "Accept" });
+    acceptButton.click();
+    await waitFor(() =>
+      expect(invokeCommandMock).toHaveBeenCalledWith("authoring_proposal_accept", { proposalId: "prop-1" }),
+    );
+  });
+
+  it("the subtree action renders only on a task root with at least one pending child, and its label names the child count", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "authoring_proposals_for_run") {
+        return Promise.resolve([
+          makeProposal({
+            id: "criterion-1",
+            targetType: "criterion",
+            parentProposalId: "task-with-children",
+            payload: { kind: "criterion", statement: "A criterion", verification_hint: null },
+          }),
+          makeProposal({ id: "task-with-children", payload: { kind: "task", title: "Task with children" } }),
+          makeProposal({ id: "task-childless", payload: { kind: "task", title: "Task with no children" } }),
+        ]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderWithClient(<ProposalTray agentRunId="run-1" />);
+
+    await waitFor(() => expect(screen.getByText("Task with children")).toBeInTheDocument());
+    // Exactly one subtree button, naming the child count — not on the criterion row, and not on
+    // the childless task.
+    const subtreeButtons = screen.getAllByRole("button", { name: /Accept task and its \d+ criteria/ });
+    expect(subtreeButtons).toHaveLength(1);
+    expect(subtreeButtons[0].textContent).toContain("Accept task and its 1 criteria");
+  });
+
+  it("two different subtree roots clicked in the same tick issue two calls; three synchronous clicks on the same root issue one", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "authoring_proposals_for_run") {
+        return Promise.resolve([
+          makeProposal({
+            id: "criterion-a",
+            targetType: "criterion",
+            parentProposalId: "task-a",
+            payload: { kind: "criterion", statement: "Criterion A", verification_hint: null },
+          }),
+          makeProposal({ id: "task-a", payload: { kind: "task", title: "Task A" } }),
+          makeProposal({
+            id: "criterion-b",
+            targetType: "criterion",
+            parentProposalId: "task-b",
+            payload: { kind: "criterion", statement: "Criterion B", verification_hint: null },
+          }),
+          makeProposal({ id: "task-b", payload: { kind: "task", title: "Task B" } }),
+        ]);
+      }
+      if (command === "authoring_subtree_accept") return new Promise(() => {});
+      return Promise.resolve(undefined);
+    });
+
+    renderWithClient(<ProposalTray agentRunId="run-1" />);
+
+    await waitFor(() => expect(screen.getByText("Task A")).toBeInTheDocument());
+    const subtreeButtons = screen.getAllByRole("button", { name: /Accept task and its \d+ criteria/ });
+    expect(subtreeButtons).toHaveLength(2);
+
+    subtreeButtons[0].click();
+    subtreeButtons[0].click();
+    subtreeButtons[0].click();
+    subtreeButtons[1].click();
+
+    await waitFor(() =>
+      expect(
+        invokeCommandMock.mock.calls.filter(([command]) => command === "authoring_subtree_accept"),
+      ).toHaveLength(2),
+    );
+    expect(invokeCommandMock).toHaveBeenCalledWith("authoring_subtree_accept", { rootProposalId: "task-a" });
+    expect(invokeCommandMock).toHaveBeenCalledWith("authoring_subtree_accept", { rootProposalId: "task-b" });
+  });
 });
 
 describe("SessionSurface mounts ProposalTray only when the run carries an authoringStage", () => {

@@ -1,5 +1,5 @@
 /**
- * The proposal tray (D-80/D-82/D-92, plan 05-07 Task 1) — a sibling panel beside the feed on
+ * The proposal tray (D-80/D-82/D-92/D-95, plan 05-07) — a sibling panel beside the feed on
  * `SessionSurface.tsx`, reading its own query (`useAuthoringQuery.ts`'s `useRunProposals`) rather
  * than being woven into `FeedRow.tsx`'s per-event rendering — the same independent-re-render
  * boundary `StatusStrip`/`PermissionRequestCard` already use, which is what lets the tray update
@@ -11,11 +11,14 @@
  * can never disagree). An orphaned drafted criterion, whose named parent proposal is no longer in
  * the pending set (already decided), still renders — nothing here is ever silently dropped (D-16).
  *
- * Task 2 adds the accept-subtree guard and wires it down to each root row; Task 3 adds the tray's
- * own keyboard-driven selection.
+ * Owns the accept-subtree guard, keyed by root id (a `Set`, mirroring
+ * `recovery/OrphanRecoveryModal.tsx`'s `killingRef`) since two different subtrees must both be
+ * able to act at once, and only a repeat of the same one is suppressed. Task 3 adds the tray's own
+ * keyboard-driven selection.
  */
+import { useRef, useState } from "react";
 import type { AuthoringProposalDto } from "../adapters/tauri";
-import { useRunProposals } from "./useAuthoringQuery";
+import { useAcceptSubtree, useRunProposals } from "./useAuthoringQuery";
 import { ProposalRow } from "./ProposalRow";
 
 export interface ProposalTrayProps {
@@ -59,6 +62,31 @@ export function ProposalTray({ agentRunId }: ProposalTrayProps) {
   const proposals = proposalsQuery.data ?? [];
   const groups = groupProposals(proposals);
 
+  const acceptSubtreeMutation = useAcceptSubtree(agentRunId);
+  // The root ids currently in flight for a subtree accept. A row's own `acceptingSubtree` prop
+  // alone is not a sufficient guard against two activations in one synchronous tick — React has
+  // not necessarily flushed the disabling re-render before a second click fires — and a ref reads
+  // and writes synchronously with no such window. A `Set` rather than a single boolean because two
+  // DIFFERENT subtree roots must both be able to act at once; only a repeat of the SAME one is
+  // suppressed (mirrors `recovery/OrphanRecoveryModal.tsx`'s `killingRef`).
+  const acceptingSubtreeRef = useRef<Set<string>>(new Set());
+  const [acceptingSubtreeIds, setAcceptingSubtreeIds] = useState<Set<string>>(new Set());
+
+  function handleAcceptSubtree(rootId: string) {
+    if (acceptingSubtreeRef.current.has(rootId)) return;
+    acceptingSubtreeRef.current.add(rootId);
+    setAcceptingSubtreeIds(new Set(acceptingSubtreeRef.current));
+    acceptSubtreeMutation.mutate(rootId, {
+      onError: () => {
+        // A genuine failure must leave the control usable — the guard entry is released only on
+        // this path; on success the accepted members leave the pending list on refetch and can
+        // never re-activate, so the entry is deliberately never released there.
+        acceptingSubtreeRef.current.delete(rootId);
+        setAcceptingSubtreeIds(new Set(acceptingSubtreeRef.current));
+      },
+    });
+  }
+
   return (
     <div
       role="region"
@@ -70,9 +98,24 @@ export function ProposalTray({ agentRunId }: ProposalTrayProps) {
       </span>
       {groups.map((group) => (
         <div key={group.root.id} style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
-          <ProposalRow agentRunId={agentRunId as string} proposal={group.root} indented={false} />
+          <ProposalRow
+            agentRunId={agentRunId as string}
+            proposal={group.root}
+            indented={false}
+            pendingChildCount={group.children.length}
+            acceptingSubtree={acceptingSubtreeIds.has(group.root.id)}
+            onAcceptSubtree={() => handleAcceptSubtree(group.root.id)}
+          />
           {group.children.map((child) => (
-            <ProposalRow key={child.id} agentRunId={agentRunId as string} proposal={child} indented />
+            <ProposalRow
+              key={child.id}
+              agentRunId={agentRunId as string}
+              proposal={child}
+              indented
+              pendingChildCount={0}
+              acceptingSubtree={false}
+              onAcceptSubtree={() => {}}
+            />
           ))}
         </div>
       ))}
