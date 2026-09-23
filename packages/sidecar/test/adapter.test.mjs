@@ -200,6 +200,44 @@ test("normaliseStreamEvent: a system event with a missing or empty subtype is un
   assert.equal(emptySubtypeEvent.type, "unknown");
 });
 
+// Task 3, plan 05-12: the backend restates a turn it receives (T-05-12's own read_first: the
+// envelope written to the child's stdin is a user-role message, arriving back on the stream in
+// the SAME shape the agent's own prose uses today). These three cases assert the split: a
+// user-role text block becomes the new echo event, an assistant-role text block is unaffected,
+// and a user-role TOOL RESULT (which also arrives as a user-role message) still normalises as a
+// tool result — the branch order the existing tool-use/tool-result checks rely on must not regress.
+
+test("normaliseStreamEvent: a user-role message's text block normalises to backend_echo, not assistant_text (Task 3)", () => {
+  const line = JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "text", text: "the backend's own restatement" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "backend_echo");
+  assert.equal(event.text, "the backend's own restatement");
+  assert.equal(event.raw, line);
+});
+
+test("normaliseStreamEvent: an assistant-role message's text block still normalises to assistant_text (Task 3)", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "the agent's own reply" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "assistant_text");
+  assert.equal(event.text, "the agent's own reply");
+});
+
+test("normaliseStreamEvent: a user-role message's tool result still normalises to a tool result — branch order unchanged (Task 3)", () => {
+  const line = JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", text: "the tool's own output" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "tool_result");
+  assert.equal(event.output, "the tool's own output");
+});
+
 test("the stderr detail tail is bounded even by a single oversized line (T-02G-17-03)", () => {
   // The cap was a check-before-append with no truncate: a tail sitting one character below the
   // limit still accepted an arbitrarily long line whole, yielding CAP-1 + line.length. That tail
