@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SessionSurface } from "../SessionSurface";
+import { SessionSurface, buildFeedRows } from "../SessionSurface";
 import { resetUiState } from "../../state/uiStore";
 
 afterEach(() => {
@@ -20,13 +20,14 @@ afterEach(() => {
 const authoringStageAdvanceMock = vi.fn();
 const authoringStageReturnMock = vi.fn();
 const sendAuthoringTurnMock = vi.fn();
+const invokeCommandMock = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
-    agentRunLogWindow: () =>
-      Promise.resolve({ entries: [], offset: 0, limit: 200, total: 0 }),
+    agentRunLogWindow: (agentRunId: string, offset: number, limit: number) =>
+      invokeCommandMock("agent_run_log_window", { agentRunId, offset, limit }),
     agentRunRawWindow: () => Promise.resolve({ lines: [], offset: 0, limit: 200, total: 0 }),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
@@ -41,6 +42,39 @@ vi.mock("../../adapters/tauri", async () => {
     sendAuthoringTurn: (agentRunId: string, text: string) => sendAuthoringTurnMock(agentRunId, text),
   };
 });
+
+/** A `LogWindowDto`-shaped stub response — mirrors `session-surface.test.tsx`'s own `windowFor`. */
+function windowFor(events: Record<string, unknown>[], offset: number, limit: number) {
+  return { entries: events.slice(offset, offset + limit), offset, limit, total: events.length };
+}
+
+/** Default: no entries, so every Task 1 test above keeps rendering an empty feed. Task 2 tests
+ * below call this with their own entries before rendering. */
+function mockWindowReads(getEvents: () => Record<string, unknown>[] = () => []) {
+  invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) => {
+    if (command === "agent_run_log_window") {
+      return Promise.resolve(windowFor(getEvents(), args.offset, args.limit));
+    }
+    return Promise.resolve(undefined);
+  });
+}
+
+function makeDeveloperTurn(turnId: string, text: string, origin: "developer" | "application" = "developer") {
+  return {
+    runId: "run-1",
+    at: "2026-01-01T00:00:00.000Z",
+    raw: text,
+    type: "developer_turn",
+    text,
+    origin,
+    turnId,
+  };
+}
+
+// Default: an empty feed, so every Task 1 test above (none of which cares about feed content)
+// keeps rendering unchanged. `vi.clearAllMocks()` (afterEach) clears call history only — it does
+// not remove this implementation, matching `session-surface.test.tsx`'s own precedent.
+mockWindowReads();
 
 function mockMatchMedia(matches = true) {
   Object.defineProperty(window, "matchMedia", {
@@ -128,5 +162,37 @@ describe("SessionSurface — authoring composer", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sendAuthoringTurnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("SessionSurface — developer-turn feed rows (Task 2)", () => {
+  it("a developer_turn feed entry becomes a developer-turn row, not a raw line and not assistant prose", async () => {
+    mockWindowReads(() => [makeDeveloperTurn("turn-1", "hello from the developer")]);
+    renderSurface("challenge");
+
+    await waitFor(() => expect(screen.getAllByRole("listitem").length).toBeGreaterThan(0));
+    // The row shows the plain text — never the JSON-stringified raw line a "raw" row would show,
+    // and never merged into the same presentation an assistant reply gets without a way to tell
+    // them apart. This test only asserts the text renders somewhere in the feed's listitems; the
+    // speaker-class (colour token) is a presentational detail FeedRow.tsx's own test coverage owns.
+    expect(screen.getByText("hello from the developer")).toBeInTheDocument();
+
+    mockWindowReads(() => []);
+  });
+
+  it("buildFeedRows: two developer-turn entries never collide on one feed key", () => {
+    const rows = buildFeedRows([
+      makeDeveloperTurn("turn-a", "first message"),
+      makeDeveloperTurn("turn-b", "second message"),
+    ]);
+    const developerTurnRows = rows.filter((row) => row.kind === "developer_turn");
+    expect(developerTurnRows).toHaveLength(2);
+    const keys = developerTurnRows.map((row) => row.key);
+    expect(new Set(keys).size).toBe(2);
+    // Keyed off the turn identifier, not the flattened array position — the property the plan's
+    // own "without it, every synthetic turn would share one key" reasoning depends on.
+    for (const key of keys) {
+      expect(key).toContain("turn-");
+    }
   });
 });
