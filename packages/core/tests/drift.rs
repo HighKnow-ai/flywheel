@@ -13,7 +13,7 @@ use core::context_packet::{
     assemble_context_packet, assemble_context_packet_with_extras, render_prompt, PacketExtras,
     SummaryEntry,
 };
-use core::domain::agent_run::start_agent_run;
+use core::domain::agent_run::{record_drift_warnings, start_agent_run};
 use core::domain::epic::create_epic;
 use core::domain::session_summary::{create_summary, DecisionEntry, SummaryFields};
 use core::domain::task::create_task;
@@ -566,3 +566,206 @@ fn the_same_claim_produces_no_warning_once_the_path_really_exists_in_the_diff() 
         assert!(!prompt.contains("## Warnings"));
     });
 }
+
+// ============================================================================================
+// Plan 04-12 Task 1: a fired detector becomes a durable event — once per run, never on a preview
+// ============================================================================================
+
+fn sample_warnings(n: usize) -> Vec<DriftWarning> {
+    (1..=n)
+        .map(|i| DriftWarning {
+            kind: if i % 2 == 1 {
+                DriftKind::ClaimedFilesMismatch
+            } else {
+                DriftKind::StaleSinceLastSummary
+            },
+            sentence: format!("warning sentence {i}"),
+        })
+        .collect()
+}
+
+#[test]
+fn record_drift_warnings_appends_one_drift_detected_event_per_warning() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Drift trail task", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+
+        let warnings = sample_warnings(2);
+        let appended = {
+            let tx = conn.transaction().expect("failed to open transaction");
+            let appended =
+                record_drift_warnings(&tx, &run.id, &warnings, &actor_id, "2026-01-01T00:00:00Z")
+                    .expect("record_drift_warnings should succeed");
+            tx.commit().expect("failed to commit");
+            appended
+        };
+        assert_eq!(appended, 2);
+
+        let event_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type = 'drift.detected'",
+                rusqlite::params![run.id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(
+            event_count, 2,
+            "starting a run with two warnings must append exactly two drift events"
+        );
+    });
+}
+
+#[test]
+fn record_drift_warnings_with_an_empty_slice_appends_nothing_and_returns_zero() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Quiet run task", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+
+        let events_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+            .expect("count query should succeed");
+
+        let empty: Vec<DriftWarning> = Vec::new();
+        let appended = {
+            let tx = conn.transaction().expect("failed to open transaction");
+            let appended =
+                record_drift_warnings(&tx, &run.id, &empty, &actor_id, "2026-01-01T00:00:00Z")
+                    .expect("record_drift_warnings should succeed");
+            tx.commit().expect("failed to commit");
+            appended
+        };
+        assert_eq!(appended, 0);
+
+        let events_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+            .expect("count query should succeed");
+        assert_eq!(
+            events_before, events_after,
+            "a run with no warnings must append no drift event at all"
+        );
+    });
+}
+
+#[test]
+fn assembling_a_packet_with_drift_warnings_writes_no_events_row_mirroring_a_preview() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Preview-only task", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let _run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+
+        let events_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+            .expect("count query should succeed");
+
+        let warnings = sample_warnings(1);
+        let packet = assemble_context_packet_with_extras(
+            &conn,
+            &task.id,
+            PacketExtras { diff: None, drift: warnings },
+        )
+        .expect("assembly with extras should succeed");
+        assert!(!packet.drift.is_empty());
+
+        let events_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+            .expect("count query should succeed");
+        assert_eq!(
+            events_before, events_after,
+            "assembling a packet — the preview's own operation — must never write a drift event; \
+             only an explicit record_drift_warnings call does"
+        );
+    });
+}
+
+#[test]
+fn record_drift_warnings_events_render_the_exact_sentence_the_agent_was_shown() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Wording task", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+
+        let warning = DriftWarning {
+            kind: DriftKind::StaleSinceLastSummary,
+            sentence: "the exact sentence the agent read".to_string(),
+        };
+        {
+            let tx = conn.transaction().expect("failed to open transaction");
+            record_drift_warnings(
+                &tx,
+                &run.id,
+                std::slice::from_ref(&warning),
+                &actor_id,
+                "2026-01-01T00:00:00Z",
+            )
+            .expect("record_drift_warnings should succeed");
+            tx.commit().expect("failed to commit");
+        }
+
+        let (event_type, payload_text, task_id): (String, String, String) = conn
+            .query_row(
+                "SELECT event_type, payload, task_id FROM events \
+                 WHERE stream_id = ?1 AND event_type = 'drift.detected'",
+                rusqlite::params![run.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("the drift event row should exist");
+        let payload: serde_json::Value =
+            serde_json::from_str(&payload_text).expect("payload should be valid JSON");
+        assert_eq!(payload["sentence"], "the exact sentence the agent read");
+        assert_eq!(task_id, task.id, "each drift event's task_id must be the run's own task");
+
+        let rendered = core::domain::event::render_description(&event_type, &payload);
+        assert_eq!(
+            rendered, "the exact sentence the agent read",
+            "the activity trail's rendered sentence must be the same sentence the agent was shown"
+        );
+    });
+}
+
+#[test]
+fn record_drift_warnings_in_a_rolled_back_transaction_leaves_no_trace() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Rollback task", None)
+            .expect("create_task should succeed");
+        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+
+        let warnings = sample_warnings(2);
+        {
+            let tx = conn.transaction().expect("failed to open transaction");
+            let appended =
+                record_drift_warnings(&tx, &run.id, &warnings, &actor_id, "2026-01-01T00:00:00Z")
+                    .expect("record_drift_warnings should succeed");
+            assert_eq!(appended, 2);
+            // Deliberately dropped without commit — proves record_drift_warnings composes into
+            // the CALLER's transaction rather than opening its own, matching set_run_blocked's
+            // own reasoning: a caller that never commits leaves no trace.
+        }
+
+        let event_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type = 'drift.detected'",
+                rusqlite::params![run.id],
+                |row| row.get(0),
+            )
+            .expect("count query should succeed");
+        assert_eq!(event_count, 0, "a rolled-back transaction must leave no drift trail at all");
+    });
+}
+

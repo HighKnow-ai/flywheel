@@ -494,6 +494,27 @@ pub fn agent_run_start(
         assemble_context_packet_with_extras(&conn, &task_id, extras).map_err(|e| e.to_string())?;
     let prompt = render_prompt(&packet, &instruction);
 
+    // D-72/D-73/D-74/D-75 (plan 04-12): give every fired detector a durable activity-trail trail,
+    // one event per warning, appended in one atomic transaction right after the extras (and
+    // therefore the drift) have been computed and before the spawn request is sent below. Called
+    // from THIS command only — never from `agent_run_preview`/`build_preview_dto`, whose whole
+    // value is that opening the launch sheet writes nothing; a single-call-site `<verify>` grep
+    // gate over this file asserts that. `record_drift_warnings` itself is a no-op (zero events,
+    // zero database reads) for an empty `packet.drift`, so this call is unconditional.
+    {
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        flywheel_core::domain::agent_run::record_drift_warnings(
+            &tx,
+            &run.id,
+            &packet.drift,
+            &run.actor_id,
+            &now,
+        )
+        .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
     // D-78 (plan 04-10): pin, on the run row, exactly which criterion revisions this briefing
     // carried — read via `list_current_criteria` in the same rank order `CRITERIA_SQL` above
     // uses, so the pin and the prompt agree by construction. Pinned while the database lock is
@@ -1879,14 +1900,18 @@ mod tests {
             conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
                 .expect("count query should succeed")
         };
-        let (triggers_before, worktrees_before, agent_runs_before) =
-            (count("triggers"), count("worktrees"), count("agent_runs"));
+        // `events` is included here (plan 04-12, T-04-32): `record_drift_warnings` is called from
+        // `agent_run_start` only, never from this preview path — a row count before/after is the
+        // one thing that structurally proves a fired detector writes nothing on preview.
+        let (triggers_before, worktrees_before, agent_runs_before, events_before) =
+            (count("triggers"), count("worktrees"), count("agent_runs"), count("events"));
 
         let dto = build_preview_dto(&conn, &task_id).expect("build_preview_dto should succeed");
         assert_eq!(dto.task_title, "Test task");
 
         assert_eq!(count("triggers"), triggers_before);
         assert_eq!(count("worktrees"), worktrees_before);
+        assert_eq!(count("events"), events_before, "opening the launch sheet must write no events row, drift included");
         assert_eq!(count("agent_runs"), agent_runs_before);
     }
 

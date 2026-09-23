@@ -26,6 +26,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use crate::domain::event::{append_event, next_sequence};
 use crate::domain::trigger::create_user_action_trigger;
 use crate::domain::worktree::ensure_worktree;
+use crate::drift::DriftWarning;
 use crate::ids::{is_ulid, new_id};
 use crate::runtime_protocol::{self, KillRecordRead};
 use crate::session_log::session_log_path;
@@ -258,6 +259,69 @@ pub fn criteria_revision_pin_for_run(
             Ok(Some(ids))
         }
     }
+}
+
+/// Give a fired drift detector a durable activity-trail trace, without making it stored derived
+/// state (D-72/D-73/D-74/D-75, plan 04-12). Takes a `&Transaction` so it runs inside the CALLER's
+/// transaction, like [`set_run_blocked`] and `domain::session_summary::synthesize_fallback_summary`
+/// already do — that is what makes "the trail and the run's own start state commit together"
+/// a property of the database rather than of call ordering.
+///
+/// For each warning, one `events` row: stream type `drift`, `agent_run_id` as the stream id, the
+/// run's own `task_id` denormalised (so the existing per-task activity trail query picks it up
+/// with no change), event type `drift.detected`, and a payload carrying the warning's `kind` (its
+/// `Debug` name — the same string [`crate::drift::DriftKind`]'s `Serialize` impl would produce for
+/// a fieldless enum) and its `sentence` verbatim under `"label"` too, so
+/// `domain::event::render_description` renders EXACTLY the sentence the agent was shown — one
+/// sentence, composed once in `drift.rs`, reused everywhere (D-19).
+///
+/// An empty `warnings` slice appends nothing and returns `0` — never an empty marker event, which
+/// would make "has this task drifted" a question about payload contents rather than about row
+/// existence. Returns how many events were appended.
+pub fn record_drift_warnings(
+    tx: &Transaction,
+    agent_run_id: &str,
+    warnings: &[DriftWarning],
+    actor_id: &str,
+    now: &str,
+) -> anyhow::Result<usize> {
+    if warnings.is_empty() {
+        return Ok(0);
+    }
+
+    let (project_id, task_id): (String, String) = tx
+        .query_row(
+            "SELECT project_id, task_id FROM agent_runs WHERE id = ?1",
+            params![agent_run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
+
+    for warning in warnings {
+        let sequence = next_sequence(tx, &project_id, "local")?;
+        let kind = format!("{:?}", warning.kind);
+        let payload = serde_json::json!({
+            "kind": kind,
+            "sentence": warning.sentence,
+            "label": warning.sentence,
+        });
+        append_event(
+            tx,
+            &project_id,
+            "local",
+            sequence,
+            "drift",
+            agent_run_id,
+            Some(&task_id),
+            None,
+            actor_id,
+            "drift.detected",
+            &payload,
+            now,
+        )?;
+    }
+
+    Ok(warnings.len())
 }
 
 /// The statement body [`close_agent_run`] issues, factored out so [`apply_session_closed`] can run
