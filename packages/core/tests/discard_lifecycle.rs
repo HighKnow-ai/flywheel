@@ -21,7 +21,9 @@
 mod common;
 
 use core::domain::acceptance_criterion::create_criterion;
-use core::domain::agent_run::{interrupt_agent_run, start_agent_run};
+use core::domain::agent_run::{
+    apply_session_closed, interrupt_agent_run, interrupt_agent_run_in_tx, start_agent_run,
+};
 use core::domain::session_summary::{
     create_summary, latest_summary_for_run, synthesize_fallback_summary, DecisionEntry,
     SummaryFields,
@@ -82,31 +84,65 @@ fn terminal_event_count(conn: &rusqlite::Connection, run_id: &str) -> i64 {
     .expect("count query should succeed")
 }
 
-/// Performs the EXACT database sequence `stop_agent_run_recording_first` performs (plan 04-13 Task
-/// 1's own addition to that shared function) — the ONE termination path Stop and Discard both
-/// walk: `interrupt_agent_run`, then, only if no summary yet exists for the run, one
-/// `synthesize_fallback_summary` call inside its own transaction. Written out explicitly here
-/// (rather than imported) because the composing function lives in the desktop crate, not this one
-/// — see this file's own module doc comment.
-fn simulate_discard_stop_path(
+/// Performs the EXACT database sequence `stop_agent_run_recording_first` performs (plan 04-15 Task
+/// 1's single-transaction fix to that shared function) — the ONE termination path Stop and Discard
+/// both walk, composed on ONE transaction: `interrupt_agent_run_in_tx`, a status read off the SAME
+/// `tx`, then, only if no summary yet exists for the run, one `synthesize_fallback_summary` call on
+/// the SAME `tx`, before committing. Written out explicitly here (rather than imported) because the
+/// composing function lives in the desktop crate, not this one — see this file's own module doc
+/// comment. The single transaction is now the property this helper mirrors (D-64, CTX-01, gap #1
+/// of 04-VERIFICATION.md): a crash between the two writes rolls back BOTH, never leaving a
+/// terminal run with no summary. [`simulate_discard_stop_path_rolled_back`] below performs the
+/// identical statement sequence and is used only to exercise that rollback.
+fn simulate_discard_stop_path_in_tx(
     conn: &mut rusqlite::Connection,
     run_id: &str,
     actor_id: &str,
 ) -> anyhow::Result<String> {
-    interrupt_agent_run(conn, run_id, actor_id)?;
+    let tx = conn.transaction()?;
 
-    let status: String = conn.query_row(
+    interrupt_agent_run_in_tx(&tx, run_id, actor_id)?;
+
+    let status: String = tx.query_row(
         "SELECT status FROM agent_runs WHERE id = ?1",
         rusqlite::params![run_id],
         |row| row.get(0),
     )?;
 
-    if latest_summary_for_run(conn, run_id)?.is_none() {
-        let tx = conn.transaction()?;
+    if latest_summary_for_run(&tx, run_id)?.is_none() {
         synthesize_fallback_summary(&tx, run_id, &status)?;
-        tx.commit()?;
     }
 
+    tx.commit()?;
+    Ok(status)
+}
+
+/// The crash-window sibling of [`simulate_discard_stop_path_in_tx`]: performs the IDENTICAL
+/// statement sequence — same order, same statements — inside its own transaction, then drops that
+/// transaction WITHOUT committing (simulating a crash mid-termination) and returns the status it
+/// read. Used only by the rollback assertions below (`a_rolled_back_termination_unit_leaves_no_trace`);
+/// every other test in this file uses the committing helper above instead.
+fn simulate_discard_stop_path_rolled_back(
+    conn: &mut rusqlite::Connection,
+    run_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<String> {
+    let tx = conn.transaction()?;
+
+    interrupt_agent_run_in_tx(&tx, run_id, actor_id)?;
+
+    let status: String = tx.query_row(
+        "SELECT status FROM agent_runs WHERE id = ?1",
+        rusqlite::params![run_id],
+        |row| row.get(0),
+    )?;
+
+    if latest_summary_for_run(&tx, run_id)?.is_none() {
+        synthesize_fallback_summary(&tx, run_id, &status)?;
+    }
+
+    // Deliberately dropped, never committed — simulates a crash between the two writes above.
+    drop(tx);
     Ok(status)
 }
 
@@ -133,7 +169,7 @@ fn discarding_a_run_with_an_agent_recorded_summary_leaves_it_present_and_the_run
         create_summary(&mut conn, &run.id, fields, &run.actor_id)
             .expect("the agent's own create_summary call should succeed");
 
-        let status = simulate_discard_stop_path(&mut conn, &run.id, &actor_id)
+        let status = simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
         assert_eq!(status, "interrupted", "the run must reach a terminal state (B1)");
 
@@ -155,7 +191,7 @@ fn discarding_a_run_with_no_agent_summary_synthesizes_exactly_one_auto_generated
             .expect("start_agent_run should succeed");
 
         // No report_summary call ever landed — the wait elapsed with nothing recorded.
-        let status = simulate_discard_stop_path(&mut conn, &run.id, &actor_id)
+        let status = simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
         assert_eq!(status, "interrupted", "the run must reach a terminal state (B2)");
 
@@ -181,7 +217,7 @@ fn discarding_an_already_terminal_run_writes_no_second_terminal_event() {
         interrupt_agent_run(&mut conn, &run.id, &actor_id).expect("the first interrupt should succeed");
         assert_eq!(terminal_event_count(&conn, &run.id), 1);
 
-        let status = simulate_discard_stop_path(&mut conn, &run.id, &actor_id)
+        let status = simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("discarding an already-terminal run must not error (B6)");
         assert_eq!(status, "interrupted", "the status must remain interrupted, never overwritten");
 
@@ -218,7 +254,7 @@ fn the_tasks_worktree_row_count_and_directory_are_unchanged_by_a_discard() {
             .expect("count query should succeed");
         assert!(std::path::Path::new(&worktree_path).is_dir(), "the worktree must exist on disk before the discard");
 
-        simulate_discard_stop_path(&mut conn, &run.id, &actor_id)
+        simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
 
         let worktree_row_count_after: i64 = conn
@@ -268,7 +304,7 @@ fn no_prior_session_summary_row_is_removed_by_a_discard() {
         let second_run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed for the second run");
 
-        simulate_discard_stop_path(&mut conn, &second_run.id, &actor_id)
+        simulate_discard_stop_path_in_tx(&mut conn, &second_run.id, &actor_id)
             .expect("the discard's stop path should succeed");
 
         let summaries = core::domain::session_summary::list_summaries_for_task(&conn, &task.id)
@@ -313,7 +349,7 @@ fn board_counts_are_unchanged_across_a_discard_when_the_agent_already_recorded_i
         // against this run should write NOTHING new to session_summaries (B1's "present" case).
         let before = board_counts(&conn);
 
-        simulate_discard_stop_path(&mut conn, &run.id, &actor_id)
+        simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
 
         let after = board_counts(&conn);
@@ -343,7 +379,7 @@ fn board_counts_gain_exactly_one_session_summary_when_no_agent_summary_was_recor
 
         let before = board_counts(&conn);
 
-        simulate_discard_stop_path(&mut conn, &run.id, &actor_id)
+        simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
 
         let after = board_counts(&conn);
@@ -370,12 +406,12 @@ fn discarding_twice_appends_no_second_summary_and_no_second_interrupted_event() 
         let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
 
-        simulate_discard_stop_path(&mut conn, &run.id, &actor_id)
+        simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the first discard's stop path should succeed");
         let counts_after_first = board_counts(&conn);
         let terminal_events_after_first = terminal_event_count(&conn, &run.id);
 
-        simulate_discard_stop_path(&mut conn, &run.id, &actor_id)
+        simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("a second discard against the same, now-terminal run must be a harmless no-op");
         let counts_after_second = board_counts(&conn);
         let terminal_events_after_second = terminal_event_count(&conn, &run.id);
@@ -417,7 +453,7 @@ fn the_fallback_never_overwrites_an_agent_authored_summary_recorded_moments_befo
         };
         create_summary(&mut conn, &run.id, fields, &run.actor_id).expect("create_summary should succeed");
 
-        simulate_discard_stop_path(&mut conn, &run.id, &actor_id)
+        simulate_discard_stop_path_in_tx(&mut conn, &run.id, &actor_id)
             .expect("the discard's stop path should succeed");
 
         let summaries = core::domain::session_summary::list_summaries_for_task(&conn, &task.id)
@@ -448,5 +484,136 @@ fn an_unknown_run_id_is_a_harmless_no_op_for_the_discard_stop_path() {
             .query_row("SELECT COUNT(*) FROM agent_runs", [], |row| row.get(0))
             .expect("count query should succeed");
         assert_eq!(agent_runs_count, 0, "an unknown run id must write no agent_runs row");
+    });
+}
+
+/// D-64/CTX-01, gap #1 of 04-VERIFICATION.md: the crash-window assertion the pre-fix
+/// two-transaction sequence could not satisfy. Running the termination unit inside a transaction
+/// and rolling it back (never committing) must leave the run EXACTLY as it was — `running`, no
+/// `ended_at`, no `exit_summary_id`, zero terminal events for it, and the board's own aggregate
+/// counts byte-identical to a snapshot taken before the call.
+///
+/// RED evidence, captured empirically before this fix landed: calling the pre-fix
+/// `simulate_discard_stop_path` and then observing what "rollback" produced showed
+/// `agent_runs.status` already committed as `"interrupted"` — never `"running"` — because
+/// `interrupt_agent_run` opened and committed its OWN connection-level transaction before this
+/// helper's caller ever had a transaction to roll back.
+#[test]
+fn a_rolled_back_termination_unit_leaves_no_trace() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Rollback: no trace", None)
+            .expect("create_task should succeed");
+        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+
+        let before = board_counts(&conn);
+
+        let status = simulate_discard_stop_path_rolled_back(&mut conn, &run.id, &actor_id)
+            .expect("the non-committing termination unit should succeed before its transaction is dropped");
+        assert_eq!(status, "interrupted", "the in-tx write must still report the terminal status it wrote");
+
+        let status_after_rollback: String = conn
+            .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run.id], |row| {
+                row.get(0)
+            })
+            .expect("agent_runs row should exist");
+        assert_eq!(
+            status_after_rollback, "running",
+            "a crash mid-termination leaves the board exactly as it was: status running, never a terminal run without a narrative"
+        );
+
+        let ended_at: Option<String> = conn
+            .query_row("SELECT ended_at FROM agent_runs WHERE id = ?1", rusqlite::params![run.id], |row| {
+                row.get(0)
+            })
+            .expect("agent_runs row should exist");
+        assert!(ended_at.is_none(), "a rolled-back termination unit must leave ended_at NULL");
+
+        let exit_summary_id: Option<String> = conn
+            .query_row(
+                "SELECT exit_summary_id FROM agent_runs WHERE id = ?1",
+                rusqlite::params![run.id],
+                |row| row.get(0),
+            )
+            .expect("agent_runs row should exist");
+        assert!(exit_summary_id.is_none(), "a rolled-back termination unit must leave exit_summary_id NULL");
+
+        assert_eq!(
+            terminal_event_count(&conn, &run.id),
+            0,
+            "a rolled-back termination unit must leave zero terminal events for the run"
+        );
+
+        let after = board_counts(&conn);
+        assert_eq!(
+            before, after,
+            "a crash mid-termination must leave the board's own aggregate counts byte-identical to before the call"
+        );
+    });
+}
+
+/// The generalized contract over the two terminal variants named by 04-VERIFICATION.md's gap #1:
+/// a run that holds a terminal status also holds at least one `session_summaries` row — there is
+/// no committed state where one is true and the other is not. Variant one drives a run to terminal
+/// through `apply_session_closed` (the natural-close path, `session_closed` event, reason
+/// `completed`), exactly as `session_close_lifecycle.rs` already constructs one. Variant two drives
+/// a second run to terminal through the committing Stop/Discard helper.
+///
+/// `mark_abandoned` is a THIRD path to a terminal `agent_runs` status (the launch reconciler's
+/// verb for runs whose app died) and is deliberately EXCLUDED here. `04-VERIFICATION.md` does not
+/// name it as a gap, and it also opens its own transaction and writes no summary — but whether a
+/// reconciled-abandoned run owes the board a summary at all is a different question (there may be
+/// no session worth summarizing) than the one this gap-closure run has a mandate to answer. Stated
+/// explicitly so a future reader sees a decision, not an oversight.
+#[test]
+fn a_terminal_transition_never_commits_without_a_summary() {
+    with_scratch_worktree_root(|| {
+        let assert_terminal_has_summary = |conn: &rusqlite::Connection, run_id: &str, label: &str| {
+            let status: String = conn
+                .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |row| {
+                    row.get(0)
+                })
+                .expect("agent_runs row should exist");
+            assert!(
+                matches!(status.as_str(), "completed" | "failed" | "interrupted" | "abandoned"),
+                "{label}: expected a terminal status, got {status:?}"
+            );
+
+            let summary_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM session_summaries WHERE agent_run_id = ?1",
+                    rusqlite::params![run_id],
+                    |row| row.get(0),
+                )
+                .expect("count query should succeed");
+            assert!(
+                summary_count >= 1,
+                "{label}: a terminal run must hold at least one session_summaries row — there is no \
+                 committed state where the run is terminal and no summary exists for it"
+            );
+        };
+
+        // Variant one: natural close via apply_session_closed.
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Terminal-implies-summary: natural close", None)
+            .expect("create_task should succeed");
+        let natural_close_run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed");
+        let event = serde_json::json!({
+            "type": "session_closed",
+            "runId": natural_close_run.id,
+            "reason": "completed",
+            "result": { "totalCostUsd": 0.01, "inputTokens": 1, "outputTokens": 1 },
+        });
+        apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
+        assert_terminal_has_summary(&conn, &natural_close_run.id, "variant one (natural close)");
+
+        // Variant two: interrupt via the committing Stop/Discard termination unit.
+        let interrupt_run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start_agent_run should succeed for the second run");
+        simulate_discard_stop_path_in_tx(&mut conn, &interrupt_run.id, &actor_id)
+            .expect("the committing termination unit should succeed");
+        assert_terminal_has_summary(&conn, &interrupt_run.id, "variant two (Stop/Discard interrupt)");
     });
 }
