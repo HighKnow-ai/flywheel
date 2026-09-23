@@ -177,6 +177,7 @@ fn main() {
             commands::authoring::authoring_proposal_amend,
             commands::authoring::authoring_stage_advance,
             commands::authoring::authoring_stage_return,
+            commands::authoring::authoring_turn_send,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

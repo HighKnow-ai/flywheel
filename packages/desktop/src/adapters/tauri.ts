@@ -902,3 +902,12 @@ export async function authoringStageAdvance(agentRunId: string): Promise<string>
 export async function authoringStageReturn(agentRunId: string, stage: string): Promise<string> {
   return invokeCommand<string>("authoring_stage_return", { agentRunId, stage });
 }
+
+/** Send a developer's own typed turn into a live authoring session (SHAPE-01, plan 05-12 Task 1) —
+ * the one seam between the developer and the conversation. Thin typed wrapper over
+ * `authoring_turn_send`; unlike `authoringStageAdvance`/`authoringStageReturn`, a rejection here is
+ * meaningful to the caller (the composer keeps the typed text and shows the error) rather than
+ * being swallowed, since a developer who pressed send is entitled to know it did not land. */
+export async function sendAuthoringTurn(agentRunId: string, text: string): Promise<void> {
+  return invokeCommand<void>("authoring_turn_send", { agentRunId, text });
+}

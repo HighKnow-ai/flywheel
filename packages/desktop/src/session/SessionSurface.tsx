@@ -22,7 +22,15 @@
  * (never `measureElement`) invalidating the size cache when a tool-call row's expand state
  * changes, matching Phase 1's explicit rejection of measured virtualization.
  */
-import { useEffect, useMemo, useRef, useState, type ComponentType, type UIEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type KeyboardEvent,
+  type UIEvent,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import * as icons from "lucide-react";
 import {
@@ -30,6 +38,7 @@ import {
   authoringStageAdvance,
   authoringStageReturn,
   discardSession,
+  sendAuthoringTurn,
   stopAgentRun,
   subscribeAgentEvent,
 } from "../adapters/tauri";
@@ -358,6 +367,119 @@ function AuthoringStageControls({
         {advancing ? "Advancing…" : next ? `Advance to ${next}` : "At last stage"}
       </button>
     </span>
+  );
+}
+
+/**
+ * The composer (SHAPE-01, plan 05-12 Task 1) — the one seam between the developer and a live
+ * authoring session's conversation. Rendered by `SessionSurface` only when `stage` is non-null
+ * and the run is not terminal (the same `showStop` condition the Stop/Discard controls already
+ * gate on). Copies `stoppingRef`/`advancingStageRef`'s own synchronous-dispatch-guard shape: a
+ * click and a keypress (or two synchronous clicks) can never race into two calls. Calls the named
+ * `sendAuthoringTurn` wrapper only — never the transport directly, keeping this file's own
+ * zero-direct-call property true.
+ */
+function AuthoringComposer({ agentRunId }: { agentRunId: string }) {
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sendingRef = useRef(false);
+
+  function handleSend() {
+    // A second activation while the ref is set invokes nothing — mirrors `handleStop`'s own
+    // synchronous-tick guard above.
+    if (sendingRef.current) return;
+    const trimmed = draft.trim();
+    if (trimmed.length === 0) return;
+    sendingRef.current = true;
+    setSending(true);
+    setError(null);
+    sendAuthoringTurn(agentRunId, trimmed)
+      .then(() => {
+        setDraft("");
+      })
+      .catch(() => {
+        // The typed text is deliberately NOT cleared here — a developer who pressed send is
+        // entitled to both a worded explanation and the words they typed, still in the box.
+        setError("Could not send your message. Try again.");
+      })
+      .finally(() => {
+        sendingRef.current = false;
+        setSending(false);
+      });
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Plain Enter submits; Shift+Enter inserts a newline — matching
+    // `ProposalAmendEditor.tsx`'s own field handler. The bare-key Advance binding
+    // (`state/keyboard.ts`'s `advance-stage`, key `n`) needs no handling here at all:
+    // `resolveBinding`'s own `isTypingTarget` guard already declines a bare unmodified key
+    // while this composer holds focus (confirmed by a test, not reimplemented here).
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleSend();
+    }
+  }
+
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--divider)",
+        padding: "var(--space-md)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-xs)",
+      }}
+    >
+      <label
+        htmlFor="authoring-turn-composer"
+        className="type-label"
+        style={{ color: "var(--text-muted-rack)" }}
+      >
+        Message
+      </label>
+      <textarea
+        id="authoring-turn-composer"
+        aria-label="Message"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={handleKeyDown}
+        rows={3}
+        className="type-body"
+        style={{
+          background: "transparent",
+          border: "1px solid var(--divider)",
+          borderRadius: "var(--radius-chrome)",
+          color: "inherit",
+          padding: "var(--space-xs) var(--space-sm)",
+          resize: "vertical",
+          fontFamily: "inherit",
+        }}
+      />
+      {error && (
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+          {error}
+        </p>
+      )}
+      <div>
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={sending}
+          className="type-body"
+          style={{
+            background: "var(--accent-nontext)",
+            border: "none",
+            borderRadius: "var(--radius-chrome)",
+            color: "var(--text-primary-rack)",
+            padding: "var(--space-xs) var(--space-md)",
+            cursor: sending ? "default" : "pointer",
+          }}
+        >
+          {sending ? "Sending…" : "Send"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1073,6 +1195,10 @@ export function SessionSurface({
       </header>
 
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+      {/* The feed side of this row (SHAPE-01, plan 05-12): the raw/structured view above, the
+          composer below it — both inside this ONE column, so the proposal tray (below) keeps its
+          own separate column regardless of which view is active. */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       {rawViewOpen ? (
         <RawLogView agentRunId={agentRunId} />
       ) : (
@@ -1134,6 +1260,10 @@ export function SessionSurface({
           <div ref={tailRef} />
         </div>
       )}
+      {/* SHAPE-01 (plan 05-12): the same condition Stop/Discard already gate on — an authoring
+          run (`stage` non-null) that has not yet reached a terminal status. */}
+      {stage && showStop && <AuthoringComposer agentRunId={agentRunId} />}
+      </div>
       {authoringStage && (
         // D-88: the proposal tray mounts ONLY when this run carries an authoring stage — a
         // sibling panel beside the feed, never woven into FeedRow.tsx's per-event rendering

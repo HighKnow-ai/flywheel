@@ -647,7 +647,12 @@ pub fn authoring_proposal_reject(
             reason: proposal.rejection_reason.clone(),
         };
         let text = flywheel_core::domain::authoring_session::render_decision_turn(&turn);
-        let _ = sidecar.send_authoring_turn(&proposal.agent_run_id, &text);
+        let _ = sidecar.send_authoring_turn(
+            &app,
+            &proposal.agent_run_id,
+            &text,
+            crate::sidecar::AuthoringTurnOrigin::Application,
+        );
     }
 
     Ok(())
@@ -696,7 +701,12 @@ pub fn authoring_proposal_amend(
             new_text: outcome.proposal.payload.label().to_string(),
         };
         let text = flywheel_core::domain::authoring_session::render_decision_turn(&turn);
-        let _ = sidecar.send_authoring_turn(&outcome.proposal.agent_run_id, &text);
+        let _ = sidecar.send_authoring_turn(
+            &app,
+            &outcome.proposal.agent_run_id,
+            &text,
+            crate::sidecar::AuthoringTurnOrigin::Application,
+        );
     }
 
     Ok(outcome.proposal.into())
@@ -742,7 +752,12 @@ pub fn authoring_stage_advance(
 
     if let Some(instruction) = distillation {
         if let Some(sidecar) = state.sidecar.as_ref() {
-            let _ = sidecar.send_authoring_turn(&agent_run_id, &instruction.text);
+            let _ = sidecar.send_authoring_turn(
+                &app,
+                &agent_run_id,
+                &instruction.text,
+                crate::sidecar::AuthoringTurnOrigin::Application,
+            );
         }
     }
 
@@ -781,6 +796,80 @@ pub fn authoring_stage_return(
     .ok();
 
     Ok(resolved.as_str().to_string())
+}
+
+/// The maximum length (in `char`s) of a developer's own typed turn (T-05-12-01, T-05-12-07) —
+/// generous enough for real conversational prose rather than a title, deliberately much larger than
+/// `domain::authoring_proposal`'s own `MAX_PROPOSAL_TITLE_LEN`/`MAX_PROPOSAL_TEXT_LEN` (500/1000)
+/// bounds, which cap a single STAGED FIELD rather than free conversation.
+const MAX_AUTHORING_TURN_TEXT_LEN: usize = 8000;
+
+/// Send a developer's own typed turn into a live authoring session (SHAPE-01, plan 05-12 Task 1) —
+/// the one seam between the developer and the conversation the challenge stage otherwise has no
+/// human channel for. Body order follows [`authoring_stage_advance`] immediately above: validate
+/// first, read the run's own row to confirm it can still receive a turn, then relay.
+///
+/// Unlike [`authoring_proposal_reject`]/[`authoring_proposal_amend`]/[`authoring_stage_advance`]'s
+/// own system-generated relays — each deliberately best-effort, since a distillation request or a
+/// decision echo failing to land is not something the developer is waiting on — THIS relay
+/// **surfaces its failure**: a developer who pressed send is entitled to know their own words did
+/// not reach the session, so a missing sidecar handle or a failed send returns an `Err` here rather
+/// than being swallowed.
+///
+/// No board row is written and no `events` row is appended — a turn is conversation, not a board
+/// mutation, so there is no actor to resolve here and nothing for `board:changed` to announce
+/// (contrast every neighbouring command above, which does resolve an actor and does emit). Nothing
+/// in this command touches the run's `authoring_stage` and nothing reaches a proposal-writing tool:
+/// a turn is a turn — D-88's tool gate and D-90's human-only advance are both untouched.
+#[tauri::command]
+pub fn authoring_turn_send(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_id: String,
+    text: String,
+) -> Result<(), String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("message must not be empty".to_string());
+    }
+    let char_count = trimmed.chars().count();
+    if char_count > MAX_AUTHORING_TURN_TEXT_LEN {
+        return Err(format!(
+            "message must be at most {MAX_AUTHORING_TURN_TEXT_LEN} characters, got {char_count} characters"
+        ));
+    }
+
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let (authoring_stage, status): (Option<String>, String) = conn
+        .query_row(
+            "SELECT authoring_stage, status FROM agent_runs WHERE id = ?1",
+            rusqlite::params![agent_run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    if authoring_stage.is_none() {
+        return Err("agent run is not an authoring session — it has no conversation to join".to_string());
+    }
+    let can_receive_turn = matches!(status.as_str(), "running" | "blocked");
+    if !can_receive_turn {
+        return Err(format!(
+            "this conversation has already ended (status = {status:?}) — the message was not sent"
+        ));
+    }
+
+    let Some(sidecar) = state.sidecar.as_ref() else {
+        return Err("no live session to send this message to".to_string());
+    };
+    sidecar
+        .send_authoring_turn(
+            &app,
+            &agent_run_id,
+            trimmed,
+            crate::sidecar::AuthoringTurnOrigin::Developer,
+        )
+        .map_err(|e| e.to_string())
 }
 
 /// The Tauri-facing half of the inbound `proposal_created` path (D-80/D-81), called from

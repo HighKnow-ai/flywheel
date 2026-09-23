@@ -455,9 +455,43 @@ impl SidecarHandle {
 
     /// D-89 (plan 05-05): send one turn's text to a live authoring session — the seam
     /// `advance_stage`'s distillation instruction and a developer's decision on a proposal both
-    /// use to reach the running conversation. Follows [`Self::relay_permission_answer_direct`]'s
-    /// own shape exactly: fire-and-forget, no ack wait.
-    pub fn send_authoring_turn(&self, run_id: &str, text: &str) -> anyhow::Result<()> {
+    /// use to reach the running conversation; plan 05-12 Task 1 adds the developer's OWN typed
+    /// turn as a fourth caller. Task 2 widens this beyond "send it to the child" alone: every turn
+    /// is now persisted to the session log (via [`persist_event_line`], against this handle's own
+    /// `writers` map) and emitted on the `agent:event` channel — in that order, persist before
+    /// emit, matching this module's "the persisted log is ground truth" discipline (PITFALLS.md
+    /// pitfall 10) — BEFORE the sidecar request below is ever sent. A persist failure must never
+    /// block delivery: it is logged and this function proceeds regardless, exactly how the shared
+    /// reader loop's own `persist_event_line` caller treats a non-`Written` outcome — a value,
+    /// never a panic and never an early return.
+    ///
+    /// Still fire-and-forget toward the child process itself, mirroring
+    /// [`Self::relay_permission_answer_direct`]'s own shape: no ack wait on the `authoring_turn`
+    /// request below. Delivery FAILURE (a missing handle upstream, or `send_request` erroring) is
+    /// what this function's `Err` return communicates to callers that choose to surface it (plan
+    /// 05-12's `authoring_turn_send` command); the three system-generated relay call sites keep
+    /// swallowing it with `let _ =`, unaffected by this widening.
+    pub fn send_authoring_turn(
+        &self,
+        app: &AppHandle,
+        run_id: &str,
+        text: &str,
+        origin: AuthoringTurnOrigin,
+    ) -> anyhow::Result<()> {
+        let turn_id = flywheel_core::ids::new_id();
+        let at = chrono::Utc::now().to_rfc3339();
+        let line = build_authoring_turn_line(run_id, text, origin, &turn_id, &at);
+
+        let outcome = persist_event_line(&self.writers, run_id, &line);
+        if outcome != PersistOutcome::Written {
+            eprintln!(
+                "session log persist failed for an authoring turn on run {run_id}: {outcome:?}"
+            );
+        }
+        if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+            let _ = app.emit("agent:event", &event);
+        }
+
         let request = serde_json::json!({
             "id": format!("authoring-turn-{}", flywheel_core::ids::new_id()),
             "op": "authoring_turn",
@@ -612,6 +646,54 @@ pub(crate) fn persist_event_line(
             "session log writer unexpectedly absent after insert".to_string(),
         ),
     }
+}
+
+/// Distinguishes a turn the developer typed (via the composer, plan 05-12 Task 1) from one the
+/// application generated on the conversation's own behalf (a proposal-decision relay, or the
+/// distillation instruction `authoring_stage_advance` sends) — carried on every turn line
+/// [`build_authoring_turn_line`] builds, so the transcript (and any future consumer) can tell the
+/// two apart, even though today both render through the SAME `developer_turn` feed row (Task 2's
+/// own "attributed to the right speaker" requirement: from the model's perspective — and the
+/// transcript's — all three are the human side of the conversation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthoringTurnOrigin {
+    Developer,
+    Application,
+}
+
+impl AuthoringTurnOrigin {
+    fn as_str(self) -> &'static str {
+        match self {
+            AuthoringTurnOrigin::Developer => "developer",
+            AuthoringTurnOrigin::Application => "application",
+        }
+    }
+}
+
+/// Build one `developer_turn` transcript line (Task 2, plan 05-12) — the record
+/// [`SidecarHandle::send_authoring_turn`] persists and emits for every turn the application sends
+/// into a live authoring session, independent of whether the sidecar delivery beneath it succeeds.
+/// Deterministic and unit-testable with no clock and no id source: `turn_id` and `at` are both
+/// parameters rather than generated inside, mirroring [`persist_event_line`]'s own "take only what
+/// it needs" discipline. `raw` carries the SAME text as `text` — both the raw view and the
+/// malformed-line fallback then have something real to show.
+pub(crate) fn build_authoring_turn_line(
+    run_id: &str,
+    text: &str,
+    origin: AuthoringTurnOrigin,
+    turn_id: &str,
+    at: &str,
+) -> String {
+    serde_json::json!({
+        "type": "developer_turn",
+        "runId": run_id,
+        "at": at,
+        "text": text,
+        "raw": text,
+        "origin": origin.as_str(),
+        "turnId": turn_id,
+    })
+    .to_string()
 }
 
 /// Make a skipped persist observable to the user (CR-03, PROC-07's own prohibition that the live
@@ -828,6 +910,49 @@ mod persist_tests {
                 "session_log_path must refuse to build a path for a rejected run id {run_id:?}"
             );
         }
+    }
+
+    /// [`build_authoring_turn_line`]'s own behavior (Task 2, plan 05-12) — a pure function, no
+    /// `SidecarHandle`, no Tauri handle, nothing but the arguments it takes.
+    #[test]
+    fn authoring_turn_line_carries_type_run_id_text_and_origin() {
+        let line = build_authoring_turn_line(
+            "run-a",
+            "hello there",
+            AuthoringTurnOrigin::Developer,
+            "turn-1",
+            "2026-01-01T00:00:00Z",
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&line).expect("the builder must produce valid JSON");
+        assert_eq!(parsed["type"], "developer_turn");
+        assert_eq!(parsed["runId"], "run-a");
+        assert_eq!(parsed["text"], "hello there");
+        assert_eq!(parsed["raw"], "hello there");
+        assert_eq!(parsed["origin"], "developer");
+        assert_eq!(parsed["turnId"], "turn-1");
+    }
+
+    #[test]
+    fn two_builder_calls_with_different_turn_ids_never_collide_on_one_feed_key() {
+        let line_a = build_authoring_turn_line(
+            "run-a",
+            "same text",
+            AuthoringTurnOrigin::Application,
+            "turn-a",
+            "2026-01-01T00:00:00Z",
+        );
+        let line_b = build_authoring_turn_line(
+            "run-a",
+            "same text",
+            AuthoringTurnOrigin::Application,
+            "turn-b",
+            "2026-01-01T00:00:00Z",
+        );
+        assert_ne!(
+            line_a, line_b,
+            "two turns with different turn ids must never produce identical lines"
+        );
     }
 }
 

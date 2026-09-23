@@ -15,14 +15,11 @@ import { resetUiState } from "../../state/uiStore";
 afterEach(() => {
   resetUiState();
   vi.clearAllMocks();
-  capturedAgentEventHandler = null;
 });
 
 const authoringStageAdvanceMock = vi.fn();
 const authoringStageReturnMock = vi.fn();
 const sendAuthoringTurnMock = vi.fn();
-
-let capturedAgentEventHandler: ((event: Record<string, unknown>) => void) | null = null;
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -31,12 +28,7 @@ vi.mock("../../adapters/tauri", async () => {
     agentRunLogWindow: () =>
       Promise.resolve({ entries: [], offset: 0, limit: 200, total: 0 }),
     agentRunRawWindow: () => Promise.resolve({ lines: [], offset: 0, limit: 200, total: 0 }),
-    subscribeAgentEvent: (handler: (event: Record<string, unknown>) => void) => {
-      capturedAgentEventHandler = handler;
-      return Promise.resolve(() => {
-        capturedAgentEventHandler = null;
-      });
-    },
+    subscribeAgentEvent: () => Promise.resolve(() => {}),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
     stopAgentRun: () => Promise.resolve({ status: "interrupted", sidecarWarning: null }),
     discardSession: () => Promise.resolve({ status: "interrupted", sidecarWarning: null }),
