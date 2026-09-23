@@ -193,6 +193,11 @@ pub struct ContextPacketDto {
     /// separately so the launch sheet can render the boundary sentence and counts without
     /// re-deriving them from `summaries` itself (plan 04-08 Task 2).
     pub compaction: CompactionBoundaryDto,
+    /// The packet's deduplicated decision list (D-73), independent of any single summary or
+    /// fold — every decision recorded across every summary for this task, first occurrence wins,
+    /// order preserved (plan 04-09 Task 1). Complete regardless of how many summaries folded,
+    /// because `ContextPacket.decisions` is itself lossless for decisions.
+    pub decisions: Vec<DecisionDto>,
     pub branch: String,
     pub base_ref: String,
     pub worktree_path: String,
@@ -231,6 +236,8 @@ impl From<ContextPacket> for ContextPacketDto {
                 folded: i < folded_count,
             })
             .collect();
+        let decisions: Vec<DecisionDto> =
+            packet.decisions.into_iter().map(DecisionDto::from).collect();
         Self {
             task_key: packet.task_key,
             task_title: packet.task_title,
@@ -247,6 +254,7 @@ impl From<ContextPacket> for ContextPacketDto {
                 .collect(),
             summaries,
             compaction,
+            decisions,
             branch: packet.worktree.branch,
             base_ref: packet.worktree.base_ref,
             worktree_path: packet.worktree.path,
