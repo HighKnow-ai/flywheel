@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-03-PLAN.md
-last_updated: "2026-09-23T13:49:52.416Z"
+stopped_at: Completed 05-04-PLAN.md
+last_updated: "2026-09-23T14:29:06.991Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 05 execution started
-state_head: dbd6126bfac7ddd33d2a613c252febc9ada3867c
+state_head: 770965124f44c57186bd29501ccb2fe636bcab4d
 progress:
   total_phases: 12
   completed_phases: 0
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 4 of 10
+Plan: 5 of 10
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 05 execution started
 
@@ -155,6 +155,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P01 | 55min | 3 tasks | 4 files |
 | Phase 05 P02 | 130min | 3 tasks | 28 files |
 | Phase 05 P03 | 150min | 3 tasks | 18 files |
+| Phase 05 P04 | 110min | 3 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -329,6 +330,10 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05-03]: transition_stage writes the D-88 runtime marker as the LAST step before commit — a marker-write failure rolls the whole transaction back, so agent_runs.authoring_stage and the on-disk stage marker can never disagree (T-05-03-05).
 - [Phase 05]: [Phase 05-03]: The stage gate is the SAME PreToolUse hook mechanism the destructive-command gate uses (plan 03-07), extended with a second matcher entry — never a second gating layer, and the hook resolves its own run from FLYWHEEL_RUN_ID only, never the tool-call payload (T-05-03-02).
 - [Phase 05]: [Phase 05-03]: advance_stage/return_to_stage take a human actor id and have no agent-reachable caller anywhere in this workspace, proven by a source-scanning gate over packages/sidecar/src (D-90).
+- [Phase 05]: [Phase 05-04]: EPIC_ROSTER_CEILING (5000) replaces list_epics's unbounded read, returning EpicRoster {epics, total, truncated} -- closes 01-SECURITY.md AR-01-04's re-rate trigger with a surfaced truncation flag (D-16) rather than a silent DEFAULT_LIMIT-sized cap, which AR-01-04 itself named as the wrong closure (it would reopen G-01-2's raw-ULID regression).
+- [Phase 05]: [Phase 05-04]: query::authoring.rs holds every agent-reachable board read (list_epics_page, list_tasks_for_epic, search_board_for_agent, list_pending_proposals, list_rejected_for_epic) as a distinct module from domain::epic::list_epics -- two reads, two ceilings, one reason each: the renderer's roster needs a high ceiling with surfaced truncation, the agent's reads need the DEFAULT_LIMIT/MAX_LIMIT clamp every other agent-reachable read already uses.
+- [Phase 05]: [Phase 05-04]: Migration 0012 adds idx_authoring_proposals_project_status (project_id, status, created_at DESC) -- deviation Rule 2, since D-82's board-level triage lane query has no existing index over that column pair and this plan's own purpose is closing unindexed/unbounded reads before an agent can reach them.
+- [Phase 05]: [Phase 05-04]: RejectedSet folds D-83's rejected-proposal history by POSITION past REJECTED_VERBATIM_WINDOW (5), copying compaction.rs's own contract exactly -- the most recent 5 rejected proposals are carried whole, older ones fold to target_type + payload label only, with a RejectionBoundary sentence stating where the fold begins, never a size/character/token ceiling.
 
 ### Pending Todos
 
@@ -374,6 +379,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T13:49:52.252Z
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-09-23T14:28:53.196Z
+Stopped at: Completed 05-04-PLAN.md
 Resume file: None
