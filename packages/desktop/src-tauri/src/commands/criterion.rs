@@ -288,12 +288,24 @@ pub fn criterion_delete(state: State<AppState>, app: AppHandle, criterion_id: St
     Ok(())
 }
 
-/// List every criterion for a task or an epic, in rank order — the read the item detail panel's
-/// `AcceptanceCriteriaList` consumes. Read-only: no `board:changed` emission.
+/// List the CURRENT criteria for a task or an epic, in rank order — the read the item detail
+/// panel's `AcceptanceCriteriaList` consumes. Read-only: no `board:changed` emission.
+///
+/// Deviation (Rule 1, plan 04-10): restricted from `list_criteria` (every row, superseded and
+/// current alike) to `list_current_criteria` — plan 04-04's own D2 coverage already established
+/// "every read path that shows criteria to a human or an agent sees current revisions only," but
+/// this command was not among the paths that plan actually touched, because nothing could reach a
+/// locked criterion's revise path from the UI yet. This plan adds that UI (the edit affordance
+/// below), which makes the gap immediately observable: revising a criterion on a locked task would
+/// otherwise leave the superseded row's stale statement rendered as a second, phantom list item
+/// alongside its successor, and the header's checked/total badge would over-count. Superseded
+/// wording stays reachable through `criterion_revisions` (the "revised" marker's own read) and
+/// nowhere else this command's caller renders by default.
 #[tauri::command]
 pub fn criterion_list(state: State<AppState>, parent_type: String, parent_id: String) -> Result<Vec<CriterionDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let criteria = flywheel_core::domain::acceptance_criterion::list_criteria(&conn, &parent_type, &parent_id)
-        .map_err(|e| e.to_string())?;
+    let criteria =
+        flywheel_core::domain::acceptance_criterion::list_current_criteria(&conn, &parent_type, &parent_id)
+            .map_err(|e| e.to_string())?;
     Ok(criteria.into_iter().map(CriterionDto::from).collect())
 }

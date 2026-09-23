@@ -16,10 +16,14 @@ vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
 }));
 
-function renderList(criteria: CriterionDto[]) {
-  invokeCommandMock.mockImplementation((command: string) => {
+function renderList(criteria: CriterionDto[], options?: { revisions?: Record<string, CriterionDto[]> }) {
+  invokeCommandMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
     if (command === "criterion_list") {
       return Promise.resolve(criteria);
+    }
+    if (command === "criterion_revisions") {
+      const criterionId = args?.criterionId as string;
+      return Promise.resolve(options?.revisions?.[criterionId] ?? []);
     }
     return Promise.resolve(undefined);
   });
@@ -41,6 +45,9 @@ const THREE_CRITERIA: CriterionDto[] = [
     verificationHint: "cargo test -p core",
     checked: true,
     rank: "1",
+    revision: 1,
+    revisionOf: null,
+    supersededAt: null,
   },
   {
     id: "c2",
@@ -50,6 +57,9 @@ const THREE_CRITERIA: CriterionDto[] = [
     verificationHint: null,
     checked: true,
     rank: "2",
+    revision: 1,
+    revisionOf: null,
+    supersededAt: null,
   },
   {
     id: "c3",
@@ -59,7 +69,41 @@ const THREE_CRITERIA: CriterionDto[] = [
     verificationHint: "manual check",
     checked: false,
     rank: "3",
+    revision: 1,
+    revisionOf: null,
+    supersededAt: null,
   },
+];
+
+/** c4 is the current row of a two-revision chain rooted at c4-root — used by the "revised"
+ * marker tests below. */
+const REVISED_CRITERION: CriterionDto = {
+  id: "c4",
+  parentType: "task",
+  parentId: "task-1",
+  statement: "Sharper wording",
+  verificationHint: null,
+  checked: false,
+  rank: "4",
+  revision: 2,
+  revisionOf: "c4-root",
+  supersededAt: null,
+};
+
+const REVISED_CRITERION_HISTORY: CriterionDto[] = [
+  {
+    id: "c4-root",
+    parentType: "task",
+    parentId: "task-1",
+    statement: "Original wording",
+    verificationHint: null,
+    checked: false,
+    rank: "4",
+    revision: 1,
+    revisionOf: null,
+    supersededAt: "2026-01-01T00:00:00Z",
+  },
+  REVISED_CRITERION,
 ];
 
 describe("AcceptanceCriteriaList", () => {
@@ -116,6 +160,77 @@ describe("AcceptanceCriteriaList", () => {
     await waitFor(() =>
       expect(invokeCommandMock).toHaveBeenCalledWith("criterion_toggle", { criterionId: "c3" }),
     );
+  });
+});
+
+describe("RevisedMarker — the quiet 'revised' badge (D-79)", () => {
+  it("renders the marker for a criterion with a predecessor and not for an unrevised one", async () => {
+    renderList([...THREE_CRITERIA, REVISED_CRITERION]);
+
+    await waitFor(() => expect(screen.getByText("Sharper wording")).toBeInTheDocument());
+
+    // Exactly one row (the revised one, c4) carries the marker — the three never-revised rows
+    // carry none.
+    expect(screen.getAllByRole("button", { name: "Show prior wording" })).toHaveLength(1);
+  });
+
+  it("activating the marker renders the prior statement text, oldest first", async () => {
+    renderList([REVISED_CRITERION], { revisions: { c4: REVISED_CRITERION_HISTORY } });
+
+    await waitFor(() => expect(screen.getByText("Sharper wording")).toBeInTheDocument());
+    // The history query is disabled until the marker is activated (T-04-27) — not fetched, not
+    // rendered, on mount.
+    expect(screen.queryByText(/Original wording/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show prior wording" }));
+
+    expect(await screen.findByText(/Original wording/)).toBeInTheDocument();
+  });
+});
+
+describe("Editing a criterion (D-76/D-77, plan 04-10)", () => {
+  it("calls the revise wrapper, never the old update wrapper, with no confirmation dialog", async () => {
+    renderList(THREE_CRITERIA);
+
+    await waitFor(() => expect(screen.getByText("Handles empty input")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: 'Edit criterion "Handles empty input"' }));
+
+    const statementInput = await screen.findByLabelText("Edit criterion statement");
+    expect(statementInput).toHaveValue("Handles empty input");
+    // No confirmation dialog stands between the edit affordance opening and the mutation firing
+    // (D-77): the edit inputs are the only new surface, nothing modal.
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.change(statementInput, { target: { value: "Handles empty input gracefully" } });
+    fireEvent.keyDown(statementInput, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(invokeCommandMock).toHaveBeenCalledWith("criterion_revise", {
+        criterionId: "c1",
+        statement: "Handles empty input gracefully",
+        verificationHint: "cargo test -p core",
+      }),
+    );
+    expect(invokeCommandMock).not.toHaveBeenCalledWith("criterion_update", expect.anything());
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("Escape cancels the edit without calling the revise wrapper", async () => {
+    renderList(THREE_CRITERIA);
+
+    await waitFor(() => expect(screen.getByText("Handles empty input")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: 'Edit criterion "Handles empty input"' }));
+    const statementInput = await screen.findByLabelText("Edit criterion statement");
+    fireEvent.change(statementInput, { target: { value: "Should never be saved" } });
+    fireEvent.keyDown(statementInput, { key: "Escape" });
+
+    expect(screen.queryByLabelText("Edit criterion statement")).not.toBeInTheDocument();
+    expect(invokeCommandMock).not.toHaveBeenCalledWith("criterion_revise", expect.anything());
+    expect(screen.getByText("Handles empty input")).toBeInTheDocument();
   });
 });
 
