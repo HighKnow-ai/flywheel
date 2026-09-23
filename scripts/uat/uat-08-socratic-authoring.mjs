@@ -158,6 +158,69 @@ async function selfTest() {
     assert.ok(/build|shape|epic/i.test(OPENING_PROMPT));
   });
 
+  // -----------------------------------------------------------------------------------------
+  // drainIncidentalPermissionRequests — a stub-driven exercise of the REAL shared helper
+  // (Task 2, G-05-1). Not a reimplementation of the loop: a tiny stub exposing only the two
+  // methods the helper calls, plus four checks against the four behaviours the loop promises.
+  // -----------------------------------------------------------------------------------------
+  {
+    const REQ_A = "req-incidental-A";
+    const REQ_B = "req-deliberate-B";
+    // REQ_A appears TWICE (the same id fired twice); REQ_B is the one this run's predicate
+    // claims. Neither event is ever removed from the queue — the drain loop's own `handled` Set
+    // (not this stub) is what must stop a second match on the same id.
+    const stubEvents = [
+      { type: "permission_request", requestId: REQ_A },
+      { type: "permission_request", requestId: REQ_A },
+      { type: "permission_request", requestId: REQ_B },
+    ];
+    let emptyLookups = 0;
+    const stubSidecar = {
+      requests: [],
+      async waitForEvent(predicate, _timeoutMs, _label) {
+        const match = stubEvents.find(predicate);
+        if (match === undefined) {
+          emptyLookups += 1;
+          throw new Error("stub: no queued event matches the drain loop's own predicate");
+        }
+        return match;
+      },
+      async request(payload) {
+        stubSidecar.requests.push(payload);
+        return {};
+      },
+    };
+    const isDeliberateStub = (event) => event.requestId === REQ_B;
+    // RED phase (Task 2): the call driving the loop is deliberately not wired yet, so every
+    // assertion below that depends on `stubSidecar.requests` fails for the right reason —
+    // nothing has been answered, because nothing has invoked the helper.
+    void isDeliberateStub;
+
+    check(
+      "an incidental request the predicate does not claim is answered exactly once, with an allow decision carrying its own request id",
+      () => {
+        assert.equal(stubSidecar.requests.length, 1);
+        assert.equal(stubSidecar.requests[0].requestId, REQ_A);
+        assert.equal(stubSidecar.requests[0].decision, "allow");
+      },
+    );
+
+    check(
+      "the same request id offered twice is answered once — the handled Set is doing real work",
+      () => {
+        assert.equal(stubSidecar.requests.filter((r) => r.requestId === REQ_A).length, 1);
+      },
+    );
+
+    check("a request the predicate claims is never answered at all", () => {
+      assert.ok(!stubSidecar.requests.some((r) => r.requestId === REQ_B));
+    });
+
+    check("the loop settles once the stop predicate flips, rather than running forever", () => {
+      assert.ok(emptyLookups >= 1);
+    });
+  }
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
