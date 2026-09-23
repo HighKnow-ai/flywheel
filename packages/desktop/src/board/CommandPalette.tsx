@@ -397,6 +397,19 @@ export function CommandPalette() {
           });
           continue;
         }
+        case "accept-proposal":
+        case "reject-proposal":
+        case "amend-proposal":
+        case "accept-proposal-subtree":
+          // D-92/D-95 (plan 05-07): proposal-tray-scoped verbs with no palette-reachable target —
+          // the palette's own selection model has no "selected proposal" concept, and
+          // `bindingAllowedInLayer` gates all four to the `"proposal-tray"` layer only, so a
+          // palette-issued `dispatchAction`/`runBoardListAction` call could never actually reach
+          // one. Excluded here, mirroring `open-palette`'s own continue-without-pushing pattern,
+          // rather than falling through to the generic board-list handler below and silently
+          // doing nothing (the exact dead-menu-entry defect `return-stage`'s own case above was
+          // added to avoid, 05-03-SUMMARY.md's Deviations).
+          continue;
         case "filter-status":
         case "filter-epic":
         case "filter-assignee":

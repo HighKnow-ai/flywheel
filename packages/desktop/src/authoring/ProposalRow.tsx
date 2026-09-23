@@ -22,11 +22,18 @@
  * `ProposalUndecidable` error, and this row switches into a stable "undecidable" render (accept
  * disabled for good, reject still live so the developer can clear it) instead of the ordinary
  * retryable-error treatment.
+ *
+ * Keyboard (Task 3): `a`/`d`/`e`/`Shift+A` reach this row through
+ * `useRegionBindings("proposal-tray", ...)` (`state/keyboard.ts`) ONLY while `selected` is true —
+ * no key listener lives in this file. `Shift+A` (accept-subtree) is gated inert here — on a
+ * criterion row or a task with no pending children the call never reaches the backend, mirroring
+ * how the destructive permission card gates `Shift+A` inert in its own row handler (T-05-07-02).
  */
 import { useRef, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
 import type { AuthoringProposalDto } from "../adapters/tauri";
 import { MARKS_BY_ID } from "../legend/marks";
+import { useRegionBindings } from "../state/keyboard";
 import { useAcceptProposal, useRejectProposal } from "./useAuthoringQuery";
 import { ProposalAmendEditor } from "./ProposalAmendEditor";
 
@@ -115,6 +122,10 @@ export interface ProposalRowProps {
   /** True for a drafted criterion nested under its task (Task 1(c)) — a small visual indent, no
    * new component. */
   indented: boolean;
+  /** Whether this row currently holds the tray's own selection (`ProposalTray.tsx`'s
+   * `j`/`k`-moved index) — the ONE row whose keyboard bindings actually act. */
+  selected: boolean;
+  onSelect: () => void;
   /** How many PENDING drafted criteria sit under this proposal — only ever non-zero for a `task`
    * root; a criterion row and a childless task both pass `0`, which is what keeps the subtree
    * action off both (D-95). */
@@ -134,6 +145,8 @@ export function ProposalRow({
   agentRunId,
   proposal,
   indented,
+  selected,
+  onSelect,
   pendingChildCount,
   acceptingSubtree,
   onAcceptSubtree,
@@ -202,6 +215,21 @@ export function ProposalRow({
     setEditing(true);
   }
 
+  useRegionBindings("proposal-tray", "proposal-tray", {
+    "accept-proposal": () => {
+      if (selected) void accept();
+    },
+    "reject-proposal": () => {
+      if (selected) void reject();
+    },
+    "amend-proposal": () => {
+      if (selected) openEditor();
+    },
+    "accept-proposal-subtree": () => {
+      if (selected && canAcceptSubtree) onAcceptSubtree();
+    },
+  });
+
   const mark = MARKS_BY_ID["proposal-pending"];
   const title = payloadTitle(proposal);
 
@@ -209,6 +237,7 @@ export function ProposalRow({
     <div
       role="group"
       aria-label={`Proposed ${proposal.targetType}: ${title}`}
+      onClick={onSelect}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -217,6 +246,8 @@ export function ProposalRow({
         marginLeft: indented ? "var(--space-lg)" : 0,
         borderRadius: "var(--radius-chrome)",
         background: "var(--surface-secondary)",
+        outline: selected ? "2px solid var(--focus-ring)" : "none",
+        outlineOffset: -2,
         color: "var(--text-primary-rack)",
         minWidth: 0,
       }}

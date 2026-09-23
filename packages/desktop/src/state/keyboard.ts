@@ -26,7 +26,8 @@ export type FocusRegion =
   | "item-detail"
   | "command-palette"
   | "session-surface"
-  | "permission-card";
+  | "permission-card"
+  | "proposal-tray";
 
 /** Every board action reachable from the keyboard, the palette, or (menu.rs) the native menu.
  * `create-issue`/`open-legend`/`filter-status`/`filter-epic`/`filter-assignee`/`filter-priority`
@@ -81,7 +82,15 @@ export type ActionId =
   // mirroring `shape-epic`'s own palette-only entry — neither is reachable from a tool call, which
   // is the whole point of D-90.
   | "advance-stage"
-  | "return-stage";
+  | "return-stage"
+  // D-92/D-95 (plan 05-07): the proposal tray's own per-row verbs, reusing the exact
+  // `a`/`d`/`Shift+A` vocabulary the permission card already established (`answer-permission-*`
+  // above) — the developer learns one set of answer keys for everything an agent asks of them.
+  // `bindingAllowedInLayer` below scopes all four to the `"proposal-tray"` layer only.
+  | "accept-proposal"
+  | "reject-proposal"
+  | "amend-proposal"
+  | "accept-proposal-subtree";
 
 export interface Binding {
   id: ActionId;
@@ -174,6 +183,29 @@ export const BINDINGS: Binding[] = [
 
   // ---- Global (agent additions) -----------------------------------------------------------
   { id: "open-settings", region: "global", key: ",", meta: true, label: "Open Settings" },
+
+  // ---- Proposal tray (D-92/D-95, plan 05-07) — region-scoped so `a`/`d`/`Shift+A` here reuse
+  // the exact permission-card vocabulary without colliding with it (a different region namespace
+  // entirely — `resolveBinding` matches on region, never on key alone). `e` is free in this
+  // region and matches the board's own `open-estimate-picker` mnemonic only by letter, not by
+  // region, which `resolveBinding` resolves correctly. `move-down`/`move-up` reuse the board
+  // list's own ids rather than a second "move" vocabulary — `bindingAllowedInLayer` below grants
+  // them an extra allowance under the `"proposal-tray"` layer alongside their existing
+  // board/quick-add one.
+  { id: "accept-proposal", region: "proposal-tray", key: "a", label: "Accept Proposal" },
+  { id: "reject-proposal", region: "proposal-tray", key: "d", label: "Reject Proposal" },
+  { id: "amend-proposal", region: "proposal-tray", key: "e", label: "Amend Proposal" },
+  {
+    id: "accept-proposal-subtree",
+    region: "proposal-tray",
+    key: "a",
+    shift: true,
+    label: "Accept Task and Its Criteria",
+  },
+  { id: "move-down", region: "proposal-tray", key: "j", label: "Move selection down" },
+  { id: "move-down", region: "proposal-tray", key: "ArrowDown", label: "Move selection down" },
+  { id: "move-up", region: "proposal-tray", key: "k", label: "Move selection up" },
+  { id: "move-up", region: "proposal-tray", key: "ArrowUp", label: "Move selection up" },
 
   // ---- Command-palette-only (no keystroke; CommandPalette.tsx's generator source) --------
   { id: "create-issue", region: "command-palette", label: "Create Issue" },
@@ -319,7 +351,15 @@ export const MENU_ACTION_IDS: readonly ActionId[] = [
  * scoped, rather than a special case. No component wires these layers into `topLayer` yet — that
  * is plans 02-07/02-08's job once the surfaces themselves exist; this plan only reserves the
  * vocabulary so `bindingAllowedInLayer` has somewhere correct to point a future caller. */
-export type UiLayer = "board" | "quick-add" | "detail" | "picker" | "palette" | "session-surface" | "permission-card";
+export type UiLayer =
+  | "board"
+  | "quick-add"
+  | "detail"
+  | "picker"
+  | "palette"
+  | "session-surface"
+  | "permission-card"
+  | "proposal-tray";
 
 /** The four booleans every layer decision is made from. `EscapeLadderState` below extends this
  * with only `hasSelection` — the two are the same subject read two ways (which layer to CLOSE on
@@ -358,12 +398,28 @@ const PERMISSION_CARD_ACTION_IDS = new Set<ActionId>([
   "answer-permission-allow-always",
 ]);
 
+// T-05-07-02 (STRIDE, elevation of privilege): the tray's own four verbs must never fire outside
+// its own layer, mirroring PERMISSION_CARD_ACTION_IDS' identical reasoning above.
+const PROPOSAL_TRAY_ACTION_IDS = new Set<ActionId>([
+  "accept-proposal",
+  "reject-proposal",
+  "amend-proposal",
+  "accept-proposal-subtree",
+]);
+
+// `move-down`/`move-up` are shared with the board list's own ids (plan 05-07) rather than a
+// second "move" vocabulary — this is the tray's own allowance for them, additive to the
+// board/quick-add allowance the final `return` below already grants.
+const TRAY_SELECTION_ACTION_IDS = new Set<ActionId>(["move-down", "move-up"]);
+
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "open-palette") return layer !== "picker" && layer !== "palette";
   // T-02-15 (STRIDE, elevation of privilege): permission-answer bindings must never fire outside
   // the card's own layer — a stray `a`/`d` on the board must never approve or deny a tool call.
   if (PERMISSION_CARD_ACTION_IDS.has(id)) return layer === "permission-card";
   if (SESSION_SURFACE_ACTION_IDS.has(id)) return layer === "session-surface";
+  if (PROPOSAL_TRAY_ACTION_IDS.has(id)) return layer === "proposal-tray";
+  if (layer === "proposal-tray") return TRAY_SELECTION_ACTION_IDS.has(id);
   return layer === "board" || layer === "quick-add";
 }
 

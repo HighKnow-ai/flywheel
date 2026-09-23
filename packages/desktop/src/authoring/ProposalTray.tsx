@@ -13,11 +13,13 @@
  *
  * Owns the accept-subtree guard, keyed by root id (a `Set`, mirroring
  * `recovery/OrphanRecoveryModal.tsx`'s `killingRef`) since two different subtrees must both be
- * able to act at once, and only a repeat of the same one is suppressed. Task 3 adds the tray's own
- * keyboard-driven selection.
+ * able to act at once, and only a repeat of the same one is suppressed. Owns the tray's own
+ * selection (`j`/`k`/arrow keys move it via `state/keyboard.ts`'s `nextSelectionId`, the same
+ * idiom the board list uses — an empty tray takes no focus).
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AuthoringProposalDto } from "../adapters/tauri";
+import { nextSelectionId, useRegionBindings } from "../state/keyboard";
 import { useAcceptSubtree, useRunProposals } from "./useAuthoringQuery";
 import { ProposalRow } from "./ProposalRow";
 
@@ -57,10 +59,42 @@ function groupProposals(proposals: AuthoringProposalDto[]): ProposalGroup[] {
     .map((root) => ({ root, children: childrenByParent.get(root.id) ?? [] }));
 }
 
+/** The flat, selectable row order — every root immediately followed by its own children, in
+ * exactly the order they render, which is what `nextSelectionId` needs to move through the tray
+ * one visible row at a time. */
+function flattenGroups(groups: ProposalGroup[]): AuthoringProposalDto[] {
+  return groups.flatMap((group) => [group.root, ...group.children]);
+}
+
 export function ProposalTray({ agentRunId }: ProposalTrayProps) {
   const proposalsQuery = useRunProposals(agentRunId);
   const proposals = proposalsQuery.data ?? [];
   const groups = groupProposals(proposals);
+  const flat = flattenGroups(groups);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // An empty tray takes no focus, and a row removed from the list (accepted/rejected, here or
+  // from another surface reading the same query) can never stay "selected" — both close the same
+  // window a stale id would otherwise leave open.
+  useEffect(() => {
+    if (selectedId && !flat.some((p) => p.id === selectedId)) {
+      setSelectedId(flat[0]?.id ?? null);
+    } else if (!selectedId && flat.length > 0) {
+      setSelectedId(flat[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flat]);
+
+  // Tray-wide selection movement — `j`/`k`/arrow keys — lives HERE, once, shared by every row
+  // below; each row's own `useRegionBindings` call (inside `ProposalRow.tsx`) owns only its own
+  // guarded accept/reject/amend/subtree-accept verbs, gated on `selected`. No key handler lives in
+  // any tray component's own `onKeyDown`/`addEventListener` — both hooks register through
+  // `state/keyboard.ts`'s shared window listener.
+  useRegionBindings("proposal-tray", "proposal-tray", {
+    "move-down": () => setSelectedId((current) => nextSelectionId(flat, current, 1)),
+    "move-up": () => setSelectedId((current) => nextSelectionId(flat, current, -1)),
+  });
 
   const acceptSubtreeMutation = useAcceptSubtree(agentRunId);
   // The root ids currently in flight for a subtree accept. A row's own `acceptingSubtree` prop
@@ -102,6 +136,8 @@ export function ProposalTray({ agentRunId }: ProposalTrayProps) {
             agentRunId={agentRunId as string}
             proposal={group.root}
             indented={false}
+            selected={group.root.id === selectedId}
+            onSelect={() => setSelectedId(group.root.id)}
             pendingChildCount={group.children.length}
             acceptingSubtree={acceptingSubtreeIds.has(group.root.id)}
             onAcceptSubtree={() => handleAcceptSubtree(group.root.id)}
@@ -112,6 +148,8 @@ export function ProposalTray({ agentRunId }: ProposalTrayProps) {
               agentRunId={agentRunId as string}
               proposal={child}
               indented
+              selected={child.id === selectedId}
+              onSelect={() => setSelectedId(child.id)}
               pendingChildCount={0}
               acceptingSubtree={false}
               onAcceptSubtree={() => {}}
