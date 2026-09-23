@@ -30,6 +30,8 @@ fn entry(n: usize) -> SummaryEntry {
                 statement: format!("decision {n}.2"),
             },
         ],
+        acknowledged_decisions: Vec::new(),
+        diff_ref: None,
         auto_generated: false,
         created_at: format!("2026-01-{n:02}T00:00:00Z"),
     }

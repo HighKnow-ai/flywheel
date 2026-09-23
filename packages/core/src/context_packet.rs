@@ -52,6 +52,10 @@ pub struct EpicSection {
 /// `session_summaries` row, in the same field shape [`crate::domain::session_summary::SummaryFields`]
 /// was written with. Ordered oldest-first by [`assemble_context_packet`]'s own query, matching
 /// `session_summaries`' own `created_at ASC, id ASC` read order (CTX-04's stable tie-break).
+///
+/// `acknowledged_decisions` and `diff_ref` (plan 04-11) exist on this projection for exactly one
+/// reason: `crate::drift::detect_drift`'s staleness and read-back detectors read the LATEST
+/// entry's own values of both. Nothing else in this file renders either field.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SummaryEntry {
     pub agent_run_id: String,
@@ -60,6 +64,10 @@ pub struct SummaryEntry {
     pub remains: Option<String>,
     pub next_session_must_know: Option<String>,
     pub decisions: Vec<DecisionEntry>,
+    /// D-73's read-back input, verbatim from `session_summaries.acknowledged_decisions`.
+    pub acknowledged_decisions: Vec<String>,
+    /// D-72's staleness input, verbatim from `session_summaries.diff_ref`.
+    pub diff_ref: Option<String>,
     pub auto_generated: bool,
     pub created_at: String,
 }
@@ -146,8 +154,8 @@ const CRITERIA_SQL: &str = "SELECT statement, verification_hint FROM acceptance_
     ORDER BY rank ASC, id ASC";
 
 const SUMMARIES_SQL: &str = "SELECT agent_run_id, changed_files, changed_prose, remains, \
-    next_session_must_know, decisions, auto_generated, created_at FROM session_summaries \
-    WHERE task_id = ?1 ORDER BY created_at ASC, id ASC";
+    next_session_must_know, decisions, acknowledged_decisions, diff_ref, auto_generated, \
+    created_at FROM session_summaries WHERE task_id = ?1 ORDER BY created_at ASC, id ASC";
 
 const WORKTREE_ROW_SQL: &str = "SELECT branch, base_branch, path FROM worktrees WHERE task_id = ?1";
 
@@ -220,11 +228,14 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         .query_map(params![task_id], |row| {
             let changed_files_json: String = row.get(1)?;
             let decisions_json: String = row.get(5)?;
-            let auto_generated_int: i64 = row.get(6)?;
+            let acknowledged_json: String = row.get(6)?;
+            let auto_generated_int: i64 = row.get(8)?;
             let changed_files: Vec<String> =
                 serde_json::from_str(&changed_files_json).unwrap_or_else(|_| Vec::new());
             let decisions: Vec<DecisionEntry> =
                 serde_json::from_str(&decisions_json).unwrap_or_else(|_| Vec::new());
+            let acknowledged_decisions: Vec<String> =
+                serde_json::from_str(&acknowledged_json).unwrap_or_else(|_| Vec::new());
             Ok(SummaryEntry {
                 agent_run_id: row.get(0)?,
                 changed_files,
@@ -232,8 +243,10 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
                 remains: row.get(3)?,
                 next_session_must_know: row.get(4)?,
                 decisions,
+                acknowledged_decisions,
+                diff_ref: row.get(7)?,
                 auto_generated: auto_generated_int != 0,
-                created_at: row.get(7)?,
+                created_at: row.get(9)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()

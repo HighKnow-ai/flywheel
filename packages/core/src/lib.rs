@@ -10,6 +10,7 @@ pub mod credentials;
 pub mod db;
 pub mod destructive;
 pub mod domain;
+pub mod drift;
 pub mod git;
 pub mod git_retry;
 pub mod ids;

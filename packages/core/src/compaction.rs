@@ -169,6 +169,8 @@ mod tests {
                 id: format!("dec-{n}"),
                 statement: format!("statement-{n}"),
             }],
+            acknowledged_decisions: Vec::new(),
+            diff_ref: None,
             auto_generated: false,
             created_at: format!("2026-01-{n:02}T00:00:00Z"),
         }
