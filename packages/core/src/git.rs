@@ -27,14 +27,30 @@ pub fn worktree_root_from_env() -> std::path::PathBuf {
         .join("Flywheel")
 }
 
+/// Spawn `git -C <repo_path> <args>` and return the raw [`Output`] regardless of exit status —
+/// this crate's one and only `Command::new("git")` construction (`packages/core/tests/
+/// supervisor_cwd.rs`'s own single-construction-site property, extended by plan 04-07 Task 1 to
+/// cover this file's two callers rather than just [`git_at`]). `-C <repo_path>` is always the
+/// first two arguments, before any subcommand (PROC-02 ordering). [`git_at`] wraps this with the
+/// "non-zero exit is an `Err`" policy; [`rev_parse_verify`] wraps it with the "non-zero exit means
+/// `false`" policy — both policies belong to the caller, never to this function.
+fn spawn_git(repo_path: &Path, args: &[&str]) -> anyhow::Result<Output> {
+    Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to spawn git -C {repo_path:?} {args:?}"))
+}
+
 /// Run `git -C <repo_path> <args>`, returning the raw [`Output`] on a zero exit status.
 /// Non-zero exit becomes an `Err` carrying git's own stderr — never a silently-ignored `Output`.
 /// Rejects an empty `repo_path` or an empty `args` slice before spawning (PROC-02 empty).
 ///
 /// D-51/D-54 (plan 03-04): a lock-shaped failure (per `git_retry::is_lock_contention`) is retried
 /// through `git_retry::with_lock_retry` — the SAME policy the PATH shim binary uses — before ever
-/// surfacing as an error. The single `Command::new("git")` construction below is unchanged from
-/// before this plan and still runs exactly once per attempt; `packages/core/tests/supervisor_cwd.rs`
+/// surfacing as an error. The single [`spawn_git`] construction below is unchanged from before
+/// this plan and still runs exactly once per attempt; `packages/core/tests/supervisor_cwd.rs`
 /// asserts it is the only such construction in this crate. A non-lock failure (a real git error)
 /// is returned unchanged after exactly one invocation — its message reads as itself, unaffected by
 /// the retry wrapper.
@@ -48,14 +64,7 @@ pub fn git_at(repo_path: &Path, args: &[&str]) -> anyhow::Result<Output> {
 
     let label = format!("git -C {repo_path:?} {args:?}");
     let outcome = crate::git_retry::with_lock_retry(&label, |_attempt| {
-        // `-C <repo_path>` is always the first two arguments, before any subcommand (PROC-02
-        // ordering) — this crate's one and only `Command::new("git")` construction.
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(repo_path)
-            .args(args)
-            .output()
-            .with_context(|| format!("failed to spawn git -C {repo_path:?} {args:?}"))?;
+        let output = spawn_git(repo_path, args)?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -78,12 +87,7 @@ pub fn rev_parse_verify(repo_path: &Path, ref_name: &str) -> anyhow::Result<bool
     if repo_path.as_os_str().is_empty() {
         bail!("rev_parse_verify refused: repo_path must not be empty");
     }
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["rev-parse", "--verify", "--quiet", ref_name])
-        .output()
-        .with_context(|| format!("failed to spawn git -C {repo_path:?} rev-parse --verify {ref_name:?}"))?;
+    let output = spawn_git(repo_path, &["rev-parse", "--verify", "--quiet", ref_name])?;
     Ok(output.status.success())
 }
 
@@ -140,6 +144,43 @@ pub fn worktree_list(repo_path: &Path) -> anyhow::Result<String> {
 pub fn git_status_porcelain(worktree_path: &Path) -> anyhow::Result<String> {
     let output = git_at(worktree_path, &["status", "--porcelain"])?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// One `git diff` read's stat text and changed-path list (D-70/D-71) — the shape the context
+/// packet carries for the "committed since base" half of the diff-so-far section: a stat block
+/// and a path list, never a hunk body. `stat` is git's own `--stat` output, byte for byte;
+/// `changed_paths` is `--name-only`'s output split into individual paths.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiffStat {
+    pub stat: String,
+    pub changed_paths: Vec<String>,
+}
+
+/// The stat text and changed-path list for the symmetric-difference range `<base_ref>...HEAD`
+/// (D-71, PROC-02) — the changes on this branch since it diverged from `base_ref`, never every
+/// change on either side. Two calls through [`git_at`] (never a second `Command::new("git")`
+/// construction site), mirroring [`git_status_porcelain`]'s exact one-line-body convention: `git
+/// diff --stat <range>` for the stat text, `git diff --name-only <range>` for the path list. The
+/// only parsing this function performs is splitting the name-only text on `'\n'` and dropping
+/// empty elements — mirrors [`worktree_list`]'s own "no parsing of its own" note. A base ref that
+/// does not resolve returns an `Err` carrying git's own stderr, never an empty success; a branch
+/// with nothing ahead of its base returns `Ok` with both fields empty, never an error.
+///
+/// D-71: the stat and the path list are what the packet carries, never hunk bodies — the agent is
+/// standing in the worktree it is briefed about, and the packet's size must depend only on how
+/// many files changed, not on how large any one change is.
+pub fn diff_stat_and_names(repo_path: &Path, base_ref: &str) -> anyhow::Result<DiffStat> {
+    let range = format!("{base_ref}...HEAD");
+
+    let stat_output = git_at(repo_path, &["diff", "--stat", &range])?;
+    let stat = String::from_utf8_lossy(&stat_output.stdout).into_owned();
+
+    let names_output = git_at(repo_path, &["diff", "--name-only", &range])?;
+    let names_text = String::from_utf8_lossy(&names_output.stdout).into_owned();
+    let changed_paths: Vec<String> =
+        names_text.split('\n').filter(|line| !line.is_empty()).map(str::to_string).collect();
+
+    Ok(DiffStat { stat, changed_paths })
 }
 
 /// Remove a worktree (WORK-03, D-41/D-42/D-43). Takes exactly two path parameters and no boolean,
