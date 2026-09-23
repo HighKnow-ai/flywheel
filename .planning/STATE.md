@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: "`/clear` Is Free"
 status: executing
-stopped_at: Completed 04-12-PLAN.md
-last_updated: "2026-09-23T05:49:47.505Z"
+stopped_at: Completed 04-13-PLAN.md
+last_updated: "2026-09-23T06:17:51.047Z"
 last_activity: 2026-09-23
 last_activity_desc: Phase 04 execution started
-state_head: 8826d7c392c2540714b96c613ac9ce1d90450fda
+state_head: 182bff1f6bf925621c6dd7ed9331da5e8cd8ccb5
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 91
-  completed_plans: 89
+  completed_plans: 90
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-10)
 ## Current Position
 
 Phase: 04 (`/clear` Is Free) — EXECUTING
-Plan: 13 of 14
+Plan: 14 of 14
 Status: Ready to execute
 Last activity: 2026-09-23 — Phase 04 execution started
 
@@ -147,6 +147,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04 P10 | 62min | 3 tasks | 8 files |
 | Phase 04 P11 | 55min | 3 tasks | 9 files |
 | Phase 04 P12 | 20min | 3 tasks | 7 files |
+| Phase 04-clear-is-free P13 | 14min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -304,6 +305,8 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04-12]: record_drift_warnings takes a &Transaction and composes into the caller's own transaction, never opening its own — a rolled-back caller transaction leaves no drift trail at all, proven by a dedicated test rather than asserted by convention.
 - [Phase 04]: [Phase 04-12]: query/recovery.rs's third UNION arm requires recency (most recent run only) for drift, deliberately opposite the abandoned-run arm's own no-recency rule — a drift warning is a statement about the CURRENT board/repo relationship, so the signal clears itself the instant the next run comes back clean.
 - [Phase 04]: [Phase 04-12]: DriftWarningSection reuses --destructive-text-rack, the existing agent-signal warning role already spent on abandoned/worktree-missing/recovery-needed, rather than introducing a dedicated warning colour token.
+- [Phase 04]: stop_agent_run_recording_first now guarantees a fallback summary for any run it terminates with none — apply_session_closed's fallback hook only fires the first time a run becomes terminal; a run stopped/discarded through interrupt_agent_run was already terminal by the time any later session_closed event reached it there, so that hook's own presence check was structurally unreachable for the Stop/Discard path before this fix
+- [Phase 04]: uiStore's setActiveAgentRunId gained an optional taskId parameter, threaded from its 3 already-informed call sites — SessionSurface had no source for its own task id anywhere in props/state, and the Discard hand-off to the launch sheet needed one; avoided adding a new backend query
 
 ### Pending Todos
 
@@ -346,6 +349,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-23T05:49:47.405Z
-Stopped at: Completed 04-12-PLAN.md
+Last session: 2026-09-23T06:17:50.912Z
+Stopped at: Completed 04-13-PLAN.md
 Resume file: None

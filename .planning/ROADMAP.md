@@ -462,7 +462,7 @@ versions during planning.
 
 **Wave 10** *(blocked on 04-12 — the flagship action, last because it shows everything before it)*
 
-- [ ] 04-13-PLAN.md — Discard in one action: a bounded wait for the agent's summary, then the pre-filled launch sheet (CTX-08)
+- [x] 04-13-PLAN.md — Discard in one action: a bounded wait for the agent's summary, then the pre-filled launch sheet (CTX-08)
 
 **Wave 11** *(blocked on 04-13 — the phase's ship gate)*
 

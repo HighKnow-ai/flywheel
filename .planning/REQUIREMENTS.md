@@ -86,7 +86,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **CTX-05**: Recent summaries are carried verbatim and older ones compacted, with the compaction boundary visible to the user
 - [x] **CTX-06**: The system detects and surfaces when a new session's stated understanding contradicts a decision already recorded on the board
 - [ ] **CTX-07**: A task can be run through repeated session cycles with its acceptance criteria verifiably unchanged, demonstrated by an automated test over at least five cycles
-- [ ] **CTX-08**: User can discard a session's context and start a fresh one on the same worktree in a single action, losing no board state
+- [x] **CTX-08**: User can discard a session's context and start a fresh one on the same worktree in a single action, losing no board state
 
 ### Socratic Epic Authoring
 
@@ -278,7 +278,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CTX-05 | Phase 4 | Complete |
 | CTX-06 | Phase 4 | Complete |
 | CTX-07 | Phase 4 | Pending |
-| CTX-08 | Phase 4 | Pending |
+| CTX-08 | Phase 4 | Complete |
 | SHAPE-01 | Phase 5 | Pending |
 | SHAPE-02 | Phase 5 | Pending |
 | SHAPE-03 | Phase 5 | Pending |
