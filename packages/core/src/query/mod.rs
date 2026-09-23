@@ -179,11 +179,14 @@ const ITEM_SELECT_LIST: &str = concat!(
 );
 
 /// The criteria-count `LEFT JOIN` every window query attaches to its `b` subquery (D-08) — a
-/// single grouped aggregate, never a per-row follow-up query.
+/// single grouped aggregate, never a per-row follow-up query. Restricted to current revisions
+/// (`superseded_at IS NULL`, D-79, plan 04-04 Task 3) so a revised criterion never inflates an
+/// item's `x/y` badge from `1/3` to `1/4` — this constant is shared by every window query and by
+/// `search.rs`, so this one edit covers all of them; never add a second, unfiltered copy.
 const CRITERIA_JOIN: &str = concat!(
     "LEFT JOIN (",
     " SELECT parent_id, SUM(checked) AS checked, COUNT(*) AS total",
-    " FROM acceptance_criteria GROUP BY parent_id",
+    " FROM acceptance_criteria WHERE superseded_at IS NULL GROUP BY parent_id",
     ") c ON c.parent_id = b.id",
 );
 

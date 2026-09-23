@@ -86,8 +86,13 @@ const TASK_ROW_SQL: &str =
 const EPIC_ROW_SQL: &str =
     "SELECT key, title, description, integration_branch FROM epics WHERE id = ?1";
 
+// D-79/P3: restricted to current revisions (`superseded_at IS NULL`) — this is the load-bearing
+// filter in the whole file. Putting a superseded statement in front of a model would hand it the
+// drift directly; every agent-facing read must see current wording only, no matter how a criterion
+// was most recently edited.
 const CRITERIA_SQL: &str = "SELECT statement, verification_hint FROM acceptance_criteria \
-    WHERE parent_type = 'task' AND parent_id = ?1 ORDER BY rank ASC, id ASC";
+    WHERE parent_type = 'task' AND parent_id = ?1 AND superseded_at IS NULL \
+    ORDER BY rank ASC, id ASC";
 
 const SUMMARIES_SQL: &str = "SELECT agent_run_id, changed_files, changed_prose, remains, \
     next_session_must_know, decisions, auto_generated, created_at FROM session_summaries \
