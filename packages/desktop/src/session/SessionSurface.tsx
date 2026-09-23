@@ -544,6 +544,14 @@ const SUPPRESSED_EVENT_TYPES = new Set([
  * is the last resort for a genuinely shapeless entry. */
 function keyForEvent(event: Record<string, unknown>, index: number): string {
   if (typeof event.seq === "number") return `seq-${event.seq}`;
+  // Task 2, plan 05-12: a `developer_turn` entry (the application's own record of a turn it sent,
+  // `sidecar.rs`'s `build_authoring_turn_line`) carries no `seq` at all — it is written directly
+  // to the session log by the Rust core, never through the sidecar's own per-session seq counter.
+  // Without this branch it would fall straight to the `idx-${index}` last resort below, which
+  // shifts as older pages load (this function's own comment on `seq`'s general preference) —
+  // `turnId` is the one field every such entry carries that is BOTH present and stable, so it is
+  // checked ahead of the line-number fallback.
+  if (typeof event.turnId === "string") return `turn-${event.turnId}`;
   if (typeof event.line === "number") return `line-${event.line}`;
   return `idx-${index}`;
 }
@@ -592,6 +600,15 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
 
     if (type === "assistant_text") {
       rows.push({ kind: "assistant_text", key, text: typeof event.text === "string" ? event.text : "" });
+      return;
+    }
+
+    // Task 2, plan 05-12: a turn the application sent into this session (`sidecar.rs`'s
+    // `build_authoring_turn_line`) — its own row kind, never the generic raw fallback below (which
+    // would show the JSON-stringified line) and never merged into `assistant_text` above (which
+    // would attribute the developer's own words to the agent).
+    if (type === "developer_turn") {
+      rows.push({ kind: "developer_turn", key, text: typeof event.text === "string" ? event.text : "" });
       return;
     }
 

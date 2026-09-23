@@ -37,6 +37,12 @@ export function toolCallTarget(input: unknown): string {
  * whatever field(s) a given row kind happens to carry. */
 export type FeedRowData =
   | { kind: "assistant_text"; key: string; text: string }
+  // Task 2, plan 05-12: a turn the application sent into a live authoring session (the
+  // developer's own typed message, or a system-generated relay — see `sidecar.rs`'s
+  // `AuthoringTurnOrigin`) — its own row kind, never merged into `assistant_text` (that would
+  // attribute the developer's own words to the agent) and never falling through to `raw` (that
+  // would show the JSON-stringified line instead of the plain words).
+  | { kind: "developer_turn"; key: string; text: string }
   | { kind: "tool_call"; key: string; toolName: string; input: unknown; output?: unknown }
   | { kind: "system_notice"; key: string; text: string }
   // D-53/plan 03-13 (03-UI-SPEC.md "Git lock-retry transient row"): the shim's retry notice,
@@ -150,6 +156,7 @@ export const FEED_ROW_TRUNCATION_THRESHOLD = 120;
 function expandableRowText(row: FeedRowData): string | undefined {
   switch (row.kind) {
     case "assistant_text":
+    case "developer_turn":
     case "system_notice":
       return row.text;
     // The Copywriting Contract's fixed retry line, apart from the two interpolated integers
@@ -273,6 +280,19 @@ export function FeedRow({ row, expanded, onToggleExpand }: FeedRowProps) {
           row={row}
           roleClassName="type-body"
           color="var(--text-primary-rack)"
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+        />
+      );
+    // Task 2, plan 05-12: the accent text token — the developer's own words read as a different
+    // speaker class than the agent's `assistant_text` (`--text-primary-rack`) immediately above,
+    // exactly what row kind exists to signal in this file.
+    case "developer_turn":
+      return (
+        <ExpandableTextRow
+          row={row}
+          roleClassName="type-body"
+          color="var(--accent-text-rack)"
           expanded={expanded}
           onToggleExpand={onToggleExpand}
         />

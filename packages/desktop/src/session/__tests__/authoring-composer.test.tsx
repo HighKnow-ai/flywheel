@@ -170,12 +170,12 @@ describe("SessionSurface — developer-turn feed rows (Task 2)", () => {
     mockWindowReads(() => [makeDeveloperTurn("turn-1", "hello from the developer")]);
     renderSurface("challenge");
 
-    await waitFor(() => expect(screen.getAllByRole("listitem").length).toBeGreaterThan(0));
     // The row shows the plain text — never the JSON-stringified raw line a "raw" row would show,
     // and never merged into the same presentation an assistant reply gets without a way to tell
-    // them apart. This test only asserts the text renders somewhere in the feed's listitems; the
-    // speaker-class (colour token) is a presentational detail FeedRow.tsx's own test coverage owns.
-    expect(screen.getByText("hello from the developer")).toBeInTheDocument();
+    // them apart. `findByText` polls until the async feed query resolves (the "Starting session…"
+    // placeholder row also carries `role="listitem"`, so waiting on listitem count alone would
+    // resolve on that row instead of the real one).
+    expect(await screen.findByText("hello from the developer")).toBeInTheDocument();
 
     mockWindowReads(() => []);
   });
