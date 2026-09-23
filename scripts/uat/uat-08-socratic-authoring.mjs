@@ -191,10 +191,12 @@ async function selfTest() {
       },
     };
     const isDeliberateStub = (event) => event.requestId === REQ_B;
-    // RED phase (Task 2): the call driving the loop is deliberately not wired yet, so every
-    // assertion below that depends on `stubSidecar.requests` fails for the right reason —
-    // nothing has been answered, because nothing has invoked the helper.
-    void isDeliberateStub;
+    // Drive the REAL shared helper against the stub. The stop predicate flips once one lookup
+    // has already come back empty — which only happens after the answerable request has been
+    // handled and the duplicate/deliberate entries have both been excluded — so the assertions
+    // below run only once the loop has genuinely settled, with no timer left holding the event
+    // loop open.
+    await drainIncidentalPermissionRequests(stubSidecar, "stub-run", isDeliberateStub, () => emptyLookups >= 1);
 
     check(
       "an incidental request the predicate does not claim is answered exactly once, with an allow decision carrying its own request id",
