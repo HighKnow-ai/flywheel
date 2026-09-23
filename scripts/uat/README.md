@@ -21,6 +21,7 @@ bash scripts/uat/run-all.sh          # add --no-build to skip the prerequisite b
 | 5 — Ten concurrent commits keep every commit (SC4, WORK-04/05) | `uat-05-concurrent-commits.mjs` | **PASS** |
 | 6 — Session-lifecycle clean-room measurement (SC5/AGNT-07 gap closure, plan 03-20) | `uat-06-permission-block-lifecycle.mjs` | See `03-SESSION-LIFECYCLE-FINDINGS.md` |
 | 7 — Launcher-wrapped destructive command, measured live (AGNT-07, D-62 item 2) | `uat-07-launcher-shape-gate.mjs` | **PASS** — properties A, B and C all held |
+| 8 — Socratic epic authoring, driven live (Phase 5 roadmap criteria SHAPE-01…SHAPE-05) | `uat-08-socratic-authoring.mjs` | **Offline arm PASS** (`--self-test`) — the live arm is a deliberate human-run measurement, not something this table can claim green on its own |
 
 ### Item 1 — supervisor kill
 
@@ -182,6 +183,44 @@ adapter/harness concerns, not new destructive-gate classification defects, and o
 
 Costs real tokens, same as items 3, 5 and 6.
 
+### Item 8 — Socratic epic authoring, driven live
+
+`scripts/uat/uat-08-socratic-authoring.mjs` is Phase 5's own live acceptance script — one real
+`claude` session, driven through the whole Socratic epic-authoring flow (challenge, decompose,
+accept/reject/amend, reopen), reporting pass or fail per each of `ROADMAP.md`'s Phase 5 roadmap
+criteria (SHAPE-01 through SHAPE-05).
+
+Two arms, like every live script in this directory:
+
+- **`--self-test`** — pure, offline, no child process and no `claude` binary. Asserts the script's
+  own report-formatting/argument-parsing logic and, since plan 05-11, exercises the REAL shared
+  `drainIncidentalPermissionRequests` helper (`lib/sidecar-harness.mjs`) against an in-file stub
+  sidecar: an incidental request is answered exactly once, the same request id offered twice is
+  still answered once, a request the predicate claims is never answered, and the loop settles once
+  its stop predicate flips.
+- **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
+  sidecar's `authoring_spawn`/`authoring_turn` ops against a real scratch git repository and a real
+  scratch board, via `packages/core/tests/bin/uat_authoring_ops.rs` — a small bridge binary this
+  script shells out to, calling the SAME domain functions the desktop app's own command layer calls
+  (`register_project`, `accept_subtree`, `reject_proposal`, `amend_proposal`, and so on) against a
+  scratch database under `FLYWHEEL_APP_DATA_DIR`.
+
+**Finding, recorded here because it changed the script (plan 05-11, gap G-05-1):** before this
+plan, the live arm starved. A real `claude` session performs its own git housekeeping at startup,
+outside the agent's visible Bash tool loop; that housekeeping still resolves through the
+PATH-shimmed directory and still reaches the shim's destructive gate, raising `permission_request`
+events nobody answered — eight of them, observed live, with zero `assistant_text` in return. Every
+sibling live script already drains these (`uat-03-destructive-gate.mjs`'s own local copy,
+`uat-06-permission-block-lifecycle.mjs`, `uat-07-launcher-shape-gate.mjs`); this one simply never
+imported the shared `drainIncidentalPermissionRequests` helper. It is wired in now, started
+fire-and-forget immediately after `authoring_spawn` and stopped via `harness.onCleanup` on every
+exit path. Any future live script added to this directory needs the same wiring — the starvation
+is a property of any real `claude` session, not of this script's own flow.
+
+Costs real tokens: it drives a real, multi-turn model conversation. Not executed by an autonomous
+CI/executor run — a human runs it deliberately when judging SHAPE-01/SHAPE-03's own human-only half
+(`05-VALIDATION.md`'s "Manual-Only Verifications").
+
 ### Items 2 and 4 — the visual ones
 
 ```bash
@@ -226,7 +265,7 @@ and the Abandoned/Acknowledge flow still need a human at the window.
 - **Nothing touches your real data.** Every script points `FLYWHEEL_APP_DATA_DIR` at a scratch
   directory. That seam exists for this — see `core::db::app_data_dir`. `uat_seed_ui` *refuses to run*
   if the variable is unset, rather than defaulting to the real fleet database.
-- **Items 3, 5, 6 and 7 cost real tokens.** They drive real model turns (item 6 twice, once per
+- **Items 3, 5, 6, 7 and 8 cost real tokens.** They drive real model turns (item 6 twice, once per
   `--heartbeat` mode).
 - Scripts clean up their scratch directories, worktrees and child processes on every exit path. The
   exception is `uat-ui-setup.sh`, which deliberately leaves its directory in place because the app is
@@ -251,6 +290,7 @@ and the Abandoned/Acknowledge flow still need a human at the window.
 | `lib/long-lived-backend.mjs` | Backend stub for item 1 only, so the leaf outlives the stale window |
 | `packages/core/tests/bin/uat_session_env.rs` | Builds the spawn environment from the **production** functions; also `--touch-heartbeat` |
 | `packages/core/tests/bin/uat_seed_ui.rs` | Seeds the two visual preconditions through the real domain functions |
+| `packages/core/tests/bin/uat_authoring_ops.rs` | Bridge binary for item 8's live arm — drives the real accept/reject/amend/reopen domain writes against a scratch board |
 
 The Rust binaries exist so the harness cannot drift: they call `shim::shim_env_for_run`,
 `runtime_protocol::runtime_dir`, `runtime_protocol::touch_heartbeat` and the domain layer directly,
