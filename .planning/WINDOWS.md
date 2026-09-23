@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 10
 waived_count: 0
 fixed_count: 6
-total_count: 15
-last_updated: 2026-09-23T13:47:22.146Z
+total_count: 16
+last_updated: 2026-09-23T18:48:53.911Z
 ---
 
 # Broken Windows Ledger
@@ -30,6 +30,7 @@ last_updated: 2026-09-23T13:47:22.146Z
 | 13 | 05 | unrun-verify | .planning/phases/05-socratic-epic-authoring/05-02-PLAN.md |  | Task 3 human-check (product kill criterion: timed in-app shaping run vs. terminal comparison arm) not executed by the autonomous executor — deferred to end-of-phase UAT per human_verify_mode=end-of-phase. | open |  | 2026-09-23T13:08:43.755Z |  |
 | 14 | 05 | unrun-verify | .planning/phases/05-socratic-epic-authoring/05-03-PLAN.md |  | SHAPE-01 flagged prohibition (values, unverified): 'MUST NOT let the challenge stage become agreeable validation' — whether the agent's live conversational behaviour during the challenge stage is genuinely challenging vs. sycophantic is a live-conversation quality judgment no autonomous executor can perform or fabricate; the structural mechanism (no proposal tool reachable during challenge) is proven by this plan's own tests, but the QUALITY of the challenge itself is deferred to end-of-phase UAT alongside WINDOWS.md entry #13's product kill criterion. | open |  | 2026-09-23T13:47:09.513Z |  |
 | 15 | 05 | deviation | .planning/phases/05-socratic-epic-authoring/05-03-PLAN.md |  | Task 3's own <verify> hex-literal gate (grep -cE '#[0-9a-fA-F]{3,8}' over TWO files) can never equal the literal string "0" it is compared against, because grep -c over multiple files prints one 'file:count' line per file rather than a single combined total — a shell-scripting bug in the plan's own verify command, not a code defect. Checked per-file instead: both packages/desktop/src/session/__tests__/authoring-stage.test.tsx and packages/desktop/src/legend/marks.ts report 0 hex-literal matches individually, so the underlying invariant (no hex literal introduced) genuinely holds. | open |  | 2026-09-23T13:47:22.146Z |  |
+| 16 | 05 | unrun-verify | scripts/uat/uat-08-socratic-authoring.mjs |  | Plan 05-10 Task 3's own <human-check>: the live acceptance run against the real claude backend (challenge quality, criteria-amendment ratio, the wall-clock comparison against the terminal arm from 05-SPIKE-FINDINGS.md's Product Kill Criterion) was not executed by this autonomous run — it costs real tokens against a real credentialed backend, which this session declined to spend without explicit human instruction. The script's --self-test mode (offline, no claude binary) was run and passes; the live half awaits a human running it deliberately, alongside WINDOWS.md entries #13/#14. | open |  | 2026-09-23T18:48:53.911Z |  |
 
 ````json
 [
@@ -211,6 +212,18 @@ last_updated: 2026-09-23T13:47:22.146Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-23T13:47:22.146Z",
+    "resolved_at": null
+  },
+  {
+    "id": 16,
+    "kind": "unrun-verify",
+    "phase": "05",
+    "file": "scripts/uat/uat-08-socratic-authoring.mjs",
+    "line": null,
+    "description": "Plan 05-10 Task 3's own <human-check>: the live acceptance run against the real claude backend (challenge quality, criteria-amendment ratio, the wall-clock comparison against the terminal arm from 05-SPIKE-FINDINGS.md's Product Kill Criterion) was not executed by this autonomous run — it costs real tokens against a real credentialed backend, which this session declined to spend without explicit human instruction. The script's --self-test mode (offline, no claude binary) was run and passes; the live half awaits a human running it deliberately, alongside WINDOWS.md entries #13/#14.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-23T18:48:53.911Z",
     "resolved_at": null
   }
 ]

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# Run every scriptable phase-03 UAT item and print a result table.
+# Run every scriptable live UAT item across phases and print a result table. Phase 3 items (1, 3,
+# 5, 6a, 6b, 7) and Phase 5's item 8 (05-10-PLAN.md Task 3) all join this one runner rather than
+# each phase inventing its own.
 #
 # The two visual items (2 and 4) are not run here — they need a human looking at a window. They are
 # listed in the table as MANUAL with the command that stands each one up.
@@ -19,7 +21,7 @@ done
 
 if [ "$BUILD" = "1" ]; then
   printf '▸ Building prerequisites (pass --no-build to skip)\n'
-  cargo build -p core --bin uat_session_env --bin uat_seed_ui -p flywheel-shim 2>&1 | tail -2
+  cargo build -p core --bin uat_session_env --bin uat_seed_ui --bin uat_authoring_ops -p flywheel-shim 2>&1 | tail -2
   npm --prefix packages/sidecar run build >/dev/null 2>&1 || {
     printf '  ⚠ sidecar build failed — scripts needing it will skip\n'
   }
@@ -56,8 +58,10 @@ run_item "UAT 6b — unanswered destructive request, production-shaped (heartbea
   node scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=on
 run_item "UAT 7 — launcher-wrapped destructive command, measured live (D-62 item 2)" \
   node scripts/uat/uat-07-launcher-shape-gate.mjs
+run_item "UAT 8 — Socratic epic authoring, driven live (Phase 5 roadmap criteria)" \
+  node scripts/uat/uat-08-socratic-authoring.mjs
 
-printf '\n\n┌─ Phase 03 UAT results ─────────────────────────────────────────────────────\n'
+printf '\n\n┌─ UAT results (Phases 3 and 5) ────────────────────────────────────────────\n'
 FAILED=0
 for i in "${!NAMES[@]}"; do
   case "${RESULTS[$i]}" in

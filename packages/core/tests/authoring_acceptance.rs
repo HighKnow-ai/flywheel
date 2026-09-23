@@ -479,3 +479,205 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
         );
     });
 }
+
+// ============================================================================================
+// Plan 05-10 Task 3(b): four listing/ordering properties that only show up across the WHOLE
+// journey, not inside any single unit test already shipped.
+// ============================================================================================
+
+#[test]
+fn pending_proposals_come_back_in_the_same_order_across_two_reads() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, actor_id, project) = common::seeded_project();
+        let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+            .expect("start_authoring_run should succeed");
+        advance_stage(&mut conn, &run.id, &actor_id).expect("advance_stage should succeed");
+
+        for i in 1..=5 {
+            create_proposal(
+                &mut conn,
+                &run.id,
+                ProposalVerb::Create,
+                ProposalPayload::Task { title: format!("task-{i:02}"), description: None },
+                None,
+                None,
+            )
+            .expect("propose a task");
+        }
+
+        let first_read: Vec<String> = pending_proposals_for_run(&conn, &run.id, 200)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        let second_read: Vec<String> = pending_proposals_for_run(&conn, &run.id, 200)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(first_read, second_read, "two reads of the same pending window must agree on order");
+        assert_eq!(first_read.len(), 5);
+    });
+}
+
+#[test]
+fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, actor_id, project) = common::seeded_project();
+        let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+            .expect("start_authoring_run should succeed");
+        advance_stage(&mut conn, &run.id, &actor_id).expect("advance_stage should succeed");
+
+        let task_a = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "task-a".to_string(), description: None },
+            None,
+            None,
+        )
+        .expect("propose task A");
+        let task_b = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "task-b".to_string(), description: None },
+            None,
+            None,
+        )
+        .expect("propose task B");
+
+        const SHARED_STATEMENT: &str = "Byte-identical criterion text on two different tasks";
+        let criterion_a = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Criterion {
+                statement: SHARED_STATEMENT.to_string(),
+                verification_hint: None,
+            },
+            None,
+            Some(&task_a.id),
+        )
+        .expect("propose criterion A");
+        let criterion_b = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Criterion {
+                statement: SHARED_STATEMENT.to_string(),
+                verification_hint: None,
+            },
+            None,
+            Some(&task_b.id),
+        )
+        .expect("propose criterion B");
+
+        let outcome_a = accept_proposal(&mut conn, &criterion_a.id, &actor_id)
+            .expect("accept criterion A (implies task A)");
+        let outcome_b = accept_proposal(&mut conn, &criterion_b.id, &actor_id)
+            .expect("accept criterion B (implies task B)");
+
+        assert_ne!(
+            outcome_a.materialised_id, outcome_b.materialised_id,
+            "two byte-identical criterion statements must still be two distinct rows"
+        );
+        assert_eq!(count_criteria(&conn), 2);
+        let statements: Vec<String> = conn
+            .prepare("SELECT statement FROM acceptance_criteria ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(statements.iter().all(|s| s == SHARED_STATEMENT));
+    });
+}
+
+#[test]
+fn a_task_accepted_with_zero_criteria_produces_zero_criteria_rows() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, actor_id, project) = common::seeded_project();
+        let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+            .expect("start_authoring_run should succeed");
+        advance_stage(&mut conn, &run.id, &actor_id).expect("advance_stage should succeed");
+
+        let lonely_task = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "task-with-no-criteria".to_string(), description: None },
+            None,
+            None,
+        )
+        .expect("propose a task with no drafted criteria");
+
+        let outcome = accept_subtree(&mut conn, &lonely_task.id, &actor_id)
+            .expect("accept the childless task's own subtree");
+        assert_eq!(outcome.accepted_count, 1, "the root task alone");
+        assert_eq!(outcome.skipped_count, 0);
+        assert_eq!(count_tasks(&conn), 1);
+        assert_eq!(count_criteria(&conn), 0, "a task with zero drafted criteria writes zero criteria rows");
+    });
+}
+
+#[test]
+fn per_project_key_allocation_follows_acceptance_order_never_proposal_order() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, actor_id, project) = common::seeded_project();
+        let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+            .expect("start_authoring_run should succeed");
+        advance_stage(&mut conn, &run.id, &actor_id).expect("advance_stage should succeed");
+
+        // Proposed in this order — "task-early" first, "task-late" second.
+        let proposed_early = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "task-early".to_string(), description: None },
+            None,
+            None,
+        )
+        .expect("propose task-early");
+        let proposed_late = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "task-late".to_string(), description: None },
+            None,
+            None,
+        )
+        .expect("propose task-late");
+
+        // D-96/D-10: key allocation happens at MATERIALISATION time, inside create_task_in_tx's
+        // own per-project counter UPDATE — accepted here in the REVERSE of proposal order.
+        let late_outcome = accept_proposal(&mut conn, &proposed_late.id, &actor_id)
+            .expect("accept task-late FIRST");
+        let early_outcome = accept_proposal(&mut conn, &proposed_early.id, &actor_id)
+            .expect("accept task-early SECOND");
+
+        let key_of = |id: &str| -> String {
+            conn.query_row("SELECT key FROM tasks WHERE id = ?1", params![id], |row| row.get(0))
+                .unwrap()
+        };
+        let late_key = key_of(&late_outcome.materialised_id);
+        let early_key = key_of(&early_outcome.materialised_id);
+        assert_eq!(late_key, "FLY-1", "accepted first, so it claims the project's first key");
+        assert_eq!(early_key, "FLY-2", "accepted second, even though it was PROPOSED first");
+
+        // "Nothing renders a key for a pending proposal": the desktop-side half of this property
+        // (`ProposalDto` — `commands/authoring.rs` — carries no `key` field at all, and
+        // `proposal-tray.test.tsx`'s own D-96 test asserts a pending row never renders
+        // project-key-shaped text) is plan 05-07's own coverage, re-run by `npm --prefix
+        // packages/desktop run test` — not re-derived here, since `authoring_proposals` itself
+        // has no `key` column to assert against on this side of the seam.
+        let proposal_has_key_column: i64 = conn
+            .prepare("PRAGMA table_info(authoring_proposals)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter(|name| name.as_deref() == Ok("key"))
+            .count() as i64;
+        assert_eq!(proposal_has_key_column, 0, "authoring_proposals must never grow its own key column");
+    });
+}
