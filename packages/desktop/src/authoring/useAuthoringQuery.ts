@@ -10,12 +10,13 @@
  * streams without the two re-rendering each other, which only holds if a feed-only `agent:event`
  * push never touches this query.
  *
- * Both this tray and plan 05-08's board-level triage lane read `useRunProposals` — one query
- * layer, two surfaces, so the two can never disagree about what is pending.
+ * `useProjectProposals` (plan 05-08) is the board-level triage lane's own project-scoped sibling
+ * of `useRunProposals` — both read through this ONE module, so the tray and the lane can never
+ * disagree about what is pending or what order things are in.
  *
  * This is the ONLY file under `packages/desktop/src/authoring` that calls into the Tauri
- * transport — `ProposalTray.tsx`/`ProposalRow.tsx`/`ProposalAmendEditor.tsx` all read/write
- * through the hooks below, never `invokeCommand` directly.
+ * transport — `ProposalTray.tsx`/`ProposalRow.tsx`/`ProposalAmendEditor.tsx`/`board/TriageLane.tsx`
+ * all read/write through the hooks below, never `invokeCommand` directly.
  */
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -163,6 +164,26 @@ export function useAmendProposal(agentRunId: string | null | undefined) {
  * `authoring_subtree_accept`. */
 export function useAcceptSubtree(agentRunId: string | null | undefined) {
   const invalidate = useInvalidateRunProposals(agentRunId);
+  return useMutation({
+    mutationFn: (rootProposalId: string) =>
+      invokeCommand<void>("authoring_subtree_accept", { rootProposalId }),
+    onSuccess: invalidate,
+  });
+}
+
+function useInvalidateProjectProposals(projectId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return () =>
+    queryClient.invalidateQueries({ queryKey: projectProposalsQueryKey(projectId ?? "none") });
+}
+
+/** Accept a subtree from the board-level triage lane (D-82/D-95) — [`useAcceptSubtree`]'s
+ * project-scoped sibling. The lane spans every run in the project at once (unlike the run-scoped
+ * tray), so the target run is never fixed at the hook's own construction — only the invalidation
+ * scope (this project's own lane query) is. `rootProposalId` alone names which run's subtree to
+ * accept; the backend resolves the rest server-side, exactly as [`useAcceptSubtree`] already does. */
+export function useAcceptSubtreeForProject(projectId: string | null | undefined) {
+  const invalidate = useInvalidateProjectProposals(projectId);
   return useMutation({
     mutationFn: (rootProposalId: string) =>
       invokeCommand<void>("authoring_subtree_accept", { rootProposalId }),

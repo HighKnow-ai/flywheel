@@ -38,6 +38,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { BoardRow, ROW_HEIGHT } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
 import { IssuesLane } from "./IssuesLane";
+import { TriageLane } from "./TriageLane";
 import { QuickAdd } from "./QuickAdd";
 import { DoneWarning } from "./DoneWarning";
 import { DeleteConfirm } from "./DeleteConfirm";
@@ -878,6 +879,11 @@ export function BoardView({
             setPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
             setActivePicker({ kind: "issue-parent", id: issue.id });
           }}
+        />
+        <TriageLane
+          projectId={projectId}
+          epicsById={epicsById}
+          onOpenSession={(agentRunId, epicId) => setActiveAgentRunId(agentRunId, null, null, epicId)}
         />
       </div>
 
