@@ -23,7 +23,8 @@ vi.mock("../../adapters/tauri", async () => {
       startMock(taskId, permissionMode, instruction),
     previewEpicContextPacket: (projectId: string, epicId: string | null) =>
       previewEpicMock(projectId, epicId),
-    startAuthoringRun: (projectId: string, epicId?: string | null) => startAuthoringMock(projectId, epicId),
+    startAuthoringRun: (projectId: string, epicId?: string | null, premise?: string | null) =>
+      startAuthoringMock(projectId, epicId, premise),
   };
 });
 
@@ -571,6 +572,64 @@ describe("LaunchSheet — the epic-authoring variant (D-91, plan 05-10 Task 1(c)
     expect(screen.queryByRole("radiogroup", { name: "Permission mode" })).not.toBeInTheDocument();
   });
 
+  // --- Plan 05-13 (gap G-05-2's second half): a premise field replaces the instruction field's
+  // suppression in the authoring variant; D-86 stays true only for the permission-mode control.
+
+  it("renders a premise field worded for a brand-new epic, and still renders no permission-mode control", async () => {
+    previewEpicMock.mockReset().mockResolvedValue(makeEpicPacket({ epic: null }));
+    startAuthoringMock.mockReset();
+    renderAuthoringSheet({ projectId: "proj-1", epicId: null });
+
+    await waitFor(() => expect(screen.getByText("Shape a New Epic")).toBeInTheDocument());
+    expect(screen.getByLabelText("Premise")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/what do you want to build/i)).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Permission mode" })).not.toBeInTheDocument();
+  });
+
+  it("renders a premise field worded for a reopened epic", async () => {
+    previewEpicMock.mockReset().mockResolvedValue(makeEpicPacket());
+    startAuthoringMock.mockReset();
+    renderAuthoringSheet({ projectId: "proj-1", epicId: "epic-9" });
+
+    await waitFor(() => expect(screen.getByText("Continue Shaping FLY-9")).toBeInTheDocument());
+    expect(screen.getByLabelText("Premise")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/what do you want to change about this epic/i)).toBeInTheDocument();
+  });
+
+  it("submitting with a stated premise passes it as the start command's third argument", async () => {
+    previewEpicMock.mockReset().mockResolvedValue(makeEpicPacket({ epic: null }));
+    startAuthoringMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-10", epicId: null, status: "running", authoringStage: "challenge", resumed: false });
+    renderAuthoringSheet({ projectId: "proj-1", epicId: null });
+
+    await waitFor(() => expect(screen.getByText("Shape a New Epic")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Premise"), {
+      target: { value: "Build a Socratic epic-authoring flow" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start Shaping" }));
+
+    await waitFor(() =>
+      expect(startAuthoringMock).toHaveBeenCalledWith("proj-1", null, "Build a Socratic epic-authoring flow"),
+    );
+  });
+
+  it("a premise past the length ceiling is refused with a worded error rather than truncated", async () => {
+    previewEpicMock.mockReset().mockResolvedValue(makeEpicPacket({ epic: null }));
+    startAuthoringMock
+      .mockReset()
+      .mockRejectedValue(new Error("premise must be at most 4000 characters, got 4001 characters"));
+    renderAuthoringSheet({ projectId: "proj-1", epicId: null });
+
+    await waitFor(() => expect(screen.getByText("Shape a New Epic")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Premise"), { target: { value: "x".repeat(4001) } });
+    fireEvent.click(screen.getByRole("button", { name: "Start Shaping" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("premise must be at most 4000 characters, got 4001 characters")).toBeInTheDocument(),
+    );
+  });
+
   it("Start Shaping calls startAuthoringRun with projectId/epicId and reports the started run", async () => {
     previewEpicMock.mockReset().mockResolvedValue(makeEpicPacket());
     startAuthoringMock
@@ -581,7 +640,8 @@ describe("LaunchSheet — the epic-authoring variant (D-91, plan 05-10 Task 1(c)
     await waitFor(() => expect(screen.getByText("Continue Shaping FLY-9")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Continue Shaping" }));
 
-    await waitFor(() => expect(startAuthoringMock).toHaveBeenCalledWith("proj-1", "epic-9"));
+    // No premise was typed — the third argument passes as `undefined`, not the string "".
+    await waitFor(() => expect(startAuthoringMock).toHaveBeenCalledWith("proj-1", "epic-9", undefined));
     await waitFor(() =>
       expect(onAuthoringStarted).toHaveBeenCalledWith({ id: "run-9", authoringStage: "challenge", epicId: "epic-9" }),
     );
