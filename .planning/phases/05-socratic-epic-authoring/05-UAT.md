@@ -1,9 +1,9 @@
 ---
-status: partial
+status: diagnosed
 phase: 05-socratic-epic-authoring
 source: [05-VERIFICATION.md]
 started: 2026-09-24T04:35:00Z
-updated: 2026-09-24T06:25:00Z
+updated: 2026-09-24T06:40:00Z
 ---
 
 ## Current Test
@@ -90,9 +90,33 @@ blocked: 1
     - "Model turn genuinely ended mid-list (turn/token limit, or stop condition hit before the list was emitted)."
     - "Scripted-conversation shallowness — the harness sends exactly one canned follow-up turn ('Just in-app for now, nothing external. Let's move on when you're ready.') and then calls advance-stage regardless of conversational state, so decompose begins from an unresolved conversation with nothing to propose. Named as a candidate gap in 05-19-SUMMARY.md, explicitly not investigated there."
   note: "These are different defects with different fixes; the first two are mutually exclusive and must be told apart before either is patched."
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
-  debug_session: ""
+  root_cause: "TWO independent harness-side causes, both separately sufficient to fail the run and each needing a different fix. No product code caused the observed run. RC-A (unjudgeable transcript) — the truncation is CAPTURE-SIDE, not model-side: uat-08-socratic-authoring.mjs:851-868 captures each verbatim reply as a SINGLE assistant_text event and writes that one event's .text straight into the evidence sheet (:891-892, :1017-1018). No accumulation, no concatenation, no turn-boundary wait — first chunk only. One Claude Code turn emits many stream-json lines (one content block each) and claude-code-adapter.ts:586-613 maps each line to exactly one event, so both captured replies are one chunk of a multi-chunk turn. RC-B (missing proposal) — the same absent turn-boundary concept means advance-stage (:906-911) fires the instant the second chunk lands, i.e. while the agent is still generating its challenge, and the script is fixed-depth: one canned follow-up turn then advance unconditionally. The distillation instruction the core relays (authoring_session.rs:285-294) asks the agent to propose one assumption per challenge carrying `the answer I gave you` — but the agent's three questions had never been answered, so decompose was asked to distil answers that were never given."
+  evidence:
+    - "Decisive, from already-committed evidence with no new run: the transcript's own first verbatim reply ('I'll start by getting oriented in the repo before we shape this') is a pre-tool-call preamble announcing work not yet done, and the captured second chunk opens 'Board's empty and so is the repo' — knowledge obtainable only from the tool results 05-19-SUMMARY.md confirms arrived in between. Turn 1 provably continued past the text the transcript calls its entire reply."
+    - "Ground truth already live-measured in this repo against claude 2.1.267, scripts/spike/authoring-transport-spike.mjs:114-119: 'a single logical assistant turn legitimately emits MULTIPLE stream-json lines sharing the same message.id'."
+    - "Offline zero-token reproduction (shipped normaliser + real SidecarClient + uat-08's capture expressions copied verbatim) reproduces the symptom exactly: same preamble, same second chunk ending at '...what gets built:', challenged=false, three-question list dropped verbatim — 594 characters produced, 283 recorded."
+    - "Model-side stop ELIMINATED: buildAuthoringClaudeArgv (claude-code-adapter.ts:319-352) does not pass --include-partial-messages, so every assistant_text carries a COMPLETE content block. The captured text was followed by more blocks, not severed mid-token."
+    - "Stage-gate-stuck-closed ELIMINATED: advance_stage writes the runtime stage marker as the last step before commit (authoring_session.rs:256-262 -> runtime_protocol.rs:317) and the bridge binary calls that same domain function (uat_authoring_ops.rs:244)."
+    - "Deterministic, not flaky: three surviving live-run artifacts in os.tmpdir()/flywheel-uat-artifacts/ (04:38, 04:41, 05:47 on 2026-09-24) all record sawProposal: false and challenged=false."
+  artifacts:
+    - path: "scripts/uat/uat-08-socratic-authoring.mjs:851-868"
+      issue: "RC-A — one assistant_text event captured per 'reply'; the `result` event that marks a turn's end is never consumed, so a multi-chunk turn is recorded as its first chunk only"
+    - path: "scripts/uat/uat-08-socratic-authoring.mjs:906-911"
+      issue: "RC-B — advance-stage fires mid-turn and unconditionally, regardless of conversational state; the script is a fixed two-turn depth"
+    - path: "scripts/uat/uat-08-socratic-authoring.mjs:874-876"
+      issue: "THIRD independent instrument defect — proposeAttempted reads event.name but ToolCallEvent's field is toolName (packages/sidecar/src/adapter.ts:51-55), so it is ALWAYS false. The transcript's `proposeAttempted: false` line is not evidence of anything, and criterion1NoWorkPlanned = !proposeAttempted || proposeDenied (:882) is vacuously true — SHAPE-01's 'no work planned' half can never fail"
+    - path: "scripts/uat/lib/sidecar-harness.mjs:454-456"
+      issue: "waitForEvent scans already-buffered events first and the second-reply wait excludes only firstReply by object identity, so the event labelled 'Second reply' is not guaranteed to be a reply to the second turn at all"
+    - path: "packages/sidecar/src/claude-code-adapter.ts:589-612"
+      issue: "LATENT PRODUCT-SIDE defect, not this run's mechanism — content.find(tool_use) is tested and returns BEFORE the text branch, so a single stream-json assistant line carrying both a text block and a tool_use block drops the text entirely, silently blanking the desktop session feed's narration. Did not bite here only because the real binary splits blocks across lines"
+  missing:
+    - "A turn boundary in the harness: accumulate every assistant_text event until that turn's `result` event arrives and treat the concatenation as 'the reply'. The signal is already on the wire; sendAuthoringTurn (claude-code-adapter.ts:1391-1397) writes to stdin with no in-flight check."
+    - "A conversation that answers what the agent actually asks before advance-stage fires, instead of a fixed two-turn script that advances into decompose from an unresolved conversation."
+    - "event.name -> event.toolName at uat-08-socratic-authoring.mjs:874-876, so proposeAttempted stops being always-false and SHAPE-01's noWorkPlanned half stops being vacuously true."
+    - "A separate decision on whether the adapter's text+tool_use drop (claude-code-adapter.ts:589-612) is worth closing in shipped product code — latent today, but it would blank real session-feed narration."
+  fix_hint_non_binding: "Give the harness a turn boundary keyed on the `result` event; make the conversation responsive rather than fixed-depth; fix the toolName field read; decide the adapter drop separately."
+  specialist: typescript
+  debug_session: ".planning/debug/uat-08-live-transcript-unjudgeable.md"
 
 <!-- Prior round's gaps are closed: the earlier permission-request starvation (05-11) and the
      missing human-turn surface (05-12/05-13), plus the transcript-integrity blocker CR-01 and
