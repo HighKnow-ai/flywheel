@@ -345,6 +345,66 @@ export class Harness {
 }
 
 /**
+ * G-05-2 (plan 05-20): the pure accumulation half of the turn-boundary primitive — given the
+ * FULL event buffer and a `[cursor, …)` window, scans forward for one run's turn and returns
+ * either a terminated result (a `result` event for `runId` found within the scan) or the
+ * in-progress accumulation if the buffer runs out first. Exported and pure (no timers, no
+ * mutation) so `--self-test` can drive the exact shipped code path — cursor exclusion, ordering,
+ * run-id exclusion, `backend_echo` exclusion, and the result-vs-unterminated distinction — with a
+ * synthetic events array and no waiting at all. {@link SidecarClient.waitForTurn} is the only
+ * caller that adds real-time behaviour (the idle window, the deadline) on top of this.
+ *
+ * Exclusions, both deliberate: an event whose `runId` does not match is never part of this run's
+ * turn (one sidecar drives many runs); a `backend_echo` event is the backend restating the
+ * harness's OWN turn (see `adapter.ts`'s `BackendEchoEvent` doc comment) and counting it as agent
+ * speech would quote the developer to himself.
+ *
+ * `charCount` sums each chunk's own `.length` — NOT `text.length` after joining, which would also
+ * count the blank-line separator between chunks. This is what lets a caller compare `charCount`
+ * against "the fixture's own produced character total" with no separator-counting drift.
+ */
+export function accumulateTurn(events, runId, cursor) {
+  const chunks = [];
+  const toolCalls = [];
+  for (let i = cursor; i < events.length; i += 1) {
+    const event = events[i];
+    if (event.runId !== runId) continue;
+    if (event.type === "backend_echo") continue;
+    if (event.type === "assistant_text") {
+      chunks.push(event.text);
+    } else if (event.type === "tool_call") {
+      toolCalls.push(event);
+    } else if (event.type === "result") {
+      return {
+        chunks,
+        text: chunks.join("\n\n"),
+        chunkCount: chunks.length,
+        charCount: chunks.reduce((sum, chunk) => sum + chunk.length, 0),
+        toolCalls,
+        endedBy: "result",
+        endIndex: i + 1,
+      };
+    }
+  }
+  return {
+    chunks,
+    text: chunks.join("\n\n"),
+    chunkCount: chunks.length,
+    charCount: chunks.reduce((sum, chunk) => sum + chunk.length, 0),
+    toolCalls,
+    endedBy: undefined,
+    endIndex: events.length,
+  };
+}
+
+/** The declared idle window a turn may end on when the backend never emits a `result` line. The
+ * `result` event is the PRIMARY signal — {@link SidecarClient.waitForTurn} always prefers it — this
+ * window exists only so a backend that never emits one degrades into a reported observation
+ * (`endedBy: "idle"`) rather than a hang. Callers measuring an edge case pass a short `idleMs`
+ * explicitly rather than relying on this default, so their own test budget stays small. */
+export const TURN_IDLE_MS = 5_000;
+
+/**
  * A live sidecar process, with the request/ack correlation and event fan-out its stdio protocol
  * implies. One instance drives one sidecar; a sidecar drives many runs.
  */
@@ -354,6 +414,10 @@ export class SidecarClient {
     this.pending = new Map();
     this.events = [];
     this.eventWaiters = [];
+    // G-05-2 (plan 05-20): functions notified on EVERY event push (any type), each an active
+    // `waitForTurn` scan re-checking its own window — never a second, separately-maintained copy
+    // of the accumulation logic, just a "something changed, look again" nudge.
+    this.turnWatchers = [];
     this.stderr = "";
     this.closed = false;
     this.nextId = 1;
@@ -404,6 +468,12 @@ export class SidecarClient {
     }
     if (message.kind === "event") {
       this.events.push(message.event);
+      // G-05-2 (plan 05-20): notify every active waitForTurn scan that a new event landed, so it
+      // re-checks its own window (extends its idle timer, or detects a result marker) without
+      // polling. Every event type reaches this — accumulateTurn itself decides what's relevant.
+      if (this.turnWatchers.length > 0) {
+        for (const watcher of [...this.turnWatchers]) watcher();
+      }
       // Diagnosing a harness that did not see the event it expected means seeing what it DID see.
       // Opt-in so a normal run stays readable.
       if (process.env.FLYWHEEL_UAT_DUMP_EVENTS === "1") {
@@ -478,6 +548,96 @@ export class SidecarClient {
         resolve(event);
       };
       this.eventWaiters.push({ predicate, resolve: wrappedResolve, reject });
+    });
+  }
+
+  /** G-05-2 (plan 05-20): the watermark a turn capture starts from — call this BEFORE sending the
+   * turn whose reply you're about to capture, so `waitForTurn`'s cursor excludes every event
+   * already on the wire, including a PRIOR turn's own trailing chunks (closes the identity-only
+   * exclusion hazard `waitForEvent`'s buffered-first scan has: an event object being merely
+   * DIFFERENT from a previously-seen one is not the same as belonging to the NEW turn). */
+  eventCursor() {
+    return this.events.length;
+  }
+
+  /**
+   * G-05-2 (plan 05-20): resolve with the WHOLE turn — every content block the model emitted for
+   * `runId` from `cursor` onward, in arrival order, not just the first chunk. Terminates on
+   * whichever comes first: the backend's own `result` event for this run (`endedBy: "result"`,
+   * the primary signal), or `idleMs` elapsing with at least one chunk already captured and no
+   * further event for this run (`endedBy: "idle"` — the degrade path for a backend that never
+   * emits `result`). Rejects on `timeoutMs`, naming `label`, stating the chunk/character counts
+   * already captured, the event-type list seen so far, and — reusing
+   * {@link assertAllHeldRequestsAnswered}'s own starved-request clause — any unanswered held
+   * inbound request, since a starved read remains the single likeliest reason a turn never
+   * completes.
+   *
+   * The accumulation itself is {@link accumulateTurn} — this method only adds the real-time
+   * waiting (idle timer, deadline) on top of that pure scan, so `--self-test` can exercise the
+   * accumulation logic directly with no timers at all, and exercise this method's own timing
+   * behaviour separately with a short, explicitly-passed `idleMs`/`timeoutMs`.
+   */
+  waitForTurn(runId, cursor, { timeoutMs = 30_000, idleMs = TURN_IDLE_MS, label = "a turn" } = {}) {
+    if (this.turnWatchers === undefined) this.turnWatchers = [];
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let idleTimer;
+      let deadlineTimer;
+
+      const cleanup = () => {
+        clearTimeout(idleTimer);
+        clearTimeout(deadlineTimer);
+        this.turnWatchers = this.turnWatchers.filter((watcher) => watcher !== onEvent);
+      };
+
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result);
+      };
+
+      const finishIdle = () => {
+        if (settled) return;
+        finish({ ...accumulateTurn(this.events, runId, cursor), endedBy: "idle" });
+      };
+
+      const fail = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        const partial = accumulateTurn(this.events, runId, cursor);
+        const unanswered = this.unansweredHeldRequests ?? [];
+        const unansweredClause =
+          unanswered.length > 0
+            ? ` UNANSWERED HELD INBOUND REQUESTS (likely cause of this timeout): ` +
+              `${JSON.stringify(unanswered)}.`
+            : "";
+        reject(
+          new Error(
+            `timed out after ${timeoutMs}ms waiting for ${label}. captured so far: ` +
+              `${partial.chunkCount} chunk(s), ${partial.charCount} character(s). events so far: ` +
+              `${JSON.stringify(this.events.map((e) => e.type))}.${unansweredClause}`,
+          ),
+        );
+      };
+
+      const onEvent = () => {
+        if (settled) return;
+        const partial = accumulateTurn(this.events, runId, cursor);
+        if (partial.endedBy === "result") {
+          finish(partial);
+          return;
+        }
+        clearTimeout(idleTimer);
+        if (partial.chunkCount > 0) {
+          idleTimer = setTimeout(finishIdle, idleMs);
+        }
+      };
+
+      this.turnWatchers.push(onEvent);
+      deadlineTimer = setTimeout(fail, timeoutMs);
+      onEvent(); // handle events already buffered at/after cursor before this call was made
     });
   }
 

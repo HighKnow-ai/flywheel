@@ -47,6 +47,12 @@ import {
   skip,
   step,
 } from "./lib/sidecar-harness.mjs";
+import { DEFAULT_SCENARIO, SCENARIOS, SCENARIO_ENV_VAR } from "./lib/fake-authoring-claude.mjs";
+
+/** The fake authoring backend's own file — resolved once so both `--replay-check` (as
+ * `FLYWHEEL_CLAUDE_BIN`) and this script's own build-hint messages name the same path. Never
+ * reachable from the live arm — only `--replay-check` sets `FLYWHEEL_CLAUDE_BIN` at all. */
+const FAKE_AUTHORING_CLAUDE_PATH = path.join(REPO_ROOT, "scripts", "uat", "lib", "fake-authoring-claude.mjs");
 
 /** How long to wait for the model to produce its first challenging reply. */
 const TURN_DEADLINE_MS = 120_000;
@@ -766,6 +772,166 @@ if (process.argv.includes("--board-read-check")) {
   process.exit(process.exitCode ?? 0);
 }
 
+/**
+ * `--replay-check` (plan 05-20, G-05-2): proves the WHOLE turn-boundary slice — a scripted,
+ * multi-block agent turn captured whole through the REAL sidecar, the REAL watchdog and the REAL
+ * shipped normaliser — WITHOUT spending a token. Structured exactly like `--board-read-check`
+ * above: one `runScript` body, one `Harness`, `step(...)` narration throughout. It NEVER calls
+ * `probeClaudeAvailable()` and never resolves a real `claude` binary — the only backend in this
+ * arm's path is `fake-authoring-claude.mjs`, reached solely because `FLYWHEEL_CLAUDE_BIN` is set
+ * on the sidecar process this arm spawns itself. Short-circuits BEFORE the live `runScript` call
+ * below, exactly like `--self-test` and `--board-read-check`.
+ */
+if (process.argv.includes("--replay-check")) {
+  await runScript(
+    "socratic-authoring-replay-check",
+    "UAT 8 — offline turn-boundary replay check (G-05-2, real sidecar + fake backend, zero tokens)",
+    async (harness) => {
+      const opsBin = resolveHarnessBinary("uat_authoring_ops");
+      if (opsBin === undefined) {
+        throw new Error(
+          "uat_authoring_ops is not built — run `cargo build -p core --bin uat_authoring_ops`",
+        );
+      }
+      const sessionEnvBin = resolveHarnessBinary("uat_session_env");
+      if (sessionEnvBin === undefined) {
+        throw new Error("uat_session_env is not built — run `cargo build -p core --bin uat_session_env`");
+      }
+
+      step("creating a scratch repository (no remote needed)");
+      const repoDir = path.join(harness.root, "repo");
+      execSync(`git init -q -b main "${repoDir}"`);
+      execSync(
+        `git -C "${repoDir}" -c user.email=uat@flywheel.invalid -c user.name="Flywheel UAT" ` +
+          `commit -q --allow-empty -m initial`,
+      );
+
+      step("registering the scratch repository as a project");
+      const project = runOps(opsBin, harness.appDataDir, ["register-project", repoDir]);
+      step(`project ${project.projectId}`);
+
+      step("starting a fresh epic-authoring session");
+      const run1 = runOps(opsBin, harness.appDataDir, ["start-run", project.projectId]);
+      const runId = run1.runId;
+      step(`run ${runId} started in the challenge stage`);
+
+      const env = harness.sessionEnv(runId, "main");
+
+      // The fake backend is spawned under the SAME watchdog wrapper a real session uses — it must
+      // be supervised on the production heartbeat cadence exactly like the live arm, or the
+      // watchdog correctly kills it as an unsupervised orphan (see `startSidecar`'s own
+      // STALE-WINDOW HAZARD doc comment).
+      const heartbeatEnv = { ...process.env, FLYWHEEL_APP_DATA_DIR: harness.appDataDir };
+      spawnSync(sessionEnvBin, ["--touch-heartbeat"], { env: heartbeatEnv });
+      const heartbeatInterval = setInterval(() => {
+        spawnSync(sessionEnvBin, ["--touch-heartbeat"], { env: heartbeatEnv });
+      }, HEARTBEAT_TICK_MS);
+      harness.onCleanup(() => clearInterval(heartbeatInterval));
+      step("touching the heartbeat on the production cadence — the fake backend is supervised exactly like a real one");
+
+      step(`starting the real sidecar with FLYWHEEL_CLAUDE_BIN pointed at the fake backend (scenario=${DEFAULT_SCENARIO})`);
+      const sidecar = await harness.startSidecar({
+        env: {
+          FLYWHEEL_CLAUDE_BIN: FAKE_AUTHORING_CLAUDE_PATH,
+          [SCENARIO_ENV_VAR]: DEFAULT_SCENARIO,
+        },
+      });
+
+      step("spawning a real authoring session (authoring_spawn) against the fake backend");
+      const turn1Cursor = sidecar.eventCursor();
+      await sidecar.request({
+        op: "authoring_spawn",
+        runId,
+        repoPath: repoDir,
+        prompt: OPENING_PROMPT,
+        permissionMode: "default",
+        env,
+      });
+
+      let draining = true;
+      harness.onCleanup(() => {
+        draining = false;
+      });
+      step("draining incidental permission requests and held board reads, exactly like the live arm");
+      drainInboundCoreRequests(sidecar, runId, {
+        handlers: {
+          permission_request: createPermissionAnswerHandler(sidecar, runId, isDeliberateRequest),
+          board_read_request: createBoardReadHandler({ opsBin, appDataDir: harness.appDataDir, sidecar, runId }),
+        },
+        shouldStop: () => !draining,
+      });
+
+      step("capturing turn 1 through the real turn boundary (fake backend -> watchdog -> shipped normaliser -> sidecar -> waitForTurn)");
+      const turn1 = await sidecar.waitForTurn(runId, turn1Cursor, {
+        timeoutMs: TURN_DEADLINE_MS,
+        label: "turn 1 (scripted, replay-check)",
+      });
+      step(`turn 1: chunks=${turn1.chunkCount} chars=${turn1.charCount} endedBy=${turn1.endedBy}`);
+
+      step("sending the second scripted turn");
+      const turn2Cursor = sidecar.eventCursor();
+      await sidecar.request({ op: "authoring_turn", runId, text: SECOND_TURN });
+      const turn2 = await sidecar.waitForTurn(runId, turn2Cursor, {
+        timeoutMs: TURN_DEADLINE_MS,
+        label: "turn 2 (scripted, replay-check)",
+      });
+      step(`turn 2: chunks=${turn2.chunkCount} chars=${turn2.charCount} endedBy=${turn2.endedBy}`);
+      assertAllHeldRequestsAnswered(sidecar);
+
+      // ---- the reproduction itself — asserted from the FIXTURE's own data, never literals -----
+      const scenario = SCENARIOS[DEFAULT_SCENARIO];
+      const turn2FixtureBlocks = scenario.turns[1].filter((block) => block.type === "text");
+      const turn2FixtureTexts = turn2FixtureBlocks.map((block) => block.text);
+      const turn2FixtureCharTotal = turn2FixtureTexts.reduce((sum, text) => sum + text.length, 0);
+
+      assert.ok(
+        turn2.chunkCount >= 2,
+        `expected turn 2 to carry at least 2 chunks (one stdout line per content block), got ${turn2.chunkCount}`,
+      );
+      for (const fixtureText of turn2FixtureTexts) {
+        assert.ok(
+          turn2.text.includes(fixtureText),
+          `expected turn 2's captured text to include the fixture text verbatim: ${JSON.stringify(fixtureText)}`,
+        );
+      }
+      assert.equal(
+        turn2.charCount,
+        turn2FixtureCharTotal,
+        `expected turn 2's charCount (${turn2.charCount}) to equal the fixture's own produced total (${turn2FixtureCharTotal})`,
+      );
+      assert.ok(
+        turn2.charCount > turn2FixtureTexts[0].length,
+        "expected turn 2's total character count to exceed its first chunk alone — the 594-vs-283 " +
+          "asymmetry this whole regression rests on",
+      );
+      assert.equal(turn1.endedBy, "result", "expected turn 1 to end on the result marker");
+      assert.equal(turn2.endedBy, "result", "expected turn 2 to end on the result marker");
+      for (const chunk of turn2.chunks) {
+        assert.ok(
+          !turn1.chunks.includes(chunk),
+          "expected turn 2's chunks to contain none of turn 1's text — the cursor discipline must hold",
+        );
+      }
+      step(
+        `reproduction confirmed: turn 2's ${turn2.chunkCount} chunks (${turn2.charCount} chars, ` +
+          `first chunk alone was ${turn2FixtureTexts[0].length} chars) all captured — the exact ` +
+          "shape that used to drop the three questions verbatim",
+      );
+
+      step("ending the run (kill op) and confirming the fake backend leaves no process behind");
+      await sidecar.request({ op: "kill", runId });
+      await sidecar.waitForEvent(
+        (event) => event.type === "session_closed" && event.runId === runId,
+        30_000,
+        "a session_closed event after kill",
+      );
+      sidecar.dispose();
+      step("session closed and disposed — no fake backend process should remain running");
+    },
+  );
+  process.exit(process.exitCode ?? 0);
+}
+
 await runScript(
   "socratic-authoring",
   "UAT 8 — Socratic epic authoring, driven live against the real backend (Phase 5 roadmap criteria)",
@@ -815,6 +981,11 @@ await runScript(
     const sidecar = await harness.startSidecar();
 
     step("spawning a real authoring session (authoring_spawn)");
+    // G-05-2 (plan 05-20): the cursor is taken BEFORE the request that triggers the opening
+    // turn — never after — so turn 1's capture is bounded at the start as well as the end. The
+    // old `waitForEvent`'s buffered-first scan excluded only ONE prior event by object identity,
+    // which is not the same guarantee (Evidence E9).
+    const turn1Cursor = sidecar.eventCursor();
     await sidecar.request({
       op: "authoring_spawn",
       runId,
@@ -847,26 +1018,30 @@ await runScript(
       shouldStop: () => !draining,
     });
 
-    step("waiting for the agent's first reply");
-    const firstReply = await sidecar.waitForEvent(
-      (event) => event.type === "assistant_text" && typeof event.text === "string" && event.text.length > 0,
-      TURN_DEADLINE_MS,
-      "the agent's first reply",
+    step("waiting for the agent's first turn (the WHOLE turn, every content block, bounded by its own result marker — G-05-2)");
+    const turn1 = await sidecar.waitForTurn(runId, turn1Cursor, {
+      timeoutMs: TURN_DEADLINE_MS,
+      label: "the agent's first turn",
+    });
+    step(
+      `first reply (verbatim, for the human transcript review): ${JSON.stringify(turn1.text)} ` +
+        `— chunks=${turn1.chunkCount} chars=${turn1.charCount} endedBy=${turn1.endedBy}`,
     );
-    step(`first reply (verbatim, for the human transcript review): ${JSON.stringify(firstReply.text)}`);
 
     step("sending the second conversational turn");
+    // A FRESH cursor, taken immediately before this request — turn 2's capture must exclude every
+    // chunk turn 1 produced, not merely the one chunk `waitForEvent` used to treat as "the first
+    // reply" (G-05-2, closing Evidence E9's identity-only exclusion hazard).
+    const turn2Cursor = sidecar.eventCursor();
     await sidecar.request({ op: "authoring_turn", runId, text: SECOND_TURN });
-    const secondReply = await sidecar.waitForEvent(
-      (event) =>
-        event.type === "assistant_text" &&
-        event !== firstReply &&
-        typeof event.text === "string" &&
-        event.text.length > 0,
-      TURN_DEADLINE_MS,
-      "the agent's second reply",
+    const turn2 = await sidecar.waitForTurn(runId, turn2Cursor, {
+      timeoutMs: TURN_DEADLINE_MS,
+      label: "the agent's second turn",
+    });
+    step(
+      `second reply (verbatim): ${JSON.stringify(turn2.text)} — chunks=${turn2.chunkCount} ` +
+        `chars=${turn2.charCount} endedBy=${turn2.endedBy}`,
     );
-    step(`second reply (verbatim): ${JSON.stringify(secondReply.text)}`);
     // G-05-1 (plan 05-18): a starved held read must fail here, naming itself, rather than let the
     // run limp on to a misleading per-criterion result.
     assertAllHeldRequestsAnswered(sidecar);
@@ -877,8 +1052,7 @@ await runScript(
     const proposeDenied = sidecar
       .eventsOfType("tool_result")
       .some((event) => typeof event.raw === "string" && /challenge stage/i.test(event.raw));
-    const criterion1Challenged =
-      /\?/.test(firstReply.text) || /\?/.test(secondReply.text);
+    const criterion1Challenged = /\?/.test(turn1.text) || /\?/.test(turn2.text);
     const criterion1NoWorkPlanned = !proposeAttempted || proposeDenied;
 
     const evidencePath = resolveEvidencePath();
@@ -887,9 +1061,9 @@ await runScript(
       renderChallengeEvidenceSheet({
         runId,
         openingPrompt: OPENING_PROMPT,
-        firstReplyText: firstReply.text,
+        firstReplyText: turn1.text,
         secondTurn: SECOND_TURN,
-        secondReplyText: secondReply.text,
+        secondReplyText: turn2.text,
         proposeAttempted,
         proposeDenied,
         draftedCriteriaCount: 0,
@@ -1014,9 +1188,9 @@ await runScript(
       renderChallengeEvidenceSheet({
         runId,
         openingPrompt: OPENING_PROMPT,
-        firstReplyText: firstReply.text,
+        firstReplyText: turn1.text,
         secondTurn: SECOND_TURN,
-        secondReplyText: secondReply.text,
+        secondReplyText: turn2.text,
         proposeAttempted,
         proposeDenied,
         draftedCriteriaCount,
