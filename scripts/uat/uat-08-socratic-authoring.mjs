@@ -30,12 +30,14 @@
  */
 import assert from "node:assert/strict";
 import { execSync, spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 
 import {
   drainIncidentalPermissionRequests,
   HEARTBEAT_TICK_MS,
   probeClaudeAvailable,
+  REPO_ROOT,
   resolveHarnessBinary,
   runScript,
   skip,
@@ -140,6 +142,114 @@ function buildCriteriaResults(flags) {
       true,
     ],
   ];
+}
+
+/** The token a human must replace before a verdict counts as read. Kept as a named constant so
+ * `renderChallengeEvidenceSheet` and its self-test checks agree on the exact literal. */
+const UNJUDGED_TOKEN = "UNJUDGED";
+
+/** Fixed evidence-sheet file name — one per project, overwritten per run rather than accumulating
+ * timestamped files nobody reads (T-05-16-05). */
+const EVIDENCE_FILE_NAME = "05-LIVE-CHALLENGE-TRANSCRIPT.md";
+
+/**
+ * Pure: renders the Markdown evidence sheet a human reads their one judgement call from. No
+ * filesystem or process access — it formats `evidence` and returns a string, so `--self-test` can
+ * assert its shape offline (T-05-16-06).
+ *
+ * `evidence` fields: `runId`, `openingPrompt`, `firstReplyText`, `secondTurn`, `secondReplyText`,
+ * `proposeAttempted`, `proposeDenied`, `draftedCriteriaCount`, `amendedCriteriaCount`, `results`
+ * (the array `buildCriteriaResults`/`reportCriteria` share — may be `[]` before the decompose
+ * phase completes), and `timestamp` (an ISO string, supplied by the caller so this function never
+ * reads the clock itself and stays byte-identical across calls with identical input).
+ */
+function renderChallengeEvidenceSheet(evidence) {
+  const {
+    runId,
+    openingPrompt,
+    firstReplyText,
+    secondTurn,
+    secondReplyText,
+    proposeAttempted,
+    proposeDenied,
+    draftedCriteriaCount,
+    amendedCriteriaCount,
+    results,
+    timestamp,
+  } = evidence;
+
+  const drafted = draftedCriteriaCount ?? 0;
+  const amended = amendedCriteriaCount ?? 0;
+
+  const criterionLines = (results ?? [])
+    .map(([criterion, passed, detail, informational]) => {
+      const icon = informational ? "ℹ️" : passed ? "✅" : "❌";
+      const suffix = informational ? " (informational — not gating)" : "";
+      return `- ${icon} ${criterion}${suffix}${detail ? ` — ${detail}` : ""}`;
+    })
+    .join("\n");
+
+  return `# Phase 5 — Socratic Epic Authoring — Live Challenge Transcript
+
+**Run:** ${runId}
+**Captured:** ${timestamp}
+
+## Opening prompt
+
+${openingPrompt}
+
+## Second turn
+
+${secondTurn}
+
+## First reply (verbatim)
+
+\`\`\`
+${firstReplyText}
+\`\`\`
+
+## Second reply (verbatim)
+
+\`\`\`
+${secondReplyText}
+\`\`\`
+
+## Propose-tool observations
+
+- proposeAttempted: ${proposeAttempted}
+- proposeDenied: ${proposeDenied}
+
+## Per-criterion results
+
+${criterionLines || "(not yet available — populated once the decompose phase completes)"}
+
+## Draft usefulness (SHAPE-03)
+
+- Drafted criteria: ${drafted}
+- Amended criteria: ${amended}
+- Ratio (amended/drafted): ${amended}/${drafted}
+
+## Verdicts (human — fill these in)
+
+- SHAPE-01 challenge-quality verdict: ${UNJUDGED_TOKEN} — reading the two verbatim replies above,
+  did the agent push back on the stated premise, or did it affirm it and start planning work?
+- SHAPE-03 draft-usefulness verdict: ${UNJUDGED_TOKEN} — were the drafted criteria above useful
+  as-is, or did they need the amendment recorded above to become usable?
+`;
+}
+
+/**
+ * Resolve the one fixed path the evidence sheet is written to: `FLYWHEEL_UAT_EVIDENCE_DIR` when
+ * set, otherwise the phase directory under the harness's own `REPO_ROOT` — never a temp directory,
+ * since the whole point is that the next verification pass can find this file without being told
+ * where to look. Creates the directory if absent. Not called by `--self-test` (T-05-16-06).
+ */
+function resolveEvidencePath() {
+  const dir =
+    process.env.FLYWHEEL_UAT_EVIDENCE_DIR ??
+    path.join(REPO_ROOT, ".planning", "phases", "05-socratic-epic-authoring");
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, EVIDENCE_FILE_NAME);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -258,6 +368,45 @@ async function selfTest() {
     const informationalEntries = results.filter((entry) => entry[3]);
     assert.equal(informationalEntries.length, 1);
     assert.ok(informationalEntries[0][0].includes("SHAPE-05"));
+  });
+
+  const SYNTHETIC_EVIDENCE = {
+    runId: "01ABCDEFGHJKMNPQRSTVWXYZ0",
+    openingPrompt: "I want to build a notifications feature so users get pinged.",
+    firstReplyText: "What problem are you actually trying to solve for the user here?",
+    secondTurn: "Just in-app for now, nothing external.",
+    secondReplyText: "Got it — in-app only. Before I draft anything, who dismisses a notification?",
+    proposeAttempted: false,
+    proposeDenied: false,
+    draftedCriteriaCount: 2,
+    amendedCriteriaCount: 1,
+    results: buildCriteriaResults({
+      criterion1Challenged: true,
+      criterion1NoWorkPlanned: true,
+      criterion2Landed: true,
+      criterion3Decided: true,
+      criterion4Reopened: false,
+      criterion4PrimedRejected: false,
+    }),
+    timestamp: "2026-01-01T00:00:00.000Z",
+  };
+
+  check("the evidence sheet carries both assistant replies verbatim", () => {
+    const sheet = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+    assert.ok(sheet.includes(SYNTHETIC_EVIDENCE.firstReplyText));
+    assert.ok(sheet.includes(SYNTHETIC_EVIDENCE.secondReplyText));
+  });
+
+  check("the evidence sheet starts with both verdicts unfilled", () => {
+    const sheet = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+    const occurrences = sheet.split(UNJUDGED_TOKEN).length - 1;
+    assert.equal(occurrences, 2);
+  });
+
+  check("the evidence sheet renders identically for identical input", () => {
+    const first = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+    const second = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+    assert.equal(first, second);
   });
 
   check("the bridge binary path resolves under target/debug or target/release when built", () => {
@@ -492,6 +641,28 @@ await runScript(
       /\?/.test(firstReply.text) || /\?/.test(secondReply.text);
     const criterion1NoWorkPlanned = !proposeAttempted || proposeDenied;
 
+    const evidencePath = resolveEvidencePath();
+    fs.writeFileSync(
+      evidencePath,
+      renderChallengeEvidenceSheet({
+        runId,
+        openingPrompt: OPENING_PROMPT,
+        firstReplyText: firstReply.text,
+        secondTurn: SECOND_TURN,
+        secondReplyText: secondReply.text,
+        proposeAttempted,
+        proposeDenied,
+        draftedCriteriaCount: 0,
+        amendedCriteriaCount: 0,
+        results: [],
+        timestamp: new Date().toISOString(),
+      }),
+    );
+    step(
+      `wrote challenge evidence sheet (pre-proposal, results pending): ${evidencePath} — a run ` +
+        "that dies later in the proposal phase still leaves this transcript for the human",
+    );
+
     step("advancing the stage (Cyril's own gate, D-90) — the developer decides the challenge is done");
     const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
     assert.equal(advanced.stage, "decompose");
@@ -531,6 +702,12 @@ await runScript(
     if (taskProposal) taskProposalId = taskProposal.id;
     if (criterionProposals.length > 0) criterionProposalId = criterionProposals[0].id;
 
+    // The SHAPE-03 draft-usefulness judgement reads these two counts from the evidence sheet
+    // rather than a scrollback line — how many criteria the model drafted, and how many the
+    // developer had to amend before they were usable.
+    const draftedCriteriaCount = criterionProposals.length;
+    let amendedCriteriaCount = 0;
+
     let criterion2Landed = false;
     let criterion3Decided = false;
     if (taskProposalId) {
@@ -557,6 +734,7 @@ await runScript(
         criterionProposalId,
         "A UAT-amended criterion, the developer's own wording",
       ]);
+      amendedCriteriaCount += 1;
       criterion3Decided = true;
     }
 
@@ -590,6 +768,24 @@ await runScript(
       criterion4Reopened,
       criterion4PrimedRejected,
     });
+
+    fs.writeFileSync(
+      evidencePath,
+      renderChallengeEvidenceSheet({
+        runId,
+        openingPrompt: OPENING_PROMPT,
+        firstReplyText: firstReply.text,
+        secondTurn: SECOND_TURN,
+        secondReplyText: secondReply.text,
+        proposeAttempted,
+        proposeDenied,
+        draftedCriteriaCount,
+        amendedCriteriaCount,
+        results,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+    step(`wrote challenge evidence sheet (final): ${evidencePath}`);
 
     const allPassed = reportCriteria(results);
     harness.writeArtifact("uat-08-results", { sawProposal, results });
