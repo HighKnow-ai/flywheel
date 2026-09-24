@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 17/17 plans executed — 13/13 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT), plus 4 planned gap-closure plans (05-14 through 05-17) in 3 waves opened by `05-VERIFICATION.md` (CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements)
+**Plans**: 19 plans — 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 planned gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request`
 **UI hint**: yes
 
 Plans:
@@ -557,6 +557,14 @@ Plans:
 **Gap closure round 2 — wave 3** *(blocked on 05-14, 05-15 and 05-16 — the phase's end-of-phase human gate)*
 
 - [x] 05-17-PLAN.md — the two remaining judgements as one command each: read-only board instruments, a kill-criterion comparison script with an offline self-test, and a validation ledger that points at commands instead of procedures (SHAPE-01, SHAPE-02)
+
+**Gap closure round 3 — wave 1, the tracer** *(opened by `05-UAT.md` G-05-1: the live arm starves a second time, now on the read path — an unanswered `board_read_request` the harness has no role for)*
+
+- [ ] 05-18-PLAN.md — G-05-1: one board-read dispatch in the core called by both the desktop app and the harness bridge, a generalised inbound-request drain replacing the permission-only one, and a starvation class that reports itself by name (SHAPE-01, SHAPE-02, SHAPE-03, SHAPE-04)
+
+**Gap closure round 3 — wave 2** *(blocked on 05-18 — the live arm cannot be run, and the finding cannot be written down, until the fix lands)*
+
+- [ ] 05-19-PLAN.md — G-05-1: the read-path starvation recorded as one instance of a general rule, a ledger row per task, and the live run a human finally judges SHAPE-01 from (SHAPE-01, SHAPE-05)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is
