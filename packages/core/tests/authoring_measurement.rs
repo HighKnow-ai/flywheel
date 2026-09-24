@@ -239,6 +239,173 @@ fn the_elapsed_span_runs_from_the_runs_own_start_to_its_last_acceptance() {
 }
 
 #[test]
+fn the_last_acceptance_is_the_newest_even_when_the_event_count_exceeds_the_bound() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+        .expect("start_authoring_run should succeed");
+    advance_stage(&mut conn, &run.id, &actor_id).expect("advance_stage should succeed");
+
+    // Backdate the run's own start so elapsed_minutes is deterministic too.
+    conn.execute(
+        "UPDATE agent_runs SET started_at = ?1 WHERE id = ?2",
+        params!["2026-01-01T00:00:00Z", run.id],
+    )
+    .expect("backdating started_at should succeed");
+
+    let mut task_ids = Vec::new();
+    for i in 0..4 {
+        let task = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: format!("task-{i}"), description: None },
+            None,
+            None,
+        )
+        .expect("propose a task");
+        accept_proposal(&mut conn, &task.id, &actor_id).expect("accept the task");
+        task_ids.push(task.id);
+    }
+
+    // Backdate each acceptance event to strictly increasing timestamps, oldest first — four
+    // accept events total, more than the limit passed below.
+    let timestamps = [
+        "2026-01-01T00:01:00Z",
+        "2026-01-01T00:02:00Z",
+        "2026-01-01T00:03:00Z",
+        "2026-01-01T00:04:00Z",
+    ];
+    for (task_id, ts) in task_ids.iter().zip(timestamps.iter()) {
+        conn.execute(
+            "UPDATE events SET occurred_at = ?1 WHERE stream_type = 'authoring_proposal' AND stream_id = ?2 \
+             AND event_type = 'proposal.accepted'",
+            params![ts, task_id],
+        )
+        .expect("backdating an acceptance event should succeed");
+    }
+
+    // A limit smaller than the total event count (4): the pre-fix ASC-ordered, bounded combined
+    // read would keep only the two OLDEST accept events and report an earlier last acceptance.
+    let measurement =
+        measure_authoring_run(&conn, &run.id, 2).expect("measure_authoring_run should succeed");
+    assert_eq!(
+        measurement.last_accepted_at.as_deref(),
+        Some("2026-01-01T00:04:00Z"),
+        "the newest acceptance must win even when the event count exceeds the bound"
+    );
+    assert_eq!(
+        measurement.elapsed_minutes,
+        Some(4.0),
+        "elapsed minutes must be computed from the true newest acceptance, not a truncated one"
+    );
+}
+
+#[test]
+fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+        .expect("start_authoring_run should succeed");
+    advance_stage(&mut conn, &run.id, &actor_id).expect("advance_stage should succeed");
+
+    let task = create_proposal(
+        &mut conn,
+        &run.id,
+        ProposalVerb::Create,
+        ProposalPayload::Task { title: "task-a".to_string(), description: None },
+        None,
+        None,
+    )
+    .expect("propose the task");
+    accept_proposal(&mut conn, &task.id, &actor_id).expect("accept the task");
+
+    let amended_criterion = create_proposal(
+        &mut conn,
+        &run.id,
+        ProposalVerb::Create,
+        ProposalPayload::Criterion { statement: "original wording".to_string(), verification_hint: None },
+        None,
+        Some(&task.id),
+    )
+    .expect("propose the criterion that will be amended");
+    amend_proposal(
+        &mut conn,
+        &amended_criterion.id,
+        &actor_id,
+        ProposalPayload::Criterion { statement: "amended wording".to_string(), verification_hint: None },
+    )
+    .expect("amend the staged criterion");
+    accept_proposal(&mut conn, &amended_criterion.id, &actor_id)
+        .expect("accept the amended criterion");
+
+    // Enough LATER acceptances that the total accept/amend event count exceeds the bound below —
+    // this is the guard against "fix it by ordering the combined read DESC", which would drop the
+    // early amendment in favor of the most recent events.
+    for i in 0..3 {
+        let extra_task = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: format!("extra-task-{i}"), description: None },
+            None,
+            None,
+        )
+        .expect("propose an extra task");
+        accept_proposal(&mut conn, &extra_task.id, &actor_id).expect("accept the extra task");
+    }
+
+    let measurement =
+        measure_authoring_run(&conn, &run.id, 2).expect("measure_authoring_run should succeed");
+    assert_eq!(
+        measurement.amended_before_accept, 1,
+        "an amendment recorded well before later acceptances must still count, even under a small bound"
+    );
+}
+
+#[test]
+fn the_proposal_read_is_stable_when_two_rows_share_a_created_at() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+        .expect("start_authoring_run should succeed");
+    advance_stage(&mut conn, &run.id, &actor_id).expect("advance_stage should succeed");
+
+    let task_a = create_proposal(
+        &mut conn,
+        &run.id,
+        ProposalVerb::Create,
+        ProposalPayload::Task { title: "task-a".to_string(), description: None },
+        None,
+        None,
+    )
+    .expect("propose task-a");
+    let task_b = create_proposal(
+        &mut conn,
+        &run.id,
+        ProposalVerb::Create,
+        ProposalPayload::Task { title: "task-b".to_string(), description: None },
+        None,
+        None,
+    )
+    .expect("propose task-b");
+    accept_proposal(&mut conn, &task_a.id, &actor_id).expect("accept task-a");
+    accept_proposal(&mut conn, &task_b.id, &actor_id).expect("accept task-b");
+
+    // Force both rows to share an identical created_at, so which row a LIMIT 1 read keeps depends
+    // entirely on the tie-break — the spec-less-probe row this test proves (SHAPE-04).
+    conn.execute(
+        "UPDATE authoring_proposals SET created_at = ?1 WHERE id IN (?2, ?3)",
+        params!["2026-01-01T00:00:00Z", task_a.id, task_b.id],
+    )
+    .expect("forcing a shared created_at should succeed");
+
+    let first = measure_authoring_run(&conn, &run.id, 1).expect("first measurement should succeed");
+    let second = measure_authoring_run(&conn, &run.id, 1).expect("second measurement should succeed");
+    assert_eq!(
+        first, second,
+        "two calls against an unchanged database must return equal results, even across a tie"
+    );
+}
+
+#[test]
 fn the_measurement_writes_nothing_the_same_call_twice_leaves_the_database_byte_identical() {
     let dir = tempfile::tempdir().expect("failed to create scratch dir");
     let db_path = dir.path().join("flywheel.db");
