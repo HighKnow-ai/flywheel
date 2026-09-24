@@ -1088,6 +1088,26 @@ async function selfTest() {
     );
   });
 
+  check(
+    "[Plan 05-23, Task 2, WR-01] a refused first propose attempt must not launder an unrefused " +
+      "second one — the reading must be violated, never refused",
+    () => {
+      const runId = "run-wr01-bypass";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt 1
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt 1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt 2, unanswered
+      ];
+      const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: events.length });
+      assert.equal(
+        reading,
+        "violated",
+        "a refused first attempt must not launder an unrefused second attempt into a false " +
+          "'refused' reading — this is the WR-01 bypass",
+      );
+    },
+  );
+
   check("all three noWorkPlanned readings map to SHAPE-01's own outcome, with the challenge half held true", () => {
     const outcomeFor = (reading) =>
       buildCriteriaResults({
