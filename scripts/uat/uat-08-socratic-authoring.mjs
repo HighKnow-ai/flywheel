@@ -148,18 +148,29 @@ function reportCriteria(results) {
 function buildCriteriaResults(flags) {
   const {
     criterion1Challenged,
-    criterion1NoWorkPlanned,
+    noWorkPlannedReading,
     criterion2Landed,
     criterion3Decided,
     criterion4Reopened,
     criterion4PrimedRejected,
   } = flags;
 
+  // Task 3 (G-05-2): a THREE-valued reading, never a boolean that goes vacuously true the moment
+  // no propose attempt happens to be observed. "unproven" names WHERE the structural guarantee is
+  // actually proven — never leaves a reader thinking an absence of evidence was a measurement.
+  const noWorkPlannedDetail =
+    noWorkPlannedReading === "unproven"
+      ? "unproven — no propose attempt observed this run; the structural guarantee (the proposal " +
+        "tools are absent from the tool set until the stage advances) is proven by " +
+        "packages/core/tests/authoring_stage.rs and " +
+        "packages/sidecar/test/authoring-stage-gate.test.mjs, not by this run"
+      : noWorkPlannedReading;
+
   return [
     [
       "SHAPE-01 — the agent challenges before any work is planned",
-      criterion1Challenged && criterion1NoWorkPlanned,
-      `challenged=${criterion1Challenged} noWorkPlanned=${criterion1NoWorkPlanned}`,
+      criterion1Challenged && noWorkPlannedReading !== "violated",
+      `challenged=${criterion1Challenged} noWorkPlanned=${noWorkPlannedDetail}`,
     ],
     [
       "SHAPE-02 — the outcome lands directly on the board",
@@ -205,7 +216,11 @@ const EVIDENCE_FILE_NAME = "05-LIVE-CHALLENGE-TRANSCRIPT.md";
  *   endedBy? }`. The opening prompt is the FIRST developer entry — there is no separate "opening
  *   prompt" section. `chunkCount`/`charCount`/`endedBy` are read only from `speaker: "agent"`
  *   entries (an agent turn's own capture-integrity numbers, from `SidecarClient.waitForTurn`).
- * - `proposeAttempted`, `proposeDenied`, `draftedCriteriaCount`, `amendedCriteriaCount`
+ * - `noWorkPlannedReading` (Task 3, G-05-2) — the THREE-valued `readNoWorkPlanned` reading
+ *   (`"refused" | "violated" | "unproven"`), printed verbatim rather than a bare boolean that goes
+ *   vacuously true the moment no propose attempt happens to be observed. Defaults to `"unproven"`
+ *   when omitted (no propose attempt observed by the time this sheet was written).
+ * - `draftedCriteriaCount`, `amendedCriteriaCount`
  * - `results` (the array `buildCriteriaResults`/`reportCriteria` share — may be `[]` before the
  *   decompose phase completes)
  * - `synthetic` (boolean, default `false`) and `scenario` (the scenario name, when `synthetic` is
@@ -217,8 +232,7 @@ function renderChallengeEvidenceSheet(evidence) {
   const {
     runId,
     exchanges = [],
-    proposeAttempted,
-    proposeDenied,
+    noWorkPlannedReading = "unproven",
     draftedCriteriaCount,
     amendedCriteriaCount,
     results,
@@ -298,8 +312,7 @@ ${integrityTable}
 
 ## Propose-tool observations
 
-- proposeAttempted: ${proposeAttempted}
-- proposeDenied: ${proposeDenied}
+- noWorkPlanned reading: ${noWorkPlannedReading}
 
 ## Per-criterion results
 
@@ -383,7 +396,7 @@ async function selfTest() {
       allPassed = reportCriteria(
         buildCriteriaResults({
           criterion1Challenged: true,
-          criterion1NoWorkPlanned: true,
+          noWorkPlannedReading: "refused",
           criterion2Landed: true,
           criterion3Decided: true,
           criterion4Reopened: false,
@@ -404,7 +417,7 @@ async function selfTest() {
       allPassed = reportCriteria(
         buildCriteriaResults({
           criterion1Challenged: true,
-          criterion1NoWorkPlanned: true,
+          noWorkPlannedReading: "refused",
           criterion2Landed: false,
           criterion3Decided: true,
           criterion4Reopened: false,
@@ -435,7 +448,7 @@ async function selfTest() {
   check("the SHAPE-05 entry is the only informational entry in the live result set", () => {
     const results = buildCriteriaResults({
       criterion1Challenged: true,
-      criterion1NoWorkPlanned: true,
+      noWorkPlannedReading: "refused",
       criterion2Landed: true,
       criterion3Decided: true,
       criterion4Reopened: false,
@@ -466,13 +479,12 @@ async function selfTest() {
         endedBy: "result",
       },
     ],
-    proposeAttempted: false,
-    proposeDenied: false,
+    noWorkPlannedReading: "unproven",
     draftedCriteriaCount: 2,
     amendedCriteriaCount: 1,
     results: buildCriteriaResults({
       criterion1Challenged: true,
-      criterion1NoWorkPlanned: true,
+      noWorkPlannedReading: "refused",
       criterion2Landed: true,
       criterion3Decided: true,
       criterion4Reopened: false,
@@ -1019,6 +1031,77 @@ async function selfTest() {
     assert.ok(!driverBody.includes("advance-stage"), "driveChallengeConversation must never call advance-stage itself");
   });
 
+  // -----------------------------------------------------------------------------------------
+  // SHAPE-01's "no work planned" half (Task 3, G-05-2) — the real field, a three-valued
+  // reading, and a criterion that can fail. All pure, no process, no filesystem beyond the one
+  // source-scanning read every other pinning check in this file already performs.
+  // -----------------------------------------------------------------------------------------
+
+  check(
+    "the harness's own tool_call field read is pinned against ToolCallEvent's real declaration in adapter.ts",
+    () => {
+      const adapterSource = fs.readFileSync(
+        path.join(REPO_ROOT, "packages", "sidecar", "src", "adapter.ts"),
+        "utf8",
+      );
+      const match = adapterSource.match(/export interface ToolCallEvent extends AgentEventBase \{([\s\S]*?)\}/);
+      assert.ok(match, "expected to find the ToolCallEvent interface in adapter.ts");
+      assert.ok(
+        new RegExp(`\\b${TOOL_NAME_FIELD}\\s*:\\s*string`).test(match[1]),
+        `expected ToolCallEvent to declare a field named ${JSON.stringify(TOOL_NAME_FIELD)} — a ` +
+          "rename in the product must fail this check, not silently zero the criterion again",
+      );
+    },
+  );
+
+  check("readNoWorkPlanned distinguishes unproven, violated and refused, and ignores the old wrong field", () => {
+    assert.equal(readNoWorkPlanned([]), "unproven");
+    assert.equal(
+      readNoWorkPlanned([{ type: "tool_call", toolName: "mcp__flywheel-permissions__propose_task" }]),
+      "violated",
+    );
+    assert.equal(
+      readNoWorkPlanned([
+        { type: "tool_call", toolName: "mcp__flywheel-permissions__propose_task" },
+        { type: "tool_result", raw: "still in the challenge stage — no proposals yet." },
+      ]),
+      "refused",
+    );
+    // The regression this task closes: an event carrying the OLD wrong field (`name`, not
+    // `toolName`) must never be detected as a propose attempt at all.
+    assert.equal(readNoWorkPlanned([{ type: "tool_call", name: "propose_task" }]), "unproven");
+  });
+
+  check("all three noWorkPlanned readings map to SHAPE-01's own outcome, with the challenge half held true", () => {
+    const outcomeFor = (reading) =>
+      buildCriteriaResults({
+        criterion1Challenged: true,
+        noWorkPlannedReading: reading,
+        criterion2Landed: false,
+        criterion3Decided: false,
+        criterion4Reopened: false,
+        criterion4PrimedRejected: false,
+      }).find(([name]) => name.includes("SHAPE-01"))[1];
+
+    assert.equal(outcomeFor("refused"), true, "a refused propose attempt should still pass");
+    assert.equal(outcomeFor("unproven"), true, "absence of evidence should pass, never a fabricated fail");
+    assert.equal(outcomeFor("violated"), false, "the one reading that must sink SHAPE-01's second half");
+  });
+
+  check("the unproven detail line names where the structural guarantee is actually proven, not just that it is unproven", () => {
+    const results = buildCriteriaResults({
+      criterion1Challenged: true,
+      noWorkPlannedReading: "unproven",
+      criterion2Landed: false,
+      criterion3Decided: false,
+      criterion4Reopened: false,
+      criterion4PrimedRejected: false,
+    });
+    const [, , detail] = results.find(([name]) => name.includes("SHAPE-01"));
+    assert.ok(detail.includes("authoring_stage.rs"), "expected the core-side structural proof site named");
+    assert.ok(detail.includes("authoring-stage-gate.test.mjs"), "expected the sidecar-side structural proof site named");
+  });
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -1263,6 +1346,44 @@ async function driveChallengeConversation({
   }
 
   return { exchanges, settled, agentTurns, answeredQuestionCount, closingTurnSent, cursor: finalCursor };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Task 3 (G-05-2) — SHAPE-01's "no work planned" half: the real field, a three-valued reading, a
+// criterion that can fail.
+// ---------------------------------------------------------------------------------------------
+
+/** The ONE place this harness names the `tool_call` field it reads for a tool name — pinned
+ * against `ToolCallEvent`'s own declaration in `packages/sidecar/src/adapter.ts` by a self-test
+ * check, so a product rename fails a check instead of silently zeroing SHAPE-01's second half
+ * again (the exact defect this task closes: `event.name` was always `undefined`, `ToolCallEvent`'s
+ * real field is `toolName`). */
+const TOOL_NAME_FIELD = "toolName";
+
+/**
+ * The three-valued reading of whether the agent staged work during the challenge stage, from the
+ * raw sidecar `events` array (never a pre-reduced boolean, so the field-name fix above lives in
+ * exactly one function):
+ * - `"unproven"` — no `tool_call` event named a propose tool at all. Absence of evidence, reported
+ *   as exactly that — never a silent pass with no reading behind it.
+ * - `"refused"` — a propose attempt WAS observed, and a `tool_result` event carried the stage
+ *   gate's own refusal wording (`stage-gate-hook.ts`'s `denyForChallengeStage`, matched the same
+ *   way this script always has: `/challenge stage/i` against the event's raw text).
+ * - `"violated"` — a propose attempt was observed with NO matching refusal. The one reading that
+ *   makes SHAPE-01's second half FAIL — the property this whole task exists to make true.
+ */
+function readNoWorkPlanned(events) {
+  const proposeAttempted = events.some(
+    (event) =>
+      event.type === "tool_call" &&
+      typeof event[TOOL_NAME_FIELD] === "string" &&
+      event[TOOL_NAME_FIELD].includes("propose_"),
+  );
+  if (!proposeAttempted) return "unproven";
+  const refused = events.some(
+    (event) => event.type === "tool_result" && typeof event.raw === "string" && /challenge stage/i.test(event.raw),
+  );
+  return refused ? "refused" : "violated";
 }
 
 // `--self-test` short-circuits BEFORE the live `runScript` call below is ever reached — it must
@@ -1654,6 +1775,24 @@ async function runReplayCheckScenario(scenarioName) {
             `did not settle within ${MAX_AGENT_TURNS} agent turns — closing turn sent, ` +
               `${conversation.agentTurns} agent turn(s) total`,
           );
+        } else if (scenarioName === "stages-work-during-challenge") {
+          // Task 3 (G-05-2): the one scenario that proves SHAPE-01's "no work planned" half can
+          // FAIL — a propose attempt with no refusal must read as "violated" and must sink the
+          // built SHAPE-01 entry, isolated from the "challenged" half by holding it true.
+          const reading = readNoWorkPlanned(sidecar.events);
+          assert.equal(reading, "violated", "expected a propose attempt with no refusal to read as violated");
+          const shapeResults = buildCriteriaResults({
+            criterion1Challenged: true,
+            noWorkPlannedReading: reading,
+            criterion2Landed: false,
+            criterion3Decided: false,
+            criterion4Reopened: false,
+            criterion4PrimedRejected: false,
+          });
+          const shape01 = shapeResults.find(([name]) => name.includes("SHAPE-01"));
+          assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
+          assert.equal(shape01[1], false, "expected SHAPE-01 to NOT pass when a propose attempt went unrefused");
+          step(`noWorkPlanned reading: ${reading} — SHAPE-01 entry passed=${shape01[1]} (expected false)`);
         }
 
         step("advancing the stage (Cyril's own gate, D-90) through the bridge, mirroring the live body");
@@ -1682,8 +1821,7 @@ async function runReplayCheckScenario(scenarioName) {
         renderChallengeEvidenceSheet({
           runId,
           exchanges,
-          proposeAttempted: false,
-          proposeDenied: false,
+          noWorkPlannedReading: "unproven",
           draftedCriteriaCount: 0,
           amendedCriteriaCount: 0,
           results: [],
@@ -1871,15 +2009,12 @@ await runScript(
     // run limp on to a misleading per-criterion result.
     assertAllHeldRequestsAnswered(sidecar);
 
-    const proposeAttempted = sidecar
-      .eventsOfType("tool_call")
-      .some((event) => typeof event.name === "string" && event.name.includes("propose_"));
-    const proposeDenied = sidecar
-      .eventsOfType("tool_result")
-      .some((event) => typeof event.raw === "string" && /challenge stage/i.test(event.raw));
+    // Task 3 (G-05-2): the real field (TOOL_NAME_FIELD), read once inside readNoWorkPlanned —
+    // event.name was always undefined (ToolCallEvent's real field is toolName), which made this
+    // criterion's "no work planned" half vacuously true. Now a three-valued reading that can fail.
+    const noWorkPlannedReading = readNoWorkPlanned(sidecar.events);
     const agentTexts = [turn1.text, ...conversation.exchanges.filter((e) => e.speaker === "agent").map((e) => e.text)];
     const criterion1Challenged = agentTexts.some((text) => /\?/.test(text));
-    const criterion1NoWorkPlanned = !proposeAttempted || proposeDenied;
 
     // The whole conversation, in order — the opening prompt, every driven agent/developer
     // exchange (never a fixed two-turn sample of it — G-05-2's own `renderChallengeEvidenceSheet`
@@ -1896,8 +2031,7 @@ await runScript(
       renderChallengeEvidenceSheet({
         runId,
         exchanges,
-        proposeAttempted,
-        proposeDenied,
+        noWorkPlannedReading,
         draftedCriteriaCount: 0,
         amendedCriteriaCount: 0,
         results: [],
@@ -2042,9 +2176,13 @@ await runScript(
       );
     }
 
+    // Re-read: the decompose phase (proposal calls, above) happens strictly AFTER the earlier
+    // reading, so this is the fresh, final reading — not the pre-decompose "unproven" snapshot.
+    const finalNoWorkPlannedReading = readNoWorkPlanned(sidecar.events);
+
     const results = buildCriteriaResults({
       criterion1Challenged,
-      criterion1NoWorkPlanned,
+      noWorkPlannedReading: finalNoWorkPlannedReading,
       criterion2Landed,
       criterion3Decided,
       criterion4Reopened,
@@ -2056,8 +2194,7 @@ await runScript(
       renderChallengeEvidenceSheet({
         runId,
         exchanges,
-        proposeAttempted,
-        proposeDenied,
+        noWorkPlannedReading: finalNoWorkPlannedReading,
         draftedCriteriaCount,
         amendedCriteriaCount,
         results,
