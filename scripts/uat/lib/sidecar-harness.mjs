@@ -409,6 +409,15 @@ export class SidecarClient {
       if (process.env.FLYWHEEL_UAT_DUMP_EVENTS === "1") {
         process.stderr.write(`[event] ${JSON.stringify(message.event)}\n`);
       }
+      // G-05-1 (plan 05-18): an unrecognised sidecar event kind is logged unconditionally — NOT
+      // behind the opt-in above — because silent counting of these is the same class of blindness
+      // that let this plan's own gap (an unanswered board_read_request) go unnoticed for a full
+      // round. `claude-code-adapter.ts`'s own normaliser falls through to this literal type for
+      // every stream shape it does not recognise.
+      if (message.event?.type === "unknown") {
+        const raw = typeof message.event.raw === "string" ? message.event.raw : JSON.stringify(message.event.raw);
+        process.stderr.write(`[uat] unrecognised sidecar event: ${(raw ?? "").slice(0, 200)}\n`);
+      }
       // Snapshot and clear before notifying: a waiter's predicate may itself register another
       // waiter, and mutating the array being iterated is how that turns into a dropped event.
       const waiters = this.eventWaiters.splice(0, this.eventWaiters.length);
@@ -448,10 +457,19 @@ export class SidecarClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.eventWaiters = this.eventWaiters.filter((w) => w.resolve !== wrappedResolve);
+        // D-87/G-05-1 (plan 05-18): a wait that dies with a held inbound request outstanding
+        // names it here — the likely cause of this timeout, not a coincidence alongside it. When
+        // `unansweredHeldRequests` is empty this message is byte-identical to before this plan.
+        const unanswered = this.unansweredHeldRequests ?? [];
+        const unansweredClause =
+          unanswered.length > 0
+            ? ` UNANSWERED HELD INBOUND REQUESTS (likely cause of this timeout): ` +
+              `${JSON.stringify(unanswered)}.`
+            : "";
         reject(
           new Error(
             `timed out after ${timeoutMs}ms waiting for ${description}. ` +
-              `events so far: ${JSON.stringify(this.events.map((e) => e.type))}`,
+              `events so far: ${JSON.stringify(this.events.map((e) => e.type))}.${unansweredClause}`,
           ),
         );
       }, timeoutMs);
@@ -593,6 +611,26 @@ export async function drainIncidentalPermissionRequests(sidecar, runId, isDelibe
     handlers: { permission_request: createPermissionAnswerHandler(sidecar, runId, isDeliberate) },
     shouldStop,
   });
+}
+
+/**
+ * The named assertion (plan 05-18 Task 3, G-05-1's `missing[]` item 3): throws when
+ * `sidecar.unansweredHeldRequests` is a non-empty array, so a live run that limps to its own
+ * verdict with a starved read outstanding fails NAMING the read, rather than reporting a
+ * misleading per-criterion result 120 seconds later. An absent or empty array is a pass. The
+ * sidecar holds a call matching {@link HELD_INBOUND_REQUEST_TYPES} open until the core answers
+ * it — an entry surviving to this call means a missing handler in THIS harness, never an agent
+ * that went quiet.
+ */
+export function assertAllHeldRequestsAnswered(sidecar) {
+  const unanswered = sidecar.unansweredHeldRequests ?? [];
+  assert.equal(
+    unanswered.length,
+    0,
+    "HARNESS FAILURE: held inbound request never answered — " +
+      `${JSON.stringify(unanswered)}. The sidecar holds a call of this shape open until the core ` +
+      "answers it, so this is a missing handler in the harness, not an agent that went quiet.",
+  );
 }
 
 /** Pretty result reporting, shared by every script so `run-all.sh` sees one consistent shape. */

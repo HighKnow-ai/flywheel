@@ -34,10 +34,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  assertAllHeldRequestsAnswered,
   createPermissionAnswerHandler,
   drainIncidentalPermissionRequests,
   drainInboundCoreRequests,
   HEARTBEAT_TICK_MS,
+  HELD_INBOUND_REQUEST_TYPES,
   probeClaudeAvailable,
   REPO_ROOT,
   resolveHarnessBinary,
@@ -528,6 +530,67 @@ async function selfTest() {
     });
   }
 
+  // -----------------------------------------------------------------------------------------
+  // drainInboundCoreRequests / assertAllHeldRequestsAnswered — a starved harness reports itself
+  // by name (Task 3, G-05-1). All pure, offline, spawning nothing.
+  // -----------------------------------------------------------------------------------------
+  {
+    const UNHANDLED_REQ = "req-board-read-unhandled";
+    const stubEvents = [{ type: "board_read_request", requestId: UNHANDLED_REQ }];
+    const stubSidecar = {
+      unansweredHeldRequests: [],
+      requests: [],
+      async waitForEvent(predicate, _timeoutMs, _label) {
+        const match = stubEvents.find((e) => predicate(e) && !stubSidecar.requests.some((r) => r.requestId === e.requestId));
+        if (match === undefined) throw new Error("stub: no queued event matches the drain loop's own predicate");
+        return match;
+      },
+      async request(payload) {
+        stubSidecar.requests.push(payload);
+        return {};
+      },
+    };
+    // Only a `permission_request` handler is registered — the queued event is a
+    // `board_read_request`, which this drain call has no handler for.
+    let iterations = 0;
+    await drainInboundCoreRequests(stubSidecar, "stub-run", {
+      handlers: { permission_request: async () => true },
+      shouldStop: () => {
+        iterations += 1;
+        return iterations > 1;
+      },
+    });
+
+    check("an unhandled held kind is recorded, not swallowed", () => {
+      assert.equal(stubSidecar.unansweredHeldRequests.length, 1);
+      assert.equal(stubSidecar.unansweredHeldRequests[0].type, "board_read_request");
+      assert.equal(stubSidecar.unansweredHeldRequests[0].requestId, UNHANDLED_REQ);
+      assert.equal(stubSidecar.requests.length, 0, "no op should have been sent for the unhandled kind");
+    });
+
+    check("the recorded entry is what turns a wait into a named failure", () => {
+      assert.throws(
+        () => assertAllHeldRequestsAnswered(stubSidecar),
+        (err) => err.message.includes("board_read_request") && err.message.includes(UNHANDLED_REQ),
+      );
+      assert.doesNotThrow(() => assertAllHeldRequestsAnswered({ unansweredHeldRequests: [] }));
+    });
+
+    check("every kind the sidecar can hold open has an answering handler", () => {
+      const sidecarSource = fs.readFileSync(
+        path.join(REPO_ROOT, "packages", "sidecar", "src", "index.ts"),
+        "utf8",
+      );
+      const answeringOpCount = (sidecarSource.match(/case\s+"[a-zA-Z0-9_]+_answer"\s*:/g) ?? []).length;
+      assert.equal(
+        answeringOpCount,
+        HELD_INBOUND_REQUEST_TYPES.length,
+        "a new answering op on the sidecar means a new entry in HELD_INBOUND_REQUEST_TYPES and a " +
+          "new handler in every live script's drain, or this starvation returns",
+      );
+    });
+  }
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -804,6 +867,9 @@ await runScript(
       "the agent's second reply",
     );
     step(`second reply (verbatim): ${JSON.stringify(secondReply.text)}`);
+    // G-05-1 (plan 05-18): a starved held read must fail here, naming itself, rather than let the
+    // run limp on to a misleading per-criterion result.
+    assertAllHeldRequestsAnswered(sidecar);
 
     const proposeAttempted = sidecar
       .eventsOfType("tool_call")
@@ -960,6 +1026,11 @@ await runScript(
       }),
     );
     step(`wrote challenge evidence sheet (final): ${evidencePath}`);
+
+    // G-05-1 (plan 05-18): the last chance, immediately before the verdict, to catch a starved
+    // held read that a criterion's own booleans would otherwise silently misreport as a plain
+    // failure rather than the starvation it actually is.
+    assertAllHeldRequestsAnswered(sidecar);
 
     const allPassed = reportCriteria(results);
     harness.writeArtifact("uat-08-results", { sawProposal, results });
