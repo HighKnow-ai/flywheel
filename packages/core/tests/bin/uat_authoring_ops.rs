@@ -35,6 +35,16 @@
 //!   uat_authoring_ops close-run <run_id> <prose>
 //!   uat_authoring_ops epic-packet <project_id> <epic_id>
 //!   uat_authoring_ops board-counts <project_id>
+//!   uat_authoring_ops measure-run <run_id>              (READS the real fleet database — see below)
+//!
+//! `measure-run` is deliberately the ONE exception to the `FLYWHEEL_APP_DATA_DIR`-scoped-scratch-
+//! database discipline above (plan 05-13, gap G-05-2's third item): it is the Product Kill
+//! Criterion's in-app arm, and the shaping it measures actually happened in the developer's own
+//! REAL fleet database, not a scratch one this harness sets up. It gets its own early branch in
+//! `main`, BEFORE `open_conn()` is ever called, opens the resolved database path READ-ONLY (no
+//! migration step at all, so it never touches the schema of that real database), and resolves no
+//! actor. Every other subcommand below is unaffected — it still goes through `open_conn()`'s own
+//! refusal guard and its own migrating open.
 
 use std::io::Read;
 
@@ -79,6 +89,30 @@ fn print_json(value: serde_json::Value) {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let subcommand = args.get(1).map(String::as_str).unwrap_or("");
+
+    // `measure-run`'s own early branch (T-05-13-02) — dispatched BEFORE `open_conn()` is ever
+    // called, so this is the ONE subcommand that never goes through the FLYWHEEL_APP_DATA_DIR
+    // refusal guard, and never runs a migration. It opens the resolved database path READ-ONLY
+    // and resolves no actor: it must be able to look at the developer's REAL fleet database,
+    // because that is where the shaping it measures actually happened, and it must never migrate
+    // or write to it.
+    if subcommand == "measure-run" {
+        let run_id = args.get(2).cloned().unwrap_or_default();
+        if run_id.is_empty() {
+            fail("usage: uat_authoring_ops measure-run <run_id>");
+        }
+        let db_path = core::db::default_db_path()
+            .unwrap_or_else(|err| fail(&format!("could not resolve the database path: {err:#}")));
+        let conn = Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap_or_else(|err| fail(&format!("could not open the database read-only: {err:#}")));
+        let measurement = core::query::authoring::measure_authoring_run(&conn, &run_id, 200)
+            .unwrap_or_else(|err| fail(&format!("could not measure the authoring run: {err:#}")));
+        print_json(
+            serde_json::to_value(&measurement)
+                .unwrap_or_else(|err| fail(&format!("could not serialise the measurement: {err:#}"))),
+        );
+        return;
+    }
 
     let mut conn = open_conn();
     let human_actor_id = actor::local_human_actor_id(&conn)
