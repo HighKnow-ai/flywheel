@@ -450,3 +450,55 @@ fn the_measurement_writes_nothing_the_same_call_twice_leaves_the_database_byte_i
     let after = std::fs::read(&db_path).expect("re-reading the database file should succeed");
     assert_eq!(before, after, "two measurement calls must leave the database file byte-identical");
 }
+
+#[test]
+fn the_measurement_is_reproducible_under_a_bound_smaller_than_the_data() {
+    let dir = tempfile::tempdir().expect("failed to create scratch dir");
+    let db_path = dir.path().join("flywheel.db");
+    let backups_dir = dir.path().join("backups");
+    let mut conn = open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should succeed");
+    let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
+    let proj = project::create_project(&mut conn, &actor_id, "Threadfin", "/repo", "FLY", "main")
+        .expect("create_project should succeed");
+
+    let run = start_authoring_run(&mut conn, &proj.id, None, "default", &actor_id)
+        .expect("start_authoring_run should succeed");
+    advance_stage(&mut conn, &run.id, &actor_id).expect("advance_stage should succeed");
+
+    // More proposals/events than the deliberately small limit below will bound — reproducibility
+    // under a bound is the property the doc comment claims and the property WR-05's two ordering
+    // defects broke; the byte-identity test above only exercises the unbounded-in-practice path.
+    for i in 0..4 {
+        let task = create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: format!("task-{i}"), description: None },
+            None,
+            None,
+        )
+        .expect("propose a task");
+        accept_proposal(&mut conn, &task.id, &actor_id).expect("accept the task");
+    }
+
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", []).ok();
+    drop(conn);
+
+    let before = std::fs::read(&db_path).expect("reading the database file should succeed");
+    let conn = Connection::open(&db_path).expect("reopening the database should succeed");
+
+    let first = measure_authoring_run(&conn, &run.id, 2).expect("first measurement should succeed");
+    let second = measure_authoring_run(&conn, &run.id, 2).expect("second measurement should succeed");
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", []).ok();
+    drop(conn);
+
+    let after = std::fs::read(&db_path).expect("re-reading the database file should succeed");
+    assert_eq!(
+        first, second,
+        "two measurement calls under a small bound must return equal results"
+    );
+    assert_eq!(
+        before, after,
+        "two measurement calls under a small bound must leave the database file byte-identical"
+    );
+}
