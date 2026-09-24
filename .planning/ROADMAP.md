@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 18/22 plans executed — 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 planned gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail
+**Plans**: 20/22 plans executed — 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 planned gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail
 **UI hint**: yes
 
 Plans:
@@ -564,11 +564,11 @@ Plans:
 
 **Gap closure round 3 — wave 2** *(blocked on 05-18 — the live arm cannot be run, and the finding cannot be written down, until the fix lands)*
 
-- [ ] 05-19-PLAN.md — G-05-1: the read-path starvation recorded as one instance of a general rule, a ledger row per task, and the live run a human finally judges SHAPE-01 from (SHAPE-01, SHAPE-05)
+- [x] 05-19-PLAN.md — G-05-1: the read-path starvation recorded as one instance of a general rule, a ledger row per task, and the live run a human finally judges SHAPE-01 from (SHAPE-01, SHAPE-05)
 
 **Gap closure round 4 — wave 1, the tracer** *(opened by `05-UAT.md` G-05-2: the live arm stops starving and starts lying — one `assistant_text` chunk recorded as a whole reply, `advance-stage` fired mid-generation, and a SHAPE-01 half that reads a field the product does not declare)*
 
-- [ ] 05-20-PLAN.md — G-05-2: a turn boundary keyed on the backend's own end-of-turn line, a scripted stand-in backend, and a zero-token replay arm that captures the whole turn through the real sidecar (SHAPE-01, SHAPE-03)
+- [x] 05-20-PLAN.md — G-05-2: a turn boundary keyed on the backend's own end-of-turn line, a scripted stand-in backend, and a zero-token replay arm that captures the whole turn through the real sidecar (SHAPE-01, SHAPE-03)
 
 **Gap closure round 4 — wave 2** *(blocked on 05-20 — shares `uat-08-socratic-authoring.mjs` and the scripted backend, and needs the turn boundary before a conversation can be driven by it)*
 
@@ -827,7 +827,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 18/19 | In Progress|  |
+| 5. Socratic Epic Authoring | 20/22 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-18-PLAN.md
-last_updated: "2026-09-24T05:39:09.483Z"
+stopped_at: Completed 05-20-PLAN.md
+last_updated: "2026-09-24T08:00:19.595Z"
 last_activity: 2026-09-24
 last_activity_desc: Phase 05 execution started
-state_head: 81e9392f3d8924000641929d4fb754bcd34b7102
+state_head: 65fac93e98cd50f250d0dbbc4f4301df5fbf5983
 progress:
   total_phases: 12
   completed_phases: 0
-  total_plans: 112
-  completed_plans: 111
+  total_plans: 115
+  completed_plans: 113
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 2 of 19
+Plan: 2 of 22
 Status: Ready to execute
 Last activity: 2026-09-24 — Phase 05 execution started
 
@@ -169,6 +169,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P16 | 20min | 2 tasks | 1 files |
 | Phase 05 P17 | 25min | 3 tasks | 7 files |
 | Phase 05 P18 | 95min | 3 tasks | 7 files |
+| Phase 05 P20 | 90min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -375,6 +376,7 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05]: The Product Kill Criterion's verdict formula reads only the in-app arm's own accepted-criteria amendment rate, never the terminal arm's hand-counted reworded figure -- matches 05-SPIKE-FINDINGS.md's changes_the_plan_when clause verbatim.
 - [Phase 05]: Promoted the harness's permission-only drain into a generalised drainInboundCoreRequests loop (HELD_INBOUND_REQUEST_TYPES), with drainIncidentalPermissionRequests kept as a signature-preserving preset — closes G-05-1 without perturbing uat-06/uat-07's existing callers. — The plan's own assumption_delta_decision: the singular 'one inbound role' assumption the harness was written under was already false once board_read_request joined permission_request as a second held-open kind.
 - [Phase 05]: Allowlisted resolve_board_read's two cardinality-one/aggregate SELECTs in epic_context_packet.rs's unbounded-read scanner after the Task 1 extraction moved them into packages/core/src/query for the first time. — Deviation Rule 1 (bug): the extraction, not a real unbounded read, tripped an existing correctness gate; same justification already recorded for get_epic_for_agent and BLOCKED_COUNT_SQL.
+- [Phase 05]: Turn-boundary primitive (SidecarClient.waitForTurn + pure accumulateTurn) closes G-05-2's capture-side truncation, proven offline via --replay-check against a scripted fake-authoring-claude.mjs backend through the real sidecar/watchdog/normaliser for zero tokens. — The old waitForEvent captured one assistant_text event as a whole reply, but one Claude Code turn emits many stream-json lines; waitForTurn resolves with the whole turn from a cursor, bounded by the backend's own result marker.
 
 ### Pending Todos
 
@@ -422,6 +424,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-24T05:39:09.354Z
-Stopped at: Completed 05-18-PLAN.md
+Last session: 2026-09-24T08:00:19.464Z
+Stopped at: Completed 05-20-PLAN.md
 Resume file: None

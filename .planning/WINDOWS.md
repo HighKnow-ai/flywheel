@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 11
+open_count: 12
 waived_count: 0
 fixed_count: 6
-total_count: 17
-last_updated: 2026-09-24T00:22:55.549Z
+total_count: 18
+last_updated: 2026-09-24T07:58:27.699Z
 ---
 
 # Broken Windows Ledger
@@ -32,6 +32,7 @@ last_updated: 2026-09-24T00:22:55.549Z
 | 15 | 05 | deviation | .planning/phases/05-socratic-epic-authoring/05-03-PLAN.md |  | Task 3's own <verify> hex-literal gate (grep -cE '#[0-9a-fA-F]{3,8}' over TWO files) can never equal the literal string "0" it is compared against, because grep -c over multiple files prints one 'file:count' line per file rather than a single combined total — a shell-scripting bug in the plan's own verify command, not a code defect. Checked per-file instead: both packages/desktop/src/session/__tests__/authoring-stage.test.tsx and packages/desktop/src/legend/marks.ts report 0 hex-literal matches individually, so the underlying invariant (no hex literal introduced) genuinely holds. | open |  | 2026-09-23T13:47:22.146Z |  |
 | 16 | 05 | unrun-verify | scripts/uat/uat-08-socratic-authoring.mjs |  | Plan 05-10 Task 3's own <human-check>: the live acceptance run against the real claude backend (challenge quality, criteria-amendment ratio, the wall-clock comparison against the terminal arm from 05-SPIKE-FINDINGS.md's Product Kill Criterion) was not executed by this autonomous run — it costs real tokens against a real credentialed backend, which this session declined to spend without explicit human instruction. The script's --self-test mode (offline, no claude binary) was run and passes; the live half awaits a human running it deliberately, alongside WINDOWS.md entries #13/#14. | open |  | 2026-09-23T18:48:53.911Z |  |
 | 17 | 05 | unrun-verify | .planning/phases/05-socratic-epic-authoring/05-13-PLAN.md |  | Task 3's <human-check> Product Kill Criterion re-staging (in-app arm timed against the terminal arm) not run this session — spends real API credits, two timed sittings; protocol written in 05-SPIKE-FINDINGS.md for a later deliberate run. | open |  | 2026-09-24T00:22:55.549Z |  |
+| 18 | 05 | deviation | scripts/uat/uat-08-socratic-authoring.mjs |  | 05-20 Task 2 (tdd=true): the feat(05-20) commit shipping waitForTurn/accumulateTurn (05610c6) preceded the test(05-20) commit pinning its edge cases (091af4d) — canonical RED-before-GREEN order inverted because Task 1's tracer commit already shipped the correct primitive; RED was verified by construction (temporary mutation + revert) rather than a natural pre-implementation failure. Documented in 05-20-SUMMARY.md TDD Gate Compliance. | open |  | 2026-09-24T07:58:27.699Z |  |
 
 ````json
 [
@@ -237,6 +238,18 @@ last_updated: 2026-09-24T00:22:55.549Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-24T00:22:55.549Z",
+    "resolved_at": null
+  },
+  {
+    "id": 18,
+    "kind": "deviation",
+    "phase": "05",
+    "file": "scripts/uat/uat-08-socratic-authoring.mjs",
+    "line": null,
+    "description": "05-20 Task 2 (tdd=true): the feat(05-20) commit shipping waitForTurn/accumulateTurn (05610c6) preceded the test(05-20) commit pinning its edge cases (091af4d) — canonical RED-before-GREEN order inverted because Task 1's tracer commit already shipped the correct primitive; RED was verified by construction (temporary mutation + revert) rather than a natural pre-implementation failure. Documented in 05-20-SUMMARY.md TDD Gate Compliance.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-24T07:58:27.699Z",
     "resolved_at": null
   }
 ]
