@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 26/26 plans executed — 22/22 executed, 4 planned (05-23 through 05-26). 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail — plus 4 planned gap-closure plans (05-23 through 05-26) in 4 waves opened by `05-VERIFICATION.md` `gaps_found` 25/27: FAILED truth #19 (`CR-01`, the gating window contaminated by legitimate decompose-stage proposals), the safety-classifier refusal captured as ordinary agent text, `WR-04`'s idle window that can truncate a live turn, and the unfiled-todo bookkeeping
+**Plans**: 29 plans — 26/26 executed, 3 planned (05-27 through 05-29). 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail — plus 4 planned gap-closure plans (05-23 through 05-26) in 4 waves opened by `05-VERIFICATION.md` `gaps_found` 25/27: FAILED truth #19 (`CR-01`, the gating window contaminated by legitimate decompose-stage proposals), the safety-classifier refusal captured as ordinary agent text, `WR-04`'s idle window that can truncate a live turn, and the unfiled-todo bookkeeping — plus 3 planned gap-closure plans (05-27 through 05-29) in 3 waves opened by `05-VERIFICATION.md` `gaps_found` 27/28: FAILED truth #9, the per-attempt `tool_result` correlation reusing one result as the answer to two back-to-back propose attempts (a vacuous SHAPE-01 pass), the missing self-test that let it ship, truth #11's coincidental fixture reliance, and `WR-01`'s doc-comment overclaim
 **UI hint**: yes
 
 Plans:
@@ -593,6 +593,18 @@ Plans:
 **Gap closure round 5 — wave 4** *(blocked on 05-25 — the finding cannot be written down and the ledger cannot record a command until the commands exist)*
 
 - [x] 05-26-PLAN.md — G-05-3: the fourth finding and the sharpened rule (an offline arm proves a property only when it runs the same path the live arm will), a ledger row per task, and an honest resolution of the todo a prior summary said would be filed (all five SHAPE ids)
+
+**Gap closure round 6 — wave 1, the tracer** *(opened by `05-VERIFICATION.md` `status: gaps_found`, 27/28 — FAILED truth #9 (`CR-01`, this round's new critical): `isAttemptRefused` can reuse one `tool_result` as the answer to two back-to-back `propose_*` attempts, reporting `refused` where `violated` is correct — a vacuous SHAPE-01 pass, and the fifth consecutive round hitting this defect class in the same narrow region of code. The tracer: make truth #9 pass end to end offline, on the shape the live wire actually produces, before anything expands from it)*
+
+- [ ] 05-27-PLAN.md — G-05-4: each propose attempt paired one-to-one with its own claimed `tool_result`, promoted to a named correlation; an eighth scripted scenario driving two back-to-back proposals through the real sidecar; the algorithm as it shipped frozen as a negative control so the regression keeps its teeth; and the collision fixture five rounds of self-tests worked around (SHAPE-01)
+
+**Gap closure round 6 — wave 2** *(blocked on 05-27 — the fifth finding cannot be written down, and the eighth scenario cannot be documented, until the fix and the scenario exist)*
+
+- [ ] 05-28-PLAN.md — G-05-4: a refusal heuristic's doc comment claiming only what it earns, and the fifth finding recorded with the rule that would have caught it — when a fixture has to be shaped around an ambiguity in the algorithm under test, the ambiguity is the finding (SHAPE-01, SHAPE-03)
+
+**Gap closure round 6 — wave 3** *(blocked on 05-28 — the ledger cannot record a command until every command in this closure exists and has been observed)*
+
+- [ ] 05-29-PLAN.md — G-05-4: a ledger row per task in this closure, a narrowed and honest statement of what "instrument fixed" now means for SHAPE-01/SHAPE-03, and the credential-spend decision put to the developer rather than taken for them (all five SHAPE ids)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is
