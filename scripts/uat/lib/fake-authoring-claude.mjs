@@ -162,6 +162,28 @@ export const SCENARIOS = {
       { type: "text", text: "Understood — but one more thing: are you sure that's the only trigger we need?" },
     ],
   },
+
+  // Plan 05-21 (Task 3, G-05-2): the agent stages work during the challenge stage — a `tool_use`
+  // block naming a FULLY-QUALIFIED propose tool (the real wire shape `AUTHORING_PROPOSE_TASK_TOOL_NAME`,
+  // `packages/sidecar/src/mcp-permission-server.ts`, produces on a real session), with NO tool_result
+  // refusal following it. Proves `readNoWorkPlanned` reads this as `"violated"` — the one reading
+  // that makes SHAPE-01's second half actually fail.
+  "stages-work-during-challenge": {
+    turns: [
+      [
+        { type: "text", text: "This premise is clear enough — I'll get started." },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_task",
+          input: { title: "Build notifications", description: "Notify the user of run outcomes." },
+        },
+        { type: "text", text: "I've staged the first task for your review." },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "Still staging more work based on what you've told me." },
+    ],
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation
