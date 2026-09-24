@@ -443,3 +443,52 @@ pub fn measure_authoring_run(
         elapsed_minutes,
     })
 }
+
+/// One row of the run picker the terminal drives the comparison's in-app arm from (05-17-PLAN.md
+/// Task 1, gap HUMAN-02): a developer finds the run id here instead of reading it off a UI
+/// surface.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentAuthoringRun {
+    pub run_id: String,
+    pub project_id: String,
+    pub epic_id: Option<String>,
+    pub status: String,
+    pub authoring_stage: Option<String>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+}
+
+/// The newest-first, bounded list of authoring runs (`authoring_stage IS NOT NULL`) — every run
+/// `start_authoring_run` has ever created, whether still running or already closed, so a run the
+/// comparison wants to measure is found by asking the board, never by hand-copying an id off a UI
+/// surface. Bounded by [`resolve_limit`] on its own first line, exactly like every other read in
+/// this module. Ordered `started_at DESC, id DESC` — the same tie-break idiom
+/// [`list_rejected_for_epic`] uses — so the list is stable across calls even when two runs share a
+/// start timestamp. Read-only: inserts, updates and deletes nothing.
+pub fn list_recent_authoring_runs(
+    conn: &Connection,
+    limit: i64,
+) -> anyhow::Result<Vec<RecentAuthoringRun>> {
+    let resolved_limit = resolve_limit(limit);
+
+    let sql = "SELECT id, project_id, epic_id, status, authoring_stage, started_at, ended_at \
+         FROM agent_runs WHERE authoring_stage IS NOT NULL \
+         ORDER BY started_at DESC, id DESC LIMIT ?1";
+
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt
+        .query_map(params![resolved_limit], |row| {
+            Ok(RecentAuthoringRun {
+                run_id: row.get(0)?,
+                project_id: row.get(1)?,
+                epic_id: row.get(2)?,
+                status: row.get(3)?,
+                authoring_stage: row.get(4)?,
+                started_at: row.get(5)?,
+                ended_at: row.get(6)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to list recent authoring runs")
+}

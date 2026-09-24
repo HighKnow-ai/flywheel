@@ -35,16 +35,21 @@
 //!   uat_authoring_ops close-run <run_id> <prose>
 //!   uat_authoring_ops epic-packet <project_id> <epic_id>
 //!   uat_authoring_ops board-counts <project_id>
-//!   uat_authoring_ops measure-run <run_id>              (READS the real fleet database — see below)
+//!   uat_authoring_ops measure-run <run_id>              (READ-ONLY — see below)
+//!   uat_authoring_ops recent-authoring-runs [limit]     (READ-ONLY — see below)
+//!   uat_authoring_ops measure-board-counts <project_id> (READ-ONLY — see below)
 //!
-//! `measure-run` is deliberately the ONE exception to the `FLYWHEEL_APP_DATA_DIR`-scoped-scratch-
-//! database discipline above (plan 05-13, gap G-05-2's third item): it is the Product Kill
-//! Criterion's in-app arm, and the shaping it measures actually happened in the developer's own
-//! REAL fleet database, not a scratch one this harness sets up. It gets its own early branch in
-//! `main`, BEFORE `open_conn()` is ever called, opens the resolved database path READ-ONLY (no
-//! migration step at all, so it never touches the schema of that real database), and resolves no
-//! actor. Every other subcommand below is unaffected — it still goes through `open_conn()`'s own
-//! refusal guard and its own migrating open.
+//! `measure-run`, `recent-authoring-runs` and `measure-board-counts` are deliberately the ONLY
+//! exceptions to the `FLYWHEEL_APP_DATA_DIR`-scoped-scratch-database discipline above (plan 05-13,
+//! gap G-05-2's third item; plan 05-17, gap HUMAN-02): together they are the Product Kill
+//! Criterion's comparison instrument, and the shaping they measure actually happened in the
+//! developer's own REAL fleet database, not a scratch one this harness sets up. All three share
+//! ONE early match arm in `main`, BEFORE `open_conn()` is ever called, which opens the resolved
+//! database path READ-ONLY (no migration step at all, so it never touches the schema of that real
+//! database) and resolves no actor. Invariant: every subcommand in that arm is read-only, never
+//! migrates, and never requires the scratch-directory override. Every other subcommand below is
+//! unaffected — it still goes through `open_conn()`'s own refusal guard and its own migrating
+//! open.
 
 use std::io::Read;
 
@@ -86,32 +91,99 @@ fn print_json(value: serde_json::Value) {
     println!("{value}");
 }
 
+/// The three board-count queries `board-counts` needs, extracted (05-17-PLAN.md Task 1) so the
+/// migrating branch and the read-only `measure-board-counts` branch below call the SAME statements
+/// and can never drift apart.
+fn board_counts_json(conn: &Connection, project_id: &str) -> serde_json::Value {
+    let epics: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM epics WHERE project_id = ?1",
+            rusqlite::params![project_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let tasks: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM tasks WHERE project_id = ?1",
+            rusqlite::params![project_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    // `acceptance_criteria` carries no `project_id` column of its own (D-06) — scoped here via
+    // its task/epic parent instead, matching how every other project-scoped criteria read in this
+    // crate resolves the same join.
+    let criteria: i64 = conn
+        .query_row(
+            "SELECT \
+                (SELECT COUNT(*) FROM acceptance_criteria WHERE parent_type = 'task' \
+                    AND parent_id IN (SELECT id FROM tasks WHERE project_id = ?1)) + \
+                (SELECT COUNT(*) FROM acceptance_criteria WHERE parent_type = 'epic' \
+                    AND parent_id IN (SELECT id FROM epics WHERE project_id = ?1))",
+            rusqlite::params![project_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    serde_json::json!({ "epics": epics, "tasks": tasks, "criteria": criteria })
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let subcommand = args.get(1).map(String::as_str).unwrap_or("");
 
-    // `measure-run`'s own early branch (T-05-13-02) — dispatched BEFORE `open_conn()` is ever
-    // called, so this is the ONE subcommand that never goes through the FLYWHEEL_APP_DATA_DIR
-    // refusal guard, and never runs a migration. It opens the resolved database path READ-ONLY
-    // and resolves no actor: it must be able to look at the developer's REAL fleet database,
-    // because that is where the shaping it measures actually happened, and it must never migrate
-    // or write to it.
-    if subcommand == "measure-run" {
-        let run_id = args.get(2).cloned().unwrap_or_default();
-        if run_id.is_empty() {
-            fail("usage: uat_authoring_ops measure-run <run_id>");
+    // The read-only set's own early branch (T-05-13-02, extended by 05-17-PLAN.md Task 1) —
+    // matched ONCE here, dispatched BEFORE `open_conn()` is ever called, so none of these three
+    // subcommands ever goes through the FLYWHEEL_APP_DATA_DIR refusal guard, and none ever runs a
+    // migration. Invariant: every subcommand in this arm is read-only, never migrates, and never
+    // requires the scratch-directory override — each opens the resolved database path READ-ONLY
+    // and resolves no actor, because they must be able to look at the developer's REAL fleet
+    // database, where the shaping they measure actually happened.
+    match subcommand {
+        "measure-run" | "recent-authoring-runs" | "measure-board-counts" => {
+            let db_path = core::db::default_db_path().unwrap_or_else(|err| {
+                fail(&format!("could not resolve the database path: {err:#}"))
+            });
+            let conn =
+                Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                    .unwrap_or_else(|err| {
+                        fail(&format!("could not open the database read-only: {err:#}"))
+                    });
+
+            match subcommand {
+                "measure-run" => {
+                    let run_id = args.get(2).cloned().unwrap_or_default();
+                    if run_id.is_empty() {
+                        fail("usage: uat_authoring_ops measure-run <run_id>");
+                    }
+                    let measurement = core::query::authoring::measure_authoring_run(&conn, &run_id, 200)
+                        .unwrap_or_else(|err| fail(&format!("could not measure the authoring run: {err:#}")));
+                    print_json(
+                        serde_json::to_value(&measurement).unwrap_or_else(|err| {
+                            fail(&format!("could not serialise the measurement: {err:#}"))
+                        }),
+                    );
+                }
+                "recent-authoring-runs" => {
+                    let limit: i64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+                    let runs = core::query::authoring::list_recent_authoring_runs(&conn, limit)
+                        .unwrap_or_else(|err| {
+                            fail(&format!("could not list recent authoring runs: {err:#}"))
+                        });
+                    print_json(serde_json::to_value(&runs).unwrap_or_else(|err| {
+                        fail(&format!("could not serialise the run list: {err:#}"))
+                    }));
+                }
+                "measure-board-counts" => {
+                    let project_id = args.get(2).cloned().unwrap_or_default();
+                    if project_id.is_empty() {
+                        fail("usage: uat_authoring_ops measure-board-counts <project_id>");
+                    }
+                    print_json(board_counts_json(&conn, &project_id));
+                }
+                _ => unreachable!("matched by the outer arm above"),
+            }
+            return;
         }
-        let db_path = core::db::default_db_path()
-            .unwrap_or_else(|err| fail(&format!("could not resolve the database path: {err:#}")));
-        let conn = Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap_or_else(|err| fail(&format!("could not open the database read-only: {err:#}")));
-        let measurement = core::query::authoring::measure_authoring_run(&conn, &run_id, 200)
-            .unwrap_or_else(|err| fail(&format!("could not measure the authoring run: {err:#}")));
-        print_json(
-            serde_json::to_value(&measurement)
-                .unwrap_or_else(|err| fail(&format!("could not serialise the measurement: {err:#}"))),
-        );
-        return;
+        _ => {}
     }
 
     let mut conn = open_conn();
@@ -296,35 +368,7 @@ fn main() {
             if project_id.is_empty() {
                 fail("usage: uat_authoring_ops board-counts <project_id>");
             }
-            let epics: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM epics WHERE project_id = ?1",
-                    rusqlite::params![project_id],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0);
-            let tasks: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM tasks WHERE project_id = ?1",
-                    rusqlite::params![project_id],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0);
-            // `acceptance_criteria` carries no `project_id` column of its own (D-06) — scoped
-            // here via its task/epic parent instead, matching how every other project-scoped
-            // criteria read in this crate resolves the same join.
-            let criteria: i64 = conn
-                .query_row(
-                    "SELECT \
-                        (SELECT COUNT(*) FROM acceptance_criteria WHERE parent_type = 'task' \
-                            AND parent_id IN (SELECT id FROM tasks WHERE project_id = ?1)) + \
-                        (SELECT COUNT(*) FROM acceptance_criteria WHERE parent_type = 'epic' \
-                            AND parent_id IN (SELECT id FROM epics WHERE project_id = ?1))",
-                    rusqlite::params![project_id],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0);
-            print_json(serde_json::json!({ "epics": epics, "tasks": tasks, "criteria": criteria }));
+            print_json(board_counts_json(&conn, &project_id));
         }
         other => {
             fail(&format!(
