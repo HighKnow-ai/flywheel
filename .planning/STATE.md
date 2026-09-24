@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-16-PLAN.md
-last_updated: "2026-09-24T03:09:34.054Z"
+stopped_at: Completed 05-17-PLAN.md
+last_updated: "2026-09-24T03:33:46.141Z"
 last_activity: 2026-09-24
 last_activity_desc: "Phase 05 gap closure: 05-15 closed out manually after executor API failure"
-state_head: ea573f68237beed9b88f9cefa595349a35cd1131
+state_head: 444a95475342d202836e132ba9043e27b35792e3
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 110
-  completed_plans: 109
+  completed_plans: 110
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING (gap-closure round)
-Plan: 16 of 17
+Plan: 17 of 17
 Status: Plan 05-14 complete — CR-01/WR-04 closed; 05-15/05-16/05-17 remain
 Last activity: 2026-09-24 — Plan 05-14 executed (delivery-gated developer_turn row, visible persist-failure notice)
 
@@ -167,6 +167,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P13 | 20min | 3 tasks | 14 files |
 | Phase 05 P14 | 22min | 2 tasks | 2 files |
 | Phase 05 P16 | 20min | 2 tasks | 1 files |
+| Phase 05 P17 | 25min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -370,6 +371,7 @@ Recent decisions affecting current work:
 - [Phase 05]: A developer_turn transcript row names a DELIVERED turn (transport accepted), not an ATTEMPTED one — a reorder-only fix via AuthoringTurnSink seam, not a delivery-status field on the line
 - [Phase 05]: SHAPE-05 is marked informational (not gated, not faked) in uat-08-socratic-authoring.mjs — a fresh-session live run structurally cannot reach the reopen leg, and authoring_acceptance.rs::criterion_4_* already proves it structurally
 - [Phase 05]: The live UAT evidence sheet (05-LIVE-CHALLENGE-TRANSCRIPT.md) is written to one fixed, overwritten path rather than timestamped files, and renderChallengeEvidenceSheet takes its timestamp as a parameter to stay pure and diffable
+- [Phase 05]: [Phase 05]: The Product Kill Criterion's verdict formula reads only the in-app arm's own accepted-criteria amendment rate, never the terminal arm's hand-counted reworded figure -- matches 05-SPIKE-FINDINGS.md's changes_the_plan_when clause verbatim.
 
 ### Pending Todos
 
@@ -415,6 +417,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-24T03:09:33.928Z
-Stopped at: Completed 05-16-PLAN.md
+Last session: 2026-09-24T03:33:46.017Z
+Stopped at: Completed 05-17-PLAN.md
 Resume file: None

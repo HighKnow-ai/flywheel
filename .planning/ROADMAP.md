@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 16/17 plans executed — 13/13 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT), plus 4 planned gap-closure plans (05-14 through 05-17) in 3 waves opened by `05-VERIFICATION.md` (CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements)
+**Plans**: 17/17 plans executed — 13/13 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT), plus 4 planned gap-closure plans (05-14 through 05-17) in 3 waves opened by `05-VERIFICATION.md` (CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements)
 **UI hint**: yes
 
 Plans:
@@ -556,7 +556,7 @@ Plans:
 
 **Gap closure round 2 — wave 3** *(blocked on 05-14, 05-15 and 05-16 — the phase's end-of-phase human gate)*
 
-- [ ] 05-17-PLAN.md — the two remaining judgements as one command each: read-only board instruments, a kill-criterion comparison script with an offline self-test, and a validation ledger that points at commands instead of procedures (SHAPE-01, SHAPE-02)
+- [x] 05-17-PLAN.md — the two remaining judgements as one command each: read-only board instruments, a kill-criterion comparison script with an offline self-test, and a validation ledger that points at commands instead of procedures (SHAPE-01, SHAPE-02)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is
@@ -807,7 +807,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 16/17 | In Progress|  |
+| 5. Socratic Epic Authoring | 17/17 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
