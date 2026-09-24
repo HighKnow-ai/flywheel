@@ -152,3 +152,32 @@ None — no external service configuration required.
 - FOUND: commit `1679b3f` (Task 1)
 - FOUND: commit `b16b3c5` (Task 3)
 - Plan-level `<verify>` re-run: `--self-test` exit 0, `--board-read-check` exit 0, `--replay-check` exit 0, `grep -c '05-22-03' 05-VALIDATION.md` = 1 — all pass.
+
+---
+
+## Correction — appended 2026-09-24 (plan 05-26)
+
+This SUMMARY's own "Next Phase Readiness" section above (unedited — this is an appended
+correction, not a rewrite) said the safety-classifier defect this plan found "should be filed and
+closed before the next live `uat-08` run is attempted." That sentence records what was believed at
+the time it was written. It turned out to be only half right: the defect needed closing, and it
+was — but it was never filed as a todo.
+
+**Where it was actually closed:** plan `05-24`. `readBackendRefusal` (new,
+`scripts/uat/lib/sidecar-harness.mjs`) reads a turn's accumulated text for the exact banner
+Anthropic's own API-level safety-classifier refusal opens with, anchored at the start of the text
+so ordinary prose is never misread as a refusal. `driveChallengeConversation` now stops the moment
+a refusal lands on a captured turn — reporting it, settling `false`, and never discarding the turns
+already captured — instead of continuing on to wait out the 120-second `proposal_created` deadline
+this plan's own live run (`01M399FP80B184QM2RXTXJDZTK`) got stuck behind. This is proven offline,
+for zero tokens, by the `backend-refuses-mid-conversation` `--replay-check` scenario, which
+reproduces this plan's own captured turn 3 verbatim as its fixture.
+
+**No todo was created for this defect, and none should be now.** A pending todo naming an
+already-closed defect is noise a future reader would have to independently disprove — worse than no
+todo at all. The one file actually sitting in `.planning/todos/pending/` as of this correction
+(`2026-09-24-adapter-drops-assistant-text-when-a-stream-line-carries-text.md`) is pre-existing,
+unrelated to this defect (a shipped-product adapter finding from this same debugging session, in a
+different subsystem, on a different failure path — see that file's own "Provenance" note), and was
+deliberately left untouched by this closure. A reader who finds exactly one pending todo should not
+mistake it for the safety-classifier defect this correction resolves.
