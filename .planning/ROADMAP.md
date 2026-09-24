@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 18/19 plans executed — 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 planned gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request`
+**Plans**: 18/22 plans executed — 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 planned gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail
 **UI hint**: yes
 
 Plans:
@@ -565,6 +565,18 @@ Plans:
 **Gap closure round 3 — wave 2** *(blocked on 05-18 — the live arm cannot be run, and the finding cannot be written down, until the fix lands)*
 
 - [ ] 05-19-PLAN.md — G-05-1: the read-path starvation recorded as one instance of a general rule, a ledger row per task, and the live run a human finally judges SHAPE-01 from (SHAPE-01, SHAPE-05)
+
+**Gap closure round 4 — wave 1, the tracer** *(opened by `05-UAT.md` G-05-2: the live arm stops starving and starts lying — one `assistant_text` chunk recorded as a whole reply, `advance-stage` fired mid-generation, and a SHAPE-01 half that reads a field the product does not declare)*
+
+- [ ] 05-20-PLAN.md — G-05-2: a turn boundary keyed on the backend's own end-of-turn line, a scripted stand-in backend, and a zero-token replay arm that captures the whole turn through the real sidecar (SHAPE-01, SHAPE-03)
+
+**Gap closure round 4 — wave 2** *(blocked on 05-20 — shares `uat-08-socratic-authoring.mjs` and the scripted backend, and needs the turn boundary before a conversation can be driven by it)*
+
+- [ ] 05-21-PLAN.md — G-05-2: a responsive bounded conversation that answers what the agent asked before the stage advances, and a `no work planned` reading that is three-valued, pinned to the product's own type declaration, and able to fail (SHAPE-01, SHAPE-02, SHAPE-03, SHAPE-04)
+
+**Gap closure round 4 — wave 3** *(blocked on 05-21 — the finding cannot be written down, and the credential-spend decision cannot be put to the developer, until the instrument is fixed and proven offline)*
+
+- [ ] 05-22-PLAN.md — G-05-2: the rule that every asserted property must be provable without a live run, a ledger row per task, and the developer's own decision on whether one live run is worth its credentials (SHAPE-01, SHAPE-03, SHAPE-05)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is
