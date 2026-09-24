@@ -44,6 +44,7 @@ import {
   REPO_ROOT,
   resolveHarnessBinary,
   runScript,
+  SidecarClient,
   skip,
   step,
 } from "./lib/sidecar-harness.mjs";
@@ -594,6 +595,149 @@ async function selfTest() {
         "a new answering op on the sidecar means a new entry in HELD_INBOUND_REQUEST_TYPES and a " +
           "new handler in every live script's drain, or this starvation returns",
       );
+    });
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // SidecarClient.waitForTurn — the turn boundary's own edges, pinned offline (Task 2, G-05-2).
+  // Drives the REAL shipped method (`SidecarClient.prototype.waitForTurn.call(stub, …)`) against
+  // a tiny stub exposing only the members the primitive touches (`events`, `turnWatchers`,
+  // `unansweredHeldRequests`) — never a reimplementation of it, and never a child process.
+  // -----------------------------------------------------------------------------------------
+  {
+    const RUN_ID = "run-waitforturn-self-test";
+
+    // `check()` itself is synchronous (it does not await `fn()`) — every async
+    // `SidecarClient.waitForTurn` call is awaited OUTSIDE `check()` first, mirroring this file's
+    // own established idiom (the `drainIncidentalPermissionRequests`/`drainInboundCoreRequests`
+    // blocks above), so a rejected assertion inside an unawaited async body can never become an
+    // unhandled rejection instead of a reported failure.
+
+    const cursorExclusionResult = await SidecarClient.prototype.waitForTurn.call(
+      {
+        events: [
+          { runId: RUN_ID, type: "assistant_text", text: "PRE-CURSOR (must never appear)" },
+          { runId: RUN_ID, type: "assistant_text", text: "POST-CURSOR (the real turn)" },
+          { runId: RUN_ID, type: "result" },
+        ],
+        turnWatchers: [],
+      },
+      RUN_ID,
+      1,
+      { timeoutMs: 200, label: "cursor-exclusion self-test" },
+    );
+    check(
+      "a chunk that arrived before the cursor is excluded from the captured turn — this fails if waitForTurn scans from index zero",
+      () => {
+        assert.ok(!cursorExclusionResult.text.includes("PRE-CURSOR"));
+        assert.equal(cursorExclusionResult.chunkCount, 1);
+        assert.ok(cursorExclusionResult.text.includes("POST-CURSOR"));
+      },
+    );
+
+    const orderingResult = await SidecarClient.prototype.waitForTurn.call(
+      {
+        events: [
+          { runId: RUN_ID, type: "assistant_text", text: "first chunk" },
+          { runId: RUN_ID, type: "tool_call", toolName: "Bash", input: {} },
+          { runId: RUN_ID, type: "assistant_text", text: "second chunk" },
+          { runId: RUN_ID, type: "result" },
+        ],
+        turnWatchers: [],
+      },
+      RUN_ID,
+      0,
+      { timeoutMs: 200, label: "ordering self-test" },
+    );
+    check(
+      "every chunk is present, in arrival order, with an interleaved tool call not interrupting accumulation",
+      () => {
+        assert.deepEqual(orderingResult.chunks, ["first chunk", "second chunk"]);
+        assert.equal(orderingResult.toolCalls.length, 1);
+        assert.ok(orderingResult.text.indexOf("first chunk") < orderingResult.text.indexOf("second chunk"));
+      },
+    );
+
+    const foreignRunIdResult = await SidecarClient.prototype.waitForTurn.call(
+      {
+        events: [
+          { runId: "some-other-run", type: "assistant_text", text: "OTHER RUN (must never appear)" },
+          { runId: RUN_ID, type: "assistant_text", text: "OWN RUN" },
+          { runId: RUN_ID, type: "result" },
+        ],
+        turnWatchers: [],
+      },
+      RUN_ID,
+      0,
+      { timeoutMs: 200, label: "foreign-run-id self-test" },
+    );
+    check("an event belonging to a different run id is never part of this run's turn", () => {
+      assert.ok(!foreignRunIdResult.text.includes("OTHER RUN"));
+      assert.equal(foreignRunIdResult.chunkCount, 1);
+    });
+
+    const backendEchoResult = await SidecarClient.prototype.waitForTurn.call(
+      {
+        events: [
+          { runId: RUN_ID, type: "backend_echo", text: "ECHOED (must never appear)" },
+          { runId: RUN_ID, type: "assistant_text", text: "REAL AGENT TEXT" },
+          { runId: RUN_ID, type: "result" },
+        ],
+        turnWatchers: [],
+      },
+      RUN_ID,
+      0,
+      { timeoutMs: 200, label: "backend_echo self-test" },
+    );
+    check("a backend_echo event is never part of the turn's text", () => {
+      assert.ok(!backendEchoResult.text.includes("ECHOED"));
+      assert.equal(backendEchoResult.chunkCount, 1);
+    });
+
+    const resultTurn = await SidecarClient.prototype.waitForTurn.call(
+      { events: [{ runId: RUN_ID, type: "result" }], turnWatchers: [] },
+      RUN_ID,
+      0,
+      { timeoutMs: 200, label: "result-marker self-test" },
+    );
+    const idleTurn = await SidecarClient.prototype.waitForTurn.call(
+      {
+        events: [{ runId: RUN_ID, type: "assistant_text", text: "goes quiet after this" }],
+        turnWatchers: [],
+      },
+      RUN_ID,
+      0,
+      { timeoutMs: 300, idleMs: 15, label: "idle-marker self-test" },
+    );
+
+    check("a turn ending on a result event reports endedBy as the result marker", () => {
+      assert.equal(resultTurn.endedBy, "result");
+    });
+
+    check("a result with no preceding text resolves as a complete turn carrying no text, rather than hanging until the deadline", () => {
+      assert.equal(resultTurn.chunkCount, 0);
+      assert.equal(resultTurn.text, "");
+    });
+
+    check("a turn that goes quiet with no result ends on the idle marker after the declared window — distinguishable from the result marker", () => {
+      assert.equal(idleTurn.endedBy, "idle");
+      assert.equal(idleTurn.chunkCount, 1);
+    });
+
+    let deadlineRejection;
+    try {
+      await SidecarClient.prototype.waitForTurn.call({ events: [], turnWatchers: [] }, RUN_ID, 0, {
+        timeoutMs: 20,
+        idleMs: 500,
+        label: "the deadline self-test",
+      });
+    } catch (err) {
+      deadlineRejection = err;
+    }
+    check("a turn that never produces a chunk and never terminates rejects on its own deadline, naming what it captured", () => {
+      assert.ok(deadlineRejection !== undefined, "expected waitForTurn to reject");
+      assert.ok(deadlineRejection.message.includes("0 chunk"));
+      assert.ok(deadlineRejection.message.includes("0 character"));
     });
   }
 
