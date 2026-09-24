@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 05
-current_phase_name: socratic-epic-authoring
+current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-17-PLAN.md
-last_updated: "2026-09-24T05:11:54.620Z"
+stopped_at: Completed 05-18-PLAN.md
+last_updated: "2026-09-24T05:39:09.483Z"
 last_activity: 2026-09-24
-last_activity_desc: "Phase 05 gap closure: 05-15 closed out manually after executor API failure"
-state_head: 2e9db8bee4d3487dfa3e3ad776ff1fd6b0ab9370
+last_activity_desc: Phase 05 execution started
+state_head: 81e9392f3d8924000641929d4fb754bcd34b7102
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 112
-  completed_plans: 110
+  completed_plans: 111
   percent: 0
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 
 ## Current Position
 
-Phase: 05 (socratic-epic-authoring) — READY TO EXECUTE
-Plan: 17 of 17
-Status: Plan 05-14 complete — CR-01/WR-04 closed; 05-15/05-16/05-17 remain
-Last activity: 2026-09-24 — Plan 05-14 executed (delivery-gated developer_turn row, visible persist-failure notice)
+Phase: 05 (Socratic Epic Authoring) — EXECUTING
+Plan: 2 of 19
+Status: Ready to execute
+Last activity: 2026-09-24 — Phase 05 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -168,6 +168,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P14 | 22min | 2 tasks | 2 files |
 | Phase 05 P16 | 20min | 2 tasks | 1 files |
 | Phase 05 P17 | 25min | 3 tasks | 7 files |
+| Phase 05 P18 | 95min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -372,6 +373,8 @@ Recent decisions affecting current work:
 - [Phase 05]: SHAPE-05 is marked informational (not gated, not faked) in uat-08-socratic-authoring.mjs — a fresh-session live run structurally cannot reach the reopen leg, and authoring_acceptance.rs::criterion_4_* already proves it structurally
 - [Phase 05]: The live UAT evidence sheet (05-LIVE-CHALLENGE-TRANSCRIPT.md) is written to one fixed, overwritten path rather than timestamped files, and renderChallengeEvidenceSheet takes its timestamp as a parameter to stay pure and diffable
 - [Phase 05]: [Phase 05]: The Product Kill Criterion's verdict formula reads only the in-app arm's own accepted-criteria amendment rate, never the terminal arm's hand-counted reworded figure -- matches 05-SPIKE-FINDINGS.md's changes_the_plan_when clause verbatim.
+- [Phase 05]: Promoted the harness's permission-only drain into a generalised drainInboundCoreRequests loop (HELD_INBOUND_REQUEST_TYPES), with drainIncidentalPermissionRequests kept as a signature-preserving preset — closes G-05-1 without perturbing uat-06/uat-07's existing callers. — The plan's own assumption_delta_decision: the singular 'one inbound role' assumption the harness was written under was already false once board_read_request joined permission_request as a second held-open kind.
+- [Phase 05]: Allowlisted resolve_board_read's two cardinality-one/aggregate SELECTs in epic_context_packet.rs's unbounded-read scanner after the Task 1 extraction moved them into packages/core/src/query for the first time. — Deviation Rule 1 (bug): the extraction, not a real unbounded read, tripped an existing correctness gate; same justification already recorded for get_epic_for_agent and BLOCKED_COUNT_SQL.
 
 ### Pending Todos
 
@@ -417,6 +420,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-24T03:33:46.017Z
-Stopped at: Completed 05-17-PLAN.md
+Last session: 2026-09-24T05:39:09.354Z
+Stopped at: Completed 05-18-PLAN.md
 Resume file: None
