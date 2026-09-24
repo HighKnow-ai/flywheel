@@ -36,12 +36,15 @@ import path from "node:path";
 import {
   accumulateTurn,
   assertAllHeldRequestsAnswered,
+  BACKEND_REFUSAL_KIND,
+  BACKEND_REFUSAL_PREFIX,
   createPermissionAnswerHandler,
   drainIncidentalPermissionRequests,
   drainInboundCoreRequests,
   HEARTBEAT_TICK_MS,
   HELD_INBOUND_REQUEST_TYPES,
   probeClaudeAvailable,
+  readBackendRefusal,
   REPO_ROOT,
   resolveHarnessBinary,
   runScript,
@@ -823,6 +826,138 @@ async function selfTest() {
   }
 
   // -----------------------------------------------------------------------------------------
+  // Backend refusal detection (plan 05-24, gap G-05-3) — the FOURTH self-naming failure class
+  // this phase has found. False-positive checks are written and asserted BEFORE the positive
+  // ones — the cost of a false positive (aborting a genuine, in-progress run) is the more
+  // expensive direction here, so it is proven closed first.
+  // -----------------------------------------------------------------------------------------
+
+  // The exact turn-5 text of run `01M399FP80B184QM2RXTXJDZTK`, `05-LIVE-CHALLENGE-TRANSCRIPT.md`
+  // — REAL captured evidence from the run this whole gap exists to close, never invented.
+  const LIVE_REFUSAL_TEXT =
+    "API Error: Opus 5 (1M context)'s safeguards flagged this message " +
+    "(https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal " +
+    "conversations. Claude Code can't respond to this message with Opus 5 (1M context).\n" +
+    "\n" +
+    "Try rephrasing the request in a new session or change your model.\n" +
+    "\n" +
+    "Learn more: https://support.claude.com/en/articles/16049681\n" +
+    "\n" +
+    "Details: `[reasoning_extraction]`\n" +
+    "\n" +
+    "Request ID: req_011CfMyQ7EQg8jnFnSugjHVw";
+
+  check("an ordinary turn that merely discusses an error, an API or a safeguard is NOT classified as a refusal", () => {
+    assert.equal(
+      readBackendRefusal(
+        "I hit an API Error: once before on a flaky connection, but let's keep drafting the epic.",
+      ),
+      null,
+      "expected prose that does not OPEN with the backend's own banner to read as null",
+    );
+    assert.equal(
+      readBackendRefusal("Your safeguard against duplicate submissions looks solid to me."),
+      null,
+    );
+  });
+
+  check("an empty turn and a whitespace-only turn are NOT classified as refusals", () => {
+    assert.equal(readBackendRefusal(""), null);
+    assert.equal(readBackendRefusal("   \n  \t "), null);
+  });
+
+  check("readBackendRefusal classifies the real captured turn-5 text and extracts its classifier and request id", () => {
+    const refusal = readBackendRefusal(LIVE_REFUSAL_TEXT);
+    assert.ok(refusal !== null, "expected the real captured refusal text to be classified");
+    assert.equal(refusal.kind, BACKEND_REFUSAL_KIND);
+    assert.equal(refusal.classifier, "reasoning_extraction");
+    assert.equal(refusal.requestId, "req_011CfMyQ7EQg8jnFnSugjHVw");
+    assert.equal(refusal.text, LIVE_REFUSAL_TEXT);
+  });
+
+  check("a refusal carrying a classifier code never seen before still classifies, reporting it verbatim", () => {
+    const refusal = readBackendRefusal(
+      `${BACKEND_REFUSAL_PREFIX} some future safeguard flagged this.\n\nDetails: \`[a_brand_new_code]\`\n\nRequest ID: req_ZZZ`,
+    );
+    assert.ok(refusal !== null);
+    assert.equal(refusal.classifier, "a_brand_new_code");
+  });
+
+  check("a refusal carrying no request id still classifies; the request id reads as absent, never an empty-string impostor", () => {
+    const refusal = readBackendRefusal(`${BACKEND_REFUSAL_PREFIX} flagged, no request id on this one.`);
+    assert.ok(refusal !== null);
+    assert.equal(refusal.requestId, undefined);
+    assert.notEqual(refusal.requestId, "", "requestId must be undefined, never an empty string");
+  });
+
+  check("accumulateTurn's refusal member is exactly null (never undefined) on a turn that is not refused", () => {
+    const result = accumulateTurn(
+      [{ runId: "r1", type: "assistant_text", text: "an ordinary reply" }, { runId: "r1", type: "result" }],
+      "r1",
+      0,
+    );
+    assert.equal(result.refusal, null);
+  });
+
+  check("accumulateTurn attaches the refusal reading on the result-terminated return path", () => {
+    const result = accumulateTurn(
+      [{ runId: "r1", type: "assistant_text", text: LIVE_REFUSAL_TEXT }, { runId: "r1", type: "result" }],
+      "r1",
+      0,
+    );
+    assert.ok(result.refusal !== null);
+    assert.equal(result.refusal.classifier, "reasoning_extraction");
+  });
+
+  {
+    // driveChallengeConversation stops at a refusal: reports it, settles false, and sends no
+    // further developer turn — asserted against a stub sidecar, no real process, no timers left
+    // running.
+    const refusalTurns = [
+      { text: "What should trigger a notification in the first place?", chunkCount: 1, charCount: 55, endedBy: "result", endIndex: 3, refusal: null },
+      { text: LIVE_REFUSAL_TEXT, chunkCount: 1, charCount: LIVE_REFUSAL_TEXT.length, endedBy: "result", endIndex: 7, refusal: readBackendRefusal(LIVE_REFUSAL_TEXT) },
+    ];
+    let refusalPointer = 0;
+    let refusalCursorValue = 0;
+    const refusalSendCalls = [];
+    const refusalStub = {
+      async waitForTurn() {
+        const turn = refusalTurns[refusalPointer];
+        refusalPointer += 1;
+        refusalCursorValue = turn.endIndex;
+        return turn;
+      },
+      eventCursor() {
+        return refusalCursorValue;
+      },
+    };
+    const refusalResult = await driveChallengeConversation({
+      sidecar: refusalStub,
+      runId: "stub-run-refused",
+      sendTurn: async (text) => {
+        refusalSendCalls.push(text);
+      },
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 4,
+    });
+
+    check("driveChallengeConversation stops at a refused turn, reporting it and settling false", () => {
+      assert.ok(refusalResult.refusal !== null, "expected the driver to report the refusal");
+      assert.equal(refusalResult.refusal.classifier, "reasoning_extraction");
+      assert.equal(refusalResult.settled, false);
+    });
+    check("driveChallengeConversation sends exactly one developer turn before a refusal stops it", () => {
+      assert.equal(refusalSendCalls.length, 1, "expected the driver to have answered turn 1's question once, then stopped");
+    });
+    check("driveChallengeConversation preserves the refused turn verbatim in its own exchanges, rather than discarding it", () => {
+      const refusedExchange = refusalResult.exchanges.find((exchange) => exchange.speaker === "agent" && exchange.refusal);
+      assert.ok(refusedExchange, "expected the refused agent exchange to be present in the exchange list");
+      assert.equal(refusedExchange.text, LIVE_REFUSAL_TEXT);
+    });
+  }
+
+  // -----------------------------------------------------------------------------------------
   // The conversation driver (Task 1, G-05-2) — the answer bank, the closing turn, question
   // extraction, reply composition and `driveChallengeConversation`'s own ordering invariant. All
   // pure or stub-driven; no child process, no real SidecarClient, no timers left running.
@@ -1444,9 +1579,19 @@ function composeDeveloperReply(questions) {
  * after the preceding agent turn's own `endIndex`, because nothing else can run between the
  * `await` that captured that turn and the synchronous `eventCursor()` call that follows it.
  *
- * Returns `{ exchanges, settled, agentTurns, answeredQuestionCount, closingTurnSent, cursor }`:
- * `exchanges` is the ordered agent/developer record from THIS function's own loop (the caller's
- * own opening turn is not part of it); `cursor` is the final event-buffer watermark reached.
+ * Returns `{ exchanges, settled, agentTurns, answeredQuestionCount, closingTurnSent, cursor,
+ * refusal }`: `exchanges` is the ordered agent/developer record from THIS function's own loop (the
+ * caller's own opening turn is not part of it); `cursor` is the final event-buffer watermark
+ * reached; `refusal` (plan 05-24, G-05-3) is `null` unless a captured agent turn carried a backend
+ * refusal ({@link readBackendRefusal}, riding through `accumulateTurn`/`waitForTurn`), in which
+ * case it is that turn's own refusal object and the loop stopped at that turn — never `undefined`,
+ * so a caller testing this field cannot pass by accident on a typo.
+ *
+ * A refused turn stops the loop IMMEDIATELY, before `extractOpenQuestions` runs and before any
+ * developer turn is composed or sent — a refusal is a backend-level error, not a real reply, and
+ * there is nothing in it worth extracting a question from. Returning rather than throwing is
+ * deliberate and matches this phase's own standing discipline: a failed capture reports what it DID
+ * capture (the turns already accumulated in `exchanges` are never discarded).
  */
 async function driveChallengeConversation({
   sidecar,
@@ -1485,8 +1630,21 @@ async function driveChallengeConversation({
       charCount: turn.charCount,
       endedBy: turn.endedBy,
       endIndex: turn.endIndex,
+      refusal: turn.refusal ?? null,
     });
     finalCursor = turn.endIndex;
+
+    if (turn.refusal) {
+      return {
+        exchanges,
+        settled: false,
+        agentTurns,
+        answeredQuestionCount,
+        closingTurnSent,
+        cursor: finalCursor,
+        refusal: turn.refusal,
+      };
+    }
 
     const questions = extractOpenQuestions(turn.text);
     if (questions.length === 0) {
@@ -1511,10 +1669,22 @@ async function driveChallengeConversation({
         charCount: closingReply.charCount,
         endedBy: closingReply.endedBy,
         endIndex: closingReply.endIndex,
+        refusal: closingReply.refusal ?? null,
       });
       finalCursor = closingReply.endIndex;
       closingTurnSent = true;
       settled = false;
+      if (closingReply.refusal) {
+        return {
+          exchanges,
+          settled,
+          agentTurns,
+          answeredQuestionCount,
+          closingTurnSent,
+          cursor: finalCursor,
+          refusal: closingReply.refusal,
+        };
+      }
       break;
     }
 
@@ -1526,7 +1696,15 @@ async function driveChallengeConversation({
     nextCursor = sendCursor;
   }
 
-  return { exchanges, settled, agentTurns, answeredQuestionCount, closingTurnSent, cursor: finalCursor };
+  return {
+    exchanges,
+    settled,
+    agentTurns,
+    answeredQuestionCount,
+    closingTurnSent,
+    cursor: finalCursor,
+    refusal: null,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2067,118 +2245,166 @@ async function runReplayCheckScenario(scenarioName) {
           assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
           assert.equal(shape01[1], false, "expected SHAPE-01 to NOT pass when a propose attempt went unrefused");
           step(`noWorkPlanned reading: ${reading} — SHAPE-01 entry passed=${shape01[1]} (expected false)`);
+        } else if (scenarioName === "backend-refuses-mid-conversation") {
+          // Plan 05-24 (gap G-05-3): the driver must have stopped AT the refusal — reporting it,
+          // settling false, and sending no further developer turn into a refused session.
+          assert.ok(conversation.refusal, "expected the driver to report a refusal for this scenario");
+          assert.equal(
+            conversation.refusal.classifier,
+            "reasoning_extraction",
+            "expected the detected classifier to equal the fixture's own code",
+          );
+          assert.equal(conversation.settled, false, "expected settled to be false when a refusal stops the driver");
+          const developerTurns = conversation.exchanges.filter((exchange) => exchange.speaker === "developer");
+          assert.equal(
+            developerTurns.length,
+            1,
+            "expected exactly one developer turn composed by the driver — the loop ran once (answering " +
+              "turn 1's questions) and then stopped at the refusal, never sending a second developer turn",
+          );
+          const refusedExchange = conversation.exchanges.find(
+            (exchange) => exchange.speaker === "agent" && exchange.refusal,
+          );
+          assert.ok(refusedExchange, "expected a refused agent exchange in the driver's own exchange record");
+          assert.ok(
+            refusedExchange.text.includes(BACKEND_REFUSAL_PREFIX),
+            "expected the refused turn's text to be preserved verbatim in the exchanges — a failed " +
+              "capture must report what it DID capture, never discard it",
+          );
+          step(
+            `driver stopped at the refusal — classifier=${conversation.refusal.classifier} ` +
+              `requestId=${conversation.refusal.requestId ?? "none"} — settled=${conversation.settled}`,
+          );
         }
 
-        step("advancing the stage (Cyril's own gate, D-90) through the bridge, mirroring the live body");
-        const advanceCursor = sidecar.eventCursor();
-        const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
-        assert.equal(advanced.stage, "decompose");
-        assert.ok(
-          advanceCursor >= conversation.cursor,
-          `expected the cursor recorded at advance-stage (${advanceCursor}) to be at or after the ` +
-            `final agent turn's own end index (${conversation.cursor})`,
-        );
+        // Plan 05-24 (gap G-05-3): a refused conversation must NEVER reach advance-stage — the
+        // whole point of this scenario is that the gate is never opened on it. Every other
+        // scenario advances the stage through the bridge, mirroring the live body exactly.
+        if (scenarioName === "backend-refuses-mid-conversation") {
+          step("skipping advance-stage for this scenario — a refused conversation never reaches it (D-90)");
+          exchanges = [{ speaker: "developer", text: OPENING_PROMPT }, ...conversation.exchanges];
 
-        exchanges = [{ speaker: "developer", text: OPENING_PROMPT }, ...conversation.exchanges];
-
-        if (scenarioName === "proposes-work-after-advance") {
-          // Plan 05-23 (CR-01 closure): the fixture reaches decompose LEGITIMATELY — a clean
-          // challenge stage, then one post-advance developer turn (the distillation instruction,
-          // mirroring the live body's own step) that triggers the fixture's scripted decompose-
-          // stage propose call. This is the exact combination CR-01's own defect needed and no
-          // offline arm ever exercised before this plan: a propose call that lands strictly AFTER
-          // challengeWindowEnd, which the bounded reading must never see and the unbounded
-          // (CR-01) reading must still misread.
+          const recentRuns = runOps(opsBin, harness.appDataDir, ["recent-authoring-runs", "50"]);
+          const thisRun = Array.isArray(recentRuns) ? recentRuns.find((r) => r.runId === runId) : undefined;
+          assert.ok(thisRun, "expected to find this run via recent-authoring-runs");
+          assert.equal(
+            thisRun.authoringStage,
+            "challenge",
+            "expected the run's stage to still be challenge — advance-stage must never have been called",
+          );
+          step(`confirmed via recent-authoring-runs: authoringStage=${thisRun.authoringStage} (still challenge)`);
+        } else {
+          step("advancing the stage (Cyril's own gate, D-90) through the bridge, mirroring the live body");
+          const advanceCursor = sidecar.eventCursor();
+          const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
+          assert.equal(advanced.stage, "decompose");
           assert.ok(
-            typeof advanced.distillationText === "string" && advanced.distillationText.length > 0,
-            "expected advance-stage to return a distillation instruction for this scenario",
-          );
-          const postAdvanceCursor = sidecar.eventCursor();
-          await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
-          exchanges.push({ speaker: "developer", text: advanced.distillationText, cursor: postAdvanceCursor });
-          const postAdvanceReply = await sidecar.waitForTurn(runId, postAdvanceCursor, {
-            timeoutMs: REPLAY_TURN_DEADLINE_MS,
-            label: "the post-advance decompose-stage reply (proposes-work-after-advance)",
-          });
-          exchanges.push({
-            speaker: "agent",
-            text: postAdvanceReply.text,
-            chunkCount: postAdvanceReply.chunkCount,
-            charCount: postAdvanceReply.charCount,
-            endedBy: postAdvanceReply.endedBy,
-          });
-
-          // Assertion 1: the bounded challenge-window reading is unproven — the challenge stage
-          // was genuinely clean.
-          const boundedWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
-          const boundedReading = readNoWorkPlanned(sidecar.events, boundedWindow);
-          assert.equal(
-            boundedReading,
-            "unproven",
-            "expected the bounded challenge-window reading to be unproven — the challenge stage " +
-              "was genuinely clean",
+            advanceCursor >= conversation.cursor,
+            `expected the cursor recorded at advance-stage (${advanceCursor}) to be at or after the ` +
+              `final agent turn's own end index (${conversation.cursor})`,
           );
 
-          // Assertion 2: at least one propose tool_call for this run exists at an index at or
-          // after challengeWindowEnd — so the scenario provably reached the contaminating state
-          // and the assertions below are not vacuous.
-          const proposeAfterBoundary = sidecar.events.some(
-            (event, index) =>
-              index >= challengeWindowEnd &&
-              event.runId === runId &&
-              event.type === "tool_call" &&
-              typeof event[TOOL_NAME_FIELD] === "string" &&
-              event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
-          );
-          assert.ok(
-            proposeAfterBoundary,
-            "expected at least one propose tool_call for this run at an index at or after " +
-              "challengeWindowEnd — the scenario must provably reach the contaminating state",
-          );
+          exchanges = [{ speaker: "developer", text: OPENING_PROMPT }, ...conversation.exchanges];
 
-          // Assertion 3: the reading over the WHOLE unscoped range (from turn1Cursor to the
-          // current events length) is still violated — this is the CR-01 reading, asserted to
-          // still be wrong, which is what gives the regression teeth.
-          const unboundedWindow = { runId, fromIndex: turn1Cursor, toIndex: sidecar.events.length };
-          const unboundedReading = readNoWorkPlanned(sidecar.events, unboundedWindow);
-          assert.equal(
-            unboundedReading,
-            "violated",
-            "expected the WHOLE unscoped range's reading (the CR-01 reading) to still be violated " +
-              "— this is what gives the regression teeth",
-          );
+          if (scenarioName === "proposes-work-after-advance") {
+            // Plan 05-23 (CR-01 closure): the fixture reaches decompose LEGITIMATELY — a clean
+            // challenge stage, then one post-advance developer turn (the distillation instruction,
+            // mirroring the live body's own step) that triggers the fixture's scripted decompose-
+            // stage propose call. This is the exact combination CR-01's own defect needed and no
+            // offline arm ever exercised before this plan: a propose call that lands strictly AFTER
+            // challengeWindowEnd, which the bounded reading must never see and the unbounded
+            // (CR-01) reading must still misread.
+            assert.ok(
+              typeof advanced.distillationText === "string" && advanced.distillationText.length > 0,
+              "expected advance-stage to return a distillation instruction for this scenario",
+            );
+            const postAdvanceCursor = sidecar.eventCursor();
+            await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
+            exchanges.push({ speaker: "developer", text: advanced.distillationText, cursor: postAdvanceCursor });
+            const postAdvanceReply = await sidecar.waitForTurn(runId, postAdvanceCursor, {
+              timeoutMs: REPLAY_TURN_DEADLINE_MS,
+              label: "the post-advance decompose-stage reply (proposes-work-after-advance)",
+            });
+            exchanges.push({
+              speaker: "agent",
+              text: postAdvanceReply.text,
+              chunkCount: postAdvanceReply.chunkCount,
+              charCount: postAdvanceReply.charCount,
+              endedBy: postAdvanceReply.endedBy,
+            });
 
-          // Assertion 4: the bounded reading reused as the final gating value is NOT violated.
-          assert.notEqual(
-            boundedReading,
-            "violated",
-            "expected the bounded reading reused as the final gating value to NOT be violated",
-          );
+            // Assertion 1: the bounded challenge-window reading is unproven — the challenge stage
+            // was genuinely clean.
+            const boundedWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
+            const boundedReading = readNoWorkPlanned(sidecar.events, boundedWindow);
+            assert.equal(
+              boundedReading,
+              "unproven",
+              "expected the bounded challenge-window reading to be unproven — the challenge stage " +
+                "was genuinely clean",
+            );
 
-          // Assertion 5: buildCriteriaResults with criterion1Challenged held true and the bounded
-          // reading yields a SHAPE-01 entry whose passed flag is true — the successful path
-          // SHAPE-01 and SHAPE-02 must be able to share.
-          const shapeResults = buildCriteriaResults({
-            criterion1Challenged: true,
-            noWorkPlannedReading: boundedReading,
-            criterion2Landed: false,
-            criterion3Decided: false,
-            criterion4Reopened: false,
-            criterion4PrimedRejected: false,
-          });
-          const shape01 = shapeResults.find(([name]) => name.includes("SHAPE-01"));
-          assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
-          assert.equal(
-            shape01[1],
-            true,
-            "expected SHAPE-01 to pass on the successful path — a clean challenge followed by a " +
-              "legitimate decompose-stage proposal",
-          );
+            // Assertion 2: at least one propose tool_call for this run exists at an index at or
+            // after challengeWindowEnd — so the scenario provably reached the contaminating state
+            // and the assertions below are not vacuous.
+            const proposeAfterBoundary = sidecar.events.some(
+              (event, index) =>
+                index >= challengeWindowEnd &&
+                event.runId === runId &&
+                event.type === "tool_call" &&
+                typeof event[TOOL_NAME_FIELD] === "string" &&
+                event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
+            );
+            assert.ok(
+              proposeAfterBoundary,
+              "expected at least one propose tool_call for this run at an index at or after " +
+                "challengeWindowEnd — the scenario must provably reach the contaminating state",
+            );
 
-          step(
-            `bounded reading (gating): ${boundedReading} — unbounded reading (CR-01's own reading, ` +
-              `still wrong): ${unboundedReading} — SHAPE-01 entry passed=${shape01[1]} (expected true)`,
-          );
+            // Assertion 3: the reading over the WHOLE unscoped range (from turn1Cursor to the
+            // current events length) is still violated — this is the CR-01 reading, asserted to
+            // still be wrong, which is what gives the regression teeth.
+            const unboundedWindow = { runId, fromIndex: turn1Cursor, toIndex: sidecar.events.length };
+            const unboundedReading = readNoWorkPlanned(sidecar.events, unboundedWindow);
+            assert.equal(
+              unboundedReading,
+              "violated",
+              "expected the WHOLE unscoped range's reading (the CR-01 reading) to still be violated " +
+                "— this is what gives the regression teeth",
+            );
+
+            // Assertion 4: the bounded reading reused as the final gating value is NOT violated.
+            assert.notEqual(
+              boundedReading,
+              "violated",
+              "expected the bounded reading reused as the final gating value to NOT be violated",
+            );
+
+            // Assertion 5: buildCriteriaResults with criterion1Challenged held true and the bounded
+            // reading yields a SHAPE-01 entry whose passed flag is true — the successful path
+            // SHAPE-01 and SHAPE-02 must be able to share.
+            const shapeResults = buildCriteriaResults({
+              criterion1Challenged: true,
+              noWorkPlannedReading: boundedReading,
+              criterion2Landed: false,
+              criterion3Decided: false,
+              criterion4Reopened: false,
+              criterion4PrimedRejected: false,
+            });
+            const shape01 = shapeResults.find(([name]) => name.includes("SHAPE-01"));
+            assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
+            assert.equal(
+              shape01[1],
+              true,
+              "expected SHAPE-01 to pass on the successful path — a clean challenge followed by a " +
+                "legitimate decompose-stage proposal",
+            );
+
+            step(
+              `bounded reading (gating): ${boundedReading} — unbounded reading (CR-01's own reading, ` +
+                `still wrong): ${unboundedReading} — SHAPE-01 entry passed=${shape01[1]} (expected true)`,
+            );
+          }
         }
       }
 
@@ -2351,6 +2577,10 @@ await runScript(
         `— chunks=${turn1.chunkCount} chars=${turn1.charCount} endedBy=${turn1.endedBy}`,
     );
 
+    // G-05-3 (plan 05-24): resolved here, before the fail-fast below can need it — a refusal must
+    // be able to write the evidence sheet with whatever was captured before it fails the run.
+    const evidencePath = resolveEvidencePath();
+
     step(
       "driving the rest of the challenge conversation — answering what the agent actually asked, " +
         `never a canned follow-up, bounded at ${MAX_AGENT_TURNS} agent turns (G-05-2)`,
@@ -2371,6 +2601,49 @@ await runScript(
           : `developer turn: ${JSON.stringify(exchange.text)}`,
       );
     }
+
+    // G-05-3 (plan 05-24): a backend refusal stopped the driver — this is the mechanism that
+    // killed run 01M399FP80B184QM2RXTXJDZTK. Fail fast, naming the class, the classifier and the
+    // request id, WITHOUT discarding the turns already captured and WITHOUT advancing the stage —
+    // D-90's gate exists to be opened on a finished conversation, and this one did not finish.
+    if (conversation.refusal) {
+      const refusalExchanges = [
+        {
+          speaker: "developer",
+          text: OPENING_PROMPT,
+        },
+        {
+          speaker: "agent",
+          text: turn1.text,
+          chunkCount: turn1.chunkCount,
+          charCount: turn1.charCount,
+          endedBy: turn1.endedBy,
+          refusal: turn1.refusal ?? null,
+        },
+        ...conversation.exchanges,
+      ];
+      fs.writeFileSync(
+        evidencePath,
+        renderChallengeEvidenceSheet({
+          runId,
+          exchanges: refusalExchanges,
+          noWorkPlannedReading: "unproven",
+          draftedCriteriaCount: 0,
+          amendedCriteriaCount: 0,
+          results: [],
+          timestamp: new Date().toISOString(),
+          refusal: conversation.refusal,
+        }),
+      );
+      throw new Error(
+        `backend refusal (${BACKEND_REFUSAL_KIND}) stopped the challenge conversation before it ` +
+          `settled — classifier=${conversation.refusal.classifier ?? "unknown"} ` +
+          `requestId=${conversation.refusal.requestId ?? "none"}. This is a backend-level refusal, ` +
+          "not a model turn; the conversation did not complete and the stage was never advanced. " +
+          `See ${evidencePath} for the captured turns.`,
+      );
+    }
+
     if (conversation.closingTurnSent) {
       step(
         `the conversation did not settle within ${MAX_AGENT_TURNS} agent turns — sent the closing ` +
@@ -2417,11 +2690,11 @@ await runScript(
     // reshape) — plus the distillation exchange appended below, once the stage advances.
     const exchanges = [
       { speaker: "developer", text: OPENING_PROMPT },
-      { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy },
+      { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy, refusal: turn1.refusal ?? null },
       ...conversation.exchanges,
     ];
 
-    const evidencePath = resolveEvidencePath();
+    // evidencePath was already resolved above, before the refusal fail-fast — reused here.
     fs.writeFileSync(
       evidencePath,
       renderChallengeEvidenceSheet({
@@ -2450,8 +2723,15 @@ await runScript(
       const distillationCursor = sidecar.eventCursor();
       await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
       exchanges.push({ speaker: "developer", text: advanced.distillationText, cursor: distillationCursor });
+      // G-05-3 (plan 05-24): `distillationReply` stays `undefined` on a genuine TIMEOUT (the catch
+      // branch below, unchanged from before this plan) so the refusal check after this try/catch
+      // is a no-op for that path — a timeout and a refusal are different classes and must stay
+      // separately reported. A refusal, by contrast, is a SUCCESSFUL capture (the turn ended
+      // cleanly on `result` — this is the exact place the real run actually died), so it must be
+      // checked and must fail the run OUTSIDE this try/catch, never swallowed by the timeout branch.
+      let distillationReply;
       try {
-        const distillationReply = await sidecar.waitForTurn(runId, distillationCursor, {
+        distillationReply = await sidecar.waitForTurn(runId, distillationCursor, {
           timeoutMs: TURN_DEADLINE_MS,
           label: "the decompose stage's reply to the distillation instruction",
         });
@@ -2461,6 +2741,7 @@ await runScript(
           chunkCount: distillationReply.chunkCount,
           charCount: distillationReply.charCount,
           endedBy: distillationReply.endedBy,
+          refusal: distillationReply.refusal ?? null,
         });
         step(
           `distillation reply captured: chunks=${distillationReply.chunkCount} ` +
@@ -2477,8 +2758,34 @@ await runScript(
           chunkCount: partial.chunkCount,
           charCount: partial.charCount,
           endedBy: "timeout",
+          refusal: partial.refusal ?? null,
         });
         step(`distillation reply capture timed out (not fatal — the proposal wait still happens): ${err.message}`);
+      }
+
+      // G-05-3 (plan 05-24): the place the real run actually died. Never fall through into the
+      // proposal wait below — a refused distillation turn means no propose call is ever coming.
+      if (distillationReply && distillationReply.refusal) {
+        fs.writeFileSync(
+          evidencePath,
+          renderChallengeEvidenceSheet({
+            runId,
+            exchanges,
+            noWorkPlannedReading,
+            draftedCriteriaCount: 0,
+            amendedCriteriaCount: 0,
+            results: [],
+            timestamp: new Date().toISOString(),
+            refusal: distillationReply.refusal,
+          }),
+        );
+        throw new Error(
+          `backend refusal (${BACKEND_REFUSAL_KIND}) stopped the run at the distillation turn — ` +
+            `classifier=${distillationReply.refusal.classifier ?? "unknown"} ` +
+            `requestId=${distillationReply.refusal.requestId ?? "none"}. This is a backend-level ` +
+            "refusal, not a model turn; the conversation did not complete and the proposal wait " +
+            `was never entered. See ${evidencePath} for the captured turns.`,
+        );
       }
     }
 

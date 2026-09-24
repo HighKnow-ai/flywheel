@@ -234,6 +234,55 @@ export const SCENARIOS = {
       { type: "text", text: "Still here if you need anything else." },
     ],
   },
+
+  // Plan 05-24 (gap G-05-3): reproduces the exact mechanism that killed this phase's only
+  // authorised live run — an Anthropic API-level safety-classifier refusal, rendered by the CLI on
+  // the SAME event shape a genuine reply uses (an `assistant_text` block followed by a clean
+  // `result` line), landing mid-conversation. Turn 1 is an ordinary multi-block challenge turn
+  // carrying questions that match `ANSWER_BANK` patterns, so the driver answers it and the loop
+  // runs at least once before the refusal lands. Turn 2's text is reproduced VERBATIM from turn 5
+  // of `05-LIVE-CHALLENGE-TRANSCRIPT.md` (run `01M399FP80B184QM2RXTXJDZTK`), classifier code and
+  // request id intact. The fallback turn is ordinary text and must never be reached — the whole
+  // point of this scenario is that `driveChallengeConversation` stops at the refusal.
+  "backend-refuses-mid-conversation": {
+    turns: [
+      // Turn 1 — three questions, each matching a distinct ANSWER_BANK pattern, so the driver
+      // composes a reply and sends a developer turn before the refusal ever lands.
+      [
+        { type: "text", text: "Let me get oriented before shaping this." },
+        { type: "tool_use", name: "Bash", input: { command: "git status --short && ls" } },
+        {
+          type: "text",
+          text:
+            "Who can dismiss a notification once it fires?\n" +
+            "Does it need to survive an app restart?\n" +
+            "Should multiple notifications ever batch together?",
+        },
+      ],
+      // Turn 2 — the refusal itself, verbatim from the real captured transcript. A single text
+      // block, exactly as the real backend emitted it, followed by the usual single `result` line.
+      [
+        {
+          type: "text",
+          text:
+            "API Error: Opus 5 (1M context)'s safeguards flagged this message " +
+            "(https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal " +
+            "conversations. Claude Code can't respond to this message with Opus 5 (1M context).\n" +
+            "\n" +
+            "Try rephrasing the request in a new session or change your model.\n" +
+            "\n" +
+            "Learn more: https://support.claude.com/en/articles/16049681\n" +
+            "\n" +
+            "Details: `[reasoning_extraction]`\n" +
+            "\n" +
+            "Request ID: req_011CfMyQ7EQg8jnFnSugjHVw",
+        },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "This fallback turn must never be reached — the refusal must stop the driver first." },
+    ],
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation

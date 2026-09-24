@@ -345,6 +345,66 @@ export class Harness {
 }
 
 /**
+ * G-05-3 (plan 05-24): the two-word banner Anthropic's own API-level safety-classifier refusal
+ * opens with when the `claude` CLI renders it in place of a model turn — read verbatim from turn 5
+ * of `05-LIVE-CHALLENGE-TRANSCRIPT.md` (run `01M399FP80B184QM2RXTXJDZTK`), the run that this
+ * exact, previously-uncaught mechanism killed. {@link readBackendRefusal} matches this at the very
+ * START of a turn's text, never as a substring anywhere in it — see that function's own doc
+ * comment for why the position anchor is load-bearing.
+ */
+export const BACKEND_REFUSAL_PREFIX = "API Error:";
+
+/** The `kind` value {@link readBackendRefusal} stamps on a detected refusal — a distinct,
+ * self-naming failure class (the FOURTH this phase has found: not a starved held request (05-18),
+ * not a turn-capture timeout (05-20), not a `readNoWorkPlanned` misread (05-21/05-23)). */
+export const BACKEND_REFUSAL_KIND = "backend_refusal";
+
+/**
+ * Read `text` — a turn's WHOLE accumulated text, from {@link accumulateTurn} — for an Anthropic
+ * API-level safety-classifier refusal that the `claude` CLI rendered as though it were a model
+ * turn. This is a backend-level error rendered on the SAME event shape a genuine reply uses: it
+ * arrives as an ordinary `assistant_text` event and the turn still ends on a genuine `result`
+ * line, so the harness cannot tell the two apart from the event stream's shape alone. The text is
+ * the only signal available — reading it is not a heuristic standing in for a better check, it IS
+ * the check (plan 05-24, T-05-24-01).
+ *
+ * Returns `null` when `text` is not a refusal — including an empty string, a whitespace-only
+ * string, and ordinary prose that merely discusses an error, an API or a safeguard without ever
+ * opening its own turn with the backend's own banner. Otherwise returns `{ kind, classifier,
+ * requestId, text }`:
+ * - `kind` is always {@link BACKEND_REFUSAL_KIND}.
+ * - `classifier` is the bracketed detail code on the refusal's own "Details:" line, reported
+ *   VERBATIM even when this harness has never seen that code before — never dropped, never
+ *   normalised. `undefined` (never an empty string) when the line is absent.
+ * - `requestId` is the token on the "Request ID:" line. `undefined` (never an empty string) when
+ *   absent — neither field is required for classification, since a future refusal of this family
+ *   may carry neither.
+ * - `text` is the refusal verbatim, exactly as passed in.
+ *
+ * Anchored on {@link BACKEND_REFUSAL_PREFIX} at the very START of `text`, after trimming leading
+ * whitespace — deliberately NEVER a substring match anywhere in the text. A model turn that
+ * discusses an error, an API or a safeguard in its own prose does not OPEN with the backend's own
+ * error banner, and this position anchor is what keeps the false-positive rate at zero. A false
+ * positive here aborts a genuine, in-progress run and costs the credentials it was spending — a
+ * strictly worse outcome than the false negative this function exists to close (a refusal quietly
+ * read as ordinary agent text) — which is why every check proving this function does NOT fire is
+ * written, and passes, before every check proving that it does.
+ */
+export function readBackendRefusal(text) {
+  if (typeof text !== "string") return null;
+  const trimmed = text.replace(/^\s+/, "");
+  if (!trimmed.startsWith(BACKEND_REFUSAL_PREFIX)) return null;
+  const classifierMatch = trimmed.match(/Details:\s*`?\[([^\]]+)\]`?/);
+  const requestIdMatch = trimmed.match(/Request ID:\s*(\S+)/);
+  return {
+    kind: BACKEND_REFUSAL_KIND,
+    classifier: classifierMatch ? classifierMatch[1] : undefined,
+    requestId: requestIdMatch ? requestIdMatch[1] : undefined,
+    text,
+  };
+}
+
+/**
  * G-05-2 (plan 05-20): the pure accumulation half of the turn-boundary primitive — given the
  * FULL event buffer and a `[cursor, …)` window, scans forward for one run's turn and returns
  * either a terminated result (a `result` event for `runId` found within the scan) or the
@@ -362,6 +422,13 @@ export class Harness {
  * `charCount` sums each chunk's own `.length` — NOT `text.length` after joining, which would also
  * count the blank-line separator between chunks. This is what lets a caller compare `charCount`
  * against "the fixture's own produced character total" with no separator-counting drift.
+ *
+ * `refusal` (plan 05-24, G-05-3): {@link readBackendRefusal} run over the accumulated text on
+ * EVERY return path — the result-terminated one and the fall-through one — so every caller
+ * ({@link SidecarClient.waitForTurn}'s result path, its idle path, and the partial reconstruction
+ * inside its own timeout message) inherits the same reading with no second copy of the logic.
+ * `null`, never `undefined`, when the text is not a refusal — a caller testing this field with a
+ * typo'd name cannot pass by accident.
  */
 export function accumulateTurn(events, runId, cursor) {
   const chunks = [];
@@ -375,25 +442,29 @@ export function accumulateTurn(events, runId, cursor) {
     } else if (event.type === "tool_call") {
       toolCalls.push(event);
     } else if (event.type === "result") {
+      const text = chunks.join("\n\n");
       return {
         chunks,
-        text: chunks.join("\n\n"),
+        text,
         chunkCount: chunks.length,
         charCount: chunks.reduce((sum, chunk) => sum + chunk.length, 0),
         toolCalls,
         endedBy: "result",
         endIndex: i + 1,
+        refusal: readBackendRefusal(text),
       };
     }
   }
+  const text = chunks.join("\n\n");
   return {
     chunks,
-    text: chunks.join("\n\n"),
+    text,
     chunkCount: chunks.length,
     charCount: chunks.reduce((sum, chunk) => sum + chunk.length, 0),
     toolCalls,
     endedBy: undefined,
     endIndex: events.length,
+    refusal: readBackendRefusal(text),
   };
 }
 
