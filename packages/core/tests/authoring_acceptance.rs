@@ -464,7 +464,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
 
         let packet = assemble_epic_context_packet(&conn, &project.id, Some(&epic_id))
             .expect("assembling the reopened epic's packet should succeed");
-        let prompt = render_epic_prompt(&packet);
+        let prompt = render_epic_prompt(&packet, None);
 
         assert_eq!(packet.task_roster.len(), 1);
         assert!(prompt.contains("task-01"));

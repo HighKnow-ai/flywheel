@@ -220,7 +220,7 @@ fn epic_context_packets_prior_authoring_runs_reads_the_summary_back() {
             "the prior run's own closing summary must be readable from the packet"
         );
 
-        let rendered = core::epic_context_packet::render_epic_prompt(&packet);
+        let rendered = core::epic_context_packet::render_epic_prompt(&packet, None);
         assert!(rendered.contains("Summary:"), "the rendered prompt should surface the summary");
     });
 }

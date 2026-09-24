@@ -250,7 +250,7 @@ fn main() {
             }
             let packet = assemble_epic_context_packet(&conn, &project_id, Some(&epic_id))
                 .unwrap_or_else(|err| fail(&format!("could not assemble the packet: {err:#}")));
-            let prompt = render_epic_prompt(&packet);
+            let prompt = render_epic_prompt(&packet, None);
             print_json(serde_json::json!({
                 "taskRosterCount": packet.task_roster.len(),
                 "rejectedVerbatimCount": packet.rejected.verbatim.len(),

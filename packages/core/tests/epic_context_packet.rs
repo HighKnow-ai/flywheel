@@ -81,7 +81,7 @@ fn packet_for_epic_id_none_has_every_section_absent_and_no_epic_heading() {
     assert!(packet.rejected.folded.is_empty());
     assert!(packet.prior_authoring_runs.is_empty());
 
-    let prompt = render_epic_prompt(&packet);
+    let prompt = render_epic_prompt(&packet, None);
     assert!(!prompt.contains("## Epic"), "no epic heading should be emitted for an absent epic");
     assert!(!prompt.contains("## Task Roster"));
     assert!(!prompt.contains("## Answered Assumptions"));
@@ -90,6 +90,74 @@ fn packet_for_epic_id_none_has_every_section_absent_and_no_epic_heading() {
     assert!(
         prompt.contains("## Your Task"),
         "the challenge-stage instruction has no omit case, even for a wholly fresh epic"
+    );
+}
+
+// --- Plan 05-13 (gap G-05-2's second half): the developer's stated premise, threaded through as
+// `render_epic_prompt`'s second argument rather than a packet field — a session input, never
+// board state, so the packet's own assembly/determinism/purity contracts stay untouched.
+
+#[test]
+fn a_stated_premise_carries_under_its_own_heading_and_the_closing_instruction_names_it() {
+    let (conn, _actor_id, project) = seeded_project();
+    let packet = assemble_epic_context_packet(&conn, &project.id, None)
+        .expect("assembling a packet for epic_id = None should succeed");
+
+    let prompt = render_epic_prompt(&packet, Some("Build a Socratic epic-authoring flow"));
+    assert!(
+        prompt.contains("Build a Socratic epic-authoring flow"),
+        "the stated premise text must appear in the rendered prompt"
+    );
+    assert!(
+        prompt.contains("## Developer's Premise") || prompt.contains("Premise"),
+        "the premise must carry its own heading, not be folded into another section"
+    );
+    assert!(
+        prompt.contains("challenge the developer's framing"),
+        "with a premise present, the closing instruction must speak about challenging the \
+         STATED framing, exactly as it did before this plan"
+    );
+}
+
+#[test]
+fn no_premise_carries_no_premise_heading_and_the_closing_instruction_asks_instead_of_naming_a_framing()
+{
+    let (conn, _actor_id, project) = seeded_project();
+    let packet = assemble_epic_context_packet(&conn, &project.id, None)
+        .expect("assembling a packet for epic_id = None should succeed");
+
+    let prompt = render_epic_prompt(&packet, None);
+    assert!(
+        !prompt.contains("## Developer's Premise"),
+        "no premise section heading should be emitted when no premise was supplied"
+    );
+    assert!(
+        !prompt.contains("challenge the developer's framing"),
+        "without a premise there is no framing to challenge — the gap's own evidence: the old \
+         wording instructed the model to challenge a framing that was never captured"
+    );
+    assert!(
+        prompt.contains("ask") && prompt.to_lowercase().contains("what") && prompt.to_lowercase().contains("build"),
+        "the no-premise closing instruction must ask the developer what they want to build, \
+         got: {prompt:?}"
+    );
+    assert!(
+        prompt.contains("Do not propose tasks or criteria until the developer advances the stage."),
+        "both wordings keep the existing prohibition on drafting a plan before the developer advances"
+    );
+}
+
+#[test]
+fn a_blank_or_whitespace_only_premise_is_treated_exactly_like_no_premise_at_all() {
+    let (conn, _actor_id, project) = seeded_project();
+    let packet = assemble_epic_context_packet(&conn, &project.id, None)
+        .expect("assembling a packet for epic_id = None should succeed");
+
+    let blank_prompt = render_epic_prompt(&packet, Some("   \n\t  "));
+    let absent_prompt = render_epic_prompt(&packet, None);
+    assert_eq!(
+        blank_prompt, absent_prompt,
+        "a whitespace-only premise must render identically to no premise at all"
     );
 }
 
@@ -118,7 +186,7 @@ fn packet_for_a_real_epic_includes_its_task_roster_with_current_criteria() {
     assert_eq!(packet.task_roster[0].criteria[0].statement, "First criterion");
     assert_eq!(packet.task_roster[0].criteria[0].verification_hint.as_deref(), Some("run it"));
 
-    let prompt = render_epic_prompt(&packet);
+    let prompt = render_epic_prompt(&packet, None);
     assert!(prompt.contains("## Epic"));
     assert!(prompt.contains("Ship the thing"));
     assert!(prompt.contains("## Task Roster"));
@@ -163,7 +231,7 @@ fn a_superseded_criterion_is_absent_while_its_successor_is_present() {
         );
         assert_eq!(packet.task_roster[0].criteria[0].statement, "Revised wording");
 
-        let prompt = render_epic_prompt(&packet);
+        let prompt = render_epic_prompt(&packet, None);
         assert!(prompt.contains("Revised wording"));
         assert!(
             !prompt.contains("Original wording"),
@@ -198,7 +266,7 @@ fn rejected_fold_is_untouched_at_exactly_the_verbatim_window() {
     assert_eq!(packet.rejected.boundary.folded_count, 0);
     assert!(packet.rejected.boundary.boundary_sentence().is_none());
 
-    let prompt = render_epic_prompt(&packet);
+    let prompt = render_epic_prompt(&packet, None);
     assert!(prompt.contains("## Rejected Proposals"));
     assert!(prompt.contains("not to be re-proposed") || prompt.contains("Do not re-propose"));
     assert!(!prompt.contains("summarized only"), "nothing folded means no boundary sentence at all");
@@ -250,7 +318,7 @@ fn rejected_fold_begins_one_past_the_verbatim_window_with_a_boundary_sentence() 
         .boundary
         .boundary_sentence()
         .expect("one proposal past the window must produce a boundary sentence");
-    let prompt = render_epic_prompt(&packet);
+    let prompt = render_epic_prompt(&packet, None);
     assert!(prompt.contains(&sentence));
     assert!(prompt.contains("proposal-01 (older, summarized)") || prompt.contains("proposal-01"));
 }
@@ -352,7 +420,14 @@ fn two_assemblies_over_identical_board_state_are_partialeq_equal() {
     let packet_b = assemble_epic_context_packet(&conn, &project.id, Some(&epic.id))
         .expect("second assembly should succeed");
     assert_eq!(packet_a, packet_b, "two assemblies over an unchanged database must be structurally equal");
-    assert_eq!(render_epic_prompt(&packet_a), render_epic_prompt(&packet_b));
+    assert_eq!(render_epic_prompt(&packet_a, None), render_epic_prompt(&packet_b, None));
+    // Plan 05-13: the same property extended to a second scope — a `Some(premise)` argument must
+    // render byte-identically across two renders of the SAME packet and the SAME premise text.
+    assert_eq!(
+        render_epic_prompt(&packet_a, Some("Build a thing")),
+        render_epic_prompt(&packet_b, Some("Build a thing")),
+        "two renders of the same packet and the same premise must be byte-identical"
+    );
 }
 
 #[test]
@@ -411,7 +486,7 @@ fn packet_never_leaks_a_row_from_a_different_project() {
         _ => true,
     }));
 
-    let prompt = render_epic_prompt(&packet);
+    let prompt = render_epic_prompt(&packet, None);
     assert!(!prompt.contains("B's body"));
     assert!(!prompt.contains("B's criterion"));
     assert!(!prompt.contains("B's rejected proposal"));
@@ -471,7 +546,7 @@ fn reopening_a_primed_epic_produces_a_prompt_with_the_roster_assumptions_and_do_
 
     let packet = assemble_epic_context_packet(&conn, &project.id, Some(&epic.id))
         .expect("assembling the reopened epic's packet should succeed");
-    let prompt = render_epic_prompt(&packet);
+    let prompt = render_epic_prompt(&packet, None);
 
     // The task roster with its current-revision criteria.
     assert!(prompt.contains("## Task Roster"));
@@ -566,7 +641,7 @@ fn five_consecutive_assemblies_are_equal_byte_identical_and_write_nothing() {
             .expect("assembly should succeed");
         // Interleave with a read-only operation — never a write.
         let _ = count("epics");
-        prompts.push(render_epic_prompt(&packet));
+        prompts.push(render_epic_prompt(&packet, None));
         packets.push(packet);
     }
 

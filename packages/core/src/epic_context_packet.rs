@@ -377,9 +377,19 @@ pub fn assemble_epic_context_packet(
 /// Render the epic-scoped priming prompt (D-87) — stable headings, stable ordering, and an
 /// omitted heading rather than an empty section, mirroring `context_packet.rs::render_prompt`'s
 /// own contract: an absent epic emits no epic heading, an empty roster emits no roster heading.
-/// Byte-identical across calls for the same packet — nothing here reads the clock, randomness, or
-/// any input other than its one argument.
-pub fn render_epic_prompt(packet: &EpicContextPacket) -> String {
+/// Byte-identical across calls for the same packet and the same `premise` — nothing here reads
+/// the clock, randomness, or any input other than its two arguments.
+///
+/// `premise` (plan 05-13, closing gap G-05-2's second half) is the developer's own stated framing
+/// for the session — a SESSION INPUT, never board state, so it is a parameter here rather than a
+/// field on [`EpicContextPacket`] itself: the packet's own assembly, determinism and purity
+/// contracts are unchanged by this widening. Trimmed and treated as absent when blank, exactly
+/// like every other optional section this function renders. When present, it gets its own section
+/// immediately before the closing task section; when absent, the closing section's own wording
+/// asks the developer what they want to build instead of naming a framing that was never
+/// supplied — the fix for the gap's own evidence: a wholly fresh epic used to be told to
+/// "challenge the developer's framing" when no framing existed to challenge.
+pub fn render_epic_prompt(packet: &EpicContextPacket, premise: Option<&str>) -> String {
     let mut out = String::new();
 
     if let Some(epic) = &packet.epic {
@@ -495,6 +505,11 @@ pub fn render_epic_prompt(packet: &EpicContextPacket) -> String {
             out.push('\n');
         }
     }
+
+    // RED scaffold (plan 05-13 Task 1): `premise` is accepted so the workspace compiles against
+    // the widened signature, but not yet rendered — this is deliberately incomplete, replaced by
+    // the next commit's GREEN implementation.
+    let _ = premise;
 
     // The one section with no omit case — every priming prompt must state the job, even for a
     // wholly fresh epic with every other section absent.

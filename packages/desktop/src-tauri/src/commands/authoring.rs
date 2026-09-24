@@ -196,7 +196,10 @@ pub fn authoring_run_start(
         epic_id.as_deref(),
     )
     .map_err(|e| e.to_string())?;
-    let opening_prompt = flywheel_core::epic_context_packet::render_epic_prompt(&packet);
+    // TODO(plan 05-13 Task 2): thread the developer's stated premise through here once
+    // `authoring_run_start` grows the parameter — `None` for now keeps today's behaviour
+    // (Task 1 widens the renderer's own signature; Task 2 widens this command's).
+    let opening_prompt = flywheel_core::epic_context_packet::render_epic_prompt(&packet, None);
 
     let run = flywheel_core::domain::authoring_session::start_authoring_run(
         &mut conn,
@@ -347,7 +350,10 @@ impl From<flywheel_core::epic_context_packet::EpicContextPacket> for EpicContext
     fn from(packet: flywheel_core::epic_context_packet::EpicContextPacket) -> Self {
         // Rendered from the packet BEFORE any field below is consumed — the same "one renderer"
         // rule `ContextPacketDto::from` follows for the task-scoped packet.
-        let rendered_prompt = flywheel_core::epic_context_packet::render_epic_prompt(&packet);
+        // The preview has no premise to render with — a developer has not typed one yet at this
+        // point (this is the read-only briefing shown before Start Shaping ever fires), so `None`
+        // here is correct, not a placeholder for a value this command forgot to thread through.
+        let rendered_prompt = flywheel_core::epic_context_packet::render_epic_prompt(&packet, None);
 
         let epic = packet.epic.map(|e| EpicFactsDto {
             key: e.key,
