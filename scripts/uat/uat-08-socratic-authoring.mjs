@@ -1001,8 +1001,15 @@ async function selfTest() {
     // check's own source below (a self-referential scan reads itself too). The pattern is built
     // from parts at runtime so its own source line never spells out the literal shape it hunts for.
     const advanceOpPattern = new RegExp("\\[\\s*" + JSON.stringify("advance-stage") + "\\s*,");
-    const advanceCallCount = (thisFile.match(new RegExp(advanceOpPattern.source, "g")) ?? []).length;
-    assert.equal(advanceCallCount, 1, "expected exactly one advance-stage call site in the whole script");
+    // Scoped to the LIVE body specifically — `--replay-check` (plan 05-21) legitimately carries
+    // its OWN advance-stage call site, once per non-default scenario, mirroring the live body
+    // rather than duplicating this invariant. The live body's own runScript call is the only
+    // TOP-LEVEL (column-zero) one in the file; every other call lives inside an indented helper.
+    const liveBodyStart = thisFile.indexOf("\nawait runScript(\n");
+    assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
+    const liveBodySource = thisFile.slice(liveBodyStart);
+    const advanceCallCount = (liveBodySource.match(new RegExp(advanceOpPattern.source, "g")) ?? []).length;
+    assert.equal(advanceCallCount, 1, "expected exactly one advance-stage call site in the live body");
     // lastIndexOf, not indexOf: the ONLY real declaration is textually last in the file — every
     // earlier occurrence of this literal is a self-referential mention inside a check's own source
     // (this one included), which `indexOf` would otherwise find first and mis-slice from.
@@ -1402,20 +1409,32 @@ if (process.argv.includes("--board-read-check")) {
   process.exit(process.exitCode ?? 0);
 }
 
+/** The per-turn deadline `--replay-check` waits on — short, because the scripted backend replies
+ * immediately; this is a safety ceiling, never a budget the offline arm is expected to spend. Kept
+ * far below `TURN_DEADLINE_MS` (the live arm's own 120s budget) so the whole multi-scenario arm
+ * stays inside its own 90-second ceiling even if a scenario were to genuinely stall. */
+const REPLAY_TURN_DEADLINE_MS = 10_000;
+
 /**
- * `--replay-check` (plan 05-20, G-05-2): proves the WHOLE turn-boundary slice — a scripted,
- * multi-block agent turn captured whole through the REAL sidecar, the REAL watchdog and the REAL
- * shipped normaliser — WITHOUT spending a token. Structured exactly like `--board-read-check`
- * above: one `runScript` body, one `Harness`, `step(...)` narration throughout. It NEVER calls
- * `probeClaudeAvailable()` and never resolves a real `claude` binary — the only backend in this
- * arm's path is `fake-authoring-claude.mjs`, reached solely because `FLYWHEEL_CLAUDE_BIN` is set
- * on the sidecar process this arm spawns itself. Short-circuits BEFORE the live `runScript` call
- * below, exactly like `--self-test` and `--board-read-check`.
+ * Run one `--replay-check` scenario end to end: its own scratch repository, project, run, sidecar
+ * (pointed at the fake backend via `FLYWHEEL_CLAUDE_BIN`/`SCENARIO_ENV_VAR`), heartbeat writer and
+ * teardown (`kill` op, an awaited `session_closed`, dispose) — the exact shape plan 05-20 first
+ * established, now the per-scenario BODY the multi-scenario loop below drives once per entry in
+ * {@link SCENARIOS}.
+ *
+ * `DEFAULT_SCENARIO` (`truncation-repro`) is handled by its OWN branch, unchanged from plan 05-20:
+ * it manually sends `SECOND_TURN` and asserts the turn-boundary reproduction directly, because its
+ * whole point is proving multi-chunk CAPTURE — its first turn carries no question at all, so
+ * running it through `driveChallengeConversation` would settle immediately after turn 1 and never
+ * trigger the multi-chunk turn 2 this scenario exists to reproduce. Every OTHER scenario is driven
+ * through the REAL `driveChallengeConversation` (plan 05-21, G-05-2) and asserted against its own
+ * ordering and composition invariants, then advances the stage through the bridge exactly like the
+ * live body does.
  */
-if (process.argv.includes("--replay-check")) {
+async function runReplayCheckScenario(scenarioName) {
   await runScript(
-    "socratic-authoring-replay-check",
-    "UAT 8 — offline turn-boundary replay check (G-05-2, real sidecar + fake backend, zero tokens)",
+    `socratic-authoring-replay-check-${scenarioName}`,
+    `UAT 8 — offline turn-boundary replay check (scenario=${scenarioName}, real sidecar + fake backend, zero tokens)`,
     async (harness) => {
       const opsBin = resolveHarnessBinary("uat_authoring_ops");
       if (opsBin === undefined) {
@@ -1459,11 +1478,11 @@ if (process.argv.includes("--replay-check")) {
       harness.onCleanup(() => clearInterval(heartbeatInterval));
       step("touching the heartbeat on the production cadence — the fake backend is supervised exactly like a real one");
 
-      step(`starting the real sidecar with FLYWHEEL_CLAUDE_BIN pointed at the fake backend (scenario=${DEFAULT_SCENARIO})`);
+      step(`starting the real sidecar with FLYWHEEL_CLAUDE_BIN pointed at the fake backend (scenario=${scenarioName})`);
       const sidecar = await harness.startSidecar({
         env: {
           FLYWHEEL_CLAUDE_BIN: FAKE_AUTHORING_CLAUDE_PATH,
-          [SCENARIO_ENV_VAR]: DEFAULT_SCENARIO,
+          [SCENARIO_ENV_VAR]: scenarioName,
         },
       });
 
@@ -1491,66 +1510,170 @@ if (process.argv.includes("--replay-check")) {
         shouldStop: () => !draining,
       });
 
-      step("capturing turn 1 through the real turn boundary (fake backend -> watchdog -> shipped normaliser -> sidecar -> waitForTurn)");
-      const turn1 = await sidecar.waitForTurn(runId, turn1Cursor, {
-        timeoutMs: TURN_DEADLINE_MS,
-        label: "turn 1 (scripted, replay-check)",
-      });
-      step(`turn 1: chunks=${turn1.chunkCount} chars=${turn1.charCount} endedBy=${turn1.endedBy}`);
+      let exchanges;
 
-      step("sending the second scripted turn");
-      const turn2Cursor = sidecar.eventCursor();
-      await sidecar.request({ op: "authoring_turn", runId, text: SECOND_TURN });
-      const turn2 = await sidecar.waitForTurn(runId, turn2Cursor, {
-        timeoutMs: TURN_DEADLINE_MS,
-        label: "turn 2 (scripted, replay-check)",
-      });
-      step(`turn 2: chunks=${turn2.chunkCount} chars=${turn2.charCount} endedBy=${turn2.endedBy}`);
-      assertAllHeldRequestsAnswered(sidecar);
+      if (scenarioName === DEFAULT_SCENARIO) {
+        // ---- the original G-05-2 (plan 05-20) reproduction — unchanged ---------------------
+        step("capturing turn 1 through the real turn boundary (fake backend -> watchdog -> shipped normaliser -> sidecar -> waitForTurn)");
+        const turn1 = await sidecar.waitForTurn(runId, turn1Cursor, {
+          timeoutMs: REPLAY_TURN_DEADLINE_MS,
+          label: "turn 1 (scripted, replay-check)",
+        });
+        step(`turn 1: chunks=${turn1.chunkCount} chars=${turn1.charCount} endedBy=${turn1.endedBy}`);
 
-      // ---- the reproduction itself — asserted from the FIXTURE's own data, never literals -----
-      const scenario = SCENARIOS[DEFAULT_SCENARIO];
-      const turn2FixtureBlocks = scenario.turns[1].filter((block) => block.type === "text");
-      const turn2FixtureTexts = turn2FixtureBlocks.map((block) => block.text);
-      const turn2FixtureCharTotal = turn2FixtureTexts.reduce((sum, text) => sum + text.length, 0);
+        step("sending the second scripted turn");
+        const turn2Cursor = sidecar.eventCursor();
+        await sidecar.request({ op: "authoring_turn", runId, text: SECOND_TURN });
+        const turn2 = await sidecar.waitForTurn(runId, turn2Cursor, {
+          timeoutMs: REPLAY_TURN_DEADLINE_MS,
+          label: "turn 2 (scripted, replay-check)",
+        });
+        step(`turn 2: chunks=${turn2.chunkCount} chars=${turn2.charCount} endedBy=${turn2.endedBy}`);
+        assertAllHeldRequestsAnswered(sidecar);
 
-      assert.ok(
-        turn2.chunkCount >= 2,
-        `expected turn 2 to carry at least 2 chunks (one stdout line per content block), got ${turn2.chunkCount}`,
-      );
-      for (const fixtureText of turn2FixtureTexts) {
+        // ---- the reproduction itself — asserted from the FIXTURE's own data, never literals -----
+        const scenario = SCENARIOS[scenarioName];
+        const turn2FixtureBlocks = scenario.turns[1].filter((block) => block.type === "text");
+        const turn2FixtureTexts = turn2FixtureBlocks.map((block) => block.text);
+        const turn2FixtureCharTotal = turn2FixtureTexts.reduce((sum, text) => sum + text.length, 0);
+
         assert.ok(
-          turn2.text.includes(fixtureText),
-          `expected turn 2's captured text to include the fixture text verbatim: ${JSON.stringify(fixtureText)}`,
+          turn2.chunkCount >= 2,
+          `expected turn 2 to carry at least 2 chunks (one stdout line per content block), got ${turn2.chunkCount}`,
         );
-      }
-      assert.equal(
-        turn2.charCount,
-        turn2FixtureCharTotal,
-        `expected turn 2's charCount (${turn2.charCount}) to equal the fixture's own produced total (${turn2FixtureCharTotal})`,
-      );
-      assert.ok(
-        turn2.charCount > turn2FixtureTexts[0].length,
-        "expected turn 2's total character count to exceed its first chunk alone — the 594-vs-283 " +
-          "asymmetry this whole regression rests on",
-      );
-      assert.equal(turn1.endedBy, "result", "expected turn 1 to end on the result marker");
-      assert.equal(turn2.endedBy, "result", "expected turn 2 to end on the result marker");
-      for (const chunk of turn2.chunks) {
+        for (const fixtureText of turn2FixtureTexts) {
+          assert.ok(
+            turn2.text.includes(fixtureText),
+            `expected turn 2's captured text to include the fixture text verbatim: ${JSON.stringify(fixtureText)}`,
+          );
+        }
+        assert.equal(
+          turn2.charCount,
+          turn2FixtureCharTotal,
+          `expected turn 2's charCount (${turn2.charCount}) to equal the fixture's own produced total (${turn2FixtureCharTotal})`,
+        );
         assert.ok(
-          !turn1.chunks.includes(chunk),
-          "expected turn 2's chunks to contain none of turn 1's text — the cursor discipline must hold",
+          turn2.charCount > turn2FixtureTexts[0].length,
+          "expected turn 2's total character count to exceed its first chunk alone — the 594-vs-283 " +
+            "asymmetry this whole regression rests on",
         );
+        assert.equal(turn1.endedBy, "result", "expected turn 1 to end on the result marker");
+        assert.equal(turn2.endedBy, "result", "expected turn 2 to end on the result marker");
+        for (const chunk of turn2.chunks) {
+          assert.ok(
+            !turn1.chunks.includes(chunk),
+            "expected turn 2's chunks to contain none of turn 1's text — the cursor discipline must hold",
+          );
+        }
+        step(
+          `reproduction confirmed: turn 2's ${turn2.chunkCount} chunks (${turn2.charCount} chars, ` +
+            `first chunk alone was ${turn2FixtureTexts[0].length} chars) all captured — the exact ` +
+            "shape that used to drop the three questions verbatim",
+        );
+
+        exchanges = [
+          { speaker: "developer", text: OPENING_PROMPT },
+          { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy },
+          { speaker: "developer", text: SECOND_TURN },
+          { speaker: "agent", text: turn2.text, chunkCount: turn2.chunkCount, charCount: turn2.charCount, endedBy: turn2.endedBy },
+        ];
+      } else {
+        // ---- every other scenario — driven through the REAL driveChallengeConversation ---------
+        step("driving the REAL driveChallengeConversation against the scripted backend");
+        const conversation = await driveChallengeConversation({
+          sidecar,
+          runId,
+          sendTurn: (text) => sidecar.request({ op: "authoring_turn", runId, text }),
+          cursor: turn1Cursor,
+          turnDeadlineMs: REPLAY_TURN_DEADLINE_MS,
+          maxAgentTurns: MAX_AGENT_TURNS,
+        });
+        for (const exchange of conversation.exchanges) {
+          step(
+            exchange.speaker === "agent"
+              ? `agent turn: ${JSON.stringify(exchange.text)} — chunks=${exchange.chunkCount} ` +
+                  `chars=${exchange.charCount} endedBy=${exchange.endedBy}`
+              : `developer turn: ${JSON.stringify(exchange.text)}`,
+          );
+        }
+        assertAllHeldRequestsAnswered(sidecar);
+
+        // Ordering invariant: every developer exchange's own send-cursor is at or after the
+        // preceding agent turn's own end index — asserted PER EXCHANGE, not in aggregate.
+        let precedingAgentEndIndex = turn1Cursor;
+        for (const exchange of conversation.exchanges) {
+          if (exchange.speaker === "agent") {
+            precedingAgentEndIndex = exchange.endIndex;
+          } else {
+            assert.ok(
+              exchange.cursor >= precedingAgentEndIndex,
+              `expected developer exchange ${JSON.stringify(exchange.text)} to be sent at or after ` +
+                `the preceding agent turn's own end index (${precedingAgentEndIndex}), got ${exchange.cursor}`,
+            );
+          }
+        }
+
+        // Composition invariant: every developer exchange's lines are drawn from the answer bank
+        // or are the closing turn verbatim.
+        const bankValues = new Set([...ANSWER_BANK.map((entry) => entry.answer), ANSWER_BANK_FALLBACK]);
+        for (const exchange of conversation.exchanges) {
+          if (exchange.speaker !== "developer") continue;
+          if (exchange.text === CLOSING_TURN) continue;
+          const lines = exchange.text.split("\n");
+          assert.equal(
+            lines[0],
+            REPLY_PREAMBLE,
+            `expected a composed developer reply to open with the fixed preamble: ${JSON.stringify(exchange.text)}`,
+          );
+          for (const line of lines.slice(1)) {
+            const stripped = line.replace(/^\d+\.\s/, "");
+            assert.ok(
+              bankValues.has(stripped),
+              `developer exchange line is not an exact answer-bank member: ${JSON.stringify(stripped)}`,
+            );
+          }
+        }
+
+        if (scenarioName === "settles-after-answers") {
+          assert.equal(conversation.settled, true, "expected the settles-after-answers scenario to settle");
+          assert.equal(conversation.answeredQuestionCount, 3, "expected exactly three questions answered");
+          assert.equal(conversation.closingTurnSent, false, "expected zero closing turns sent");
+          step(
+            `settled after ${conversation.agentTurns} agent turn(s), ` +
+              `${conversation.answeredQuestionCount} question(s) answered, no closing turn`,
+          );
+        } else if (scenarioName === "never-settles") {
+          assert.equal(conversation.settled, false, "expected the never-settles scenario to NOT settle");
+          assert.equal(conversation.closingTurnSent, true, "expected the closing turn to have been sent");
+          assert.equal(
+            conversation.agentTurns,
+            MAX_AGENT_TURNS + 1,
+            "expected the declared cap plus the one final turn that follows the closing turn",
+          );
+          step(
+            `did not settle within ${MAX_AGENT_TURNS} agent turns — closing turn sent, ` +
+              `${conversation.agentTurns} agent turn(s) total`,
+          );
+        }
+
+        step("advancing the stage (Cyril's own gate, D-90) through the bridge, mirroring the live body");
+        const advanceCursor = sidecar.eventCursor();
+        const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
+        assert.equal(advanced.stage, "decompose");
+        assert.ok(
+          advanceCursor >= conversation.cursor,
+          `expected the cursor recorded at advance-stage (${advanceCursor}) to be at or after the ` +
+            `final agent turn's own end index (${conversation.cursor})`,
+        );
+
+        exchanges = [{ speaker: "developer", text: OPENING_PROMPT }, ...conversation.exchanges];
       }
-      step(
-        `reproduction confirmed: turn 2's ${turn2.chunkCount} chunks (${turn2.charCount} chars, ` +
-          `first chunk alone was ${turn2FixtureTexts[0].length} chars) all captured — the exact ` +
-          "shape that used to drop the three questions verbatim",
-      );
 
       // A synthetic evidence sheet — written for inspection, but NEVER through `resolveEvidencePath()`
       // and NEVER anywhere near the phase directory (G-05-2's own guard against laundering a
-      // scripted run as a live one).
+      // scripted run as a live one). Written under the harness's OWN scratch root, never
+      // `.planning/` — one per scenario, so a human debugging a failure reads the dialogue rather
+      // than reconstructing it.
       const scratchEvidenceDir = path.join(harness.root, "evidence");
       fs.mkdirSync(scratchEvidenceDir, { recursive: true });
       const scratchEvidencePath = path.join(scratchEvidenceDir, EVIDENCE_FILE_NAME);
@@ -1558,12 +1681,7 @@ if (process.argv.includes("--replay-check")) {
         scratchEvidencePath,
         renderChallengeEvidenceSheet({
           runId,
-          exchanges: [
-            { speaker: "developer", text: OPENING_PROMPT },
-            { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy },
-            { speaker: "developer", text: SECOND_TURN },
-            { speaker: "agent", text: turn2.text, chunkCount: turn2.chunkCount, charCount: turn2.charCount, endedBy: turn2.endedBy },
-          ],
+          exchanges,
           proposeAttempted: false,
           proposeDenied: false,
           draftedCriteriaCount: 0,
@@ -1571,7 +1689,7 @@ if (process.argv.includes("--replay-check")) {
           results: [],
           timestamp: new Date().toISOString(),
           synthetic: true,
-          scenario: DEFAULT_SCENARIO,
+          scenario: scenarioName,
         }),
       );
       step(`wrote a synthetic evidence sheet (scratch only, never the phase directory): ${scratchEvidencePath}`);
@@ -1587,7 +1705,38 @@ if (process.argv.includes("--replay-check")) {
       step("session closed and disposed — no fake backend process should remain running");
     },
   );
-  process.exit(process.exitCode ?? 0);
+}
+
+/**
+ * `--replay-check` (plan 05-20, G-05-2; scenario selector added plan 05-21): proves the WHOLE
+ * turn-boundary slice AND both conversational shapes — a scripted, multi-block agent turn captured
+ * whole through the REAL sidecar, the REAL watchdog and the REAL shipped normaliser, and a real
+ * conversation settling or running out of depth — WITHOUT spending a token. It NEVER calls
+ * `probeClaudeAvailable()` and never resolves a real `claude` binary — the only backend in this
+ * arm's path is `fake-authoring-claude.mjs`. Short-circuits BEFORE the live `runScript` call below,
+ * exactly like `--self-test` and `--board-read-check`.
+ *
+ * `--scenario <name>` runs exactly that entry of {@link SCENARIOS}; omitted, every scenario runs in
+ * sequence, each with its own run, sidecar and teardown (never sharing state across scenarios).
+ */
+if (process.argv.includes("--replay-check")) {
+  const scenarioFlagIndex = process.argv.indexOf("--scenario");
+  const requestedScenario = scenarioFlagIndex >= 0 ? process.argv[scenarioFlagIndex + 1] : undefined;
+  if (requestedScenario !== undefined && SCENARIOS[requestedScenario] === undefined) {
+    process.stderr.write(
+      `--replay-check --scenario ${requestedScenario}: unknown scenario (known: ${Object.keys(SCENARIOS).join(", ")})\n`,
+    );
+    process.exit(1);
+  }
+  const scenarioNames = requestedScenario !== undefined ? [requestedScenario] : Object.keys(SCENARIOS);
+
+  let anyFailed = false;
+  for (const scenarioName of scenarioNames) {
+    process.exitCode = undefined;
+    await runReplayCheckScenario(scenarioName);
+    if ((process.exitCode ?? 0) !== 0) anyFailed = true;
+  }
+  process.exit(anyFailed ? 1 : 0);
 }
 
 await runScript(
