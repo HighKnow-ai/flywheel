@@ -190,25 +190,42 @@ Costs real tokens, same as items 3, 5 and 6.
 accept/reject/amend, reopen), reporting pass or fail per each of `ROADMAP.md`'s Phase 5 roadmap
 criteria (SHAPE-01 through SHAPE-05).
 
-Three arms, like every live script in this directory:
+Four arms, like every live script in this directory:
 
-- **`--self-test`** — pure, offline, no child process and no `claude` binary. Asserts the script's
+- **`--self-test`** — pure, offline, no child process and no `claude` binary. Proves the script's
   own report-formatting/argument-parsing logic and, since plan 05-11, exercises the REAL shared
   `drainIncidentalPermissionRequests` helper (`lib/sidecar-harness.mjs`) against an in-file stub
   sidecar: an incidental request is answered exactly once, the same request id offered twice is
   still answered once, a request the predicate claims is never answered, and the loop settles once
-  its stop predicate flips.
+  its stop predicate flips. Since plans 05-20/05-21 it also pins the turn-boundary primitive
+  (`waitForTurn`), the conversation driver's own answer-bank/closing-turn shape, and the
+  `noWorkPlanned` field read — against in-memory fixtures, never a live wire. Proves NOTHING about
+  a real model's behaviour, and does not itself spawn any backend, real or fake.
 - **`--board-read-check`** — pure, offline, no `claude` binary. Spawns the `uat_authoring_ops`
   bridge binary and nothing else: materialises a real epic, queues three `board_read_request`
   events (`get_epic`, `search`, an unrecognised kind), and asserts all three are answered from the
   real scratch board through the same `resolve_board_read` dispatch the desktop app calls, with
-  zero unanswered held requests remaining afterward. Costs no tokens.
+  zero unanswered held requests remaining afterward. Costs no tokens. Proves nothing about the
+  challenge conversation itself — it never spawns a backend, real or fake.
+- **`--replay-check`** — pure, offline, no `claude` binary and no API credential. Drives the REAL
+  sidecar, the REAL watchdog and the REAL shipped normaliser (`claude-code-adapter.ts`) against
+  `scripts/uat/lib/fake-authoring-claude.mjs`, a scripted, zero-token, multi-chunk stand-in backend
+  that is unreachable from the live arm. Proves capture completeness (a multi-block turn survives
+  the whole wire intact, `--self-test` alone cannot exercise the real sidecar), conversational
+  responsiveness (the driver answers what the agent actually asked and advances the stage only
+  after a completed turn) and criterion falsifiability (the `noWorkPlanned` reading can genuinely
+  fail against a scenario where work is staged mid-challenge). Proves NOTHING WHATSOEVER about
+  dialogue quality — its transcripts are synthetic, carry an unmissable synthetic marker in their
+  first two lines, and structurally cannot hold a verdict line.
 - **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
   sidecar's `authoring_spawn`/`authoring_turn` ops against a real scratch git repository and a real
   scratch board, via `packages/core/tests/bin/uat_authoring_ops.rs` — a small bridge binary this
   script shells out to, calling the SAME domain functions the desktop app's own command layer calls
   (`register_project`, `accept_subtree`, `reject_proposal`, `amend_proposal`, and so on) against a
-  scratch database under `FLYWHEEL_APP_DATA_DIR`.
+  scratch database under `FLYWHEEL_APP_DATA_DIR`. Proves the whole flow end to end against a real
+  model — the only arm whose transcript a human may judge for dialogue quality. Proves nothing that
+  any offline arm above could not prove more cheaply about the instrument's own structural
+  properties; spending a credential on it to re-check those would be a wasted run.
 
 **Finding, recorded here because it changed the script (plan 05-11, gap G-05-1):** before this
 plan, the live arm starved. A real `claude` session performs its own git housekeeping at startup,
@@ -237,6 +254,22 @@ every inbound kind the sidecar holds open needs an answering handler registered 
 inbound drain. There are two such kinds today (`permission_request`, `board_read_request`), declared
 in one exported list (`HELD_INBOUND_REQUEST_TYPES`, `lib/sidecar-harness.mjs`). A live script that
 does not answer one of them will starve rather than fail fast.
+
+**Third finding, recorded here because it changed the script again (this closure, plans 05-20/05-21,
+gap `G-05-2`):** the live arm stopped starving and started lying. It recorded each "verbatim reply"
+as a single `assistant_text` event, but one backend turn emits many stream-json lines — one content
+block each — so the transcript held the first chunk of each turn and silently dropped the rest,
+including the three-question challenge SHAPE-01's verdict depends on. The `result` line that marks a
+turn's end was on the wire the whole time and consumed by nothing. Alongside it: the same missing
+turn boundary let `advance-stage` fire mid-generation on a conversation whose questions had never
+been answered, and a criterion read a field name the product does not declare, which made SHAPE-01's
+second half unable to fail.
+
+**The rule this directory now operates under, stated once:** every property a live script asserts
+must be provable WITHOUT a live run — through a self-test, an offline dispatch check, or a
+scripted-backend replay — and the live arm exists for the judgements a human must make, never for
+the structural properties a machine can check. An instrument whose assertions can only be exercised
+by spending credentials will be wrong in ways nobody can afford to discover.
 
 Costs real tokens: it drives a real, multi-turn model conversation. Not executed by an autonomous
 CI/executor run — a human runs it deliberately when judging SHAPE-01/SHAPE-03's own human-only half
