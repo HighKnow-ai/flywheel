@@ -242,6 +242,7 @@ function renderChallengeEvidenceSheet(evidence) {
     timestamp,
     synthetic = false,
     scenario,
+    refusal = null,
   } = evidence;
 
   const drafted = draftedCriteriaCount ?? 0;
@@ -269,14 +270,18 @@ function renderChallengeEvidenceSheet(evidence) {
     })
     .join("\n\n");
 
+  // Plan 05-24 (Task 2, G-05-3): a Refusal column — the classifier code for a refused agent turn,
+  // an em-dash placeholder for every other. Extends the pre-existing table rather than adding a
+  // parallel one, so a reader scanning ONE table sees both capture integrity and refusal status.
   const agentExchanges = exchanges.filter((exchange) => exchange.speaker === "agent");
   const integrityTable =
     agentExchanges.length > 0
-      ? `| Agent turn | Chunk count | Character count | End marker |\n| --- | --- | --- | --- |\n` +
+      ? `| Agent turn | Chunk count | Character count | End marker | Refusal |\n| --- | --- | --- | --- | --- |\n` +
         agentExchanges
           .map(
             (exchange, index) =>
-              `| ${index + 1} | ${exchange.chunkCount ?? 0} | ${exchange.charCount ?? 0} | ${exchange.endedBy ?? "unknown"} |`,
+              `| ${index + 1} | ${exchange.chunkCount ?? 0} | ${exchange.charCount ?? 0} | ${exchange.endedBy ?? "unknown"} | ` +
+              `${exchange.refusal ? exchange.refusal.classifier ?? "unknown" : "—"} |`,
           )
           .join("\n")
       : "(no agent turns captured yet)";
@@ -298,6 +303,24 @@ function renderChallengeEvidenceSheet(evidence) {
       "  did the agent push back on the stated premise, or did it affirm it and start planning work?\n" +
       `- SHAPE-03 draft-usefulness verdict: ${UNJUDGED_TOKEN} — were the drafted criteria above useful\n` +
       "  as-is, or did they need the amendment recorded above to become usable?\n";
+
+  // Plan 05-24 (Task 2, G-05-3): rendered immediately ABOVE the verdict section — the same place a
+  // reader looks for the verdict — naming the failure class, the classifier code, the request id,
+  // and stating plainly that the run did not complete. Omitted entirely (not even an empty
+  // heading) when `refusal` is absent, so an unrefused sheet stays BYTE-IDENTICAL to what this
+  // function rendered before this field existed — that is what keeps the pre-existing determinism
+  // check meaningful. Deliberately does NOT replace the verdict lines the way a synthetic sheet
+  // does: the turns captured before the refusal are real model turns a human may legitimately
+  // judge, so this section exists only to make sure nobody mistakes the run as complete — a future
+  // author must not "tidy" this into a replacement of the verdict section.
+  const refusalSection = refusal
+    ? `## Backend refusal\n\n` +
+      `This run stopped on a backend-level refusal (\`${refusal.kind ?? BACKEND_REFUSAL_KIND}\`), ` +
+      `not a model turn — classifier \`${refusal.classifier ?? "unknown"}\`, request id ` +
+      `\`${refusal.requestId ?? "none"}\`. The conversation did not complete. The turns captured ` +
+      "above, before the refusal, are real model turns and may be judged on their own merits — but " +
+      "no verdict below should be read as covering a finished conversation.\n\n"
+    : "";
 
   return `# Phase 5 — Socratic Epic Authoring — Live Challenge Transcript
 ${syntheticMarkerLine}
@@ -327,7 +350,7 @@ ${criterionLines || "(not yet available — populated once the decompose phase c
 - Amended criteria: ${amended}
 - Ratio (amended/drafted): ${amended}/${drafted}
 
-${verdictsSection}`;
+${refusalSection}${verdictsSection}`;
 }
 
 /**
@@ -462,6 +485,23 @@ async function selfTest() {
     assert.ok(informationalEntries[0][0].includes("SHAPE-05"));
   });
 
+  // Plan 05-24 (gap G-05-3): the exact turn-5 text of run `01M399FP80B184QM2RXTXJDZTK`,
+  // `05-LIVE-CHALLENGE-TRANSCRIPT.md` — REAL captured evidence from the run this whole gap exists
+  // to close, never invented. Declared here, before its first use below, so both the
+  // evidence-sheet checks and the refusal-detection checks further down reference ONE constant.
+  const LIVE_REFUSAL_TEXT =
+    "API Error: Opus 5 (1M context)'s safeguards flagged this message " +
+    "(https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal " +
+    "conversations. Claude Code can't respond to this message with Opus 5 (1M context).\n" +
+    "\n" +
+    "Try rephrasing the request in a new session or change your model.\n" +
+    "\n" +
+    "Learn more: https://support.claude.com/en/articles/16049681\n" +
+    "\n" +
+    "Details: `[reasoning_extraction]`\n" +
+    "\n" +
+    "Request ID: req_011CfMyQ7EQg8jnFnSugjHVw";
+
   const SYNTHETIC_EVIDENCE = {
     runId: "01ABCDEFGHJKMNPQRSTVWXYZ0",
     exchanges: [
@@ -515,6 +555,26 @@ async function selfTest() {
     assert.equal(first, second);
   });
 
+  check("a sheet rendered WITHOUT a refusal contains no Backend refusal section, and stays byte-identical to a sheet with no refusal field at all (plan 05-24)", () => {
+    const withoutField = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+    const withExplicitNull = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, refusal: null });
+    assert.ok(!withoutField.includes("## Backend refusal"), "expected no refusal heading when refusal is absent");
+    assert.equal(withoutField, withExplicitNull, "expected an explicit null refusal to render byte-identically to an absent one");
+  });
+
+  check("a sheet rendered WITH a refusal contains the Backend refusal section, positioned above the verdict section, naming the class/classifier/request id (plan 05-24)", () => {
+    const refusalObject = { kind: BACKEND_REFUSAL_KIND, classifier: "reasoning_extraction", requestId: "req_011CfMyQ7EQg8jnFnSugjHVw", text: LIVE_REFUSAL_TEXT };
+    const sheet = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, refusal: refusalObject });
+    assert.ok(sheet.includes("## Backend refusal"), "expected a Backend refusal heading when refusal is present");
+    assert.ok(sheet.includes(BACKEND_REFUSAL_KIND), "expected the failure class named in the section");
+    assert.ok(sheet.includes("reasoning_extraction"), "expected the classifier code named in the section");
+    assert.ok(sheet.includes("req_011CfMyQ7EQg8jnFnSugjHVw"), "expected the request id named in the section");
+    const refusalHeadingIndex = sheet.indexOf("## Backend refusal");
+    const verdictHeadingIndex = sheet.indexOf("## Verdicts");
+    assert.ok(refusalHeadingIndex >= 0 && verdictHeadingIndex >= 0, "expected both headings to be present");
+    assert.ok(refusalHeadingIndex < verdictHeadingIndex, "expected the Backend refusal section ABOVE the Verdicts section");
+  });
+
   check("the synthetic-shaped sheet carries zero unfilled-verdict tokens and names its scenario in its first two lines", () => {
     const sheet = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, synthetic: true, scenario: "truncation-repro" });
     const occurrences = sheet.split(UNJUDGED_TOKEN).length - 1;
@@ -524,11 +584,17 @@ async function selfTest() {
     assert.ok(firstTwoLines.includes("truncation-repro"), "expected the scenario name in the first two lines");
   });
 
-  check("the capture-integrity table has exactly one row per agent exchange", () => {
+  check("the capture-integrity table has exactly one row per agent exchange, each carrying a Refusal column (plan 05-24)", () => {
     const sheet = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
     const agentExchangeCount = SYNTHETIC_EVIDENCE.exchanges.filter((exchange) => exchange.speaker === "agent").length;
-    const tableRowCount = (sheet.match(/^\| \d+ \|/gm) ?? []).length;
-    assert.equal(tableRowCount, agentExchangeCount);
+    const tableRows = sheet.match(/^\| \d+ \|.*\|$/gm) ?? [];
+    assert.equal(tableRows.length, agentExchangeCount);
+    for (const row of tableRows) {
+      // 5 columns (Agent turn, Chunk count, Character count, End marker, Refusal) => 6 pipe-split
+      // segments including the leading/trailing empties either side of the row's own `|` fences.
+      const cellCount = row.split("|").length - 2;
+      assert.equal(cellCount, 5, `expected 5 columns (turn, chunks, chars, end marker, refusal): ${row}`);
+    }
   });
 
   {
@@ -927,20 +993,8 @@ async function selfTest() {
   // expensive direction here, so it is proven closed first.
   // -----------------------------------------------------------------------------------------
 
-  // The exact turn-5 text of run `01M399FP80B184QM2RXTXJDZTK`, `05-LIVE-CHALLENGE-TRANSCRIPT.md`
-  // — REAL captured evidence from the run this whole gap exists to close, never invented.
-  const LIVE_REFUSAL_TEXT =
-    "API Error: Opus 5 (1M context)'s safeguards flagged this message " +
-    "(https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal " +
-    "conversations. Claude Code can't respond to this message with Opus 5 (1M context).\n" +
-    "\n" +
-    "Try rephrasing the request in a new session or change your model.\n" +
-    "\n" +
-    "Learn more: https://support.claude.com/en/articles/16049681\n" +
-    "\n" +
-    "Details: `[reasoning_extraction]`\n" +
-    "\n" +
-    "Request ID: req_011CfMyQ7EQg8jnFnSugjHVw";
+  // LIVE_REFUSAL_TEXT is declared once, near the top of this function (beside SYNTHETIC_EVIDENCE)
+  // so both the evidence-sheet checks above and the checks below can reference the same constant.
 
   check("an ordinary turn that merely discusses an error, an API or a safeguard is NOT classified as a refusal", () => {
     assert.equal(
@@ -1260,6 +1314,33 @@ async function selfTest() {
     const driverBody = thisFile.slice(driverStart, driverEnd);
     assert.ok(!driverBody.includes("advance-stage"), "driveChallengeConversation must never call advance-stage itself");
   });
+
+  check(
+    "[Plan 05-24, NF-01] the live body holds exactly one waitForTurn( call site — no standalone first-turn capture duplicating the driver's own first exchange",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      // Scoped to the LIVE body specifically, exactly like the advance-stage check above — the
+      // same idiom, reused rather than a second scanning approach invented for this invariant.
+      const liveBodyStart = thisFile.indexOf("\nawait runScript(\n");
+      assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
+      const liveBodySource = thisFile.slice(liveBodyStart);
+      // Built from parts at runtime, matching the file's own established idiom for these
+      // self-referential scans — this check is textually defined BEFORE the live body, so it can
+      // never match its own source anyway, but the idiom stays consistent for a future reader.
+      const waitForTurnMarker = ["waitForTurn", "("].join("");
+      const nonCommentLineCount = liveBodySource
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .filter((line) => line.includes(waitForTurnMarker)).length;
+      assert.equal(
+        nonCommentLineCount,
+        1,
+        `expected exactly one ${waitForTurnMarker} call site in the live body, got ` +
+          `${nonCommentLineCount} — a standalone first-turn capture would double-record the seed ` +
+          "turn the driver already captures as its own first exchange (NF-01)",
+      );
+    },
+  );
 
   // -----------------------------------------------------------------------------------------
   // SHAPE-01's "no work planned" half (Task 3, G-05-2) — the real field, a three-valued
@@ -1800,6 +1881,27 @@ async function driveChallengeConversation({
     cursor: finalCursor,
     refusal: null,
   };
+}
+
+/**
+ * Plan 05-24 (Task 2, NF-01 closure): the ONE ordered exchange-list assembly both arms consume —
+ * the opening developer prompt, followed by the driver's OWN exchanges verbatim, and nothing
+ * else. Pure: no clock, no filesystem, no process state.
+ *
+ * This is the replay branch's own, already-correct shape (`exchanges = [{ speaker: "developer",
+ * text: OPENING_PROMPT }, ...conversation.exchanges]`), generalised so the live body can no longer
+ * diverge from it. Before this function existed, the live body ALSO captured the driver's own seed
+ * turn a second time as a standalone entry (a leftover from before `driveChallengeConversation`
+ * itself captured the first turn) — the exact mechanism that made
+ * `05-LIVE-CHALLENGE-TRANSCRIPT.md`'s own turns 2 and 3 byte-identical (NF-01). The replay branch
+ * never made that mistake because it never performed the standalone capture; the live body now
+ * matches it exactly, through this one shared function.
+ *
+ * A zero-exchange `conversation` (nothing was ever captured) assembles to exactly one entry — the
+ * opening prompt — never a throw and never a fabricated agent entry.
+ */
+function buildEvidenceExchanges({ openingPrompt, conversation }) {
+  return [{ speaker: "developer", text: openingPrompt }, ...conversation.exchanges];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2377,7 +2479,7 @@ async function runReplayCheckScenario(scenarioName) {
         // scenario advances the stage through the bridge, mirroring the live body exactly.
         if (scenarioName === "backend-refuses-mid-conversation") {
           step("skipping advance-stage for this scenario — a refused conversation never reaches it (D-90)");
-          exchanges = [{ speaker: "developer", text: OPENING_PROMPT }, ...conversation.exchanges];
+          exchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
 
           const recentRuns = runOps(opsBin, harness.appDataDir, ["recent-authoring-runs", "50"]);
           const thisRun = Array.isArray(recentRuns) ? recentRuns.find((r) => r.runId === runId) : undefined;
@@ -2399,7 +2501,7 @@ async function runReplayCheckScenario(scenarioName) {
               `final agent turn's own end index (${conversation.cursor})`,
           );
 
-          exchanges = [{ speaker: "developer", text: OPENING_PROMPT }, ...conversation.exchanges];
+          exchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
 
           if (scenarioName === "proposes-work-after-advance") {
             // Plan 05-23 (CR-01 closure): the fixture reaches decompose LEGITIMATELY — a clean
@@ -2662,23 +2764,21 @@ await runScript(
       shouldStop: () => !draining,
     });
 
-    step("waiting for the agent's first turn (the WHOLE turn, every content block, bounded by its own result marker — G-05-2)");
-    const turn1 = await sidecar.waitForTurn(runId, turn1Cursor, {
-      timeoutMs: TURN_DEADLINE_MS,
-      label: "the agent's first turn",
-    });
-    step(
-      `first reply (verbatim, for the human transcript review): ${JSON.stringify(turn1.text)} ` +
-        `— chunks=${turn1.chunkCount} chars=${turn1.charCount} endedBy=${turn1.endedBy}`,
-    );
+    // Plan 05-24 (Task 2, NF-01 closure): NO standalone first-turn capture here anymore.
+    // `driveChallengeConversation`, seeded with `turn1Cursor` below, captures the agent's first
+    // reply as its OWN first agent exchange — capturing it a second time here (as this file used
+    // to) is exactly what produced two identical entries in `05-LIVE-CHALLENGE-TRANSCRIPT.md`
+    // (NF-01). The narration and `criterion1Challenged` scan below are derived from the driver's
+    // own returned exchanges instead, so they survive without the duplicate capture behind them.
 
     // G-05-3 (plan 05-24): resolved here, before the fail-fast below can need it — a refusal must
     // be able to write the evidence sheet with whatever was captured before it fails the run.
     const evidencePath = resolveEvidencePath();
 
     step(
-      "driving the rest of the challenge conversation — answering what the agent actually asked, " +
-        `never a canned follow-up, bounded at ${MAX_AGENT_TURNS} agent turns (G-05-2)`,
+      "driving the challenge conversation — capturing the agent's first turn (the WHOLE turn, " +
+        "every content block, bounded by its own result marker) then answering what it actually " +
+        `asked, never a canned follow-up, bounded at ${MAX_AGENT_TURNS} agent turns (G-05-2)`,
     );
     const conversation = await driveChallengeConversation({
       sidecar,
@@ -2688,6 +2788,14 @@ await runScript(
       turnDeadlineMs: TURN_DEADLINE_MS,
       maxAgentTurns: MAX_AGENT_TURNS,
     });
+    const firstAgentExchange = conversation.exchanges.find((exchange) => exchange.speaker === "agent");
+    if (firstAgentExchange) {
+      step(
+        `first reply (verbatim, for the human transcript review): ${JSON.stringify(firstAgentExchange.text)} ` +
+          `— chunks=${firstAgentExchange.chunkCount} chars=${firstAgentExchange.charCount} ` +
+          `endedBy=${firstAgentExchange.endedBy}`,
+      );
+    }
     for (const exchange of conversation.exchanges) {
       step(
         exchange.speaker === "agent"
@@ -2702,21 +2810,7 @@ await runScript(
     // request id, WITHOUT discarding the turns already captured and WITHOUT advancing the stage —
     // D-90's gate exists to be opened on a finished conversation, and this one did not finish.
     if (conversation.refusal) {
-      const refusalExchanges = [
-        {
-          speaker: "developer",
-          text: OPENING_PROMPT,
-        },
-        {
-          speaker: "agent",
-          text: turn1.text,
-          chunkCount: turn1.chunkCount,
-          charCount: turn1.charCount,
-          endedBy: turn1.endedBy,
-          refusal: turn1.refusal ?? null,
-        },
-        ...conversation.exchanges,
-      ];
+      const refusalExchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
       fs.writeFileSync(
         evidencePath,
         renderChallengeEvidenceSheet({
@@ -2777,17 +2871,17 @@ await runScript(
       fromIndex: turn1Cursor,
       toIndex: challengeWindowEnd,
     });
-    const agentTexts = [turn1.text, ...conversation.exchanges.filter((e) => e.speaker === "agent").map((e) => e.text)];
-    const criterion1Challenged = agentTexts.some((text) => /\?/.test(text));
+    // Plan 05-24 (Task 2, NF-01 closure): derived from the driver's OWN exchanges alone — the
+    // driver's first exchange already IS the agent's first turn, so there is no separate `turn1`
+    // to fold in here anymore.
+    const criterion1Challenged = conversation.exchanges.some(
+      (exchange) => exchange.speaker === "agent" && /\?/.test(exchange.text),
+    );
 
-    // The whole conversation, in order — the opening prompt, every driven agent/developer
-    // exchange (never a fixed two-turn sample of it — G-05-2's own `renderChallengeEvidenceSheet`
-    // reshape) — plus the distillation exchange appended below, once the stage advances.
-    const exchanges = [
-      { speaker: "developer", text: OPENING_PROMPT },
-      { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy, refusal: turn1.refusal ?? null },
-      ...conversation.exchanges,
-    ];
+    // Plan 05-24 (Task 2, NF-01 closure): the ONE shared assembly both arms use — see
+    // `buildEvidenceExchanges`'s own doc comment for why the live body no longer performs a
+    // separate first-turn capture the way it used to.
+    const exchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
 
     // evidencePath was already resolved above, before the refusal fail-fast — reused here.
     fs.writeFileSync(
