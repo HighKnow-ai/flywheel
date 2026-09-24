@@ -1044,12 +1044,23 @@ async function selfTest() {
         path.join(REPO_ROOT, "packages", "sidecar", "src", "adapter.ts"),
         "utf8",
       );
-      const match = adapterSource.match(/export interface ToolCallEvent extends AgentEventBase \{([\s\S]*?)\}/);
-      assert.ok(match, "expected to find the ToolCallEvent interface in adapter.ts");
+      const callMatch = adapterSource.match(/export interface ToolCallEvent extends AgentEventBase \{([\s\S]*?)\}/);
+      assert.ok(callMatch, "expected to find the ToolCallEvent interface in adapter.ts");
       assert.ok(
-        new RegExp(`\\b${TOOL_NAME_FIELD}\\s*:\\s*string`).test(match[1]),
+        new RegExp(`\\b${TOOL_NAME_FIELD}\\s*:\\s*string`).test(callMatch[1]),
         `expected ToolCallEvent to declare a field named ${JSON.stringify(TOOL_NAME_FIELD)} — a ` +
           "rename in the product must fail this check, not silently zero the criterion again",
+      );
+
+      // Plan 05-23 (Task 2, WR-01 closure): the per-attempt correlation above reads
+      // ToolResultEvent's OPTIONAL toolName the same way — pinned here too, so a product rename
+      // or a widening back to no-name-at-all fails a check rather than silently degrading the
+      // pairing back to bare position.
+      const resultMatch = adapterSource.match(/export interface ToolResultEvent extends AgentEventBase \{([\s\S]*?)\}/);
+      assert.ok(resultMatch, "expected to find the ToolResultEvent interface in adapter.ts");
+      assert.ok(
+        new RegExp(`\\b${TOOL_NAME_FIELD}\\?\\s*:\\s*string`).test(resultMatch[1]),
+        `expected ToolResultEvent to declare an OPTIONAL field named ${JSON.stringify(TOOL_NAME_FIELD)}`,
       );
     },
   );
@@ -1107,6 +1118,140 @@ async function selfTest() {
       );
     },
   );
+
+  check(
+    "[Plan 05-23, Task 2] a refused-then-unrefused pair and an unrefused-then-refused pair both " +
+      "read violated — the reading is order-independent over the attempt set",
+    () => {
+      const runId = "run-wr01-order";
+
+      // Shape A: attempt1 refused, attempt2 unanswered (the WR-01 bypass shape, re-asserted here
+      // explicitly as "order-independent" rather than duplicated for its own sake).
+      const refusedThenUnrefused = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt2, unanswered
+      ];
+      assert.equal(
+        readNoWorkPlanned(refusedThenUnrefused, { runId, fromIndex: 0, toIndex: refusedThenUnrefused.length }),
+        "violated",
+        "expected a refused-then-unrefused pair to read violated",
+      );
+
+      // Shape B: attempt1 unrefused (its own first subsequent tool_result names a DIFFERENT
+      // tool, so it is not attempt1's answer at all), attempt2 refused — the mirror image. A
+      // bare "attempt1 unanswered" shape would let attempt2's own refusal be found as attempt1's
+      // candidate too (nothing stops the positional scan at attempt2's own index), so this fixture
+      // uses the wrong-name exclusion (already covered on its own above) to keep attempt1 and
+      // attempt2 correlated with DISTINCT answers, exactly as a real two-attempt conversation would.
+      const unrefusedThenRefused = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
+        { type: "tool_result", runId, toolName: "mcp__flywheel-permissions__unrelated_tool", raw: "ok" }, // wrong name — not attempt1's answer
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt2
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt2
+      ];
+      assert.equal(
+        readNoWorkPlanned(unrefusedThenRefused, { runId, fromIndex: 0, toIndex: unrefusedThenRefused.length }),
+        "violated",
+        "expected an unrefused-then-refused pair to read violated — the SAME outcome as its mirror image",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-23, Task 2] two propose attempts, both individually refused, read refused",
+    () => {
+      const runId = "run-wr01-both-refused";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt2
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt2
+      ];
+      const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: events.length });
+      assert.equal(reading, "refused", "expected both individually-refused attempts to read refused");
+    },
+  );
+
+  check(
+    "[Plan 05-23, Task 2] a tool_result naming a DIFFERENT tool is not this attempt's answer — unrefused, violated",
+    () => {
+      const runId = "run-wr01-wrong-name";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
+        {
+          type: "tool_result",
+          runId,
+          toolName: "mcp__flywheel-permissions__some_other_tool",
+          raw: "still in the challenge stage — no proposals yet.",
+        },
+      ];
+      const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: events.length });
+      assert.equal(
+        reading,
+        "violated",
+        "a tool_result naming a different tool must not count as this attempt's answer, even " +
+          "though its own text matches the refusal wording",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-23, Task 2] a tool_result carrying no toolName at all is accepted positionally as the answer",
+    () => {
+      const runId = "run-wr01-unnamed-result";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+      ];
+      const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: events.length });
+      assert.equal(reading, "refused", "expected an unnamed tool_result to be accepted positionally");
+    },
+  );
+
+  check("[Plan 05-23, Task 2] an event at exactly the window's toIndex is outside the window — unproven", () => {
+    const runId = "run-window-adjacency";
+    const events = [
+      { type: "tool_result", runId, raw: "irrelevant" },
+      { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // index 1 — the boundary
+    ];
+    // toIndex: 1 excludes index 1 (the attempt) entirely — half-open [0, 1).
+    const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: 1 });
+    assert.equal(reading, "unproven", "expected an attempt sitting at exactly toIndex to be outside the window");
+  });
+
+  check("[Plan 05-23, Task 2] an empty window (fromIndex equal to toIndex) reads unproven, never throws", () => {
+    const runId = "run-empty-window";
+    const events = [{ type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }];
+    const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: 0 });
+    assert.equal(reading, "unproven", "expected an empty window to read unproven, not throw and not silently pass");
+  });
+
+  check("[Plan 05-23, Task 2] a foreign runId inside the index range is never attributed to this run", () => {
+    const runId = "run-mine";
+    const events = [{ type: "tool_call", runId: "run-someone-elses", toolName: "mcp__flywheel-permissions__propose_task" }];
+    const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: events.length });
+    assert.equal(reading, "unproven", "expected a foreign-runId attempt to be excluded, reading unproven");
+  });
+
+  check("[Plan 05-23, Task 2] each of the three missing-window-member cases raises a TypeError naming that member", () => {
+    const events = [];
+    assert.throws(
+      () => readNoWorkPlanned(events, { fromIndex: 0, toIndex: 0 }),
+      (err) => err instanceof TypeError && /runId/.test(err.message),
+      "expected a TypeError naming the missing runId member",
+    );
+    assert.throws(
+      () => readNoWorkPlanned(events, { runId: "run-x", toIndex: 0 }),
+      (err) => err instanceof TypeError && /fromIndex/.test(err.message),
+      "expected a TypeError naming the missing fromIndex member",
+    );
+    assert.throws(
+      () => readNoWorkPlanned(events, { runId: "run-x", fromIndex: 0 }),
+      (err) => err instanceof TypeError && /toIndex/.test(err.message),
+      "expected a TypeError naming the missing toIndex member",
+    );
+  });
 
   check("all three noWorkPlanned readings map to SHAPE-01's own outcome, with the challenge half held true", () => {
     const outcomeFor = (reading) =>
@@ -1413,10 +1558,11 @@ const CHALLENGE_REFUSAL_PATTERN = /challenge stage/i;
  * exactly one function):
  * - `"unproven"` — no `tool_call` event named a propose tool at all. Absence of evidence, reported
  *   as exactly that — never a silent pass with no reading behind it.
- * - `"refused"` — a propose attempt WAS observed, and a `tool_result` event carried the stage
- *   gate's own refusal wording ({@link CHALLENGE_REFUSAL_PATTERN}).
- * - `"violated"` — a propose attempt was observed with NO matching refusal. The one reading that
- *   makes SHAPE-01's second half FAIL — the property this whole task exists to make true.
+ * - `"refused"` — EVERY propose attempt observed was individually refused ({@link
+ *   CHALLENGE_REFUSAL_PATTERN} matched against ITS OWN correlated answer — see below).
+ * - `"violated"` — at least one propose attempt was observed with NO matching refusal of its own.
+ *   The one reading that makes SHAPE-01's second half FAIL — the property this whole task exists
+ *   to make true.
  *
  * `window` (plan 05-23, CR-01 closure) is a REQUIRED second parameter — `{ runId, fromIndex,
  * toIndex }`, all three REQUIRED. CR-01 was exactly this reading's implicit "whole array" default
@@ -1429,6 +1575,18 @@ const CHALLENGE_REFUSAL_PATTERN = /challenge stage/i;
  * `accumulateTurn`'s own run-scoping exclusion in `lib/sidecar-harness.mjs` (closing WR-02 in the
  * same move: one sidecar drives many runs, and an event belonging to a different run must never
  * be attributed to this one).
+ *
+ * Task 2 (plan 05-23, WR-01 closure): each attempt is correlated with ITS OWN answer, never an
+ * aggregate "was any attempt made" / "was anything refused anywhere" pair of independent existence
+ * questions — that pairing let a refused FIRST attempt launder an unrefused SECOND one into a
+ * false `"refused"` reading (the WR-01 bypass). `ToolResultEvent` (`packages/sidecar/src/
+ * adapter.ts`) declares no correlation id, only an optional `toolName` and an `output`, so the
+ * pairing is POSITIONAL: an attempt's answer is the first subsequent `tool_result` event in the
+ * same window and run. If that result declares a `toolName`, it counts as this attempt's answer
+ * only when it equals the attempt's own tool name (a differently-named result is not this
+ * attempt's answer at all — the attempt has none and is unrefused); a result declaring no
+ * `toolName` is accepted positionally. `"refused"` is returned only when EVERY attempt is
+ * individually refused; any single unrefused attempt returns `"violated"`.
  */
 function readNoWorkPlanned(events, window) {
   const w = window ?? {};
@@ -1451,24 +1609,42 @@ function readNoWorkPlanned(events, window) {
     );
   }
   const { runId, fromIndex, toIndex } = w;
-  const inWindow = (event, index) => index >= fromIndex && index < toIndex && event.runId === runId;
 
-  const proposeAttempted = events.some(
-    (event, index) =>
-      inWindow(event, index) &&
+  // Collect every propose attempt in the window, in array order, each carrying its own index and
+  // tool name — the name is needed so this attempt's answer can be correlated against ITS OWN
+  // name, never any other attempt's.
+  const attempts = [];
+  for (let i = fromIndex; i < toIndex; i += 1) {
+    const event = events[i];
+    if (event.runId !== runId) continue;
+    if (
       event.type === "tool_call" &&
       typeof event[TOOL_NAME_FIELD] === "string" &&
-      event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
-  );
-  if (!proposeAttempted) return "unproven";
-  const refused = events.some(
-    (event, index) =>
-      inWindow(event, index) &&
-      event.type === "tool_result" &&
-      typeof event.raw === "string" &&
-      CHALLENGE_REFUSAL_PATTERN.test(event.raw),
-  );
-  return refused ? "refused" : "violated";
+      event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT)
+    ) {
+      attempts.push({ index: i, toolName: event[TOOL_NAME_FIELD] });
+    }
+  }
+  if (attempts.length === 0) return "unproven";
+
+  const isAttemptRefused = (attempt) => {
+    for (let i = attempt.index + 1; i < toIndex; i += 1) {
+      const event = events[i];
+      if (event.runId !== runId) continue;
+      if (event.type !== "tool_result") continue;
+      // The FIRST subsequent tool_result in-window IS the candidate answer — there is no second
+      // chance to find a different one. A named result that names a DIFFERENT tool is not this
+      // attempt's answer at all (the attempt has none — unrefused); an unnamed result is accepted
+      // positionally.
+      if (typeof event[TOOL_NAME_FIELD] === "string" && event[TOOL_NAME_FIELD] !== attempt.toolName) {
+        return false;
+      }
+      return typeof event.raw === "string" && CHALLENGE_REFUSAL_PATTERN.test(event.raw);
+    }
+    return false; // no answer at all — unrefused
+  };
+
+  return attempts.every(isAttemptRefused) ? "refused" : "violated";
 }
 
 // `--self-test` short-circuits BEFORE the live `runScript` call below is ever reached — it must
