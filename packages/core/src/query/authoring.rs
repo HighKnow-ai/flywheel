@@ -351,27 +351,6 @@ pub fn measure_authoring_run(
     run_id: &str,
     limit: i64,
 ) -> anyhow::Result<AuthoringRunMeasurement> {
-    // RED scaffold (plan 05-13 Task 3): the aggregation logic below is not yet wired — this
-    // stub only proves the run exists and returns all-zero/absent, replaced by the next
-    // commit's GREEN implementation.
-    let _ = resolve_limit(limit);
-    let started_at: String = conn
-        .query_row(
-            "SELECT started_at FROM agent_runs WHERE id = ?1",
-            params![run_id],
-            |row| row.get(0),
-        )
-        .with_context(|| format!("authoring run {run_id:?} not found"))?;
-    return Ok(AuthoringRunMeasurement {
-        accepted_task_proposals: 0,
-        accepted_criterion_proposals: 0,
-        amended_before_accept: 0,
-        started_at,
-        last_accepted_at: None,
-        elapsed_minutes: None,
-    });
-    #[allow(unreachable_code)]
-    {
     let resolved_limit = resolve_limit(limit);
 
     let started_at: String = conn
@@ -461,5 +440,4 @@ pub fn measure_authoring_run(
         last_accepted_at,
         elapsed_minutes,
     })
-    }
 }
