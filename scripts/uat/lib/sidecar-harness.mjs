@@ -404,6 +404,12 @@ export function accumulateTurn(events, runId, cursor) {
  * explicitly rather than relying on this default, so their own test budget stays small. */
 export const TURN_IDLE_MS = 5_000;
 
+/** `DRAIN_POLL_MS` (IN-02, 05-REVIEW.md): the per-iteration wait `drainInboundCoreRequests` uses
+ * while polling for the next held inbound request — a poll interval, never a deadline, so a
+ * caller or a self-test reasoning about the same value has {@link DRAIN_POLL_MS} to reason about
+ * rather than a bare literal a future edit could silently retune. */
+export const DRAIN_POLL_MS = 5_000;
+
 /**
  * A live sidecar process, with the request/ack correlation and event fan-out its stdio protocol
  * implies. One instance drives one sidecar; a sidecar drives many runs.
@@ -723,7 +729,7 @@ export async function drainInboundCoreRequests(sidecar, runId, { handlers, shoul
     try {
       event = await sidecar.waitForEvent(
         (e) => HELD_INBOUND_REQUEST_TYPES.includes(e.type) && !seen.has(`${e.type}:${e.requestId}`),
-        5_000,
+        DRAIN_POLL_MS,
         "a held inbound core request (permission_request or board_read_request)",
       );
     } catch {

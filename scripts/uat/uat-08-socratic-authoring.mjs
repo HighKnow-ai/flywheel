@@ -2246,7 +2246,11 @@ if (process.argv.includes("--replay-check")) {
   for (const scenarioName of scenarioNames) {
     process.exitCode = undefined;
     await runReplayCheckScenario(scenarioName);
-    if ((process.exitCode ?? 0) !== 0) anyFailed = true;
+    // IN-01 (05-REVIEW.md): exit code 1 is a real failure; exit code 3 is `runScript`'s own
+    // SkipError convention (a precondition was missing, not a red arm) — conflating the two would
+    // report a scenario that skipped itself as a failure of the WHOLE multi-scenario arm. No
+    // scenario body calls skip() today; this closes the trap before a future one does.
+    if (process.exitCode === 1) anyFailed = true;
   }
   process.exit(anyFailed ? 1 : 0);
 }
@@ -2480,7 +2484,6 @@ await runScript(
 
     step("waiting for at least one proposal (assumption or task) to arrive");
     let sawProposal = false;
-    let materialisedEpicId = null;
     let taskProposalId = null;
     let criterionProposalId = null;
     let rejectedTaskId = null;
@@ -2521,7 +2524,6 @@ await runScript(
     if (taskProposalId) {
       step(`accepting the task subtree ${taskProposalId} (D-95's ONE bulk path)`);
       const subtreeOutcome = runOps(opsBin, harness.appDataDir, ["accept-subtree", taskProposalId]);
-      materialisedEpicId = null; // this session had no epic — a task proposal here has no epic id
       criterion2Landed = subtreeOutcome.acceptedCount > 0;
 
       const counts = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
@@ -2552,7 +2554,7 @@ await runScript(
     // ---- SHAPE-05 — reopening ----------------------------------------------------------------
     let criterion4Reopened = false;
     let criterion4PrimedRejected = false;
-    if (rejectedTaskId && materialisedEpicId === null) {
+    if (rejectedTaskId) {
       // This session's proposals had no epic (a fresh session, D-84) — SHAPE-05's reopen check
       // needs a REAL epic to reopen. Recorded here rather than faked: a fresh-epic session's own
       // task proposals never carry an epic id until a SEPARATE epic proposal is accepted and a
