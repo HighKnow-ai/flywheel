@@ -34,6 +34,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  accumulateTurn,
   assertAllHeldRequestsAnswered,
   createPermissionAnswerHandler,
   drainIncidentalPermissionRequests,
@@ -809,6 +810,208 @@ async function selfTest() {
     });
   }
 
+  // -----------------------------------------------------------------------------------------
+  // The conversation driver (Task 1, G-05-2) — the answer bank, the closing turn, question
+  // extraction, reply composition and `driveChallengeConversation`'s own ordering invariant. All
+  // pure or stub-driven; no child process, no real SidecarClient, no timers left running.
+  // -----------------------------------------------------------------------------------------
+
+  check(
+    "the answer bank, the closing turn, question extraction, reply composition and the driver all exist in this script, and none of them exists in the shared library",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      for (const symbol of ["ANSWER_BANK", "CLOSING_TURN", "extractOpenQuestions", "composeDeveloperReply", "driveChallengeConversation"]) {
+        assert.ok(thisFile.includes(symbol), `expected ${symbol} to be defined in this script`);
+      }
+      const libSource = fs
+        .readFileSync(path.join(REPO_ROOT, "scripts", "uat", "lib", "sidecar-harness.mjs"), "utf8")
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .join("\n");
+      assert.ok(
+        !/driveChallengeConversation|ANSWER_BANK/.test(libSource),
+        "this script's own domain answers must never leak into the shared harness library",
+      );
+    },
+  );
+
+  check(
+    "no answer-bank entry, the fallback, or the closing turn coaches the model to challenge, push back, ask clarifying questions, or names the Socratic method",
+    () => {
+      const forbidden = /challenge|push[\s-]?back|clarify|clarifying|socratic/i;
+      for (const entry of ANSWER_BANK) {
+        assert.ok(!forbidden.test(entry.answer), `answer-bank entry coaches conversational behaviour: ${JSON.stringify(entry.answer)}`);
+      }
+      assert.ok(!forbidden.test(ANSWER_BANK_FALLBACK), "the fallback answer coaches conversational behaviour");
+      assert.ok(!forbidden.test(CLOSING_TURN), "the closing turn coaches conversational behaviour");
+    },
+  );
+
+  check("extractOpenQuestions recovers every interrogative fragment from a multi-block turn, in order, capped", () => {
+    const text =
+      "Three things would materially change what gets built:\n" +
+      "1. Who can dismiss a notification once it fires?\n" +
+      "2. Should a notification survive the app restarting?\n" +
+      "3. When an agent finishes unattended, does that alone warrant a notification?";
+    const questions = extractOpenQuestions(text);
+    assert.equal(questions.length, 3);
+    assert.ok(questions[0].startsWith("Who can dismiss"));
+    assert.ok(questions[1].startsWith("Should a notification survive"));
+    assert.ok(questions[2].startsWith("When an agent finishes"));
+
+    const manyQuestions = Array.from({ length: MAX_EXTRACTED_QUESTIONS + 5 }, (_, i) => `Question ${i}?`).join(" ");
+    assert.equal(extractOpenQuestions(manyQuestions).length, MAX_EXTRACTED_QUESTIONS);
+
+    assert.equal(extractOpenQuestions("This has no interrogative fragment at all.").length, 0);
+  });
+
+  check(
+    "every line of a composed reply, minus its fixed preamble and its ordinal prefix, is an exact member of the answer bank's value set",
+    () => {
+      const syntheticQuestions = [
+        "Who can dismiss a notification once it fires?",
+        "Should a notification survive an app restart?",
+        "When an agent finishes a run unattended, does that alone warrant a notification?",
+        "This one matches nothing in the bank at all, so what happens?",
+      ];
+      const reply = composeDeveloperReply(syntheticQuestions);
+      const lines = reply.split("\n");
+      assert.equal(lines[0], REPLY_PREAMBLE);
+      assert.equal(lines.length, syntheticQuestions.length + 1);
+      const bankValues = new Set([...ANSWER_BANK.map((entry) => entry.answer), ANSWER_BANK_FALLBACK]);
+      lines.slice(1).forEach((line, index) => {
+        assert.ok(line.startsWith(`${index + 1}. `), `expected line ${index + 1} to carry its own ordinal prefix`);
+        const stripped = line.replace(/^\d+\.\s/, "");
+        assert.ok(bankValues.has(stripped), `composed reply line is not an exact answer-bank member: ${JSON.stringify(stripped)}`);
+      });
+      // The fourth question matches no pattern — pinning that the fallback is reachable, not just
+      // declared.
+      assert.equal(lines[4].replace(/^\d+\.\s/, ""), ANSWER_BANK_FALLBACK);
+    },
+  );
+
+  {
+    // driveChallengeConversation's own ordering + settling behaviour, driven against a fully
+    // scripted async stub — no real SidecarClient, no timers, no process. `sendTurn` and
+    // `eventCursor` are the only surface the driver touches beyond `waitForTurn`.
+    const CANNED_SETTLING_TURNS = [
+      { text: "What should trigger a notification in the first place?", chunkCount: 1, charCount: 44, endedBy: "result", endIndex: 3 },
+      { text: "Understood — that's enough for me to move forward.", chunkCount: 1, charCount: 47, endedBy: "result", endIndex: 9 },
+    ];
+    let settlingPointer = 0;
+    let settlingCursorValue = 0;
+    const settlingSendCalls = [];
+    const settlingStub = {
+      async waitForTurn() {
+        const turn = CANNED_SETTLING_TURNS[settlingPointer];
+        settlingPointer += 1;
+        settlingCursorValue = turn.endIndex;
+        return turn;
+      },
+      eventCursor() {
+        return settlingCursorValue;
+      },
+    };
+    const settlingResult = await driveChallengeConversation({
+      sidecar: settlingStub,
+      runId: "stub-run-settles",
+      sendTurn: async (text) => {
+        settlingSendCalls.push({ text, cursorAtSend: settlingStub.eventCursor() });
+      },
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 4,
+    });
+
+    check("driveChallengeConversation sends a developer turn only after the preceding agent turn's own end index", () => {
+      assert.equal(settlingSendCalls.length, 1);
+      assert.ok(settlingSendCalls[0].cursorAtSend >= CANNED_SETTLING_TURNS[0].endIndex);
+    });
+    check("driveChallengeConversation reports settled once a turn carries no further question", () => {
+      assert.equal(settlingResult.settled, true);
+      assert.equal(settlingResult.agentTurns, 2);
+      assert.equal(settlingResult.closingTurnSent, false);
+      assert.equal(settlingResult.answeredQuestionCount, 1);
+    });
+
+    // The cap-escape shape — every canned turn carries a further question, so the driver must
+    // stop at the declared cap and send exactly the closing turn once, never loop forever.
+    let escapingCursorValue = 0;
+    let escapingTurnIndex = 0;
+    const escapingSendCalls = [];
+    const escapingStub = {
+      async waitForTurn() {
+        escapingTurnIndex += 1;
+        escapingCursorValue += 10;
+        return {
+          text: `Turn ${escapingTurnIndex} — still not settled, what about this instead?`,
+          chunkCount: 1,
+          charCount: 50,
+          endedBy: "result",
+          endIndex: escapingCursorValue,
+        };
+      },
+      eventCursor() {
+        return escapingCursorValue;
+      },
+    };
+    const escapingResult = await driveChallengeConversation({
+      sidecar: escapingStub,
+      runId: "stub-run-never-settles",
+      sendTurn: async (text) => {
+        escapingSendCalls.push(text);
+      },
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 3,
+    });
+
+    check("driveChallengeConversation escapes at the declared cap, sending exactly the closing turn once", () => {
+      assert.equal(escapingResult.settled, false);
+      assert.equal(escapingResult.closingTurnSent, true);
+      assert.equal(escapingResult.agentTurns, 4, "expected the declared cap (3) plus the one final turn after the closing turn");
+      assert.equal(escapingSendCalls.filter((text) => text === CLOSING_TURN).length, 1);
+      assert.equal(escapingSendCalls[escapingSendCalls.length - 1], CLOSING_TURN);
+    });
+  }
+
+  check(
+    "a timeout capturing the distillation reply does not abort the run — recorded as a partial exchange via accumulateTurn instead",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      // Built from parts at runtime, and searched from AFTER this check's own source, so this
+      // self-referential scan finds the live body's step() narration, never this literal itself.
+      const marker = ["distillation", "instruction", "and", "capturing"].join(" ");
+      const searchFrom = thisFile.indexOf("async function driveChallengeConversation");
+      const anchor = thisFile.indexOf(marker, searchFrom);
+      assert.ok(anchor >= 0, "expected the live body to narrate the distillation capture");
+      const distillationSection = thisFile.slice(anchor, anchor + 2000);
+      assert.ok(/catch\s*\(err\)/.test(distillationSection), "expected a catch block around the distillation capture");
+      assert.ok(
+        /accumulateTurn\(/.test(distillationSection),
+        "expected the catch path to fall back to accumulateTurn's own pure scan for a partial reading",
+      );
+    },
+  );
+
+  check("the live body calls advance-stage exactly once, after the driver returns, and never inside it", () => {
+    const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+    // The runOps call-site shape (an array literal opening with the advance-stage op name) —
+    // deliberately narrower than a bare string-literal scan, which would also match this very
+    // check's own source below (a self-referential scan reads itself too). The pattern is built
+    // from parts at runtime so its own source line never spells out the literal shape it hunts for.
+    const advanceOpPattern = new RegExp("\\[\\s*" + JSON.stringify("advance-stage") + "\\s*,");
+    const advanceCallCount = (thisFile.match(new RegExp(advanceOpPattern.source, "g")) ?? []).length;
+    assert.equal(advanceCallCount, 1, "expected exactly one advance-stage call site in the whole script");
+    // lastIndexOf, not indexOf: the ONLY real declaration is textually last in the file — every
+    // earlier occurrence of this literal is a self-referential mention inside a check's own source
+    // (this one included), which `indexOf` would otherwise find first and mis-slice from.
+    const driverStart = thisFile.lastIndexOf("async function driveChallengeConversation");
+    const driverEnd = thisFile.indexOf("\n}\n", driverStart);
+    const driverBody = thisFile.slice(driverStart, driverEnd);
+    assert.ok(!driverBody.includes("advance-stage"), "driveChallengeConversation must never call advance-stage itself");
+  });
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -838,6 +1041,221 @@ const SECOND_TURN =
  */
 function isDeliberateRequest() {
   return false;
+}
+
+// ---------------------------------------------------------------------------------------------
+// G-05-2 (plan 05-21) — the conversation driver: read what the agent asked, answer it in the
+// harness's own fixed words, and advance the stage only after the agent has finished speaking.
+// ---------------------------------------------------------------------------------------------
+
+/** The bounded conversational depth (D-90: going back is free, but this harness stands in for a
+ * human who eventually decides the framing is settled — a cap, never an unattended loop). */
+const MAX_AGENT_TURNS = 4;
+
+/** How many interrogative fragments a single reply extracts at most — a cap so one pathological
+ * turn cannot produce an unbounded reply, never a claim about how many questions a turn "should"
+ * contain. */
+const MAX_EXTRACTED_QUESTIONS = 5;
+
+/** The fixed line every composed reply opens with — never itself an answer-bank value, so the
+ * self-test's "strip the preamble" check has an unambiguous first line to strip. */
+const REPLY_PREAMBLE = "Here's what I can tell you:";
+
+/** The one answer used when no `ANSWER_BANK` pattern matches — still a decision (use your own
+ * judgement and say so), never a deflection and never an instruction about HOW to converse. */
+const ANSWER_BANK_FALLBACK =
+  "Use your own judgement on that one, state the assumption you're making explicitly, and keep " +
+  "going.";
+
+/**
+ * Ordered pattern/answer pairs — every answer a concrete product decision a developer shaping
+ * this epic would actually make about `OPENING_PROMPT`'s notifications premise (audience, trigger,
+ * surface, clearing, batching, first-slice scope). Every value here is fixed prose: the ONLY thing
+ * `composeDeveloperReply` derives from the agent's own text is the ORDINAL a question appears at,
+ * never a word of the question itself — quoting the agent back at itself would make the transcript
+ * agree with itself by construction, which is the failure mode this whole wave removes (D-88's
+ * structural absence of the proposal tools is what enforces the challenge, never a prompt — so no
+ * answer here may coach the model to challenge, push back, ask clarifying questions or be
+ * Socratic, matching the same rule `OPENING_PROMPT` already follows below).
+ */
+const ANSWER_BANK = [
+  {
+    pattern: /dismiss|clear it|who (can|could|may) (see|clear|resolve)/i,
+    answer:
+      "Only the assignee can dismiss a notification — nobody else on the board clears it for " +
+      "them.",
+  },
+  {
+    pattern: /restart|persist|survive|gone the moment/i,
+    answer:
+      "A notification persists across an app restart until it's explicitly dismissed — it's " +
+      "stored, not ephemeral.",
+  },
+  {
+    pattern: /unattended|warrant|trigger|only when|needs you/i,
+    answer:
+      "Only a run that needs the developer — a decision, a blocked permission, something it " +
+      "can't resolve on its own — raises a notification. A clean, unattended finish does not.",
+  },
+  {
+    pattern: /audience|who (is|are) (the )?(user|users|developer)/i,
+    answer:
+      "The audience is the developer who owns the board — no team or shared-inbox delivery in " +
+      "this slice.",
+  },
+  {
+    pattern: /surface|appear|show up|display|where/i,
+    answer: "It appears in an in-app notification tray only — no OS-level toast, no email, no push.",
+  },
+  {
+    pattern: /batch|group|combine|multiple/i,
+    answer: "No batching in the first slice — one notification per triggering event.",
+  },
+  {
+    pattern: /out of scope|first slice|\bv1\b|mvp/i,
+    answer:
+      "Anything not named above is out of scope for the first slice — cross-device sync, digest " +
+      "emails and per-project mute settings all wait for a later pass.",
+  },
+];
+
+/** The one turn sent when `MAX_AGENT_TURNS` is reached — a bounded, explicit, never-silent escape
+ * (D-90: the developer holds the gate; this is the harness standing in for him deciding the
+ * conversation is done, not the agent). Never coaches the model to challenge, push back or ask
+ * clarifying questions, for the same reason every `ANSWER_BANK` entry does not. */
+const CLOSING_TURN =
+  "Those are my answers to everything you've asked so far. For anything still open, state your " +
+  "own assumption explicitly and move on — we're not going back and forth any further on this.";
+
+/**
+ * From a completed turn's WHOLE text, return the interrogative fragments, in order, capped at
+ * {@link MAX_EXTRACTED_QUESTIONS}. Deliberately simple and deterministic — a "question" is a
+ * fragment ending in a question mark, recovered by splitting on sentence-ish boundaries (any of
+ * `. ? !` followed by whitespace, which also splits a numbered list's own newlines). This is a
+ * heuristic over the agent's own prose, not a parser — it does not understand embedded quotation,
+ * abbreviations or rhetorical questions, and is not asked to.
+ */
+function extractOpenQuestions(text) {
+  const fragments = text
+    .split(/(?<=[?.!])\s+/)
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => fragment.length > 0);
+  return fragments.filter((fragment) => fragment.endsWith("?")).slice(0, MAX_EXTRACTED_QUESTIONS);
+}
+
+/**
+ * Compose a numbered developer reply to `questions`. For each question, in order, select the
+ * first {@link ANSWER_BANK} entry whose pattern matches it, else {@link ANSWER_BANK_FALLBACK}.
+ * The ONLY thing derived from the agent's own text is the ORDINAL a question appears at — every
+ * answer line is an EXACT member of the answer bank's value set, never a paraphrase or a quote.
+ */
+function composeDeveloperReply(questions) {
+  const lines = questions.map((question, index) => {
+    const entry = ANSWER_BANK.find(({ pattern }) => pattern.test(question));
+    const answer = entry ? entry.answer : ANSWER_BANK_FALLBACK;
+    return `${index + 1}. ${answer}`;
+  });
+  return `${REPLY_PREAMBLE}\n${lines.join("\n")}`;
+}
+
+/**
+ * Drive the challenge-stage conversation: capture a whole agent turn, answer what it actually
+ * asked, and loop — bounded by `maxAgentTurns`, with an explicit, reported closing turn as the
+ * escape rather than a silent hang. `sendTurn(text)` is the caller's own way of sending a
+ * developer turn (an `authoring_turn` op against a real sidecar, or a stub in a self-test) —
+ * this function never calls `sidecar.request` itself, only `sidecar.waitForTurn` and
+ * `sidecar.eventCursor`.
+ *
+ * The cursor for each capture is always the cursor read immediately before the PRECEDING send
+ * (or the caller's own seed cursor, for the very first capture) — never read after a send — so no
+ * chunk emitted between the read and the send can be lost or misattributed. Every developer send's
+ * own cursor is read immediately before `sendTurn` is called and always turns out to be at or
+ * after the preceding agent turn's own `endIndex`, because nothing else can run between the
+ * `await` that captured that turn and the synchronous `eventCursor()` call that follows it.
+ *
+ * Returns `{ exchanges, settled, agentTurns, answeredQuestionCount, closingTurnSent, cursor }`:
+ * `exchanges` is the ordered agent/developer record from THIS function's own loop (the caller's
+ * own opening turn is not part of it); `cursor` is the final event-buffer watermark reached.
+ */
+async function driveChallengeConversation({
+  sidecar,
+  runId,
+  sendTurn,
+  cursor,
+  turnDeadlineMs = TURN_DEADLINE_MS,
+  idleMs,
+  maxAgentTurns = MAX_AGENT_TURNS,
+}) {
+  const waitOpts = (label) => ({
+    timeoutMs: turnDeadlineMs,
+    ...(idleMs !== undefined ? { idleMs } : {}),
+    label,
+  });
+
+  const exchanges = [];
+  let agentTurns = 0;
+  let answeredQuestionCount = 0;
+  let closingTurnSent = false;
+  let settled = false;
+  let nextCursor = cursor;
+  let finalCursor = cursor;
+
+  for (;;) {
+    const turn = await sidecar.waitForTurn(
+      runId,
+      nextCursor,
+      waitOpts(`driveChallengeConversation agent turn ${agentTurns + 1}`),
+    );
+    agentTurns += 1;
+    exchanges.push({
+      speaker: "agent",
+      text: turn.text,
+      chunkCount: turn.chunkCount,
+      charCount: turn.charCount,
+      endedBy: turn.endedBy,
+      endIndex: turn.endIndex,
+    });
+    finalCursor = turn.endIndex;
+
+    const questions = extractOpenQuestions(turn.text);
+    if (questions.length === 0) {
+      settled = true;
+      break;
+    }
+
+    if (agentTurns >= maxAgentTurns) {
+      const sendCursor = sidecar.eventCursor();
+      await sendTurn(CLOSING_TURN);
+      exchanges.push({ speaker: "developer", text: CLOSING_TURN, cursor: sendCursor });
+      const closingReply = await sidecar.waitForTurn(
+        runId,
+        sendCursor,
+        waitOpts("driveChallengeConversation closing-turn reply"),
+      );
+      agentTurns += 1;
+      exchanges.push({
+        speaker: "agent",
+        text: closingReply.text,
+        chunkCount: closingReply.chunkCount,
+        charCount: closingReply.charCount,
+        endedBy: closingReply.endedBy,
+        endIndex: closingReply.endIndex,
+      });
+      finalCursor = closingReply.endIndex;
+      closingTurnSent = true;
+      settled = false;
+      break;
+    }
+
+    const reply = composeDeveloperReply(questions);
+    answeredQuestionCount += questions.length;
+    const sendCursor = sidecar.eventCursor();
+    await sendTurn(reply);
+    exchanges.push({ speaker: "developer", text: reply, cursor: sendCursor });
+    nextCursor = sendCursor;
+  }
+
+  return { exchanges, settled, agentTurns, answeredQuestionCount, closingTurnSent, cursor: finalCursor };
 }
 
 // `--self-test` short-circuits BEFORE the live `runScript` call below is ever reached — it must
@@ -1268,20 +1686,38 @@ await runScript(
         `— chunks=${turn1.chunkCount} chars=${turn1.charCount} endedBy=${turn1.endedBy}`,
     );
 
-    step("sending the second conversational turn");
-    // A FRESH cursor, taken immediately before this request — turn 2's capture must exclude every
-    // chunk turn 1 produced, not merely the one chunk `waitForEvent` used to treat as "the first
-    // reply" (G-05-2, closing Evidence E9's identity-only exclusion hazard).
-    const turn2Cursor = sidecar.eventCursor();
-    await sidecar.request({ op: "authoring_turn", runId, text: SECOND_TURN });
-    const turn2 = await sidecar.waitForTurn(runId, turn2Cursor, {
-      timeoutMs: TURN_DEADLINE_MS,
-      label: "the agent's second turn",
-    });
     step(
-      `second reply (verbatim): ${JSON.stringify(turn2.text)} — chunks=${turn2.chunkCount} ` +
-        `chars=${turn2.charCount} endedBy=${turn2.endedBy}`,
+      "driving the rest of the challenge conversation — answering what the agent actually asked, " +
+        `never a canned follow-up, bounded at ${MAX_AGENT_TURNS} agent turns (G-05-2)`,
     );
+    const conversation = await driveChallengeConversation({
+      sidecar,
+      runId,
+      sendTurn: (text) => sidecar.request({ op: "authoring_turn", runId, text }),
+      cursor: turn1Cursor,
+      turnDeadlineMs: TURN_DEADLINE_MS,
+      maxAgentTurns: MAX_AGENT_TURNS,
+    });
+    for (const exchange of conversation.exchanges) {
+      step(
+        exchange.speaker === "agent"
+          ? `agent turn: ${JSON.stringify(exchange.text)} — chunks=${exchange.chunkCount} ` +
+              `chars=${exchange.charCount} endedBy=${exchange.endedBy}`
+          : `developer turn: ${JSON.stringify(exchange.text)}`,
+      );
+    }
+    if (conversation.closingTurnSent) {
+      step(
+        `the conversation did not settle within ${MAX_AGENT_TURNS} agent turns — sent the closing ` +
+          "turn and moved on rather than advancing into silence",
+      );
+    } else {
+      step(
+        `the conversation settled after ${conversation.agentTurns} agent turn(s), ` +
+          `${conversation.answeredQuestionCount} question(s) answered`,
+      );
+    }
+
     // G-05-1 (plan 05-18): a starved held read must fail here, naming itself, rather than let the
     // run limp on to a misleading per-criterion result.
     assertAllHeldRequestsAnswered(sidecar);
@@ -1292,17 +1728,17 @@ await runScript(
     const proposeDenied = sidecar
       .eventsOfType("tool_result")
       .some((event) => typeof event.raw === "string" && /challenge stage/i.test(event.raw));
-    const criterion1Challenged = /\?/.test(turn1.text) || /\?/.test(turn2.text);
+    const agentTexts = [turn1.text, ...conversation.exchanges.filter((e) => e.speaker === "agent").map((e) => e.text)];
+    const criterion1Challenged = agentTexts.some((text) => /\?/.test(text));
     const criterion1NoWorkPlanned = !proposeAttempted || proposeDenied;
 
-    // The whole conversation, in order — the opening prompt and second turn (developer) and both
-    // captured turns (agent, each with its own capture-integrity numbers) — never two samples of
-    // it (G-05-2's own `renderChallengeEvidenceSheet` reshape).
+    // The whole conversation, in order — the opening prompt, every driven agent/developer
+    // exchange (never a fixed two-turn sample of it — G-05-2's own `renderChallengeEvidenceSheet`
+    // reshape) — plus the distillation exchange appended below, once the stage advances.
     const exchanges = [
       { speaker: "developer", text: OPENING_PROMPT },
       { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy },
-      { speaker: "developer", text: SECOND_TURN },
-      { speaker: "agent", text: turn2.text, chunkCount: turn2.chunkCount, charCount: turn2.charCount, endedBy: turn2.endedBy },
+      ...conversation.exchanges,
     ];
 
     const evidencePath = resolveEvidencePath();
@@ -1324,11 +1760,47 @@ await runScript(
         "that dies later in the proposal phase still leaves this transcript for the human",
     );
 
-    step("advancing the stage (Cyril's own gate, D-90) — the developer decides the challenge is done");
+    step(
+      "advancing the stage (Cyril's own gate, D-90) — the developer decides the challenge is " +
+        "done, only now that the driver's own conversation has returned",
+    );
     const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
     assert.equal(advanced.stage, "decompose");
     if (advanced.distillationText) {
+      step("sending the distillation instruction and capturing its reply (not required for the run to continue)");
+      const distillationCursor = sidecar.eventCursor();
       await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
+      exchanges.push({ speaker: "developer", text: advanced.distillationText, cursor: distillationCursor });
+      try {
+        const distillationReply = await sidecar.waitForTurn(runId, distillationCursor, {
+          timeoutMs: TURN_DEADLINE_MS,
+          label: "the decompose stage's reply to the distillation instruction",
+        });
+        exchanges.push({
+          speaker: "agent",
+          text: distillationReply.text,
+          chunkCount: distillationReply.chunkCount,
+          charCount: distillationReply.charCount,
+          endedBy: distillationReply.endedBy,
+        });
+        step(
+          `distillation reply captured: chunks=${distillationReply.chunkCount} ` +
+            `chars=${distillationReply.charCount} endedBy=${distillationReply.endedBy}`,
+        );
+      } catch (err) {
+        // The decompose turn's completeness is not a gating property — a timeout here is recorded
+        // as a partial exchange (via the pure accumulateTurn scan, never a rethrow) and the
+        // proposal wait below still happens.
+        const partial = accumulateTurn(sidecar.events, runId, distillationCursor);
+        exchanges.push({
+          speaker: "agent",
+          text: partial.text,
+          chunkCount: partial.chunkCount,
+          charCount: partial.charCount,
+          endedBy: "timeout",
+        });
+        step(`distillation reply capture timed out (not fatal — the proposal wait still happens): ${err.message}`);
+      }
     }
 
     step("waiting for at least one proposal (assumption or task) to arrive");
