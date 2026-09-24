@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 13/13 plans executed — 10/10 executed in 8 waves, plus 3 gap-closure plans (05-11 through 05-13) in 2 waves opened by conversational UAT
+**Plans**: 17 plans — 13/13 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT), plus 4 planned gap-closure plans (05-14 through 05-17) in 3 waves opened by `05-VERIFICATION.md` (CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements)
 **UI hint**: yes
 
 Plans:
@@ -544,6 +544,19 @@ Plans:
 **Gap closure — wave 2** *(blocked on 05-12 for the turn seam and on 05-11 for the validation ledger)*
 
 - [x] 05-13-PLAN.md — G-05-2: the epic's premise stated before a token is spent, a prompt that asks when it has nothing to challenge, and the Product Kill Criterion measured from the board (all five SHAPE ids)
+
+**Gap closure round 2 — wave 1, the tracer** *(opened by `05-VERIFICATION.md`; the failed truth is fixed and proven on its failure path before any warning-level work begins)*
+
+- [ ] 05-14-PLAN.md — CR-01/WR-04: a transcript row only for a turn the transport accepted, a failed send that leaves nothing behind, and the first tests that could ever have caught either (SHAPE-01)
+
+**Gap closure round 2 — wave 2** *(both blocked on 05-14; they share no file and run in parallel)*
+
+- [ ] 05-15-PLAN.md — WR-05: each bounded read in the kill-criterion measurement keeps the end its own answer depends on, and equal rows come back in a specified order (SHAPE-02)
+- [ ] 05-16-PLAN.md — WR-06: the live acceptance script can report the pass it earns, and the two replies a human must judge land in a tracked file (SHAPE-01, SHAPE-05)
+
+**Gap closure round 2 — wave 3** *(blocked on 05-14, 05-15 and 05-16 — the phase's end-of-phase human gate)*
+
+- [ ] 05-17-PLAN.md — the two remaining judgements as one command each: read-only board instruments, a kill-criterion comparison script with an offline self-test, and a validation ledger that points at commands instead of procedures (SHAPE-01, SHAPE-02)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is
