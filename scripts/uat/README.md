@@ -210,13 +210,25 @@ Four arms, like every live script in this directory:
 - **`--replay-check`** — pure, offline, no `claude` binary and no API credential. Drives the REAL
   sidecar, the REAL watchdog and the REAL shipped normaliser (`claude-code-adapter.ts`) against
   `scripts/uat/lib/fake-authoring-claude.mjs`, a scripted, zero-token, multi-chunk stand-in backend
-  that is unreachable from the live arm. Proves capture completeness (a multi-block turn survives
-  the whole wire intact, `--self-test` alone cannot exercise the real sidecar), conversational
-  responsiveness (the driver answers what the agent actually asked and advances the stage only
-  after a completed turn) and criterion falsifiability (the `noWorkPlanned` reading can genuinely
-  fail against a scenario where work is staged mid-challenge). Proves NOTHING WHATSOEVER about
-  dialogue quality — its transcripts are synthetic, carry an unmissable synthetic marker in their
-  first two lines, and structurally cannot hold a verdict line.
+  that is unreachable from the live arm. Seven scenarios, each proving one thing the live arm would
+  otherwise be the only way to check:
+  - `truncation-repro` — the original multi-chunk truncation reproduction: a multi-block turn
+    survives the whole wire intact.
+  - `settles-after-answers` — a conversation that settles once its questions are answered, driven by
+    the REAL `driveChallengeConversation`.
+  - `never-settles` — a conversation that never settles and escapes via its own reported closing
+    turn rather than hanging.
+  - `stages-work-during-challenge` — work staged mid-challenge, proving the `noWorkPlanned` reading
+    can genuinely read `violated`.
+  - `proposes-work-after-advance` — a clean challenge stage followed by a legitimate decompose-stage
+    proposal, proving the bounded reading can read a genuine pass while the OLD unscoped reading over
+    the same run still reads `violated` — the CR-01 reproduction.
+  - `backend-refuses-mid-conversation` — the backend refuses mid-conversation, proving the run stops
+    at the refusal instead of quietly waiting out the proposal deadline.
+  - `slow-tool-mid-turn` — the model pauses mid-turn on a slow tool call, proving the capture is not
+    truncated by an idle window that fires on unrelated wire traffic.
+  Proves NOTHING WHATSOEVER about dialogue quality — its transcripts are synthetic, carry an
+  unmissable synthetic marker in their first two lines, and structurally cannot hold a verdict line.
 - **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
   sidecar's `authoring_spawn`/`authoring_turn` ops against a real scratch git repository and a real
   scratch board, via `packages/core/tests/bin/uat_authoring_ops.rs` — a small bridge binary this
@@ -265,11 +277,40 @@ turn boundary let `advance-stage` fire mid-generation on a conversation whose qu
 been answered, and a criterion read a field name the product does not declare, which made SHAPE-01's
 second half unable to fail.
 
+**Fourth finding, recorded here because it changed the script again (this closure, plans
+05-23/05-24/05-25, gap `G-05-3`):** every defect this fourth round closed was introduced or missed
+by a closure that had already learned the lesson one level up, in three strands:
+
+- The propose reading's gating call was computed over the WHOLE event history AFTER the decompose
+  stage had legitimately proposed work, so SHAPE-01's second half would have read `violated` on
+  essentially every successful run. The previous closure (`G-05-2`) had just finished fixing the
+  opposite defect — a criterion that could never fail — and shipped one that could almost never
+  pass. Same class, seen from the other side.
+- A backend-level refusal (an API safety-classifier refusal on the distillation turn) arrived as
+  ordinary `assistant_text` terminated by a genuine end-of-turn line, so the harness recorded it as
+  a model turn and then waited out the proposal deadline for a proposal that could not come. This is
+  the fourth failure class this directory has had to make self-naming.
+- The idle window that bounds a turn when no end-of-turn line arrives was kept alive by ANY sidecar
+  event rather than the awaited turn's own progress, and could conclude a turn while the model was
+  still waiting on a tool.
+
+Add the quieter one too: the live arm recorded its first agent turn twice, because it captured that
+turn and then seeded the conversation driver with the same cursor — visible in the committed
+transcript as two byte-identical agent turns.
+
 **The rule this directory now operates under, stated once:** every property a live script asserts
 must be provable WITHOUT a live run — through a self-test, an offline dispatch check, or a
 scripted-backend replay — and the live arm exists for the judgements a human must make, never for
 the structural properties a machine can check. An instrument whose assertions can only be exercised
-by spending credentials will be wrong in ways nobody can afford to discover.
+by spending credentials will be wrong in ways nobody can afford to discover. **Sharpened by gap
+`G-05-3`:** an offline arm only proves a property if it exercises the SAME code path, in the same
+order, with the same inputs the live arm will hit. This closure found that failing three concrete
+ways: an offline arm that asserts a reading at a point in the run where the failure mode cannot yet
+exist (the CR-01 window); an offline arm that assembles its own version of an artefact the live arm
+assembles differently (the NF-01 duplicate turn); and a property no fixture in the repository is
+capable of expressing at all (WR-04's mid-turn pause, before `slow-tool-mid-turn` existed). The
+practical consequence: when a fixture cannot express the condition, the fixture is the gap — extend
+it rather than accept that the property is live-only.
 
 Costs real tokens: it drives a real, multi-turn model conversation. Not executed by an autonomous
 CI/executor run — a human runs it deliberately when judging SHAPE-01/SHAPE-03's own human-only half
