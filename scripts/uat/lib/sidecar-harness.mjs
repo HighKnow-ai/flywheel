@@ -494,6 +494,20 @@ export function accumulateTurn(events, runId, cursor) {
  * explicitly rather than relying on this default, so their own test budget stays small. */
 export const TURN_IDLE_MS = 5_000;
 
+/** Plan 05-25 (WR-04 closure): the pause a REAL model may legitimately take mid-turn with no other
+ * sidecar traffic in flight — a different question from the short window a test passes when it is
+ * deliberately measuring the degrade path (that is exactly what {@link TURN_IDLE_MS}'s own doc
+ * comment already tells such a caller to do). Thirty seconds. Must stay comfortably BELOW the live
+ * arm's own per-turn deadline (`TURN_DEADLINE_MS`, `scripts/uat/uat-08-socratic-authoring.mjs`) — a
+ * window as long as or longer than the deadline would silently delete the idle-degrade behaviour
+ * plan 05-20 built, since the deadline would always fire first. Deliberately NOT a change to
+ * {@link TURN_IDLE_MS} itself — the offline arms and the self-test's own timing checks depend on
+ * that short default, and retuning a shared default to suit one caller is how a value ends up
+ * meaning two different things to two different callers. The live arm passes this EXPLICITLY at
+ * each of its own `waitForTurn`/`driveChallengeConversation` call sites rather than inheriting a
+ * default tuned for tests. */
+export const LIVE_TURN_IDLE_MS = 30_000;
+
 /** `DRAIN_POLL_MS` (IN-02, 05-REVIEW.md): the per-iteration wait `drainInboundCoreRequests` uses
  * while polling for the next held inbound request — a poll interval, never a deadline, so a
  * caller or a self-test reasoning about the same value has {@link DRAIN_POLL_MS} to reason about

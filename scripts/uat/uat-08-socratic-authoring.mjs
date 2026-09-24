@@ -43,6 +43,7 @@ import {
   drainInboundCoreRequests,
   HEARTBEAT_TICK_MS,
   HELD_INBOUND_REQUEST_TYPES,
+  LIVE_TURN_IDLE_MS,
   probeClaudeAvailable,
   readBackendRefusal,
   REPO_ROOT,
@@ -1465,7 +1466,11 @@ async function selfTest() {
       const searchFrom = thisFile.indexOf("async function driveChallengeConversation");
       const anchor = thisFile.indexOf(marker, searchFrom);
       assert.ok(anchor >= 0, "expected the live body to narrate the distillation capture");
-      const distillationSection = thisFile.slice(anchor, anchor + 2000);
+      // Widened from 2000 (plan 05-25, WR-04 closure): the distillation waitForTurn call site now
+      // also names an explicit idleMs (LIVE_TURN_IDLE_MS), pushing accumulateTurn( a little
+      // further from this anchor than before — the window still scopes to the SAME region, just
+      // wide enough to still include it.
+      const distillationSection = thisFile.slice(anchor, anchor + 2500);
       assert.ok(/catch\s*\(err\)/.test(distillationSection), "expected a catch block around the distillation capture");
       assert.ok(
         /accumulateTurn\(/.test(distillationSection),
@@ -1522,6 +1527,30 @@ async function selfTest() {
         `expected exactly one ${waitForTurnMarker} call site in the live body, got ` +
           `${nonCommentLineCount} — a standalone first-turn capture would double-record the seed ` +
           "turn the driver already captures as its own first exchange (NF-01)",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-25, WR-04] the live body names LIVE_TURN_IDLE_MS at least twice — once per capture site — never inheriting the short test default",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      // Scoped to the LIVE body specifically, the same idiom as the two checks above it.
+      const liveBodyStart = thisFile.indexOf("\nawait runScript(\n");
+      assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
+      const liveBodySource = thisFile.slice(liveBodyStart);
+      // Built from parts at runtime so this check's own source is never what it finds.
+      const idleConstantMarker = ["LIVE", "TURN", "IDLE", "MS"].join("_");
+      const nonCommentOccurrenceCount = liveBodySource
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .filter((line) => line.includes(idleConstantMarker)).length;
+      assert.ok(
+        nonCommentOccurrenceCount >= 2,
+        `expected the live body to name ${idleConstantMarker} at least twice (once per capture ` +
+          `site), got ${nonCommentOccurrenceCount} — a future third live capture that forgets to ` +
+          "pass it would silently inherit the short test default instead of stating its own " +
+          "permitted pause at its own call site",
       );
     },
   );
@@ -3033,6 +3062,10 @@ await runScript(
       sendTurn: (text) => sidecar.request({ op: "authoring_turn", runId, text }),
       cursor: turn1Cursor,
       turnDeadlineMs: TURN_DEADLINE_MS,
+      // WR-04 closure (plan 05-25): the live arm states, at its own call site, the pause it
+      // permits a REAL model turn to take mid-turn — never the short TURN_IDLE_MS default a test
+      // passes when deliberately measuring the degrade path.
+      idleMs: LIVE_TURN_IDLE_MS,
       maxAgentTurns: MAX_AGENT_TURNS,
     });
     const firstAgentExchange = conversation.exchanges.find((exchange) => exchange.speaker === "agent");
@@ -3169,6 +3202,9 @@ await runScript(
       try {
         distillationReply = await sidecar.waitForTurn(runId, distillationCursor, {
           timeoutMs: TURN_DEADLINE_MS,
+          // WR-04 closure (plan 05-25): explicit, matching the driveChallengeConversation call
+          // above — the live arm never inherits the short test default at either capture site.
+          idleMs: LIVE_TURN_IDLE_MS,
           label: "the decompose stage's reply to the distillation instruction",
         });
         exchanges.push({
