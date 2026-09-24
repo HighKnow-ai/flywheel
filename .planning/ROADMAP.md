@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 22/22 plans executed — 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 planned gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail
+**Plans**: 26 plans — 22/22 executed, 4 planned (05-23 through 05-26). 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail — plus 4 planned gap-closure plans (05-23 through 05-26) in 4 waves opened by `05-VERIFICATION.md` `gaps_found` 25/27: FAILED truth #19 (`CR-01`, the gating window contaminated by legitimate decompose-stage proposals), the safety-classifier refusal captured as ordinary agent text, `WR-04`'s idle window that can truncate a live turn, and the unfiled-todo bookkeeping
 **UI hint**: yes
 
 Plans:
@@ -577,6 +577,22 @@ Plans:
 **Gap closure round 4 — wave 3** *(blocked on 05-21 — the finding cannot be written down, and the credential-spend decision cannot be put to the developer, until the instrument is fixed and proven offline)*
 
 - [x] 05-22-PLAN.md — G-05-2: the rule that every asserted property must be provable without a live run, a ledger row per task, and the developer's own decision on whether one live run is worth its credentials (SHAPE-01, SHAPE-03, SHAPE-05)
+
+**Gap closure round 5 — wave 1** *(opened by `05-VERIFICATION.md` `status: gaps_found`, 25/27 — FAILED truth #19 (`CR-01`), the safety-classifier-refusal capture defect, `WR-04`, and the unfiled-todo bookkeeping. The tracer: make truth #19 pass end to end before anything expands from it)*
+
+- [ ] 05-23-PLAN.md — G-05-3: the `no work planned` window promoted to a required parameter so the unscoped read is unwritable, a replay scenario that proposes legitimately after the stage advances (proving SHAPE-01 can report a genuine pass, and that the unscoped read would still have been wrong), per-attempt refusal correlation, and three cosmetic review findings cleared (SHAPE-01, SHAPE-02)
+
+**Gap closure round 5 — wave 2** *(blocked on 05-23 — shares all three instrument files)*
+
+- [ ] 05-24-PLAN.md — G-05-3: a backend refusal named as the fourth failure class and stopped where it happens rather than at the proposal deadline, plus one shared transcript-assembly path so the live arm stops double-recording its first agent turn (SHAPE-01, SHAPE-03)
+
+**Gap closure round 5 — wave 3** *(blocked on 05-24 — shares all three instrument files)*
+
+- [ ] 05-25-PLAN.md — G-05-3: a fixture that can finally express a mid-turn pause, and an idle window scoped to its own turn that stands down while a tool call is unanswered — so a slow live tool can no longer truncate a genuine reply (SHAPE-01, SHAPE-03)
+
+**Gap closure round 5 — wave 4** *(blocked on 05-25 — the finding cannot be written down and the ledger cannot record a command until the commands exist)*
+
+- [ ] 05-26-PLAN.md — G-05-3: the fourth finding and the sharpened rule (an offline arm proves a property only when it runs the same path the live arm will), a ledger row per task, and an honest resolution of the todo a prior summary said would be filed (all five SHAPE ids)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is
