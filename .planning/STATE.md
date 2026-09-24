@@ -378,7 +378,9 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+1 pending. See `.planning/todos/pending/`.
+
+- **[major] Adapter drops assistant text when a stream line carries text and tool_use** — `packages/sidecar/src/claude-code-adapter.ts:589-612` tests `content.find(tool_use)` and returns before the text branch, so a stream-json line carrying both block types silently discards the narration. Latent against the current binary (which splits blocks across lines, per `scripts/spike/authoring-transport-spike.mjs:114-119`), but it would blank the desktop session feed's narration if that emission shape changes. Found incidentally while diagnosing gap `G-05-2`; deliberately kept out of that gap-closure wave because it is product code on a different failure path. File: `.planning/todos/pending/2026-09-24-adapter-drops-assistant-text-when-a-stream-line-carries-text.md`
 
 ### Blockers/Concerns
 
