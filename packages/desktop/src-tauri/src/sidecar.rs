@@ -522,6 +522,82 @@ impl SidecarHandle {
         self.send_request(&request.to_string())
     }
 
+    /// The sink-generic persist-and-emit half of [`Self::record_authoring_turn`] (Task 1, plan
+    /// 05-14) — identical body to it, with the target of every emit routed through an
+    /// [`AuthoringTurnSink`] instead of a concrete `&AppHandle`, so a test can observe what would
+    /// otherwise be delivered to the renderer. [`Self::record_authoring_turn`] is a thin
+    /// delegation to this method passing the real `AppHandle`; no behaviour change for any
+    /// existing caller.
+    pub(crate) fn record_authoring_turn_into<S: AuthoringTurnSink>(
+        &self,
+        sink: &S,
+        run_id: &str,
+        text: &str,
+        origin: AuthoringTurnOrigin,
+    ) {
+        let turn_id = flywheel_core::ids::new_id();
+        let at = chrono::Utc::now().to_rfc3339();
+        let line = build_authoring_turn_line(run_id, text, origin, &turn_id, &at);
+
+        let outcome = persist_event_line(&self.writers, run_id, &line);
+        if outcome != PersistOutcome::Written {
+            eprintln!(
+                "session log persist failed for an authoring turn on run {run_id}: {outcome:?}"
+            );
+        }
+        if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+            sink.emit_agent_event(&event);
+        }
+    }
+
+    /// The ordering seam (Task 1, plan 05-14) [`Self::send_authoring_turn`] delegates to: builds
+    /// the SAME `authoring_turn` request JSON it always has, then hands it to `deliver`.
+    ///
+    /// FIXME(plan 05-14 Task 1 RED): this still records/emits UNCONDITIONALLY, mirroring today's
+    /// bug — a `developer_turn` row is written even when `deliver` never succeeds. This is the RED
+    /// scaffolding commit; the reorder that gates the record on `deliver`'s success lands in the
+    /// immediately following GREEN commit.
+    pub(crate) fn send_authoring_turn_via<D, S>(
+        &self,
+        deliver: D,
+        sink: &S,
+        run_id: &str,
+        text: &str,
+        origin: AuthoringTurnOrigin,
+    ) -> anyhow::Result<()>
+    where
+        D: FnOnce(&str) -> anyhow::Result<()>,
+        S: AuthoringTurnSink,
+    {
+        self.record_authoring_turn_into(sink, run_id, text, origin);
+
+        let request = serde_json::json!({
+            "id": format!("authoring-turn-{}", flywheel_core::ids::new_id()),
+            "op": "authoring_turn",
+            "runId": run_id,
+            "text": text,
+        });
+        deliver(&request.to_string())
+    }
+
+    /// A [`SidecarHandle`] with no child process attached, for tests that need a real
+    /// [`Self::send_request`] failure — with `child` `None`, `send_request` returns its genuine
+    /// "sidecar process is not running" error, so the failing arm the delivery-gating tests
+    /// exercise is a real transport failure, not a simulated one. `#[cfg(test)]` — this constructor
+    /// does not exist in a release build.
+    #[cfg(test)]
+    pub(crate) fn without_child_for_tests() -> Self {
+        SidecarHandle {
+            child: Mutex::new(None),
+            writers: Mutex::new(HashMap::new()),
+            pending_acks: Mutex::new(HashMap::new()),
+            pending_permission_requests: Mutex::new(HashMap::new()),
+            notified_persist_failures: Mutex::new(std::collections::HashSet::new()),
+            heartbeat_stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            spawn_floor: flywheel_core::git_retry::SpawnFloor::new(),
+        }
+    }
+
     /// Ask the sidecar to tear down every live session's process group, and wait a bounded
     /// moment for its ack (CR-02, plan 02-14). This must be called BEFORE [`Self::kill`] on app
     /// exit: every `claude` session is spawned `detached: true`
@@ -666,6 +742,31 @@ pub(crate) fn persist_event_line(
         None => PersistOutcome::OpenFailed(
             "session log writer unexpectedly absent after insert".to_string(),
         ),
+    }
+}
+
+/// The seam [`SidecarHandle::send_authoring_turn_via`] and
+/// [`SidecarHandle::record_authoring_turn_into`] emit and notify through (plan 05-14). `AppHandle`
+/// is `AppHandle<Wry>` and this crate enables no Tauri `test` feature, so a mock app handle is not
+/// constructible in a unit test — this trait exists for that one reason, so a test-only recording
+/// implementation can stand in for it; it is not ceremony and should not be collapsed back into a
+/// direct `&AppHandle` parameter.
+pub trait AuthoringTurnSink {
+    /// Emit one event on the `agent:event` channel — the real implementation's error is discarded,
+    /// exactly as every existing `app.emit("agent:event", ...)` call site in this module already
+    /// does.
+    fn emit_agent_event(&self, event: &serde_json::Value);
+    /// Surface a session-log persistence failure to the developer (never only to stderr, PROC-07).
+    fn emit_persistence_failure(&self, run_id: &str, detail: &str);
+}
+
+impl AuthoringTurnSink for AppHandle {
+    fn emit_agent_event(&self, event: &serde_json::Value) {
+        let _ = self.emit("agent:event", event);
+    }
+
+    fn emit_persistence_failure(&self, run_id: &str, detail: &str) {
+        emit_persistence_failure_notice(self, run_id, detail);
     }
 }
 
@@ -975,6 +1076,176 @@ mod persist_tests {
             "two turns with different turn ids must never produce identical lines"
         );
     }
+
+    /// A test-only [`AuthoringTurnSink`] that records every emitted event and every
+    /// persistence-failure notice into vectors this module's tests can inspect afterward — the
+    /// stand-in for a real `AppHandle`, which this crate cannot construct in a test (see
+    /// [`AuthoringTurnSink`]'s own doc comment for why).
+    #[derive(Default)]
+    struct RecordingSink {
+        events: Mutex<Vec<serde_json::Value>>,
+        persistence_failures: Mutex<Vec<(String, String)>>,
+    }
+
+    impl AuthoringTurnSink for RecordingSink {
+        fn emit_agent_event(&self, event: &serde_json::Value) {
+            self.events
+                .lock()
+                .expect("recording sink events mutex poisoned")
+                .push(event.clone());
+        }
+
+        fn emit_persistence_failure(&self, run_id: &str, detail: &str) {
+            self.persistence_failures
+                .lock()
+                .expect("recording sink persistence-failures mutex poisoned")
+                .push((run_id.to_string(), detail.to_string()));
+        }
+    }
+
+    /// Delivery FAILURE must leave no transcript row and no emitted event (T-05-14-01) — and a
+    /// SUCCESSFUL retry of the SAME turn must leave exactly one of each, never a second row for
+    /// one logical turn (T-05-14-02).
+    #[test]
+    fn authoring_turn_delivery_failure_records_no_row_and_a_successful_retry_records_exactly_one()
+    {
+        let handle = SidecarHandle::without_child_for_tests();
+        let sink = RecordingSink::default();
+        let run_id = fresh_run_id();
+        let text = "hello there";
+
+        // No child attached — `send_request` genuinely fails, a real transport failure.
+        let failing = handle.send_authoring_turn_via(
+            |request| handle.send_request(request),
+            &sink,
+            &run_id,
+            text,
+            AuthoringTurnOrigin::Developer,
+        );
+        assert!(failing.is_err(), "a delivery failure must be propagated as Err");
+        assert_eq!(
+            flywheel_core::session_log::count_lines(&run_id).expect("count_lines should succeed"),
+            0,
+            "a failed delivery must leave zero session-log lines"
+        );
+        assert!(
+            sink.events.lock().unwrap().is_empty(),
+            "a failed delivery must emit zero events"
+        );
+
+        // The SAME run id, the SAME text, delivered successfully this time.
+        let retried = handle.send_authoring_turn_via(
+            |_request| Ok(()),
+            &sink,
+            &run_id,
+            text,
+            AuthoringTurnOrigin::Developer,
+        );
+        assert!(retried.is_ok(), "a successful delivery must not error");
+        assert_eq!(
+            flywheel_core::session_log::count_lines(&run_id).expect("count_lines should succeed"),
+            1,
+            "a successful retry must leave exactly one session-log line"
+        );
+        let events = sink.events.lock().unwrap();
+        assert_eq!(events.len(), 1, "a successful retry must emit exactly one event");
+        assert_eq!(events[0]["type"], "developer_turn");
+        assert_eq!(events[0]["text"], text);
+        drop(events);
+
+        let path = flywheel_core::session_log::session_log_path(&run_id)
+            .expect("session_log_path should resolve for a fresh run id");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The failing arm asserted on its own, so a regression that restores the emit but not the
+    /// persist still fails a test by name.
+    #[test]
+    fn authoring_turn_delivery_failure_emits_nothing_onto_the_agent_event_channel() {
+        let handle = SidecarHandle::without_child_for_tests();
+        let sink = RecordingSink::default();
+        let run_id = fresh_run_id();
+
+        let result = handle.send_authoring_turn_via(
+            |request| handle.send_request(request),
+            &sink,
+            &run_id,
+            "hello there",
+            AuthoringTurnOrigin::Developer,
+        );
+        assert!(result.is_err());
+        assert!(
+            sink.events.lock().unwrap().is_empty(),
+            "a delivery failure must never reach the agent-event channel"
+        );
+
+        // No file should have been created at all for a run that never had a successful delivery.
+        let path = flywheel_core::session_log::session_log_path(&run_id)
+            .expect("session_log_path should resolve for a fresh run id");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Two successful deliveries with different text leave exactly two rows — the delivery gate
+    /// must suppress failures only, never legitimate turns.
+    #[test]
+    fn authoring_turn_two_delivered_turns_leave_two_rows() {
+        let handle = SidecarHandle::without_child_for_tests();
+        let sink = RecordingSink::default();
+        let run_id = fresh_run_id();
+
+        handle
+            .send_authoring_turn_via(
+                |_request| Ok(()),
+                &sink,
+                &run_id,
+                "first turn",
+                AuthoringTurnOrigin::Developer,
+            )
+            .expect("first delivery should succeed");
+        handle
+            .send_authoring_turn_via(
+                |_request| Ok(()),
+                &sink,
+                &run_id,
+                "second turn",
+                AuthoringTurnOrigin::Developer,
+            )
+            .expect("second delivery should succeed");
+
+        assert_eq!(
+            flywheel_core::session_log::count_lines(&run_id).expect("count_lines should succeed"),
+            2,
+            "two successful deliveries must leave exactly two session-log lines"
+        );
+        assert_eq!(sink.events.lock().unwrap().len(), 2);
+
+        let path = flywheel_core::session_log::session_log_path(&run_id)
+            .expect("session_log_path should resolve for a fresh run id");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The premise-recording call site's own shape (`authoring_run_start`): record without
+    /// relaying, and it still persists and emits exactly one row.
+    #[test]
+    fn authoring_turn_recorded_without_relaying_still_leaves_exactly_one_row() {
+        let handle = SidecarHandle::without_child_for_tests();
+        let sink = RecordingSink::default();
+        let run_id = fresh_run_id();
+
+        handle.record_authoring_turn_into(&sink, &run_id, "the premise", AuthoringTurnOrigin::Developer);
+
+        assert_eq!(
+            flywheel_core::session_log::count_lines(&run_id).expect("count_lines should succeed"),
+            1,
+            "recording without relaying must still persist exactly one line"
+        );
+        assert_eq!(sink.events.lock().unwrap().len(), 1);
+
+        let path = flywheel_core::session_log::session_log_path(&run_id)
+            .expect("session_log_path should resolve for a fresh run id");
+        let _ = std::fs::remove_file(&path);
+    }
+
 }
 
 /// [`push_bounded_stderr_tail`]'s own behavior cases (plan 03-15, T-03-15-04): a `String::truncate`
