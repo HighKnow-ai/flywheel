@@ -190,7 +190,7 @@ Costs real tokens, same as items 3, 5 and 6.
 accept/reject/amend, reopen), reporting pass or fail per each of `ROADMAP.md`'s Phase 5 roadmap
 criteria (SHAPE-01 through SHAPE-05).
 
-Two arms, like every live script in this directory:
+Three arms, like every live script in this directory:
 
 - **`--self-test`** — pure, offline, no child process and no `claude` binary. Asserts the script's
   own report-formatting/argument-parsing logic and, since plan 05-11, exercises the REAL shared
@@ -198,6 +198,11 @@ Two arms, like every live script in this directory:
   sidecar: an incidental request is answered exactly once, the same request id offered twice is
   still answered once, a request the predicate claims is never answered, and the loop settles once
   its stop predicate flips.
+- **`--board-read-check`** — pure, offline, no `claude` binary. Spawns the `uat_authoring_ops`
+  bridge binary and nothing else: materialises a real epic, queues three `board_read_request`
+  events (`get_epic`, `search`, an unrecognised kind), and asserts all three are answered from the
+  real scratch board through the same `resolve_board_read` dispatch the desktop app calls, with
+  zero unanswered held requests remaining afterward. Costs no tokens.
 - **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
   sidecar's `authoring_spawn`/`authoring_turn` ops against a real scratch git repository and a real
   scratch board, via `packages/core/tests/bin/uat_authoring_ops.rs` — a small bridge binary this
@@ -216,6 +221,22 @@ imported the shared `drainIncidentalPermissionRequests` helper. It is wired in n
 fire-and-forget immediately after `authoring_spawn` and stopped via `harness.onCleanup` on every
 exit path. Any future live script added to this directory needs the same wiring — the starvation
 is a property of any real `claude` session, not of this script's own flow.
+
+**Second finding, recorded here because it changed the script again (this closure, plans 05-18/05-19,
+gap `G-05-1`):** the live arm starved a second time, this time on `board_read_request`. The sidecar
+holds a board read open until the core answers it, exactly as it holds a permission request open
+until the core answers that — but the harness had no answering role for that kind, so a read sent
+during `decompose` blocked forever, the identical failure shape as the first finding, just on a
+different held kind. The desktop app always did answer it, so this was an instrument gap, not a
+product defect. It is answered now through `answer-board-read`, a bridge verb calling the SAME
+`resolve_board_read` dispatch the desktop app's own inbound handler calls.
+
+**The general rule, superseding the permission-specific wording of the finding above, which is now
+one instance of it:** the harness stands in for the Rust core on the sidecar's stdio protocol, and
+every inbound kind the sidecar holds open needs an answering handler registered in the harness's
+inbound drain. There are two such kinds today (`permission_request`, `board_read_request`), declared
+in one exported list (`HELD_INBOUND_REQUEST_TYPES`, `lib/sidecar-harness.mjs`). A live script that
+does not answer one of them will starve rather than fail fast.
 
 Costs real tokens: it drives a real, multi-turn model conversation. Not executed by an autonomous
 CI/executor run — a human runs it deliberately when judging SHAPE-01/SHAPE-03's own human-only half
