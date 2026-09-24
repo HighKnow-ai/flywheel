@@ -429,10 +429,24 @@ export function readBackendRefusal(text) {
  * inside its own timeout message) inherits the same reading with no second copy of the logic.
  * `null`, never `undefined`, when the text is not a refusal — a caller testing this field with a
  * typo'd name cannot pass by accident.
+ *
+ * `pendingToolCallCount` (plan 05-25, WR-04 closure): the number of `tool_call` events in this
+ * scanned window, for this run, with no subsequent `tool_result` event for the same run before the
+ * window ends — a running FIFO count, incremented on each of this run's own `tool_call` events and
+ * decremented on each of this run's own SUBSEQUENT `tool_result` events (floored at zero). Never
+ * keyed to a specific tool name: neither `ToolCallEvent` nor `ToolResultEvent`
+ * (`packages/sidecar/src/adapter.ts`) carries a correlation id, so there is nothing finer-grained
+ * to correlate against — a `tool_result` for this run answers whichever of this run's own tool
+ * calls has been outstanding longest. A value above zero is a FACT about the events themselves —
+ * this run has issued a tool call and not yet received its answer — not a guess, and is exactly
+ * what lets {@link SidecarClient.waitForTurn} tell "the model is mid-flight on a tool" apart from
+ * "the model went quiet with nothing outstanding." Returned on BOTH return paths, exactly like
+ * `refusal` above.
  */
 export function accumulateTurn(events, runId, cursor) {
   const chunks = [];
   const toolCalls = [];
+  let pendingToolCallCount = 0;
   for (let i = cursor; i < events.length; i += 1) {
     const event = events[i];
     if (event.runId !== runId) continue;
@@ -441,6 +455,9 @@ export function accumulateTurn(events, runId, cursor) {
       chunks.push(event.text);
     } else if (event.type === "tool_call") {
       toolCalls.push(event);
+      pendingToolCallCount += 1;
+    } else if (event.type === "tool_result") {
+      if (pendingToolCallCount > 0) pendingToolCallCount -= 1;
     } else if (event.type === "result") {
       const text = chunks.join("\n\n");
       return {
@@ -452,6 +469,7 @@ export function accumulateTurn(events, runId, cursor) {
         endedBy: "result",
         endIndex: i + 1,
         refusal: readBackendRefusal(text),
+        pendingToolCallCount,
       };
     }
   }
@@ -465,6 +483,7 @@ export function accumulateTurn(events, runId, cursor) {
     endedBy: undefined,
     endIndex: events.length,
     refusal: readBackendRefusal(text),
+    pendingToolCallCount,
   };
 }
 
@@ -653,6 +672,34 @@ export class SidecarClient {
    * waiting (idle timer, deadline) on top of that pure scan, so `--self-test` can exercise the
    * accumulation logic directly with no timers at all, and exercise this method's own timing
    * behaviour separately with a short, explicitly-passed `idleMs`/`timeoutMs`.
+   *
+   * WR-04 closure (plan 05-25): the idle timer is reset ONLY on this watcher's own progress —
+   * tracked as the tuple `(chunkCount, toolCalls.length, pendingToolCallCount)` from
+   * {@link accumulateTurn}'s own return — never on an event that advances none of them. A foreign
+   * run's event, or a non-turn event for this same run, changes none of the three (they are all
+   * already scoped to this `runId` by `accumulateTurn` itself) and therefore neither arms nor
+   * extends the running timer; it is left exactly as it was. This is deliberately NOT a raw
+   * scan-position index (`events.length`/`endIndex` on the fall-through path) — that value grows on
+   * ANY event appended to the shared buffer, including one from a completely different run, and
+   * using it as a progress signal would silently reintroduce the exact cross-run coupling this fix
+   * removes. `pendingToolCallCount` is the one signal `chunkCount`/`toolCalls.length` cannot
+   * express on their own: a `tool_result` answering a pending call changes neither of those two
+   * numbers, yet it is real progress on this turn that must be allowed to re-arm the window.
+   *
+   * Additionally, the idle window is STOOD DOWN ENTIRELY while `pendingToolCallCount` is above
+   * zero — a turn that has issued a tool call and not yet received its result is PROVABLY
+   * mid-flight, and concluding it early (while the backend may still be generating the result of
+   * that call) is precisely the WR-04 defect. In that state no idle timer is armed at all; the
+   * outer `timeoutMs` deadline is the only backstop, which is what it was always for. TRADEOFF,
+   * named here rather than left to be discovered: a turn whose tool call is NEVER answered now
+   * waits out the full `timeoutMs` deadline instead of the short `idleMs` window — a real change in
+   * how long a stuck turn takes to fail. This is the correct trade: the deadline path already
+   * reports what it captured (plan 05-20's own truth) rather than discarding it, and a false
+   * "the turn is over" while a tool call is genuinely outstanding is a worse failure than a slower,
+   * honest one.
+   *
+   * The `result` branch (below) is UNCHANGED by any of this — the backend's own end-of-turn line
+   * remains the primary signal and always wins immediately, including while a tool call is pending.
    */
   waitForTurn(runId, cursor, { timeoutMs = 30_000, idleMs = TURN_IDLE_MS, label = "a turn" } = {}) {
     if (this.turnWatchers === undefined) this.turnWatchers = [];
@@ -660,6 +707,12 @@ export class SidecarClient {
       let settled = false;
       let idleTimer;
       let deadlineTimer;
+      // The last-observed progress tuple this watcher has already reacted to — see the doc
+      // comment above for why `pendingToolCallCount`, not a raw scan-position index, is the third
+      // member.
+      let lastChunkCount = 0;
+      let lastToolCallCount = 0;
+      let lastPendingToolCallCount = 0;
 
       const cleanup = () => {
         clearTimeout(idleTimer);
@@ -690,11 +743,27 @@ export class SidecarClient {
             ? ` UNANSWERED HELD INBOUND REQUESTS (likely cause of this timeout): ` +
               `${JSON.stringify(unanswered)}.`
             : "";
+        // WR-04 closure (plan 05-25): a hang with an outstanding tool call is a DIFFERENT
+        // diagnosis from a hang with nothing in flight — name the count and the tool names (the
+        // most recently issued `pendingToolCallCount` of them, under the same FIFO-answering
+        // assumption `accumulateTurn` itself uses) so a genuine hang is diagnosable from the error
+        // alone, beside the existing captured-chunk/character clause and the unanswered-held-
+        // request clause above.
+        const pendingToolCallsClause =
+          partial.pendingToolCallCount > 0
+            ? ` OUTSTANDING TOOL CALL(S) (likely cause of this timeout): ` +
+              `${partial.pendingToolCallCount} — ` +
+              `${JSON.stringify(
+                partial.toolCalls
+                  .slice(partial.toolCalls.length - partial.pendingToolCallCount)
+                  .map((call) => call.toolName),
+              )}.`
+            : "";
         reject(
           new Error(
             `timed out after ${timeoutMs}ms waiting for ${label}. captured so far: ` +
               `${partial.chunkCount} chunk(s), ${partial.charCount} character(s). events so far: ` +
-              `${JSON.stringify(this.events.map((e) => e.type))}.${unansweredClause}`,
+              `${JSON.stringify(this.events.map((e) => e.type))}.${unansweredClause}${pendingToolCallsClause}`,
           ),
         );
       };
@@ -706,7 +775,28 @@ export class SidecarClient {
           finish(partial);
           return;
         }
+        // WR-04 closure (plan 05-25): only react when THIS watcher's own progress tuple has
+        // advanced since the previous notification — see this method's own doc comment for why
+        // `pendingToolCallCount`, not a raw scan-position index, is the third member. An event
+        // that advances none of the three (a different run's event, or a non-turn event) leaves
+        // the running idle timer exactly as it is: this call returns without touching it.
+        const advanced =
+          partial.chunkCount !== lastChunkCount ||
+          partial.toolCalls.length !== lastToolCallCount ||
+          partial.pendingToolCallCount !== lastPendingToolCallCount;
+        lastChunkCount = partial.chunkCount;
+        lastToolCallCount = partial.toolCalls.length;
+        lastPendingToolCallCount = partial.pendingToolCallCount;
+        if (!advanced) return;
         clearTimeout(idleTimer);
+        if (partial.pendingToolCallCount > 0) {
+          // A tool call is outstanding for this turn — demonstrably mid-flight. Stand the idle
+          // window down entirely rather than arming it; the outer `timeoutMs` deadline is the
+          // honest backstop. The next notification that changes this tuple (most likely this same
+          // call's own `tool_result` arriving) re-evaluates from scratch and re-arms the window if
+          // the count has dropped back to zero.
+          return;
+        }
         if (partial.chunkCount > 0) {
           idleTimer = setTimeout(finishIdle, idleMs);
         }

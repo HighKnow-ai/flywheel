@@ -984,6 +984,190 @@ async function selfTest() {
       assert.ok(deadlineRejection.message.includes("0 chunk"));
       assert.ok(deadlineRejection.message.includes("0 character"));
     });
+
+    // ---------------------------------------------------------------------------------------
+    // WR-04 closure (plan 05-25) — pendingToolCallCount, the idle policy's own scoped reset and
+    // suppression, and the deadline message's new clause. All against the same tiny stub or a
+    // short, explicitly-passed idleMs/timeoutMs, exactly like every check above.
+    // ---------------------------------------------------------------------------------------
+
+    check(
+      "accumulateTurn's pendingToolCallCount counts an unanswered tool_call, decrements once its tool_result arrives, floors at zero, and ignores a foreign run's tool_result",
+      () => {
+        const runId = "run-pending-arith";
+        const noCalls = accumulateTurn(
+          [{ runId, type: "assistant_text", text: "hi" }, { runId, type: "result" }],
+          runId,
+          0,
+        );
+        assert.equal(noCalls.pendingToolCallCount, 0);
+
+        const onePending = accumulateTurn(
+          [{ runId, type: "assistant_text", text: "hi" }, { runId, type: "tool_call", toolName: "Bash" }],
+          runId,
+          0,
+        );
+        assert.equal(onePending.pendingToolCallCount, 1);
+
+        const answered = accumulateTurn(
+          [
+            { runId, type: "assistant_text", text: "hi" },
+            { runId, type: "tool_call", toolName: "Bash" },
+            { runId, type: "tool_result", raw: "ok" },
+          ],
+          runId,
+          0,
+        );
+        assert.equal(answered.pendingToolCallCount, 0);
+
+        const foreignResultDoesNotAnswer = accumulateTurn(
+          [
+            { runId, type: "tool_call", toolName: "Bash" },
+            { runId: "some-other-run", type: "tool_result", raw: "ok" },
+          ],
+          runId,
+          0,
+        );
+        assert.equal(
+          foreignResultDoesNotAnswer.pendingToolCallCount,
+          1,
+          "a foreign run's tool_result must not answer this run's pending call",
+        );
+
+        const twoPendingOneAnswered = accumulateTurn(
+          [
+            { runId, type: "tool_call", toolName: "Bash" },
+            { runId, type: "tool_call", toolName: "Read" },
+            { runId, type: "tool_result", raw: "ok" },
+          ],
+          runId,
+          0,
+        );
+        assert.equal(twoPendingOneAnswered.pendingToolCallCount, 1);
+      },
+    );
+
+    check("accumulateTurn returns pendingToolCallCount from BOTH of its return paths (result-terminated and fall-through)", () => {
+      const runId = "run-pending-both-paths";
+      const terminated = accumulateTurn(
+        [{ runId, type: "tool_call", toolName: "Bash" }, { runId, type: "result" }],
+        runId,
+        0,
+      );
+      assert.equal(terminated.endedBy, "result");
+      assert.equal(terminated.pendingToolCallCount, 1);
+      const fallThrough = accumulateTurn([{ runId, type: "tool_call", toolName: "Bash" }], runId, 0);
+      assert.equal(fallThrough.endedBy, undefined);
+      assert.equal(fallThrough.pendingToolCallCount, 1);
+    });
+
+    let deadlineRejectionWithPending;
+    try {
+      await SidecarClient.prototype.waitForTurn.call(
+        { events: [{ runId: RUN_ID, type: "tool_call", toolName: "Bash" }], turnWatchers: [] },
+        RUN_ID,
+        0,
+        { timeoutMs: 20, idleMs: 500, label: "the deadline-with-pending-tool self-test" },
+      );
+    } catch (err) {
+      deadlineRejectionWithPending = err;
+    }
+    check(
+      "the deadline rejection names the outstanding tool call count and tool name when a tool call is pending — a hang while waiting on a tool is a different diagnosis from a hang with nothing in flight",
+      () => {
+        assert.ok(deadlineRejectionWithPending !== undefined, "expected waitForTurn to reject on its own deadline");
+        assert.ok(
+          deadlineRejectionWithPending.message.includes("OUTSTANDING TOOL CALL"),
+          "expected the deadline message to name the outstanding-tool-call clause",
+        );
+        assert.ok(deadlineRejectionWithPending.message.includes("Bash"), "expected the outstanding tool's name to be named");
+      },
+    );
+
+    {
+      // A tool call outstanding must suppress the idle window ENTIRELY, even after idleMs has
+      // long elapsed — the deadline is the only backstop. Then, once the call is answered (a
+      // tool_result arrives), suppression must LIFT — the turn ends on the idle window again
+      // rather than latching mid-flight for the rest of the turn.
+      const PENDING_RUN_ID = "run-pendingtoolcall-suppression-self-test";
+      const stub = {
+        events: [
+          { runId: PENDING_RUN_ID, type: "assistant_text", text: "starting the tool" },
+          { runId: PENDING_RUN_ID, type: "tool_call", toolName: "Bash" },
+        ],
+        turnWatchers: [],
+      };
+      const promise = SidecarClient.prototype.waitForTurn.call(stub, PENDING_RUN_ID, 0, {
+        timeoutMs: 2_000,
+        idleMs: 30,
+        label: "pending-tool-call suppression self-test",
+      });
+      const STILL_PENDING = Symbol("still-pending");
+      const raceResult = await Promise.race([
+        promise,
+        new Promise((resolve) => setTimeout(() => resolve(STILL_PENDING), 90)),
+      ]);
+      check(
+        "a turn with an outstanding tool call does not end on the idle window even long after the idle window would have elapsed — the idle window is stood down entirely while a tool call is pending",
+        () => {
+          assert.equal(
+            raceResult,
+            STILL_PENDING,
+            "expected the turn to still be pending — the idle window must be suppressed while a tool call is outstanding",
+          );
+        },
+      );
+
+      // Answer the call for real and let the turn go idle — suppression must lift.
+      stub.events.push({ runId: PENDING_RUN_ID, type: "tool_result", raw: "ok" });
+      stub.turnWatchers[0]();
+      const result = await promise;
+      check(
+        "a turn whose tool call is answered by a tool result, and which then goes quiet, ends on the idle window again — suppression lifts once the call is answered rather than latching for the rest of the turn",
+        () => {
+          assert.equal(result.endedBy, "idle");
+          assert.equal(result.pendingToolCallCount, 0);
+        },
+      );
+    }
+
+    {
+      // An event belonging to a DIFFERENT run, arriving while this turn is paused, must neither
+      // arm nor extend the idle timer — the running timer, armed on the ORIGINAL schedule, must
+      // fire on ITS OWN schedule, never a rescheduled one.
+      const OWN_RUN_ID = "run-foreignevent-during-pause-self-test";
+      const stub = {
+        events: [{ runId: OWN_RUN_ID, type: "assistant_text", text: "own text, then goes quiet" }],
+        turnWatchers: [],
+      };
+      const startedAt = Date.now();
+      const promise = SidecarClient.prototype.waitForTurn.call(stub, OWN_RUN_ID, 0, {
+        timeoutMs: 2_000,
+        idleMs: 100,
+        label: "foreign-event-during-pause self-test",
+      });
+      // Well before the 100ms idle window elapses, a foreign run's event arrives and this turn's
+      // watcher is notified of it (mirroring what #handleLine does for every real event push).
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      stub.events.push({ runId: "some-other-run", type: "assistant_text", text: "OTHER RUN (must never appear)" });
+      stub.turnWatchers[0]();
+      const result = await promise;
+      const elapsedMs = Date.now() - startedAt;
+      check(
+        "an event belonging to a different run arriving during the pause neither arms nor extends this turn's idle timer — the turn ends on its ORIGINAL idle schedule, not a rescheduled one",
+        () => {
+          assert.equal(result.endedBy, "idle");
+          assert.ok(!result.text.includes("OTHER RUN"), "expected the foreign run's text to never appear in this turn's own text");
+          assert.equal(result.chunkCount, 1);
+          // If the foreign event had reset the idle timer, this would resolve ~100ms after the
+          // foreign event landed (~130ms total) rather than ~100ms after the turn started.
+          assert.ok(
+            elapsedMs < 120,
+            `expected the idle timer to fire on its ORIGINAL ~100ms schedule, not be reset by the foreign event — took ${elapsedMs}ms`,
+          );
+        },
+      );
+    }
   }
 
   // -----------------------------------------------------------------------------------------
