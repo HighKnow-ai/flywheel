@@ -193,27 +193,37 @@ const EVIDENCE_FILE_NAME = "05-LIVE-CHALLENGE-TRANSCRIPT.md";
 /**
  * Pure: renders the Markdown evidence sheet a human reads their one judgement call from. No
  * filesystem or process access — it formats `evidence` and returns a string, so `--self-test` can
- * assert its shape offline (T-05-16-06).
+ * assert its shape offline (T-05-16-06). Byte-identical output for identical input (T-05-16-06,
+ * re-asserted by G-05-2's own self-test check).
  *
- * `evidence` fields: `runId`, `openingPrompt`, `firstReplyText`, `secondTurn`, `secondReplyText`,
- * `proposeAttempted`, `proposeDenied`, `draftedCriteriaCount`, `amendedCriteriaCount`, `results`
- * (the array `buildCriteriaResults`/`reportCriteria` share — may be `[]` before the decompose
- * phase completes), and `timestamp` (an ISO string, supplied by the caller so this function never
- * reads the clock itself and stays byte-identical across calls with identical input).
+ * `evidence` fields:
+ * - `runId`, `timestamp` (an ISO string, supplied by the caller so this function never reads the
+ *   clock itself)
+ * - `exchanges` — an ORDERED array recording the whole conversation, not two samples of it
+ *   (G-05-2). Each entry: `{ speaker: "developer" | "agent", text, chunkCount?, charCount?,
+ *   endedBy? }`. The opening prompt is the FIRST developer entry — there is no separate "opening
+ *   prompt" section. `chunkCount`/`charCount`/`endedBy` are read only from `speaker: "agent"`
+ *   entries (an agent turn's own capture-integrity numbers, from `SidecarClient.waitForTurn`).
+ * - `proposeAttempted`, `proposeDenied`, `draftedCriteriaCount`, `amendedCriteriaCount`
+ * - `results` (the array `buildCriteriaResults`/`reportCriteria` share — may be `[]` before the
+ *   decompose phase completes)
+ * - `synthetic` (boolean, default `false`) and `scenario` (the scenario name, when `synthetic` is
+ *   true) — G-05-2's own guard against laundering a scripted run as a live one: a synthetic sheet
+ *   carries an unmissable marker in its first two lines naming the scenario, and its verdict
+ *   section is REPLACED by a refusal — the unfilled-verdict token appears zero times.
  */
 function renderChallengeEvidenceSheet(evidence) {
   const {
     runId,
-    openingPrompt,
-    firstReplyText,
-    secondTurn,
-    secondReplyText,
+    exchanges = [],
     proposeAttempted,
     proposeDenied,
     draftedCriteriaCount,
     amendedCriteriaCount,
     results,
     timestamp,
+    synthetic = false,
+    scenario,
   } = evidence;
 
   const drafted = draftedCriteriaCount ?? 0;
@@ -227,30 +237,63 @@ function renderChallengeEvidenceSheet(evidence) {
     })
     .join("\n");
 
+  // The whole conversation, in order, each exchange its own fenced block — never two samples of
+  // it. An agent entry's heading names its own capture-integrity numbers, so a truncated capture
+  // is visible on the face of the document rather than only inferable by diffing prose.
+  const conversationBlocks = exchanges
+    .map((exchange, index) => {
+      const speakerLabel = exchange.speaker === "agent" ? "Agent" : "Developer";
+      const integritySuffix =
+        exchange.speaker === "agent"
+          ? ` — chunks=${exchange.chunkCount ?? 0} chars=${exchange.charCount ?? 0} endedBy=${exchange.endedBy ?? "unknown"}`
+          : "";
+      return `### ${index + 1}. ${speakerLabel}${integritySuffix}\n\n\`\`\`\n${exchange.text}\n\`\`\``;
+    })
+    .join("\n\n");
+
+  const agentExchanges = exchanges.filter((exchange) => exchange.speaker === "agent");
+  const integrityTable =
+    agentExchanges.length > 0
+      ? `| Agent turn | Chunk count | Character count | End marker |\n| --- | --- | --- | --- |\n` +
+        agentExchanges
+          .map(
+            (exchange, index) =>
+              `| ${index + 1} | ${exchange.chunkCount ?? 0} | ${exchange.charCount ?? 0} | ${exchange.endedBy ?? "unknown"} |`,
+          )
+          .join("\n")
+      : "(no agent turns captured yet)";
+
+  // Deliberately the second LINE of the whole document (never buried) — a human or a script
+  // reading only the head of this file must see it before anything else.
+  const syntheticMarkerLine = synthetic
+    ? `**SYNTHETIC RUN (scenario: \`${scenario ?? "unknown"}\`)** — produced by a scripted stand-in ` +
+      "backend, not a live conversation. No verdict may be recorded from it."
+    : "";
+
+  const verdictsSection = synthetic
+    ? `## Verdicts\n\n` +
+      `This is a SYNTHETIC run (scenario: \`${scenario ?? "unknown"}\`) — no verdict may be ` +
+      "recorded from scripted dialogue. Run the live arm (no `--replay-check`) to produce a " +
+      "judgeable transcript.\n"
+    : `## Verdicts (human — fill these in)\n\n` +
+      `- SHAPE-01 challenge-quality verdict: ${UNJUDGED_TOKEN} — reading the conversation above,\n` +
+      "  did the agent push back on the stated premise, or did it affirm it and start planning work?\n" +
+      `- SHAPE-03 draft-usefulness verdict: ${UNJUDGED_TOKEN} — were the drafted criteria above useful\n` +
+      "  as-is, or did they need the amendment recorded above to become usable?\n";
+
   return `# Phase 5 — Socratic Epic Authoring — Live Challenge Transcript
+${syntheticMarkerLine}
 
 **Run:** ${runId}
 **Captured:** ${timestamp}
 
-## Opening prompt
+## Conversation
 
-${openingPrompt}
+${conversationBlocks || "(no exchanges captured yet)"}
 
-## Second turn
+## Capture integrity
 
-${secondTurn}
-
-## First reply (verbatim)
-
-\`\`\`
-${firstReplyText}
-\`\`\`
-
-## Second reply (verbatim)
-
-\`\`\`
-${secondReplyText}
-\`\`\`
+${integrityTable}
 
 ## Propose-tool observations
 
@@ -267,13 +310,7 @@ ${criterionLines || "(not yet available — populated once the decompose phase c
 - Amended criteria: ${amended}
 - Ratio (amended/drafted): ${amended}/${drafted}
 
-## Verdicts (human — fill these in)
-
-- SHAPE-01 challenge-quality verdict: ${UNJUDGED_TOKEN} — reading the two verbatim replies above,
-  did the agent push back on the stated premise, or did it affirm it and start planning work?
-- SHAPE-03 draft-usefulness verdict: ${UNJUDGED_TOKEN} — were the drafted criteria above useful
-  as-is, or did they need the amendment recorded above to become usable?
-`;
+${verdictsSection}`;
 }
 
 /**
@@ -410,10 +447,24 @@ async function selfTest() {
 
   const SYNTHETIC_EVIDENCE = {
     runId: "01ABCDEFGHJKMNPQRSTVWXYZ0",
-    openingPrompt: "I want to build a notifications feature so users get pinged.",
-    firstReplyText: "What problem are you actually trying to solve for the user here?",
-    secondTurn: "Just in-app for now, nothing external.",
-    secondReplyText: "Got it — in-app only. Before I draft anything, who dismisses a notification?",
+    exchanges: [
+      { speaker: "developer", text: "I want to build a notifications feature so users get pinged." },
+      {
+        speaker: "agent",
+        text: "What problem are you actually trying to solve for the user here?",
+        chunkCount: 1,
+        charCount: 65,
+        endedBy: "result",
+      },
+      { speaker: "developer", text: "Just in-app for now, nothing external." },
+      {
+        speaker: "agent",
+        text: "Got it — in-app only. Before I draft anything, who dismisses a notification?",
+        chunkCount: 1,
+        charCount: 77,
+        endedBy: "result",
+      },
+    ],
     proposeAttempted: false,
     proposeDenied: false,
     draftedCriteriaCount: 2,
@@ -429,13 +480,14 @@ async function selfTest() {
     timestamp: "2026-01-01T00:00:00.000Z",
   };
 
-  check("the evidence sheet carries both assistant replies verbatim", () => {
+  check("the evidence sheet carries every exchange verbatim, including turns beyond the first two", () => {
     const sheet = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
-    assert.ok(sheet.includes(SYNTHETIC_EVIDENCE.firstReplyText));
-    assert.ok(sheet.includes(SYNTHETIC_EVIDENCE.secondReplyText));
+    for (const exchange of SYNTHETIC_EVIDENCE.exchanges) {
+      assert.ok(sheet.includes(exchange.text), `expected the sheet to include ${JSON.stringify(exchange.text)}`);
+    }
   });
 
-  check("the evidence sheet starts with both verdicts unfilled", () => {
+  check("the live-shaped sheet carries the unfilled-verdict token exactly twice", () => {
     const sheet = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
     const occurrences = sheet.split(UNJUDGED_TOKEN).length - 1;
     assert.equal(occurrences, 2);
@@ -445,6 +497,22 @@ async function selfTest() {
     const first = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
     const second = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
     assert.equal(first, second);
+  });
+
+  check("the synthetic-shaped sheet carries zero unfilled-verdict tokens and names its scenario in its first two lines", () => {
+    const sheet = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, synthetic: true, scenario: "truncation-repro" });
+    const occurrences = sheet.split(UNJUDGED_TOKEN).length - 1;
+    assert.equal(occurrences, 0);
+    const firstTwoLines = sheet.split("\n").slice(0, 2).join("\n");
+    assert.ok(firstTwoLines.includes("SYNTHETIC"), "expected a synthetic marker in the first two lines");
+    assert.ok(firstTwoLines.includes("truncation-repro"), "expected the scenario name in the first two lines");
+  });
+
+  check("the capture-integrity table has exactly one row per agent exchange", () => {
+    const sheet = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+    const agentExchangeCount = SYNTHETIC_EVIDENCE.exchanges.filter((exchange) => exchange.speaker === "agent").length;
+    const tableRowCount = (sheet.match(/^\| \d+ \|/gm) ?? []).length;
+    assert.equal(tableRowCount, agentExchangeCount);
   });
 
   check("the bridge binary path resolves under target/debug or target/release when built", () => {
@@ -1062,6 +1130,34 @@ if (process.argv.includes("--replay-check")) {
           "shape that used to drop the three questions verbatim",
       );
 
+      // A synthetic evidence sheet — written for inspection, but NEVER through `resolveEvidencePath()`
+      // and NEVER anywhere near the phase directory (G-05-2's own guard against laundering a
+      // scripted run as a live one).
+      const scratchEvidenceDir = path.join(harness.root, "evidence");
+      fs.mkdirSync(scratchEvidenceDir, { recursive: true });
+      const scratchEvidencePath = path.join(scratchEvidenceDir, EVIDENCE_FILE_NAME);
+      fs.writeFileSync(
+        scratchEvidencePath,
+        renderChallengeEvidenceSheet({
+          runId,
+          exchanges: [
+            { speaker: "developer", text: OPENING_PROMPT },
+            { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy },
+            { speaker: "developer", text: SECOND_TURN },
+            { speaker: "agent", text: turn2.text, chunkCount: turn2.chunkCount, charCount: turn2.charCount, endedBy: turn2.endedBy },
+          ],
+          proposeAttempted: false,
+          proposeDenied: false,
+          draftedCriteriaCount: 0,
+          amendedCriteriaCount: 0,
+          results: [],
+          timestamp: new Date().toISOString(),
+          synthetic: true,
+          scenario: DEFAULT_SCENARIO,
+        }),
+      );
+      step(`wrote a synthetic evidence sheet (scratch only, never the phase directory): ${scratchEvidencePath}`);
+
       step("ending the run (kill op) and confirming the fake backend leaves no process behind");
       await sidecar.request({ op: "kill", runId });
       await sidecar.waitForEvent(
@@ -1199,15 +1295,22 @@ await runScript(
     const criterion1Challenged = /\?/.test(turn1.text) || /\?/.test(turn2.text);
     const criterion1NoWorkPlanned = !proposeAttempted || proposeDenied;
 
+    // The whole conversation, in order — the opening prompt and second turn (developer) and both
+    // captured turns (agent, each with its own capture-integrity numbers) — never two samples of
+    // it (G-05-2's own `renderChallengeEvidenceSheet` reshape).
+    const exchanges = [
+      { speaker: "developer", text: OPENING_PROMPT },
+      { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy },
+      { speaker: "developer", text: SECOND_TURN },
+      { speaker: "agent", text: turn2.text, chunkCount: turn2.chunkCount, charCount: turn2.charCount, endedBy: turn2.endedBy },
+    ];
+
     const evidencePath = resolveEvidencePath();
     fs.writeFileSync(
       evidencePath,
       renderChallengeEvidenceSheet({
         runId,
-        openingPrompt: OPENING_PROMPT,
-        firstReplyText: turn1.text,
-        secondTurn: SECOND_TURN,
-        secondReplyText: turn2.text,
+        exchanges,
         proposeAttempted,
         proposeDenied,
         draftedCriteriaCount: 0,
@@ -1331,10 +1434,7 @@ await runScript(
       evidencePath,
       renderChallengeEvidenceSheet({
         runId,
-        openingPrompt: OPENING_PROMPT,
-        firstReplyText: turn1.text,
-        secondTurn: SECOND_TURN,
-        secondReplyText: turn2.text,
+        exchanges,
         proposeAttempted,
         proposeDenied,
         draftedCriteriaCount,
