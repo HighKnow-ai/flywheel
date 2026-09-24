@@ -110,6 +110,58 @@ export const SCENARIOS = {
       },
     ],
   },
+
+  // Plan 05-21 (G-05-2, `driveChallengeConversation`'s own two conversational shapes) — both
+  // scripted with multi-block turns (a `tool_use` interleaved with the text blocks), so they also
+  // keep exercising the turn boundary `truncation-repro` above was built to prove.
+  "settles-after-answers": {
+    turns: [
+      // Turn 1 — three questions, one per topic the harness's own answer bank covers (audience,
+      // surface, restart-persistence).
+      [
+        { type: "text", text: "Let me get oriented before shaping this." },
+        { type: "tool_use", name: "Bash", input: { command: "git status --short && ls" } },
+        { type: "text", text: "Three things would decide the shape here:" },
+        {
+          type: "text",
+          text:
+            "Who is the audience for a notification?\n" +
+            "What surface does it appear on?\n" +
+            "Does it need to survive an app restart?",
+        },
+      ],
+      // Turn 2 — the reply to the developer's answers. No interrogative fragment at all: this is
+      // what makes the conversation SETTLE.
+      [
+        { type: "text", text: "Good — locking that in." },
+        { type: "tool_use", name: "Bash", input: { command: "true" } },
+        {
+          type: "text",
+          text:
+            "Got it — the assignee only, an in-app tray, and it survives a restart. That's enough " +
+            "to move forward.",
+        },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "Noted — I'll keep that in mind as we continue." },
+    ],
+  },
+  "never-settles": {
+    // Every scripted turn AND the fallback turn end with a further question — the conversation can
+    // never settle on its own, so the driver must hit `MAX_AGENT_TURNS` and escape via the closing
+    // turn rather than loop forever.
+    turns: [
+      [
+        { type: "text", text: "Let me think about this out loud first." },
+        { type: "tool_use", name: "Bash", input: { command: "true" } },
+        { type: "text", text: "Before I draft anything: what should trigger a notification in the first place?" },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "Understood — but one more thing: are you sure that's the only trigger we need?" },
+    ],
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation
