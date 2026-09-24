@@ -1228,6 +1228,57 @@ mod persist_tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// A turn recorded while the run's session log cannot be opened still emits the turn event,
+    /// and additionally emits exactly one persistence notice through the sink — never only the
+    /// `eprintln!` breadcrumb (Task 2, plan 05-14, WR-04).
+    #[test]
+    fn authoring_turn_persist_failure_surfaces_a_notice_not_only_stderr() {
+        let handle = SidecarHandle::without_child_for_tests();
+        let sink = RecordingSink::default();
+        let run_id = fresh_run_id();
+        let obstruction = obstruct_log_path(&run_id);
+
+        handle.record_authoring_turn_into(&sink, &run_id, "hello", AuthoringTurnOrigin::Developer);
+
+        assert_eq!(
+            sink.persistence_failures.lock().unwrap().len(),
+            1,
+            "a persist failure during a turn must surface exactly one notice through the sink"
+        );
+        assert_eq!(
+            sink.events.lock().unwrap().len(),
+            1,
+            "the turn event must still be emitted even though the persist failed"
+        );
+
+        let _ = std::fs::remove_dir_all(&obstruction);
+    }
+
+    /// A second failing turn on the SAME run emits no second notice — the identical once-per-run
+    /// contract the shared reader loop already honours through `notified_persist_failures`.
+    #[test]
+    fn authoring_turn_persist_failure_surfaces_exactly_one_notice_per_run() {
+        let handle = SidecarHandle::without_child_for_tests();
+        let sink = RecordingSink::default();
+        let run_id = fresh_run_id();
+        let obstruction = obstruct_log_path(&run_id);
+
+        handle.record_authoring_turn_into(&sink, &run_id, "first", AuthoringTurnOrigin::Developer);
+        handle.record_authoring_turn_into(&sink, &run_id, "second", AuthoringTurnOrigin::Developer);
+
+        assert_eq!(
+            sink.persistence_failures.lock().unwrap().len(),
+            1,
+            "a run whose log keeps failing must produce exactly one notice, not one per turn"
+        );
+        assert_eq!(
+            sink.events.lock().unwrap().len(),
+            2,
+            "both turn events must still be emitted despite the persist failures"
+        );
+
+        let _ = std::fs::remove_dir_all(&obstruction);
+    }
 }
 
 /// [`push_bounded_stderr_tail`]'s own behavior cases (plan 03-15, T-03-15-04): a `String::truncate`
