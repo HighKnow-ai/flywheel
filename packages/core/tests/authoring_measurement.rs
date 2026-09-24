@@ -316,7 +316,6 @@ fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept()
         None,
     )
     .expect("propose the task");
-    accept_proposal(&mut conn, &task.id, &actor_id).expect("accept the task");
 
     let amended_criterion = create_proposal(
         &mut conn,
@@ -327,6 +326,7 @@ fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept()
         Some(&task.id),
     )
     .expect("propose the criterion that will be amended");
+    // The amendment is the EARLIEST lifecycle event this run appends — before any acceptance.
     amend_proposal(
         &mut conn,
         &amended_criterion.id,
@@ -334,13 +334,18 @@ fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept()
         ProposalPayload::Criterion { statement: "amended wording".to_string(), verification_hint: None },
     )
     .expect("amend the staged criterion");
+
+    accept_proposal(&mut conn, &task.id, &actor_id).expect("accept the task");
     accept_proposal(&mut conn, &amended_criterion.id, &actor_id)
         .expect("accept the amended criterion");
 
-    // Enough LATER acceptances that the total accept/amend event count exceeds the bound below —
-    // this is the guard against "fix it by ordering the combined read DESC", which would drop the
-    // early amendment in favor of the most recent events.
-    for i in 0..3 {
+    // Two more LATER acceptances push the total accept/amend event count (5) past the limit (4)
+    // passed below, with the amendment as the single OLDEST event — the guard against "fix it by
+    // ordering the combined read DESC", which would keep only the newest 4 events and drop it.
+    // The limit still equals the total PROPOSAL count (4), so the separately-bounded proposal
+    // read (which accepted_criterion_ids is derived from) is not itself truncated here — this
+    // test isolates the amended-ids defect, not the proposal read's own, orthogonal bound.
+    for i in 0..2 {
         let extra_task = create_proposal(
             &mut conn,
             &run.id,
@@ -354,10 +359,10 @@ fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept()
     }
 
     let measurement =
-        measure_authoring_run(&conn, &run.id, 2).expect("measure_authoring_run should succeed");
+        measure_authoring_run(&conn, &run.id, 4).expect("measure_authoring_run should succeed");
     assert_eq!(
         measurement.amended_before_accept, 1,
-        "an amendment recorded well before later acceptances must still count, even under a small bound"
+        "an amendment recorded before several later acceptances must still count, even under a bound smaller than the total event count"
     );
 }
 

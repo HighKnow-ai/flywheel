@@ -335,7 +335,7 @@ pub struct AuthoringRunMeasurement {
 }
 
 /// Measure one authoring run (T-05-13's Task 3). `limit` bounds the two row-returning reads this
-/// derives from — this run's own proposals, and this run's own proposal-lifecycle events — through
+/// derives from — this run's own proposals, and this run's own amended proposal ids — through
 /// this module's own [`resolve_limit`], exactly like [`list_rejected_for_epic`]/
 /// [`list_pending_proposals`] do above. Acceptance and amendment are both derived from the event
 /// rows `domain::authoring_proposal`'s `accept_proposal_in_tx`/`amend_proposal` already append
@@ -346,6 +346,11 @@ pub struct AuthoringRunMeasurement {
 /// event recorded for a proposal necessarily happened BEFORE that proposal's own eventual
 /// `proposal.accepted` event, if it has one — "amended before accept" reduces to "amended at all,
 /// among the accepted".
+///
+/// WR-05: the last acceptance and the amended-ids set are two SEPARATE reads, not one ordered
+/// combined read. A single newest-first window would correctly keep the last acceptance but
+/// necessarily discard an amendment that happened earlier in the run, since an amendment always
+/// precedes the acceptance it belongs to — one window cannot serve both ends of one set.
 pub fn measure_authoring_run(
     conn: &Connection,
     run_id: &str,
@@ -362,7 +367,8 @@ pub fn measure_authoring_run(
         .with_context(|| format!("authoring run {run_id:?} not found"))?;
 
     let mut proposal_stmt = conn.prepare(
-        "SELECT id, target_type, status FROM authoring_proposals WHERE agent_run_id = ?1 LIMIT ?2",
+        "SELECT id, target_type, status FROM authoring_proposals WHERE agent_run_id = ?1 \
+         ORDER BY created_at DESC, id DESC LIMIT ?2",
     )?;
     let proposals: Vec<(String, String, String)> = proposal_stmt
         .query_map(params![run_id, resolved_limit], |row| {
@@ -382,43 +388,39 @@ pub fn measure_authoring_run(
         .collect();
     let accepted_criterion_proposals = accepted_criterion_ids.len() as i64;
 
-    let mut event_stmt = conn.prepare(
-        "SELECT e.stream_id, e.event_type, e.occurred_at FROM events e \
+    // The last acceptance is a single-row aggregate over the WHOLE matching set, not a bounded
+    // row scan: there is no bound left here for a bound to truncate, so this statement carries no
+    // ORDER BY and no LIMIT by design. `MAX` over an empty set yields SQL NULL, which `query_row`
+    // reads straight into `None` — the existing no-acceptances case, with no special branch.
+    let last_accepted_at: Option<String> = conn
+        .query_row(
+            "SELECT MAX(e.occurred_at) FROM events e \
+             JOIN authoring_proposals p ON p.id = e.stream_id \
+             WHERE p.agent_run_id = ?1 AND e.stream_type = 'authoring_proposal' \
+             AND e.event_type = 'proposal.accepted'",
+            params![run_id],
+            |row| row.get(0),
+        )
+        .context("failed to read this run's last acceptance timestamp for measurement")?;
+
+    // The amended-ids read is DISTINCT by proposal, not by amendment event: the bound counts
+    // amended PROPOSALS, so a proposal amended repeatedly never spends the window more than once,
+    // and an amendment far older than a later acceptance still survives a small bound.
+    let mut amended_stmt = conn.prepare(
+        "SELECT DISTINCT e.stream_id FROM events e \
          JOIN authoring_proposals p ON p.id = e.stream_id \
          WHERE p.agent_run_id = ?1 AND e.stream_type = 'authoring_proposal' \
-         AND e.event_type IN ('proposal.accepted', 'proposal.amended') \
-         ORDER BY e.occurred_at ASC LIMIT ?2",
+         AND e.event_type = 'proposal.amended' \
+         ORDER BY e.stream_id DESC LIMIT ?2",
     )?;
-    let events: Vec<(String, String, String)> = event_stmt
-        .query_map(params![run_id, resolved_limit], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .context("failed to read this run's own proposal-lifecycle events for measurement")?;
-
-    let mut amended_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut last_accepted_at: Option<String> = None;
-    for (proposal_id, event_type, occurred_at) in &events {
-        match event_type.as_str() {
-            "proposal.amended" => {
-                amended_ids.insert(proposal_id.as_str());
-            }
-            "proposal.accepted" => {
-                let is_newer = last_accepted_at
-                    .as_deref()
-                    .map(|last| occurred_at.as_str() > last)
-                    .unwrap_or(true);
-                if is_newer {
-                    last_accepted_at = Some(occurred_at.clone());
-                }
-            }
-            _ => {}
-        }
-    }
+    let amended_ids: std::collections::HashSet<String> = amended_stmt
+        .query_map(params![run_id, resolved_limit], |row| row.get(0))?
+        .collect::<Result<std::collections::HashSet<_>, _>>()
+        .context("failed to read this run's amended proposal ids for measurement")?;
 
     let amended_before_accept = accepted_criterion_ids
         .iter()
-        .filter(|id| amended_ids.contains(*id))
+        .filter(|id| amended_ids.contains(**id))
         .count() as i64;
 
     let elapsed_minutes = match &last_accepted_at {
