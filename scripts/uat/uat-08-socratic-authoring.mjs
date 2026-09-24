@@ -2172,6 +2172,13 @@ if (process.argv.includes("--board-read-check")) {
  * stays inside its own 90-second ceiling even if a scenario were to genuinely stall. */
 const REPLAY_TURN_DEADLINE_MS = 10_000;
 
+/** Plan 05-25 (WR-04 closure): the EXPLICIT, short idle window the `slow-tool-mid-turn` scenario
+ * passes — short enough that the fixture's own `delayMs` pause (1500ms, `fake-authoring-claude.mjs`)
+ * would certainly have tripped the PRE-FIX idle policy (which reset its timer on ANY event and
+ * never suppressed the window for an outstanding tool call), and comfortably below
+ * {@link REPLAY_TURN_DEADLINE_MS} so the arm stays fast while the assertion stays decisive. */
+const SLOW_TOOL_IDLE_MS = 300;
+
 /**
  * Run one `--replay-check` scenario end to end: its own scratch repository, project, run, sidecar
  * (pointed at the fake backend via `FLYWHEEL_CLAUDE_BIN`/`SCENARIO_ENV_VAR`), heartbeat writer and
@@ -2333,6 +2340,62 @@ async function runReplayCheckScenario(scenarioName) {
           { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy },
           { speaker: "developer", text: SECOND_TURN },
           { speaker: "agent", text: turn2.text, chunkCount: turn2.chunkCount, charCount: turn2.charCount, endedBy: turn2.endedBy },
+        ];
+      } else if (scenarioName === "slow-tool-mid-turn") {
+        // ---- WR-04 closure (plan 05-25) — a real mid-turn pause, captured whole ----------------
+        // A single, manually-captured turn (like DEFAULT_SCENARIO's own branch above) — this
+        // scenario's whole point is proving the idle-policy fix directly, with an EXPLICIT short
+        // idleMs, never through driveChallengeConversation's own longer default.
+        step(
+          `capturing the single scripted turn with an explicit short idleMs=${SLOW_TOOL_IDLE_MS} — ` +
+            "short enough that the PRE-FIX idle policy would certainly have truncated this capture " +
+            "at the fixture's own mid-turn pause",
+        );
+        const turn = await sidecar.waitForTurn(runId, turn1Cursor, {
+          timeoutMs: REPLAY_TURN_DEADLINE_MS,
+          idleMs: SLOW_TOOL_IDLE_MS,
+          label: "the slow-tool-mid-turn scenario's single turn",
+        });
+        step(`captured: chunks=${turn.chunkCount} chars=${turn.charCount} endedBy=${turn.endedBy}`);
+        assertAllHeldRequestsAnswered(sidecar);
+
+        const scenario = SCENARIOS[scenarioName];
+        const fixtureTextBlocks = scenario.turns[0].filter((block) => block.type === "text");
+        assert.equal(
+          turn.chunkCount,
+          fixtureTextBlocks.length,
+          `expected the captured turn to carry every one of the fixture's ${fixtureTextBlocks.length} ` +
+            `text block(s), got ${turn.chunkCount} — a turn paused on a slow tool call must never be ` +
+            "truncated before it finishes",
+        );
+        for (const block of fixtureTextBlocks) {
+          assert.ok(
+            turn.text.includes(block.text),
+            `expected the captured turn's text to include this fixture block verbatim: ${JSON.stringify(block.text)}`,
+          );
+        }
+        assert.equal(
+          turn.endedBy,
+          "result",
+          "expected the captured turn to end on the backend's own result marker, not the idle " +
+            "marker — a turn paused on a slow tool call must be captured whole, ending on the " +
+            "backend's own end-of-turn line, never truncated at the idle window while the backend " +
+            "is still generating",
+        );
+        step(
+          `reproduction confirmed: the turn's ${turn.chunkCount} chunk(s) (${turn.charCount} chars) ` +
+            "all captured, ending on the result marker — the mid-turn pause did not truncate it",
+        );
+
+        exchanges = [
+          { speaker: "developer", text: OPENING_PROMPT },
+          {
+            speaker: "agent",
+            text: turn.text,
+            chunkCount: turn.chunkCount,
+            charCount: turn.charCount,
+            endedBy: turn.endedBy,
+          },
         ];
       } else {
         // ---- every other scenario — driven through the REAL driveChallengeConversation ---------

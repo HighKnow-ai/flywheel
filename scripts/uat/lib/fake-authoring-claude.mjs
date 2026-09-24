@@ -52,6 +52,17 @@ import { createInterface } from "node:readline";
  * its own separate stdout line; `fallback` is the content-block array replayed for every turn
  * beyond the scripted ones, so a session stays answerable after the stage advances.
  *
+ * A content block may also carry an optional numeric `delayMs` (plan 05-25, WR-04 closure): before
+ * emitting THAT block's own stdout line, `emitTurn` waits `delayMs` milliseconds first. This is the
+ * ONLY way this repository can express a REAL mid-turn pause — every block without `delayMs` keeps
+ * emitting immediately, so every scenario's existing timing is completely unchanged. Before this
+ * plan, no fixture here could pause at all, which is exactly why no offline arm could reproduce
+ * WR-04 (a real Bash tool call that takes longer than the idle window, with nothing else on the
+ * wire in the meantime): the fake backend always replied instantly, so the idle window was never
+ * actually tested against a genuine mid-turn gap. `delayMs` is stripped from the block before it is
+ * written to stdout — it is a fixture-authoring convenience, never part of the wire shape a real
+ * `claude` CLI turn carries.
+ *
  * `truncation-repro` replays the exact shape of the 2026-09-24 live run that produced an
  * unjudgeable transcript (`.planning/debug/uat-08-live-transcript-unjudgeable.md`, Evidence
  * E4/E5): turn 1 is a pre-tool-call preamble, a tool call, then a narration block that references
@@ -283,6 +294,37 @@ export const SCENARIOS = {
       { type: "text", text: "This fallback turn must never be reached — the refusal must stop the driver first." },
     ],
   },
+
+  // Plan 05-25 (WR-04 closure, 05-REVIEW.md): the ONE scenario that exercises `delayMs` — a short
+  // text block, a Bash `tool_use` block, then a text block that PAUSES for real before it is
+  // emitted, then one more text block, all in the SAME scripted turn. The pause (1500ms) is
+  // comfortably larger than the short, explicit `idleMs` the matching `--replay-check` branch
+  // passes (300ms — short enough that the PRE-FIX idle policy, which reset its timer on ANY event
+  // and never suppressed the window for an outstanding tool call, would certainly have truncated
+  // this capture at the idle marker) and comfortably smaller than `REPLAY_TURN_DEADLINE_MS`
+  // (10000ms), so the reproduction stays fast while the assertion stays decisive. Proves the WHOLE
+  // turn — every block, including the one emitted AFTER the real pause — is captured, ending on
+  // the backend's own result marker, never the idle marker.
+  "slow-tool-mid-turn": {
+    turns: [
+      [
+        { type: "text", text: "Let me check the repo before answering." },
+        { type: "tool_use", name: "Bash", input: { command: "sleep 5 && git status --short" } },
+        {
+          type: "text",
+          text: "That took a while, but here's what I found:",
+          delayMs: 1500,
+        },
+        {
+          type: "text",
+          text: "The repo is clean and ready — go ahead and describe what you'd like built.",
+        },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "Noted — I'll keep that in mind as we continue." },
+    ],
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation
@@ -309,12 +351,22 @@ function printLine(obj) {
 
 /** Emit one turn's content blocks as separate stdout lines sharing one `message.id`, terminated
  * by exactly one `result` line. Mirrors `claude-code-adapter.ts`'s own `ClaudeStreamMessage`/
- * `ClaudeStreamResult` wire shapes so the shipped normaliser needs no special-casing to read it. */
-function emitTurn(blocks, messageId) {
+ * `ClaudeStreamResult` wire shapes so the shipped normaliser needs no special-casing to read it.
+ *
+ * Async (plan 05-25, WR-04 closure): a block carrying `delayMs` is awaited, via a real timer,
+ * BEFORE its own stdout line is written — the ONLY way this file can express a genuine mid-turn
+ * pause. `delayMs` itself is stripped before the block is written; it is a fixture-authoring
+ * field, never part of the wire shape. Every block without `delayMs` still emits immediately, so
+ * every scenario's pre-existing timing is unchanged. */
+async function emitTurn(blocks, messageId) {
   for (const block of blocks) {
+    if (typeof block.delayMs === "number" && block.delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, block.delayMs));
+    }
+    const { delayMs: _delayMs, ...wireBlock } = block;
     printLine({
       type: "assistant",
-      message: { id: messageId, role: "assistant", content: [block] },
+      message: { id: messageId, role: "assistant", content: [wireBlock] },
     });
   }
   printLine({
@@ -349,6 +401,12 @@ function main() {
   });
 
   let turnIndex = 0;
+  // Plan 05-25 (WR-04 closure): `emitTurn` is now async (it may genuinely pause mid-turn via
+  // `delayMs`), so a turn's own emission must be SERIALISED behind whichever turn came before it —
+  // two overlapping turns whose stdout lines interleave would prove the wrong thing entirely. Each
+  // incoming line is parsed and its turn selected SYNCHRONOUSLY, in arrival order, then chained
+  // onto this queue; only the actual emission (the part that may pause) waits its turn.
+  let turnQueue = Promise.resolve();
   const rl = createInterface({ input: process.stdin, terminal: false });
 
   rl.on("line", (line) => {
@@ -365,7 +423,12 @@ function main() {
 
     const blocks = scenario.turns[turnIndex] ?? scenario.fallback;
     turnIndex += 1;
-    emitTurn(blocks, `fake-msg-${turnIndex}`);
+    const messageId = `fake-msg-${turnIndex}`;
+    turnQueue = turnQueue
+      .then(() => emitTurn(blocks, messageId))
+      .catch((err) => {
+        process.stderr.write(`fake-authoring-claude: emitTurn failed: ${String(err)}\n`);
+      });
   });
 
   rl.on("close", () => {
