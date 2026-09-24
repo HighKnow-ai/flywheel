@@ -53,6 +53,14 @@ changes_the_plan_when: if the in-app flow is SLOWER than the terminal arm AND mo
 
 ## Product Kill Criterion — Measurement Protocol
 
+Plan 05-17 turned every step below into a runnable instrument:
+`node scripts/uat/uat-09-product-kill-criterion.mjs --list-runs` finds the run id in place of
+step 5's URL/board lookup, `--in-app-run <runId> --terminal-project <projectId>` reads the in-app
+arm's numbers, times the terminal arm with its own clock, derives the terminal arm's counts from
+the board, and writes both arms plus the rule-computed verdict to `05-KILL-CRITERION.md` — never
+transcribed into this file. The protocol below remains the normative description of what that
+instrument does; it is not superseded, only executed by a script instead of by hand.
+
 Written by plan 05-13 (gap G-05-2's third item) once the in-app arm had something real to shape
 with (05-12's composer) and a read-only way to derive its own two numbers from the board (this
 plan's `measure_authoring_run`/`measure-run`). Neither arm has been re-staged against the shipped
