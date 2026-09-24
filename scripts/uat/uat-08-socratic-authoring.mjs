@@ -34,7 +34,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  createPermissionAnswerHandler,
   drainIncidentalPermissionRequests,
+  drainInboundCoreRequests,
   HEARTBEAT_TICK_MS,
   probeClaudeAvailable,
   REPO_ROOT,
@@ -73,6 +75,33 @@ function runOps(binPath, appDataDir, args, input) {
   }
   const trimmed = (result.stdout ?? "").trim();
   return trimmed.length > 0 ? JSON.parse(trimmed) : {};
+}
+
+/**
+ * D-87 (plan 05-18, G-05-1): build a `drainInboundCoreRequests` handler for `board_read_request`
+ * events — the harness's own side of the round trip the real desktop app plays at
+ * `commands::authoring::handle_inbound_board_read_request`. Pipes the RAW event, verbatim, into
+ * the `answer-board-read` bridge subcommand (the same `resolve_board_read` dispatch the desktop
+ * app calls), then relays whatever it returns — a `{result}` or an `{error}` — back to the sidecar
+ * as an `authoring_read_answer` op, exactly mirroring `createPermissionAnswerHandler`'s own shape.
+ * A thrown bridge failure (a USAGE failure, not a resolver error — see `answer-board-read`'s own
+ * doc comment) is converted to `{ error: String(err) }` rather than rethrown: an errored read
+ * still has to release the held call, or this handler would recreate the exact starvation this
+ * plan exists to close.
+ */
+function createBoardReadHandler({ opsBin, appDataDir, sidecar, runId }) {
+  return async (event) => {
+    let answer;
+    try {
+      answer = runOps(opsBin, appDataDir, ["answer-board-read"], JSON.stringify(event));
+    } catch (err) {
+      answer = { error: String(err) };
+    }
+    await sidecar
+      .request({ op: "authoring_read_answer", runId, requestId: event.requestId, ...answer })
+      .catch(() => {});
+    return true;
+  };
 }
 
 /** Report per-criterion pass/fail lines and return whether every criterion passed — the shape
@@ -537,6 +566,143 @@ if (process.argv.includes("--self-test")) {
   await selfTest();
 }
 
+/**
+ * `--board-read-check` (plan 05-18, G-05-1): proves the whole Task 1 slice — a `board_read_request`
+ * raised on the wire, answered from the real scratch board through the SAME dispatch the desktop
+ * app uses — WITHOUT spending a token. Offline by construction: it spawns the `uat_authoring_ops`
+ * bridge binary and `git`, nothing else. No sidecar process, no `claude` binary, no
+ * `probeClaudeAvailable`/`startSidecar` call anywhere in this block. Short-circuits BEFORE the
+ * live `runScript` call below, exactly like `--self-test` above.
+ */
+if (process.argv.includes("--board-read-check")) {
+  await runScript(
+    "socratic-authoring-board-read-check",
+    "UAT 8 — offline board-read dispatch check (D-87, no sidecar, no claude, zero tokens)",
+    async (harness) => {
+      const opsBin = resolveHarnessBinary("uat_authoring_ops");
+      if (opsBin === undefined) {
+        throw new Error(
+          "uat_authoring_ops is not built — run `cargo build -p core --bin uat_authoring_ops`",
+        );
+      }
+
+      step("creating a scratch repository (no remote needed)");
+      const repoDir = path.join(harness.root, "repo");
+      execSync(`git init -q -b main "${repoDir}"`);
+      execSync(
+        `git -C "${repoDir}" -c user.email=uat@flywheel.invalid -c user.name="Flywheel UAT" ` +
+          `commit -q --allow-empty -m initial`,
+      );
+
+      step("registering the scratch repository as a project");
+      const project = runOps(opsBin, harness.appDataDir, ["register-project", repoDir]);
+      step(`project ${project.projectId}`);
+
+      step("starting a fresh epic-authoring session");
+      const run1 = runOps(opsBin, harness.appDataDir, ["start-run", project.projectId]);
+      const runId = run1.runId;
+      step(`run ${runId} started in the challenge stage`);
+
+      const epicTitle = "UAT board-read check epic";
+      step(`materialising a real epic (${JSON.stringify(epicTitle)}) via a synthetic proposal_created event`);
+      const proposalEvent = {
+        type: "proposal_created",
+        runId,
+        verb: "create",
+        targetType: "epic",
+        payload: { kind: "epic", title: epicTitle, description: null },
+      };
+      const applied = runOps(opsBin, harness.appDataDir, ["apply-proposal-created"], JSON.stringify(proposalEvent));
+      step(`applied proposal_created -> ${applied.outcome} ${applied.proposalId ?? ""}`);
+      const pending = runOps(opsBin, harness.appDataDir, ["list-pending", runId]);
+      const epicProposal = pending.proposals.find((p) => p.targetType === "epic");
+      assert.ok(epicProposal, "expected a pending epic proposal after apply-proposal-created");
+      const accepted = runOps(opsBin, harness.appDataDir, ["accept-proposal", epicProposal.id]);
+      const epicId = accepted.materialisedId;
+      assert.ok(epicId, "expected accept-proposal to return a materialisedId for the epic");
+      step(`materialised epic ${epicId}`);
+
+      step("queueing three board_read_request events (get_epic, search, unrecognised-kind) against a stub sidecar");
+      const stubEvents = [
+        { type: "board_read_request", requestId: "req-get-epic", readKind: "get_epic", epicId, runId },
+        { type: "board_read_request", requestId: "req-search", readKind: "search", term: epicTitle, runId },
+        { type: "board_read_request", requestId: "req-unknown-kind", readKind: "not_a_real_kind", runId },
+      ];
+      const recordedRequests = [];
+      let emptyLookups = 0;
+      const stubSidecar = {
+        unansweredHeldRequests: [],
+        async waitForEvent(predicate, _timeoutMs, _label) {
+          const match = stubEvents.find(predicate);
+          if (match === undefined) {
+            emptyLookups += 1;
+            throw new Error("stub: no queued event matches the drain loop's own predicate");
+          }
+          return match;
+        },
+        async request(payload) {
+          recordedRequests.push(payload);
+          return {};
+        },
+      };
+
+      step("driving the REAL drainInboundCoreRequests against the stub with only a board_read_request handler");
+      await drainInboundCoreRequests(stubSidecar, runId, {
+        handlers: {
+          board_read_request: createBoardReadHandler({
+            opsBin,
+            appDataDir: harness.appDataDir,
+            sidecar: stubSidecar,
+            runId,
+          }),
+        },
+        shouldStop: () => emptyLookups >= 1,
+      });
+
+      assert.equal(
+        recordedRequests.length,
+        3,
+        `expected exactly 3 recorded authoring_read_answer ops, got ${recordedRequests.length}`,
+      );
+      for (const req of recordedRequests) {
+        assert.equal(req.op, "authoring_read_answer");
+        assert.equal(req.runId, runId);
+        assert.ok(typeof req.requestId === "string" && req.requestId.length > 0);
+      }
+      step(`recorded ${recordedRequests.length} authoring_read_answer op(s), each carrying the run id and its own request id`);
+
+      const getEpicAnswer = recordedRequests.find((r) => r.requestId === "req-get-epic");
+      assert.ok(getEpicAnswer, "expected an answer for the get_epic request");
+      assert.equal(getEpicAnswer.result?.found, true);
+      assert.equal(getEpicAnswer.result?.epic?.id, epicId);
+      step(`get_epic answer: found=${getEpicAnswer.result?.found} epic.id=${getEpicAnswer.result?.epic?.id}`);
+
+      const searchAnswer = recordedRequests.find((r) => r.requestId === "req-search");
+      assert.ok(searchAnswer, "expected an answer for the search request");
+      assert.ok(Array.isArray(searchAnswer.result?.items), "expected a search result items array");
+      assert.equal(typeof searchAnswer.result?.truncated, "boolean");
+      step(`search answer: items=${searchAnswer.result?.items?.length} truncated=${searchAnswer.result?.truncated}`);
+
+      const unknownAnswer = recordedRequests.find((r) => r.requestId === "req-unknown-kind");
+      assert.ok(unknownAnswer, "expected an answer for the unrecognised-kind request");
+      assert.ok(
+        typeof unknownAnswer.error === "string" && unknownAnswer.error.length > 0,
+        "expected a non-empty error string for the unrecognised read kind",
+      );
+      assert.equal(unknownAnswer.result, undefined, "an errored read must carry no result key");
+      step(`unrecognised-kind answer: error=${JSON.stringify(unknownAnswer.error)}`);
+
+      assert.deepEqual(
+        stubSidecar.unansweredHeldRequests,
+        [],
+        "expected zero unanswered held requests after all three were answered",
+      );
+      step("zero unanswered held requests remain — no starvation");
+    },
+  );
+  process.exit(process.exitCode ?? 0);
+}
+
 await runScript(
   "socratic-authoring",
   "UAT 8 — Socratic epic authoring, driven live against the real backend (Phase 5 roadmap criteria)",
@@ -605,10 +771,18 @@ await runScript(
       draining = false;
     });
     step(
-      "draining incidental startup permission requests (this script reserves no gated command " +
-        "of its own, so nothing here is ever the request under test)",
+      "draining incidental startup permission requests AND held board reads (D-87, plan 05-18) " +
+        "— this script reserves no gated command of its own, so no permission_request here is " +
+        "ever the request under test, and every board_read_request is answered from the real " +
+        "scratch board via the same dispatch the desktop app uses",
     );
-    drainIncidentalPermissionRequests(sidecar, runId, isDeliberateRequest, () => !draining);
+    drainInboundCoreRequests(sidecar, runId, {
+      handlers: {
+        permission_request: createPermissionAnswerHandler(sidecar, runId, isDeliberateRequest),
+        board_read_request: createBoardReadHandler({ opsBin, appDataDir: harness.appDataDir, sidecar, runId }),
+      },
+      shouldStop: () => !draining,
+    });
 
     step("waiting for the agent's first reply");
     const firstReply = await sidecar.waitForEvent(

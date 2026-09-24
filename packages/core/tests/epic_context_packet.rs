@@ -716,6 +716,13 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
     "PRIOR_AUTHORING_RUNS_SQL",  // epic_context_packet.rs — GENUINELY UNBOUNDED, a recorded debt (see
                                   // this constant's own doc comment above), not a bounded-some-other-way
                                   // exception — left here so the gate stays honest about what it tolerates
+    "resolve_board_read",       // authoring.rs (plan 05-18, extracted from the desktop handler) —
+                                  // its two inline SELECTs are both cardinality-one/aggregate: the
+                                  // run's own project_id is a single row keyed by agent_runs' PRIMARY
+                                  // KEY (the same shape get_epic_for_agent is already allowlisted
+                                  // for), and the task COUNT(*) is a GROUP-BY-less aggregate (the
+                                  // same shape BLOCKED_COUNT_SQL/RECOVERY_COUNT_SQL are allowlisted
+                                  // for) — neither is a page read, so LIMIT does not apply to either
 ];
 
 fn strip_comment_lines(source: &str) -> String {

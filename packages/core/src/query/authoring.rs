@@ -492,3 +492,98 @@ pub fn list_recent_authoring_runs(
         .collect::<Result<Vec<_>, _>>();
     rows.context("failed to list recent authoring runs")
 }
+
+/// D-87 (plan 05-05, extracted plan 05-18/G-05-1): the ONE board-read dispatch, called from BOTH
+/// `commands::authoring::handle_inbound_board_read_request` (the real desktop app's own inbound
+/// handler) and the UAT bridge's `answer-board-read` subcommand — never a second copy of this
+/// arithmetic anywhere else (SHAPE-02's own integrity requirement). Resolves the run's own
+/// `project_id` from `agent_runs` INSIDE this function's body — scope comes from the run's row,
+/// NEVER from anything `event` itself claims (T-05-05-03 / T-05-18-01) — then applies the SAME
+/// clamp-and-peek arithmetic `handle_inbound_board_read_request` applied before this extraction (a
+/// request one row past the resolved limit, itself clamped at [`MAX_LIMIT`], so a page's own length
+/// need not be trusted to report truncation) and dispatches on `event`'s `readKind` string to
+/// exactly one of [`search_board_for_agent`], [`get_epic_for_agent`] or [`list_tasks_for_epic`].
+/// Performs no writes. An unrecognised `readKind` returns `Err` naming the offending kind — never
+/// panics, matching every read in this module's own discipline.
+pub fn resolve_board_read(
+    conn: &Connection,
+    run_id: &str,
+    event: &serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    let project_id: String = conn
+        .query_row(
+            "SELECT project_id FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )
+        .context("agent_run not found for a board read request")?;
+
+    let requested_limit = event.get("limit").and_then(|v| v.as_i64()).unwrap_or(0);
+    let resolved_limit = if requested_limit <= 0 { DEFAULT_LIMIT } else { requested_limit }
+        .min(MAX_LIMIT);
+    // One past the resolved limit, itself clamped at MAX_LIMIT — a request already sitting at the
+    // ceiling cannot peek past it, which is an accepted, documented edge case (truncation at the
+    // exact ceiling reads `false` rather than `true`), not a silent unbounded read.
+    let peek_limit = (resolved_limit + 1).min(MAX_LIMIT);
+
+    let read_kind = event.get("readKind").and_then(|v| v.as_str()).unwrap_or("");
+
+    match read_kind {
+        "search" => {
+            let term = event.get("term").and_then(|v| v.as_str()).unwrap_or("");
+            let mut items = search_board_for_agent(conn, &project_id, term, peek_limit)?;
+            let truncated = items.len() as i64 > resolved_limit;
+            items.truncate(resolved_limit.max(0) as usize);
+            let items_json: Vec<serde_json::Value> = items
+                .iter()
+                .map(|item| {
+                    serde_json::json!({
+                        "id": item.id,
+                        "kind": item.kind,
+                        "key": item.key,
+                        "title": item.title,
+                        "status": item.status,
+                        "epicId": item.epic_id,
+                    })
+                })
+                .collect();
+            // 05-RESEARCH.md Pitfall 4 / D-87: a true `total` for an FTS match count would need a
+            // second, separately-maintained count query mirroring `search_items`'s own predicate —
+            // out of this plan's proportionate scope. `truncated` alone already tells the model it
+            // is looking at a page, never the whole board.
+            Ok(serde_json::json!({ "items": items_json, "truncated": truncated }))
+        }
+        "get_epic" => {
+            let epic_id = event.get("epicId").and_then(|v| v.as_str()).unwrap_or("");
+            let epic = get_epic_for_agent(conn, &project_id, epic_id)?;
+            let found = epic.is_some();
+            Ok(serde_json::json!({ "epic": epic, "found": found }))
+        }
+        "list_tasks" => {
+            let epic_id = event.get("epicId").and_then(|v| v.as_str()).unwrap_or("");
+            // Server-side scoping (T-05-05-03): confirm the epic is this run's own project's
+            // BEFORE listing its tasks — an epic_id from another project reads not-found rather
+            // than the row, never distinguishable from "this epic does not exist".
+            let scoped = get_epic_for_agent(conn, &project_id, epic_id)?;
+            if scoped.is_none() {
+                return Ok(serde_json::json!({
+                    "tasks": [], "found": false, "truncated": false, "total": 0
+                }));
+            }
+            let mut tasks = list_tasks_for_epic(conn, epic_id, peek_limit)?;
+            let truncated = tasks.len() as i64 > resolved_limit;
+            tasks.truncate(resolved_limit.max(0) as usize);
+            let total: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM tasks WHERE epic_id = ?1",
+                    params![epic_id],
+                    |row| row.get(0),
+                )
+                .context("failed to count the epic's own tasks")?;
+            Ok(serde_json::json!({
+                "tasks": tasks, "found": true, "truncated": truncated, "total": total
+            }))
+        }
+        other => anyhow::bail!("unknown board read kind {other:?}"),
+    }
+}

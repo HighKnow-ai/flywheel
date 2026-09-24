@@ -357,6 +357,10 @@ export class SidecarClient {
     this.stderr = "";
     this.closed = false;
     this.nextId = 1;
+    // D-87/G-05-1 (plan 05-18): every inbound held request `drainInboundCoreRequests` observed but
+    // had no registered handler for — populated by that loop, read by `assertAllHeldRequestsAnswered`
+    // and by `waitForEvent`'s own enriched timeout message below.
+    this.unansweredHeldRequests = [];
 
     let buffer = "";
     child.stdout.setEncoding("utf8");
@@ -485,12 +489,96 @@ export class SidecarClient {
 }
 
 /**
+ * D-87 (plan 05-18, G-05-1): every event kind the sidecar HOLDS OPEN until the core answers it —
+ * `permission_request` (answered via `permission_answer`) and `board_read_request` (answered via
+ * `authoring_read_answer`). This is the harness's own registry of the role D-87 assigns to the
+ * Rust core: an entry here with no handler registered in a `drainInboundCoreRequests` call starves
+ * the session it belongs to, exactly as it starved the live `uat-08` run before this plan (G-05-1).
+ * `assertAllHeldRequestsAnswered`'s invariant check (plan 05-18 Task 3) compares this array's
+ * length against the sidecar's own answering-op count, so a THIRD held kind added to
+ * `packages/sidecar/src/index.ts` without a corresponding entry here fails a check instead of a
+ * live run.
+ */
+export const HELD_INBOUND_REQUEST_TYPES = Object.freeze(["permission_request", "board_read_request"]);
+
+/**
+ * Build a `drainInboundCoreRequests` handler for `permission_request` events: resolves `false`
+ * (declined ON PURPOSE, not a failure) when `isDeliberate(event)` is true — the caller's own
+ * gated command, left alone for the script to answer itself — and otherwise sends
+ * `permission_answer` with `decision: "allow"` and resolves `true`.
+ */
+export function createPermissionAnswerHandler(sidecar, runId, isDeliberate) {
+  return async (event) => {
+    if (isDeliberate(event)) return false;
+    await sidecar
+      .request({ op: "permission_answer", runId, requestId: event.requestId, decision: "allow" })
+      .catch(() => {});
+    return true;
+  };
+}
+
+/**
+ * The generalised drain (plan 05-18, G-05-1): plays the Rust core's own role for every HELD
+ * inbound request type in {@link HELD_INBOUND_REQUEST_TYPES}, dispatching by `event.type` to
+ * `handlers[event.type]`. `drainIncidentalPermissionRequests` below is now a thin preset over this
+ * loop rather than a second, separately-maintained copy of it (the promote this plan makes,
+ * 05-18-PLAN.md's own `assumption_delta_decision`).
+ *
+ * Keeps a `seen` Set keyed on `` `${type}:${requestId}` `` so an event is only ever offered to a
+ * handler once, even across repeated matches of the SAME predicate (mirrors the prior
+ * `drainIncidentalPermissionRequests`'s own `handled` Set, generalised to every held type). Uses
+ * the identical short 5000ms per-iteration wait and swallow-and-continue-on-timeout shape the
+ * prior loop used, so `shouldStop()` stays promptly re-checked rather than one dangling long wait
+ * keeping the event loop alive past the point the main flow has finished.
+ *
+ * A matched event with NO registered handler in `handlers` is a harness gap, not a silent no-op:
+ * it is pushed onto `sidecar.unansweredHeldRequests` (initialised to an empty array here if the
+ * passed-in object does not already carry one, so a minimal stub sidecar works too) and one stderr
+ * line is written naming the type and the request id — the starvation this whole loop exists to
+ * prevent is made visible the moment it happens, not 120 seconds later as "the agent went quiet".
+ */
+export async function drainInboundCoreRequests(sidecar, runId, { handlers, shouldStop }) {
+  if (sidecar.unansweredHeldRequests === undefined) sidecar.unansweredHeldRequests = [];
+  const seen = new Set();
+  while (!shouldStop()) {
+    let event;
+    try {
+      event = await sidecar.waitForEvent(
+        (e) => HELD_INBOUND_REQUEST_TYPES.includes(e.type) && !seen.has(`${e.type}:${e.requestId}`),
+        5_000,
+        "a held inbound core request (permission_request or board_read_request)",
+      );
+    } catch {
+      continue;
+    }
+    seen.add(`${event.type}:${event.requestId}`);
+    const handler = handlers[event.type];
+    if (handler === undefined) {
+      sidecar.unansweredHeldRequests.push({
+        type: event.type,
+        requestId: event.requestId,
+        at: new Date().toISOString(),
+      });
+      process.stderr.write(
+        `HARNESS FAILURE: unanswered held inbound request — type=${event.type} ` +
+          `requestId=${event.requestId} has no registered handler in this drain call. The sidecar ` +
+          "holds this call open until the core answers it, so this is a missing handler in the " +
+          "harness, not an agent that went quiet.\n",
+      );
+      continue;
+    }
+    await handler(event);
+  }
+}
+
+/**
  * Auto-allow every `permission_request` a session raises EXCEPT the one `isDeliberate` names —
  * the SAME loop `uat-03-destructive-gate.mjs` keeps as its own local copy, DELIBERATELY not
  * replaced by a call to this one: that script is a verified artifact of the previous verification
- * round, and this gap-closure run does not perturb it. This is that same loop, generalised only by
- * taking `isDeliberate` as a parameter instead of a hard-coded predicate, for
- * `uat-06-permission-block-lifecycle.mjs` to reuse without duplicating the body a second time.
+ * round, and this gap-closure run does not perturb it. Its exported signature and observable
+ * behaviour are unchanged by this plan — it is now the permission-shaped PRESET of the generalised
+ * `drainInboundCoreRequests` above (plan 05-18, G-05-1), rather than a second, separately-maintained
+ * copy of the same held-request loop.
  *
  * See `uat-03-destructive-gate.mjs`'s own identical function for the full rationale: the real
  * `claude` binary issues its own internal session-startup git housekeeping OUTSIDE the agent's
@@ -501,26 +589,10 @@ export class SidecarClient {
  * actually about; it changes no production classification and answers nothing a caller asserts on.
  */
 export async function drainIncidentalPermissionRequests(sidecar, runId, isDeliberate, shouldStop) {
-  const handled = new Set();
-  // A short per-iteration wait (not one long wait) so `shouldStop()` is re-checked promptly —
-  // otherwise a single dangling `setTimeout` would keep the whole script's event loop alive well
-  // past the point the main flow has already finished.
-  while (!shouldStop()) {
-    let event;
-    try {
-      event = await sidecar.waitForEvent(
-        (e) => e.type === "permission_request" && !isDeliberate(e) && !handled.has(e.requestId),
-        5_000,
-        "an incidental (non-deliberate) permission_request",
-      );
-    } catch {
-      continue;
-    }
-    handled.add(event.requestId);
-    await sidecar
-      .request({ op: "permission_answer", runId, requestId: event.requestId, decision: "allow" })
-      .catch(() => {});
-  }
+  await drainInboundCoreRequests(sidecar, runId, {
+    handlers: { permission_request: createPermissionAnswerHandler(sidecar, runId, isDeliberate) },
+    shouldStop,
+  });
 }
 
 /** Pretty result reporting, shared by every script so `run-all.sh` sees one consistent shape. */

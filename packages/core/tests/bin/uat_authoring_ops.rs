@@ -18,6 +18,15 @@
 //! half) calls in production. This is not a simulation of the write path; it IS the write path,
 //! driven from outside the desktop app because this harness has no Tauri process to run inside.
 //!
+//! `answer-board-read` (plan 05-18, G-05-1) is the read-path twin: the Node harness observes a
+//! real `board_read_request` event on the live sidecar's own stdout stream and pipes it, verbatim,
+//! as JSON on stdin to this subcommand — which calls `core::query::authoring::resolve_board_read`
+//! with it, the SAME function `commands::authoring::handle_inbound_board_read_request` (the real
+//! desktop app's own inbound handler) calls in production. Unlike every other subcommand here, a
+//! resolver error is NOT a bridge failure — it still prints `{"error": "<message>"}` and exits 0,
+//! because an errored read still has to be relayed back so the held sidecar call is released;
+//! only a usage failure (unreadable/unparseable stdin, or a missing `runId`) exits non-zero.
+//!
 //! Every subcommand prints ONE line of JSON to stdout on success and exits 0; every failure is a
 //! plain non-zero exit with a message on stderr — no panic, no backtrace, matching this crate's
 //! other harness binaries.
@@ -27,6 +36,7 @@
 //!   uat_authoring_ops start-run <project_id> [epic_id]
 //!   uat_authoring_ops advance-stage <run_id>
 //!   uat_authoring_ops apply-proposal-created            (reads one JSON event from stdin)
+//!   uat_authoring_ops answer-board-read                 (reads one JSON board_read_request event from stdin)
 //!   uat_authoring_ops list-pending <run_id>
 //!   uat_authoring_ops accept-proposal <proposal_id>
 //!   uat_authoring_ops accept-subtree <proposal_id>
@@ -260,6 +270,24 @@ fn main() {
                 core::domain::authoring_proposal::ProposalOutcome::TerminalRun => {
                     print_json(serde_json::json!({ "outcome": "terminal_run" }));
                 }
+            }
+        }
+        "answer-board-read" => {
+            let mut raw = String::new();
+            std::io::stdin()
+                .read_to_string(&mut raw)
+                .unwrap_or_else(|err| fail(&format!("could not read the event from stdin: {err}")));
+            let event: serde_json::Value = serde_json::from_str(&raw)
+                .unwrap_or_else(|err| fail(&format!("could not parse the event JSON: {err}")));
+            let run_id = event.get("runId").and_then(|v| v.as_str()).unwrap_or("");
+            if run_id.is_empty() {
+                fail("usage: uat_authoring_ops answer-board-read (stdin event must carry a non-empty \"runId\")");
+            }
+            // A resolver error is still relayed, never treated as a bridge failure — the held
+            // sidecar call must be released either way (05-18-PLAN.md Task 1 acceptance criteria).
+            match core::query::authoring::resolve_board_read(&conn, run_id, &event) {
+                Ok(value) => print_json(serde_json::json!({ "result": value })),
+                Err(err) => print_json(serde_json::json!({ "error": err.to_string() })),
             }
         }
         "list-pending" => {
