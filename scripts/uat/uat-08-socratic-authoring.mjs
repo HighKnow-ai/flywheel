@@ -75,15 +75,71 @@ function runOps(binPath, appDataDir, args, input) {
 
 /** Report per-criterion pass/fail lines and return whether every criterion passed — the shape
  * both the live run and `--self-test` (which exercises this function directly, with a synthetic
- * result set) share, so the report format is asserted once. */
+ * result set) share, so the report format is asserted once.
+ *
+ * A truthy fourth (`informational`) element marks an entry that this single-session run cannot
+ * structurally exercise (SHAPE-05's reopen leg, today). It gets its own marker and its own label
+ * suffix naming why it is not gating, and is EXCLUDED from the returned `allPassed` — a genuine
+ * pass on every criterion this run CAN exercise must still be reportable as a pass (WR-06). */
 function reportCriteria(results) {
   let allPassed = true;
-  for (const [criterion, passed, detail] of results) {
-    const icon = passed ? "✅" : "❌";
-    step(`${icon} ${criterion}${detail ? ` — ${detail}` : ""}`);
-    if (!passed) allPassed = false;
+  for (const [criterion, passed, detail, informational] of results) {
+    const icon = informational ? "ℹ️" : passed ? "✅" : "❌";
+    const suffix = informational ? " (informational — not gating)" : "";
+    step(`${icon} ${criterion}${suffix}${detail ? ` — ${detail}` : ""}`);
+    if (!passed && !informational) allPassed = false;
   }
   return allPassed;
+}
+
+/**
+ * Pure: builds the `results` array `reportCriteria` expects, from the booleans the live run
+ * computes. Extracted out of the live body so `--self-test` can assert the gating SHAPE of the
+ * REAL result set the live run produces, rather than a synthetic stand-in that could drift from
+ * it (WR-06).
+ *
+ * The SHAPE-05 entry is marked `informational`: a fresh-session run structurally has no epic to
+ * reopen (SHAPE-05's reopen leg is proven structurally by `authoring_acceptance.rs::criterion_4_*`
+ * instead), so it is reported rather than gated. `criterion4Reopened`/`criterion4PrimedRejected`
+ * still feed the entry's `passed` value — if a future run ever does materialise an epic and set
+ * them, the line reports a real pass instead of a stale note.
+ */
+function buildCriteriaResults(flags) {
+  const {
+    criterion1Challenged,
+    criterion1NoWorkPlanned,
+    criterion2Landed,
+    criterion3Decided,
+    criterion4Reopened,
+    criterion4PrimedRejected,
+  } = flags;
+
+  return [
+    [
+      "SHAPE-01 — the agent challenges before any work is planned",
+      criterion1Challenged && criterion1NoWorkPlanned,
+      `challenged=${criterion1Challenged} noWorkPlanned=${criterion1NoWorkPlanned}`,
+    ],
+    [
+      "SHAPE-02 — the outcome lands directly on the board",
+      criterion2Landed,
+      criterion2Landed ? "a subtree accept materialised real rows" : "no subtree was accepted",
+    ],
+    [
+      "SHAPE-03/SHAPE-04 — accept, reject and amend decided individually",
+      criterion3Decided,
+      criterion3Decided
+        ? "at least one reject and one amend were exercised"
+        : "not enough proposals to exercise all three verbs",
+    ],
+    [
+      "SHAPE-05 — reopening primes the challenge against what the epic already contains",
+      criterion4Reopened || criterion4PrimedRejected,
+      "this single-session run has no epic to reopen; the reopen leg is proven structurally by " +
+        "authoring_acceptance.rs::criterion_4_* — reported here rather than gated",
+      true,
+    ],
+  ];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -131,6 +187,77 @@ async function selfTest() {
       process.stdout.write = originalWrite;
     }
     assert.equal(allPassed, false);
+  });
+
+  check("a run whose gating criteria all passed reports an overall pass", () => {
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = () => true;
+    let allPassed;
+    try {
+      allPassed = reportCriteria(
+        buildCriteriaResults({
+          criterion1Challenged: true,
+          criterion1NoWorkPlanned: true,
+          criterion2Landed: true,
+          criterion3Decided: true,
+          criterion4Reopened: false,
+          criterion4PrimedRejected: false,
+        }),
+      );
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+    assert.equal(allPassed, true);
+  });
+
+  check("a gating criterion that did not pass still reports an overall failure", () => {
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = () => true;
+    let allPassed;
+    try {
+      allPassed = reportCriteria(
+        buildCriteriaResults({
+          criterion1Challenged: true,
+          criterion1NoWorkPlanned: true,
+          criterion2Landed: false,
+          criterion3Decided: true,
+          criterion4Reopened: false,
+          criterion4PrimedRejected: false,
+        }),
+      );
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+    assert.equal(allPassed, false);
+  });
+
+  check("an informational entry that did not pass never drags the overall result to false", () => {
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = () => true;
+    let allPassed;
+    try {
+      allPassed = reportCriteria([
+        ["Gating entry", true, undefined],
+        ["Informational entry", false, "not exercised this run", true],
+      ]);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+    assert.equal(allPassed, true);
+  });
+
+  check("the SHAPE-05 entry is the only informational entry in the live result set", () => {
+    const results = buildCriteriaResults({
+      criterion1Challenged: true,
+      criterion1NoWorkPlanned: true,
+      criterion2Landed: true,
+      criterion3Decided: true,
+      criterion4Reopened: false,
+      criterion4PrimedRejected: false,
+    });
+    const informationalEntries = results.filter((entry) => entry[3]);
+    assert.equal(informationalEntries.length, 1);
+    assert.ok(informationalEntries[0][0].includes("SHAPE-05"));
   });
 
   check("the bridge binary path resolves under target/debug or target/release when built", () => {
@@ -455,37 +582,25 @@ await runScript(
       );
     }
 
-    const results = [
-      [
-        "SHAPE-01 — the agent challenges before any work is planned",
-        criterion1Challenged && criterion1NoWorkPlanned,
-        `challenged=${criterion1Challenged} noWorkPlanned=${criterion1NoWorkPlanned}`,
-      ],
-      [
-        "SHAPE-02 — the outcome lands directly on the board",
-        criterion2Landed,
-        criterion2Landed ? "a subtree accept materialised real rows" : "no subtree was accepted",
-      ],
-      [
-        "SHAPE-03/SHAPE-04 — accept, reject and amend decided individually",
-        criterion3Decided,
-        criterion3Decided ? "at least one reject and one amend were exercised" : "not enough proposals to exercise all three verbs",
-      ],
-      [
-        "SHAPE-05 — reopening primes the challenge against what the epic already contains",
-        criterion4Reopened || criterion4PrimedRejected,
-        "see authoring_acceptance.rs::criterion_4_* for the structural proof; this live run's own epic-reopen leg needs an epic proposal to materialise first",
-      ],
-    ];
+    const results = buildCriteriaResults({
+      criterion1Challenged,
+      criterion1NoWorkPlanned,
+      criterion2Landed,
+      criterion3Decided,
+      criterion4Reopened,
+      criterion4PrimedRejected,
+    });
 
     const allPassed = reportCriteria(results);
     harness.writeArtifact("uat-08-results", { sawProposal, results });
 
     assert.ok(
       allPassed,
-      "one or more Phase 5 roadmap criteria did not pass this run — see the per-criterion lines " +
-        "above. See also 05-10-PLAN.md Task 3's own human-check instructions for the two " +
-        "judgements only a human reading the transcript can make once this exits 0.",
+      "one or more gating SHAPE criteria (SHAPE-01, SHAPE-02, SHAPE-03/SHAPE-04) did not pass " +
+        "this run — see the per-criterion lines above. SHAPE-05 is reported informationally and " +
+        "never gates this assertion. See also 05-10-PLAN.md Task 3's own human-check " +
+        "instructions for the two judgements only a human reading the transcript can make once " +
+        "this exits 0.",
     );
   },
 );
