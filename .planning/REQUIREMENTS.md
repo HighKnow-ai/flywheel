@@ -92,8 +92,8 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 - [x] **SHAPE-01**: User can start a conversational session to shape a new epic, in which the agent challenges assumptions and asks clarifying questions before any work is planned
 - [x] **SHAPE-02**: The authoring session writes its outcome directly to the board as a structured epic with child tasks, not as a document
-- [ ] **SHAPE-03**: The agent drafts acceptance criteria for each generated task, which the user can edit before accepting
-- [ ] **SHAPE-04**: User can accept, reject or amend any individual item the authoring session proposes, rather than accepting the set wholesale
+- [x] **SHAPE-03**: The agent drafts acceptance criteria for each generated task, which the user can edit before accepting
+- [x] **SHAPE-04**: User can accept, reject or amend any individual item the authoring session proposes, rather than accepting the set wholesale
 - [x] **SHAPE-05**: User can reopen and continue shaping an existing epic at any time, and the agent challenges changes against what the epic already contains
 
 ### Agent-Authored Backlog
@@ -281,8 +281,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CTX-08 | Phase 4 | Complete |
 | SHAPE-01 | Phase 5 | Complete |
 | SHAPE-02 | Phase 5 | Complete |
-| SHAPE-03 | Phase 5 | Gaps Found |
-| SHAPE-04 | Phase 5 | Gaps Found |
+| SHAPE-03 | Phase 5 | Complete |
+| SHAPE-04 | Phase 5 | Complete |
 | SHAPE-05 | Phase 5 | Complete |
 | PROP-01 | Phase 6 | Pending |
 | PROP-02 | Phase 6 | Pending |
