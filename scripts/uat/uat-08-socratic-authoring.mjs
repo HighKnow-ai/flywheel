@@ -1055,21 +1055,37 @@ async function selfTest() {
   );
 
   check("readNoWorkPlanned distinguishes unproven, violated and refused, and ignores the old wrong field", () => {
-    assert.equal(readNoWorkPlanned([]), "unproven");
-    assert.equal(
-      readNoWorkPlanned([{ type: "tool_call", toolName: "mcp__flywheel-permissions__propose_task" }]),
-      "violated",
-    );
-    assert.equal(
-      readNoWorkPlanned([
-        { type: "tool_call", toolName: "mcp__flywheel-permissions__propose_task" },
-        { type: "tool_result", raw: "still in the challenge stage — no proposals yet." },
-      ]),
-      "refused",
-    );
+    // Plan 05-23 (CR-01 closure): the window is now required — every fixture below carries a
+    // matching runId and a window spanning its own whole array.
+    const runId = "run-nwp-basic";
+    const win = (events) => ({ runId, fromIndex: 0, toIndex: events.length });
+
+    assert.equal(readNoWorkPlanned([], win([])), "unproven");
+
+    const attemptOnly = [{ type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }];
+    assert.equal(readNoWorkPlanned(attemptOnly, win(attemptOnly)), "violated");
+
+    const attemptAndRefusal = [
+      { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
+      { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+    ];
+    assert.equal(readNoWorkPlanned(attemptAndRefusal, win(attemptAndRefusal)), "refused");
+
     // The regression this task closes: an event carrying the OLD wrong field (`name`, not
     // `toolName`) must never be detected as a propose attempt at all.
-    assert.equal(readNoWorkPlanned([{ type: "tool_call", name: "propose_task" }]), "unproven");
+    const wrongField = [{ type: "tool_call", runId, name: "propose_task" }];
+    assert.equal(readNoWorkPlanned(wrongField, win(wrongField)), "unproven");
+  });
+
+  check("readNoWorkPlanned throws a TypeError naming the missing member when called with no window at all", () => {
+    // Plan 05-23 (CR-01 closure): the promoted signature makes the old one-argument shape
+    // unwritable — calling with only an events array must throw, naming the FIRST missing
+    // member ("runId"), never silently return a false reading.
+    assert.throws(
+      () => readNoWorkPlanned([]),
+      (err) => err instanceof TypeError && /runId/.test(err.message),
+      "expected a TypeError naming the missing runId member",
+    );
   });
 
   check("all three noWorkPlanned readings map to SHAPE-01's own outcome, with the challenge half held true", () => {
@@ -1360,28 +1376,77 @@ async function driveChallengeConversation({
  * real field is `toolName`). */
 const TOOL_NAME_FIELD = "toolName";
 
+/** The propose-tool substring `readNoWorkPlanned` matches a `tool_call`'s tool-name field
+ * against — named (plan 05-23, CR-01 closure) so a self-test check can pin it, rather than a
+ * literal a future edit could quietly loosen. */
+const PROPOSE_TOOL_NAME_FRAGMENT = "propose_";
+
+/** The case-insensitive stage-gate refusal wording a `tool_result`'s raw text must carry for
+ * `readNoWorkPlanned` to count it as an answer that refused its attempt — named for the same
+ * reason as {@link PROPOSE_TOOL_NAME_FRAGMENT} above. Matches what this script has always
+ * matched (`stage-gate-hook.ts`'s own `denyForChallengeStage` wording). */
+const CHALLENGE_REFUSAL_PATTERN = /challenge stage/i;
+
 /**
- * The three-valued reading of whether the agent staged work during the challenge stage, from the
- * raw sidecar `events` array (never a pre-reduced boolean, so the field-name fix above lives in
+ * The three-valued reading of whether the agent staged work within `window`, from the raw
+ * sidecar `events` array (never a pre-reduced boolean, so the field-name fix above lives in
  * exactly one function):
  * - `"unproven"` — no `tool_call` event named a propose tool at all. Absence of evidence, reported
  *   as exactly that — never a silent pass with no reading behind it.
  * - `"refused"` — a propose attempt WAS observed, and a `tool_result` event carried the stage
- *   gate's own refusal wording (`stage-gate-hook.ts`'s `denyForChallengeStage`, matched the same
- *   way this script always has: `/challenge stage/i` against the event's raw text).
+ *   gate's own refusal wording ({@link CHALLENGE_REFUSAL_PATTERN}).
  * - `"violated"` — a propose attempt was observed with NO matching refusal. The one reading that
  *   makes SHAPE-01's second half FAIL — the property this whole task exists to make true.
+ *
+ * `window` (plan 05-23, CR-01 closure) is a REQUIRED second parameter — `{ runId, fromIndex,
+ * toIndex }`, all three REQUIRED. CR-01 was exactly this reading's implicit "whole array" default
+ * going unnoticed: a decompose-stage propose call (legitimate, expected, D-89/D-90) landing
+ * anywhere in `events` was indistinguishable from a challenge-stage violation once the caller
+ * re-read the unscoped array after decompose began. Promoting the window to required makes the
+ * unscoped call unwritable rather than merely discouraged — omitting any member throws instead of
+ * silently returning a false reading. Only indices in the half-open range `[fromIndex, toIndex)`
+ * whose own `event.runId` equals `window.runId` are ever considered — mirroring
+ * `accumulateTurn`'s own run-scoping exclusion in `lib/sidecar-harness.mjs` (closing WR-02 in the
+ * same move: one sidecar drives many runs, and an event belonging to a different run must never
+ * be attributed to this one).
  */
-function readNoWorkPlanned(events) {
+function readNoWorkPlanned(events, window) {
+  const w = window ?? {};
+  if (typeof w.runId !== "string" || w.runId.length === 0) {
+    throw new TypeError(
+      'readNoWorkPlanned requires a window with a non-empty "runId" member — an unscoped ' +
+        "reading is not expressible",
+    );
+  }
+  if (!Number.isInteger(w.fromIndex) || w.fromIndex < 0) {
+    throw new TypeError(
+      'readNoWorkPlanned requires a window with an integer "fromIndex" member (>= 0) — an ' +
+        "unscoped reading is not expressible",
+    );
+  }
+  if (!Number.isInteger(w.toIndex) || w.toIndex < w.fromIndex) {
+    throw new TypeError(
+      'readNoWorkPlanned requires a window with an integer "toIndex" member (>= fromIndex) — an ' +
+        "unscoped reading is not expressible",
+    );
+  }
+  const { runId, fromIndex, toIndex } = w;
+  const inWindow = (event, index) => index >= fromIndex && index < toIndex && event.runId === runId;
+
   const proposeAttempted = events.some(
-    (event) =>
+    (event, index) =>
+      inWindow(event, index) &&
       event.type === "tool_call" &&
       typeof event[TOOL_NAME_FIELD] === "string" &&
-      event[TOOL_NAME_FIELD].includes("propose_"),
+      event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
   );
   if (!proposeAttempted) return "unproven";
   const refused = events.some(
-    (event) => event.type === "tool_result" && typeof event.raw === "string" && /challenge stage/i.test(event.raw),
+    (event, index) =>
+      inWindow(event, index) &&
+      event.type === "tool_result" &&
+      typeof event.raw === "string" &&
+      CHALLENGE_REFUSAL_PATTERN.test(event.raw),
   );
   return refused ? "refused" : "violated";
 }
@@ -1719,6 +1784,12 @@ async function runReplayCheckScenario(scenarioName) {
         }
         assertAllHeldRequestsAnswered(sidecar);
 
+        // Plan 05-23 (CR-01 closure): the boundary every window below is measured against —
+        // captured once, right after the driver returns and the held-request check passes,
+        // mirroring the live body's own boundary-taking convention exactly. Everything from here
+        // on (advance-stage and whatever follows it) is decompose-stage activity.
+        const challengeWindowEnd = sidecar.eventCursor();
+
         // Ordering invariant: every developer exchange's own send-cursor is at or after the
         // preceding agent turn's own end index — asserted PER EXCHANGE, not in aggregate.
         let precedingAgentEndIndex = turn1Cursor;
@@ -1778,8 +1849,15 @@ async function runReplayCheckScenario(scenarioName) {
         } else if (scenarioName === "stages-work-during-challenge") {
           // Task 3 (G-05-2): the one scenario that proves SHAPE-01's "no work planned" half can
           // FAIL — a propose attempt with no refusal must read as "violated" and must sink the
-          // built SHAPE-01 entry, isolated from the "challenged" half by holding it true.
-          const reading = readNoWorkPlanned(sidecar.events);
+          // built SHAPE-01 entry, isolated from the "challenged" half by holding it true. Plan
+          // 05-23 (CR-01 closure): the window is now explicit, from turn1Cursor to the boundary
+          // captured just above — the propose attempt in this fixture lands inside the challenge
+          // stage itself, so it must still be caught.
+          const reading = readNoWorkPlanned(sidecar.events, {
+            runId,
+            fromIndex: turn1Cursor,
+            toIndex: challengeWindowEnd,
+          });
           assert.equal(reading, "violated", "expected a propose attempt with no refusal to read as violated");
           const shapeResults = buildCriteriaResults({
             criterion1Challenged: true,
@@ -1806,6 +1884,106 @@ async function runReplayCheckScenario(scenarioName) {
         );
 
         exchanges = [{ speaker: "developer", text: OPENING_PROMPT }, ...conversation.exchanges];
+
+        if (scenarioName === "proposes-work-after-advance") {
+          // Plan 05-23 (CR-01 closure): the fixture reaches decompose LEGITIMATELY — a clean
+          // challenge stage, then one post-advance developer turn (the distillation instruction,
+          // mirroring the live body's own step) that triggers the fixture's scripted decompose-
+          // stage propose call. This is the exact combination CR-01's own defect needed and no
+          // offline arm ever exercised before this plan: a propose call that lands strictly AFTER
+          // challengeWindowEnd, which the bounded reading must never see and the unbounded
+          // (CR-01) reading must still misread.
+          assert.ok(
+            typeof advanced.distillationText === "string" && advanced.distillationText.length > 0,
+            "expected advance-stage to return a distillation instruction for this scenario",
+          );
+          const postAdvanceCursor = sidecar.eventCursor();
+          await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
+          exchanges.push({ speaker: "developer", text: advanced.distillationText, cursor: postAdvanceCursor });
+          const postAdvanceReply = await sidecar.waitForTurn(runId, postAdvanceCursor, {
+            timeoutMs: REPLAY_TURN_DEADLINE_MS,
+            label: "the post-advance decompose-stage reply (proposes-work-after-advance)",
+          });
+          exchanges.push({
+            speaker: "agent",
+            text: postAdvanceReply.text,
+            chunkCount: postAdvanceReply.chunkCount,
+            charCount: postAdvanceReply.charCount,
+            endedBy: postAdvanceReply.endedBy,
+          });
+
+          // Assertion 1: the bounded challenge-window reading is unproven — the challenge stage
+          // was genuinely clean.
+          const boundedWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
+          const boundedReading = readNoWorkPlanned(sidecar.events, boundedWindow);
+          assert.equal(
+            boundedReading,
+            "unproven",
+            "expected the bounded challenge-window reading to be unproven — the challenge stage " +
+              "was genuinely clean",
+          );
+
+          // Assertion 2: at least one propose tool_call for this run exists at an index at or
+          // after challengeWindowEnd — so the scenario provably reached the contaminating state
+          // and the assertions below are not vacuous.
+          const proposeAfterBoundary = sidecar.events.some(
+            (event, index) =>
+              index >= challengeWindowEnd &&
+              event.runId === runId &&
+              event.type === "tool_call" &&
+              typeof event[TOOL_NAME_FIELD] === "string" &&
+              event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
+          );
+          assert.ok(
+            proposeAfterBoundary,
+            "expected at least one propose tool_call for this run at an index at or after " +
+              "challengeWindowEnd — the scenario must provably reach the contaminating state",
+          );
+
+          // Assertion 3: the reading over the WHOLE unscoped range (from turn1Cursor to the
+          // current events length) is still violated — this is the CR-01 reading, asserted to
+          // still be wrong, which is what gives the regression teeth.
+          const unboundedWindow = { runId, fromIndex: turn1Cursor, toIndex: sidecar.events.length };
+          const unboundedReading = readNoWorkPlanned(sidecar.events, unboundedWindow);
+          assert.equal(
+            unboundedReading,
+            "violated",
+            "expected the WHOLE unscoped range's reading (the CR-01 reading) to still be violated " +
+              "— this is what gives the regression teeth",
+          );
+
+          // Assertion 4: the bounded reading reused as the final gating value is NOT violated.
+          assert.notEqual(
+            boundedReading,
+            "violated",
+            "expected the bounded reading reused as the final gating value to NOT be violated",
+          );
+
+          // Assertion 5: buildCriteriaResults with criterion1Challenged held true and the bounded
+          // reading yields a SHAPE-01 entry whose passed flag is true — the successful path
+          // SHAPE-01 and SHAPE-02 must be able to share.
+          const shapeResults = buildCriteriaResults({
+            criterion1Challenged: true,
+            noWorkPlannedReading: boundedReading,
+            criterion2Landed: false,
+            criterion3Decided: false,
+            criterion4Reopened: false,
+            criterion4PrimedRejected: false,
+          });
+          const shape01 = shapeResults.find(([name]) => name.includes("SHAPE-01"));
+          assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
+          assert.equal(
+            shape01[1],
+            true,
+            "expected SHAPE-01 to pass on the successful path — a clean challenge followed by a " +
+              "legitimate decompose-stage proposal",
+          );
+
+          step(
+            `bounded reading (gating): ${boundedReading} — unbounded reading (CR-01's own reading, ` +
+              `still wrong): ${unboundedReading} — SHAPE-01 entry passed=${shape01[1]} (expected true)`,
+          );
+        }
       }
 
       // A synthetic evidence sheet — written for inspection, but NEVER through `resolveEvidencePath()`
@@ -2009,10 +2187,28 @@ await runScript(
     // run limp on to a misleading per-criterion result.
     assertAllHeldRequestsAnswered(sidecar);
 
-    // Task 3 (G-05-2): the real field (TOOL_NAME_FIELD), read once inside readNoWorkPlanned —
-    // event.name was always undefined (ToolCallEvent's real field is toolName), which made this
-    // criterion's "no work planned" half vacuously true. Now a three-valued reading that can fail.
-    const noWorkPlannedReading = readNoWorkPlanned(sidecar.events);
+    // Plan 05-23 (CR-01 closure): the boundary is taken HERE, once — immediately after the driver
+    // returns and the held-request check passes. Everything from here on (advance-stage and the
+    // decompose stage it opens) is legitimate by construction (D-89: advancing is what distils the
+    // conversation into staged proposals; D-90: the developer alone opens that gate) and must
+    // never be read as evidence about the challenge stage.
+    const challengeWindowEnd = sidecar.eventCursor();
+    step(
+      `challenge-stage window closed at event index ${challengeWindowEnd} (from ${turn1Cursor}) — ` +
+        "everything from here on is decompose-stage activity and legitimate by construction",
+    );
+
+    // Task 3 (G-05-2) / Plan 05-23 (CR-01 closure): the real field (TOOL_NAME_FIELD), read once
+    // inside readNoWorkPlanned — event.name was always undefined (ToolCallEvent's real field is
+    // toolName), which made this criterion's "no work planned" half vacuously true. Now a
+    // three-valued, WINDOW-BOUNDED reading that can fail — and that a legitimate decompose-stage
+    // propose call can never contaminate. This is the ONE reading computed for gating; the
+    // "final" binding near the end of this run reuses it verbatim rather than recomputing it.
+    const noWorkPlannedReading = readNoWorkPlanned(sidecar.events, {
+      runId,
+      fromIndex: turn1Cursor,
+      toIndex: challengeWindowEnd,
+    });
     const agentTexts = [turn1.text, ...conversation.exchanges.filter((e) => e.speaker === "agent").map((e) => e.text)];
     const criterion1Challenged = agentTexts.some((text) => /\?/.test(text));
 
@@ -2176,9 +2372,13 @@ await runScript(
       );
     }
 
-    // Re-read: the decompose phase (proposal calls, above) happens strictly AFTER the earlier
-    // reading, so this is the fresh, final reading — not the pre-decompose "unproven" snapshot.
-    const finalNoWorkPlannedReading = readNoWorkPlanned(sidecar.events);
+    // Plan 05-23 (CR-01 closure): REUSE, never re-read. The challenge-stage reading captured
+    // above (bounded at challengeWindowEnd, before advance-stage) was already correct the moment
+    // driveChallengeConversation returned — decompose-stage propose calls (the proposal activity
+    // just above) are legitimate by construction and must never re-taint it. A second, unscoped
+    // computation here is exactly the CR-01 defect: it would see this stage's own legitimate
+    // propose_* calls and force "violated" on essentially every otherwise-successful run.
+    const finalNoWorkPlannedReading = noWorkPlannedReading;
 
     const results = buildCriteriaResults({
       criterion1Challenged,

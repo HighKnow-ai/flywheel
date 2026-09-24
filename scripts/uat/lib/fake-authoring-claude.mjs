@@ -184,6 +184,56 @@ export const SCENARIOS = {
       { type: "text", text: "Still staging more work based on what you've told me." },
     ],
   },
+
+  // Plan 05-23 (CR-01 closure): the fixture that reaches decompose LEGITIMATELY — a clean
+  // challenge stage (no propose call anywhere in turns 1-2), settles after one round of answers,
+  // then — on the turn the post-advance developer message triggers — makes the real,
+  // fully-qualified decompose-stage propose call `stages-work-during-challenge` above also uses.
+  // This is the exact combination CR-01's own defect needed and that no offline arm exercised
+  // before this plan: a propose call that provably lands AFTER the challenge-stage window closes.
+  "proposes-work-after-advance": {
+    turns: [
+      // Turn 1 — three questions, each matching a distinct ANSWER_BANK pattern. NO propose tool
+      // call anywhere in this turn.
+      [
+        { type: "text", text: "Let me get oriented before shaping this." },
+        { type: "tool_use", name: "Bash", input: { command: "git status --short && ls" } },
+        {
+          type: "text",
+          text:
+            "Who can dismiss a notification once it fires?\n" +
+            "Does an unattended run finishing on its own warrant a notification?\n" +
+            "Should multiple notifications ever batch together?",
+        },
+      ],
+      // Turn 2 — the reply to the developer's answers. No interrogative fragment at all: this is
+      // what makes the conversation SETTLE. Still no propose tool call.
+      [
+        { type: "text", text: "Good — locking that in." },
+        { type: "tool_use", name: "Bash", input: { command: "true" } },
+        {
+          type: "text",
+          text:
+            "Got it — only the assignee dismisses it, an unattended finish alone doesn't warrant " +
+            "one, and no batching in this slice. That's enough to move forward.",
+        },
+      ],
+      // Turn 3 — the legitimate decompose-stage proposal, the turn the post-advance developer
+      // turn (the distillation instruction) triggers.
+      [
+        { type: "text", text: "Now that we're decomposing, I'll stage the first task." },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_task",
+          input: { title: "Build notifications", description: "Notify the user of run outcomes." },
+        },
+        { type: "text", text: "I've staged the first task for your review." },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "Still here if you need anything else." },
+    ],
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation
