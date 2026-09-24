@@ -16,11 +16,29 @@ mod common;
 
 use core::db::open_and_migrate;
 use core::domain::actor::local_human_actor_id;
+use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
 use core::domain::authoring_proposal::{accept_proposal, amend_proposal, create_proposal, ProposalPayload, ProposalVerb};
 use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::project;
-use core::query::authoring::measure_authoring_run;
+use core::domain::task::create_task;
+use core::query::authoring::{list_recent_authoring_runs, measure_authoring_run};
 use rusqlite::{params, Connection};
+
+/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — mirrors
+/// `authoring_lifecycle.rs`'s own identically-named lock; needed only by the one test below that
+/// starts a real TASK run (`start_agent_run` calls `ensure_worktree`, which needs a real
+/// repository, unlike an authoring run's worktree-less start).
+static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
+    // SAFETY: the mutex above serializes every caller in this binary.
+    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
+    let result = f();
+    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
+    result
+}
 
 #[test]
 fn accepted_task_and_criterion_proposals_are_both_counted() {
@@ -500,5 +518,103 @@ fn the_measurement_is_reproducible_under_a_bound_smaller_than_the_data() {
     assert_eq!(
         before, after,
         "two measurement calls under a small bound must leave the database file byte-identical"
+    );
+}
+
+// --- `list_recent_authoring_runs` (05-17-PLAN.md Task 1): the run id the terminal picks the
+// comparison's in-app arm from, without reading it off a UI surface. ---
+
+#[test]
+fn recent_authoring_runs_lists_only_authoring_runs_newest_first() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+
+        let older = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+            .expect("start the older authoring run");
+        advance_stage(&mut conn, &older.id, &actor_id).expect("advance the older run's stage");
+        conn.execute(
+            "UPDATE agent_runs SET started_at = ?1 WHERE id = ?2",
+            params!["2026-01-01T00:00:00Z", older.id],
+        )
+        .expect("backdating the older run's start should succeed");
+
+        let newer = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+            .expect("start the newer authoring run");
+        advance_stage(&mut conn, &newer.id, &actor_id).expect("advance the newer run's stage");
+        conn.execute(
+            "UPDATE agent_runs SET started_at = ?1 WHERE id = ?2",
+            params!["2026-01-02T00:00:00Z", newer.id],
+        )
+        .expect("backdating the newer run's start should succeed");
+
+        // An ordinary, non-authoring, task-bound run — must never appear in the authoring list.
+        let task = create_task(&mut conn, &project.id, &actor_id, "An ordinary task", None)
+            .expect("create_task should succeed");
+        let ordinary = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+            .expect("start the ordinary task-bound run");
+
+        let recent = list_recent_authoring_runs(&conn, 200)
+            .expect("list_recent_authoring_runs should succeed");
+        let run_ids: Vec<&str> = recent.iter().map(|r| r.run_id.as_str()).collect();
+        assert_eq!(
+            run_ids,
+            vec![newer.id.as_str(), older.id.as_str()],
+            "only the two authoring runs should be listed, newest first, excluding the ordinary task-bound run"
+        );
+        assert!(
+            !run_ids.contains(&ordinary.id.as_str()),
+            "an ordinary task-bound run must never appear in the authoring run list"
+        );
+    });
+}
+
+#[test]
+fn recent_authoring_runs_includes_a_closed_run_with_its_terminal_status() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+        .expect("start_authoring_run should succeed");
+    advance_stage(&mut conn, &run.id, &actor_id).expect("advance_stage should succeed");
+
+    close_agent_run(&mut conn, &run.id, AgentRunStatus::Completed, None, None, None)
+        .expect("close_agent_run should succeed");
+
+    let recent = list_recent_authoring_runs(&conn, 200)
+        .expect("list_recent_authoring_runs should succeed");
+    let listed = recent
+        .iter()
+        .find(|r| r.run_id == run.id)
+        .expect("a closed authoring run must still be listed — the comparison measures finished sessions");
+    assert_eq!(listed.status, "completed", "the listed run must carry its terminal status");
+    assert!(listed.ended_at.is_some(), "a closed run's ended_at must be populated");
+}
+
+#[test]
+fn recent_authoring_runs_is_bounded_and_stable_when_two_runs_share_a_start() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let run_a = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+        .expect("start run a");
+    advance_stage(&mut conn, &run_a.id, &actor_id).expect("advance run a's stage");
+    let run_b = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+        .expect("start run b");
+    advance_stage(&mut conn, &run_b.id, &actor_id).expect("advance run b's stage");
+
+    // Force both runs to the identical started_at — which row a LIMIT 1 read keeps depends
+    // entirely on the `id DESC` tie-break, mirroring `list_rejected_for_epic`'s own idiom.
+    conn.execute(
+        "UPDATE agent_runs SET started_at = ?1 WHERE id IN (?2, ?3)",
+        params!["2026-01-01T00:00:00Z", run_a.id, run_b.id],
+    )
+    .expect("forcing a shared started_at should succeed");
+
+    let first = list_recent_authoring_runs(&conn, 1).expect("first read should succeed");
+    let second = list_recent_authoring_runs(&conn, 1).expect("second read should succeed");
+    assert_eq!(
+        first.len(),
+        1,
+        "a limit of one must return exactly one run even when two runs tie on started_at"
+    );
+    assert_eq!(
+        first, second,
+        "two reads against an unchanged database must return the identical run under a tie"
     );
 }
