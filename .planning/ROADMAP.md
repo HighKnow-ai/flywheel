@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 17 plans — 13/13 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT), plus 4 planned gap-closure plans (05-14 through 05-17) in 3 waves opened by `05-VERIFICATION.md` (CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements)
+**Plans**: 14/17 plans executed — 13/13 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT), plus 4 planned gap-closure plans (05-14 through 05-17) in 3 waves opened by `05-VERIFICATION.md` (CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements)
 **UI hint**: yes
 
 Plans:
@@ -547,7 +547,7 @@ Plans:
 
 **Gap closure round 2 — wave 1, the tracer** *(opened by `05-VERIFICATION.md`; the failed truth is fixed and proven on its failure path before any warning-level work begins)*
 
-- [ ] 05-14-PLAN.md — CR-01/WR-04: a transcript row only for a turn the transport accepted, a failed send that leaves nothing behind, and the first tests that could ever have caught either (SHAPE-01)
+- [x] 05-14-PLAN.md — CR-01/WR-04: a transcript row only for a turn the transport accepted, a failed send that leaves nothing behind, and the first tests that could ever have caught either (SHAPE-01)
 
 **Gap closure round 2 — wave 2** *(both blocked on 05-14; they share no file and run in parallel)*
 
@@ -807,7 +807,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 13/13 | In Progress|  |
+| 5. Socratic Epic Authoring | 14/17 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
