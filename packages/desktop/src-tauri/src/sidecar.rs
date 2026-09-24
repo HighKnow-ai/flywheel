@@ -523,9 +523,23 @@ impl SidecarHandle {
 
         let outcome = persist_event_line(&self.writers, run_id, &line);
         if outcome != PersistOutcome::Written {
+            // The full detail (which, via `SessionLogWriter::open`'s anyhow context, embeds the
+            // resolved session-log path) stays in this breadcrumb, which never crosses the IPC
+            // boundary — kept exactly as it was before Task 2 (plan 05-14). The user-visible half
+            // is the sink notice below, mirroring the shared reader loop's own once-per-run
+            // discipline (T-02G-12-02/03, WR-04).
             eprintln!(
                 "session log persist failed for an authoring turn on run {run_id}: {outcome:?}"
             );
+            let already_notified = {
+                match self.notified_persist_failures.lock() {
+                    Ok(mut notified) => !notified.insert(run_id.to_string()),
+                    Err(_) => true, // poisoned — never spam a notice, and never fail the turn over it
+                }
+            };
+            if !already_notified {
+                sink.emit_persistence_failure(run_id, persist_failure_detail(&outcome));
+            }
         }
         if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
             sink.emit_agent_event(&event);
@@ -749,6 +763,25 @@ impl AuthoringTurnSink for AppHandle {
 
     fn emit_persistence_failure(&self, run_id: &str, detail: &str) {
         emit_persistence_failure_notice(self, run_id, detail);
+    }
+}
+
+/// The persistence-failure detail phrase for a given [`PersistOutcome`] (Task 2, plan 05-14) — the
+/// ONE place this mapping is written. Both the shared reader loop's own persist-failure branch and
+/// [`SidecarHandle::record_authoring_turn_into`]'s turn-recording path call this, so the two can
+/// never drift into different wording for the same condition. Never returns the outcome's own
+/// stored error string — only a fixed, outcome-shaped phrase, matching
+/// [`emit_persistence_failure_notice`]'s own no-path-disclosure rule (T-02G-12-03).
+fn persist_failure_detail(outcome: &PersistOutcome) -> &'static str {
+    match outcome {
+        PersistOutcome::RejectedRunId => "an invalid run id",
+        PersistOutcome::OpenFailed(_) => "the log file could not be opened",
+        PersistOutcome::AppendFailed(_) => "the log file could not be written to",
+        // Guarded by every caller's own `outcome != Written` check — never actually reached, but a
+        // plain fallback value rather than a panicking call (this module's own invariant: no
+        // per-run fault may ever unwind the shared reader loop, and neither may a defensive branch
+        // here).
+        PersistOutcome::Written => "an unknown condition",
     }
 }
 
@@ -1558,26 +1591,12 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                                 // the renderer would be exactly the app-data-directory
                                                 // disclosure T-02G-12-03 forbids; the full detail
                                                 // stays in the `eprintln!` breadcrumb above, which
-                                                // never crosses the IPC boundary.
-                                                let detail = match &outcome {
-                                                    PersistOutcome::RejectedRunId => {
-                                                        "an invalid run id"
-                                                    }
-                                                    PersistOutcome::OpenFailed(_) => {
-                                                        "the log file could not be opened"
-                                                    }
-                                                    PersistOutcome::AppendFailed(_) => {
-                                                        "the log file could not be written to"
-                                                    }
-                                                    // Guarded by the `outcome != Written` check above —
-                                                    // never actually reached, but a plain fallback
-                                                    // value rather than a panicking call (this loop's
-                                                    // own invariant: no per-run fault may ever unwind
-                                                    // it, and neither may a defensive branch here).
-                                                    PersistOutcome::Written => {
-                                                        "an unknown condition"
-                                                    }
-                                                };
+                                                // never crosses the IPC boundary. `persist_failure_detail`
+                                                // is the ONE place this mapping is written (Task 2,
+                                                // plan 05-14) — `record_authoring_turn_into` calls
+                                                // the same function so the two can never drift into
+                                                // different wording for the same condition.
+                                                let detail = persist_failure_detail(&outcome);
                                                 emit_persistence_failure_notice(
                                                     &app_for_reader,
                                                     &run_id,
