@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-24-PLAN.md
-last_updated: "2026-09-24T11:25:25.423Z"
+stopped_at: Completed 05-25-PLAN.md
+last_updated: "2026-09-24T11:51:18.299Z"
 last_activity: 2026-09-24
 last_activity_desc: Phase 05 execution started
-state_head: b720765f7d8b8f1df3ec792b3e869cafaa5ee6fc
+state_head: 1526443d887bc245c255ecf5403cdf19805f9c90
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 119
-  completed_plans: 117
+  completed_plans: 118
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 3 of 26
+Plan: 4 of 26
 Status: Ready to execute
 Last activity: 2026-09-24 — Phase 05 execution started
 
@@ -174,6 +174,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P22 | 20min | 3 tasks | 3 files |
 | Phase 05 P23 | 55min | 3 tasks | 3 files |
 | Phase 05 P24 | 25min | 2 tasks | 3 files |
+| Phase 05 P25 | 24min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -386,6 +387,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Developer authorised exactly one live uat-08 run ("Authorise one run"); it failed on a fourth, new instrument-failure mechanism (an Anthropic safety-classifier refusal silently captured as agent text) not covered by this wave's three known classes -- recorded honestly, not re-run, not patched into this closure.
 - [Phase 05]: readNoWorkPlanned's window promoted to a required parameter (runId, fromIndex, toIndex) — CR-01's implicit whole-array default made unwritable rather than merely discouraged; folds in WR-02's run-id scoping.
 - [Phase 05]: readNoWorkPlanned now correlates each propose attempt with its own positionally-found tool_result answer instead of two independent existence questions — closes WR-01 (a refused first attempt could launder an unrefused second one into a false 'refused' reading).
+- [Phase 05]: WR-04 closed: waitForTurn's idle-reset is scoped to (chunkCount, toolCalls.length, pendingToolCallCount) and stands down entirely while a tool call is outstanding; the fixture gained delayMs to reproduce a real mid-turn pause, observed genuinely RED before the fix.
+- [Phase 05]: LIVE_TURN_IDLE_MS (30s) is the live arm's own explicit idle window at both remaining capture sites; TURN_IDLE_MS (5s, the test default) is unchanged.
 
 ### Pending Todos
 
@@ -433,6 +436,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-24T11:25:25.293Z
-Stopped at: Completed 05-24-PLAN.md
+Last session: 2026-09-24T11:51:18.180Z
+Stopped at: Completed 05-25-PLAN.md
 Resume file: None
