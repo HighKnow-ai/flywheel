@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 26 plans — 22/22 executed, 4 planned (05-23 through 05-26). 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail — plus 4 planned gap-closure plans (05-23 through 05-26) in 4 waves opened by `05-VERIFICATION.md` `gaps_found` 25/27: FAILED truth #19 (`CR-01`, the gating window contaminated by legitimate decompose-stage proposals), the safety-classifier refusal captured as ordinary agent text, `WR-04`'s idle window that can truncate a live turn, and the unfiled-todo bookkeeping
+**Plans**: 23/26 plans executed — 22/22 executed, 4 planned (05-23 through 05-26). 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail — plus 4 planned gap-closure plans (05-23 through 05-26) in 4 waves opened by `05-VERIFICATION.md` `gaps_found` 25/27: FAILED truth #19 (`CR-01`, the gating window contaminated by legitimate decompose-stage proposals), the safety-classifier refusal captured as ordinary agent text, `WR-04`'s idle window that can truncate a live turn, and the unfiled-todo bookkeeping
 **UI hint**: yes
 
 Plans:
@@ -580,7 +580,7 @@ Plans:
 
 **Gap closure round 5 — wave 1** *(opened by `05-VERIFICATION.md` `status: gaps_found`, 25/27 — FAILED truth #19 (`CR-01`), the safety-classifier-refusal capture defect, `WR-04`, and the unfiled-todo bookkeeping. The tracer: make truth #19 pass end to end before anything expands from it)*
 
-- [ ] 05-23-PLAN.md — G-05-3: the `no work planned` window promoted to a required parameter so the unscoped read is unwritable, a replay scenario that proposes legitimately after the stage advances (proving SHAPE-01 can report a genuine pass, and that the unscoped read would still have been wrong), per-attempt refusal correlation, and three cosmetic review findings cleared (SHAPE-01, SHAPE-02)
+- [x] 05-23-PLAN.md — G-05-3: the `no work planned` window promoted to a required parameter so the unscoped read is unwritable, a replay scenario that proposes legitimately after the stage advances (proving SHAPE-01 can report a genuine pass, and that the unscoped read would still have been wrong), per-attempt refusal correlation, and three cosmetic review findings cleared (SHAPE-01, SHAPE-02)
 
 **Gap closure round 5 — wave 2** *(blocked on 05-23 — shares all three instrument files)*
 
@@ -843,7 +843,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 22/22 | In Progress|  |
+| 5. Socratic Epic Authoring | 23/26 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
