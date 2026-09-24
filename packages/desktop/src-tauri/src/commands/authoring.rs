@@ -138,6 +138,35 @@ pub fn authoring_run_for_epic(
     find_running_authoring_run(&conn, &epic_id)
 }
 
+/// The maximum length (in `char`s) of a developer's stated premise (T-05-13-01, T-05-13-06) —
+/// generous enough for a paragraph of framing, following `domain::authoring_proposal`'s own
+/// length-bound idiom. Deliberately its own constant, not a reuse of `MAX_AUTHORING_TURN_TEXT_LEN`
+/// (below): a premise is one opening statement, not free conversation, so it does not need that
+/// constant's much larger ceiling.
+const MAX_AUTHORING_PREMISE_LEN: usize = 4000;
+
+/// Validate a developer's stated premise (T-05-13-01, T-05-13-06): trim it, treat a blank result
+/// as absent, and refuse anything past [`MAX_AUTHORING_PREMISE_LEN`] with a worded error naming
+/// the limit and the actual length — the same idiom `domain::authoring_proposal::validate_payload`
+/// applies to every other renderer-supplied string in this workspace. Refuses rather than
+/// truncates, matching [`authoring_turn_send`]'s own discipline below.
+fn validate_premise(premise: Option<String>) -> Result<Option<String>, String> {
+    let Some(raw) = premise else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let char_count = trimmed.chars().count();
+    if char_count > MAX_AUTHORING_PREMISE_LEN {
+        return Err(format!(
+            "premise must be at most {MAX_AUTHORING_PREMISE_LEN} characters, got {char_count} characters"
+        ));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
 /// Start an epic-authoring session — a fresh one when `epic_id` is `None` (SHAPE-01) or a
 /// reopened one when it names an existing epic (SHAPE-05, plan 05-10). Reopening is the SAME start
 /// path with a subject, not a second flow: `epic_id` threads straight through to both
@@ -154,22 +183,35 @@ pub fn authoring_run_for_epic(
 /// `domain::authoring_session::start_authoring_run`, merge the shim env, and send an
 /// `authoring_spawn` request carrying `repo_path` as the session's `cwd` — never a worktree path
 /// (D-86). Emits `board:changed` exactly as `agent_run_start` does.
+///
+/// `premise` (plan 05-13, gap G-05-2's second half): the developer's own stated framing for a
+/// brand-new epic (or what they want to change about a reopened one), validated by
+/// [`validate_premise`] and threaded through [`flywheel_core::epic_context_packet::render_epic_prompt`]
+/// so it reaches the opening prompt. AFTER the spawn request is sent, it is also RECORDED (never
+/// relayed a second time — see [`crate::sidecar::SidecarHandle::record_authoring_turn`]'s own doc
+/// comment) as the transcript's own first developer turn, so the conversation opens with the
+/// developer's own words attributed to them.
 #[tauri::command]
 pub fn authoring_run_start(
     state: State<AppState>,
     app: AppHandle,
     project_id: String,
     epic_id: Option<String>,
+    premise: Option<String>,
 ) -> Result<AuthoringRunDto, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
 
     // T-05-10-02: refuse a second concurrent session on the same epic, plainly — the caller
-    // (either door) already has enough to route straight to the running one instead.
+    // (either door) already has enough to route straight to the running one instead. Unchanged by
+    // this plan's premise widening: a short-circuit to an already-running session records nothing
+    // and sends no prompt, so a premise typed against it is never even validated.
     if let Some(epic_id) = epic_id.as_deref() {
         if let Some(existing) = find_running_authoring_run(&conn, epic_id)? {
             return Ok(existing);
         }
     }
+
+    let premise = validate_premise(premise)?;
 
     let human_actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
@@ -196,10 +238,8 @@ pub fn authoring_run_start(
         epic_id.as_deref(),
     )
     .map_err(|e| e.to_string())?;
-    // TODO(plan 05-13 Task 2): thread the developer's stated premise through here once
-    // `authoring_run_start` grows the parameter — `None` for now keeps today's behaviour
-    // (Task 1 widens the renderer's own signature; Task 2 widens this command's).
-    let opening_prompt = flywheel_core::epic_context_packet::render_epic_prompt(&packet, None);
+    let opening_prompt =
+        flywheel_core::epic_context_packet::render_epic_prompt(&packet, premise.as_deref());
 
     let run = flywheel_core::domain::authoring_session::start_authoring_run(
         &mut conn,
@@ -229,6 +269,22 @@ pub fn authoring_run_start(
         sidecar
             .send_spawn_request(&repo_path, &request.to_string())
             .map_err(|e| e.to_string())?;
+
+        // T-05-13: record the premise as the transcript's own first developer turn — AFTER the
+        // spawn request above, so a delivery failure there is unaffected by this. Recorded, never
+        // relayed: the model already has the premise inside the opening prompt, and relaying it
+        // too would put the same text into the session twice (`record_authoring_turn`'s own doc
+        // comment says why). Best-effort, like every other system-generated relay this module
+        // makes — the developer already sees their premise field emptied and the session
+        // starting; a persistence hiccup here must not fail the whole start.
+        if let Some(premise_text) = premise.as_deref() {
+            sidecar.record_authoring_turn(
+                &app,
+                &run.id,
+                premise_text,
+                crate::sidecar::AuthoringTurnOrigin::Developer,
+            );
+        }
     }
 
     app.emit(

@@ -54,6 +54,14 @@ const DEFAULT_PERMISSION_MODE = PERMISSION_MODE_OPTIONS[0].value;
 
 const INSTRUCTION_PLACEHOLDER = "Anything else the agent should know for this run? (optional)";
 
+/** The authoring variant's own free-text field (plan 05-13, gap G-05-2's second half) — worded for
+ * what the developer is actually being asked, distinct for a brand-new epic versus a reopened one.
+ * Reuses `instructionRef`/the `instruction` state the task-execution field already owns (only one
+ * of the two ever renders for a given sheet instance), so the dialog's own Enter/⌘Enter handling
+ * in `handleDialogKeyDown` works unchanged for either. */
+const PREMISE_PLACEHOLDER_NEW_EPIC = "What do you want to build? Describe the epic's premise.";
+const PREMISE_PLACEHOLDER_REOPENED_EPIC = "What do you want to change about this epic?";
+
 function launchSheetPreviewQueryKey(taskId: string) {
   return ["launch-sheet-preview", taskId] as const;
 }
@@ -621,7 +629,12 @@ export function LaunchSheet({
     setStarting(true);
     setError(null);
     if (isAuthoring) {
-      startAuthoringRun(authoringProjectId as string, authoringEpicId)
+      const trimmedPremise = instruction.trim();
+      startAuthoringRun(
+        authoringProjectId as string,
+        authoringEpicId,
+        trimmedPremise.length > 0 ? trimmedPremise : undefined,
+      )
         .then((run) => {
           onAuthoringStarted?.({ id: run.id, authoringStage: run.authoringStage, epicId: run.epicId });
         })
@@ -754,14 +767,39 @@ export function LaunchSheet({
                 gap: "var(--space-md)",
               }}
             >
-              {/* D-86 (plan 05-10): the authoring flow has no instruction/permission-mode choice
-                  — the agent runs read-only in the main checkout unconditionally, so neither
-                  control applies. */}
+              {/* D-86 (plan 05-10): the authoring flow has no PERMISSION-MODE choice — the agent
+                  runs read-only in the main checkout unconditionally, so that one control stays
+                  suppressed. Its own free-text field, suppressed alongside it until this plan,
+                  is replaced below with a premise field of its own (plan 05-13, gap G-05-2's
+                  second half) — D-86 never applied to that field; its suppression was an
+                  inference carried along with the mode control's, not a decision. */}
               {!isAuthoring && (
                 <textarea
                   ref={instructionRef}
                   aria-label="Instruction"
                   placeholder={INSTRUCTION_PLACEHOLDER}
+                  value={instruction}
+                  onChange={(event) => setInstruction(event.target.value)}
+                  rows={3}
+                  className="type-body"
+                  style={{
+                    resize: "vertical",
+                    background: "var(--surface-dominant)",
+                    border: "1px solid var(--divider)",
+                    borderRadius: "var(--radius-chrome)",
+                    color: "inherit",
+                    padding: "var(--space-sm)",
+                  }}
+                />
+              )}
+
+              {isAuthoring && (
+                <textarea
+                  ref={instructionRef}
+                  aria-label="Premise"
+                  placeholder={
+                    authoringEpicId ? PREMISE_PLACEHOLDER_REOPENED_EPIC : PREMISE_PLACEHOLDER_NEW_EPIC
+                  }
                   value={instruction}
                   onChange={(event) => setInstruction(event.target.value)}
                   rows={3}

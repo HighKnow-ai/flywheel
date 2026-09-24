@@ -727,11 +727,23 @@ export interface AuthoringRunDto {
   resumed: boolean;
 }
 
+/**
+ * `premise` (plan 05-13, gap G-05-2's second half): the developer's own stated framing for a
+ * brand-new epic, or what they want to change about a reopened one. Optional and defaulted to
+ * `null` so the command-palette door (`board/useBoardQuery.ts::startAuthoringSessionForProject`)
+ * keeps compiling and keeps working without one — Task 1's no-framing prompt wording is what
+ * makes that door degrade correctly.
+ */
 export async function startAuthoringRun(
   projectId: string,
   epicId?: string | null,
+  premise?: string | null,
 ): Promise<AuthoringRunDto> {
-  return invokeCommand<AuthoringRunDto>("authoring_run_start", { projectId, epicId: epicId ?? null });
+  return invokeCommand<AuthoringRunDto>("authoring_run_start", {
+    projectId,
+    epicId: epicId ?? null,
+    premise: premise ?? null,
+  });
 }
 
 /**

@@ -453,17 +453,50 @@ impl SidecarHandle {
         self.send_request(&request.to_string())
     }
 
+    /// Persist-and-emit half of [`Self::send_authoring_turn`] (plan 05-13), extracted into its
+    /// own method so a caller that must RECORD a turn without RELAYING it to the child process —
+    /// the developer's stated premise, which is already inside the opening prompt the session is
+    /// spawned with (`authoring_run_start`'s own doc comment says why relaying it too would put
+    /// the same text into the session twice) — has a seam that does exactly that and no more. No
+    /// behaviour change for any existing caller: [`Self::send_authoring_turn`] calls this and then
+    /// sends the `authoring_turn` request exactly as it did before this extraction.
+    ///
+    /// Persists to the session log (via [`persist_event_line`], against this handle's own
+    /// `writers` map) and emits on the `agent:event` channel — in that order, persist before emit,
+    /// matching this module's "the persisted log is ground truth" discipline (PITFALLS.md pitfall
+    /// 10). A persist failure is logged and this function proceeds regardless — a value, never a
+    /// panic and never an early return, exactly how the shared reader loop's own
+    /// `persist_event_line` caller treats a non-`Written` outcome.
+    pub fn record_authoring_turn(
+        &self,
+        app: &AppHandle,
+        run_id: &str,
+        text: &str,
+        origin: AuthoringTurnOrigin,
+    ) {
+        let turn_id = flywheel_core::ids::new_id();
+        let at = chrono::Utc::now().to_rfc3339();
+        let line = build_authoring_turn_line(run_id, text, origin, &turn_id, &at);
+
+        let outcome = persist_event_line(&self.writers, run_id, &line);
+        if outcome != PersistOutcome::Written {
+            eprintln!(
+                "session log persist failed for an authoring turn on run {run_id}: {outcome:?}"
+            );
+        }
+        if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+            let _ = app.emit("agent:event", &event);
+        }
+    }
+
     /// D-89 (plan 05-05): send one turn's text to a live authoring session — the seam
     /// `advance_stage`'s distillation instruction and a developer's decision on a proposal both
     /// use to reach the running conversation; plan 05-12 Task 1 adds the developer's OWN typed
-    /// turn as a fourth caller. Task 2 widens this beyond "send it to the child" alone: every turn
-    /// is now persisted to the session log (via [`persist_event_line`], against this handle's own
-    /// `writers` map) and emitted on the `agent:event` channel — in that order, persist before
-    /// emit, matching this module's "the persisted log is ground truth" discipline (PITFALLS.md
-    /// pitfall 10) — BEFORE the sidecar request below is ever sent. A persist failure must never
-    /// block delivery: it is logged and this function proceeds regardless, exactly how the shared
-    /// reader loop's own `persist_event_line` caller treats a non-`Written` outcome — a value,
-    /// never a panic and never an early return.
+    /// turn as a fourth caller. Task 2 widened this beyond "send it to the child" alone: every
+    /// turn is persisted to the session log and emitted on the `agent:event` channel — in that
+    /// order, persist before emit — BEFORE the sidecar request below is ever sent, via
+    /// [`Self::record_authoring_turn`] (plan 05-13 pulled that half out into its own method so the
+    /// premise-recording caller could reach it without also relaying).
     ///
     /// Still fire-and-forget toward the child process itself, mirroring
     /// [`Self::relay_permission_answer_direct`]'s own shape: no ack wait on the `authoring_turn`
@@ -478,19 +511,7 @@ impl SidecarHandle {
         text: &str,
         origin: AuthoringTurnOrigin,
     ) -> anyhow::Result<()> {
-        let turn_id = flywheel_core::ids::new_id();
-        let at = chrono::Utc::now().to_rfc3339();
-        let line = build_authoring_turn_line(run_id, text, origin, &turn_id, &at);
-
-        let outcome = persist_event_line(&self.writers, run_id, &line);
-        if outcome != PersistOutcome::Written {
-            eprintln!(
-                "session log persist failed for an authoring turn on run {run_id}: {outcome:?}"
-            );
-        }
-        if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
-            let _ = app.emit("agent:event", &event);
-        }
+        self.record_authoring_turn(app, run_id, text, origin);
 
         let request = serde_json::json!({
             "id": format!("authoring-turn-{}", flywheel_core::ids::new_id()),
