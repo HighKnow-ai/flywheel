@@ -60,6 +60,8 @@ run_item "UAT 7 — launcher-wrapped destructive command, measured live (D-62 it
   node scripts/uat/uat-07-launcher-shape-gate.mjs
 run_item "UAT 8 — Socratic epic authoring, driven live (Phase 5 roadmap criteria)" \
   node scripts/uat/uat-08-socratic-authoring.mjs
+run_item "UAT 9 — Product Kill Criterion, in-app vs terminal-paced (05-17-PLAN.md)" \
+  node scripts/uat/uat-09-product-kill-criterion.mjs
 
 printf '\n\n┌─ UAT results (Phases 3 and 5) ────────────────────────────────────────────\n'
 FAILED=0
