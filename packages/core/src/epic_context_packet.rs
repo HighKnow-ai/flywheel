@@ -506,22 +506,39 @@ pub fn render_epic_prompt(packet: &EpicContextPacket, premise: Option<&str>) -> 
         }
     }
 
-    // RED scaffold (plan 05-13 Task 1): `premise` is accepted so the workspace compiles against
-    // the widened signature, but not yet rendered — this is deliberately incomplete, replaced by
-    // the next commit's GREEN implementation.
-    let _ = premise;
+    let premise = premise.map(str::trim).filter(|p| !p.is_empty());
+
+    if let Some(premise) = premise {
+        out.push_str("\n## Developer's Premise\n\n");
+        out.push_str(premise);
+        out.push('\n');
+    }
 
     // The one section with no omit case — every priming prompt must state the job, even for a
-    // wholly fresh epic with every other section absent.
+    // wholly fresh epic with every other section absent. Its wording splits on whether a premise
+    // was supplied (plan 05-13): with one, there is a real framing to challenge; without one, the
+    // model is told plainly that none exists yet and that its first move is to ask, never to
+    // invent a framing on the developer's behalf.
     out.push_str("\n## Your Task\n\n");
-    out.push_str(
-        "You are in the challenge stage of a Socratic epic-authoring session. Your job this \
-         stage is to challenge the developer's framing, not to draft a plan — no proposal tool \
-         exists in this stage, and nothing you say here can write to the board. A good turn \
-         surfaces an assumption the developer has not stated, or names a risk that the epic's \
-         existing contents (above, if any) already contradict. Do not propose tasks or criteria \
-         until the developer advances the stage.\n",
-    );
+    if premise.is_some() {
+        out.push_str(
+            "You are in the challenge stage of a Socratic epic-authoring session. Your job this \
+             stage is to challenge the developer's framing, not to draft a plan — no proposal tool \
+             exists in this stage, and nothing you say here can write to the board. A good turn \
+             surfaces an assumption the developer has not stated, or names a risk that the epic's \
+             existing contents (above, if any) already contradict. Do not propose tasks or criteria \
+             until the developer advances the stage.\n",
+        );
+    } else {
+        out.push_str(
+            "You are in the challenge stage of a Socratic epic-authoring session, and no framing \
+             has been supplied yet. Your first move is to ask the developer what they want to \
+             build — do not invent a framing to challenge on their behalf, and do not draft a \
+             plan. No proposal tool exists in this stage, and nothing you say here can write to \
+             the board; that stays true once the developer does answer. Do not propose tasks or \
+             criteria until the developer advances the stage.\n",
+        );
+    }
 
     out
 }
