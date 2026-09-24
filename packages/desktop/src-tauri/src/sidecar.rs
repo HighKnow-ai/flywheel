@@ -453,20 +453,12 @@ impl SidecarHandle {
         self.send_request(&request.to_string())
     }
 
-    /// Persist-and-emit half of [`Self::send_authoring_turn`] (plan 05-13), extracted into its
-    /// own method so a caller that must RECORD a turn without RELAYING it to the child process —
-    /// the developer's stated premise, which is already inside the opening prompt the session is
-    /// spawned with (`authoring_run_start`'s own doc comment says why relaying it too would put
-    /// the same text into the session twice) — has a seam that does exactly that and no more. No
-    /// behaviour change for any existing caller: [`Self::send_authoring_turn`] calls this and then
-    /// sends the `authoring_turn` request exactly as it did before this extraction.
-    ///
-    /// Persists to the session log (via [`persist_event_line`], against this handle's own
-    /// `writers` map) and emits on the `agent:event` channel — in that order, persist before emit,
-    /// matching this module's "the persisted log is ground truth" discipline (PITFALLS.md pitfall
-    /// 10). A persist failure is logged and this function proceeds regardless — a value, never a
-    /// panic and never an early return, exactly how the shared reader loop's own
-    /// `persist_event_line` caller treats a non-`Written` outcome.
+    /// Record a turn WITHOUT relaying it to the child process — the developer's stated premise,
+    /// which is already inside the opening prompt the session is spawned with
+    /// (`authoring_run_start`'s own doc comment says why relaying it too would put the same text
+    /// into the session twice), is the one caller that legitimately wants this half alone. A thin
+    /// delegation to [`Self::record_authoring_turn_into`] passing the real `AppHandle` as the
+    /// sink; no behaviour change for this or any other existing caller.
     pub fn record_authoring_turn(
         &self,
         app: &AppHandle,
@@ -474,36 +466,34 @@ impl SidecarHandle {
         text: &str,
         origin: AuthoringTurnOrigin,
     ) {
-        let turn_id = flywheel_core::ids::new_id();
-        let at = chrono::Utc::now().to_rfc3339();
-        let line = build_authoring_turn_line(run_id, text, origin, &turn_id, &at);
-
-        let outcome = persist_event_line(&self.writers, run_id, &line);
-        if outcome != PersistOutcome::Written {
-            eprintln!(
-                "session log persist failed for an authoring turn on run {run_id}: {outcome:?}"
-            );
-        }
-        if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
-            let _ = app.emit("agent:event", &event);
-        }
+        self.record_authoring_turn_into(app, run_id, text, origin);
     }
 
     /// D-89 (plan 05-05): send one turn's text to a live authoring session — the seam
     /// `advance_stage`'s distillation instruction and a developer's decision on a proposal both
     /// use to reach the running conversation; plan 05-12 Task 1 adds the developer's OWN typed
-    /// turn as a fourth caller. Task 2 widened this beyond "send it to the child" alone: every
-    /// turn is persisted to the session log and emitted on the `agent:event` channel — in that
-    /// order, persist before emit — BEFORE the sidecar request below is ever sent, via
-    /// [`Self::record_authoring_turn`] (plan 05-13 pulled that half out into its own method so the
-    /// premise-recording caller could reach it without also relaying).
+    /// turn as a fourth caller.
+    ///
+    /// **A `developer_turn` transcript row names a turn the transport ACCEPTED, never merely an
+    /// attempted one (plan 05-14, closing CR-01/`05-VERIFICATION.md` truth #7).** Delivery is
+    /// attempted FIRST via [`Self::send_authoring_turn_via`]; only once it succeeds is the turn
+    /// persisted to the session log and emitted on the `agent:event` channel. A failed delivery
+    /// records and emits NOTHING, which is exactly what makes [`authoring_turn_send`]'s own retry
+    /// path idempotent in the transcript: a failed attempt followed by a successful retry leaves
+    /// exactly one row for that logical turn, never two. This is a thin delegation to
+    /// [`Self::send_authoring_turn_via`] passing the real `AppHandle` as both the delivery target
+    /// and the sink.
     ///
     /// Still fire-and-forget toward the child process itself, mirroring
     /// [`Self::relay_permission_answer_direct`]'s own shape: no ack wait on the `authoring_turn`
-    /// request below. Delivery FAILURE (a missing handle upstream, or `send_request` erroring) is
-    /// what this function's `Err` return communicates to callers that choose to surface it (plan
-    /// 05-12's `authoring_turn_send` command); the three system-generated relay call sites keep
-    /// swallowing it with `let _ =`, unaffected by this widening.
+    /// request. Delivery FAILURE (a missing handle upstream, or `send_request` erroring) is what
+    /// this function's `Err` return communicates to callers that choose to surface it (plan
+    /// 05-12's [`authoring_turn_send`] command); the three system-generated relay call sites in
+    /// `commands/authoring.rs` keep swallowing it with `let _ =`, unaffected in KIND by this
+    /// plan — but now also record nothing when the relay does not land, which is the intended
+    /// strengthening.
+    ///
+    /// [`authoring_turn_send`]: crate::commands::authoring::authoring_turn_send
     pub fn send_authoring_turn(
         &self,
         app: &AppHandle,
@@ -511,15 +501,7 @@ impl SidecarHandle {
         text: &str,
         origin: AuthoringTurnOrigin,
     ) -> anyhow::Result<()> {
-        self.record_authoring_turn(app, run_id, text, origin);
-
-        let request = serde_json::json!({
-            "id": format!("authoring-turn-{}", flywheel_core::ids::new_id()),
-            "op": "authoring_turn",
-            "runId": run_id,
-            "text": text,
-        });
-        self.send_request(&request.to_string())
+        self.send_authoring_turn_via(|request| self.send_request(request), app, run_id, text, origin)
     }
 
     /// The sink-generic persist-and-emit half of [`Self::record_authoring_turn`] (Task 1, plan
@@ -551,12 +533,12 @@ impl SidecarHandle {
     }
 
     /// The ordering seam (Task 1, plan 05-14) [`Self::send_authoring_turn`] delegates to: builds
-    /// the SAME `authoring_turn` request JSON it always has, then hands it to `deliver`.
-    ///
-    /// FIXME(plan 05-14 Task 1 RED): this still records/emits UNCONDITIONALLY, mirroring today's
-    /// bug — a `developer_turn` row is written even when `deliver` never succeeds. This is the RED
-    /// scaffolding commit; the reorder that gates the record on `deliver`'s success lands in the
-    /// immediately following GREEN commit.
+    /// the SAME `authoring_turn` request JSON it always has, hands it to `deliver`, and propagates
+    /// a delivery error with `?` BEFORE ever calling [`Self::record_authoring_turn_into`] — on the
+    /// `Err` path nothing is persisted and nothing is emitted (T-05-14-01/02). `deliver` and
+    /// `sink` are parameters rather than always `self.send_request`/a real `AppHandle` so this
+    /// ordering is testable without a live sidecar child or a constructible Tauri handle (see
+    /// [`AuthoringTurnSink`]'s own doc comment for why the latter needs a seam at all).
     pub(crate) fn send_authoring_turn_via<D, S>(
         &self,
         deliver: D,
@@ -569,15 +551,15 @@ impl SidecarHandle {
         D: FnOnce(&str) -> anyhow::Result<()>,
         S: AuthoringTurnSink,
     {
-        self.record_authoring_turn_into(sink, run_id, text, origin);
-
         let request = serde_json::json!({
             "id": format!("authoring-turn-{}", flywheel_core::ids::new_id()),
             "op": "authoring_turn",
             "runId": run_id,
             "text": text,
         });
-        deliver(&request.to_string())
+        deliver(&request.to_string())?;
+        self.record_authoring_turn_into(sink, run_id, text, origin);
+        Ok(())
     }
 
     /// A [`SidecarHandle`] with no child process attached, for tests that need a real

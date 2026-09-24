@@ -883,6 +883,13 @@ const MAX_AUTHORING_TURN_TEXT_LEN: usize = 8000;
 /// (contrast every neighbouring command above, which does resolve an actor and does emit). Nothing
 /// in this command touches the run's `authoring_stage` and nothing reaches a proposal-writing tool:
 /// a turn is a turn — D-88's tool gate and D-90's human-only advance are both untouched.
+///
+/// **The `developer_turn` transcript row this relay produces names a turn the transport ACCEPTED,
+/// never merely an attempted one** (plan 05-14, closing CR-01/`05-VERIFICATION.md` truth #7):
+/// [`crate::sidecar::SidecarHandle::send_authoring_turn`] attempts delivery first and records
+/// nothing on a failed attempt, so a failed send followed by a successful retry of the same text
+/// leaves exactly one transcript row, never two. This command's own `Err` surfacing (unlike its
+/// best-effort neighbours above) is what lets the composer offer that retry in the first place.
 #[tauri::command]
 pub fn authoring_turn_send(
     state: State<AppState>,
