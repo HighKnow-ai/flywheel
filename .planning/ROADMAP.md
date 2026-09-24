@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 21/22 plans executed — 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 planned gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail
+**Plans**: 22/22 plans executed — 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 planned gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail
 **UI hint**: yes
 
 Plans:
@@ -576,7 +576,7 @@ Plans:
 
 **Gap closure round 4 — wave 3** *(blocked on 05-21 — the finding cannot be written down, and the credential-spend decision cannot be put to the developer, until the instrument is fixed and proven offline)*
 
-- [ ] 05-22-PLAN.md — G-05-2: the rule that every asserted property must be provable without a live run, a ledger row per task, and the developer's own decision on whether one live run is worth its credentials (SHAPE-01, SHAPE-03, SHAPE-05)
+- [x] 05-22-PLAN.md — G-05-2: the rule that every asserted property must be provable without a live run, a ledger row per task, and the developer's own decision on whether one live run is worth its credentials (SHAPE-01, SHAPE-03, SHAPE-05)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is
@@ -827,7 +827,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 21/22 | In Progress|  |
+| 5. Socratic Epic Authoring | 22/22 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |

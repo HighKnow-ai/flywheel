@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-21-PLAN.md
-last_updated: "2026-09-24T08:32:58.960Z"
+stopped_at: Completed 05-22-PLAN.md
+last_updated: "2026-09-24T08:53:55.614Z"
 last_activity: 2026-09-24
 last_activity_desc: Phase 05 execution started
-state_head: 91dac47e93c07f955f5296acbed301493d654675
+state_head: d541f6b4b866de1c575b91fc7b9489f125de52d2
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 115
-  completed_plans: 114
+  completed_plans: 115
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 3 of 22
+Plan: 4 of 22
 Status: Ready to execute
 Last activity: 2026-09-24 — Phase 05 execution started
 
@@ -171,6 +171,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P18 | 95min | 3 tasks | 7 files |
 | Phase 05 P20 | 90min | 3 tasks | 3 files |
 | Phase 05 P21 | ~2h | 3 tasks | 2 files |
+| Phase 05 P22 | 20min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -380,6 +381,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Turn-boundary primitive (SidecarClient.waitForTurn + pure accumulateTurn) closes G-05-2's capture-side truncation, proven offline via --replay-check against a scripted fake-authoring-claude.mjs backend through the real sidecar/watchdog/normaliser for zero tokens. — The old waitForEvent captured one assistant_text event as a whole reply, but one Claude Code turn emits many stream-json lines; waitForTurn resolves with the whole turn from a cursor, bounded by the backend's own result marker.
 - [Phase 05]: 05-21: driveChallengeConversation answers what the agent asked from a fixed ANSWER_BANK, bounded at MAX_AGENT_TURNS with an explicit CLOSING_TURN escape, never quoting the agent back at itself — Closes G-05-2's fixed-two-turn/mid-generation-advance defect; the open question is now the primary noun, depth a consequence of the dialogue
 - [Phase 05]: 05-21: readNoWorkPlanned replaces a vacuously-true boolean with a three-valued reading (unproven|refused|violated), reading TOOL_NAME_FIELD pinned against ToolCallEvent's real declaration — SHAPE-01's second half could never fail before this fix (event.name was always undefined); proven falsifiable by a stages-work-during-challenge scenario
+- [Phase 05]: Developer authorised exactly one live uat-08 run ("Authorise one run"); it failed on a fourth, new instrument-failure mechanism (an Anthropic safety-classifier refusal silently captured as agent text) not covered by this wave's three known classes -- recorded honestly, not re-run, not patched into this closure.
 
 ### Pending Todos
 
@@ -427,6 +429,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-24T08:32:58.805Z
-Stopped at: Completed 05-21-PLAN.md
+Last session: 2026-09-24T08:53:47.769Z
+Stopped at: Completed 05-22-PLAN.md
 Resume file: None
