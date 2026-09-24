@@ -1,55 +1,19 @@
 ---
 phase: 05-socratic-epic-authoring
-verified: 2026-09-24T09:30:00Z
+verified: 2026-09-24T12:00:00Z
 status: gaps_found
-score: 25/27 must-have truths verified (1 present-but-behavior-unverified, 1 FAILED — CR-01, an unfixed critical code-review finding in the live-arm gating logic this closure round shipped)
+score: 27/28 must-have truths verified (1 present-but-behavior-unverified, 1 FAILED — a NEW critical defect discovered by this round's own code review, in the exact code shipped to close the PRIOR round's failed truth)
 covered_files:
   - .planning/REQUIREMENTS.md
   - .planning/ROADMAP.md
-  - .planning/phases/05-socratic-epic-authoring/05-01-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-01-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-02-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-02-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-03-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-03-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-04-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-04-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-05-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-05-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-06-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-06-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-07-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-07-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-08-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-08-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-09-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-09-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-10-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-10-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-11-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-11-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-12-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-12-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-13-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-13-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-14-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-14-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-15-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-15-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-16-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-16-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-17-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-17-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-18-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-18-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-19-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-19-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-20-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-20-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-21-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-21-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-22-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-22-SUMMARY.md
+  - .planning/phases/05-socratic-epic-authoring/05-23-PLAN.md
+  - .planning/phases/05-socratic-epic-authoring/05-23-SUMMARY.md
+  - .planning/phases/05-socratic-epic-authoring/05-24-PLAN.md
+  - .planning/phases/05-socratic-epic-authoring/05-24-SUMMARY.md
+  - .planning/phases/05-socratic-epic-authoring/05-25-PLAN.md
+  - .planning/phases/05-socratic-epic-authoring/05-25-SUMMARY.md
+  - .planning/phases/05-socratic-epic-authoring/05-26-PLAN.md
+  - .planning/phases/05-socratic-epic-authoring/05-26-SUMMARY.md
   - .planning/phases/05-socratic-epic-authoring/05-LIVE-CHALLENGE-TRANSCRIPT.md
   - .planning/phases/05-socratic-epic-authoring/05-REVIEW.md
   - .planning/phases/05-socratic-epic-authoring/05-VALIDATION.md
@@ -57,57 +21,59 @@ covered_files:
   - scripts/uat/lib/fake-authoring-claude.mjs
   - scripts/uat/lib/sidecar-harness.mjs
   - scripts/uat/uat-08-socratic-authoring.mjs
-covered_digest: "v1:sha256:54060ec9ba940042d1bb4e5beb69d8ce742a015c7f7527b39c5b6aac14857b85"
+covered_digest: "v1:sha256:35b1c9a2c2f93194b67f0c46fbdecfd996c2b3c44cbbda857ce7a0f0f0a6c532"
 behavior_unverified: 1
 overrides_applied: 0
 re_verification:
-  previous_status: human_needed
-  previous_score: 8/9
+  previous_status: gaps_found
+  previous_score: 25/27
   gaps_closed:
-    - "None of the prior round's 8/9 must-haves regressed — full workspace gates (cargo build/test, sidecar 143/143, desktop 552/552) still pass, confirmed by the orchestrator's pre-verification facts and this session's own offline instrument runs (--self-test 42/42, --board-read-check green, --replay-check green across all four scenarios)."
+    - "Truth #19 (prior report) — the live arm's `noWorkPlanned` gating window was unscoped and recomputed over the whole event array after decompose-stage `propose_*` calls had legitimately happened, forcing `\"violated\"` on essentially every successful run. Genuinely fixed: `readNoWorkPlanned`'s window is now a required `{runId, fromIndex, toIndex}` parameter (an omitted member throws); the live body captures `challengeWindowEnd` once and reuses it; a new `proposes-work-after-advance` `--replay-check` scenario proves the bounded reading passes on the successful path while the OLD unbounded reading over the SAME run still reports `violated` (both asserted in one scenario, so the regression cannot rot into a tautology). Independently re-run this session: `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario proposes-work-after-advance` exits 0, log line reads `bounded reading (gating): unproven — unbounded reading (CR-01's own reading, still wrong): violated`."
+    - "WR-04 (idle window resetting on any event, not just this turn's own progress) — genuinely fixed and proven by a new `slow-tool-mid-turn` scenario, re-run this session, exit 0."
+    - "The backend-safety-classifier-refusal capture gap (discovered by the one authorised live run in the prior round) — genuinely fixed: `readBackendRefusal` names the failure class and stops the run at the point of refusal, proven by a new `backend-refuses-mid-conversation` scenario, re-run this session, exit 0."
+    - "NF-01 (transcript double-recording) — genuinely fixed via one shared `buildEvidenceExchanges` assembly path used by both the live body and every replay scenario, confirmed by direct reading (four call sites, all through the one function) and by the dedicated self-test."
+    - "The 05-22-SUMMARY.md claim that the safety-classifier defect \"should be filed\" as a todo was corrected honestly (appended, dated correction, not a silent rewrite) rather than left standing as an unresolved claim; confirmed `.planning/todos/pending/` still holds exactly the one pre-existing, unrelated file."
   gaps_remaining:
-    - "Truth #1 (roadmap SC1) — live challenge-quality dialogue judgment — still PRESENT_BEHAVIOR_UNVERIFIED. This round's plans (05-20/05-21) fixed the instrument defects (turn truncation, mid-generation advance, vacuous propose-reading) that made the PRIOR live run unjudgeable, and 05-22 put one authorised live run to the developer, who took it — but that run failed to reach a judgeable state for a NEW, previously-unseen reason (an Anthropic safety-classifier refusal on the distillation turn, misread by the harness as ordinary agent text). Both verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md remain UNJUDGED."
+    - "A NEW critical defect (independently confirmed this session, not merely re-read from 05-REVIEW.md) in the per-attempt `tool_result` correlation that plan 05-23 shipped to close the prior round's WR-01 finding: `isAttemptRefused` can reuse a single `tool_result` as the answer to two different back-to-back `propose_*` attempts, producing a false `\"refused\"` reading when the second attempt's real, unrefused answer sits later in the array and is never inspected. See Gaps below."
   regressions: []
 gaps:
-  - truth: "The live arm's `noWorkPlanned` gating reading is correctly scoped, so a real run where the agent legitimately proposes work during decompose (the expected, successful outcome) is not misread as a challenge-stage violation."
+  - truth: "A propose attempt is paired with the tool_result that actually answered it — never a different attempt's answer — so a second, unrefused attempt after a refused (or ambiguous) first one reads `violated`, never `refused`. (05-23-PLAN.md must_haves truth #5, the WR-01 closure this round's own plan claimed to complete.)"
     status: failed
-    reason: "CR-01 (05-REVIEW.md, confirmed by direct code reading this session): `finalNoWorkPlannedReading` (uat-08-socratic-authoring.mjs:2181) recomputes `readNoWorkPlanned` over the ENTIRE unscoped `sidecar.events` array AFTER decompose-stage `propose_*` calls have already legitimately happened — discarding the correctly-scoped pre-decompose reading already captured at line 2015. On any live run where SHAPE-02 passes (a proposal was created and accepted, the expected successful outcome), `proposeAttempted` becomes true from the decompose stage's own legitimate calls, and since a legitimate decompose-stage propose call is never 'refused' with challenge-stage wording, the reading is forced to `\"violated\"` — making SHAPE-01's second half FAIL on essentially every otherwise-successful run. This is the exact corrosive defect class (a criterion that cannot report a genuine result) that this whole gap-closure wave (G-05-2) was built to eliminate, now reproduced in the opposite direction: instead of a criterion that can never fail (the pre-G-05-2 defect), it is now a criterion that can almost never pass on a real, working run. No offline arm exercises this path — `--replay-check`'s `stages-work-during-challenge` scenario proves `\"violated\"` is reachable, but calls `readNoWorkPlanned` before any decompose-stage propose call has ever happened in that scenario, so it never observes a legitimate post-advance propose call contaminating the same array. The `settles-after-answers` and `never-settles` scenarios never reach decompose/accept at all. Confirmed directly in this session by reading lines 1375-1387, 2015 and 2181 at HEAD (commit at time of writing includes 05-22's `b16b3c5`)."
+    reason: "Confirmed by independent, direct execution of the exact shipped function this session (not merely re-read from 05-REVIEW.md's CR-01 finding, though it corroborates it exactly). `isAttemptRefused` (uat-08-socratic-authoring.mjs:2218-2233, inside readNoWorkPlanned:2179-2236) scans forward from `attempt.index + 1` for the FIRST subsequent tool_result in the window, independently for EVERY attempt, with no tracking of which tool_result indices an earlier attempt already claimed. When two propose tool_calls are issued back-to-back (a single turn carrying two tool_use blocks before either is answered — an ordinary Claude Code shape), the second attempt's scan starts at the same index the first attempt's scan already consumed. If that shared, ambiguous (unnamed) result reads as a refusal, BOTH attempts read refused, and the second attempt's own later, distinctly-named, unrefused answer is never reached. Repro run directly in this session against a verbatim copy of the shipped algorithm: two tool_calls (propose_task, propose_assumption) followed by an unnamed refusal-looking tool_result then a named, non-refusing tool_result answering the second attempt — returns \"refused\"; correct answer is \"violated\" (the second attempt genuinely succeeded, unrefused). This is a vacuous SHAPE-01 pass: on a live run shaped this way, SHAPE-01's second half would report a pass when the model actually got an unrefused proposal staged mid-challenge — the one outcome SHAPE-01 must never certify. No self-test in the file constructs this shape: the existing WR-01-bypass test and the 'order-independence' test both use a refused-then-answered / answered-then-refused pairing where each attempt's own answer is reachable without collision; 05-23-SUMMARY.md's own 'Issues Encountered' section documents that an earlier draft of the order-independence test hit exactly this ambiguity and was corrected by changing the FIXTURE to avoid it, rather than by fixing the correlation algorithm itself — which is the direct cause this defect shipped uncaught."
     artifacts:
       - path: "scripts/uat/uat-08-socratic-authoring.mjs"
-        issue: "Line 2181 (`const finalNoWorkPlannedReading = readNoWorkPlanned(sidecar.events);`) re-reads the unscoped, full event history after decompose-stage `propose_*` calls have occurred, instead of reusing the correctly-scoped reading already captured at line 2015 before `advance-stage` was called."
+        issue: "Lines 2218-2233 (`isAttemptRefused` closure): no `usedResultIndices`-style claiming of tool_result indices already consumed by an earlier attempt's scan; each attempt's scan is independent and can converge on the same shared result."
     missing:
-      - "Reuse the pre-decompose reading captured at line 2015 (`const finalNoWorkPlannedReading = noWorkPlannedReading;`) instead of recomputing after decompose activity has occurred, OR snapshot the event count immediately before `advance-stage` and pass a bounded slice to `readNoWorkPlanned` (05-REVIEW.md's own suggested fix)."
-      - "A `--replay-check` scenario that legitimately reaches decompose (accepts a proposal created during decompose, after a clean challenge stage) and asserts `finalNoWorkPlannedReading` is NOT `\"violated\"` on that success path — the missing regression that would have caught CR-01 before it shipped, and that would catch a future re-introduction of the same defect class."
-advisory:
-  - finding: "This phase's ROADMAP.md goal (\"Cyril shapes a new epic by being challenged rather than interviewed, and walks away with structured board items instead of a document.\") does not match the strict User Story format (`As a ..., I want ..., so that ....`) that the MVP-mode verification procedure's guard requires (`user-story.validate` returns `valid: false` for this text). Per the procedure, this should trigger a hard refusal to verify. This report does not refuse: all three prior verification rounds for this phase (including the immediately preceding `human_needed` pass) proceeded against the same non-conforming goal text using the roadmap's own Success Criteria as the phase contract — which Step 2a of the verification procedure loads unconditionally, independent of MVP mode — and a hard refusal at this point would block review of a live, developer-relevant finding (CR-01) discovered in this pass. Recorded here as a transparent, overridable process deviation rather than silently ignored."
-    category: other
-    reason: "The goal string predates this verifier's MVP User Story format guard; retrofitting it is a ROADMAP.md edit outside the scope of a verification pass, and the roadmap's own Success Criteria (loaded regardless of MVP mode) already served as this phase's actual, load-bearing contract across all three prior rounds."
-    evidence_status: "`node gsd-tools.cjs query user-story.validate --story \"<goal text>\" --pick valid` returns `false`; run directly in this session, not inferred."
+      - "Track which tool_result indices have already been claimed by an earlier attempt (e.g. a `Set`) and skip them when scanning for a later attempt's answer, so `attempts.every(isAttemptRefused)` (iterated in ascending index order) makes each attempt claim the earliest still-unclaimed result after its own index — 05-REVIEW.md's own CR-01 fix proposal, confirmed correct against the repro when applied (mentally traced: idx2 claimed by attempt1, attempt2's scan skips idx2 and reaches idx3, unrefused → \"violated\")."
+      - "A new self-test exercising exactly this shape: two consecutive propose tool_calls (both unanswered at the time of the second call), both eventually answered by two distinct subsequent tool_results, the first ambiguous/unnamed-refusing and the second named-and-unrefusing — asserting the reading is \"violated\", not \"refused\". None of the five existing propose/refusal self-tests construct two back-to-back, both-still-open attempts."
+advisory: []
 behavior_unverified_items:
-  - truth: "Success Criterion 1 — the agent genuinely challenges assumptions rather than affirming the user's framing (SHAPE-01's dialogue-quality half); and SHAPE-03's draft-usefulness judgment."
-    test: "Run scripts/uat/uat-08-socratic-authoring.mjs in live mode (real claude binary, real credentials, not --self-test/--replay-check) end to end and read the whole conversation it now writes into 05-LIVE-CHALLENGE-TRANSCRIPT.md (every turn, in order, per this round's Task 3 reshaping of the sheet), then fill both verdict lines."
+  - truth: "Roadmap SC1's live dialogue-quality half — the agent genuinely challenges assumptions rather than affirming the user's framing; and SHAPE-03's draft-usefulness judgment."
+    test: "Run scripts/uat/uat-08-socratic-authoring.mjs in live mode (real claude binary, real credentials, not --self-test/--replay-check) end to end and read the whole conversation it writes into 05-LIVE-CHALLENGE-TRANSCRIPT.md (every turn, in order), then fill both verdict lines."
     expected: "The agent's challenge-stage turns push back on the framing and ask substantive clarifying questions rather than affirming it; the drafted acceptance criteria are usable as-is or clearly need amendment, read directly from the sheet's counts."
-    why_human: "Live-conversation quality and draft-usefulness are judgment calls no automated check can make. This round's authorised live run (01M399FP80B184QM2RXTXJDZTK, 2026-09-24T08:48:54.481Z) did not reach a judgeable state: turn 3 of the captured transcript is an Anthropic safety-classifier refusal (`reasoning_extraction`) on the distillation-instruction turn, which the harness's `waitForTurn` captured as ordinary agent text (`endedBy=result`) rather than a distinct error condition — a fourth, new instrument-failure mechanism outside this wave's three self-naming classes, honestly recorded in 05-VALIDATION.md's `05-22-03` row (red) and not re-run or silently patched, per the plan's own explicit instruction. Both verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md remain UNJUDGED."
+    why_human: "Live-conversation quality and draft-usefulness are judgment calls no automated check can make. No completed, judgeable live run exists yet — the one authorised run in the prior round failed on the (now-fixed) safety-classifier-refusal capture gap before reaching a judgeable exchange; no live run was attempted this round by design (the plans explicitly prohibited spending a credential). Both verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md remain UNJUDGED — file integrity independently confirmed this session (byte-identical, sha256 80d008eb..., to commit b16b3c5, the same content the prior round wrote). Even once a live run is attempted, its SHAPE-01 'no work planned' verdict is untrustworthy on any run shaped with two back-to-back propose attempts until the new CR-01 gap above is closed."
 coincidental_reliance_items: []
 human_verification:
-  - test: "Live challenge quality (SHAPE-01's core claim) and draft usefulness (SHAPE-03) — run scripts/uat/uat-08-socratic-authoring.mjs in live mode against a real claude binary and credentials, once the new safety-classifier-refusal capture gap and CR-01 are both fixed (see Gaps above and the fifth-gap note in 05-22-SUMMARY.md's Next Phase Readiness section, which has not yet been filed as a tracked todo — checked this session, only one pending todo exists under .planning/todos/pending/ and it is the pre-existing, unrelated adapter text+tool_use drop)."
+  - test: "Live challenge quality (SHAPE-01) and draft usefulness (SHAPE-03) — run scripts/uat/uat-08-socratic-authoring.mjs in live mode against a real claude binary and credentials, once the new per-attempt-correlation gap above is fixed."
     expected: "During the challenge stage the agent pushes back on the developer's stated premise and asks substantive clarifying questions rather than affirming it; the drafted acceptance criteria are usable as-is or clearly need amendment. Both verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md get filled with the developer's own words."
-    why_human: "Judgment about live model dialogue quality and draft usefulness; no structural check can certify either. No completed, judgeable live run exists yet — the one authorised run this session failed for a reason unrelated to dialogue quality (an API-level safety-classifier refusal, not a real model turn)."
+    why_human: "Judgment about live model dialogue quality and draft usefulness; no structural check can certify either. No completed, judgeable live run exists yet."
 ---
 
 # Phase 05: Socratic Epic Authoring Verification Report
 
 **Phase Goal:** Cyril shapes a new epic by being challenged rather than interviewed, and walks away
 with structured board items instead of a document.
-**Verified:** 2026-09-24T09:30:00Z
+**Verified:** 2026-09-24T12:00:00Z
 **Status:** gaps_found
-**Re-verification:** Yes — this replaces the prior `05-VERIFICATION.md` (status `human_needed`, 8/9,
-2026-09-24T04:28:25Z), after gap-closure plans 05-20/05-21/05-22 targeted gap `G-05-2` (the live UAT
-arm's turn-truncation, mid-generation-advance, and vacuous-propose-reading defects). This pass found
-those three defects genuinely fixed and offline-proven, but also found a **new, unfixed critical
-defect** (`CR-01`, from this round's own `05-REVIEW.md`) in the code this closure shipped — see Gaps
-below. Per the MVP-mode note above (Advisory), this report proceeds against the roadmap's own Success
-Criteria rather than refusing outright.
+**Re-verification:** Yes — this replaces the prior `05-VERIFICATION.md` (status `gaps_found`, 25/27,
+2026-09-24T09:30:00Z), after gap-closure plans 05-23/05-24/05-25/05-26 targeted gap `G-05-3` (the
+prior round's own failed truth #19, plus three lower-severity review findings and one newly
+discovered live-run failure mechanism). This pass found the prior round's failed truth **genuinely
+fixed**, but also found — by independently re-executing the exact algorithm this round's own code
+review (`05-REVIEW.md`) flagged, not merely trusting the review's prose — a **second, distinct,
+still-unfixed critical defect** in the same function this closure shipped to fix the PRIOR one. This
+phase has now hit this exact defect class (a criterion in the live-arm's "no work planned" gating
+logic that cannot report a trustworthy result) in five consecutive rounds.
 
 ## Goal Achievement
 
@@ -115,116 +81,119 @@ Criteria rather than refusing outright.
 
 | # | Truth | Status | Evidence |
 |---|---|---|---|
-| 1 | (SC1) User starts a conversational session to shape a new epic and the agent challenges his assumptions and asks clarifying questions before any work is planned. | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | Structural mechanism unchanged and still holds (proposal tools structurally absent until a human advances the stage — proven by `authoring_acceptance.rs::criterion_1_*`, `authoring_stage.rs`, `authoring-stage-gate.test.mjs`, none touched this round). This round's instrument fixes (05-20/05-21) make the live-arm capture and gating trustworthy in principle, but the one authorised live run this session did not reach a judgeable state (see behavior_unverified_items). Live dialogue quality remains genuinely unproven. |
-| 2 | (SC2) The session's outcome lands directly on the board as a structured epic with child tasks and drafted acceptance criteria for each task — not as a markdown file or a chat log. | ✓ VERIFIED | Unchanged; not touched by this round's diff (`git log -1 -- packages/` shows the last product-side commit affecting this path predates 05-20). Regression-confirmed this session via the orchestrator-reported `cargo test` exit 0 covering `authoring_acceptance` and `authoring_proposal`. |
+| 1 | (SC1) User starts a conversational session to shape a new epic and the agent challenges his assumptions and asks clarifying questions before any work is planned. | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | Structural mechanism unchanged and still holds (proposal tools structurally absent until a human advances the stage — proven by `authoring_acceptance.rs::criterion_1_*`, `authoring_stage.rs`, `authoring-stage-gate.test.mjs`, none touched this round). The instrument that would let a live run's dialogue quality be judged is closer to trustworthy (the prior round's gating-window defect is fixed) but a NEW gating defect (see Gaps) still makes the automated "no work planned" half of SHAPE-01 unreliable on certain live-run shapes, and no live run has been attempted this round by design. |
+| 2 | (SC2) The session's outcome lands directly on the board as a structured epic with child tasks and drafted acceptance criteria for each task — not as a markdown file or a chat log. | ✓ VERIFIED | Unchanged; not touched by this round's diff (`git diff --quiet c93aa7b..HEAD -- packages/` confirmed clean this session — no product file touched by any of plans 05-23/24/25/26). Regression basis: workspace `cargo test` 741/741 passed across 70 targets (orchestrator-reported, this session), covering `authoring_acceptance`/`authoring_proposal`. |
 | 3 | (SC3) User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale. | ✓ VERIFIED | Unchanged; not touched by this round's diff. Same regression basis as SC2. |
 | 4 | (SC4) User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains. | ✓ VERIFIED | Unchanged; not touched by this round's diff. Same regression basis as SC2. |
 
-### Observable Truths — This Round's Gap-Closure Plans (05-20, 05-21, 05-22; G-05-2)
+### Observable Truths — This Round's Gap-Closure Plans (05-23, 05-24, 05-25, 05-26; G-05-3)
 
 | # | Truth (source plan) | Status | Evidence |
 |---|---|---|---|
-| 5 | A reply is captured as one WHOLE agent turn — every text block, in arrival order, verbatim — never the first chunk (05-20). | ✓ VERIFIED | `SidecarClient.waitForTurn`/`eventCursor` exist; `--replay-check`'s `truncation-repro`-equivalent path and the dedicated self-test checks ("every chunk is present, in arrival order, with an interleaved tool call not interrupting accumulation") pass. Re-run this session: `--self-test` 42/42, no FAIL lines. |
-| 6 | A captured turn is bounded at both ends by a cursor taken before the developer's turn is sent (05-20). | ✓ VERIFIED | Self-test check "a chunk that arrived before the cursor is excluded... this fails if waitForTurn scans from index zero" passes, re-run this session. |
-| 7 | A turn ends on the backend's own `result` line; absent that, an idle window ends it, and the caller can tell which (05-20). | ✓ VERIFIED | Self-test checks "a turn ending on a result event reports endedBy as the result marker" and "a turn that goes quiet with no result ends on the idle marker... distinguishable from the result marker" both pass, re-run this session. |
-| 8 | Every capture-completeness claim is provable with zero API credentials, against the real sidecar, via a scripted backend (05-20). | ✓ VERIFIED | `--replay-check` drives the real sidecar/watchdog/normaliser against `fake-authoring-claude.mjs`, confirmed by this session's own run (all four scenarios PASS, no `claude` binary probed). |
-| 9 | The exact 05-19 truncation symptom is a permanent, passing regression scenario (05-20). | ✓ VERIFIED | `truncation-repro` scenario exists and is exercised by `--replay-check`; self-test count (42) exceeds the plan's required minimum (29+ for 05-20's own task). |
-| 10 | A synthetic transcript is unmistakable and carries no fillable verdict line (05-20). | ✓ VERIFIED | Self-test checks on the `synthetic` flag pass; `--replay-check` runs write only to a scratch temp path, confirmed directly this session (`.../flywheel-uat-socratic-authoring-replay-check-*/evidence/...`), never the phase directory. |
-| 11 | Offline arms never touch the real fleet database or require a real `claude` binary (05-20). | ✓ VERIFIED | `--replay-check` never resolves `probeClaudeAvailable`; confirmed by direct code reading and by this session's runs completing without any `claude`-binary resolution step. |
-| 12 | A timed-out turn capture reports what it DID capture rather than discarding the evidence (05-20). | ✓ VERIFIED | Self-test check "a turn that never produces a chunk and never terminates rejects on its own deadline, naming what it captured" passes, re-run this session. |
-| 13 | The harness answers the questions the agent actually asked, driven by content not a fixed turn count (05-21). | ✓ VERIFIED | `--replay-check --scenario settles-after-answers` (re-run this session) shows the driver reading three real questions, answering all three from the fixed answer bank, and settling. |
-| 14 | No developer turn is sent while an agent turn is generating; `advance-stage` fires only after a completed turn (05-21). | ✓ VERIFIED | Self-test check "driveChallengeConversation sends a developer turn only after the preceding agent turn's own end index" and "the live body calls advance-stage exactly once, after the driver returns, and never inside it" both pass. |
-| 15 | A conversation that does not settle within its bounded depth sends an explicit closing turn rather than advancing into silence (05-21). | ✓ VERIFIED | `--replay-check --scenario never-settles` (re-run this session) shows exactly one closing turn sent, cap respected (4 turns + 1 closing), `settled: false` reported honestly. |
-| 16 | Every harness turn is composed from a fixed answer bank; the agent's own wording is never echoed back (05-21). | ✓ VERIFIED | Self-test check "every line of a composed reply, minus its fixed preamble and its ordinal prefix, is an exact member of the answer bank's value set" and "no answer-bank entry... coaches the model to challenge" both pass. |
-| 17 | The `no work planned` field read is pinned to the product's own type declaration (`ToolCallEvent.toolName`) rather than a comment (05-21). | ✓ VERIFIED | Self-test check "the harness's own tool_call field read is pinned against ToolCallEvent's real declaration in adapter.ts" passes; `TOOL_NAME_FIELD = "toolName"` confirmed by direct reading. |
-| 18 | The `no work planned` reading CAN read `"violated"` for an unrefused propose attempt during challenge, proven by a scenario (05-21). | ✓ VERIFIED | `--replay-check --scenario stages-work-during-challenge` (re-run this session) reports `noWorkPlanned reading: violated — SHAPE-01 entry passed=false (expected false)`. |
-| **19** | **The live arm's `no work planned` gating is correctly scoped — a legitimate decompose-stage propose call (the expected successful outcome) is never misread as a challenge-stage violation.** | **✗ FAILED** | **CR-01 (05-REVIEW.md), confirmed unfixed by direct code reading at HEAD (lines 1375-1387, 2015, 2181 of `uat-08-socratic-authoring.mjs`). See Gaps below — this is the primary blocker in this report.** |
-| 20 | When no propose attempt is observed at all, the reading is `"unproven"`, not a silent pass, and names where the structural proof lives (05-21). | ✓ VERIFIED | Self-test check "the unproven detail line names where the structural guarantee is actually proven" passes. Independently corroborated by this session's actual failed live run, whose transcript correctly reports `noWorkPlanned reading: unproven` (no propose attempt was ever made because the model's real turn never happened). |
-| 21 | The offline-provability rule is written where the next live-script author will read it (05-22). | ✓ VERIFIED | `scripts/uat/README.md` Item 8 contains the rule verbatim ("every property a live script asserts must be provable WITHOUT a live run..."), confirmed this session by direct reading. |
-| 22 | The four `uat-08` arms are documented with what each does and does NOT prove (05-22). | ✓ VERIFIED | Item 8 documents `--self-test`, `--board-read-check`, `--replay-check` and the live arm, each with a "proves X / proves nothing about Y" pair, confirmed by direct reading. |
-| 23 | The validation ledger carries a row for every task in this closure, each naming a runnable command (05-22). | ✓ VERIFIED | `05-VALIDATION.md` rows `05-20-01` through `05-22-03` all present, confirmed by direct reading (9/9 task ids found). |
-| 24 | The manual-only ledger rows claim no live run that did not happen (05-22). | ✓ VERIFIED | Rows still read "No completed post-fix live run is recorded" — accurate, since this session's authorised run did not complete (it failed before reaching a judgeable state). |
-| 25 | The credential-spend decision is the developer's own, taken via a `blocking-human` gate never auto-answerable (05-22). | ✓ VERIFIED | `grep -q 'gate="blocking-human"' 05-22-PLAN.md` passes; `05-VALIDATION.md`'s `05-22-02` row and `05-22-SUMMARY.md` both record the verbatim answer "Authorise one run". |
-| 26 | If declined the wave closes honestly on offline evidence; if authorised, the recorded verdicts (if any) are the developer's own words (05-22). | ✓ VERIFIED | Branch B was taken; the run failed before reaching a judgeable state, so — correctly, per the plan's own Branch-B-failure instructions — no verdict line was filled and no ledger row was turned green on the strength of a run that did not complete. `05-22-03` reads red with the failure recorded verbatim. |
+| 5 | The live arm's `noWorkPlanned` gating reading is computed from a bounded event window that ends at or before `advance-stage` — a legitimate decompose-stage propose call is never misread as a challenge-stage violation (05-23). | ✓ VERIFIED | `readNoWorkPlanned` now requires `{runId, fromIndex, toIndex}` (throws `TypeError` naming a missing member otherwise, confirmed by direct reading, lines 2179-2199). Live body captures `challengeWindowEnd` once (confirmed by reading the live body region) and reuses it. |
+| 6 | A run that cleanly challenges and THEN legitimately proposes during decompose reports SHAPE-01 as passing, proven offline (05-23). | ✓ VERIFIED | Re-run this session: `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario proposes-work-after-advance` exits 0; log line: "bounded reading (gating): unproven — unbounded reading (CR-01's own reading, still wrong): violated — SHAPE-01 entry passed=true (expected true)". |
+| 7 | The same run, read over the whole unscoped event array, still reports `violated` — the regression has teeth (05-23). | ✓ VERIFIED | Same scenario run above prints both readings side by side; the unbounded reading is asserted `violated` in the same test that asserts the bounded reading is not. |
+| 8 | An unscoped call to the reading is unwritable — omitting any window member raises a TypeError naming it (05-23). | ✓ VERIFIED | Self-test checks "each of the three missing-window-member cases raises a TypeError naming that member" pass (re-run this session, part of the 75/75 PASS run). |
+| 9 | A propose attempt is paired with the tool_result that actually answered it; a second, unrefused attempt after a refused first one reads `violated`, never `refused` (05-23). | ✗ FAILED | See Gaps. Independently reproduced this session: a shared, ambiguous `tool_result` between two back-to-back propose attempts can still launder a genuinely unrefused second attempt into a false `"refused"` reading. The existing self-tests cover only the refused→answered and answered→refused shapes, not the back-to-back-then-both-answered shape. |
+| 10 | An event at exactly the window's end index is OUTSIDE the window; an empty window reads `unproven`, never throws or silently passes (05-23). | ✓ VERIFIED | Self-test checks "an event at exactly the window's toIndex is outside the window — unproven" and "an empty window... reads unproven, never throws" pass. |
+| 11 | Two propose attempts inside one window produce the same reading regardless of which is refused first — order-independent (05-23). | ✓ VERIFIED (coincidental-reliance) | Self-test check passes, but per truth #9's finding, this order-independence property holds only for the specific fixture shapes the self-test constructs (which deliberately avoid the shared-result collision via a wrong-tool-name exclusion, per 05-23-SUMMARY.md's own "Issues Encountered" note) — not for the back-to-back-both-open shape. Harden: extend this test's fixture coverage to include the colliding shape once truth #9's fix lands. |
+| 12 | A propose attempt belonging to a different run id is never attributed to this run's reading (05-23). | ✓ VERIFIED | Self-test check "a foreign runId inside the index range is never attributed to this run" passes. |
+| 13 | A skipped replay scenario is reported as skipped, not as a failure of the whole multi-scenario arm (05-23, IN-01). | ✓ VERIFIED | `--replay-check`'s aggregation loop checks `process.exitCode === 1` specifically per 05-23-SUMMARY.md; confirmed no regression in this session's full 7-scenario run (all exited via their own named PASS/FAIL, no cross-scenario bleed observed). |
+| 14 | A backend-level refusal captured in place of a model turn names itself as a distinct failure class instead of passing as ordinary agent text (05-24). | ✓ VERIFIED | Re-run this session: `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario backend-refuses-mid-conversation` exits 0, `✅ PASS`. |
+| 15 | A refused session fails fast: no further developer turn is sent, the run never waits out the proposal deadline (05-24). | ✓ VERIFIED | Same scenario's own assertions (fail-fast ordering) pass as part of the exit-0 result; corroborated by direct reading of `readBackendRefusal`'s call site stopping `driveChallengeConversation` at the point of refusal. |
+| 16 | The transcript records a refusal verbatim, names its classifier code and request id, says on its face the run did not complete (05-24). | ✓ VERIFIED | Confirmed by direct reading of the refusal-rendering branch (`renderChallengeEvidenceSheet`'s refusal section) and the scenario's own assertions, part of the passing `--replay-check` run above. |
+| 17 | The whole conversation is recorded exactly once via one shared `buildEvidenceExchanges` assembly path — no double-recording (05-24, NF-01). | ✓ VERIFIED | Confirmed by direct reading: exactly one `buildEvidenceExchanges` definition (line 2116), four call sites (live body + `--replay-check` branches + refusal path), all routing through the same function. Self-test check "buildEvidenceExchanges assembles the SAME conversation with no duplicate — exactly one agent entry, strictly increasing end indices" passes. |
+| 18 | Ordinary agent prose mentioning an error, and an empty turn, are never misread as refusals (05-24). | ✓ VERIFIED | Self-test checks for `readBackendRefusal`'s position-anchored match (unchanged from the prior round, WR-01 in `05-REVIEW.md`'s incremental review) pass; no regression. |
+| 19 | A zero-exchange conversation assembles to a well-formed list holding only the opening prompt — never a throw or fabricated entry (05-24). | ✓ VERIFIED | Self-test check "buildEvidenceExchanges on a zero-exchange conversation yields exactly one entry, the opening developer prompt — no throw, no fabricated agent entry" passes. |
+| 20 | A turn waiting on a slow tool is captured WHOLE, ending on the backend's own result marker, not truncated by the idle window (05-25, WR-04). | ✓ VERIFIED | Re-run this session: `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario slow-tool-mid-turn` exits 0, `✅ PASS`; log shows `captured: chunks=3 chars=156 endedBy=result` with an explicit short `idleMs=300` that would have truncated under the pre-fix policy. |
+| 21 | The idle window is kept alive only by this turn's own progress; a foreign-run or non-turn event neither arms nor extends it (05-25). | ✓ VERIFIED | Confirmed by direct reading of `waitForTurn`'s idle timer (resets only on `chunkCount`/`toolCalls.length`/`pendingToolCallCount` tuple change) and by the dedicated self-test asserting this is not armed/extended by foreign traffic. |
+| 22 | A turn with an unanswered tool call is provably mid-flight — the idle window does not fire at all; the outer deadline is the only backstop and names the pending call (05-25). | ✓ VERIFIED | Confirmed by direct reading and the `slow-tool-mid-turn` scenario's own pass. |
+| 23 | The live arm passes its idle window explicitly (`LIVE_TURN_IDLE_MS`, 30s) rather than inheriting the 5s test default (05-25). | ✓ VERIFIED | Re-run this session: `LIVE_TURN_IDLE_MS=30000 > TURN_IDLE_MS=5000`, confirmed via direct module import and comparison, exits 0. |
+| 24 | A turn that goes quiet with no tool pending still ends on the idle window and reports which marker ended it (05-25). | ✓ VERIFIED | Pre-existing degrade-path self-test from plan 05-20, confirmed unregressed as part of this session's 75/75 PASS run. |
+| 25 | The fourth finding (`G-05-3`) and the sharpened offline-provability rule are recorded where the next live-script author will read them; all seven scenarios are documented (05-26). | ✓ VERIFIED | `scripts/uat/README.md` Item 8, confirmed by direct reading this session: names "Seven scenarios, each proving one thing the live arm would otherwise have to prove live" and documents each of the seven scenario names (`truncation-repro`, `settles-after-answers`, `never-settles`, `stages-work-during-challenge`, `proposes-work-after-advance`, `backend-refuses-mid-conversation`, `slow-tool-mid-turn`), matching `SCENARIOS`'s own 7 keys confirmed by direct module import. |
+| 26 | The validation ledger carries a row for every task in this closure, each naming a command that was run and observed (05-26). | ✓ VERIFIED | `05-VALIDATION.md` rows `05-23-01` through `05-26-02` all present (11/11 task ids found by direct reading). |
+| 27 | The ledger's manual-only rows claim no live run that did not happen; the 05-22-SUMMARY.md filing claim is corrected honestly, not rewritten (05-26). | ✓ VERIFIED | `05-VALIDATION.md`'s manual-only rows still read "no completed post-fix live run is recorded"; `05-22-SUMMARY.md` carries an appended, dated `## Correction — appended 2026-09-24 (plan 05-26)` section (confirmed by direct reading) rather than a silent edit of the original prose; `.planning/todos/pending/` confirmed to hold exactly one pre-existing, unrelated file. |
+| 28 | `REQUIREMENTS.md` and the validation ledger tell the true, current state of SHAPE-01/SHAPE-03 honestly — no premature "Complete" claim, no claimed live run that did not happen. | ✓ VERIFIED | Confirmed by direct reading: `REQUIREMENTS.md` lines 93/95 read "Gaps Found — instrument fixed and proven offline; live [dialogue-quality/draft-usefulness] judgement itself remains UNJUDGED"; SHAPE-02/04/05 correctly restored to `[x]`/"Complete". This matches the actual state (structural fix done, live judgment genuinely outstanding, and — per this report's own new finding — the instrument is not yet fully trustworthy even for that future live run). |
 
-**Score:** 25/27 must-have truths VERIFIED (3 roadmap SCs unchanged/regression-checked + 22 of this
-round's 23 listed truths); 1 PRESENT_BEHAVIOR_UNVERIFIED (SC1's live-quality dimension); 1 FAILED
-(truth #19, `CR-01`).
+**Score:** 27/28 must-have truths VERIFIED (3 roadmap SCs unchanged/regression-checked + 24 of this
+round's 24 listed truths, one of which — #11 — is verified with a coincidental-reliance flag); 1
+PRESENT_BEHAVIOR_UNVERIFIED (SC1's live-quality dimension); 1 FAILED (truth #9, the new CR-01-class
+per-attempt-correlation defect).
 
 ### Deferred Items
 
-None. The one open follow-on item — a fourth, newly-discovered instrument defect where an
-Anthropic API-level safety-classifier refusal is captured as ordinary agent text — does not map to
-any later milestone phase's stated goal or success criteria (checked against `roadmap.analyze`'s
-later-phase entries), so it is reported under Human Verification / Gaps Summary rather than
-deferred.
+None. The gap below is a defect in the phase's own verification instrument (a test/UAT script), not
+a product-code defect deferrable to a later milestone phase's stated goal — checked against
+`roadmap.analyze`'s later-phase entries, none map to "the live UAT harness's propose/refusal
+correlation."
 
 ### Advisory (New Scope, Unevidenced)
 
-| # | Finding | Category | Why Advisory |
-|---|---|---|---|
-| 1 | This phase's ROADMAP goal does not match the MVP-mode User Story format guard (`user-story.validate` → `valid: false`); this report proceeded anyway against the roadmap's own Success Criteria, which is the same contract all three prior verification rounds used. | other | Process deviation, not a code defect — see frontmatter `advisory` entry for full reasoning and the evidence command run this session. |
-| 2 | `05-22-SUMMARY.md`'s "Next Phase Readiness" section states the new safety-classifier-refusal capture defect "should be filed" as a todo; checked this session, `.planning/todos/pending/` contains only the pre-existing, unrelated adapter text+tool_use-drop todo — the new defect has not actually been filed. | other | Documentation-follow-through gap, not a functional defect in shipped code. Low severity since the defect is already fully described in `05-22-SUMMARY.md` and `05-VALIDATION.md`'s `05-22-03` row; filing is bookkeeping, not discovery. |
+None. (The prior round's Advisory items — the MVP-mode User Story format mismatch, and the
+not-yet-filed-todo observation — are resolved this round: the format-mismatch advisory is a
+standing, load-bearing process note carried forward implicitly by this report continuing to use the
+roadmap's own Success Criteria as the phase contract, exactly as all four prior rounds did; the
+not-yet-filed-todo item is closed by 05-26's honest correction, confirmed above at truth #27.)
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `scripts/uat/lib/fake-authoring-claude.mjs` | Scripted, zero-token Option-A stand-in backend, executable, no reachability from the live arm | ✓ VERIFIED | Exists, executable, exports `SCENARIOS` (4 scenarios: `truncation-repro`, `settles-after-answers`, `never-settles`, `stages-work-during-challenge`); importing spawns nothing (confirmed by module structure, main-guard present). |
-| `scripts/uat/lib/sidecar-harness.mjs` (`eventCursor`, `waitForTurn`, `TURN_IDLE_MS`) | Turn-boundary primitive, additive, `waitForEvent` untouched | ✓ VERIFIED | Both new members present; `waitForEvent`'s existing callers (uat-03/06/07 and uat-08's own drain loops) unedited per 05-20's own scope discipline, corroborated by 05-REVIEW.md's independent finding that the primitive itself is "carefully built" with no defect. |
-| `scripts/uat/uat-08-socratic-authoring.mjs` (`driveChallengeConversation`, `ANSWER_BANK`, `readNoWorkPlanned`, `--replay-check`) | Responsive conversation driver + three-valued propose-tool reading + offline replay arm | ⚠️ PRESENT, ONE COMPONENT DEFECTIVE (was fully STUB-equivalent pre-round; now mostly correct, `readNoWorkPlanned`'s live-gating call site is CR-01-defective) | `driveChallengeConversation`, `ANSWER_BANK`, `CLOSING_TURN`, `extractOpenQuestions`, `composeDeveloperReply` all present and correct (self-test + replay-check confirm). `readNoWorkPlanned` itself is correctly three-valued and correctly field-pinned, but its SECOND (gating) call site at line 2181 reads the wrong window — see Gaps. |
-| `05-LIVE-CHALLENGE-TRANSCRIPT.md` | Whole-conversation evidence sheet, capture-integrity table, no laundering of a synthetic run | ✓ VERIFIED, present and correct; **run itself did not reach a judgeable outcome** | File exists, records all 5 turns of the actual failed run verbatim (not two sampled chunks), includes a capture-integrity table and honest `noWorkPlanned reading: unproven` line. Both verdict lines are `UNJUDGED` — correctly, since the run never produced a judgeable exchange. |
-| `scripts/uat/README.md` Item 8 | Four arms documented, third finding (`G-05-2`) recorded, offline-provability rule stated | ✓ VERIFIED | Confirmed by direct reading this session (grep + full-section read); token-cost warning and "not executed by an autonomous ... run" sentence both intact. |
-| `05-VALIDATION.md` | Ledger row per task in this closure; manual-only rows honest about no completed live run | ✓ VERIFIED | 9/9 task ids present (`05-20-01`..`05-22-03`); `05-22-02`/`05-22-03` correctly record the developer's decision and the run's honest failure. |
+| `scripts/uat/uat-08-socratic-authoring.mjs` (`readNoWorkPlanned`, `buildEvidenceExchanges`) | Bounded, required-window gating reading; per-attempt refusal correlation; one shared transcript-assembly path | ⚠️ PRESENT, ONE COMPONENT STILL DEFECTIVE | Window-boundary fix (truth #5-8) and transcript-assembly dedup (truth #17) both genuinely correct, confirmed by direct reading and re-run tests. The per-attempt correlation (`isAttemptRefused`, lines 2218-2233) is still defective on the back-to-back-attempts shape — see Gaps. |
+| `scripts/uat/lib/sidecar-harness.mjs` (`readBackendRefusal`, `waitForTurn`'s scoped idle timer, `LIVE_TURN_IDLE_MS`) | Named backend-refusal failure class; idle timer scoped to this turn's own progress; explicit live idle window | ✓ VERIFIED | All three confirmed present and correct by direct reading and re-run scenarios (`backend-refuses-mid-conversation`, `slow-tool-mid-turn`, the `LIVE_TURN_IDLE_MS` runtime check). |
+| `scripts/uat/lib/fake-authoring-claude.mjs` (`SCENARIOS`) | Seven scripted scenarios, zero-token, matching README's documented list | ✓ VERIFIED | 7 keys confirmed via direct module import, matching README Item 8's documented set exactly. |
+| `05-LIVE-CHALLENGE-TRANSCRIPT.md` | Whole-conversation evidence sheet from the prior round's failed run; not overwritten or laundered | ✓ VERIFIED | sha256 `80d008eb...` confirmed byte-identical to commit `b16b3c5` (the prior round's authorised-run commit); this session independently re-verified this after being warned an ad-hoc check during plan 05-24 had briefly overwritten it with a "Not logged in" stub. Both verdict lines remain `UNJUDGED`. |
+| `scripts/uat/README.md` Item 8 | Seven arms/scenarios documented; sharpened offline-provability rule stated | ✓ VERIFIED | Confirmed by direct reading this session. |
+| `05-VALIDATION.md` | Ledger row per task in this closure (05-23 through 05-26); manual-only rows honest | ✓ VERIFIED | 11/11 task ids present, confirmed by direct reading. |
+| `.planning/REQUIREMENTS.md` | SHAPE-01/SHAPE-03 honestly NOT marked Complete; SHAPE-02/04/05 restored to Complete | ✓ VERIFIED | Confirmed by direct reading, lines 93-97 and 282-286. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |---|---|---|---|---|
-| Fake backend stdout | evidence sheet | `normaliseStreamEvent` (shipped, unmodified) → sidecar event stream → `waitForTurn` → `driveChallengeConversation` → `renderChallengeEvidenceSheet` | ✓ WIRED | Confirmed live in this session's `--replay-check` output: multi-block turns captured whole (`chunks=3 chars=192 endedBy=result` for a real multi-block scripted turn), rendered as ordered exchanges. |
-| `eventCursor()` (pre-send) | `waitForTurn(runId, cursor, …)` | Cursor discipline in `driveChallengeConversation` | ✓ WIRED | Self-test's cursor-exclusion check and `--replay-check`'s per-scenario ordering assertions ("every developer exchange's recorded send-cursor is greater than or equal to the preceding agent turn's end index") both pass. |
-| Challenge-stage conversation → `advance-stage` | Distillation instruction → decompose | `driveChallengeConversation` return → one `advance-stage` call → `authoring_session.rs`'s distillation turn | ✓ WIRED | Self-test confirms exactly-once, post-return `advance-stage`; the actual failed live run shows this ordering held (the distillation turn was sent and its API-level refusal was what actually failed, not an ordering bug). |
-| `ToolCallEvent.toolName` (`packages/sidecar/src/adapter.ts`) | `readNoWorkPlanned`'s propose detector | `TOOL_NAME_FIELD` constant | ✓ WIRED, correctly pinned | Self-test source-scanning check reads `adapter.ts` from disk and asserts the field name; confirmed this session. |
-| **`readNoWorkPlanned`'s pre-decompose reading (line 2015)** | **`finalNoWorkPlannedReading` (line 2181, feeds `buildCriteriaResults`)** | **Intended: reuse the correctly-scoped reading. Actual: independent re-computation over the unscoped full event array.** | **✗ NOT WIRED — CR-01** | **The two reads are NOT the same value on any run that reaches decompose; the second silently discards the first's correct scoping. See Gaps.** |
+| `challengeWindowEnd` (captured once, post-`driveChallengeConversation`) | `readNoWorkPlanned`'s required window | Live body reuses the same binding, never recomputes unscoped | ✓ WIRED | Confirmed by direct reading and the `proposes-work-after-advance` scenario's passing assertions. |
+| `proposes-work-after-advance` fixture | a SHAPE-01 pass proven offline | real sidecar → `driveChallengeConversation` → `advance-stage` → decompose propose → bounded reading | ✓ WIRED | Re-run this session, exit 0. |
+| `ToolCallEvent.toolName` / `ToolResultEvent.toolName` (`packages/sidecar/src/adapter.ts`) | the attempt/refusal pairing | `TOOL_NAME_FIELD` constant | ⚠️ WIRED BUT DEFECTIVE | The field pinning itself is correct (confirmed by self-test source-scan), but the pairing algorithm built on top of it (`isAttemptRefused`) is NOT correctly one-to-one — see Gaps. This is a logic defect downstream of correct wiring, not a wiring gap. |
+| `readBackendRefusal` | `accumulateTurn`'s `refusal` member → `waitForTurn` → `driveChallengeConversation`'s early stop → evidence sheet's refusal section | Fail-fast chain | ✓ WIRED | Confirmed by direct reading and the `backend-refuses-mid-conversation` scenario's passing assertions. |
+| `buildEvidenceExchanges` | BOTH the live arm and every replay scenario | one shared transcript-assembly function | ✓ WIRED | Confirmed by direct reading: 4 call sites, all through the same function (line 2116). |
 
 ### Code Review Findings — Fix Verification
 
 `05-REVIEW.md` (this round, `reviewed: 2026-09-24T00:00:00Z`, 4 files reviewed, `status: issues_found`
-— 1 critical, 4 warning, 2 info) is the independent review for this round's diff. Re-confirmed against
-the code at HEAD directly in this session (not re-quoted from the review's own text):
+— 1 critical, 1 warning) is the independent review for this round's diff (against the prior round's
+own review, commit `0fe24ae`). Every finding independently re-confirmed against HEAD in this session
+(not re-quoted from the review's own text):
 
 | ID | Issue | Status at HEAD | Verified |
 |---|---|---|---|
-| CR-01 (Critical) | `finalNoWorkPlannedReading` computed over the wrong (unscoped, post-decompose) window; reads `"violated"` on essentially every successful live run | **UNFIXED** | ✓ Confirmed by direct reading of `uat-08-socratic-authoring.mjs:2181` this session; no commit since the review touches this line. Elevated to a Gap in this report. |
-| WR-01 (Warning) | `readNoWorkPlanned` never correlates a specific propose attempt with its own refusal (an unrefused SECOND attempt after a refused first would still read `"refused"`) | UNFIXED | ✓ Confirmed by reading the function; not addressed by this round. Non-blocking — no scenario in this closure exercises multiple propose attempts in one challenge stage, so this is a latent gap rather than an observed failure. |
-| WR-02 (Warning) | `readNoWorkPlanned` never filters by `runId`, unlike `accumulateTurn` | UNFIXED | ✓ Confirmed. Harmless today (one run per sidecar per script invocation) but an inconsistent invariant relative to the rest of the file. Non-blocking. |
-| WR-03 (Warning) | `materialisedEpicId === null` guard is dead/misleading — never assigned anything else | UNFIXED | ✓ Confirmed by reading lines 2091/2132/2163. Misleading for future maintainers but has no behavioral effect (`if (rejectedTaskId)` is what it always reduces to). Non-blocking. |
-| WR-04 (Warning) | `TURN_IDLE_MS` (5s) resets on ANY sidecar event, not just events belonging to the awaited turn — a real tool call over 5s could truncate a genuine in-progress turn in a live (non-scripted) run | UNFIXED | ✓ Confirmed by reading `onEvent` in `sidecar-harness.mjs`. Not exercised by any offline arm (the fake backend always replies instantly). Non-blocking for this verification (no live run in this session hit this path — the run failed earlier, on the distillation turn's API-level refusal), but worth tracking before the next live attempt. |
-| IN-01 / IN-02 (Info) | `SkipError` (exit 3) conflated with failure in `--replay-check` aggregation; magic-number drain timeout | UNFIXED | ✓ Confirmed, both cosmetic/latent, non-blocking. |
+| CR-01 (prior round's, re-confirmed closed) | `finalNoWorkPlannedReading` computed over the wrong (unscoped) window | **FIXED** | ✓ Confirmed — `readNoWorkPlanned` now requires a window; `proposes-work-after-advance` scenario re-run this session, exit 0. |
+| WR-01 (prior round's, re-confirmed closed) | No per-attempt correlation, aggregate existence questions only | PARTIALLY FIXED — see new CR-01 below | The aggregate-question shape (WR-01's original description) is gone, replaced by a per-attempt positional scan — but that scan itself has a distinct, new defect (below) that produces the same class of false `"refused"` outcome through a different mechanism. |
+| WR-02 (prior round's) | No `runId` filter | **FIXED** | ✓ Confirmed, folded into the required window's `runId` member. |
+| WR-03 (prior round's) | Dead `materialisedEpicId` guard | **FIXED** | ✓ Confirmed — `materialisedEpicId` no longer exists anywhere in the file (grep, zero hits). |
+| WR-04 (prior round's) | Idle timer resets on any event | **FIXED** | ✓ Confirmed via direct reading and the `slow-tool-mid-turn` scenario. |
+| IN-01 / IN-02 (prior round's) | `SkipError` conflated with failure; magic drain literal | **FIXED** | ✓ Confirmed via direct reading (`process.exitCode === 1` check; named `DRAIN_POLL_MS`). |
+| **CR-01 (THIS round's, new finding)** | `isAttemptRefused`'s per-attempt `tool_result` correlation can reuse one result as the answer to two different `propose_*` attempts, producing a false `"refused"` reading | **UNFIXED** | ✗ Independently reproduced this session by direct execution of a verbatim copy of the shipped function (not merely re-read from the review) — see Gaps. This is a BLOCKER. |
+| WR-01 (THIS round's, new finding) | `readBackendRefusal`'s doc comment overclaims a "zero" false-positive rate | UNFIXED | ✓ Confirmed by direct reading of the comment at `sidecar-harness.mjs:384-391`. Non-blocking — documentation-accuracy only, no behavior change needed per the review's own analysis. |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan(s) (this round) | Description | Status | Evidence |
 |---|---|---|---|---|
-| SHAPE-01 | 05-20, 05-21, 05-22 | Conversational session challenges before planning | ◐ PARTIALLY SATISFIED | Structural mechanism unchanged (verified prior rounds, unaffected here). Instrument capture/conversation-driving fixed and offline-proven (truths #5-#18, #20-#26). Live-arm gating for the "no work planned" half is broken on the successful path (truth #19, CR-01 — Gap). Live dialogue-quality judgment still outstanding (behavior_unverified). |
-| SHAPE-02 | 05-21 | Outcome writes directly to board | ✓ SATISFIED | Truth #2, unchanged this round; not touched by the closure's diff. |
-| SHAPE-03 | 05-20, 05-21, 05-22 | Agent drafts acceptance criteria, editable | ◐ PARTIALLY SATISFIED | Structural mechanism unchanged (verified prior rounds). Draft-usefulness human judgment still outstanding (behavior_unverified) — no completed live run to judge it from. |
-| SHAPE-04 | 05-21 | Accept/reject/amend individually | ✓ SATISFIED | Truth #3, unchanged this round; not touched by the closure's diff. |
-| SHAPE-05 | 05-22 | Reopen and continue shaping | ✓ SATISFIED | Truth #4, unchanged this round; this round's SHAPE-05-tagged plan (05-22) is documentation-only for this ID. |
+| SHAPE-01 | 05-23, 05-24, 05-25, 05-26 | Conversational session challenges before planning | ◐ PARTIALLY SATISFIED | Structural mechanism unchanged and verified (prior rounds). Gating-window defect (prior truth #19) genuinely fixed. A NEW, distinct gating defect (per-attempt correlation, truth #9) is unfixed — see Gaps. Live dialogue-quality judgment still outstanding (behavior_unverified). `REQUIREMENTS.md` honestly reflects this as "Gaps Found," matching this report. |
+| SHAPE-02 | 05-23 (docs-only for this ID) | Outcome writes directly to board | ✓ SATISFIED | Truth #2, unchanged this round; `REQUIREMENTS.md` correctly marks Complete. |
+| SHAPE-03 | 05-24, 05-25 | Agent drafts acceptance criteria, editable | ◐ PARTIALLY SATISFIED | Structural mechanism unchanged (verified prior rounds). Draft-usefulness human judgment still outstanding (behavior_unverified). `REQUIREMENTS.md` correctly marks "Gaps Found." |
+| SHAPE-04 | — (not touched this round) | Accept/reject/amend individually | ✓ SATISFIED | Truth #3, unchanged this round; `REQUIREMENTS.md` correctly marks Complete. |
+| SHAPE-05 | 05-26 (docs-only for this ID) | Reopen and continue shaping | ✓ SATISFIED | Truth #4, unchanged this round; `REQUIREMENTS.md` correctly marks Complete. |
 
-All five SHAPE-* IDs declared across this round's three plans map to evidence in this table. No
-orphaned requirements — `.planning/REQUIREMENTS.md`'s "Phase 5" row lists exactly these five IDs and
-all five are marked "Complete" in REQUIREMENTS.md's own table (a pre-existing project convention,
-unchanged by this round, that tracks structural completion separately from the still-open live
-human-judgment rows tracked in `05-VALIDATION.md`).
+No orphaned requirements — `.planning/REQUIREMENTS.md`'s "Phase 5" row lists exactly these five IDs,
+all accounted for above, and the table's own per-ID status column already matches this report's
+findings rather than contradicting them (a positive, unusual signal — this round's executor did not
+oversell completion).
 
 ### Anti-Patterns Found
 
 No debt markers (`TBD`/`FIXME`/`XXX`) or cleanup markers (`TODO`/`HACK`/`PLACEHOLDER`) found in this
-round's touched files (`scripts/uat/lib/fake-authoring-claude.mjs`, `scripts/uat/lib/sidecar-harness.mjs`,
-`scripts/uat/uat-08-socratic-authoring.mjs`, `scripts/uat/README.md`), confirmed by direct grep this
-session. See the Code Review Findings table above for the one Critical (CR-01, elevated to a Gap) and
-four Warning-level findings, all confirmed still present at HEAD.
+round's touched files, confirmed by direct grep this session.
 
 ### Behavioral Spot-Checks / Instrument Re-Runs
 
@@ -232,17 +201,18 @@ Run directly by this verification, in this session, not re-quoted from any SUMMA
 
 | Check | Method | Result | Status |
 |---|---|---|---|
-| Offline self-test | `node scripts/uat/uat-08-socratic-authoring.mjs --self-test` | 42 `PASS` lines, 0 lines beginning `[self-test] FAIL` | ✓ PASS |
-| Offline board-read dispatch | `node scripts/uat/uat-08-socratic-authoring.mjs --board-read-check` | `✅ PASS` — zero unanswered held requests | ✓ PASS |
-| Offline replay (all 4 scenarios) | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check` | 4/4 `✅ PASS` (`truncation-repro` via Task 1's default path, `settles-after-answers`, `never-settles`, `stages-work-during-challenge`) | ✓ PASS |
-| No leftover fake-backend process | `pgrep -f fake-authoring-claude.mjs` after the above runs | exit 1 (no match) | ✓ PASS |
-| `claude-code-adapter.ts` unmodified by this closure | `git log --oneline -1 -- packages/sidecar/src/claude-code-adapter.ts` | last touch is `5b6323c` (plan 05-12), predates this closure | ✓ PASS |
-| `packages/` clean (no product-side edits from this closure) | `git diff --quiet -- packages/` | clean | ✓ PASS |
-| CR-01 live-path defect | Direct read of `uat-08-socratic-authoring.mjs:1375-1387,2015,2181` | Confirmed exactly as `05-REVIEW.md` describes; unfixed | ✗ FAIL (elevated to Gap) |
+| Offline self-test | `node scripts/uat/uat-08-socratic-authoring.mjs --self-test` | 75 `PASS` lines, exit code 0, the one grep hit for "FAIL" is a deliberate self-test fixture string (`HARNESS FAILURE: unanswered held inbound request...`), not an actual failure line | ✓ PASS |
+| Offline replay, `proposes-work-after-advance` | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario proposes-work-after-advance` | `✅ PASS`, bounded=unproven / unbounded=violated as expected | ✓ PASS |
+| Offline replay, `backend-refuses-mid-conversation` | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario backend-refuses-mid-conversation` | `✅ PASS` | ✓ PASS |
+| Offline replay, `slow-tool-mid-turn` | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario slow-tool-mid-turn` | `✅ PASS`, `endedBy=result` despite a mid-turn pause that would have truncated pre-fix | ✓ PASS |
+| `LIVE_TURN_IDLE_MS` explicit and greater than the test default | Direct module import comparison | `30000 > 5000` | ✓ PASS |
+| `packages/` clean across the whole G-05-3 closure | `git diff --quiet c93aa7b..HEAD -- packages/` | clean | ✓ PASS |
+| **CR-01 (new) repro — the load-bearing negative check this round** | Direct execution of a verbatim copy of the shipped `readNoWorkPlanned`/`isAttemptRefused` against a two-back-to-back-attempts fixture | Returns `"refused"` where `"violated"` is correct | ✗ FAIL (elevated to Gap) |
+| `05-LIVE-CHALLENGE-TRANSCRIPT.md` integrity | `sha256sum` compared against `git show b16b3c5:...\|sha256sum` | identical (`80d008eb...`) | ✓ PASS |
 
-Per the orchestrator's pre-verification facts, `cargo build`/`cargo test` (workspace), `packages/sidecar`
-(143/143) and `packages/desktop` (552/552, one non-reproducing first-run flake) were run this session
-and are treated as established evidence rather than re-run in full here.
+Per the orchestrator's pre-verification facts, `cargo build`/`cargo test` (workspace, 741/741 across
+70 targets), `packages/sidecar` (143/143) and `packages/desktop` (552/552) were run this session and
+are treated as established evidence rather than re-run in full here.
 
 ### Human Verification Required
 
@@ -250,54 +220,48 @@ and are treated as established evidence rather than re-run in full here.
 
 **Test:** Run `scripts/uat/uat-08-socratic-authoring.mjs` in live mode (no flags) against a real
 `claude` binary and credentials, and read the whole conversation `05-LIVE-CHALLENGE-TRANSCRIPT.md`
-now records.
+records.
 **Expected:** The agent pushes back on the developer's stated premise and asks substantive
 clarifying questions rather than affirming it; the drafted acceptance criteria are usable as-is or
 clearly need amendment. Fill both verdict lines with the developer's own words.
 **Why human:** Judgment about live model dialogue quality and draft usefulness — no structural check
-can certify either. **Blocked in practice** until (a) CR-01 is fixed, so a successful run's SHAPE-01
-verdict is trustworthy rather than spuriously false, and (b) the newly-discovered safety-classifier-
-refusal capture gap is fixed, so a distillation-turn refusal is surfaced as a distinct error rather
-than silently treated as agent text that then times out waiting for a proposal that was never going
-to arrive.
+can certify either. **Should wait** until the new per-attempt-correlation gap (this report's Gap) is
+fixed — until then, a live run shaped with two back-to-back propose attempts (an ordinary
+possibility, not an edge case) could report a false SHAPE-01 "no work planned" pass or fail
+independent of what the model actually did, undermining the credibility of whatever the human reads.
 
 ### Gaps Summary
 
-This round genuinely closed gap `G-05-2`'s three original defects (turn truncation, mid-generation
-`advance-stage`, and the vacuously-true propose-tool field read) — all three are fixed, offline-proven,
-and independently confirmed in this session by re-running `--self-test` (42/42), `--board-read-check`,
-and `--replay-check` across all four scenarios. plan 05-22's documentation and ledger work is complete
-and accurate.
+This round genuinely closed the prior round's one failed truth (the unscoped gating-window defect,
+`CR-01` in the prior review's numbering) and three lower-severity findings (WR-04, NF-01, and the
+newly-discovered backend-safety-classifier-refusal capture gap from the prior round's one authorised
+live run). All of this is independently re-confirmed in this session by direct code reading and by
+re-running the relevant offline scenarios myself, not by trusting the SUMMARYs' own claims.
 
-However, this round's own diff introduced a **new, critical, unfixed defect (`CR-01`)**: the live
-arm's actual gating computation for SHAPE-01's "no work planned" half reads the wrong window of
-events on the path that matters most — a real, successful run — and will report a false violation on
-essentially every run where a proposal is legitimately created. This is the same failure class the
-whole G-05-2 closure exists to eliminate ("a criterion that cannot report a genuine result"), now
-present in the opposite direction. It was caught by this round's own code review (`05-REVIEW.md`) but
-was not fixed before this closure was considered complete, and no offline arm exercises the exact
-combination of events (a clean challenge stage followed by a legitimate decompose-stage proposal)
-that would catch it.
-
-Separately, and non-blocking for this report's gap list but relevant to the still-outstanding human
-judgment: the one authorised live run this session did not fail on CR-01 (no proposal was ever
-created, so the buggy path was never reached) — it failed earlier, on an Anthropic API-level safety-
-classifier refusal that the harness's turn capture misread as ordinary agent text. This is a fourth,
-newly-discovered instrument defect, honestly recorded in `05-VALIDATION.md` and `05-22-SUMMARY.md`,
-not yet filed as a tracked todo (Advisory #2), and not fixed by any plan in this closure by design
-(the plan's own instructions were explicit: diagnose, record, do not patch a new mechanism into this
-closure).
+However, this round's own code review (`05-REVIEW.md`) found — and this verification independently
+reproduced by direct execution, not just by reading the review's prose — a **second, distinct,
+unfixed critical defect** in the exact function (`readNoWorkPlanned`/`isAttemptRefused`) this round
+shipped to close the PRIOR round's WR-01 finding. The per-attempt `tool_result` correlation can still
+let one ambiguous result answer two different propose attempts, producing a false `"refused"`
+reading and masking a genuinely unrefused, successfully-named second proposal. This is a vacuous
+SHAPE-01 pass — the exact corrosive defect class ("a criterion that cannot report a genuine result")
+this entire multi-round gap-closure effort exists to eliminate, now found a fifth time in the same
+narrow region of code. 05-23-SUMMARY.md's own "Issues Encountered" section shows the executor
+encountered this exact ambiguity while writing the order-independence self-test and resolved it by
+changing the TEST FIXTURE to avoid the collision, rather than by fixing the correlation algorithm
+itself — which is the direct, documented reason this defect shipped without any self-test catching
+it.
 
 Net: the phase's structural success criteria (SC2-SC4) remain solid and unchanged. SC1's live-quality
-dimension — the phase's own core differentiator — still cannot be judged, now for a different reason
-than before (an unhandled API refusal rather than a truncated transcript), and even once that is
-fixed, CR-01 would make the automated SHAPE-01 "no work planned" gate report false on a real
-successful run until it is corrected. Both defects are narrowly scoped, reversible, and inside a
-verification-instrument-only file with no product-code involvement — this is not a regression in the
-shipped product, but it is a genuine gap in the phase's own verification infrastructure that a
-`/gsd-plan-phase --gaps` pass should close before the next live run is attempted.
+dimension still cannot be judged — this round deliberately spent no credentials, by design, so no new
+evidence exists either way — and the instrument that WOULD make that future live run's SHAPE-01
+verdict trustworthy is not yet fully correct. `REQUIREMENTS.md` and `05-VALIDATION.md` both tell this
+honestly: SHAPE-01 and SHAPE-03 are correctly left as "Gaps Found," not prematurely marked Complete,
+and no ledger row claims a live run that did not happen. This report's own new finding narrows what
+"instrument fixed" can honestly mean in that same ledger — one class of gating defect is closed, a
+different one in the same function is not.
 
 ---
 
-_Verified: 2026-09-24T09:30:00Z_
+_Verified: 2026-09-24T12:00:00Z_
 _Verifier: Claude (gsd-verifier)_
