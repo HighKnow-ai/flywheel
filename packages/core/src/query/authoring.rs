@@ -315,3 +315,151 @@ pub fn list_rejected_for_epic(
         .collect::<Result<Vec<_>, _>>();
     rows.context("failed to list rejected proposals for epic")
 }
+
+/// One authoring run's Product Kill Criterion measurement (gap G-05-2's third item, plan 05-13):
+/// derived from the board, never recalled. How many task proposals and how many criterion
+/// proposals this run had ACCEPTED, how many of those accepted criterion proposals had ALSO been
+/// AMENDED before acceptance, the run's own start timestamp, the timestamp of its last acceptance
+/// (`None` when nothing was accepted), and the elapsed minutes between them (`None` alongside it,
+/// never an error). A read-only aggregate: this function inserts, updates and deletes nothing, and
+/// two calls against an unchanged database produce the identical result.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthoringRunMeasurement {
+    pub accepted_task_proposals: i64,
+    pub accepted_criterion_proposals: i64,
+    pub amended_before_accept: i64,
+    pub started_at: String,
+    pub last_accepted_at: Option<String>,
+    pub elapsed_minutes: Option<f64>,
+}
+
+/// Measure one authoring run (T-05-13's Task 3). `limit` bounds the two row-returning reads this
+/// derives from — this run's own proposals, and this run's own proposal-lifecycle events — through
+/// this module's own [`resolve_limit`], exactly like [`list_rejected_for_epic`]/
+/// [`list_pending_proposals`] do above. Acceptance and amendment are both derived from the event
+/// rows `domain::authoring_proposal`'s `accept_proposal_in_tx`/`amend_proposal` already append
+/// (`event_type` `proposal.accepted`/`proposal.amended`, `stream_type` `authoring_proposal`) —
+/// never a second, hand-rolled notion of "accepted"/"amended" that could drift from the one the
+/// proposal lifecycle itself already appends. Amendment can only ever happen while a proposal is
+/// still `pending` (`amend_proposal` refuses an already-decided row), so any `proposal.amended`
+/// event recorded for a proposal necessarily happened BEFORE that proposal's own eventual
+/// `proposal.accepted` event, if it has one — "amended before accept" reduces to "amended at all,
+/// among the accepted".
+pub fn measure_authoring_run(
+    conn: &Connection,
+    run_id: &str,
+    limit: i64,
+) -> anyhow::Result<AuthoringRunMeasurement> {
+    // RED scaffold (plan 05-13 Task 3): the aggregation logic below is not yet wired — this
+    // stub only proves the run exists and returns all-zero/absent, replaced by the next
+    // commit's GREEN implementation.
+    let _ = resolve_limit(limit);
+    let started_at: String = conn
+        .query_row(
+            "SELECT started_at FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("authoring run {run_id:?} not found"))?;
+    return Ok(AuthoringRunMeasurement {
+        accepted_task_proposals: 0,
+        accepted_criterion_proposals: 0,
+        amended_before_accept: 0,
+        started_at,
+        last_accepted_at: None,
+        elapsed_minutes: None,
+    });
+    #[allow(unreachable_code)]
+    {
+    let resolved_limit = resolve_limit(limit);
+
+    let started_at: String = conn
+        .query_row(
+            "SELECT started_at FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("authoring run {run_id:?} not found"))?;
+
+    let mut proposal_stmt = conn.prepare(
+        "SELECT id, target_type, status FROM authoring_proposals WHERE agent_run_id = ?1 LIMIT ?2",
+    )?;
+    let proposals: Vec<(String, String, String)> = proposal_stmt
+        .query_map(params![run_id, resolved_limit], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read this run's own proposals for measurement")?;
+
+    let accepted_task_proposals = proposals
+        .iter()
+        .filter(|(_, target_type, status)| target_type == "task" && status == "accepted")
+        .count() as i64;
+    let accepted_criterion_ids: std::collections::HashSet<&str> = proposals
+        .iter()
+        .filter(|(_, target_type, status)| target_type == "criterion" && status == "accepted")
+        .map(|(id, _, _)| id.as_str())
+        .collect();
+    let accepted_criterion_proposals = accepted_criterion_ids.len() as i64;
+
+    let mut event_stmt = conn.prepare(
+        "SELECT e.stream_id, e.event_type, e.occurred_at FROM events e \
+         JOIN authoring_proposals p ON p.id = e.stream_id \
+         WHERE p.agent_run_id = ?1 AND e.stream_type = 'authoring_proposal' \
+         AND e.event_type IN ('proposal.accepted', 'proposal.amended') \
+         ORDER BY e.occurred_at ASC LIMIT ?2",
+    )?;
+    let events: Vec<(String, String, String)> = event_stmt
+        .query_map(params![run_id, resolved_limit], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read this run's own proposal-lifecycle events for measurement")?;
+
+    let mut amended_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut last_accepted_at: Option<String> = None;
+    for (proposal_id, event_type, occurred_at) in &events {
+        match event_type.as_str() {
+            "proposal.amended" => {
+                amended_ids.insert(proposal_id.as_str());
+            }
+            "proposal.accepted" => {
+                let is_newer = last_accepted_at
+                    .as_deref()
+                    .map(|last| occurred_at.as_str() > last)
+                    .unwrap_or(true);
+                if is_newer {
+                    last_accepted_at = Some(occurred_at.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let amended_before_accept = accepted_criterion_ids
+        .iter()
+        .filter(|id| amended_ids.contains(*id))
+        .count() as i64;
+
+    let elapsed_minutes = match &last_accepted_at {
+        Some(last) => {
+            let start = chrono::DateTime::parse_from_rfc3339(&started_at)
+                .context("failed to parse the run's own start timestamp")?;
+            let end = chrono::DateTime::parse_from_rfc3339(last)
+                .context("failed to parse the run's last acceptance timestamp")?;
+            Some((end - start).num_seconds() as f64 / 60.0)
+        }
+        None => None,
+    };
+
+    Ok(AuthoringRunMeasurement {
+        accepted_task_proposals,
+        accepted_criterion_proposals,
+        amended_before_accept,
+        started_at,
+        last_accepted_at,
+        elapsed_minutes,
+    })
+    }
+}
