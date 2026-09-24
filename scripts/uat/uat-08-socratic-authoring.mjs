@@ -531,6 +531,101 @@ async function selfTest() {
     assert.equal(tableRowCount, agentExchangeCount);
   });
 
+  {
+    // NF-01 regression (plan 05-24, Task 2, RED — written and confirmed FAILING before the fix):
+    // the pre-fix live body captured a STANDALONE first turn (via `waitForTurn`), then handed the
+    // SAME seed cursor to `driveChallengeConversation`, whose own first capture re-read the
+    // IDENTICAL turn — producing two agent entries with the SAME end index in the rendered
+    // transcript. This is exactly what made `05-LIVE-CHALLENGE-TRANSCRIPT.md`'s own turns 2 and 3
+    // byte-identical. Reproduced here structurally: a standalone capture, then the driver seeded
+    // with the SAME cursor, mirroring the pre-fix live body's own two call sites exactly.
+    const nf01Turn1 = {
+      text: "Board and repo are both empty — four forks that would materially change what gets built:",
+      chunkCount: 1,
+      charCount: 89,
+      endedBy: "idle",
+      endIndex: 3,
+      refusal: null,
+    };
+    const nf01Stub = {
+      async waitForTurn() {
+        return { ...nf01Turn1 };
+      },
+      eventCursor() {
+        return nf01Turn1.endIndex;
+      },
+    };
+    const standaloneTurn1 = await nf01Stub.waitForTurn("stub-run-nf01", 0);
+    const nf01Conversation = await driveChallengeConversation({
+      sidecar: nf01Stub,
+      runId: "stub-run-nf01",
+      sendTurn: async () => {},
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 4,
+    });
+    const preFixAssembly = [
+      { speaker: "developer", text: OPENING_PROMPT },
+      {
+        speaker: "agent",
+        text: standaloneTurn1.text,
+        chunkCount: standaloneTurn1.chunkCount,
+        charCount: standaloneTurn1.charCount,
+        endedBy: standaloneTurn1.endedBy,
+        endIndex: standaloneTurn1.endIndex,
+      },
+      ...nf01Conversation.exchanges,
+    ];
+
+    check(
+      "[Plan 05-24, NF-01] the PRE-FIX live-body assembly duplicates the seed turn — proving the duplication was real",
+      () => {
+        const agentEntries = preFixAssembly.filter((exchange) => exchange.speaker === "agent");
+        assert.equal(agentEntries.length, 2, "expected exactly two agent entries in the pre-fix assembly — the duplicate");
+        assert.equal(
+          agentEntries[0].endIndex,
+          agentEntries[1].endIndex,
+          "expected the pre-fix assembly's two agent entries to share the SAME end index — this IS NF-01",
+        );
+        assert.equal(
+          agentEntries[0].text,
+          agentEntries[1].text,
+          "expected the pre-fix assembly's two agent entries to be byte-identical — this IS NF-01",
+        );
+      },
+    );
+
+    check(
+      "[Plan 05-24, NF-01, RED until buildEvidenceExchanges exists] buildEvidenceExchanges assembles the SAME conversation with no duplicate — exactly one agent entry, strictly increasing end indices",
+      () => {
+        const fixedAssembly = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation: nf01Conversation });
+        const agentEntries = fixedAssembly.filter((exchange) => exchange.speaker === "agent");
+        assert.equal(agentEntries.length, 1, "expected exactly one agent entry — the duplication must be gone");
+        let precedingEndIndex = -1;
+        for (const entry of agentEntries) {
+          assert.ok(
+            entry.endIndex > precedingEndIndex,
+            "expected assembled agent entries to carry strictly increasing end indices — no entry may repeat another's",
+          );
+          precedingEndIndex = entry.endIndex;
+        }
+      },
+    );
+
+    check(
+      "[Plan 05-24] buildEvidenceExchanges on a zero-exchange conversation yields exactly one entry, the opening developer prompt — no throw, no fabricated agent entry",
+      () => {
+        const zeroExchangeAssembly = buildEvidenceExchanges({
+          openingPrompt: OPENING_PROMPT,
+          conversation: { exchanges: [] },
+        });
+        assert.equal(zeroExchangeAssembly.length, 1);
+        assert.equal(zeroExchangeAssembly[0].speaker, "developer");
+        assert.equal(zeroExchangeAssembly[0].text, OPENING_PROMPT);
+      },
+    );
+  }
+
   check("the bridge binary path resolves under target/debug or target/release when built", () => {
     // Does not require the binary to actually be built — resolveHarnessBinary itself degrades to
     // `undefined` when it is not, which is exactly what the live run's own precondition check
