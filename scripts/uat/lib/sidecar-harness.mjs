@@ -717,6 +717,112 @@ export function readBackendRefusal(text) {
 }
 
 /**
+ * G-05-6 (plan 05-34): the three signals {@link classifyNonConversationTurn} can classify a turn
+ * from, named so the ledger and the evidence sheet can say WHICH signal fired — "how did we find
+ * out" is exactly the fact that went missing for the six prior rounds of this defect class (plan
+ * 05-24 bound its fix to one observed message's literal prefix, and the class survived behind the
+ * narrower façade). Frozen so no caller can mutate the vocabulary out from under a reader matching
+ * on it.
+ */
+export const NON_CONVERSATION_SOURCES = Object.freeze({
+  /** The assistant envelope's own `is_api_error_message`/`error` fields (G-05-6), carried onto
+   * `AssistantTextEvent.isApiErrorMessage`/`errorCode` by `claude-code-adapter.ts`'s normaliser. */
+  ASSISTANT_ERROR_FLAG: "assistant_envelope_error_flag",
+  /** The result line's own `is_error`/`terminal_reason` fields (G-05-6), carried onto
+   * `ResultEvent.isError`/`terminalReason` by the same normaliser. */
+  RESULT_ERROR_FLAG: "result_line_error_flag",
+  /** {@link readBackendRefusal}'s own text-banner match — the ONLY signal this repository has a
+   * real capture for on the safety-classifier refusal shape (05-LIVE-CHALLENGE-TRANSCRIPT.md's
+   * turn 5). Retained unweakened; see {@link classifyNonConversationTurn}'s own doc comment for
+   * why. */
+  TEXT_BANNER: "text_banner",
+});
+
+/**
+ * G-05-6 (plan 05-34, gap closure): classify a turn as non-conversation — a backend message that
+ * is NOT agent speech, whatever its prose says — from categorical facts the wire itself supplies
+ * about the events in the turn's own window, falling back to {@link readBackendRefusal}'s text
+ * match only when no wire signal fired. This REPLACES prefix-bound text matching as the PRIMARY
+ * classification mechanism. Plan 05-24 bound its own fix to `readBackendRefusal`'s one observed
+ * message's literal prefix — a sample of one — and the class survived for six more rounds behind
+ * that narrower façade (gap G-05-6 is the seventh instance). A categorical wire fact cannot be
+ * defeated by an ordinary message shape nobody happened to capture first the way a prose match can.
+ *
+ * {@link readBackendRefusal} — the text-banner reader — is retained UNWEAKENED as a second,
+ * independent signal, and the honest reason is a measurement gap, not a preference: this repository
+ * has no raw stream-json capture of the Anthropic safety-classifier refusal shape (only its
+ * rendered text, from `05-LIVE-CHALLENGE-TRANSCRIPT.md`'s turn 5) — whether that shape ALSO sets
+ * the wire's own error flag is UNMEASURED. Removing the text reader would trade a measured
+ * guarantee (the banner reader closes plan 05-24's own gap, proven against real captured text) for
+ * an unproven assumption (that the wire flag always accompanies it). So both signals stay, wire
+ * checked first purely so the reported {@link NON_CONVERSATION_SOURCES} is the most precise one
+ * available when more than one could apply — either signal alone is sufficient to classify.
+ *
+ * Residual risk, accepted deliberately, in the same spirit as {@link readBackendRefusal}'s own
+ * comment weighing false-positive against false-negative: a result line carrying the wire's error
+ * flag after genuine agent prose — a turn-limit termination, for example — classifies the WHOLE
+ * turn as non-conversation and stops the run. Such a run cannot be judged as a completed
+ * conversation anyway, and stopping with a named cause beats waiting out the full proposal deadline
+ * the way gap G-05-6's own live run did. The alternative — partitioning classification per event
+ * rather than per turn — would reintroduce exactly the kind of prose-shape inference this function
+ * exists to remove, in exchange for a residual risk narrower than the class it replaces.
+ *
+ * `subtype` is NOT a usable signal for this purpose: the real capture this plan implements against
+ * (`scripts/uat/fixtures/unauthenticated-cli-first-turn.json`) carries `"subtype":"success"` on a
+ * result line whose `is_error` reads `true` — classifying on `subtype` would have read this exact
+ * capture as an ordinary success.
+ *
+ * Returns `null` for an ordinary turn (no wire flag on any event in the window, no text-banner
+ * match) — including for empty and whitespace-only text, since {@link readBackendRefusal} already
+ * treats those as null. Otherwise returns `{ kind, source, classifier?, requestId?, errorCode?,
+ * terminalReason?, text }`: `kind` is always {@link BACKEND_REFUSAL_KIND} (no consumer needs to
+ * learn a second discriminant); `source` names which of {@link NON_CONVERSATION_SOURCES} fired;
+ * `classifier`/`requestId` are present only when the text-banner reader supplied them;
+ * `errorCode`/`terminalReason` are present only when a wire signal supplied them — every absent
+ * field reads as absent, never as an empty string.
+ */
+export function classifyNonConversationTurn({ text, events }) {
+  const window = Array.isArray(events) ? events : [];
+
+  for (const event of window) {
+    if (event && event.type === "assistant_text" && event.isApiErrorMessage === true) {
+      return {
+        kind: BACKEND_REFUSAL_KIND,
+        source: NON_CONVERSATION_SOURCES.ASSISTANT_ERROR_FLAG,
+        ...(typeof event.errorCode === "string" && event.errorCode.length > 0 ? { errorCode: event.errorCode } : {}),
+        text,
+      };
+    }
+  }
+
+  for (const event of window) {
+    if (event && event.type === "result" && event.isError === true) {
+      return {
+        kind: BACKEND_REFUSAL_KIND,
+        source: NON_CONVERSATION_SOURCES.RESULT_ERROR_FLAG,
+        ...(typeof event.terminalReason === "string" && event.terminalReason.length > 0
+          ? { terminalReason: event.terminalReason }
+          : {}),
+        text,
+      };
+    }
+  }
+
+  const banner = readBackendRefusal(text);
+  if (banner) {
+    return {
+      kind: banner.kind,
+      source: NON_CONVERSATION_SOURCES.TEXT_BANNER,
+      ...(banner.classifier !== undefined ? { classifier: banner.classifier } : {}),
+      ...(banner.requestId !== undefined ? { requestId: banner.requestId } : {}),
+      text,
+    };
+  }
+
+  return null;
+}
+
+/**
  * G-05-2 (plan 05-20): the pure accumulation half of the turn-boundary primitive — given the
  * FULL event buffer and a `[cursor, …)` window, scans forward for one run's turn and returns
  * either a terminated result (a `result` event for `runId` found within the scan) or the
@@ -735,29 +841,35 @@ export function readBackendRefusal(text) {
  * count the blank-line separator between chunks. This is what lets a caller compare `charCount`
  * against "the fixture's own produced character total" with no separator-counting drift.
  *
- * `refusal` (plan 05-24, G-05-3): {@link readBackendRefusal} run over the accumulated text on
- * EVERY return path — the result-terminated one and the fall-through one — so every caller
- * ({@link SidecarClient.waitForTurn}'s result path, its idle path, and the partial reconstruction
- * inside its own timeout message) inherits the same reading with no second copy of the logic.
- * `null`, never `undefined`, when the text is not a refusal — a caller testing this field with a
- * typo'd name cannot pass by accident.
+ * `nonConversation` (plan 05-24's `refusal` field, RENAMED and generalised by plan 05-34/G-05-6):
+ * {@link classifyNonConversationTurn} run over the accumulated text AND this turn's own event
+ * window on EVERY return path — the result-terminated one and the fall-through one — so every
+ * caller ({@link SidecarClient.waitForTurn}'s result path, its idle path, and the partial
+ * reconstruction inside its own timeout message) inherits the same reading with no second copy of
+ * the logic. `null`, never `undefined`, when the turn is not classified as non-conversation — a
+ * caller testing this field with a typo'd name cannot pass by accident. The field name matters: the
+ * old name (`refusal`) named one member of the class (plan 05-24's text-banner match) rather than
+ * the class itself, and a name that says "refusal" invites the next narrowing the way plan 05-24's
+ * own fix did.
  *
  * `pendingToolCallCount` (plan 05-25, WR-04 closure): the number of `tool_call` events in this
  * scanned window, for this run, with no subsequent `tool_result` event for the same run before the
  * window ends — a running FIFO count, incremented on each of this run's own `tool_call` events and
- * decremented on each of this run's own SUBSEQUENT `tool_result` events (floored at zero). Never
- * keyed to a specific tool name: neither `ToolCallEvent` nor `ToolResultEvent`
- * (`packages/sidecar/src/adapter.ts`) carries a correlation id, so there is nothing finer-grained
- * to correlate against — a `tool_result` for this run answers whichever of this run's own tool
- * calls has been outstanding longest. A value above zero is a FACT about the events themselves —
- * this run has issued a tool call and not yet received its answer — not a guess, and is exactly
- * what lets {@link SidecarClient.waitForTurn} tell "the model is mid-flight on a tool" apart from
- * "the model went quiet with nothing outstanding." Returned on BOTH return paths, exactly like
- * `refusal` above.
+ * decremented on each of this run's own SUBSEQUENT `tool_result` events (floored at zero). Both
+ * `ToolCallEvent` and `ToolResultEvent` (`packages/sidecar/src/adapter.ts`) carry the wire's own
+ * correlation id (`toolUseId`, G-05-5) — this counter is deliberately a FIFO count rather than an
+ * id-keyed one anyway, because its own job is only to answer "is anything outstanding right now",
+ * which needs no identity; the id-based pairing itself lives in `correlateProposeAttempts`
+ * (`scripts/uat/uat-08-socratic-authoring.mjs`). A value above zero is a FACT about the events
+ * themselves — this run has issued a tool call and not yet received its answer — not a guess, and
+ * is exactly what lets {@link SidecarClient.waitForTurn} tell "the model is mid-flight on a tool"
+ * apart from "the model went quiet with nothing outstanding." Returned on BOTH return paths,
+ * exactly like `nonConversation` above.
  */
 export function accumulateTurn(events, runId, cursor) {
   const chunks = [];
   const toolCalls = [];
+  const turnEvents = [];
   let pendingToolCallCount = 0;
   for (let i = cursor; i < events.length; i += 1) {
     const event = events[i];
@@ -765,12 +877,16 @@ export function accumulateTurn(events, runId, cursor) {
     if (event.type === "backend_echo") continue;
     if (event.type === "assistant_text") {
       chunks.push(event.text);
+      turnEvents.push(event);
     } else if (event.type === "tool_call") {
       toolCalls.push(event);
       pendingToolCallCount += 1;
+      turnEvents.push(event);
     } else if (event.type === "tool_result") {
       if (pendingToolCallCount > 0) pendingToolCallCount -= 1;
+      turnEvents.push(event);
     } else if (event.type === "result") {
+      turnEvents.push(event);
       const text = chunks.join("\n\n");
       return {
         chunks,
@@ -780,7 +896,7 @@ export function accumulateTurn(events, runId, cursor) {
         toolCalls,
         endedBy: "result",
         endIndex: i + 1,
-        refusal: readBackendRefusal(text),
+        nonConversation: classifyNonConversationTurn({ text, events: turnEvents }),
         pendingToolCallCount,
       };
     }
@@ -794,7 +910,7 @@ export function accumulateTurn(events, runId, cursor) {
     toolCalls,
     endedBy: undefined,
     endIndex: events.length,
-    refusal: readBackendRefusal(text),
+    nonConversation: classifyNonConversationTurn({ text, events: turnEvents }),
     pendingToolCallCount,
   };
 }

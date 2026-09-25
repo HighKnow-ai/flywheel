@@ -44,6 +44,7 @@ import {
   BACKEND_REFUSAL_KIND,
   BACKEND_REFUSAL_PREFIX,
   BEHAVIOURAL_CONFIG_DENYLIST,
+  classifyNonConversationTurn,
   composeIsolatedClaudeConfigDir,
   createPermissionAnswerHandler,
   CREDENTIAL_LINK_ALLOWLIST,
@@ -53,6 +54,7 @@ import {
   HEARTBEAT_TICK_MS,
   HELD_INBOUND_REQUEST_TYPES,
   LIVE_TURN_IDLE_MS,
+  NON_CONVERSATION_SOURCES,
   probeClaudeAvailable,
   readBackendRefusal,
   REPO_ROOT,
@@ -70,6 +72,13 @@ import { DEFAULT_SCENARIO, SCENARIOS, SCENARIO_ENV_VAR } from "./lib/fake-author
  * `FLYWHEEL_CLAUDE_BIN`) and this script's own build-hint messages name the same path. Never
  * reachable from the live arm — only `--replay-check` sets `FLYWHEEL_CLAUDE_BIN` at all. */
 const FAKE_AUTHORING_CLAUDE_PATH = path.join(REPO_ROOT, "scripts", "uat", "lib", "fake-authoring-claude.mjs");
+
+/** Plan 05-34 (G-05-6 closure): the frozen real capture of an unauthenticated CLI's first turn —
+ * see the fixture's own `note` field for the full provenance. Read once at module load, from the
+ * SAME file Task 1 froze and Task 3's fake-backend scenario reads, so no reader here can drift
+ * from the real capture by retyping a copy of it. */
+const UNAUTHENTICATED_FIXTURE_PATH = path.join(REPO_ROOT, "scripts", "uat", "fixtures", "unauthenticated-cli-first-turn.json");
+const UNAUTHENTICATED_FIXTURE = JSON.parse(fs.readFileSync(UNAUTHENTICATED_FIXTURE_PATH, "utf8"));
 
 /** How long to wait for the model to produce its first challenging reply. */
 const TURN_DEADLINE_MS = 120_000;
@@ -261,12 +270,12 @@ const EVIDENCE_FILE_NAME = "05-LIVE-CHALLENGE-TRANSCRIPT.md";
  * - `synthetic` (boolean, default `false`) and `scenario` (the scenario name, when `synthetic` is
  *   true) — G-05-2's own guard against laundering a scripted run as a live one: a synthetic sheet
  *   carries an unmissable marker in its first two lines naming the scenario, and its verdict
- *   section is REPLACED by a refusal — the unfilled-verdict token appears zero times.
+ *   section is REPLACED by a non-conversation notice — the unfilled-verdict token appears zero times.
  * - `credentialPath` (plan 05-33, Task 3) — the summary `assertBackendAuthenticated` returned,
  *   PLUS a `scrubbedCount` naming how many API-key env vars `scrubApiKeyEnv` removed before spawn.
  *   Optional; `null`/absent renders BYTE-IDENTICALLY to omitting the field entirely — the same
- *   discipline `refusal` already carries, for the same reason: `--replay-check` produces synthetic
- *   sheets that must not drift. Never carries an email address, an organisation id or an
+ *   discipline `nonConversation` already carries, for the same reason: `--replay-check` produces
+ *   synthetic sheets that must not drift. Never carries an email address, an organisation id or an
  *   organisation name — `summariseAuthStatus` already makes that structurally impossible before
  *   this function ever sees the object; this is the second fence, not the first.
  */
@@ -281,7 +290,7 @@ function renderChallengeEvidenceSheet(evidence) {
     timestamp,
     synthetic = false,
     scenario,
-    refusal = null,
+    nonConversation = null,
     credentialPath = null,
   } = evidence;
 
@@ -310,19 +319,24 @@ function renderChallengeEvidenceSheet(evidence) {
     })
     .join("\n\n");
 
-  // Plan 05-24 (Task 2, G-05-3): a Refusal column — the classifier code for a refused agent turn,
-  // an em-dash placeholder for every other. Extends the pre-existing table rather than adding a
-  // parallel one, so a reader scanning ONE table sees both capture integrity and refusal status.
+  // Plan 05-24 (Task 2, G-05-3), generalised by plan 05-34 (G-05-6): a Non-conversation column —
+  // the classifier code (text-banner source) or error code (wire source) for a non-conversation
+  // agent turn, an em-dash placeholder for every other. Extends the pre-existing table rather than
+  // adding a parallel one, so a reader scanning ONE table sees both capture integrity and
+  // non-conversation status.
   const agentExchanges = exchanges.filter((exchange) => exchange.speaker === "agent");
   const integrityTable =
     agentExchanges.length > 0
-      ? `| Agent turn | Chunk count | Character count | End marker | Refusal |\n| --- | --- | --- | --- | --- |\n` +
+      ? `| Agent turn | Chunk count | Character count | End marker | Non-conversation |\n| --- | --- | --- | --- | --- |\n` +
         agentExchanges
-          .map(
-            (exchange, index) =>
+          .map((exchange, index) => {
+            const nc = exchange.nonConversation;
+            const ncCell = nc ? nc.classifier ?? nc.errorCode ?? nc.terminalReason ?? "unknown" : "—";
+            return (
               `| ${index + 1} | ${exchange.chunkCount ?? 0} | ${exchange.charCount ?? 0} | ${exchange.endedBy ?? "unknown"} | ` +
-              `${exchange.refusal ? exchange.refusal.classifier ?? "unknown" : "—"} |`,
-          )
+              `${ncCell} |`
+            );
+          })
           .join("\n")
       : "(no agent turns captured yet)";
 
@@ -344,22 +358,27 @@ function renderChallengeEvidenceSheet(evidence) {
       `- SHAPE-03 draft-usefulness verdict: ${UNJUDGED_TOKEN} — were the drafted criteria above useful\n` +
       "  as-is, or did they need the amendment recorded above to become usable?\n";
 
-  // Plan 05-24 (Task 2, G-05-3): rendered immediately ABOVE the verdict section — the same place a
-  // reader looks for the verdict — naming the failure class, the classifier code, the request id,
-  // and stating plainly that the run did not complete. Omitted entirely (not even an empty
-  // heading) when `refusal` is absent, so an unrefused sheet stays BYTE-IDENTICAL to what this
-  // function rendered before this field existed — that is what keeps the pre-existing determinism
-  // check meaningful. Deliberately does NOT replace the verdict lines the way a synthetic sheet
-  // does: the turns captured before the refusal are real model turns a human may legitimately
-  // judge, so this section exists only to make sure nobody mistakes the run as complete — a future
-  // author must not "tidy" this into a replacement of the verdict section.
-  const refusalSection = refusal
-    ? `## Backend refusal\n\n` +
-      `This run stopped on a backend-level refusal (\`${refusal.kind ?? BACKEND_REFUSAL_KIND}\`), ` +
-      `not a model turn — classifier \`${refusal.classifier ?? "unknown"}\`, request id ` +
-      `\`${refusal.requestId ?? "none"}\`. The conversation did not complete. The turns captured ` +
-      "above, before the refusal, are real model turns and may be judged on their own merits — but " +
-      "no verdict below should be read as covering a finished conversation.\n\n"
+  // Plan 05-24 (Task 2, G-05-3), generalised by plan 05-34 (G-05-6): rendered immediately ABOVE
+  // the verdict section — the same place a reader looks for the verdict — naming the failure
+  // class, WHICH SOURCE fired ({@link NON_CONVERSATION_SOURCES}), the classifier/error code, the
+  // request id, and stating plainly that the run did not complete. The heading names the CLASS
+  // (a non-conversation backend message) rather than one member of it (a text-banner "refusal") —
+  // the old heading survived plan 05-24 bound to exactly the mechanism this plan generalises past.
+  // Omitted entirely (not even an empty heading) when `nonConversation` is absent, so an ordinary
+  // sheet stays BYTE-IDENTICAL to what this function rendered before this field existed — that is
+  // what keeps the pre-existing determinism check meaningful. Deliberately does NOT replace the
+  // verdict lines the way a synthetic sheet does: the turns captured before the non-conversation
+  // turn are real model turns a human may legitimately judge, so this section exists only to make
+  // sure nobody mistakes the run as complete — a future author must not "tidy" this into a
+  // replacement of the verdict section.
+  const nonConversationSection = nonConversation
+    ? `## Non-conversation turn\n\n` +
+      `This run stopped on a non-conversation backend message (\`${nonConversation.kind ?? BACKEND_REFUSAL_KIND}\`), ` +
+      `not a model turn — detected via \`${nonConversation.source ?? "unknown"}\`, classifier/code ` +
+      `\`${nonConversation.classifier ?? nonConversation.errorCode ?? nonConversation.terminalReason ?? "unknown"}\`, ` +
+      `request id \`${nonConversation.requestId ?? "none"}\`. The conversation did not complete. The ` +
+      "turns captured above, before this message, are real model turns and may be judged on their " +
+      "own merits — but no verdict below should be read as covering a finished conversation.\n\n"
     : "";
 
   // Plan 05-33 (Task 3): rendered ABOVE the verdict section, mirroring the refusal section's own
@@ -404,7 +423,7 @@ ${criterionLines || "(not yet available — populated once the decompose phase c
 - Amended criteria: ${amended}
 - Ratio (amended/drafted): ${amended}/${drafted}
 
-${refusalSection}${credentialPathSection}${verdictsSection}`;
+${nonConversationSection}${credentialPathSection}${verdictsSection}`;
 }
 
 /**
@@ -609,24 +628,25 @@ async function selfTest() {
     assert.equal(first, second);
   });
 
-  check("a sheet rendered WITHOUT a refusal contains no Backend refusal section, and stays byte-identical to a sheet with no refusal field at all (plan 05-24)", () => {
+  check("a sheet rendered WITHOUT a non-conversation turn contains no Non-conversation turn section, and stays byte-identical to a sheet with no nonConversation field at all (plan 05-24, generalised by 05-34)", () => {
     const withoutField = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
-    const withExplicitNull = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, refusal: null });
-    assert.ok(!withoutField.includes("## Backend refusal"), "expected no refusal heading when refusal is absent");
-    assert.equal(withoutField, withExplicitNull, "expected an explicit null refusal to render byte-identically to an absent one");
+    const withExplicitNull = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, nonConversation: null });
+    assert.ok(!withoutField.includes("## Non-conversation turn"), "expected no non-conversation heading when nonConversation is absent");
+    assert.equal(withoutField, withExplicitNull, "expected an explicit null nonConversation to render byte-identically to an absent one");
   });
 
-  check("a sheet rendered WITH a refusal contains the Backend refusal section, positioned above the verdict section, naming the class/classifier/request id (plan 05-24)", () => {
-    const refusalObject = { kind: BACKEND_REFUSAL_KIND, classifier: "reasoning_extraction", requestId: "req_011CfMyQ7EQg8jnFnSugjHVw", text: LIVE_REFUSAL_TEXT };
-    const sheet = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, refusal: refusalObject });
-    assert.ok(sheet.includes("## Backend refusal"), "expected a Backend refusal heading when refusal is present");
+  check("a sheet rendered WITH a non-conversation turn contains the Non-conversation turn section, positioned above the verdict section, naming the class/classifier/request id (plan 05-24, generalised by 05-34)", () => {
+    const nonConversationObject = { kind: BACKEND_REFUSAL_KIND, source: NON_CONVERSATION_SOURCES.TEXT_BANNER, classifier: "reasoning_extraction", requestId: "req_011CfMyQ7EQg8jnFnSugjHVw", text: LIVE_REFUSAL_TEXT };
+    const sheet = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, nonConversation: nonConversationObject });
+    assert.ok(sheet.includes("## Non-conversation turn"), "expected a Non-conversation turn heading when nonConversation is present");
     assert.ok(sheet.includes(BACKEND_REFUSAL_KIND), "expected the failure class named in the section");
     assert.ok(sheet.includes("reasoning_extraction"), "expected the classifier code named in the section");
     assert.ok(sheet.includes("req_011CfMyQ7EQg8jnFnSugjHVw"), "expected the request id named in the section");
-    const refusalHeadingIndex = sheet.indexOf("## Backend refusal");
+    assert.ok(sheet.includes(NON_CONVERSATION_SOURCES.TEXT_BANNER), "expected the firing source named in the section");
+    const nonConversationHeadingIndex = sheet.indexOf("## Non-conversation turn");
     const verdictHeadingIndex = sheet.indexOf("## Verdicts");
-    assert.ok(refusalHeadingIndex >= 0 && verdictHeadingIndex >= 0, "expected both headings to be present");
-    assert.ok(refusalHeadingIndex < verdictHeadingIndex, "expected the Backend refusal section ABOVE the Verdicts section");
+    assert.ok(nonConversationHeadingIndex >= 0 && verdictHeadingIndex >= 0, "expected both headings to be present");
+    assert.ok(nonConversationHeadingIndex < verdictHeadingIndex, "expected the Non-conversation turn section ABOVE the Verdicts section");
   });
 
   check("the synthetic-shaped sheet carries zero unfilled-verdict tokens and names its scenario in its first two lines", () => {
@@ -638,16 +658,16 @@ async function selfTest() {
     assert.ok(firstTwoLines.includes("truncation-repro"), "expected the scenario name in the first two lines");
   });
 
-  check("the capture-integrity table has exactly one row per agent exchange, each carrying a Refusal column (plan 05-24)", () => {
+  check("the capture-integrity table has exactly one row per agent exchange, each carrying a Non-conversation column (plan 05-24, generalised by 05-34)", () => {
     const sheet = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
     const agentExchangeCount = SYNTHETIC_EVIDENCE.exchanges.filter((exchange) => exchange.speaker === "agent").length;
     const tableRows = sheet.match(/^\| \d+ \|.*\|$/gm) ?? [];
     assert.equal(tableRows.length, agentExchangeCount);
     for (const row of tableRows) {
-      // 5 columns (Agent turn, Chunk count, Character count, End marker, Refusal) => 6 pipe-split
-      // segments including the leading/trailing empties either side of the row's own `|` fences.
+      // 5 columns (Agent turn, Chunk count, Character count, End marker, Non-conversation) => 6
+      // pipe-split segments including the leading/trailing empties either side of the row's `|`.
       const cellCount = row.split("|").length - 2;
-      assert.equal(cellCount, 5, `expected 5 columns (turn, chunks, chars, end marker, refusal): ${row}`);
+      assert.equal(cellCount, 5, `expected 5 columns (turn, chunks, chars, end marker, non-conversation): ${row}`);
     }
   });
 
@@ -665,7 +685,7 @@ async function selfTest() {
       charCount: 89,
       endedBy: "idle",
       endIndex: 3,
-      refusal: null,
+      nonConversation: null,
     };
     const nf01Stub = {
       async waitForTurn() {
@@ -1277,32 +1297,95 @@ async function selfTest() {
     assert.notEqual(refusal.requestId, "", "requestId must be undefined, never an empty string");
   });
 
-  check("accumulateTurn's refusal member is exactly null (never undefined) on a turn that is not refused", () => {
+  // -----------------------------------------------------------------------------------------
+  // Gap G-05-6 closure (plan 05-34): classifyNonConversationTurn — the wire-fact classifier that
+  // REPLACES prefix-bound text matching as the primary mechanism. The retained text-banner reader
+  // (readBackendRefusal, checked above) stays the fallback for the one shape this repository has
+  // no raw stream capture for.
+  // -----------------------------------------------------------------------------------------
+
+  check("[Plan 05-34, Task 2] a turn whose window carries an assistant envelope's wire error flag classifies as non-conversation, naming the assistant envelope as source, whatever its text says", () => {
+    const events = [{ type: "assistant_text", text: "an ordinary-looking reply", isApiErrorMessage: true, errorCode: "authentication_failed" }];
+    const result = classifyNonConversationTurn({ text: "an ordinary-looking reply", events });
+    assert.ok(result !== null, "expected the wire's own assistant-envelope flag to classify the turn");
+    assert.equal(result.source, NON_CONVERSATION_SOURCES.ASSISTANT_ERROR_FLAG);
+    assert.equal(result.errorCode, "authentication_failed");
+  });
+
+  check("[Plan 05-34, Task 2] a turn whose terminating result event carries the wire's error flag true classifies as non-conversation, naming the result line as source", () => {
+    const events = [{ type: "result", isError: true, terminalReason: "api_error" }];
+    const result = classifyNonConversationTurn({ text: "ordinary text with no banner", events });
+    assert.ok(result !== null, "expected the wire's own result-line flag to classify the turn");
+    assert.equal(result.source, NON_CONVERSATION_SOURCES.RESULT_ERROR_FLAG);
+    assert.equal(result.terminalReason, "api_error");
+  });
+
+  check("[Plan 05-34, Task 2] a turn whose text opens with the safety-classifier banner but whose events carry no wire flag is STILL classified, naming the text banner as source — the retained reader's reach is unchanged", () => {
+    const result = classifyNonConversationTurn({ text: LIVE_REFUSAL_TEXT, events: [{ type: "assistant_text", text: LIVE_REFUSAL_TEXT }] });
+    assert.ok(result !== null, "expected the retained text-banner reader to still classify this shape");
+    assert.equal(result.source, NON_CONVERSATION_SOURCES.TEXT_BANNER);
+    assert.equal(result.classifier, "reasoning_extraction");
+  });
+
+  check("[Plan 05-34, Task 2] an ordinary turn — no wire flag, no banner — classifies as null, including for empty and whitespace-only text", () => {
+    assert.equal(classifyNonConversationTurn({ text: "an ordinary reply", events: [{ type: "assistant_text", text: "an ordinary reply" }] }), null);
+    assert.equal(classifyNonConversationTurn({ text: "", events: [] }), null);
+    assert.equal(classifyNonConversationTurn({ text: "   \n  \t ", events: [] }), null);
+  });
+
+  check("[Plan 05-34, Task 2] the real captured login-notice text, read from the frozen fixture, classifies as null through the text-banner reader alone — the direct proof the superseded mechanism could not have caught this message", () => {
+    const loginNoticeText = UNAUTHENTICATED_FIXTURE.lines.find((line) => line.type === "assistant")?.message?.content?.find((block) => block.type === "text")?.text;
+    assert.ok(typeof loginNoticeText === "string" && loginNoticeText.length > 0, "expected to find the login-notice text in the frozen fixture");
+    assert.equal(readBackendRefusal(loginNoticeText), null, "expected the text-banner reader alone to return null for the real captured login-notice text");
+  });
+
+  check("[Plan 05-34, Task 2] a classification carries the error code when the wire supplied one, and the classifier/request id when the text banner supplied them; absent fields read as absent, never as an empty string", () => {
+    const wireResult = classifyNonConversationTurn({
+      text: "prose",
+      events: [{ type: "assistant_text", text: "prose", isApiErrorMessage: true, errorCode: "authentication_failed" }],
+    });
+    assert.equal(wireResult.errorCode, "authentication_failed");
+    assert.ok(!Object.prototype.hasOwnProperty.call(wireResult, "classifier"), "expected no classifier key on a wire-sourced classification");
+    assert.ok(!Object.prototype.hasOwnProperty.call(wireResult, "requestId"), "expected no requestId key on a wire-sourced classification");
+
+    const bannerResult = classifyNonConversationTurn({ text: LIVE_REFUSAL_TEXT, events: [] });
+    assert.equal(bannerResult.classifier, "reasoning_extraction");
+    assert.equal(bannerResult.requestId, "req_011CfMyQ7EQg8jnFnSugjHVw");
+    assert.ok(!Object.prototype.hasOwnProperty.call(bannerResult, "errorCode"), "expected no errorCode key on a banner-sourced classification");
+  });
+
+  check("[Plan 05-34, Task 2] a result event carrying the error flag literally false does not classify a turn as non-conversation", () => {
+    const events = [{ type: "result", isError: false }];
+    assert.equal(classifyNonConversationTurn({ text: "an ordinary reply", events }), null);
+  });
+
+  check("accumulateTurn's nonConversation member is exactly null (never undefined) on a turn that is not non-conversation (plan 05-24, generalised by 05-34)", () => {
     const result = accumulateTurn(
       [{ runId: "r1", type: "assistant_text", text: "an ordinary reply" }, { runId: "r1", type: "result" }],
       "r1",
       0,
     );
-    assert.equal(result.refusal, null);
+    assert.equal(result.nonConversation, null);
   });
 
-  check("accumulateTurn attaches the refusal reading on the result-terminated return path", () => {
+  check("accumulateTurn attaches the nonConversation reading on the result-terminated return path (plan 05-24, generalised by 05-34)", () => {
     const result = accumulateTurn(
       [{ runId: "r1", type: "assistant_text", text: LIVE_REFUSAL_TEXT }, { runId: "r1", type: "result" }],
       "r1",
       0,
     );
-    assert.ok(result.refusal !== null);
-    assert.equal(result.refusal.classifier, "reasoning_extraction");
+    assert.ok(result.nonConversation !== null);
+    assert.equal(result.nonConversation.classifier, "reasoning_extraction");
+    assert.equal(result.nonConversation.source, NON_CONVERSATION_SOURCES.TEXT_BANNER);
   });
 
   {
-    // driveChallengeConversation stops at a refusal: reports it, settles false, and sends no
-    // further developer turn — asserted against a stub sidecar, no real process, no timers left
-    // running.
+    // driveChallengeConversation stops at a non-conversation turn: reports it, settles false, and
+    // sends no further developer turn — asserted against a stub sidecar, no real process, no
+    // timers left running.
     const refusalTurns = [
-      { text: "What should trigger a notification in the first place?", chunkCount: 1, charCount: 55, endedBy: "result", endIndex: 3, refusal: null },
-      { text: LIVE_REFUSAL_TEXT, chunkCount: 1, charCount: LIVE_REFUSAL_TEXT.length, endedBy: "result", endIndex: 7, refusal: readBackendRefusal(LIVE_REFUSAL_TEXT) },
+      { text: "What should trigger a notification in the first place?", chunkCount: 1, charCount: 55, endedBy: "result", endIndex: 3, nonConversation: null },
+      { text: LIVE_REFUSAL_TEXT, chunkCount: 1, charCount: LIVE_REFUSAL_TEXT.length, endedBy: "result", endIndex: 7, nonConversation: classifyNonConversationTurn({ text: LIVE_REFUSAL_TEXT, events: [] }) },
     ];
     let refusalPointer = 0;
     let refusalCursorValue = 0;
@@ -1329,17 +1412,17 @@ async function selfTest() {
       maxAgentTurns: 4,
     });
 
-    check("driveChallengeConversation stops at a refused turn, reporting it and settling false", () => {
-      assert.ok(refusalResult.refusal !== null, "expected the driver to report the refusal");
-      assert.equal(refusalResult.refusal.classifier, "reasoning_extraction");
+    check("driveChallengeConversation stops at a non-conversation turn, reporting it and settling false", () => {
+      assert.ok(refusalResult.nonConversation !== null, "expected the driver to report the non-conversation classification");
+      assert.equal(refusalResult.nonConversation.classifier, "reasoning_extraction");
       assert.equal(refusalResult.settled, false);
     });
-    check("driveChallengeConversation sends exactly one developer turn before a refusal stops it", () => {
+    check("driveChallengeConversation sends exactly one developer turn before a non-conversation turn stops it", () => {
       assert.equal(refusalSendCalls.length, 1, "expected the driver to have answered turn 1's question once, then stopped");
     });
-    check("driveChallengeConversation preserves the refused turn verbatim in its own exchanges, rather than discarding it", () => {
-      const refusedExchange = refusalResult.exchanges.find((exchange) => exchange.speaker === "agent" && exchange.refusal);
-      assert.ok(refusedExchange, "expected the refused agent exchange to be present in the exchange list");
+    check("driveChallengeConversation preserves the non-conversation turn verbatim in its own exchanges, rather than discarding it", () => {
+      const refusedExchange = refusalResult.exchanges.find((exchange) => exchange.speaker === "agent" && exchange.nonConversation);
+      assert.ok(refusedExchange, "expected the non-conversation agent exchange to be present in the exchange list");
       assert.equal(refusedExchange.text, LIVE_REFUSAL_TEXT);
     });
   }
@@ -2877,18 +2960,20 @@ function composeDeveloperReply(questions) {
  * `await` that captured that turn and the synchronous `eventCursor()` call that follows it.
  *
  * Returns `{ exchanges, settled, agentTurns, answeredQuestionCount, closingTurnSent, cursor,
- * refusal }`: `exchanges` is the ordered agent/developer record from THIS function's own loop (the
- * caller's own opening turn is not part of it); `cursor` is the final event-buffer watermark
- * reached; `refusal` (plan 05-24, G-05-3) is `null` unless a captured agent turn carried a backend
- * refusal ({@link readBackendRefusal}, riding through `accumulateTurn`/`waitForTurn`), in which
- * case it is that turn's own refusal object and the loop stopped at that turn — never `undefined`,
- * so a caller testing this field cannot pass by accident on a typo.
+ * nonConversation }`: `exchanges` is the ordered agent/developer record from THIS function's own
+ * loop (the caller's own opening turn is not part of it); `cursor` is the final event-buffer
+ * watermark reached; `nonConversation` (plan 05-24's `refusal` field, RENAMED and generalised by
+ * plan 05-34/G-05-6) is `null` unless a captured agent turn was classified as non-conversation
+ * ({@link classifyNonConversationTurn}, riding through `accumulateTurn`/`waitForTurn`), in which
+ * case it is that turn's own classification object and the loop stopped at that turn — never
+ * `undefined`, so a caller testing this field cannot pass by accident on a typo.
  *
- * A refused turn stops the loop IMMEDIATELY, before `extractOpenQuestions` runs and before any
- * developer turn is composed or sent — a refusal is a backend-level error, not a real reply, and
- * there is nothing in it worth extracting a question from. Returning rather than throwing is
- * deliberate and matches this phase's own standing discipline: a failed capture reports what it DID
- * capture (the turns already accumulated in `exchanges` are never discarded).
+ * A non-conversation turn stops the loop IMMEDIATELY, before `extractOpenQuestions` runs and
+ * before any developer turn is composed or sent — a non-conversation message is a backend-level
+ * error, not a real reply, and there is nothing in it worth extracting a question from. Returning
+ * rather than throwing is deliberate and matches this phase's own standing discipline: a failed
+ * capture reports what it DID capture (the turns already accumulated in `exchanges` are never
+ * discarded).
  */
 async function driveChallengeConversation({
   sidecar,
@@ -2927,11 +3012,11 @@ async function driveChallengeConversation({
       charCount: turn.charCount,
       endedBy: turn.endedBy,
       endIndex: turn.endIndex,
-      refusal: turn.refusal ?? null,
+      nonConversation: turn.nonConversation ?? null,
     });
     finalCursor = turn.endIndex;
 
-    if (turn.refusal) {
+    if (turn.nonConversation) {
       return {
         exchanges,
         settled: false,
@@ -2939,7 +3024,7 @@ async function driveChallengeConversation({
         answeredQuestionCount,
         closingTurnSent,
         cursor: finalCursor,
-        refusal: turn.refusal,
+        nonConversation: turn.nonConversation,
       };
     }
 
@@ -2966,12 +3051,12 @@ async function driveChallengeConversation({
         charCount: closingReply.charCount,
         endedBy: closingReply.endedBy,
         endIndex: closingReply.endIndex,
-        refusal: closingReply.refusal ?? null,
+        nonConversation: closingReply.nonConversation ?? null,
       });
       finalCursor = closingReply.endIndex;
       closingTurnSent = true;
       settled = false;
-      if (closingReply.refusal) {
+      if (closingReply.nonConversation) {
         return {
           exchanges,
           settled,
@@ -2979,7 +3064,7 @@ async function driveChallengeConversation({
           answeredQuestionCount,
           closingTurnSent,
           cursor: finalCursor,
-          refusal: closingReply.refusal,
+          nonConversation: closingReply.nonConversation,
         };
       }
       break;
@@ -3000,7 +3085,7 @@ async function driveChallengeConversation({
     answeredQuestionCount,
     closingTurnSent,
     cursor: finalCursor,
-    refusal: null,
+    nonConversation: null,
   };
 }
 
@@ -4056,34 +4141,44 @@ async function runReplayCheckScenario(scenarioName) {
               `${positionalReading}) — SHAPE-01 entry passed=${shape01[1]} (expected false)`,
           );
         } else if (scenarioName === "backend-refuses-mid-conversation") {
-          // Plan 05-24 (gap G-05-3): the driver must have stopped AT the refusal — reporting it,
-          // settling false, and sending no further developer turn into a refused session.
-          assert.ok(conversation.refusal, "expected the driver to report a refusal for this scenario");
+          // Plan 05-24 (gap G-05-3), generalised by plan 05-34 (G-05-6): the driver must have
+          // stopped AT the non-conversation turn — reporting it, settling false, and sending no
+          // further developer turn into a refused session. This scenario's text carries no wire
+          // error flag (the fake backend never sets one for it), so it must be caught by the
+          // retained text-banner reader — the source names it, proving the reader's reach is
+          // unchanged by this plan's classifier.
+          assert.ok(conversation.nonConversation, "expected the driver to report a non-conversation classification for this scenario");
           assert.equal(
-            conversation.refusal.classifier,
+            conversation.nonConversation.classifier,
             "reasoning_extraction",
             "expected the detected classifier to equal the fixture's own code",
           );
-          assert.equal(conversation.settled, false, "expected settled to be false when a refusal stops the driver");
+          assert.equal(
+            conversation.nonConversation.source,
+            NON_CONVERSATION_SOURCES.TEXT_BANNER,
+            "expected this scenario's text-only refusal to be caught by the retained text-banner reader",
+          );
+          assert.equal(conversation.settled, false, "expected settled to be false when a non-conversation turn stops the driver");
           const developerTurns = conversation.exchanges.filter((exchange) => exchange.speaker === "developer");
           assert.equal(
             developerTurns.length,
             1,
             "expected exactly one developer turn composed by the driver — the loop ran once (answering " +
-              "turn 1's questions) and then stopped at the refusal, never sending a second developer turn",
+              "turn 1's questions) and then stopped at the non-conversation turn, never sending a second developer turn",
           );
           const refusedExchange = conversation.exchanges.find(
-            (exchange) => exchange.speaker === "agent" && exchange.refusal,
+            (exchange) => exchange.speaker === "agent" && exchange.nonConversation,
           );
-          assert.ok(refusedExchange, "expected a refused agent exchange in the driver's own exchange record");
+          assert.ok(refusedExchange, "expected a non-conversation agent exchange in the driver's own exchange record");
           assert.ok(
             refusedExchange.text.includes(BACKEND_REFUSAL_PREFIX),
-            "expected the refused turn's text to be preserved verbatim in the exchanges — a failed " +
-              "capture must report what it DID capture, never discard it",
+            "expected the non-conversation turn's text to be preserved verbatim in the exchanges — a " +
+              "failed capture must report what it DID capture, never discard it",
           );
           step(
-            `driver stopped at the refusal — classifier=${conversation.refusal.classifier} ` +
-              `requestId=${conversation.refusal.requestId ?? "none"} — settled=${conversation.settled}`,
+            `driver stopped at the non-conversation turn — source=${conversation.nonConversation.source} ` +
+              `classifier=${conversation.nonConversation.classifier} ` +
+              `requestId=${conversation.nonConversation.requestId ?? "none"} — settled=${conversation.settled}`,
           );
         }
 
@@ -4452,11 +4547,14 @@ await runScript(
       );
     }
 
-    // G-05-3 (plan 05-24): a backend refusal stopped the driver — this is the mechanism that
-    // killed run 01M399FP80B184QM2RXTXJDZTK. Fail fast, naming the class, the classifier and the
-    // request id, WITHOUT discarding the turns already captured and WITHOUT advancing the stage —
-    // D-90's gate exists to be opened on a finished conversation, and this one did not finish.
-    if (conversation.refusal) {
+    // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): a non-conversation backend message
+    // stopped the driver — this is the mechanism that killed run 01M399FP80B184QM2RXTXJDZTK, and
+    // the wire-fact classification is what stops a run like gap G-05-6's own (an unauthenticated
+    // first turn) at the point of detection instead of waiting out the full proposal deadline. Fail
+    // fast, naming the class, the firing source, the classifier/code and the request id, WITHOUT
+    // discarding the turns already captured and WITHOUT advancing the stage — D-90's gate exists to
+    // be opened on a finished conversation, and this one did not finish.
+    if (conversation.nonConversation) {
       const refusalExchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
       fs.writeFileSync(
         evidencePath,
@@ -4468,16 +4566,17 @@ await runScript(
           amendedCriteriaCount: 0,
           results: [],
           timestamp: new Date().toISOString(),
-          refusal: conversation.refusal,
+          nonConversation: conversation.nonConversation,
           credentialPath,
         }),
       );
       throw new Error(
-        `backend refusal (${BACKEND_REFUSAL_KIND}) stopped the challenge conversation before it ` +
-          `settled — classifier=${conversation.refusal.classifier ?? "unknown"} ` +
-          `requestId=${conversation.refusal.requestId ?? "none"}. This is a backend-level refusal, ` +
-          "not a model turn; the conversation did not complete and the stage was never advanced. " +
-          `See ${evidencePath} for the captured turns.`,
+        `backend non-conversation message (${BACKEND_REFUSAL_KIND}) stopped the challenge ` +
+          `conversation before it settled — source=${conversation.nonConversation.source ?? "unknown"} ` +
+          `classifier=${conversation.nonConversation.classifier ?? conversation.nonConversation.errorCode ?? "unknown"} ` +
+          `requestId=${conversation.nonConversation.requestId ?? "none"}. This is a backend-level ` +
+          "message, not a model turn; the conversation did not complete and the stage was never " +
+          `advanced. See ${evidencePath} for the captured turns.`,
       );
     }
 
@@ -4561,12 +4660,13 @@ await runScript(
       const distillationCursor = sidecar.eventCursor();
       await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
       exchanges.push({ speaker: "developer", text: advanced.distillationText, cursor: distillationCursor });
-      // G-05-3 (plan 05-24): `distillationReply` stays `undefined` on a genuine TIMEOUT (the catch
-      // branch below, unchanged from before this plan) so the refusal check after this try/catch
-      // is a no-op for that path — a timeout and a refusal are different classes and must stay
-      // separately reported. A refusal, by contrast, is a SUCCESSFUL capture (the turn ended
-      // cleanly on `result` — this is the exact place the real run actually died), so it must be
-      // checked and must fail the run OUTSIDE this try/catch, never swallowed by the timeout branch.
+      // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): `distillationReply` stays
+      // `undefined` on a genuine TIMEOUT (the catch branch below, unchanged from before this plan)
+      // so the non-conversation check after this try/catch is a no-op for that path — a timeout
+      // and a non-conversation message are different classes and must stay separately reported. A
+      // non-conversation message, by contrast, is a SUCCESSFUL capture (the turn ended cleanly on
+      // `result` — this is the exact place the real run actually died), so it must be checked and
+      // must fail the run OUTSIDE this try/catch, never swallowed by the timeout branch.
       let distillationReply;
       try {
         distillationReply = await sidecar.waitForTurn(runId, distillationCursor, {
@@ -4582,7 +4682,7 @@ await runScript(
           chunkCount: distillationReply.chunkCount,
           charCount: distillationReply.charCount,
           endedBy: distillationReply.endedBy,
-          refusal: distillationReply.refusal ?? null,
+          nonConversation: distillationReply.nonConversation ?? null,
         });
         step(
           `distillation reply captured: chunks=${distillationReply.chunkCount} ` +
@@ -4599,14 +4699,15 @@ await runScript(
           chunkCount: partial.chunkCount,
           charCount: partial.charCount,
           endedBy: "timeout",
-          refusal: partial.refusal ?? null,
+          nonConversation: partial.nonConversation ?? null,
         });
         step(`distillation reply capture timed out (not fatal — the proposal wait still happens): ${err.message}`);
       }
 
-      // G-05-3 (plan 05-24): the place the real run actually died. Never fall through into the
-      // proposal wait below — a refused distillation turn means no propose call is ever coming.
-      if (distillationReply && distillationReply.refusal) {
+      // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): the place the real run actually
+      // died. Never fall through into the proposal wait below — a non-conversation distillation
+      // turn means no propose call is ever coming.
+      if (distillationReply && distillationReply.nonConversation) {
         fs.writeFileSync(
           evidencePath,
           renderChallengeEvidenceSheet({
@@ -4617,16 +4718,17 @@ await runScript(
             amendedCriteriaCount: 0,
             results: [],
             timestamp: new Date().toISOString(),
-            refusal: distillationReply.refusal,
+            nonConversation: distillationReply.nonConversation,
             credentialPath,
           }),
         );
         throw new Error(
-          `backend refusal (${BACKEND_REFUSAL_KIND}) stopped the run at the distillation turn — ` +
-            `classifier=${distillationReply.refusal.classifier ?? "unknown"} ` +
-            `requestId=${distillationReply.refusal.requestId ?? "none"}. This is a backend-level ` +
-            "refusal, not a model turn; the conversation did not complete and the proposal wait " +
-            `was never entered. See ${evidencePath} for the captured turns.`,
+          `backend non-conversation message (${BACKEND_REFUSAL_KIND}) stopped the run at the ` +
+            `distillation turn — source=${distillationReply.nonConversation.source ?? "unknown"} ` +
+            `classifier=${distillationReply.nonConversation.classifier ?? distillationReply.nonConversation.errorCode ?? "unknown"} ` +
+            `requestId=${distillationReply.nonConversation.requestId ?? "none"}. This is a ` +
+            "backend-level message, not a model turn; the conversation did not complete and the " +
+            `proposal wait was never entered. See ${evidencePath} for the captured turns.`,
         );
       }
     }
