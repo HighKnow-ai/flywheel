@@ -449,6 +449,48 @@ export const SCENARIOS = {
       { type: "text", text: "Still staging more work based on what you've told me." },
     ],
   },
+
+  // Plan 05-31 (Task 2, gap G-05-5): the absent-id decision's own end-to-end proof — a backend
+  // that supplies NO correlation ids at all. The `tool_use` block below declares no `id`; the
+  // `tool_result` block below declares no `tool_use_id`. This is the shape `05-30-PLAN.md`'s
+  // Task 1 STEP 5 reasoned about but never drove through the real sidecar: through the real
+  // shipped normaliser (`claude-code-adapter.ts::normaliseStreamEvent`), a `tool_use`/
+  // `tool_result` pair declaring neither key must normalise onto `ToolCallEvent`/
+  // `ToolResultEvent` objects carrying NO `toolUseId` key at all — never fabricated, never
+  // adopted from a neighbouring field — so the harness's own pairing correctly reads
+  // `uncorrelatable` and SHAPE-01 does not pass. The result's own text deliberately does NOT
+  // match the stage-gate refusal wording (`CHALLENGE_REFUSAL_PATTERN`), so that a reintroduced
+  // positional fallback would read `violated` — a WRONG but at least DIFFERENT reading — rather
+  // than coincidentally agreeing with the `uncorrelatable` abstention this scenario proves. The
+  // turn opens and closes on plain text carrying no interrogative fragment, so
+  // `driveChallengeConversation` settles after this one turn, mirroring
+  // `stages-work-during-challenge` and `interleaved-read-during-proposal` above.
+  "proposal-without-correlation-ids": {
+    turns: [
+      [
+        { type: "text", text: "This premise is clear enough — I'll stage the work now." },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_task",
+          // Deliberately NO `id` field — the shape a backend that emits no correlation ids
+          // would produce. Do not add one to make anything pass.
+          input: { title: "Build notifications", description: "Notify the user of run outcomes." },
+        },
+        {
+          type: "tool_result",
+          role: "user",
+          // Deliberately NO `tool_use_id` field — paired with the `tool_use` block's own
+          // absent `id` above. The text below does NOT match the refusal wording, on purpose:
+          // see this scenario's own doc comment above.
+          text: "proposal created successfully.",
+        },
+        { type: "text", text: "I've staged that item for your review." },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "Still staging more work based on what you've told me." },
+    ],
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation

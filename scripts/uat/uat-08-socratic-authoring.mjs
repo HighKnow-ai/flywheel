@@ -3625,6 +3625,106 @@ async function runReplayCheckScenario(scenarioName) {
               `with its own result at index ${attempt.answerIndex} — SHAPE-01 entry ` +
               `passed=${shape01[1]} (expected false)`,
           );
+        } else if (scenarioName === "proposal-without-correlation-ids") {
+          // Plan 05-31 (Task 2, G-05-5 closure): the absent-id decision's own end-to-end proof.
+          // A backend that supplies no correlation ids at all must make the run unjudgeable,
+          // never guessed at and never passed by default. The fixture's own result text
+          // deliberately does NOT match the refusal wording, so a reintroduced positional
+          // fallback would read `violated` — visibly wrong — rather than coincidentally
+          // agreeing with the `uncorrelatable` abstention proven below.
+          const challengeWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
+
+          // Non-vacuity gate: the window must genuinely hold at least one propose tool_call and
+          // at least one tool_result event for this run, so the assertions below cannot pass
+          // over an empty window.
+          const proposeCallCount = sidecar.events.filter(
+            (event, index) =>
+              index >= challengeWindow.fromIndex &&
+              index < challengeWindow.toIndex &&
+              event.runId === runId &&
+              event.type === "tool_call" &&
+              typeof event[TOOL_NAME_FIELD] === "string" &&
+              event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
+          ).length;
+          const toolResultCount = sidecar.events.filter(
+            (event, index) =>
+              index >= challengeWindow.fromIndex &&
+              index < challengeWindow.toIndex &&
+              event.runId === runId &&
+              event.type === "tool_result",
+          ).length;
+          assert.ok(
+            proposeCallCount >= 1,
+            `expected at least one propose tool_call event in the challenge window, got ${proposeCallCount}`,
+          );
+          assert.ok(
+            toolResultCount >= 1,
+            `expected at least one tool_result event in the challenge window, got ${toolResultCount}`,
+          );
+
+          // The adapter's own honest absence, asserted on LIVE event objects from the real
+          // sidecar — a key-PRESENCE check, never a comparison against `undefined` (which would
+          // also pass on a present-but-undefined value, the exact shape
+          // `claude-code-adapter.ts`'s own conditional-spread idiom is written to prevent). This
+          // is what makes this scenario prove the ADAPTER's honest absence, not merely the
+          // harness's handling of it.
+          const inWindowCallsAndResults = sidecar.events.filter(
+            (event, index) =>
+              index >= challengeWindow.fromIndex &&
+              index < challengeWindow.toIndex &&
+              event.runId === runId &&
+              (event.type === "tool_call" || event.type === "tool_result"),
+          );
+          assert.ok(
+            inWindowCallsAndResults.length >= 2,
+            `expected at least one tool_call AND one tool_result event in the challenge window, ` +
+              `got ${inWindowCallsAndResults.length}`,
+          );
+          for (const event of inWindowCallsAndResults) {
+            assert.ok(
+              !Object.prototype.hasOwnProperty.call(event, CORRELATION_ID_FIELD),
+              `expected a ${event.type} event (seq=${event.seq}) to carry NO ${CORRELATION_ID_FIELD} ` +
+                "key at all — the adapter must never fabricate a correlation id the backend did not supply",
+            );
+          }
+
+          const reading = readNoWorkPlanned(sidecar.events, challengeWindow);
+          assert.equal(
+            reading,
+            "uncorrelatable",
+            "expected an id-less stream to read uncorrelatable, never a guess and never a silent pass",
+          );
+
+          const shapeResults = buildCriteriaResults({
+            criterion1Challenged: true,
+            noWorkPlannedReading: reading,
+            criterion2Landed: false,
+            criterion3Decided: false,
+            criterion4Reopened: false,
+            criterion4PrimedRejected: false,
+          });
+          const shape01 = shapeResults.find(([name]) => name.includes("SHAPE-01"));
+          assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
+          assert.equal(shape01[1], false, "expected SHAPE-01 to NOT pass over an uncorrelatable run");
+
+          const positionalCorrelated = correlateProposeAttemptsPositionally(sidecar.events, challengeWindow);
+          const positionalReading =
+            positionalCorrelated.length === 0
+              ? "unproven"
+              : positionalCorrelated.every((attempt) => attempt.refused)
+                ? "refused"
+                : "violated";
+          assert.notEqual(
+            positionalReading,
+            "uncorrelatable",
+            "expected the frozen positional control to still pair these events anyway, over the " +
+              "SAME window — the old mechanism answers exactly where the new one abstains",
+          );
+
+          step(
+            `id-less stream reading: ${reading} (frozen positional control would have read: ` +
+              `${positionalReading}) — SHAPE-01 entry passed=${shape01[1]} (expected false)`,
+          );
         } else if (scenarioName === "backend-refuses-mid-conversation") {
           // Plan 05-24 (gap G-05-3): the driver must have stopped AT the refusal — reporting it,
           // settling false, and sending no further developer turn into a refused session.
