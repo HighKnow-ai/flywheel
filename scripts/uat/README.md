@@ -210,7 +210,7 @@ Four arms, like every live script in this directory:
 - **`--replay-check`** — pure, offline, no `claude` binary and no API credential. Drives the REAL
   sidecar, the REAL watchdog and the REAL shipped normaliser (`claude-code-adapter.ts`) against
   `scripts/uat/lib/fake-authoring-claude.mjs`, a scripted, zero-token, multi-chunk stand-in backend
-  that is unreachable from the live arm. Seven scenarios, each proving one thing the live arm would
+  that is unreachable from the live arm. Eight scenarios, each proving one thing the live arm would
   otherwise be the only way to check:
   - `truncation-repro` — the original multi-chunk truncation reproduction: a multi-block turn
     survives the whole wire intact.
@@ -227,6 +227,10 @@ Four arms, like every live script in this directory:
     at the refusal instead of quietly waiting out the proposal deadline.
   - `slow-tool-mid-turn` — the model pauses mid-turn on a slow tool call, proving the capture is not
     truncated by an idle window that fires on unrelated wire traffic.
+  - `back-to-back-proposals` — two propose calls issued back-to-back inside the challenge stage and
+    answered by two distinct unnamed results, the first refusing and the second not, proving the
+    reading is `violated` and that the correlation as it shipped on 2026-09-24 still reads `refused`
+    over the same run.
   Proves NOTHING WHATSOEVER about dialogue quality — its transcripts are synthetic, carry an
   unmissable synthetic marker in their first two lines, and structurally cannot hold a verdict line.
 - **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
@@ -298,6 +302,23 @@ Add the quieter one too: the live arm recorded its first agent turn twice, becau
 turn and then seeded the conversation driver with the same cursor — visible in the committed
 transcript as two byte-identical agent turns.
 
+**Fifth finding, recorded here because it changed the script again (this closure, plan 05-27, gap
+`G-05-4`):** the per-attempt refusal correlation shipped by the PREVIOUS closure to fix the previous
+correlation defect could reuse a single `tool_result` as the answer to two different back-to-back
+`propose_*` attempts. Two `tool_use` blocks in one turn before either is answered is an ordinary
+Claude Code shape, not an edge case; the second attempt's scan began on the exact index the first
+attempt's scan had already consumed. When that shared result refused, both attempts read refused and
+the second attempt's own unrefused answer was never reached — a **vacuous SHAPE-01 pass**, certifying
+the one outcome SHAPE-01 must never certify. State the recurrence plainly, because it is the actual
+finding: this is the fifth consecutive round in which this phase shipped a criterion that could not
+report a genuine result, every time in the same narrow region of code. Add the wire fact that makes
+it worse than it reads: `claude-code-adapter.ts` normalises every `tool_result` with no tool name at
+all, because the CLI's own block carries a `tool_use_id` rather than a name. The tool-name exclusion
+the correlation leaned on therefore can never fire on a live run, which makes the collision the
+default behaviour on a real wire rather than an unlucky shape. This is a faithful mapping of the
+wire, not a product defect — and it is why claiming result indices is mandatory rather than an
+optimisation.
+
 **The rule this directory now operates under, stated once:** every property a live script asserts
 must be provable WITHOUT a live run — through a self-test, an offline dispatch check, or a
 scripted-backend replay — and the live arm exists for the judgements a human must make, never for
@@ -311,6 +332,18 @@ assembles differently (the NF-01 duplicate turn); and a property no fixture in t
 capable of expressing at all (WR-04's mid-turn pause, before `slow-tool-mid-turn` existed). The
 practical consequence: when a fixture cannot express the condition, the fixture is the gap — extend
 it rather than accept that the property is live-only.
+
+**A third rule, distinct from the two above (gap `G-05-4`):**
+
+> When a fixture has to be shaped around an ambiguity in the algorithm under test, the ambiguity is
+> the finding. Fix the algorithm, and add the fixture that was being avoided.
+
+This is grounded in the record, not offered as abstract advice. `05-23-SUMMARY.md`'s own "Issues Encountered"
+section documents the executor meeting this exact ambiguity while writing the order-independence
+self-test and correcting the FIXTURE — adding a wrong-tool-name exclusion to keep two attempts'
+answers distinct — rather than the correlation. That is the direct, documented reason the defect
+above shipped with five self-tests around it and none of them catching it. A fixture note is where a
+finding goes to die; the countermeasure is to write the fixture that was being dodged.
 
 Costs real tokens: it drives a real, multi-turn model conversation. Not executed by an autonomous
 CI/executor run — a human runs it deliberately when judging SHAPE-01/SHAPE-03's own human-only half
