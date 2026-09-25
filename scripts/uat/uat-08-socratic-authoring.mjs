@@ -3625,6 +3625,10 @@ async function runReplayCheckScenario(scenarioName) {
 
       step("spawning a real authoring session (authoring_spawn) against the fake backend");
       const turn1Cursor = sidecar.eventCursor();
+      // Plan 05-34 (G-05-6 closure): the spawn timestamp the `unauthenticated-backend-first-turn`
+      // scenario measures its own stop-latency against — the offline analogue of the live run's
+      // own 120000ms proposal deadline it must never again wait out.
+      const spawnStartMs = Date.now();
       await sidecar.request({
         op: "authoring_spawn",
         runId,
@@ -3781,6 +3785,11 @@ async function runReplayCheckScenario(scenarioName) {
           turnDeadlineMs: REPLAY_TURN_DEADLINE_MS,
           maxAgentTurns: MAX_AGENT_TURNS,
         });
+        // Plan 05-34 (G-05-6 closure): the driver-stop timestamp — paired with `spawnStartMs`
+        // above, this is what lets the `unauthenticated-backend-first-turn` scenario assert it
+        // stopped well inside the deadline rather than waiting one out, measured against the
+        // constant itself, never a hardcoded millisecond figure.
+        const driveStopMs = Date.now();
         for (const exchange of conversation.exchanges) {
           step(
             exchange.speaker === "agent"
@@ -4180,12 +4189,96 @@ async function runReplayCheckScenario(scenarioName) {
               `classifier=${conversation.nonConversation.classifier} ` +
               `requestId=${conversation.nonConversation.requestId ?? "none"} — settled=${conversation.settled}`,
           );
+        } else if (scenarioName === "unauthenticated-backend-first-turn") {
+          // Gap G-05-6 (plan 05-34): the exact stream that defeated the live run — an
+          // unauthenticated backend's first turn, replayed offline through the real sidecar and
+          // the real shipped normaliser. Every assertion below reads from the frozen fixture's own
+          // data (via the fake backend's SCENARIOS entry, which itself reads the same fixture at
+          // module load) rather than from literals, so this check and the real capture cannot
+          // drift apart.
+          const fixtureScenario = SCENARIOS[scenarioName];
+          const fixtureBlock = fixtureScenario.turns[0][0];
+          const fixtureFallbackText = fixtureScenario.fallback[0].text;
+
+          assert.ok(
+            conversation.nonConversation,
+            "expected the driver to classify the unauthenticated first turn as non-conversation",
+          );
+          assert.notEqual(
+            conversation.nonConversation.source,
+            NON_CONVERSATION_SOURCES.TEXT_BANNER,
+            "expected a WIRE signal to have fired for this scenario — the login-notice text does " +
+              "not match the text-banner reader at all, which is the entire point: this shape is " +
+              "exactly what the superseded text-only mechanism could never have caught",
+          );
+          assert.ok(
+            conversation.nonConversation.source === NON_CONVERSATION_SOURCES.ASSISTANT_ERROR_FLAG ||
+              conversation.nonConversation.source === NON_CONVERSATION_SOURCES.RESULT_ERROR_FLAG,
+            `expected the reported source to name a wire signal, got ${conversation.nonConversation.source}`,
+          );
+          assert.equal(
+            conversation.settled,
+            false,
+            "expected the conversation to NOT be recorded as having settled — the exact misreading " +
+              "that let the original live run wait out the full proposal deadline",
+          );
+
+          // The negative that makes the gap's own reason concrete: the captured agent exchange for
+          // this turn is FLAGGED non-conversation, never bare ordinary agent speech — the original
+          // defect counted this exact text as a genuine settled reply.
+          const nonConversationExchange = conversation.exchanges.find(
+            (exchange) => exchange.speaker === "agent" && exchange.nonConversation,
+          );
+          assert.ok(
+            nonConversationExchange,
+            "expected the captured agent exchange for the login-notice turn to carry a truthy " +
+              "nonConversation classification, never read as ordinary agent speech",
+          );
+          assert.equal(
+            nonConversationExchange.text,
+            fixtureBlock.text,
+            "expected the captured exchange's text to equal the frozen fixture's own login-notice text verbatim",
+          );
+
+          // The run must have stopped AT turn one — no second developer turn sent, and the
+          // scenario's own fallback text (which would only be reached by a second scripted or
+          // fallback turn) appears nowhere in what was captured.
+          const developerTurns = conversation.exchanges.filter((exchange) => exchange.speaker === "developer");
+          assert.equal(
+            developerTurns.length,
+            0,
+            "expected ZERO developer turns — the non-conversation classification must stop the " +
+              "driver before any reply is composed or sent, on turn one",
+          );
+          const capturedTexts = conversation.exchanges.map((exchange) => exchange.text);
+          assert.ok(
+            !capturedTexts.includes(fixtureFallbackText),
+            "expected the fallback turn's text to appear nowhere in the captured exchanges — " +
+              "reaching it would mean the driver did not stop on turn one",
+          );
+
+          // The offline analogue of the live run's own 120000ms proposal deadline it must never
+          // again wait out — asserted against the deadline CONSTANT, never a hardcoded millisecond
+          // figure, and comparing timestamps taken around the real spawn/drive calls above, not a
+          // synthetic measurement.
+          const elapsedMs = driveStopMs - spawnStartMs;
+          assert.ok(
+            elapsedMs < REPLAY_TURN_DEADLINE_MS,
+            `expected the run to stop well under REPLAY_TURN_DEADLINE_MS (${REPLAY_TURN_DEADLINE_MS}ms), took ${elapsedMs}ms`,
+          );
+
+          step(
+            `driver stopped at the unauthenticated first turn — source=${conversation.nonConversation.source} ` +
+              `elapsed=${elapsedMs}ms (well under REPLAY_TURN_DEADLINE_MS=${REPLAY_TURN_DEADLINE_MS}ms) — ` +
+              `settled=${conversation.settled}`,
+          );
         }
 
-        // Plan 05-24 (gap G-05-3): a refused conversation must NEVER reach advance-stage — the
-        // whole point of this scenario is that the gate is never opened on it. Every other
-        // scenario advances the stage through the bridge, mirroring the live body exactly.
-        if (scenarioName === "backend-refuses-mid-conversation") {
+        // Plan 05-24 (gap G-05-3), generalised by plan 05-34 (G-05-6): a non-conversation
+        // conversation must NEVER reach advance-stage — the whole point of these scenarios is that
+        // the gate is never opened on them. Every other scenario advances the stage through the
+        // bridge, mirroring the live body exactly.
+        if (scenarioName === "backend-refuses-mid-conversation" || scenarioName === "unauthenticated-backend-first-turn") {
           step("skipping advance-stage for this scenario — a refused conversation never reaches it (D-90)");
           exchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
 

@@ -43,7 +43,28 @@
  * a second copy of them that could drift. The CLI behaviour below sits behind a main-module guard
  * — importing this file for its exports spawns nothing.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Plan 05-34 (G-05-6 closure): the frozen real capture of an unauthenticated CLI's first turn —
+ * see the fixture's own `note` field for the full provenance. Read once at MODULE LOAD, so the
+ * `unauthenticated-backend-first-turn` scenario below and the assertions in
+ * `uat-08-socratic-authoring.mjs` that check it cannot drift from the real capture by retyping a
+ * copy of it (README Item 8's third rule: a fixture that cannot express a real shape is the gap —
+ * extend the fixture vocabulary, then read the REAL values into it, never retype them).
+ */
+const UNAUTHENTICATED_FIXTURE_PATH = path.join(__dirname, "..", "fixtures", "unauthenticated-cli-first-turn.json");
+const UNAUTHENTICATED_FIXTURE = JSON.parse(fs.readFileSync(UNAUTHENTICATED_FIXTURE_PATH, "utf8"));
+const UNAUTHENTICATED_ASSISTANT_LINE = UNAUTHENTICATED_FIXTURE.lines.find((line) => line.type === "assistant");
+const UNAUTHENTICATED_RESULT_LINE = UNAUTHENTICATED_FIXTURE.lines.find((line) => line.type === "result");
+const UNAUTHENTICATED_LOGIN_NOTICE_TEXT = UNAUTHENTICATED_ASSISTANT_LINE.message.content.find(
+  (block) => block.type === "text",
+).text;
 
 /**
  * The scripted turn fixtures, keyed by scenario name. Each scenario is `{ turns, fallback }`:
@@ -74,6 +95,32 @@ import { createInterface } from "node:readline";
  * `user`-role envelope on the real wire (the CLI reports a tool's own result back as a user-role
  * turn), which is the exact shape this field exists to express — the same gap `delayMs` closed for
  * a mid-turn pause, now closed for a `tool_result` block at all.
+ *
+ * A content block may also carry an optional `envelopeExtra` object (plan 05-34, G-05-6 closure),
+ * mirroring exactly how `delayMs`/`role` were introduced above: before this field, no scenario here
+ * could put an ENVELOPE-LEVEL field (a sibling of `type`/`message`, not inside `message.content`)
+ * on the wire at all, so no offline arm could reproduce the exact shape that defeated gap G-05-6's
+ * live run — a real unauthenticated CLI stream whose assistant envelope carries its own `error`/
+ * `is_api_error_message` fields. `emitTurn` merges `envelopeExtra`'s own keys into the emitted
+ * envelope object ALONGSIDE `type`/`message` (never inside `message.content`), then strips
+ * `envelopeExtra` from the block before it is written, alongside `delayMs`/`role`, so it never
+ * appears inside the block's own wire shape.
+ *
+ * A SCENARIO (not a block) may also carry an optional `resultExtra` object (plan 05-34, G-05-6
+ * closure), for the same reason and merged the same way: before this field, no scenario here could
+ * put a field on the terminating `result` line beyond what `emitTurn` always emits, so no offline
+ * arm could reproduce the real capture's own `is_error`/`terminal_reason` result-line fields.
+ * `emitTurn` merges `resultExtra`'s own keys into every `result` line it emits for that scenario,
+ * alongside `type`/`subtype`/`total_cost_usd`/`session_id`/`usage`.
+ *
+ * `unauthenticated-backend-first-turn` (plan 05-34, G-05-6 closure) replays the REAL captured
+ * stream frozen at `scripts/uat/fixtures/unauthenticated-cli-first-turn.json` — an unauthenticated
+ * `claude` CLI's first turn, captured offline at zero credential cost. Its single scripted turn's
+ * text, `envelopeExtra` and this scenario's own `resultExtra` are all read from that frozen fixture
+ * at MODULE LOAD (see the constants declared above), never retyped as literals here, so the
+ * scenario and the capture cannot drift. The fallback turn must never be reached — the whole point
+ * of this scenario is that the wire's own error facts stop `driveChallengeConversation` on turn one,
+ * before the full proposal deadline gap G-05-6's own live run waited out.
  *
  * `truncation-repro` replays the exact shape of the 2026-09-24 live run that produced an
  * unjudgeable transcript (`.planning/debug/uat-08-live-transcript-unjudgeable.md`, Evidence
@@ -491,6 +538,39 @@ export const SCENARIOS = {
       { type: "text", text: "Still staging more work based on what you've told me." },
     ],
   },
+
+  // Plan 05-34 (gap G-05-6): replays the REAL captured stream of an unauthenticated `claude` CLI's
+  // first turn — the exact shape that defeated the live run this gap exists to close (an
+  // unauthenticated backend's login-notice text was counted as agent speech, the conversation was
+  // recorded as settled, and the run then waited out the full 120000ms proposal deadline before
+  // failing). Every value below is read from the frozen fixture at module load (see the constants
+  // declared above this object) — never retyped — so this scenario and the real capture cannot
+  // drift apart. The fallback turn must never be reached: the whole point of this scenario is that
+  // the wire's own error facts stop the driver on turn one.
+  "unauthenticated-backend-first-turn": {
+    turns: [
+      [
+        {
+          type: "text",
+          text: UNAUTHENTICATED_LOGIN_NOTICE_TEXT,
+          envelopeExtra: {
+            error: UNAUTHENTICATED_ASSISTANT_LINE.error,
+            is_api_error_message: UNAUTHENTICATED_ASSISTANT_LINE.is_api_error_message,
+          },
+        },
+      ],
+    ],
+    fallback: [
+      {
+        type: "text",
+        text: "This fallback turn must never be reached — the wire's own error facts must stop the driver on turn one.",
+      },
+    ],
+    resultExtra: {
+      is_error: UNAUTHENTICATED_RESULT_LINE.is_error,
+      terminal_reason: UNAUTHENTICATED_RESULT_LINE.terminal_reason,
+    },
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation
@@ -523,17 +603,25 @@ function printLine(obj) {
  * BEFORE its own stdout line is written — the ONLY way this file can express a genuine mid-turn
  * pause. `delayMs` itself is stripped before the block is written; it is a fixture-authoring
  * field, never part of the wire shape. Every block without `delayMs` still emits immediately, so
- * every scenario's pre-existing timing is unchanged. */
-async function emitTurn(blocks, messageId) {
+ * every scenario's pre-existing timing is unchanged.
+ *
+ * `resultExtra` (plan 05-34, G-05-6 closure): when the CALLING scenario declares one, its own keys
+ * are merged into every `result` line this call emits, alongside `type`/`subtype`/`total_cost_usd`/
+ * `session_id`/`usage` — `undefined` (no scenario-level field) merges nothing, so every
+ * pre-existing scenario's result line is byte-for-byte unchanged. Each block's own `envelopeExtra`,
+ * when present, is merged into that block's own envelope object the same way, then stripped from
+ * the block before it is written — a fixture-authoring field, never part of the wire shape. */
+async function emitTurn(blocks, messageId, resultExtra) {
   for (const block of blocks) {
     if (typeof block.delayMs === "number" && block.delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, block.delayMs));
     }
-    const { delayMs: _delayMs, role: _role, ...wireBlock } = block;
+    const { delayMs: _delayMs, role: _role, envelopeExtra, ...wireBlock } = block;
     const envelopeRole = block.role ?? "assistant";
     printLine({
       type: envelopeRole,
       message: { id: messageId, role: envelopeRole, content: [wireBlock] },
+      ...(envelopeExtra && typeof envelopeExtra === "object" ? envelopeExtra : {}),
     });
   }
   printLine({
@@ -547,6 +635,7 @@ async function emitTurn(blocks, messageId) {
       cache_read_input_tokens: 0,
       output_tokens: 0,
     },
+    ...(resultExtra && typeof resultExtra === "object" ? resultExtra : {}),
   });
 }
 
@@ -592,7 +681,7 @@ function main() {
     turnIndex += 1;
     const messageId = `fake-msg-${turnIndex}`;
     turnQueue = turnQueue
-      .then(() => emitTurn(blocks, messageId))
+      .then(() => emitTurn(blocks, messageId, scenario.resultExtra))
       .catch((err) => {
         process.stderr.write(`fake-authoring-claude: emitTurn failed: ${String(err)}\n`);
       });
