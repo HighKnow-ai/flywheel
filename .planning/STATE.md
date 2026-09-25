@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-30-PLAN.md
-last_updated: "2026-09-25T06:52:53.042Z"
+stopped_at: Completed 05-31-PLAN.md
+last_updated: "2026-09-25T07:12:46.171Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 05 execution started
-state_head: 27fc6fabfeab52a271a41f5039745f1434c9c31e
+state_head: 88712205a455bc98290d47a668a0a5e160645277
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 125
-  completed_plans: 123
+  completed_plans: 124
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 2 of 32
+Plan: 3 of 32
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 05 execution started
 
@@ -180,6 +180,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05-socratic-epic-authoring P28 | ~15min | 2 tasks | 2 files |
 | Phase 05 P29 | ~10min | 2 tasks | 2 files |
 | Phase 05-socratic-epic-authoring P30 | 55 min | 3 tasks | 5 files |
+| Phase 05 P31 | 45min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -403,6 +404,7 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05]: Plan 05-29 closes gap-closure round G-05-4: 05-VALIDATION.md now carries a ledger row for every task in the closure (05-27-01..05-29-02), each naming a command actually run and observed; REQUIREMENTS.md's SHAPE-01/SHAPE-03 lines are narrowed to credit plan 05-27's claimed-index tool_result correlation fix while staying unchecked, with the live dialogue-quality/draft-usefulness judgements still UNJUDGED. The credential-spend decision for one live run is put to the developer, unanswered by design.
 - [Phase 05]: SHAPE-01's attempt/answer correlation is now an exact id lookup on the wire's own tool_use/tool_result correlation id, replacing six rounds of narrowed positional heuristics; an id-less stream reads 'uncorrelatable' and fails closed rather than silently passing.
 - [Phase 05]: Exactly one frozen negative control lives in scripts/uat/uat-08-socratic-authoring.mjs at a time; round 6's control was retired outright (not accumulated) when superseded by correlateProposeAttemptsPositionally.
+- [Phase 05]: Plan 05-31: the round-7 self-test battery deliberately duplicates 05-30's own positional-control check under a new tag rather than relying on scattered pre-existing checks, so all three defect-class shapes are grep-discoverable from one self-contained region. — A verification that reads this file must be able to tell from the PASS lines alone that every shape is covered, without re-reading bodies scattered across prior rounds.
 
 ### Pending Todos
 
@@ -450,6 +452,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-25T06:52:52.287Z
-Stopped at: Completed 05-30-PLAN.md
+Last session: 2026-09-25T07:12:46.041Z
+Stopped at: Completed 05-31-PLAN.md
 Resume file: None
