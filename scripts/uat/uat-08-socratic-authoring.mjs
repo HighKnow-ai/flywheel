@@ -2718,6 +2718,20 @@ async function runReplayCheckScenario(scenarioName) {
           assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
           assert.equal(shape01[1], false, "expected SHAPE-01 to NOT pass when a propose attempt went unrefused");
           step(`noWorkPlanned reading: ${reading} — SHAPE-01 entry passed=${shape01[1]} (expected false)`);
+        } else if (scenarioName === "back-to-back-proposals") {
+          // Task 1 (plan 05-27, G-05-4 closure): the collision `isAttemptRefused`'s independent
+          // per-attempt scan could not see — two propose attempts issued back-to-back, in ONE
+          // turn, before either is answered. RED (this commit): asserted only against the
+          // shipped `readNoWorkPlanned` — expected to observe `refused`, the wrong answer.
+          const challengeWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
+          const reading = readNoWorkPlanned(sidecar.events, challengeWindow);
+          assert.equal(
+            reading,
+            "violated",
+            "expected a propose attempt with no refusal to read as violated — the second, " +
+              "unrefused attempt must sink SHAPE-01",
+          );
+          step(`back-to-back reading: ${reading} (expected violated)`);
         } else if (scenarioName === "backend-refuses-mid-conversation") {
           // Plan 05-24 (gap G-05-3): the driver must have stopped AT the refusal — reporting it,
           // settling false, and sending no further developer turn into a refused session.

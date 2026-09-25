@@ -63,6 +63,18 @@ import { createInterface } from "node:readline";
  * written to stdout — it is a fixture-authoring convenience, never part of the wire shape a real
  * `claude` CLI turn carries.
  *
+ * A content block may also carry an optional `role` (plan 05-27, G-05-4 closure), mirroring exactly
+ * how `delayMs` was introduced above: default `"assistant"`; the only other permitted value is
+ * `"user"`. `emitTurn` uses it for the stream envelope's own top-level `type` and for
+ * `message.role`, then strips it from the block before writing, alongside `delayMs`, so it never
+ * appears in the wire shape itself. Before this plan, no scenario here could put a `tool_result` on
+ * the wire AT ALL — `emitTurn` wrapped every block in an envelope whose `type` was always
+ * `"assistant"`, and `claude-code-adapter.ts` only normalises a `tool_result` content block out of a
+ * `type: "assistant" | "user"` envelope carrying one. A `tool_result` block is delivered on a
+ * `user`-role envelope on the real wire (the CLI reports a tool's own result back as a user-role
+ * turn), which is the exact shape this field exists to express — the same gap `delayMs` closed for
+ * a mid-turn pause, now closed for a `tool_result` block at all.
+ *
  * `truncation-repro` replays the exact shape of the 2026-09-24 live run that produced an
  * unjudgeable transcript (`.planning/debug/uat-08-live-transcript-unjudgeable.md`, Evidence
  * E4/E5): turn 1 is a pre-tool-call preamble, a tool call, then a narration block that references
@@ -325,6 +337,50 @@ export const SCENARIOS = {
       { type: "text", text: "Noted — I'll keep that in mind as we continue." },
     ],
   },
+
+  // Plan 05-27 (gap G-05-4): the collision `readNoWorkPlanned`'s own per-attempt scan could not
+  // see — two `propose_*` tool calls issued back-to-back, in ONE scripted turn, before either is
+  // answered, then two `tool_result` blocks answering them in order (the first refusing, the
+  // second not). BOTH results are deliberately UNNAMED (no `name` field at all) — this is the live
+  // wire's own shape: `claude-code-adapter.ts:598-600` normalises every `tool_result` with no
+  // `toolName`, because the CLI's own `tool_result` content block carries a `tool_use_id`, not a
+  // tool name. The 05-23 fixture's wrong-tool-name exclusion (`unrefusedThenRefused` in this file's
+  // sibling self-test) cannot apply here — this is the fixture that was being avoided. Both
+  // `tool_result` blocks ride the `role: "user"` envelope (the shape a real tool result actually
+  // uses), which is the exact capability this plan's `role` field exists to express. The turn opens
+  // and closes on plain text carrying no interrogative fragment, so `driveChallengeConversation`
+  // settles after this one turn, mirroring `stages-work-during-challenge` above.
+  "back-to-back-proposals": {
+    turns: [
+      [
+        { type: "text", text: "This premise is clear enough — I'll stage the work now." },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_task",
+          input: { title: "Build notifications", description: "Notify the user of run outcomes." },
+        },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_assumption",
+          input: { assumption: "Notifications are opt-in by default." },
+        },
+        {
+          type: "tool_result",
+          role: "user",
+          text: "still in the challenge stage — no proposals yet.",
+        },
+        {
+          type: "tool_result",
+          role: "user",
+          text: "proposal created successfully.",
+        },
+        { type: "text", text: "I've staged both items for your review." },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "Still staging more work based on what you've told me." },
+    ],
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation
@@ -363,10 +419,11 @@ async function emitTurn(blocks, messageId) {
     if (typeof block.delayMs === "number" && block.delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, block.delayMs));
     }
-    const { delayMs: _delayMs, ...wireBlock } = block;
+    const { delayMs: _delayMs, role: _role, ...wireBlock } = block;
+    const envelopeRole = block.role ?? "assistant";
     printLine({
-      type: "assistant",
-      message: { id: messageId, role: "assistant", content: [wireBlock] },
+      type: envelopeRole,
+      message: { id: messageId, role: envelopeRole, content: [wireBlock] },
     });
   }
   printLine({
