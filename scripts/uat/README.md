@@ -210,7 +210,7 @@ Four arms, like every live script in this directory:
 - **`--replay-check`** — pure, offline, no `claude` binary and no API credential. Drives the REAL
   sidecar, the REAL watchdog and the REAL shipped normaliser (`claude-code-adapter.ts`) against
   `scripts/uat/lib/fake-authoring-claude.mjs`, a scripted, zero-token, multi-chunk stand-in backend
-  that is unreachable from the live arm. Eight scenarios, each proving one thing the live arm would
+  that is unreachable from the live arm. Ten scenarios, each proving one thing the live arm would
   otherwise be the only way to check:
   - `truncation-repro` — the original multi-chunk truncation reproduction: a multi-block turn
     survives the whole wire intact.
@@ -231,6 +231,15 @@ Four arms, like every live script in this directory:
     answered by two distinct unnamed results, the first refusing and the second not, proving the
     reading is `violated` and that the correlation as it shipped on 2026-09-24 still reads `refused`
     over the same run.
+  - `interleaved-read-during-proposal` — a propose attempt's own real, unrefused answer sits behind
+    an unrelated `board_search` call's result, whose own text coincidentally matches the stage-gate
+    refusal wording, proving the id-based pairing reads `violated` (correct) where the retired
+    positional pairing read the vacuous `refused` — the WR-02/G-05-5 reproduction, driven through
+    the real sidecar rather than a standalone scratch script.
+  - `proposal-without-correlation-ids` — a backend whose `tool_use`/`tool_result` blocks carry
+    neither `id` nor `tool_use_id` at all, proving the run degrades honestly to `uncorrelatable`
+    through the real sidecar and the real shipped normaliser, and that SHAPE-01 does not pass on it
+    — the absent-id decision's own end-to-end proof, not merely a unit fixture's claim.
   Proves NOTHING WHATSOEVER about dialogue quality — its transcripts are synthetic, carry an
   unmissable synthetic marker in their first two lines, and structurally cannot hold a verdict line.
 - **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
@@ -344,6 +353,70 @@ self-test and correcting the FIXTURE — adding a wrong-tool-name exclusion to k
 answers distinct — rather than the correlation. That is the direct, documented reason the defect
 above shipped with five self-tests around it and none of them catching it. A fixture note is where a
 finding goes to die; the countermeasure is to write the fixture that was being dodged.
+
+**Sixth finding, recorded here because it changed the script again (this closure, plans 05-30/05-31,
+gap `G-05-5`):** the interleaved-read mechanism. Three read tools (`board_search`, `epic_get`,
+`task_list`) are pre-approved in EVERY authoring stage by explicit design, including the challenge
+stage (`mcp-permission-server.ts:127-146`), so a propose attempt interleaved with an ordinary read
+call is not a corner case — it is exactly the shape the challenge stage's own design encourages (a
+model that pauses to look something up while it is also deciding whether to stage work). The
+claiming-scan correlation this round replaced attributed a propose attempt's answer to whichever
+`tool_result` happened to be the earliest unclaimed one after it, regardless of which tool call it
+actually answered.
+
+This was severe in BOTH directions, and the dangerous one was not the one the code review
+identified. `05-REVIEW.md`'s WR-02 found the false-fail direction (a genuinely-refused propose
+attempt read as `violated`, because an unrelated tool's own non-refusing result was claimed as the
+attempt's answer) and rated it a non-blocking warning, calling it "the less dangerous of the two
+possible errors." This phase's own verification (`05-VERIFICATION.md`) independently reproduced the
+OTHER direction too: if the unrelated result's own text happened to contain the refusal wording — an
+unremarkable thing for a stage-aware tool's error text to say — a genuine SHAPE-01 violation was
+certified as a PASS. The review classified the wrong direction as the safer one; the verification
+reproduced the vacuous-pass direction directly and disagreed. Record that disagreement and who was
+right, because "a reviewer rated it low severity" is exactly how a finding survives into another
+round.
+
+State the recurrence plainly, because it is the actual finding: this is the SIXTH consecutive round
+in which this phase shipped a criterion that could not report a genuine result, every one of them in
+this same function (`correlateProposeAttempts`/`readNoWorkPlanned`, however it was named at the
+time).
+
+The root cause, which is the only new thing here: the correlation was reconstructing, by positional
+inference, a fact the wire already carried explicitly. The Anthropic stream puts `id` on every
+`tool_use` block and `tool_use_id` on every `tool_result` block. The adapter's own content-block type
+declared neither, so the adapter could not read them, so the harness had nothing exact to pair on and
+inferred from position — and every positional scheme is ambiguous on some ordinary shape. Six rounds,
+six shapes. The codebase already contained the correct pattern: `PermissionRequestEvent` carries an
+explicit correlation id (`requestId`) end to end, with a doc comment describing exactly this problem,
+solved properly for permissions and never for tool results.
+
+**A fourth rule, distinct from the three above (gap `G-05-5`):**
+
+> When a verification instrument is reconstructing a fact the product already receives, the fix
+> belongs at the seam that dropped it — not in the instrument. An instrument-only fence is
+> correct for a single round and becomes the cause of the loop when it is inherited.
+
+Grounded in this repository's own record rather than offered as abstract advice: plans 05-20 through
+05-29 — ten plans across three rounds — touched only `scripts/uat/`, because every round inherited a
+`MUST NOT modify packages/` fence that was sensible per-round and compounding across rounds. With the
+only editable layer being the heuristic, the heuristic could only ever grow more baroque. The fence
+was lifted for round 7 (plan 05-30) and replaced by a narrower one — product changes confined to
+carrying the correlation ids through the adapter seam (`packages/sidecar/src/adapter.ts`,
+`claude-code-adapter.ts`) — and this is the shape an instrument-scope fence should take: narrow
+enough to name exactly which files may change and why, not broad enough to make the seam itself
+unreachable.
+
+**The one-frozen-control rule (plan 05-30):** exactly one frozen negative control lives in this file
+at a time — the immediately-superseded mechanism, never a whole lineage. Superseding it means
+DELETING the older one, not accumulating a generation. Two generations of frozen control means dead
+code under a comment claiming it is load-bearing.
+
+**Mutation-test discipline, since round 6's had teeth and still missed this:** a mutation test must
+mutate the mechanism that currently ships, not restore the one it replaced. Reverting to the previous
+algorithm tests only that the fix changed something; it cannot test whether the fix is correct on a
+shape neither version handled. `correlateProposeAttemptsPositionally` (this file's current frozen
+control) exists to prove the shipped id-based lookup has teeth against the mechanism it replaced —
+not merely to prove the fix "did something."
 
 Costs real tokens: it drives a real, multi-turn model conversation. Not executed by an autonomous
 CI/executor run — a human runs it deliberately when judging SHAPE-01/SHAPE-03's own human-only half
