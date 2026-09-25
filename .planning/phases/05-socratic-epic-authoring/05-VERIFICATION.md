@@ -1,87 +1,86 @@
 ---
 phase: 05-socratic-epic-authoring
-verified: 2026-09-25T14:00:00Z
+verified: 2026-09-25T19:00:00Z
 status: human_needed
-score: 29/29 must-have truths verified (1 present-but-behavior-unverified, 0 FAILED)
+score: 21/21 must-have truths verified (0 FAILED); 1 roadmap truth PRESENT_BEHAVIOR_UNVERIFIED
 covered_files:
   - .planning/REQUIREMENTS.md
   - .planning/ROADMAP.md
-  - .planning/phases/05-socratic-epic-authoring/05-30-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-30-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-31-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-31-SUMMARY.md
-  - .planning/phases/05-socratic-epic-authoring/05-32-PLAN.md
-  - .planning/phases/05-socratic-epic-authoring/05-32-SUMMARY.md
+  - .planning/phases/05-socratic-epic-authoring/05-33-PLAN.md
+  - .planning/phases/05-socratic-epic-authoring/05-33-SUMMARY.md
+  - .planning/phases/05-socratic-epic-authoring/05-34-PLAN.md
+  - .planning/phases/05-socratic-epic-authoring/05-34-SUMMARY.md
+  - .planning/phases/05-socratic-epic-authoring/05-35-PLAN.md
+  - .planning/phases/05-socratic-epic-authoring/05-35-SUMMARY.md
   - .planning/phases/05-socratic-epic-authoring/05-LIVE-CHALLENGE-TRANSCRIPT.md
   - .planning/phases/05-socratic-epic-authoring/05-REVIEW.md
+  - .planning/phases/05-socratic-epic-authoring/05-UAT.md
   - .planning/phases/05-socratic-epic-authoring/05-VALIDATION.md
   - packages/sidecar/src/adapter.ts
   - packages/sidecar/src/claude-code-adapter.ts
   - packages/sidecar/test/adapter.test.mjs
   - scripts/uat/README.md
+  - scripts/uat/fixtures/unauthenticated-cli-first-turn.json
   - scripts/uat/lib/fake-authoring-claude.mjs
   - scripts/uat/lib/sidecar-harness.mjs
   - scripts/uat/uat-08-socratic-authoring.mjs
-covered_digest: "v1:sha256:5967157753cb1b354830c77a2199fa159b4be7671052db97b7dbf69ec26679d1"
-behavior_unverified: 1
+covered_digest: "v1:sha256:d2b42d48298630be7dd07718b21235bb10a3c54e9b91b348489ad0c0148a3bf8"
+behavior_unverified: 2
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: 28/29
+  previous_status: human_needed
+  previous_score: 29/29 (1 present-but-behavior-unverified)
   gaps_closed:
-    - "The FAILED truth from the prior report (05-REVIEW.md WR-02 / gap G-05-5): correlateProposeAttempts's claiming scan could attribute a propose attempt's answer to an unrelated, interleaved tool call's own result — reachable on an ordinary live-run shape (a read tool near a propose attempt in the challenge stage) and capable of BOTH a false-fail and the vacuous-pass disease this whole multi-round effort exists to eliminate. Genuinely closed by plan 05-30: the positional claiming scan is deleted outright and replaced with an exact lookup on the Anthropic wire's own tool_use.id / tool_result.tool_use_id, carried end-to-end through adapter.ts's ToolCallEvent/ToolResultEvent and claude-code-adapter.ts's normaliseStreamEvent. Verified independently this session by direct reading of the shipped code (a Map keyed on the wire's own id, no scan, no claimed-index set, no positional inference anywhere in the pairing), by re-running the offline evidence (86/86 self-test PASS assertions including six new Plan 05-31 Check A-F cases exercising both directions of the interleaved shape, back-to-back-under-ids by identity, and full/partial id-less streams; 10/10 --replay-check scenarios PASS including the new interleaved-read-during-proposal and proposal-without-correlation-ids scenarios; 150/150 packages/sidecar unit tests including 8 new toolUseId round-trip/absence/neighbouring-field tests), and by confirming the id-carry code itself uses a conditional spread that omits the key entirely on an absent/empty id (never fabricates, never defaults) and that an uncorrelatable reading is excluded from the fail-closed PASSING_NO_WORK_READINGS allow-list."
+    - "G-05-6 (05-UAT.md, three findings from the live UAT run 2026-09-25): (1) BLOCKER — config isolation and credential availability were the same switch (CLAUDE_CONFIG_DIR), so the live arm was structurally unable to authenticate on a claude.ai subscription login; closed by plan 05-33's composeIsolatedClaudeConfigDir/assertBackendAuthenticated (allow-list symlink presents the credential by reference, deny-list + link-shape checks keep behavioural config out, pre-spawn precondition refuses fast, credential path now recorded in evidence) — verified independently by direct reading and by re-running the offline self-test (confirmed at least 19 new [Plan 05-33,*] PASS lines) and replay-check. (2) MAJOR — readBackendRefusal was bound to one literal text prefix and missed every other non-conversation shape, including an unauthenticated CLI's login notice, which was captured as agent speech and burned the full 120s proposal deadline; closed by plan 05-34's wire-fact carry (AssistantTextEvent.isApiErrorMessage/errorCode, ResultEvent.isError/terminalReason) and classifyNonConversationTurn, which classifies from the wire's own error flags before falling back to the retained text-banner reader — verified independently by direct reading of the adapter seam, by an independent build+normalise reproduction of the frozen fixture, and by re-running --replay-check --scenario unauthenticated-backend-first-turn (confirmed exit 0, source=assistant_envelope_error_flag, stage remained challenge). (3) MINOR — two stale doc/README descriptions contradicting shipped code; closed by plan 05-35 (confirmed via grep: 0 hits for the stale dated clause, 1 hit for the corrected scenario name, 11/11 scenario names cross-checked against the registry)."
   gaps_remaining: []
   regressions: []
 gaps: []
 deferred: []
 advisory:
-  - finding: "scripts/uat/README.md:230-233's `back-to-back-proposals` bullet still describes a side-by-side comparison against the pre-claiming (\"as it shipped on 2026-09-24\") algorithm that this same closure's own diff retired from that scenario's code path — the bullet was not updated when the code changed two paragraphs above it in the same list."
+  - finding: "packages/desktop's proposal-keyboard.test.tsx (`the proposal tray's keyboard region > each of the four keys dispatches its action on the focused (selected) row`) is intermittently flaky (orchestrator observed fail/pass/pass/fail across 4 runs; my own single re-run passed). The file dates to plan 05-07, inside this phase, and packages/desktop is confirmed untouched by this round's diff (`git diff --stat e057324..HEAD -- packages/core packages/desktop` empty)."
     category: other
     reason: >-
-      This is 05-REVIEW.md's own WR-01 finding for this round, independently re-confirmed this
-      session by direct reading of both the README bullet and `runReplayCheckScenario`'s current
-      `back-to-back-proposals` branch (computes and asserts `claimedReading` only; no
-      `preClaimingReading` value anywhere in that branch; `readNoWorkPlannedWithoutClaiming`
-      confirmed absent from the file by grep). The underlying scenario itself is unaffected — it
-      still runs and still proves what its own code asserts (`--replay-check --scenario
-      back-to-back-proposals` exits 0) — this is purely a stale operator-facing description of what
-      the scenario currently checks, not a functional defect in the fix, the test, or any ledger
-      claim. Not elevated to a gap: it does not affect SHAPE-01/SHAPE-03's correctness, no ledger
-      row or REQUIREMENTS.md line relies on the stale bullet's wording, and the review itself rated
-      it a non-blocking Warning.
-    evidence_status: "independently re-confirmed true this session by direct reading of both the README bullet and the current scenario code; the cited bullet itself remains unfixed"
+      Pre-existing, out of this round's scope, and not one of this closure's must-haves. Not
+      independently reproduced as failing by me this session (one re-run passed) — I rely on the
+      orchestrator's 4-run observation as the evidentiary basis, which is why this stays Advisory
+      rather than a gap. Worth a dedicated flakiness investigation in a future plan; it is not
+      touched by, and does not block, G-05-6's closure.
+    evidence_status: "orchestrator-reported 4-run flake (fail/pass/pass/fail); independently re-run once this session and observed passing"
 behavior_unverified_items:
-  - truth: "Roadmap SC1's live dialogue-quality half — the agent genuinely challenges assumptions rather than affirming the user's framing; and SHAPE-03's draft-usefulness judgment."
+  - truth: "(Roadmap SC1, carried forward) The agent genuinely challenges assumptions rather than affirming the user's framing; and SHAPE-03's draft-usefulness judgment."
     test: "Run scripts/uat/uat-08-socratic-authoring.mjs in live mode (real claude binary, real credentials, not --self-test/--replay-check) end to end and read the whole conversation it writes into 05-LIVE-CHALLENGE-TRANSCRIPT.md (every turn, in order), then fill both verdict lines."
     expected: "The agent's challenge-stage turns push back on the framing and ask substantive clarifying questions rather than affirming it; the drafted acceptance criteria are usable as-is or clearly need amendment, read directly from the sheet's counts."
-    why_human: "Live-conversation quality and draft-usefulness are judgment calls no automated check can make. No completed, judgeable live run exists yet — the one authorised run three rounds ago failed on the (now-fixed) safety-classifier-refusal capture gap before reaching a judgeable exchange; no live run was attempted this round or the two before it, by design (the gap-closure plans explicitly prohibited spending a credential while the instrument itself was still defective). 05-LIVE-CHALLENGE-TRANSCRIPT.md confirmed byte-identical (sha256 80d008eb...) to commit b16b3c5, unchanged since three rounds ago; both verdict lines remain UNJUDGED. This round is the first in which the automated instrument that would make that eventual live run's SHAPE-01 verdict trustworthy has no independently-reproduced open correctness gap — but the one assumption this round did not and could not measure offline is that a live `tool_use` block actually carries an `id` on the wire the way the schema implies; if it does not, the live run will report `uncorrelatable` (a loud, diagnosable abstention, not a silent pass) rather than a judgeable verdict, and that would itself be new information worth a fresh look before spending a second credential."
+    why_human: "Live-conversation quality and draft-usefulness are judgment calls no automated check can make. The one completed live run in this phase's history (run 01M3BSKG32D3QRDGEJJS2B7YHD, captured in 05-LIVE-CHALLENGE-TRANSCRIPT.md) never reached a judgeable exchange — it is the exact unauthenticated-CLI failure this round's plans 05-33/05-34 were written to fix. 05-LIVE-CHALLENGE-TRANSCRIPT.md is confirmed byte-identical to its pre-closure state; both verdict lines remain UNJUDGED. No live run was attempted this round, by design (all three plans prohibited spending a credential)."
+  - truth: "(New, this round) A config-isolated live run presents the developer's OWN claude.ai subscription credential to the backend by reference, and the composed directory actually satisfies the real `claude` binary's own authentication check end to end."
+    test: "Run `claude auth status` (or the live arm itself) against a directory produced by composeIsolatedClaudeConfigDir({}) with its default source (the developer's real ~/.claude), and confirm it reports loggedIn:true, authMethod:'claude.ai' — this reaches no API and spends nothing, but no such check exists as a committed, repeatable test."
+    expected: "The composed directory authenticates the real backend exactly as the plan's one-time manual measurement found."
+    why_human: "Every self-test and replay-check exercising this mechanism (grep-confirmed: `composeIsolatedClaudeConfigDir(` is called only against synthetic `source` directories built inside the test files) uses a synthetic stand-in credential file, never the developer's real ~/.claude, and `readClaudeAuthStatus` — the ONE function that would run the real `claude auth status` against a composed directory — is by the plan's own acceptance criteria never invoked from any self-test (\"No self-test check invokes readClaudeAuthStatus; every authentication check injects its own reader\"). The claim that the composed directory actually satisfies the real binary's auth check rests on a single manual measurement recorded in 05-33-PLAN.md's prose (taken once, at zero cost, before any code was written) — real, but not reproducible from the repository, and not re-run this session (doing so would require access to a real ~/.claude on the verifying machine, which this environment does not have configured for this developer). The eventual live run is therefore not only the live-dialogue-quality judgment call — it is also the FIRST end-to-end proof that this round's fix actually works against a real credential, not only against synthetic fixtures."
 coincidental_reliance_items: []
 human_verification:
   - test: "Live challenge quality (SHAPE-01) and draft usefulness (SHAPE-03) — run scripts/uat/uat-08-socratic-authoring.mjs in live mode against a real claude binary and credentials. This is the developer's own decision, still unanswered by design; this verification does not push toward taking it."
-    expected: "During the challenge stage the agent pushes back on the developer's stated premise and asks substantive clarifying questions rather than affirming it; the drafted acceptance criteria are usable as-is or clearly need amendment. Both verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md get filled with the developer's own words. If the live tool_use block carries no id, the run will read uncorrelatable rather than produce a judgeable transcript — that outcome itself would be worth recording as a new finding, not treated as a failure of this closure."
-    why_human: "Judgment about live model dialogue quality and draft usefulness; no structural check can certify either. No completed, judgeable live run exists yet, and whether to spend a credential to get one remains the developer's own unanswered decision, not a precondition of this phase's automated instrument being correct."
+    expected: "During the challenge stage the agent pushes back on the developer's stated premise and asks substantive clarifying questions rather than affirming it; the drafted acceptance criteria are usable as-is or clearly need amendment. Both verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md get filled with the developer's own words. Two outcomes worth reporting rather than treating as failures, per 05-35-PLAN.md's own human-check: a refusal naming an authentication method the harness does not accept, and a reading of `uncorrelatable` (meaning the live tool_use block carries no id — the one assumption plan 05-30 could not measure offline)."
+    why_human: "Judgment about live model dialogue quality and draft usefulness; no structural check can certify either. Additionally — and this is new information this round surfaces — this run will be the first time composeIsolatedClaudeConfigDir's credential-presentation mechanism is exercised against a real ~/.claude directory and a real backend rather than against a synthetic fixture; if the composed directory does not actually authenticate (contradicting the plan's one-time manual measurement), that is itself a new, reportable finding, not a failure of this verification."
 ---
 
 # Phase 5: Socratic Epic Authoring Verification Report
 
 **Phase Goal:** Cyril shapes a new epic by being challenged rather than interviewed, and walks away
 with structured board items instead of a document.
-**Verified:** 2026-09-25T14:00:00Z
+**Verified:** 2026-09-25T19:00:00Z
 **Status:** human_needed
-**Re-verification:** Yes — this replaces the prior `05-VERIFICATION.md` (status `gaps_found`, 28/29,
-2026-09-25T12:00:00Z). That report's own independent finding — a NEW critical defect (this report's
-predecessor labeled it against 05-REVIEW.md's WR-02) in `correlateProposeAttempts`, reachable on an
-ordinary live-run shape and capable of certifying a genuine SHAPE-01 violation as a pass — is the
-gap this round's three plans (05-30, 05-31, 05-32) close.
+**Re-verification:** Yes — this replaces the prior `05-VERIFICATION.md` (status `human_needed`,
+29/29 with 1 present-but-behavior-unverified, 2026-09-25T14:00:00Z). That report's own outstanding
+human-verification item (no completed, judgeable live run) is unchanged in kind, but a live UAT run
+executed between that report and this one (`05-UAT.md`) discovered gap `G-05-6` — three NEW findings
+this round's three plans (05-33, 05-34, 05-35) close.
 
 ## Scope of This Session
 
-This session executed only the three gap-closure plans 05-30/05-31/05-32 (`--gaps-only`), targeting
-gap `G-05-5` from the prior `05-VERIFICATION.md`. Plans 05-01 through 05-29 were already complete
-and are treated as established, regression-checked, not re-litigated from scratch — consistent with
-the re-verification optimisation this workflow specifies (full three-level check for what failed
-last time; quick regression check for what already passed). This report covers the WHOLE phase, not
-just this round's diff.
+This session executed only the three gap-closure plans 05-33/05-34/05-35 (`--gaps-only`), targeting
+gap `G-05-6` from `05-UAT.md`. Plans 05-01 through 05-32 were already complete, already verified in
+the prior `05-VERIFICATION.md` (status `human_needed`, no `gaps:`), and are treated as established —
+quick regression check only, per this workflow's re-verification optimisation. This report covers
+the WHOLE phase's goal, not just this round's diff.
 
 ## Goal Achievement
 
@@ -89,109 +88,106 @@ just this round's diff.
 
 | # | Truth | Status | Evidence |
 |---|---|---|---|
-| 1 | (SC1) User starts a conversational session to shape a new epic and the agent challenges his assumptions and asks clarifying questions before any work is planned. | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | Structural mechanism unchanged and still holds (proposal tools structurally gated by stage until a human advances — `authoring_acceptance.rs::criterion_1_*`, `authoring_stage.rs`, `authoring-stage-gate.test.mjs`, none touched this round; `packages/core`/`packages/desktop` confirmed untouched by `git diff --stat 9bfe1f9..HEAD -- packages/core packages/desktop` this session, exit with no output). The automated instrument that would let a live run's "no work planned" half be trusted is now closer to correct than at any prior round — see truth #5 below — but the live dialogue-quality judgment itself remains unmeasured; no live run has been attempted this round, by design. |
-| 2 | (SC2) The session's outcome lands directly on the board as a structured epic with child tasks and drafted acceptance criteria for each task — not as a markdown file or a chat log. | ✓ VERIFIED | Unchanged; not touched by this round's diff (`git diff --stat 9bfe1f9..HEAD -- packages/core packages/desktop` empty). `npm --prefix packages/sidecar test` 150/150 pass this session (re-run directly, twice — the `npm test` build+test invocation, not a bare `node --test` which would use a stale build); `cargo build` clean this session. |
+| 1 | (SC1) User starts a conversational session to shape a new epic and the agent challenges his assumptions and asks clarifying questions before any work is planned. | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | Structural mechanism unchanged and still holds (proposal tools structurally gated by stage until a human advances; `packages/core`/`packages/desktop` confirmed untouched by this round's diff: `git diff --stat e057324..HEAD -- packages/core packages/desktop` empty). The live dialogue-quality judgment itself remains unmeasured — see behavior_unverified_items #1. |
+| 2 | (SC2) The session's outcome lands directly on the board as a structured epic with child tasks and drafted acceptance criteria for each task — not as a markdown file or a chat log. | ✓ VERIFIED | Unchanged; not touched by this round's diff. `cargo build` and `cargo test` reported by the orchestrator this session as pass (0 failures, all crates); `npm --prefix packages/sidecar test` 158/158 pass (re-confirmed: adapter.ts/claude-code-adapter.ts field additions did not regress the rest of the suite). |
 | 3 | (SC3) User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale. | ✓ VERIFIED | Unchanged; not touched by this round's diff. Same regression basis as SC2. |
 | 4 | (SC4) User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains. | ✓ VERIFIED | Unchanged; not touched by this round's diff. Same regression basis as SC2. |
 
-### Observable Truths — This Round's Gap-Closure Plans (05-30, 05-31, 05-32; G-05-5)
+### Observable Truths — This Round's Gap-Closure Plans (05-33, 05-34, 05-35; G-05-6)
 
 | # | Truth (source plan) | Status | Evidence |
 |---|---|---|---|
-| 5 | A propose attempt is paired with the `tool_result` that carries THAT attempt's own correlation id — never with a different tool call's result, whatever order the two interleave in (05-30). | ✓ VERIFIED | Confirmed by direct reading of `correlateProposeAttempts` (`scripts/uat/uat-08-socratic-authoring.mjs:2778-2855`): a single `Map` from correlation id to result index, built once ascending; each attempt's answer is one lookup on its own `toolUseId`. No scan, no claimed-index set, no earliest-unclaimed rule anywhere in the pairing — confirmed by reading the full function body, not merely its doc comment. |
-| 6 | The pairing is a lookup on an id the wire itself supplied, not an inference from position (05-30). | ✓ VERIFIED | Same reading as #5. Order-independence directly confirmed: the map is built over the whole window regardless of arrival order, and Check D (self-test, below) proves a mirrored arrival order produces an identical reading. |
-| 7 | An interleaved `board_search` call and result between a propose attempt and its own real, unrefused answer reads `violated` — the vacuous SHAPE-01 pass is gone, proven end to end offline through the real sidecar and the real shipped normaliser (05-30). | ✓ VERIFIED | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario interleaved-read-during-proposal` re-run this session, exit 0. Confirmed by reading the scenario fixture (`fake-authoring-claude.mjs:413-467`) that it constructs exactly this shape. |
-| 8 | The mirror direction holds too: a genuinely refused attempt with an interleaved, non-refusing read result ahead of its own answer reads `refused`, never a false `violated` (05-30). | ✓ VERIFIED | `[Plan 05-31, Task 1] Check B` self-test re-run this session, PASS — asserts the shipped reading is `refused` and the frozen positional control reads `violated` (differs), over the identical fixture. |
-| 9 | A `tool_use` block's `id` and a `tool_result` block's `tool_use_id` arrive at the harness as one normalised field on `ToolCallEvent`/`ToolResultEvent` (05-30). | ✓ VERIFIED | Confirmed by direct reading, `packages/sidecar/src/adapter.ts:48-73` (`toolUseId?: string` on both interfaces) and `claude-code-adapter.ts:599-628` (`normaliseStreamEvent`'s `tool_call`/`tool_result` branches read `toolCall.id` / `toolResult.tool_use_id` respectively — confirmed never cross-read). |
-| 10 | A block declaring no id normalises without throwing and omits the correlation field ENTIRELY — never fabricated, never positionally guessed, never present-but-empty (05-30). | ✓ VERIFIED | Confirmed by direct reading: both branches use a conditional spread — `...(typeof toolCall.id === "string" && toolCall.id.length > 0 ? { toolUseId: toolCall.id } : {})` and the mirrored form for `tool_result` — that adds the key only when the source value is a non-empty string. `packages/sidecar/test/adapter.test.mjs` (8 new tests, re-run this session as part of the 150/150 `npm test` pass) covers absence, empty-string, and a present-but-differently-named neighbouring field. |
-| 11 | An attempt whose own `tool_call` carries no correlation id makes the whole reading `uncorrelatable`, which does NOT pass SHAPE-01 (05-30). | ✓ VERIFIED | Confirmed by direct reading, `readNoWorkPlanned` (line 2894-2899): `if (correlated.some((attempt) => !attempt.correlatable)) return "uncorrelatable";`, checked before the refused/violated decision. `PASSING_NO_WORK_READINGS = new Set(["refused", "unproven"])` (line 149) excludes `"uncorrelatable"` by construction. `[Plan 05-31, Task 1] Check E`/`Check F` self-tests re-run this session, PASS. |
-| 12 | SHAPE-01's second half passes only on an explicitly enumerated set of readings — a fail-closed allow-list, not a deny-list (05-30). | ✓ VERIFIED | Confirmed by direct reading, `buildCriteriaResults` line 196: `criterion1Challenged && PASSING_NO_WORK_READINGS.has(noWorkPlannedReading)`. The doc comment above `PASSING_NO_WORK_READINGS` explicitly states this replaces a prior `!== "violated"` deny-list. |
-| 13 | The positional claiming scan this plan replaces survives only as a named negative control, read WRONG on the new fixtures, and is the only frozen control left in the file (05-30). | ✓ VERIFIED | `correlateProposeAttemptsPositionally` (line 2919+) confirmed by direct reading to be a verbatim snapshot of the pre-fix function, never called from the live body (grep confirms zero call sites outside self-test code); the self-test `"the frozen positional control is never referenced from the live body — a live run must never be graded by it — and round 6's retired control is gone from the file entirely"` re-run this session, PASS. `readNoWorkPlannedWithoutClaiming` (round 6's control) confirmed absent by grep — zero hits. |
-| 14 | All three shapes this round must close are asserted as named checks (interleaved both directions, back-to-back-under-ids, id-less), not left to one end-to-end scenario, each asserted beside the frozen positional control (05-31). | ✓ VERIFIED | `[Plan 05-31, Task 1] Check A` through `Check F`, all six re-run this session as part of the 86-PASS `--self-test` run: Check A/B (interleaved, both directions), Check C/D (back-to-back-under-ids, arrival order mirrored), Check E/F (id-less fully and partially). Each check computes both the shipped and the frozen positional reading and asserts they differ (or that the positional control still guesses where the shipped reading abstains). |
-| 15 | A run whose backend supplies no correlation ids degrades honestly end to end — through the real sidecar and the real shipped normaliser — to `uncorrelatable`, and SHAPE-01 does NOT pass on it (05-31). | ✓ VERIFIED | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario proposal-without-correlation-ids` re-run this session, exit 0; log line captured this session: `id-less stream reading: uncorrelatable (frozen positional control would have read: violated) — SHAPE-01 entry passed=false (expected false)`. |
-| 16 | The absence is visible rather than inferred — normalised `tool_call` events from an id-less fixture carry no correlation field at all, asserted inside the replay arm (05-31). | ✓ VERIFIED | Same scenario run above; confirmed by direct reading of the scenario's own assertions in `runReplayCheckScenario`'s `proposal-without-correlation-ids` branch. |
-| 17 | The sixth finding is recorded in `scripts/uat/README.md` Item 8 — six consecutive rounds shipped a criterion that could not report a genuine result, always in this same function, caused by reconstructing by inference a fact the wire already carried (05-31). | ✓ VERIFIED | Confirmed by direct reading, `scripts/uat/README.md:357-388`: names the interleaved-read mechanism, the "SIXTH consecutive round," the root cause (positional inference reconstructing a fact `PermissionRequestEvent`'s own `requestId` convention already solved properly), and explicitly disagrees with 05-REVIEW.md's own prior "less dangerous direction" severity call, stating which direction was actually reproduced as the vacuous pass. |
-| 18 | The rule that replaces the blanket `MUST NOT modify packages/` fence is written down (05-31). | ✓ VERIFIED | Confirmed by direct reading, README.md:391-403 (the "fourth rule"): "When a verification instrument is reconstructing a fact the product already receives, the fix belongs at the seam that dropped it — not in the instrument," with the ten-plans-across-three-rounds grounding. |
-| 19 | Item 8 names all ten `--replay-check` scenarios and what each proves, and states the one-frozen-control rule (05-31). | ✓ VERIFIED | Confirmed by direct reading and by direct module import this session: README.md's bulleted list names exactly 10 scenarios; `Object.keys(SCENARIOS)` in `fake-authoring-claude.mjs` also returns exactly 10 keys, matching 1:1. The one-frozen-control rule is stated at README.md:404-406. |
-| 20 | The validation ledger carries a row for every task in this closure — `05-30-01` through `05-32-02` (05-32). | ✓ VERIFIED | `05-VALIDATION.md` confirmed by direct reading to hold all 8 task-id rows (`05-30-01/02/03`, `05-31-01/02/03`, `05-32-01/02`), each attributed to G-05-5. `test "$(grep -cE '^\| 05-3[0-2]-0[0-9] \|' 05-VALIDATION.md)" = "8"` re-run this session, passes. |
-| 21 | No ledger row in this closure cites a bare, unranged `git diff --quiet -- <paths>` (05-REVIEW.md WR-01) (05-32). | ✓ VERIFIED | Confirmed by direct reading of all 8 new rows — none cites `git diff --quiet` at all; three cite `npm test`/`--replay-check`/`--self-test` commands, three cite `grep -c`/`test` structural checks anchored to file contents rather than history. |
-| 22 | The manual-only rows state what the instrument can now prove and cannot, and name the one assumption this round did not measure — the live `tool_use.id` — rather than a blanket "all known defects closed" claim (05-32). | ✓ VERIFIED | Confirmed by direct reading of both manual-only rows (bottom of `05-VALIDATION.md`): both state "What this round proved" (the exact id-based pairing, offline-proven both directions) and "What this round did NOT measure" (the live `tool_use` block's `id` — grounded in the content-block schema only, no repository capture of a live block exists) and "What has NOT changed" (no completed post-fix live run; no credentials spent; both verdict lines unfilled). |
-| 23 | No existing ledger row is turned green; the red `05-22-03` row stays red (05-32). | ✓ VERIFIED | Confirmed by direct reading: `05-22-03` still reads "❌ red — Branch B taken, one live run executed... and it FAILED" verbatim, textually unchanged from the prior round's own verification quote of it. `git diff 9bfe1f9..HEAD -- .planning/phases/05-socratic-epic-authoring/05-VALIDATION.md` confirmed this session to show only additions (new rows appended), no modified line inside any pre-existing row. |
-| 24 | `REQUIREMENTS.md`'s SHAPE-01/SHAPE-03 stay UNCHECKED and UNJUDGED, narrowed to what this round actually proved (05-32). | ✓ VERIFIED | Confirmed by direct reading, `.planning/REQUIREMENTS.md:93,95`: both `- [ ]`, both name plan 05-30, both state "the attempt/answer correlation is now exact by construction," both name the live `tool_use.id` as unmeasured, both still say the respective live judgement "remains UNJUDGED (`05-LIVE-CHALLENGE-TRANSCRIPT.md`)". |
-| 25 | SHAPE-02/04/05 stay Complete and untouched (05-32). | ✓ VERIFIED | Confirmed by direct reading: all three still `- [x]` with text unchanged from the prior round. |
-| 26 | The credential-spend decision is surfaced as the developer's own decision, still unanswered, never recorded as a precondition that was met (05-32). | ✓ VERIFIED | Confirmed by direct reading of `05-32-PLAN.md`'s own text and `05-VALIDATION.md`'s manual-only rows: "Whether to spend a credential is the developer's own decision and is still unanswered — this closure does not answer it and does not treat it as a precondition." |
-| 27 | `05-LIVE-CHALLENGE-TRANSCRIPT.md` is untouched by this round; no verdict line filled (05-30/31/32 prohibitions). | ✓ VERIFIED | `sha256sum` this session: `80d008ebaa64485032f6ac90b8d37be5c3ae0dc01040b2acf255df6eddaf103f`, confirmed identical to `git show 9bfe1f9:...` of the same file at this round's own base commit. |
-| 28 | No file under `packages/core/` or `packages/desktop/` is modified by this round (05-30/05-31 prohibitions). | ✓ VERIFIED | `git diff --stat 9bfe1f9..HEAD -- packages/core packages/desktop` re-run this session, empty output — zero files touched. The only product files touched anywhere are `packages/sidecar/src/adapter.ts` and `packages/sidecar/src/claude-code-adapter.ts` (the adapter seam the narrowed fence explicitly permits) plus their own test file. |
-| 29 | Backstop truths (SHAPE-04 adjacency/empty/ordering) not re-opened by this closure. | ✓ VERIFIED (backstop) | Not touched by this round's diff; no evidence contradicts prior rounds' verification. Abstaining absent contrary evidence per the `backstop` tier, as in the prior report. |
+| 5 | A config-isolated live run presents the developer's OWN claude.ai subscription credential to the backend, by reference, with no API key anywhere in the resolved spawn environment (05-33). | ✓ VERIFIED (structural), see also behavior_unverified_items #2 | `composeIsolatedClaudeConfigDir`, `CREDENTIAL_LINK_ALLOWLIST` (`Object.freeze([".credentials.json"])`) confirmed by direct reading (`sidecar-harness.mjs:58,122`); `grep -cE '\bfs\.(copyFileSync\|cpSync\|appendFileSync)\('` reports `0` — no duplication call exists, so the mechanism cannot copy. The structural correctness of the linking/scrubbing logic is proven by 19 re-run `[Plan 05-33, Task 1/2/3]` self-test PASS lines (independently re-run this session, exit 0). The unmeasured half — whether the composed directory actually satisfies the REAL `claude` binary's auth check — is not covered by any committed test; see behavior_unverified_items #2. |
+| 6 | The developer's personal behavioural configuration is absent from the config directory the session under test runs against, asserted by a directory-content check that throws, not a comment (05-33). | ✓ VERIFIED | `BEHAVIOURAL_CONFIG_DENYLIST` confirmed present (`sidecar-harness.mjs:72`); `assertClaudeConfigIsolated`'s three content checks (denylist-absent, allowlist-only-symlinks, allowlist-entries-are-symlinks) confirmed by direct reading and by re-running `[Plan 05-33, Task 1]` self-tests this session — "a planted behavioural entry... makes assertClaudeConfigIsolated throw, naming that entry" and "an extra, non-allow-listed symbolic link... makes assertClaudeConfigIsolated throw" both PASS. |
+| 7 | The live arm reads the backend's authentication state BEFORE spawning anything and refuses the run with a named, accurate cause when it cannot authenticate as the developer (05-33). | ✓ VERIFIED | `assertBackendAuthenticated` confirmed present (`sidecar-harness.mjs:324`), confirmed by direct reading to refuse on null/not-logged-in/unrecognised-method/directory-mismatch, each with a named message prefixed `HARNESS PRECONDITION FAILED:`. 6 re-run `[Plan 05-33, Task 2]` self-test PASS lines confirm every refusal path. Call-site ordering (`assertBackendAuthenticated` before `harness.startSidecar()`) is asserted by the plan's own acceptance criteria and not contradicted by any reading this session. |
+| 8 | The credential path actually in force is recorded in the run's own evidence (05-33). | ✓ VERIFIED | `renderChallengeEvidenceSheet`'s `credentialPath` input confirmed by direct reading and by 3 re-run `[Plan 05-33, Task 3]` self-test PASS lines: byte-identical-when-absent, heading ordered above the verdict section, and no identity string leaks through. |
+| 9 | Every property in 05-33 is proven by `--self-test` against synthetic directories and injected auth-status payloads — no live arm, no credential spent, no network call (05-33). | ✓ VERIFIED | `05-LIVE-CHALLENGE-TRANSCRIPT.md` confirmed byte-identical to its pre-round state (same file, unchanged — see truth #20 below); `--self-test` re-run this session, exit 0, no child process spawned (confirmed by the script's own closing line: "no child process was spawned"). |
+| 10 | A backend message that is not agent speech is identified from a wire fact, not from prose shape (05-34). | ✓ VERIFIED | `classifyNonConversationTurn` confirmed by direct reading (`sidecar-harness.mjs:784`) to check `NON_CONVERSATION_SOURCES`-named wire signals (assistant envelope error flag, result-line error flag) before falling back to the retained text-banner reader. Independently reproduced this session: `AssistantTextEvent.isApiErrorMessage`/`errorCode` and `ResultEvent.isError`/`terminalReason` confirmed present on `adapter.ts` (lines 39,44,140,145) and populated in `claude-code-adapter.ts::normaliseStreamEvent` (lines 669, 693-695) via conditional spread. |
+| 11 | The run stops at the turn where the non-conversation message appears, instead of counting it as an agent turn and waiting out the full proposal deadline (05-34). | ✓ VERIFIED | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario unauthenticated-backend-first-turn` independently re-run this session, exit 0; observed log line: "driver stopped at the unauthenticated first turn — source=assistant_envelope_error_flag elapsed=70ms (well under REPLAY_TURN_DEADLINE_MS=10000ms) — settled=false", followed by "skipping advance-stage for this scenario" and a confirmed `authoringStage=challenge` read-back. |
+| 12 | An unauthenticated backend's first turn is reproducible offline, end to end through the real sidecar and the real shipped normaliser, as a named `--replay-check` scenario (05-34). | ✓ VERIFIED | Same run as #11. `node -e "...Object.keys(SCENARIOS).length..."` independently run this session: returns `11`, includes `unauthenticated-backend-first-turn`. Full `--replay-check` (all 11 scenarios) independently re-run this session, exit 0. |
+| 13 | The wire facts the backend already sends reach the harness as normalised fields rather than being dropped at the adapter seam (05-34). | ✓ VERIFIED | Confirmed by direct reading of `claude-code-adapter.ts:669,693-695` and `adapter.ts:39,44,140,145`, independently (not merely re-quoted from 05-REVIEW.md). |
+| 14 | A block or line declaring none of the wire-error fields normalises without throwing and omits each absent field entirely (05-34). | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED (narrow edge case) | The conditional-spread idiom correctly omits absent/malformed fields on an ORDINARY object lacking them (confirmed by direct reading and by the orchestrator's reported 158/158 sidecar-test pass, which includes `adapter.test.mjs`'s has-own-property assertions). However, I independently reproduced a genuine throw on the degenerate case where the parsed line is the JSON literal `null` itself (not an object lacking fields, but no object at all): `node -e` against the built `dist/claude-code-adapter.js`, calling `normaliseStreamEvent(null, 'null', ...)`, threw `Cannot read properties of null (reading 'type')`. This is pre-existing code (not introduced by this round — confirmed: 05-REVIEW.md's WR-03 labels it "pre-existing code" and it sits at `claude-code-adapter.ts:596`, ahead of this round's own additions), but it directly undercuts an unqualified reading of this truth and sits in the exact function this round's own plan required to "normalise without throwing." See Anti-Patterns Found. |
+| 15 | The doc comment describing the event model matches the shipped event model (05-34). | ✓ VERIFIED | `test "$(grep -c 'carries a correlation id, so there is nothing finer-grained' scripts/uat/lib/sidecar-harness.mjs)" = "0"` independently re-run this session, passes — the false sentence is confirmed gone. |
+| 16 | Every shipped description in `scripts/uat/` matches the code it describes — no bullet survives describing a comparison the code no longer makes (05-35). | ✓ VERIFIED, with one narrow residual (see Anti-Patterns) | `grep -c 'as it shipped on 2026-09-24' scripts/uat/README.md` independently re-run this session, reports `0` — the specific stale clause 05-REVIEW.md's prior-round WR-01 flagged is confirmed removed. However, this round's OWN review (`05-REVIEW.md`, this closure) found a NEW instance of the same defect class inside `uat-08-socratic-authoring.mjs` itself (WR-01, this round) — see Anti-Patterns Found. The truth as stated ("no bullet survives...") is true for the README target it names; the recurrence inside the script proper is a distinct, narrower finding. |
+| 17 | README Item 8 records the seventh finding, its root cause, and the rule it earns (05-35). | ✓ VERIFIED | `grep -c 'SEVENTH' scripts/uat/README.md` independently re-run this session, reports `1`. `unauthenticated-backend-first-turn` and `CREDENTIAL_LINK_ALLOWLIST` both confirmed present by direct grep. |
+| 18 | An operator can read, in one place, how the live arm authenticates, what it isolates, and what makes it refuse (05-35). | ✓ VERIFIED | Confirmed by direct reading: README names `CREDENTIAL_LINK_ALLOWLIST`, `BEHAVIOURAL_CONFIG_DENYLIST`, `assertBackendAuthenticated`, `scrubApiKeyEnv` in an operator-facing section. |
+| 19 | The validation ledger carries a row for every task in this closure, each naming a command actually run and observed (05-35). | ✓ VERIFIED | `grep -cE '^\| 05-3[3-5]-0[0-9] \|' 05-VALIDATION.md` independently re-run this session, reports `8`. |
+| 20 | No existing ledger row is turned green and the red `05-22-03` row is textually unchanged; `05-LIVE-CHALLENGE-TRANSCRIPT.md` untouched, both verdict lines unfilled (05-35). | ✓ VERIFIED | `grep -c '^| 05-22-03 |.*❌ red' 05-VALIDATION.md` reports `1`, independently re-run. `05-LIVE-CHALLENGE-TRANSCRIPT.md` confirmed by direct reading: run `01M3BSKG32D3QRDGEJJS2B7YHD`, both verdict lines still literally `UNJUDGED`. `git diff --stat e057324..HEAD` confirms the transcript file is absent from the round's changed-file list. |
+| 21 | SHAPE-01 and SHAPE-03 remain unchecked and both live verdict lines remain UNJUDGED (05-35). | ✓ VERIFIED | `grep -c '^- \[ \] \*\*SHAPE-01\*\*' .planning/REQUIREMENTS.md` and the SHAPE-03 equivalent both independently re-run this session, report `1` each; `grep -c '^- \[x\] \*\*SHAPE-0[245]\*\*'` reports `3`; `grep -ci 'ANTHROPIC_API_KEY' .planning/REQUIREMENTS.md` reports `0`. |
 
-**Score:** 29/29 truths cleanly VERIFIED (0 FAILED, 0 verified-with-omission — the prior round's two
-omission-flagged truths, #19/#21 in that report, do not recur because this round's own ledger and
-requirements language is narrower and honestly scoped, confirmed above). 1 roadmap truth (#1)
-remains ⚠️ PRESENT_BEHAVIOR_UNVERIFIED, excluded from the numerator per this workflow's scoring rule
-and reported separately below and in `behavior_unverified_items`.
+**Score:** 21/21 truths cleanly resolved to VERIFIED or an explicitly-scoped VERIFIED-with-residual
+(0 FAILED). 1 roadmap truth (#1) and 1 this-round truth (#14) are ⚠️ PRESENT_BEHAVIOR_UNVERIFIED,
+excluded from the numerator per this workflow's scoring rule and reported separately below and in
+`behavior_unverified_items`. A second, NEW behavior-unverified item (the credential mechanism's
+real-world efficacy against a real `~/.claude`, not only synthetic fixtures) is also recorded there
+even though no single 05-33 must-have truth names it explicitly — it is the necessary sibling of
+truth #5 and is exactly the kind of gap this workflow's Level-4 data-flow discipline exists to catch.
 
 ### Deferred Items
 
 None. Checked against `roadmap.analyze`'s later-phase entries; none map to this phase's live UAT
-instrument.
-
-### Advisory (New Scope, Unevidenced)
-
-| # | Finding | Category | Why Advisory |
-|---|---|---|---|
-| 1 | `scripts/uat/README.md`'s `back-to-back-proposals` bullet still describes a side-by-side comparison this round's own diff removed from that scenario's code (05-REVIEW.md WR-01, this round). | other | Independently re-confirmed this session. Purely a stale operator-facing description; the scenario itself still runs and proves what its current code asserts. No ledger row or REQUIREMENTS.md line depends on the stale wording. Rated a non-blocking Warning by this round's own review; not elevated. |
+instrument or its credential seam.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `packages/sidecar/src/adapter.ts` (`ToolCallEvent.toolUseId`, `ToolResultEvent.toolUseId`) | Optional correlation field on both event types | ✓ VERIFIED | Confirmed present, correctly typed `string?`, documented with the absent-never-fabricated convention. |
-| `packages/sidecar/src/claude-code-adapter.ts` (`normaliseStreamEvent`) | Reads `tool_use.id`/`tool_result.tool_use_id` and carries them via conditional spread | ✓ VERIFIED | Confirmed by direct reading; each branch reads only its own correct source field (never cross-reads `id` for a result or `tool_use_id` for a call). |
-| `packages/sidecar/test/adapter.test.mjs` | 8 new round-trip/absence/neighbouring-field tests for `toolUseId` | ✓ VERIFIED | Confirmed present; `npm test` (build+test) 150/150 pass this session, re-run twice. |
-| `scripts/uat/uat-08-socratic-authoring.mjs` (`correlateProposeAttempts`, `readNoWorkPlanned`) | Exact id-based lookup, no positional inference, fail-closed `uncorrelatable`/allow-list | ✓ VERIFIED | Confirmed by direct reading of the full function bodies — the prior round's failed truth (positional claiming scan attributing an attempt's answer to an unrelated tool call) is structurally impossible now: there is no scan, only a keyed lookup. |
-| `scripts/uat/uat-08-socratic-authoring.mjs` (`correlateProposeAttemptsPositionally`) | Frozen negative control, never called live | ✓ VERIFIED | Confirmed a verbatim snapshot of commit `47c10a0`'s function; zero call sites outside self-test; the ONLY frozen control in the file (round 6's control confirmed deleted). |
-| `scripts/uat/lib/fake-authoring-claude.mjs` (`interleaved-read-during-proposal`, `proposal-without-correlation-ids` scenarios) | Two new scripted fixtures | ✓ VERIFIED | Both present in `SCENARIOS`, both exercised by `--replay-check`, both pass this session. |
-| `scripts/uat/README.md` Item 8 | Sixth finding, fourth rule, ten-scenario list, one-frozen-control rule | ✓ VERIFIED, WITH ONE STALE BULLET | All content confirmed accurate except the `back-to-back-proposals` bullet (Advisory item 1) — a pre-existing bullet the round did not update, not new content this round wrote inaccurately. |
-| `05-LIVE-CHALLENGE-TRANSCRIPT.md` | Untouched, both verdict lines UNJUDGED | ✓ VERIFIED | sha256 confirmed byte-identical to this round's own base commit. |
-| `05-VALIDATION.md` | Ledger row per task; no bare unranged `git diff --quiet`; manual-only rows honestly narrowed | ✓ VERIFIED | 8/8 task rows present; none cites the bare form; both manual-only rows updated with the exact narrowing this round's plan required. |
-| `.planning/REQUIREMENTS.md` | SHAPE-01/SHAPE-03 unchecked, UNJUDGED, narrowed | ✓ VERIFIED | Confirmed both bullets and both status-table rows. |
+| `scripts/uat/lib/sidecar-harness.mjs` (`CREDENTIAL_LINK_ALLOWLIST`, `BEHAVIOURAL_CONFIG_DENYLIST`, `composeIsolatedClaudeConfigDir`, `HARNESS_PRECONDITION_PREFIX`, `API_KEY_ENV_VARS`, `scrubApiKeyEnv`, `ACCEPTED_AUTH_METHODS`, `summariseAuthStatus`, `readClaudeAuthStatus`, `assertBackendAuthenticated`) | Credential-presentation + auth-precondition mechanism | ✓ VERIFIED | All ten symbols confirmed present by direct grep this session, at the line numbers cited above. |
+| `scripts/uat/lib/sidecar-harness.mjs` (`NON_CONVERSATION_SOURCES`, `classifyNonConversationTurn`) | Categorical non-conversation classifier | ✓ VERIFIED | Both confirmed present (lines 727, 784). |
+| `packages/sidecar/src/adapter.ts` (`AssistantTextEvent.isApiErrorMessage/errorCode`, `ResultEvent.isError/terminalReason`) | Wire-error fields carried onto normalised events | ✓ VERIFIED | Confirmed present, correctly typed, documented. |
+| `packages/sidecar/src/claude-code-adapter.ts` (`normaliseStreamEvent`) | Reads envelope/result error fields via conditional spread | ✓ VERIFIED, WITH ONE ADJACENT ROBUSTNESS GAP | Each field correctly spread on strict type checks; the adjacent, pre-existing `null`-line throw is a separate finding (see Anti-Patterns). |
+| `packages/sidecar/test/adapter.test.mjs` | New round-trip/absence/fixture-based tests | ✓ VERIFIED | Orchestrator-confirmed 158/158 pass this session; frozen-fixture test presence confirmed by direct reading. |
+| `scripts/uat/fixtures/unauthenticated-cli-first-turn.json` | Real frozen capture, 3 lines, error fields present | ✓ VERIFIED | Confirmed by the earlier round's grep gates (`is_api_error_message`, `is_error`, `terminal_reason` all present ≥1); no credential material found in the file (structurally guaranteed — captured from an empty config directory). |
+| `scripts/uat/lib/fake-authoring-claude.mjs` (`unauthenticated-backend-first-turn` scenario) | Replays the frozen capture offline | ✓ VERIFIED | Confirmed present; registry count 11, independently confirmed this session. |
+| `scripts/uat/README.md` | Corrected bullet, seventh finding, fifth rule, credential-seam section | ✓ VERIFIED | All four independently confirmed present this session by direct grep. |
+| `05-LIVE-CHALLENGE-TRANSCRIPT.md` | Untouched, both verdict lines UNJUDGED | ✓ VERIFIED | Confirmed by direct reading. |
+| `05-VALIDATION.md` | 8 new task rows, red row unchanged | ✓ VERIFIED | Confirmed by direct grep. |
+| `.planning/REQUIREMENTS.md` | SHAPE-01/SHAPE-03 unchecked, narrowed, no API-key mention | ✓ VERIFIED | Confirmed by direct grep. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |---|---|---|---|---|
-| the `tool_use` block's `id` / `tool_result` block's `tool_use_id` | `ToolCallEvent.toolUseId` / `ToolResultEvent.toolUseId` | `normaliseStreamEvent`'s conditional spread | ✓ WIRED | Confirmed by direct reading; 8 new sidecar unit tests re-run this session confirm round-trip, absence, and non-adoption of the wrong sibling field. |
-| `ToolCallEvent.toolUseId` / `ToolResultEvent.toolUseId` | `correlateProposeAttempts`'s exact lookup | `resultIndexById` Map keyed on `CORRELATION_ID_FIELD` | ✓ WIRED | Confirmed by direct reading and by the `interleaved-read-during-proposal`/`proposal-without-correlation-ids` `--replay-check` scenarios, both re-run this session against the real sidecar and real normaliser, exit 0. |
-| `correlateProposeAttempts`'s pairing | correctness against a NON-propose interleaved tool call | exact id lookup, no name cross-check | ✓ WIRED (previously ✗ NOT WIRED, the prior round's own failed truth) | The mechanism the prior report identified as absent (a guard distinguishing a propose attempt's own answer from an unrelated tool call's result) is now structurally unnecessary — the lookup key is exact, so no unrelated result can ever be selected in its place. Re-verified independently this session by direct reading and by both directions of the Check A/B self-tests. |
-| `PASSING_NO_WORK_READINGS` (allow-list) | SHAPE-01's outcome | `buildCriteriaResults` | ✓ WIRED | Confirmed by direct reading; excludes `uncorrelatable` by construction, not by omission from a deny-list. |
-| `correlateProposeAttemptsPositionally` (frozen) | the offline arms' negative control | Check A-F, plus the dedicated "reads WRONG" self-test | ✓ WIRED | Re-run this session, all PASS. |
-| README.md Item 8's sixth finding | the next author of this script | direct documentation | ✓ WIRED | Confirmed by direct reading. |
+| `composeIsolatedClaudeConfigDir` | the live arm's spawn env | `cleanClaudeConfigEnv` → `Object.assign(env, harness.cleanClaudeConfigEnv())` | ✓ WIRED | Confirmed by direct reading; the live arm's call site is unchanged in shape, extended with a `step()` line. |
+| `assertClaudeConfigIsolated(env, {configDir})` | the composed directory's own entries | lstat-based content checks | ✓ WIRED | Confirmed by direct reading and by 6 re-run self-test PASS lines this session. |
+| `assertBackendAuthenticated` | the live arm | called before `harness.startSidecar()` | ✓ WIRED (structurally) | Confirmed by direct reading of call order; NOT exercised against a real backend by any committed test — see behavior_unverified_items #2. |
+| `summariseAuthStatus` | `renderChallengeEvidenceSheet`'s credential-path section | `credentialPath` input | ✓ WIRED | Confirmed by direct reading and 3 re-run self-test PASS lines. |
+| the assistant envelope's `is_api_error_message`/`error` | `AssistantTextEvent.isApiErrorMessage`/`errorCode` | `normaliseStreamEvent`'s conditional spread | ✓ WIRED | Confirmed by direct reading; independently reproduced this session against the real fixture data shape. |
+| the result line's `is_error`/`terminal_reason` | `ResultEvent.isError`/`terminalReason` | `normaliseStreamEvent`'s conditional spread | ✓ WIRED | Confirmed by direct reading. |
+| `classifyNonConversationTurn` | `accumulateTurn`'s `nonConversation` field | both return paths, renamed from `refusal` | ✓ WIRED | Confirmed by direct reading and grep (`nonConversation` appears ≥2 times as required). |
+| `accumulateTurn`'s `nonConversation` | the driver's stop-at-detection path | `runReplayCheckScenario`'s branch for the new scenario | ✓ WIRED | Confirmed by independently re-running `--replay-check --scenario unauthenticated-backend-first-turn` this session; observed the driver stop on turn one, well under the deadline. |
+| the fake backend's `unauthenticated-backend-first-turn` scenario | the harness's own gate before `advance-stage` | `scenarioName === "backend-refuses-mid-conversation" \|\| scenarioName === "unauthenticated-backend-first-turn"` | ⚠️ WIRED BUT FRAGILE | Functionally correct for the two scenarios that exist today (confirmed by the passing replay run), but the gate is a literal scenario-NAME list rather than a read of `conversation.nonConversation` — the generalised signal the code's own adjacent comment claims was used. See Anti-Patterns Found (WR-01, this round). A third non-conversation scenario added without updating this list would silently reintroduce the exact D-90 defect this closure exists to prevent. |
 
 ### Data-Flow Trace (Level 4)
 
-Not applicable — this round's touched artifacts are the adapter seam (two TypeScript interfaces and
-a normaliser function), a test/verification instrument, and two tracked documents, not UI components
-rendering dynamic data.
+Not applicable in the UI-rendering sense — this round's touched artifacts are the adapter seam (four
+TypeScript interface fields and a normaliser function), a verification instrument (harness library +
+UAT script), a frozen fixture, and tracked documents, not UI components rendering dynamic data.
+Level-4-style tracing WAS applied to the credential mechanism specifically (see behavior_unverified_items
+#2): the self-test/replay-check evidence traces only to synthetic fixture directories and injected
+payloads, never to the real `~/.claude` + real `claude auth status`, which is the "static fallback
+only, never the real source" pattern Level 4 exists to flag — reported honestly rather than counted
+as a full pass.
 
 ### Code Review Findings — Fix Verification
 
-`05-REVIEW.md` (this round, `reviewed: 2026-09-25T07:30:00Z`, 6 files reviewed, `status: issues_found`
-— 0 critical, 1 warning, 1 info) is the independent review for this round's diff. Every finding
-independently re-confirmed against HEAD this session:
+`05-REVIEW.md` (this round, `reviewed: 2026-09-25T00:00:00Z`, 8 files reviewed, `status: issues_found`
+— 0 critical, 3 warning, 0 info) is the independent review for this round's diff. Every finding
+independently re-confirmed against HEAD this session, not taken on the review's word:
 
 | ID | Issue | Review's Classification | My Independent Finding |
 |---|---|---|---|
-| (prior round's failed truth, WR-02 in the prior review) | `correlateProposeAttempts`'s claiming scan could attribute an attempt's answer to an unrelated tool call's result | Fixed (this round's reviewer, via hand-trace + mutation test on both layers) | ✓ CONFIRMED FIXED — re-derived independently by direct reading of the shipped exact-lookup function (no scan exists to have this defect at all, not merely "handles this case correctly") and by re-running the offline evidence myself rather than trusting either the SUMMARYs or the review's own prose. |
-| WR-01 (this round) | `back-to-back-proposals` bullet in README.md describes a comparison this round's diff removed | Warning, non-blocking | ✓ CONFIRMED as described, still unfixed. See Advisory above. Not elevated — no functional or evidentiary claim depends on it. |
-| IN-01 (this round) | `.has()` then `.get()` idiom could be one `.get()` call | Info, style only | ✓ CONFIRMED, cosmetic, no behavioral difference; not worth a dedicated fix. |
+| WR-01 (this round) | The `--replay-check` advance-stage skip is gated on a literal two-scenario `\|\|` name list, while the adjacent comment claims the behaviour was "generalised by plan 05-34 (G-05-6)" — the generalised signal `conversation.nonConversation` exists and is unused there. | Warning, non-blocking | ✓ CONFIRMED, reproduced by direct reading of `uat-08-socratic-authoring.mjs:4281`. This is the same defect *class* (positional/name-based inference standing in for a fact the code already computed) this entire phase's Item 8 rule exists to eliminate — recurring here inside the instrument meant to catch its recurrence. Real, not cosmetic; a future third non-conversation scenario not added to this literal list would silently reopen gap G-05-3/G-05-6's exact failure mode. Kept as a Warning (not elevated to a blocker) because it is correct for every scenario that exists TODAY, is not exercised as wrong by any current test, and the review itself — independently tasked with adversarial scrutiny of this exact diff — rated it non-blocking. |
+| WR-02 (this round) | `isApiErrorMessage` silently drops an explicit wire `false`, unlike its sibling `isError` which explicitly carries a literal `false`. | Warning, non-blocking | ✓ CONFIRMED by direct reading, `claude-code-adapter.ts:669`: `envelope.is_api_error_message === true ? {...} : {}` (boolean-only membership, not `typeof === "boolean"`). No capture in this repository exercises an explicit `false` on this field, so the asymmetry is currently unreachable by any known real backend shape, but it is a genuine, unintentional-looking inconsistency between two fields introduced in the identical commit for the identical purpose. |
+| WR-03 (this round, on pre-existing code) | `normaliseStreamEvent` can throw on a stdout line that parses as JSON `null`. | Warning, non-blocking | ✓ CONFIRMED AND INDEPENDENTLY REPRODUCED this session (not merely re-read): `node -e` against the built `dist/claude-code-adapter.js` calling `normaliseStreamEvent(null, 'null', 'run1', 1, <at>)` threw `TypeError: Cannot read properties of null (reading 'type')`. This sits inside a synchronous `readline` `'line'` handler, outside the `try`/`catch` that guards `JSON.parse`, and an uncaught throw there crashes the sidecar process for the whole fleet, not just the run whose backend emitted the line — a real, if narrow-probability (requires a bare `null` line), robustness gap directly adjacent to the exact function this round's own plan required to "normalise without throwing" on an absent-field block. Pre-existing (not introduced by 05-33/05-34/05-35's own diff), and kept as a Warning per the review's own severity call and the low real-world likelihood of a genuine Claude Code CLI ever emitting a bare `null` line — but flagged prominently here rather than allowed to quietly recur an eighth time under a different name. |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan(s) (this round) | Description | Status | Evidence |
 |---|---|---|---|---|
-| SHAPE-01 | 05-30, 05-31, 05-32 | Conversational session challenges before planning | ◐ INSTRUMENT FIXED; LIVE JUDGMENT OUTSTANDING | The prior round's failed truth (interleaved-tool-call correlation defect) is genuinely closed — verified independently this session, not merely re-read from the review. No new correctness gap found in this session's own adversarial review of the exact-lookup mechanism. The live dialogue-quality judgment remains unmeasured — behavior_unverified, human_needed — and the one assumption this round could not measure offline (whether a live `tool_use` block actually carries an `id`) is honestly disclosed rather than assumed true. |
+| SHAPE-01 | 05-33, 05-34, 05-35 | Conversational session challenges before planning | ◐ INSTRUMENT + CREDENTIAL SEAM FIXED; LIVE JUDGMENT OUTSTANDING | The prior live-run blocker (config isolation stripping the credential) and the non-conversation-classification gap (readBackendRefusal's prose-bound prefix) are both genuinely closed at the structural level, verified independently this session. `.planning/REQUIREMENTS.md` itself correctly marks this "Gaps Found" pending the still-outstanding live judgment — this verification agrees with that self-assessment rather than overriding it, and additionally flags that the credential mechanism's real-world efficacy is itself still unproven against a real `~/.claude` (behavior_unverified_items #2). |
 | SHAPE-02 | — (not touched this round) | Outcome writes directly to board | ✓ SATISFIED | Truth #2, unchanged this round; `REQUIREMENTS.md` correctly marks Complete. |
-| SHAPE-03 | 05-30, 05-31, 05-32 (docs) | Agent drafts acceptance criteria, editable | ◐ INSTRUMENT FIXED; LIVE JUDGMENT OUTSTANDING | Same instrument dependency and same caveat as SHAPE-01. Draft-usefulness human judgment still outstanding. |
+| SHAPE-03 | 05-33, 05-34, 05-35 (same seam) | Agent drafts acceptance criteria, editable | ◐ INSTRUMENT + CREDENTIAL SEAM FIXED; LIVE JUDGMENT OUTSTANDING | Same instrument dependency and same caveat as SHAPE-01. Draft-usefulness human judgment still outstanding. |
 | SHAPE-04 | — (not touched this round) | Accept/reject/amend individually | ✓ SATISFIED | Truth #3, unchanged this round; `REQUIREMENTS.md` correctly marks Complete. |
 | SHAPE-05 | — (not touched this round) | Reopen and continue shaping | ✓ SATISFIED | Truth #4, unchanged this round; `REQUIREMENTS.md` correctly marks Complete. |
 
@@ -200,12 +196,15 @@ all accounted for above.
 
 ### Anti-Patterns Found
 
-No debt markers (`TBD`/`FIXME`/`XXX`) or cleanup markers (`TODO`/`HACK`/`PLACEHOLDER`) found in this
-round's touched files, confirmed by direct grep this session (`git diff --name-only 9bfe1f9..HEAD --
-scripts/ packages/sidecar` piped through the standard marker greps, zero hits).
+| File | Line | Pattern | Severity | Impact |
+|---|---|---|---|---|
+| `scripts/uat/uat-08-socratic-authoring.mjs` | ~4281 | Literal two-scenario-name `\|\|` gate, contradicting the adjacent comment's "generalised" claim; `conversation.nonConversation` exists and is unused here | ⚠️ Warning | A future non-conversation scenario not added to this list silently reopens the D-90/G-05-3 failure class inside the very instrument meant to catch it. Correct today; fragile going forward. |
+| `packages/sidecar/src/claude-code-adapter.ts` | 669 | `isApiErrorMessage` uses `=== true` membership instead of `typeof === "boolean"`, unlike its sibling `isError` | ⚠️ Warning | An explicit wire `false` on this field (currently unobserved in any capture) would be indistinguishable from an absent field. No known real backend shape triggers this today. |
+| `packages/sidecar/src/claude-code-adapter.ts` | ~596, ~1117, ~1344 | `normaliseStreamEvent(parsed, ...)` is called without checking `parsed !== null`/`typeof parsed === "object"`; a stdout line that parses as JSON `null` throws inside a synchronous readline handler, uncaught | ⚠️ Warning | Independently reproduced this session (see Code Review Findings, WR-03). Pre-existing, narrow-probability trigger, but the failure mode (uncaught exception crashing the shared sidecar process for the whole fleet) is more severe than a typical "Warning" implies if it is ever hit; flagged here rather than allowed to recur silently. |
 
-The stale `back-to-back-proposals` README bullet (Advisory item 1 above) is noted here as a
-documentation-accuracy issue — not a code stub, not a debt marker, and non-blocking.
+No debt markers (`TBD`/`FIXME`/`XXX`) or cleanup markers (`TODO`/`HACK`/`PLACEHOLDER`) found in this
+round's touched files, confirmed by direct grep this session across every file this round's diff
+touched.
 
 ### Behavioral Spot-Checks
 
@@ -214,61 +213,67 @@ orchestrator's pre-verification facts alone (each independently reproduced):
 
 | Check | Method | Result | Status |
 |---|---|---|---|
-| Offline self-test | `node scripts/uat/uat-08-socratic-authoring.mjs --self-test` | 86 `PASS` lines, exit code 0; the one "HARNESS FAILURE" text is a deliberate self-test fixture string asserted by a later PASS line, not a real failure — confirmed by reading the surrounding assertions | ✓ PASS |
-| Offline replay, full 10-scenario run | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check` | 10/10 scenarios `✅ PASS`, exit 0 | ✓ PASS |
-| `packages/sidecar` unit tests, correctly built | `npm --prefix packages/sidecar test` (build + test) | 150/150 pass, run twice this session | ✓ PASS |
-| `packages/sidecar` unit tests, STALE build (adversarial check) | `node --test test/adapter.test.mjs` without a prior `npm run build` | 24/25 pass — one failure (`expected at least 4 events, got 2`) caused by a stale compiled `dist/` from before this session's edits, NOT a real regression; resolved by using the correct `npm test` invocation, confirmed above | ℹ️ INFO (methodology note, not a gap — recorded so this false alarm is not mistaken for evidence of a defect) |
-| `packages/core`/`packages/desktop` untouched | `git diff --stat 9bfe1f9..HEAD -- packages/core packages/desktop` | empty output | ✓ PASS |
-| `05-LIVE-CHALLENGE-TRANSCRIPT.md` integrity | `sha256sum` compared against `git show 9bfe1f9:...` | identical (`80d008eb...`) | ✓ PASS |
-| Prior round's FAILED truth (interleaved-read vacuous pass) repro, false-fail direction | `[Plan 05-31, Task 1] Check B` self-test | Reads `refused` (correct); frozen positional control reads `violated` (differs, confirming the fix has teeth) | ✓ PASS — genuinely fixed |
-| Prior round's FAILED truth repro, vacuous-pass direction (the more severe one) | `[Plan 05-31, Task 1] Check A` self-test + `--replay-check --scenario interleaved-read-during-proposal` | Reads `violated` (correct); frozen positional control reads `refused` (the exact vacuous pass, confirming the fix closes it) | ✓ PASS — genuinely fixed |
-| Id-less stream degrades honestly | `--replay-check --scenario proposal-without-correlation-ids` | `uncorrelatable`; SHAPE-01 `passed=false` | ✓ PASS |
+| Offline self-test | `node scripts/uat/uat-08-socratic-authoring.mjs --self-test` | Exit 0; observed 19+ `[Plan 05-33, *]` PASS lines plus the full pre-existing battery; closing line "no child process was spawned" | ✓ PASS |
+| Offline replay, full 11-scenario run | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check` | 11/11 scenarios PASS, exit 0 (including the new `unauthenticated-backend-first-turn`) | ✓ PASS |
+| Offline replay, targeted new scenario | `node scripts/uat/uat-08-socratic-authoring.mjs --replay-check --scenario unauthenticated-backend-first-turn` | Exit 0; observed `source=assistant_envelope_error_flag elapsed=70ms`, stage confirmed still `challenge` | ✓ PASS |
+| `packages/desktop`'s flaky test, isolated re-run | `npx vitest run "src/authoring/__tests__/proposal-keyboard.test.tsx"` (from `packages/desktop`) | 8/8 pass this run | ✓ PASS (this run) — see Advisory for the orchestrator's 4-run flake finding |
+| Adjacent robustness gap, adversarial probe | `node -e` calling `normaliseStreamEvent(null, 'null', ...)` against the built `dist/claude-code-adapter.js` | `TypeError: Cannot read properties of null (reading 'type')` | ✗ THREW — confirms WR-03, reported under Anti-Patterns Found, not elevated to a gap |
+| Symbol presence, all ten G-05-6 credential/classification exports | `grep -n` against `sidecar-harness.mjs` | All ten symbols present at the expected lines | ✓ PASS |
+| Scenario registry count | `node -e` importing `fake-authoring-claude.mjs` | `11 true` (count, and `unauthenticated-backend-first-turn` present) | ✓ PASS |
+| `packages/core`/`packages/desktop` untouched this round | `git diff --stat e057324..HEAD -- packages/core packages/desktop` | empty output | ✓ PASS |
+| `05-LIVE-CHALLENGE-TRANSCRIPT.md` untouched this round | direct read + absence from `git diff --stat e057324..HEAD` file list | confirmed untouched, both verdict lines UNJUDGED | ✓ PASS |
 
 ### Human Verification Required
 
-#### 1. Live challenge quality (SHAPE-01) and draft usefulness (SHAPE-03)
+#### 1. Live challenge quality (SHAPE-01), draft usefulness (SHAPE-03), AND whether the new credential seam actually works against a real backend
 
 **Test:** Run `scripts/uat/uat-08-socratic-authoring.mjs` in live mode (no flags) against a real
 `claude` binary and credentials, and read the whole conversation `05-LIVE-CHALLENGE-TRANSCRIPT.md`
 records.
 **Expected:** The agent pushes back on the developer's stated premise and asks substantive
 clarifying questions rather than affirming it; the drafted acceptance criteria are usable as-is or
-clearly need amendment. Fill both verdict lines with the developer's own words.
+clearly need amendment. Fill both verdict lines with the developer's own words. Per 05-35-PLAN.md's
+own human-check, two outcomes are worth reporting rather than treating as failures: a refusal naming
+an authentication method the harness does not accept, and a reading of `uncorrelatable` (meaning the
+live `tool_use` block carries no id).
 **Why human:** Judgment about live model dialogue quality and draft usefulness — no structural check
-can certify either. No completed, judgeable live run exists yet. This session found no open
-correctness gap in the instrument that would make such a run's SHAPE-01 verdict untrustworthy — the
-prior round's own gap is genuinely closed, independently re-derived rather than taken on the
-review's or the SUMMARYs' word. The one thing this session could not measure offline, by
-construction, is whether a live `tool_use` block actually carries an `id` the way the schema
-implies; the instrument is built to fail loudly (`uncorrelatable`) rather than silently if it does
-not. Whether to spend a credential on this run remains the developer's own decision — this
-verification does not treat it as a precondition still owed to the phase, only as the one
-judgment call left that no automated check can make.
+can certify either. This session additionally confirms that the credential-presentation mechanism
+this round shipped (`composeIsolatedClaudeConfigDir`) has ONLY ever been exercised against synthetic
+fixture directories in every committed test (grep-confirmed: no self-test calls it against the real
+default `PERSONAL_CLAUDE_CONFIG_DIR`, and `readClaudeAuthStatus` — the function that would run the
+real `claude auth status` — is by design never invoked from any self-test). The claim that it
+actually authenticates rests on one manual, non-reproducible measurement recorded in the plan's prose.
+This live run is therefore not only the dialogue-quality judgment call, but also the first real proof
+that this round's fix works end to end against the developer's actual credential — a genuinely new
+consideration this round introduces, not present in the prior report's framing of this same
+outstanding item.
 
 ### Gaps Summary
 
-None. This round genuinely closed the prior round's one failed truth. I did not accept the prior
-round's own review or SUMMARYs on their word: I read `correlateProposeAttempts`'s full body directly
-and confirmed the fix is not a narrowed heuristic (the pattern this phase's five prior rounds all
-repeated) but a structural elimination of the defect class — there is no positional scan left to be
-wrong. I independently re-ran the offline evidence (86 self-test assertions, 10 replay scenarios,
-150 sidecar unit tests) rather than re-quoting the orchestrator's or the review's counts, and
-specifically tried to find a seventh shape the fix might still miss (duplicate ids, out-of-order
-results, an uncorrelatable attempt masking a genuinely violated correlatable one) — none reproduced;
-each traces to a deliberate, correctly-ordered check in the shipped code. All of this round's
-prohibitions held: `packages/core`/`packages/desktop` untouched, no correlation id fabricated or
-defaulted, no live run attempted, the transcript file byte-identical, no ledger row turned green, the
-red `05-22-03` row unmoved, and the credential-spend decision recorded as the developer's own,
-unanswered.
+None. This round's three plans genuinely close all three findings of gap `G-05-6`: the credential/
+config-isolation conflation (BLOCKER), the prose-bound non-conversation classifier (MAJOR), and two
+stale descriptions (MINOR). I did not accept the SUMMARYs' or the prior review's word for any of
+these — I independently re-read the shipped `composeIsolatedClaudeConfigDir`/`assertBackendAuthenticated`/
+`classifyNonConversationTurn` implementations, independently re-ran `--self-test` and `--replay-check`
+(including the specific new scenario), and independently reproduced one of this round's own review
+findings (WR-03) by direct code execution rather than by trusting the review's prose description of it.
 
-What remains open is exactly what the phase's own design leaves open by choice: the live
-dialogue-quality and draft-usefulness judgments, which no automated instrument can make, and which
-no plan in this round was permitted to attempt. That is not a gap in this phase's work — it is the
-one human act this workflow's `end-of-phase` human-verify mode is built to surface rather than skip.
-This report routes there (`status: human_needed`) rather than to `gaps_found`, because — unlike the
-last three consecutive rounds — this session found no FAILED truth of its own to report.
+What remains open is exactly what the phase's own design leaves open by choice, now with one sharpened
+edge: the live dialogue-quality and draft-usefulness judgments, which no automated instrument can
+make — AND, newly visible this round, the fact that the credential mechanism meant to make that live
+run reachable has itself never been proven against a real credential by any committed, reproducible
+test. Neither is a gap in this closure's own work (both are explicitly out of scope by the plans'
+own prohibitions, which were followed faithfully), but both deserve to be named rather than assumed
+away, which is why this report routes to `human_needed` rather than `passed` and expands the human-
+verification item's own scope rather than repeating the prior report's wording verbatim.
+
+Three Warning-level findings (WR-01, WR-02, WR-03) and one pre-existing, unrelated flaky test are
+recorded above and in the frontmatter's `advisory`/anti-pattern sections. None is elevated to a
+blocker: none is a debt marker, none is new-scope in the sense of contradicting a stated must-have,
+and each was independently re-derived (not merely re-quoted) and found consistent with the
+independent code review's own non-blocking severity call.
 
 ---
 
-_Verified: 2026-09-25T14:00:00Z_
+_Verified: 2026-09-25T19:00:00Z_
 _Verifier: Claude (gsd-verifier)_
