@@ -52,6 +52,7 @@ import {
   drainIncidentalPermissionRequests,
   drainInboundCoreRequests,
   HARNESS_PRECONDITION_PREFIX,
+  Harness,
   HEARTBEAT_TICK_MS,
   HELD_INBOUND_REQUEST_TYPES,
   LIVE_TURN_IDLE_MS,
@@ -3052,6 +3053,119 @@ async function selfTest() {
     () => {
       assert.ok(zeroTurnError instanceof ConversationAbortedError);
       assert.deepEqual(zeroTurnError.exchanges, []);
+    },
+  );
+
+  // ---------------------------------------------------------------------------------------------
+  // Plan 05-36 (Task 2, gap G-05-7): a failed run keeps its scratch root and says where it is; a
+  // successful one does not; the credential-path artifact's survival is asserted, not assumed.
+  // ---------------------------------------------------------------------------------------------
+
+  {
+    const cleanupSuccessHarness = new Harness("selftest-cleanup-success");
+    const cleanupSuccessRoot = cleanupSuccessHarness.root;
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    let captured = "";
+    process.stdout.write = (chunk) => {
+      captured += chunk;
+      return true;
+    };
+    try {
+      cleanupSuccessHarness.cleanup();
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+    check(
+      "[Plan 05-36, Task 2] cleanup() with no options removes the scratch root and prints nothing about a preserved directory",
+      () => {
+        assert.equal(fs.existsSync(cleanupSuccessRoot), false, "expected the root to be removed");
+        assert.ok(!captured.includes("preserved scratch root"), "expected no preserved-root message");
+      },
+    );
+  }
+
+  {
+    const cleanupPreserveHarness = new Harness("selftest-cleanup-preserve");
+    const cleanupPreserveRoot = cleanupPreserveHarness.root;
+    let teardownRuns = 0;
+    cleanupPreserveHarness.onCleanup(() => {
+      teardownRuns += 1;
+    });
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    let captured = "";
+    process.stdout.write = (chunk) => {
+      captured += chunk;
+      return true;
+    };
+    try {
+      cleanupPreserveHarness.cleanup({ preserveRoot: true });
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+    check(
+      "[Plan 05-36, Task 2] cleanup({ preserveRoot: true }) leaves the scratch root in place, runs the registered teardown (proven by a counter, not the filesystem), and prints the preserved path exactly once",
+      () => {
+        assert.equal(fs.existsSync(cleanupPreserveRoot), true, "expected the root to still exist");
+        assert.equal(teardownRuns, 1, "expected the registered teardown to have run exactly once");
+        const preservedLines = captured.split("\n").filter((line) => line.includes("preserved scratch root"));
+        assert.equal(preservedLines.length, 1, "expected exactly one preserved-root line");
+        assert.ok(preservedLines[0].includes(cleanupPreserveRoot), "expected the preserved line to name the root");
+      },
+    );
+    fs.rmSync(cleanupPreserveRoot, { recursive: true, force: true });
+  }
+
+  {
+    const artifactSuccessHarness = new Harness("selftest-artifact-success");
+    const artifactSuccessPath = artifactSuccessHarness.writeArtifact("selftest-artifact-success", { ok: true });
+    artifactSuccessHarness.cleanup();
+    check(
+      "[Plan 05-36, Task 2] a file written through writeArtifact still exists after cleanup() on the success path",
+      () => {
+        assert.ok(fs.existsSync(artifactSuccessPath));
+      },
+    );
+    fs.rmSync(artifactSuccessPath, { force: true });
+  }
+
+  {
+    const artifactPreserveHarness = new Harness("selftest-artifact-preserve");
+    const artifactPreserveRoot = artifactPreserveHarness.root;
+    const artifactPreservePath = artifactPreserveHarness.writeArtifact("selftest-artifact-preserve", { ok: true });
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = () => true;
+    try {
+      artifactPreserveHarness.cleanup({ preserveRoot: true });
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+    check(
+      "[Plan 05-36, Task 2] a file written through writeArtifact still exists after cleanup({ preserveRoot: true }) — survival is unconditional",
+      () => {
+        assert.ok(fs.existsSync(artifactPreservePath));
+      },
+    );
+    fs.rmSync(artifactPreservePath, { force: true });
+    fs.rmSync(artifactPreserveRoot, { recursive: true, force: true });
+  }
+
+  let skipBranchRoot;
+  {
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = () => true;
+    try {
+      await runScript("selftest-skip-branch", "self-test skip branch (never a real failure)", async (harness) => {
+        skipBranchRoot = harness.root;
+        skip("missing prerequisite — self-test only, not a real precondition failure");
+      });
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  }
+  check(
+    "[Plan 05-36, Task 2] the SkipError branch of runScript does not set the preserve flag — a skip removes the root exactly like the success path",
+    () => {
+      assert.equal(fs.existsSync(skipBranchRoot), false, "expected the root to be removed on a skip");
     },
   );
 

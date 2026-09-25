@@ -415,11 +415,31 @@ export { git };
  * the directory its cwd points at goes away.
  */
 export class Harness {
+  #removeRoot;
+  #preservedRootPrinted = false;
+
   constructor(label) {
     this.label = label;
     this.teardowns = [];
     this.root = fs.mkdtempSync(path.join(os.tmpdir(), `flywheel-uat-${label}-`));
-    this.onCleanup(() => fs.rmSync(this.root, { recursive: true, force: true }));
+    // Plan 05-36 (Task 2, gap G-05-7): the root's own removal is deliberately NOT registered as an
+    // ordinary teardown. It used to be registered FIRST here, and teardown is LIFO, so it ran LAST
+    // on every exit — success, assertion failure and thrown exception alike — which is exactly what
+    // erased the whole diagnostic surface of live run `01M3C48C3PV1NSGHERBZ587YB1`: the composed
+    // configuration directory, the scratch repository, the app-data directory and the runtime
+    // protocol's own lifecycle JSONL all lived under `this.root`, and none of it survived long
+    // enough for anyone to read after the run failed. Held instead as a named private step the
+    // class itself knows about — the root is not a peer of the other resources here, it is the
+    // thing all of them live inside, and whether it is removed is now a decision `cleanup()` makes
+    // explicitly, never an automatic side effect of the teardown stack.
+    //
+    // This does NOT fix, and was never meant to fix, the artifact directory
+    // (`artifactDir()`/`writeArtifact()` below) — that directory resolves OUTSIDE `this.root` (an
+    // `os.tmpdir()` sibling) and is never registered for teardown at all, by design, so it already
+    // outlives every run regardless of how this run ends. The artifact from the failed live run
+    // this plan closes is still on disk today for exactly that reason; Task 2's own self-test
+    // checks assert that survival directly rather than leaving it as a doc-comment claim.
+    this.#removeRoot = () => fs.rmSync(this.root, { recursive: true, force: true });
     // The whole point of the FLYWHEEL_APP_DATA_DIR seam: everything this run writes — the fleet
     // database, the runtime protocol's heartbeat/kills/runs directories, the per-run PATH shim —
     // lands under `this.root` and nowhere near the developer's own Flywheel data.
@@ -431,7 +451,15 @@ export class Harness {
     this.teardowns.push(fn);
   }
 
-  cleanup() {
+  /**
+   * Plan 05-36 (Task 2, gap G-05-7): `preserveRoot` (default `false`) decides whether `this.root`
+   * itself is removed once every OTHER teardown has run (LIFO, unchanged). `false` behaves exactly
+   * as this method always has. `true` runs every teardown LIFO and skips ONLY the root removal,
+   * then writes ONE line to stdout naming the preserved directory and stating, in the same
+   * sentence, why it was kept and what it holds — never printed twice, and never printed on the
+   * `false` path.
+   */
+  cleanup({ preserveRoot = false } = {}) {
     while (this.teardowns.length > 0) {
       const fn = this.teardowns.pop();
       try {
@@ -443,6 +471,18 @@ export class Harness {
         process.stderr.write(`[uat] teardown step failed (continuing): ${String(err)}\n`);
       }
     }
+    if (preserveRoot) {
+      if (!this.#preservedRootPrinted) {
+        this.#preservedRootPrinted = true;
+        process.stdout.write(
+          `[uat] preserved scratch root (run failed): ${this.root} — kept because the run failed; ` +
+            "it holds the composed configuration directory, the scratch repository, the app-data " +
+            "directory and the runtime lifecycle records.\n",
+        );
+      }
+      return;
+    }
+    this.#removeRoot();
   }
 
   /**
@@ -1456,20 +1496,27 @@ export function step(message) {
  */
 export async function runScript(label, name, body) {
   const harness = new Harness(label);
+  // Plan 05-36 (Task 2, gap G-05-7): tracked with a flag the catch sets, not by inspecting
+  // `process.exitCode` afterward — the intent ("this body threw a real, non-skip error") must be
+  // readable at the call site rather than re-derived from a side channel.
+  let preserveRoot = false;
   try {
     await body(harness);
     reportPass(name);
     process.exitCode = 0;
   } catch (err) {
     if (err instanceof SkipError) {
+      // A skip is not a failure — there is nothing here for an operator to diagnose, so the root
+      // is removed exactly as it is on the success path.
       reportSkip(name, err.message);
       process.exitCode = 3;
     } else {
       process.stdout.write(`\n❌ FAIL — ${name}\n\n${err?.stack ?? String(err)}\n`);
       process.exitCode = 1;
+      preserveRoot = true;
     }
   } finally {
-    harness.cleanup();
+    harness.cleanup({ preserveRoot });
   }
 }
 
