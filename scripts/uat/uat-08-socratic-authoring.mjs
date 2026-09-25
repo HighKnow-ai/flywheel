@@ -3169,6 +3169,31 @@ async function selfTest() {
     },
   );
 
+  // ---------------------------------------------------------------------------------------------
+  // Plan 05-36 (Task 3, 05-REVIEW.md WR-01): the replay arm's advance-stage gate reads the fact the
+  // driver returned, not a scenario's own name.
+  // ---------------------------------------------------------------------------------------------
+
+  check(
+    "[Plan 05-36, Task 3] conversationStoppedOnNonConversationTurn is true for a conversation whose nonConversation field is non-null",
+    () => {
+      assert.equal(
+        conversationStoppedOnNonConversationTurn({
+          exchanges: [],
+          nonConversation: { kind: BACKEND_REFUSAL_KIND, source: NON_CONVERSATION_SOURCES.TEXT_BANNER },
+        }),
+        true,
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-36, Task 3] conversationStoppedOnNonConversationTurn is false for a conversation whose nonConversation field is null",
+    () => {
+      assert.equal(conversationStoppedOnNonConversationTurn({ exchanges: [], nonConversation: null }), false);
+    },
+  );
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -3537,6 +3562,21 @@ async function driveChallengeConversation({
  */
 function buildEvidenceExchanges({ openingPrompt, conversation }) {
   return [{ speaker: "developer", text: openingPrompt }, ...conversation.exchanges];
+}
+
+/**
+ * Plan 05-36 (Task 3, 05-REVIEW.md WR-01): whether the replay arm's advance-stage gate must be
+ * SKIPPED for this scenario — derived from the categorical fact `driveChallengeConversation`
+ * already returns (`conversation.nonConversation`, never `undefined` — see that function's own
+ * doc comment), never from a scenario's own name. Citing D-90: the developer alone opens the
+ * advance-stage gate, and a gate opened on an unfinished conversation is exactly the failure this
+ * branch exists to catch. Citing D-89: advancing is what distils the conversation into staged
+ * proposals, which is meaningful only once the conversation has actually finished — a
+ * non-conversation turn means it did not. Exported (rather than left inline) so `--self-test` can
+ * assert both directions directly, with no sidecar involved.
+ */
+export function conversationStoppedOnNonConversationTurn(conversation) {
+  return conversation.nonConversation !== null && conversation.nonConversation !== undefined;
 }
 
 /**
@@ -4847,11 +4887,15 @@ async function runReplayCheckScenario(scenarioName) {
           );
         }
 
-        // Plan 05-24 (gap G-05-3), generalised by plan 05-34 (G-05-6): a non-conversation
-        // conversation must NEVER reach advance-stage — the whole point of these scenarios is that
-        // the gate is never opened on them. Every other scenario advances the stage through the
+        // Plan 05-24 (gap G-05-3), generalised by plan 05-34 (G-05-6), and by plan 05-36 (Task 3,
+        // 05-REVIEW.md WR-01): a non-conversation conversation must NEVER reach advance-stage — the
+        // whole point of these scenarios is that the gate is never opened on them. This is now
+        // decided from the categorical fact the driver itself returned
+        // (`conversationStoppedOnNonConversationTurn`), not from a list of scenario names kept in
+        // sync by hand — the consequence covers ANY non-conversation scenario, present or future,
+        // with no name list to maintain. Every other scenario advances the stage through the
         // bridge, mirroring the live body exactly.
-        if (scenarioName === "backend-refuses-mid-conversation" || scenarioName === "unauthenticated-backend-first-turn") {
+        if (conversationStoppedOnNonConversationTurn(conversation)) {
           step("skipping advance-stage for this scenario — a refused conversation never reaches it (D-90)");
           exchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
 
