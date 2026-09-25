@@ -2141,66 +2141,178 @@ const PROPOSE_TOOL_NAME_FRAGMENT = "propose_";
 const CHALLENGE_REFUSAL_PATTERN = /challenge stage/i;
 
 /**
- * The three-valued reading of whether the agent staged work within `window`, from the raw
- * sidecar `events` array (never a pre-reduced boolean, so the field-name fix above lives in
- * exactly one function):
- * - `"unproven"` — no `tool_call` event named a propose tool at all. Absence of evidence, reported
- *   as exactly that — never a silent pass with no reading behind it.
- * - `"refused"` — EVERY propose attempt observed was individually refused ({@link
- *   CHALLENGE_REFUSAL_PATTERN} matched against ITS OWN correlated answer — see below).
- * - `"violated"` — at least one propose attempt was observed with NO matching refusal of its own.
- *   The one reading that makes SHAPE-01's second half FAIL — the property this whole task exists
- *   to make true.
+ * The one-to-one correlation between every propose attempt (a `tool_call` event whose tool name
+ * matches {@link PROPOSE_TOOL_NAME_FRAGMENT}) in `window` and the `tool_result` event that answers
+ * it, from the raw sidecar `events` array. Promoted to its own named, top-level pure function (plan
+ * 05-27, G-05-4 closure) so the attempt/answer pairing is directly observable rather than an
+ * accident buried inside a boolean reading — see {@link readNoWorkPlanned}'s own doc comment below
+ * for the defect this closes.
  *
- * `window` (plan 05-23, CR-01 closure) is a REQUIRED second parameter — `{ runId, fromIndex,
- * toIndex }`, all three REQUIRED. CR-01 was exactly this reading's implicit "whole array" default
- * going unnoticed: a decompose-stage propose call (legitimate, expected, D-89/D-90) landing
- * anywhere in `events` was indistinguishable from a challenge-stage violation once the caller
- * re-read the unscoped array after decompose began. Promoting the window to required makes the
- * unscoped call unwritable rather than merely discouraged — omitting any member throws instead of
- * silently returning a false reading. Only indices in the half-open range `[fromIndex, toIndex)`
- * whose own `event.runId` equals `window.runId` are ever considered — mirroring
- * `accumulateTurn`'s own run-scoping exclusion in `lib/sidecar-harness.mjs` (closing WR-02 in the
- * same move: one sidecar drives many runs, and an event belonging to a different run must never
- * be attributed to this one).
+ * `window` is REQUIRED — `{ runId, fromIndex, toIndex }`, all three REQUIRED — carrying the SAME
+ * three guards `readNoWorkPlanned` has always enforced (moved here, not duplicated): a non-empty
+ * string `runId`; an integer `fromIndex` at least 0; an integer `toIndex` at least `fromIndex`.
+ * Omitting any member throws a `TypeError` naming it, rather than silently returning a false
+ * reading — an unscoped reading stays unwritable. Only indices in the half-open range `[fromIndex,
+ * toIndex)` whose own `event.runId` equals `window.runId` are ever considered.
  *
- * Task 2 (plan 05-23, WR-01 closure): each attempt is correlated with ITS OWN answer, never an
- * aggregate "was any attempt made" / "was anything refused anywhere" pair of independent existence
- * questions — that pairing let a refused FIRST attempt launder an unrefused SECOND one into a
- * false `"refused"` reading (the WR-01 bypass). `ToolResultEvent` (`packages/sidecar/src/
- * adapter.ts`) declares no correlation id, only an optional `toolName` and an `output`, so the
- * pairing is POSITIONAL: an attempt's answer is the first subsequent `tool_result` event in the
- * same window and run. If that result declares a `toolName`, it counts as this attempt's answer
- * only when it equals the attempt's own tool name (a differently-named result is not this
- * attempt's answer at all — the attempt has none and is unrefused); a result declaring no
- * `toolName` is accepted positionally. `"refused"` is returned only when EVERY attempt is
- * individually refused; any single unrefused attempt returns `"violated"`.
+ * Attempts are collected in ASCENDING event index — a stable, specified order the pairing's own
+ * correctness depends on. Each attempt then claims the EARLIEST `tool_result` event for this run,
+ * after its own index, that no EARLIER attempt (in this same ascending pass) has already claimed —
+ * tracked with a `Set` of claimed indices, checked before a candidate is accepted. This is what
+ * makes the pairing one-to-one: once a `tool_result` is claimed, no later attempt in the same
+ * window can be paired with it again — closing the exact collision {@link
+ * readNoWorkPlannedWithoutClaiming} below cannot see, where two `propose_*` calls issued
+ * back-to-back, before either is answered, have independent scans that both land on the SAME first
+ * subsequent `tool_result`.
+ *
+ * Returns one entry per attempt, in the SAME ascending order, each `{ index, toolName, answerIndex,
+ * refused }`:
+ * - `answerIndex` is the index of the `tool_result` this attempt claimed, or `null` if nothing was
+ *   left unclaimed before the window closed (this attempt has no answer at all — unrefused).
+ * - `refused` tests {@link CHALLENGE_REFUSAL_PATTERN} against the claimed result's own `raw` text —
+ *   but ONLY when that result's `toolName` (if it declares one at all) equals this attempt's own; a
+ *   claimed result naming a DIFFERENT tool is still not this attempt's answer (`refused` stays
+ *   `false`), preserving the existing wrong-name exclusion. A result declaring no `toolName` is
+ *   still accepted positionally — the live wire never names one at all (`packages/sidecar/src/
+ *   claude-code-adapter.ts:598-600`), so positional claiming is not an optimisation here, it is the
+ *   only correlation available.
  */
-function readNoWorkPlanned(events, window) {
+function correlateProposeAttempts(events, window) {
   const w = window ?? {};
   if (typeof w.runId !== "string" || w.runId.length === 0) {
     throw new TypeError(
-      'readNoWorkPlanned requires a window with a non-empty "runId" member — an unscoped ' +
+      'correlateProposeAttempts requires a window with a non-empty "runId" member — an unscoped ' +
         "reading is not expressible",
     );
   }
   if (!Number.isInteger(w.fromIndex) || w.fromIndex < 0) {
     throw new TypeError(
-      'readNoWorkPlanned requires a window with an integer "fromIndex" member (>= 0) — an ' +
+      'correlateProposeAttempts requires a window with an integer "fromIndex" member (>= 0) — an ' +
         "unscoped reading is not expressible",
     );
   }
   if (!Number.isInteger(w.toIndex) || w.toIndex < w.fromIndex) {
     throw new TypeError(
-      'readNoWorkPlanned requires a window with an integer "toIndex" member (>= fromIndex) — an ' +
-        "unscoped reading is not expressible",
+      'correlateProposeAttempts requires a window with an integer "toIndex" member (>= fromIndex) ' +
+        "— an unscoped reading is not expressible",
     );
   }
   const { runId, fromIndex, toIndex } = w;
 
-  // Collect every propose attempt in the window, in array order, each carrying its own index and
-  // tool name — the name is needed so this attempt's answer can be correlated against ITS OWN
-  // name, never any other attempt's.
+  // Collect every propose attempt in the window, in ascending array order, each carrying its own
+  // index and tool name — the name is needed so this attempt's answer can be correlated against
+  // ITS OWN name, never any other attempt's.
+  const attempts = [];
+  for (let i = fromIndex; i < toIndex; i += 1) {
+    const event = events[i];
+    if (event.runId !== runId) continue;
+    if (
+      event.type === "tool_call" &&
+      typeof event[TOOL_NAME_FIELD] === "string" &&
+      event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT)
+    ) {
+      attempts.push({ index: i, toolName: event[TOOL_NAME_FIELD] });
+    }
+  }
+
+  const claimedIndices = new Set();
+  return attempts.map((attempt) => {
+    let answerIndex = null;
+    let refused = false;
+    for (let i = attempt.index + 1; i < toIndex; i += 1) {
+      if (claimedIndices.has(i)) continue;
+      const event = events[i];
+      if (event.runId !== runId) continue;
+      if (event.type !== "tool_result") continue;
+      // The EARLIEST still-unclaimed tool_result in-window IS the candidate answer — claimed the
+      // instant it is found, so no later attempt in this same pass can ever be paired with it
+      // again. A named result that names a DIFFERENT tool is still claimed (it is examined and
+      // consumed) but is not this attempt's answer (unrefused); an unnamed result is accepted
+      // positionally.
+      claimedIndices.add(i);
+      answerIndex = i;
+      refused =
+        (typeof event[TOOL_NAME_FIELD] !== "string" || event[TOOL_NAME_FIELD] === attempt.toolName) &&
+        typeof event.raw === "string" &&
+        CHALLENGE_REFUSAL_PATTERN.test(event.raw);
+      break;
+    }
+    return { index: attempt.index, toolName: attempt.toolName, answerIndex, refused };
+  });
+}
+
+/**
+ * The three-valued reading of whether the agent staged work within `window`, from the raw
+ * sidecar `events` array (never a pre-reduced boolean, so the field-name fix above lives in
+ * exactly one function):
+ * - `"unproven"` — no `tool_call` event named a propose tool at all. Absence of evidence, reported
+ *   as exactly that — never a silent pass with no reading behind it.
+ * - `"refused"` — EVERY propose attempt was individually refused, per {@link
+ *   correlateProposeAttempts}'s own one-to-one pairing.
+ * - `"violated"` — at least one propose attempt was left unrefused. The one reading that makes
+ *   SHAPE-01's second half FAIL — the property this whole task exists to make true.
+ *
+ * `window` (plan 05-23, CR-01 closure) is a REQUIRED second parameter, delegated verbatim to
+ * {@link correlateProposeAttempts} — CR-01 was exactly this reading's implicit "whole array"
+ * default going unnoticed: a decompose-stage propose call (legitimate, expected, D-89/D-90)
+ * landing anywhere in `events` was indistinguishable from a challenge-stage violation once the
+ * caller re-read the unscoped array after decompose began. Promoting the window to required makes
+ * the unscoped call unwritable rather than merely discouraged.
+ *
+ * Plan 05-27 (G-05-4 closure): the per-attempt answer used to be found by an INDEPENDENT
+ * positional scan per attempt, tracking nothing — the exact shape `packages/sidecar/src/
+ * claude-code-adapter.ts:598-600` produces on a real run, since a live `tool_result` never carries
+ * a `toolName` at all. Two `propose_*` calls issued back-to-back, in one turn, before either is
+ * answered, made the SECOND attempt's independent scan land on the exact SAME `tool_result` the
+ * FIRST attempt's scan had already consumed — if that shared result refused, BOTH attempts read
+ * refused, and the second attempt's own later, unrefused answer was never reached. `readNoWorkPlanned`
+ * now only INTERPRETS {@link correlateProposeAttempts}'s claimed-index pairing, which makes that
+ * collision unwritable: each attempt claims the EARLIEST STILL-UNCLAIMED result after its own
+ * index, so no two attempts can ever be paired with the same `tool_result`. The prior, unclaimed
+ * scan is preserved verbatim as {@link readNoWorkPlannedWithoutClaiming} below — a frozen
+ * historical control, never called from here.
+ */
+function readNoWorkPlanned(events, window) {
+  const correlated = correlateProposeAttempts(events, window);
+  if (correlated.length === 0) return "unproven";
+  return correlated.every((attempt) => attempt.refused) ? "refused" : "violated";
+}
+
+/**
+ * FROZEN (plan 05-27, G-05-4 closure). A verbatim snapshot of `readNoWorkPlanned`'s own
+ * correlation exactly as it shipped on 2026-09-24 (plan 05-23) — before the claimed-index fix
+ * above. Its per-attempt scan tracks nothing, so it can still let a single `tool_result` answer
+ * two different propose attempts, producing a false `"refused"` reading (G-05-4). Retained ONLY as
+ * the offline arms' negative control: it is asserted, side by side with the fixed reading, to
+ * STILL read `refused` over the exact same events the fixed reading reads as `violated` — proof
+ * the `back-to-back-proposals` fixture and the self-tests built around it have real teeth. NEVER
+ * called by the live body. NEVER to be "fixed" — fixing it would defeat its entire purpose as a
+ * historical control, and a future edit that reverts the claiming rule above would make this
+ * function's own reading and the live reading converge, which is exactly what the offline
+ * assertions built against it are designed to catch.
+ */
+function readNoWorkPlannedWithoutClaiming(events, window) {
+  const w = window ?? {};
+  if (typeof w.runId !== "string" || w.runId.length === 0) {
+    throw new TypeError(
+      'readNoWorkPlannedWithoutClaiming requires a window with a non-empty "runId" member — an ' +
+        "unscoped reading is not expressible",
+    );
+  }
+  if (!Number.isInteger(w.fromIndex) || w.fromIndex < 0) {
+    throw new TypeError(
+      'readNoWorkPlannedWithoutClaiming requires a window with an integer "fromIndex" member ' +
+        "(>= 0) — an unscoped reading is not expressible",
+    );
+  }
+  if (!Number.isInteger(w.toIndex) || w.toIndex < w.fromIndex) {
+    throw new TypeError(
+      'readNoWorkPlannedWithoutClaiming requires a window with an integer "toIndex" member ' +
+        "(>= fromIndex) — an unscoped reading is not expressible",
+    );
+  }
+  const { runId, fromIndex, toIndex } = w;
+
   const attempts = [];
   for (let i = fromIndex; i < toIndex; i += 1) {
     const event = events[i];
@@ -2721,17 +2833,93 @@ async function runReplayCheckScenario(scenarioName) {
         } else if (scenarioName === "back-to-back-proposals") {
           // Task 1 (plan 05-27, G-05-4 closure): the collision `isAttemptRefused`'s independent
           // per-attempt scan could not see — two propose attempts issued back-to-back, in ONE
-          // turn, before either is answered. RED (this commit): asserted only against the
-          // shipped `readNoWorkPlanned` — expected to observe `refused`, the wrong answer.
+          // turn, before either is answered. GREEN: `correlateProposeAttempts`'s claimed-index
+          // pairing makes the claimed reading `violated`; the frozen 2026-09-24 algorithm
+          // (`readNoWorkPlannedWithoutClaiming`) is asserted side by side to still read `refused`
+          // over the SAME window, so the regression cannot rot into a tautology.
           const challengeWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
-          const reading = readNoWorkPlanned(sidecar.events, challengeWindow);
-          assert.equal(
-            reading,
-            "violated",
-            "expected a propose attempt with no refusal to read as violated — the second, " +
-              "unrefused attempt must sink SHAPE-01",
+
+          // Non-vacuity gate: the window must genuinely hold at least two propose tool_call
+          // events and at least two tool_result events for this run — proving the fixture's
+          // `role: "user"` envelope really did normalise into tool_result events, not merely
+          // that the assertions below happen to pass on an empty or malformed window.
+          const proposeCallCount = sidecar.events.filter(
+            (event, index) =>
+              index >= challengeWindow.fromIndex &&
+              index < challengeWindow.toIndex &&
+              event.runId === runId &&
+              event.type === "tool_call" &&
+              typeof event[TOOL_NAME_FIELD] === "string" &&
+              event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
+          ).length;
+          const toolResultCount = sidecar.events.filter(
+            (event, index) =>
+              index >= challengeWindow.fromIndex &&
+              index < challengeWindow.toIndex &&
+              event.runId === runId &&
+              event.type === "tool_result",
+          ).length;
+          assert.ok(
+            proposeCallCount >= 2,
+            `expected at least two propose tool_call events in the challenge window, got ${proposeCallCount}`,
           );
-          step(`back-to-back reading: ${reading} (expected violated)`);
+          assert.ok(
+            toolResultCount >= 2,
+            `expected at least two tool_result events in the challenge window, got ${toolResultCount} — ` +
+              'the role: "user" envelope must have normalised into tool_result events',
+          );
+
+          const correlated = correlateProposeAttempts(sidecar.events, challengeWindow);
+          assert.equal(correlated.length, 2, "expected exactly two correlated propose attempts");
+          assert.ok(
+            correlated[0].answerIndex !== null && correlated[1].answerIndex !== null,
+            "expected both attempts to carry a non-null answerIndex",
+          );
+          assert.notEqual(
+            correlated[0].answerIndex,
+            correlated[1].answerIndex,
+            "expected the two attempts to be paired with two DIFFERENT tool_result indices",
+          );
+
+          const claimedReading = readNoWorkPlanned(sidecar.events, challengeWindow);
+          assert.equal(
+            claimedReading,
+            "violated",
+            "expected the claimed-index reading to report violated — the second, unrefused " +
+              "attempt must sink SHAPE-01",
+          );
+
+          const preClaimingReading = readNoWorkPlannedWithoutClaiming(sidecar.events, challengeWindow);
+          assert.equal(
+            preClaimingReading,
+            "refused",
+            "expected the frozen 2026-09-24 algorithm to still report the wrong answer over the " +
+              "SAME window — this is what gives the regression teeth",
+          );
+          assert.notEqual(
+            claimedReading,
+            preClaimingReading,
+            "expected the claimed and pre-claiming readings to differ — a future revert that makes " +
+              "them converge must fail this assertion, not pass it",
+          );
+
+          const shapeResults = buildCriteriaResults({
+            criterion1Challenged: true,
+            noWorkPlannedReading: claimedReading,
+            criterion2Landed: false,
+            criterion3Decided: false,
+            criterion4Reopened: false,
+            criterion4PrimedRejected: false,
+          });
+          const shape01 = shapeResults.find(([name]) => name.includes("SHAPE-01"));
+          assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
+          assert.equal(shape01[1], false, "expected SHAPE-01 to NOT pass when a propose attempt went unrefused");
+
+          step(
+            `back-to-back reading (claimed): ${claimedReading} — pre-claiming reading (the ` +
+              `2026-09-24 algorithm, still wrong): ${preClaimingReading} — SHAPE-01 entry ` +
+              `passed=${shape01[1]} (expected false)`,
+          );
         } else if (scenarioName === "backend-refuses-mid-conversation") {
           // Plan 05-24 (gap G-05-3): the driver must have stopped AT the refusal — reporting it,
           // settling false, and sending no further developer turn into a refused session.
