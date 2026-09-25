@@ -48,6 +48,7 @@ import {
   classifyNonConversationTurn,
   composeIsolatedClaudeConfigDir,
   createPermissionAnswerHandler,
+  createUnmodelledEventSink,
   CREDENTIAL_LINK_ALLOWLIST,
   drainIncidentalPermissionRequests,
   drainInboundCoreRequests,
@@ -68,6 +69,8 @@ import {
   step,
   summariseAuthStatus,
   TurnDeadlineError,
+  UNMODELLED_EVENT_CAPTURE_LIMIT,
+  UNMODELLED_EVENT_LINE_LIMIT,
 } from "./lib/sidecar-harness.mjs";
 import { DEFAULT_SCENARIO, SCENARIOS, SCENARIO_ENV_VAR } from "./lib/fake-authoring-claude.mjs";
 
@@ -82,6 +85,13 @@ const FAKE_AUTHORING_CLAUDE_PATH = path.join(REPO_ROOT, "scripts", "uat", "lib",
  * from the real capture by retyping a copy of it. */
 const UNAUTHENTICATED_FIXTURE_PATH = path.join(REPO_ROOT, "scripts", "uat", "fixtures", "unauthenticated-cli-first-turn.json");
 const UNAUTHENTICATED_FIXTURE = JSON.parse(fs.readFileSync(UNAUTHENTICATED_FIXTURE_PATH, "utf8"));
+
+/** Plan 05-37 (Task 3, gap G-05-7): the frozen real captures of the rate-limit notice and the
+ * reasoning-only assistant message from live run `01M3C48C3PV1NSGHERBZ587YB1` — the SAME fixture
+ * Task 2 froze and `fake-authoring-claude.mjs`'s `unmodelled-wire-shapes` scenario reads, read once
+ * here too so this script's own assertions cannot drift from the real capture by retyping it. */
+const UNMODELLED_SHAPES_FIXTURE_PATH = path.join(REPO_ROOT, "scripts", "uat", "fixtures", "live-opus5-unmodelled-shapes.json");
+const UNMODELLED_SHAPES_FIXTURE = JSON.parse(fs.readFileSync(UNMODELLED_SHAPES_FIXTURE_PATH, "utf8"));
 
 /** How long to wait for the model to produce its first challenging reply. */
 const TURN_DEADLINE_MS = 120_000;
@@ -3194,6 +3204,144 @@ async function selfTest() {
     },
   );
 
+  // ---------------------------------------------------------------------------------------------
+  // Plan 05-37 (Task 3, gap G-05-7): the durable unmodelled-event sink — its own bounds, its own
+  // recorded truncation, its own artifact-directory-only placement, and the no-sink default.
+  // ---------------------------------------------------------------------------------------------
+
+  const sinkSelfTestArtifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-selftest-sink-"));
+
+  check(
+    "[Plan 05-37, Task 3] createUnmodelledEventSink's file path begins with the artifact directory it was given",
+    () => {
+      const sink = createUnmodelledEventSink({ artifactDir: sinkSelfTestArtifactDir, label: "selftest" });
+      assert.ok(
+        sink.filePath.startsWith(sinkSelfTestArtifactDir),
+        `expected ${sink.filePath} to begin with ${sinkSelfTestArtifactDir}`,
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-37, Task 3] createUnmodelledEventSink's file path never resolves under the repository root",
+    () => {
+      const sink = createUnmodelledEventSink({ artifactDir: sinkSelfTestArtifactDir, label: "selftest" });
+      assert.ok(
+        !sink.filePath.startsWith(REPO_ROOT),
+        `expected ${sink.filePath} to NOT resolve under REPO_ROOT (${REPO_ROOT}) — the artifact directory is the only permitted destination (T-05-37-02)`,
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-37, Task 3] appending a raw string longer than UNMODELLED_EVENT_LINE_LIMIT records both the cut and the original length",
+    () => {
+      const sink = createUnmodelledEventSink({ artifactDir: sinkSelfTestArtifactDir, label: "selftest-oversized" });
+      const oversized = "x".repeat(UNMODELLED_EVENT_LINE_LIMIT + 137);
+      sink.append(oversized);
+      const written = fs.readFileSync(sink.filePath, "utf8").trim().split("\n").filter((l) => l.length > 0);
+      assert.equal(written.length, 1, "expected exactly one written line for one append call");
+      const parsed = JSON.parse(written[0]);
+      assert.equal(parsed.truncated, true);
+      assert.equal(parsed.originalLength, oversized.length);
+      assert.equal(parsed.raw.length, UNMODELLED_EVENT_LINE_LIMIT, "expected the stored raw text to be cut to exactly the byte limit");
+    },
+  );
+
+  check(
+    "[Plan 05-37, Task 3] appending a raw string within the byte limit records no truncated key and no originalLength key",
+    () => {
+      const sink = createUnmodelledEventSink({ artifactDir: sinkSelfTestArtifactDir, label: "selftest-ordinary" });
+      sink.append("an ordinary short unmodelled-event raw line");
+      const written = fs.readFileSync(sink.filePath, "utf8").trim().split("\n").filter((l) => l.length > 0);
+      const parsed = JSON.parse(written[0]);
+      assert.ok(!Object.prototype.hasOwnProperty.call(parsed, "truncated"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(parsed, "originalLength"));
+      assert.equal(parsed.raw, "an ordinary short unmodelled-event raw line");
+    },
+  );
+
+  check(
+    "[Plan 05-37, Task 3] appending more lines than UNMODELLED_EVENT_CAPTURE_LIMIT writes exactly one final line recording the limit and the suppressed count",
+    () => {
+      const sink = createUnmodelledEventSink({ artifactDir: sinkSelfTestArtifactDir, label: "selftest-bound" });
+      const overflow = 3;
+      for (let i = 0; i < UNMODELLED_EVENT_CAPTURE_LIMIT + overflow; i += 1) {
+        sink.append(`unmodelled event number ${i}`);
+      }
+      const written = fs.readFileSync(sink.filePath, "utf8").trim().split("\n").filter((l) => l.length > 0);
+      assert.equal(
+        written.length,
+        UNMODELLED_EVENT_CAPTURE_LIMIT + 1,
+        "expected the captured lines plus exactly one boundary line",
+      );
+      const boundaryLine = JSON.parse(written[written.length - 1]);
+      assert.equal(boundaryLine.limitReached, true);
+      assert.equal(boundaryLine.limit, UNMODELLED_EVENT_CAPTURE_LIMIT);
+      assert.equal(boundaryLine.suppressed, overflow);
+      const summary = sink.summary();
+      assert.equal(summary.appended, UNMODELLED_EVENT_CAPTURE_LIMIT);
+      assert.equal(summary.suppressed, overflow);
+    },
+  );
+
+  // `check()` is synchronous by construction (see its own definition above) — the client write and
+  // the tick wait for the 'data' event to be delivered happen HERE, before the synchronous check()
+  // call below asserts on the already-settled result, rather than inside an async check function
+  // `check()` would not actually await.
+  const noSinkStubClient = new SidecarClient({
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    stdin: { write: () => {} },
+    on: () => {},
+  });
+  const noSinkCapturedStderr = [];
+  {
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk) => {
+      noSinkCapturedStderr.push(String(chunk));
+      return true;
+    };
+    try {
+      noSinkStubClient.child.stdout.write(
+        `${JSON.stringify({ kind: "event", event: { type: "unknown", runId: "run-selftest", raw: "an unrecognised raw line" } })}\n`,
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      process.stderr.write = originalStderrWrite;
+    }
+  }
+  check(
+    "[Plan 05-37, Task 3] a SidecarClient constructed with no sink carries no sink, and still writes the stderr line for an unrecognised event",
+    () => {
+      assert.equal(noSinkStubClient.sink, undefined, "expected no sink on a client constructed without one");
+      assert.ok(
+        noSinkCapturedStderr.some((line) => line.includes("unrecognised sidecar event")),
+        "expected the existing stderr line to still be written with no sink injected",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-37, Task 3] SCENARIOS contains unmodelled-wire-shapes, reading the frozen fixture rather than declaring a literal copy of its measured values",
+    () => {
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(SCENARIOS, "unmodelled-wire-shapes"),
+        "expected fake-authoring-claude.mjs to declare an unmodelled-wire-shapes scenario",
+      );
+      const fakeBackendSource = fs.readFileSync(FAKE_AUTHORING_CLAUDE_PATH, "utf8");
+      assert.ok(
+        fakeBackendSource.includes("live-opus5-unmodelled-shapes.json"),
+        "expected fake-authoring-claude.mjs to read the frozen fixture path rather than retype its values",
+      );
+      const measuredUtilization = String(UNMODELLED_SHAPES_FIXTURE.shapes.find((s) => s.expectedEventType === "rate_limit").line.rate_limit_info.utilization);
+      assert.ok(
+        !fakeBackendSource.includes(measuredUtilization),
+        "expected fake-authoring-claude.mjs to never declare the measured utilization as a literal — it must read it from the fixture",
+      );
+    },
+  );
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -4884,6 +5032,51 @@ async function runReplayCheckScenario(scenarioName) {
             `driver stopped at the unauthenticated first turn — source=${conversation.nonConversation.source} ` +
               `elapsed=${elapsedMs}ms (well under REPLAY_TURN_DEADLINE_MS=${REPLAY_TURN_DEADLINE_MS}ms) — ` +
               `settled=${conversation.settled}`,
+          );
+        } else if (scenarioName === "unmodelled-wire-shapes") {
+          // Task 3 (plan 05-37, gap G-05-7): both new wire shapes Task 1 modelled, replayed through
+          // the REAL sidecar and the REAL shipped normaliser. This is the assertion that would have
+          // caught this gap in the first place — a positive count of ZERO unknown-type events for
+          // the whole run, read from the run's own event list, never scraped from stderr.
+          const runEvents = sidecar.events.filter((event) => event.runId === runId);
+
+          const rateLimitEvent = runEvents.find((event) => event.type === "rate_limit");
+          assert.ok(rateLimitEvent, "expected at least one rate_limit event for this run");
+          const measuredRateLimitInfo = UNMODELLED_SHAPES_FIXTURE.shapes.find(
+            (shape) => shape.expectedEventType === "rate_limit",
+          ).line.rate_limit_info;
+          assert.equal(
+            rateLimitEvent.utilization,
+            measuredRateLimitInfo.utilization,
+            "expected the captured rate_limit event's utilization to equal the frozen fixture's own measured value",
+          );
+          assert.equal(rateLimitEvent.rateLimitType, measuredRateLimitInfo.rateLimitType);
+          assert.equal(rateLimitEvent.status, measuredRateLimitInfo.status);
+
+          const thinkingEvent = runEvents.find((event) => event.type === "thinking");
+          assert.ok(thinkingEvent, "expected at least one thinking event for this run");
+
+          const questionsFixtureTurn = SCENARIOS[scenarioName].turns[0].find((block) => block.type === "text");
+          assert.ok(
+            conversation.exchanges.some(
+              (exchange) => exchange.speaker === "agent" && exchange.text.includes(questionsFixtureTurn.text),
+            ),
+            "expected the conversation's captured agent text to include the ordinary block's own question text — modelling the two new shapes must not swallow the conversation itself",
+          );
+
+          const unknownEvents = runEvents.filter((event) => event.type === "unknown");
+          assert.equal(
+            unknownEvents.length,
+            0,
+            `expected zero unknown-type events for this run, got ${unknownEvents.length}: ` +
+              `${JSON.stringify(unknownEvents.map((e) => e.raw))}`,
+          );
+
+          assert.equal(conversation.settled, true, "expected this scenario's conversation to settle on turn 2");
+
+          step(
+            `both new shapes flowed end to end: rate_limit utilization=${rateLimitEvent.utilization}, ` +
+              "a thinking event was captured, and zero unknown-type events were seen for this run",
           );
         }
 

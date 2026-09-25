@@ -410,6 +410,101 @@ function git(cwd, args, options = {}) {
 export { git };
 
 /**
+ * Plan 05-37 (Task 3, gap G-05-7): the bound on how many unmodelled events one run's durable
+ * capture will hold, past which no further line is appended. Exists so a pathological stream
+ * cannot fill a developer's disk — and is deliberately far above anything observed: live run
+ * `01M3C48C3PV1NSGHERBZ587YB1` produced twelve such events in a whole turn, three orders of
+ * magnitude below this bound.
+ */
+export const UNMODELLED_EVENT_CAPTURE_LIMIT = 500;
+
+/**
+ * Plan 05-37 (Task 3, gap G-05-7): the bound, in bytes, on a single raw line this run's durable
+ * capture will record whole, past which it is cut and the cut is recorded on that same line. Exists
+ * so a pathological stream cannot fill a developer's disk with one arbitrarily large line — and is
+ * deliberately far above anything observed, for the same reason {@link UNMODELLED_EVENT_CAPTURE_LIMIT}
+ * is.
+ */
+export const UNMODELLED_EVENT_LINE_LIMIT = 65_536;
+
+/**
+ * Plan 05-37 (Task 3, gap G-05-7): create a durable, full-fidelity sink for every event
+ * `SidecarClient` classifies as `unknown` — the replacement for the 200-character stderr slice that
+ * left gap G-05-7's own third finding with only PREFIXES to freeze (see
+ * `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json`'s own `note` field). The existing stderr
+ * line stays exactly as it is; this sink is added BESIDE it, never instead of it — operators still
+ * get the in-run readable signal, and the next round gets the complete record.
+ *
+ * `filePath` resolves under the caller-supplied `artifactDir` — which the caller MUST have already
+ * resolved via `Harness.artifactDir()` (outside `this.root`, outside the repository, outside
+ * `.planning/`) — and never anywhere else; this function never resolves a path of its own, by
+ * construction, so it can never land the durable capture inside the repository. The captured raw
+ * text can include file contents, prompt text and tool arguments, so where it lands is a deliberate
+ * act with a blast radius (T-05-37-02).
+ *
+ * `append(raw)` is a no-op past {@link UNMODELLED_EVENT_CAPTURE_LIMIT} accepted lines — one boundary
+ * line is (re)written recording the limit and the running suppressed count, never duplicated. A raw
+ * string longer than {@link UNMODELLED_EVENT_LINE_LIMIT} bytes is cut to that length, with the cut
+ * and the original length recorded ON the line — a recorded truncation is a fact, a silent one is
+ * the defect this task exists to stop repeating. `summary()` returns `{ filePath, appended,
+ * suppressed }` for a caller to report once, at teardown.
+ *
+ * The whole file is rewritten on every `append()` call rather than streamed — deliberately: the cap
+ * is 500 lines of a few hundred bytes each, so the total cost is trivial, and a full rewrite is what
+ * lets the boundary line be updated (never duplicated) without tracking a byte offset to seek back
+ * to.
+ */
+export function createUnmodelledEventSink({ artifactDir, label }) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filePath = path.join(artifactDir, `${label}-${timestamp}-unmodelled-events.jsonl`);
+  const lines = [];
+  let suppressed = 0;
+
+  const flush = () => {
+    const body = lines.join("\n");
+    if (suppressed > 0) {
+      const boundaryLine = JSON.stringify({
+        at: new Date().toISOString(),
+        limitReached: true,
+        limit: UNMODELLED_EVENT_CAPTURE_LIMIT,
+        suppressed,
+      });
+      fs.writeFileSync(filePath, `${body}${body.length > 0 ? "\n" : ""}${boundaryLine}\n`);
+    } else {
+      fs.writeFileSync(filePath, lines.length > 0 ? `${body}\n` : "");
+    }
+  };
+
+  return {
+    filePath,
+    append(raw) {
+      if (lines.length >= UNMODELLED_EVENT_CAPTURE_LIMIT) {
+        suppressed += 1;
+        flush();
+        return;
+      }
+      const text = typeof raw === "string" ? raw : String(raw ?? "");
+      const byteLength = Buffer.byteLength(text, "utf8");
+      const isTruncated = byteLength > UNMODELLED_EVENT_LINE_LIMIT;
+      const storedRaw = isTruncated
+        ? Buffer.from(text, "utf8").subarray(0, UNMODELLED_EVENT_LINE_LIMIT).toString("utf8")
+        : text;
+      lines.push(
+        JSON.stringify({
+          at: new Date().toISOString(),
+          raw: storedRaw,
+          ...(isTruncated ? { truncated: true, originalLength: text.length } : {}),
+        }),
+      );
+      flush();
+    },
+    summary() {
+      return { filePath, appended: lines.length, suppressed };
+    },
+  };
+}
+
+/**
  * A harness run's owned resources and teardown stack. Deliberately LIFO: a git worktree must be
  * removed before the repository it lives in is deleted, and a child process must be killed before
  * the directory its cwd points at goes away.
@@ -681,8 +776,21 @@ export class Harness {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, FLYWHEEL_APP_DATA_DIR: this.appDataDir, ...env },
     });
-    const client = new SidecarClient(child);
+    // Plan 05-37 (Task 3, gap G-05-7): the durable, full-fidelity capture for every unmodelled
+    // event this run's SidecarClient sees, resolved through THIS harness's own artifactDir() — the
+    // only permitted destination (T-05-37-02) — never a path this method resolves itself.
+    const sink = createUnmodelledEventSink({ artifactDir: this.artifactDir(), label: this.label });
+    const client = new SidecarClient(child, sink);
     this.onCleanup(() => client.dispose());
+    this.onCleanup(() => {
+      const captured = sink.summary();
+      if (captured.appended > 0) {
+        process.stdout.write(
+          `[uat] captured ${captured.appended} unmodelled event(s) (suppressed ${captured.suppressed}) ` +
+            `to ${captured.filePath}\n`,
+        );
+      }
+    });
     await client.request({ op: "ping" }, 15_000);
     return client;
   }
@@ -1012,10 +1120,17 @@ export class TurnDeadlineError extends Error {
 /**
  * A live sidecar process, with the request/ack correlation and event fan-out its stdio protocol
  * implies. One instance drives one sidecar; a sidecar drives many runs.
+ *
+ * `sink` (plan 05-37, Task 3, gap G-05-7): an OPTIONAL {@link createUnmodelledEventSink} instance —
+ * when supplied, every event this client classifies as `unknown` is ALSO appended there, beside the
+ * existing stderr line, never instead of it. A client constructed with no sink (every call site in
+ * this repository other than `Harness.startSidecar`, including every test that constructs a bare
+ * `SidecarClient` directly) behaves exactly as it did before this field existed.
  */
 export class SidecarClient {
-  constructor(child) {
+  constructor(child, sink) {
     this.child = child;
+    this.sink = sink;
     this.pending = new Map();
     this.events = [];
     this.eventWaiters = [];
@@ -1088,10 +1203,16 @@ export class SidecarClient {
       // behind the opt-in above — because silent counting of these is the same class of blindness
       // that let this plan's own gap (an unanswered board_read_request) go unnoticed for a full
       // round. `claude-code-adapter.ts`'s own normaliser falls through to this literal type for
-      // every stream shape it does not recognise.
+      // every stream shape it does not recognise. Plan 05-37 (Task 3, gap G-05-7): this 200-
+      // character slice is what left G-05-7's own third finding with only PREFIXES to freeze
+      // (`scripts/uat/fixtures/live-opus5-unmodelled-shapes.json`) — so it is no longer the whole
+      // record. The full line is ALSO kept durably via `this.sink` (when one was supplied), beside
+      // this line, never instead of it; this slice remains the in-run readable signal an operator
+      // watching stdout/stderr live can actually read.
       if (message.event?.type === "unknown") {
         const raw = typeof message.event.raw === "string" ? message.event.raw : JSON.stringify(message.event.raw);
         process.stderr.write(`[uat] unrecognised sidecar event: ${(raw ?? "").slice(0, 200)}\n`);
+        this.sink?.append(raw);
       }
       // Snapshot and clear before notifying: a waiter's predicate may itself register another
       // waiter, and mutating the array being iterated is how that turns into a dropped event.

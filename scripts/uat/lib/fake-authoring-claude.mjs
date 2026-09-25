@@ -67,6 +67,21 @@ const UNAUTHENTICATED_LOGIN_NOTICE_TEXT = UNAUTHENTICATED_ASSISTANT_LINE.message
 ).text;
 
 /**
+ * Plan 05-37 (Task 3, gap G-05-7): the frozen real captures of a rate-limit notice and a
+ * reasoning-only assistant message — both from live run `01M3C48C3PV1NSGHERBZ587YB1` — read once at
+ * MODULE LOAD, exactly like the unauthenticated-CLI fixture above, so the `unmodelled-wire-shapes`
+ * scenario below cannot drift from the frozen fixture Task 2 built by retyping a copy of it.
+ */
+const UNMODELLED_SHAPES_FIXTURE_PATH = path.join(__dirname, "..", "fixtures", "live-opus5-unmodelled-shapes.json");
+const UNMODELLED_SHAPES_FIXTURE = JSON.parse(fs.readFileSync(UNMODELLED_SHAPES_FIXTURE_PATH, "utf8"));
+const UNMODELLED_RATE_LIMIT_LINE = UNMODELLED_SHAPES_FIXTURE.shapes.find(
+  (shape) => shape.expectedEventType === "rate_limit",
+).line;
+const UNMODELLED_REASONING_CONTENT_BLOCK = UNMODELLED_SHAPES_FIXTURE.shapes.find(
+  (shape) => shape.expectedEventType === "thinking",
+).line.message.content[0];
+
+/**
  * The scripted turn fixtures, keyed by scenario name. Each scenario is `{ turns, fallback }`:
  * `turns` is an array of arrays of content blocks (`{ type: "text", text }` or
  * `{ type: "tool_use", name, input }`) — one array per conversational turn, each block becoming
@@ -130,6 +145,17 @@ const UNAUTHENTICATED_LOGIN_NOTICE_TEXT = UNAUTHENTICATED_ASSISTANT_LINE.message
  * numbered questions the old capture dropped entirely. Turn 2's total character count (both text
  * blocks) is deliberately far larger than its first block alone, so a regression back to
  * first-chunk-only capture is caught by a wide margin, not a coin flip.
+ */
+/**
+ * Plan 05-37 (Task 3, gap G-05-7): a scenario may also carry an optional top-level `preamble` array
+ * — raw wire objects printed VERBATIM, in order, immediately after the init line and before any
+ * turn. Exists so a scenario can replay a top-level line type that is not a turn at all (a
+ * `rate_limit_event` line arrives independently of any assistant turn on the real wire) — no
+ * existing scenario shape could express that, since every block a scenario declares up to this
+ * point is a `message.content` entry `emitTurn` wraps in a turn envelope. `main()` prints each
+ * `preamble` entry with `printLine` directly, with no wrapping and no stripping of any kind — it is
+ * already a complete, real wire-shaped object (read from `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json`
+ * below, never retyped).
  */
 export const SCENARIOS = {
   "truncation-repro": {
@@ -605,6 +631,36 @@ export const SCENARIOS = {
       { type: "text", text: "This fallback turn must never be reached — the deadline fires before it." },
     ],
   },
+
+  // Plan 05-37 (Task 3, gap G-05-7): both new wire shapes Task 1 modelled, replayed through the
+  // REAL sidecar and the REAL shipped normaliser — proving they flow end to end offline, and that
+  // modelling them did not swallow the ordinary conversation happening around them. `preamble`
+  // carries the frozen rate-limit line (a top-level line unrelated to any turn, exactly as it
+  // arrives on the real wire); turn 1 opens with the frozen reasoning-only content block — imported
+  // from the SAME fixture Task 2 froze, never retyped — followed by an ordinary text block carrying
+  // two questions that match `ANSWER_BANK` entries in `uat-08-socratic-authoring.mjs`, so the real
+  // `driveChallengeConversation` answers them and sends a developer turn; turn 2 is an ordinary
+  // settling reply (no question mark), so the conversation settles cleanly on turn 2 with both new
+  // shapes already having crossed the wire during turn 1.
+  "unmodelled-wire-shapes": {
+    preamble: [UNMODELLED_RATE_LIMIT_LINE],
+    turns: [
+      [
+        { ...UNMODELLED_REASONING_CONTENT_BLOCK },
+        {
+          type: "text",
+          text: "Who is the audience for this feature? Where should the notification appear?",
+        },
+      ],
+      [{ type: "text", text: "Understood — settling on that scope now, nothing further to ask." }],
+    ],
+    fallback: [
+      {
+        type: "text",
+        text: "This fallback turn must never be reached — the conversation settles cleanly on turn 2.",
+      },
+    ],
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation
@@ -689,6 +745,15 @@ function main() {
     session_id: SESSION_ID,
     model: SYNTHETIC_MODEL_NAME,
   });
+
+  // Plan 05-37 (Task 3, gap G-05-7): a scenario-level preamble — raw wire objects printed VERBATIM,
+  // in order, immediately after the init line and before any turn. See SCENARIOS's own doc comment
+  // above for why this exists (a top-level line unrelated to any turn, e.g. rate_limit_event).
+  if (Array.isArray(scenario.preamble)) {
+    for (const preambleLine of scenario.preamble) {
+      printLine(preambleLine);
+    }
+  }
 
   let turnIndex = 0;
   // Plan 05-25 (WR-04 closure): `emitTurn` is now async (it may genuinely pause mid-turn via
