@@ -90,9 +90,9 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Socratic Epic Authoring
 
-- [ ] **SHAPE-01**: User can start a conversational session to shape a new epic, in which the agent challenges assumptions and asks clarifying questions before any work is planned — instrument fixed and proven offline (plans 05-23/05-24/05-25); the live dialogue-quality judgement itself remains UNJUDGED (`05-LIVE-CHALLENGE-TRANSCRIPT.md`)
+- [ ] **SHAPE-01**: User can start a conversational session to shape a new epic, in which the agent challenges assumptions and asks clarifying questions before any work is planned — instrument fixed and proven offline (plans 05-23/05-24/05-25/05-27): each propose attempt is now paired one-to-one with its own claimed `tool_result`, proven on the shape the live wire produces; the live dialogue-quality judgement itself remains UNJUDGED (`05-LIVE-CHALLENGE-TRANSCRIPT.md`)
 - [x] **SHAPE-02**: The authoring session writes its outcome directly to the board as a structured epic with child tasks, not as a document
-- [ ] **SHAPE-03**: The agent drafts acceptance criteria for each generated task, which the user can edit before accepting — instrument fixed and proven offline (plans 05-23/05-24/05-25); the live draft-usefulness judgement itself remains UNJUDGED (`05-LIVE-CHALLENGE-TRANSCRIPT.md`)
+- [ ] **SHAPE-03**: The agent drafts acceptance criteria for each generated task, which the user can edit before accepting — instrument fixed and proven offline (plans 05-23/05-24/05-25/05-27): each propose attempt is now paired one-to-one with its own claimed `tool_result`, proven on the shape the live wire produces; the live draft-usefulness judgement itself remains UNJUDGED (`05-LIVE-CHALLENGE-TRANSCRIPT.md`)
 - [x] **SHAPE-04**: User can accept, reject or amend any individual item the authoring session proposes, rather than accepting the set wholesale
 - [x] **SHAPE-05**: User can reopen and continue shaping an existing epic at any time, and the agent challenges changes against what the epic already contains
 
