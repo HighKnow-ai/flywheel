@@ -600,7 +600,7 @@ Plans:
 
 **Gap closure round 6 — wave 2** *(blocked on 05-27 — the fifth finding cannot be written down, and the eighth scenario cannot be documented, until the fix and the scenario exist)*
 
-- [ ] 05-28-PLAN.md — G-05-4: a refusal heuristic's doc comment claiming only what it earns, and the fifth finding recorded with the rule that would have caught it — when a fixture has to be shaped around an ambiguity in the algorithm under test, the ambiguity is the finding (SHAPE-01, SHAPE-03)
+- [x] 05-28-PLAN.md — G-05-4: a refusal heuristic's doc comment claiming only what it earns, and the fifth finding recorded with the rule that would have caught it — when a fixture has to be shaped around an ambiguity in the algorithm under test, the ambiguity is the finding (SHAPE-01, SHAPE-03)
 
 **Gap closure round 6 — wave 3** *(blocked on 05-28 — the ledger cannot record a command until every command in this closure exists and has been observed)*
 
