@@ -34,8 +34,10 @@ export interface AssistantTextEvent extends AgentEventBase {
   /** G-05-6: the wire calls this `is_api_error_message` on the assistant envelope itself — the
    * backend's own statement that this text is a non-conversation error message, not agent speech.
    * The harness has been reconstructing this fact from prose (matching one observed message's
-   * literal prefix), and prose is blind to every message shape nobody captured first. Absent
-   * entirely — never present-but-false — when the backend's own envelope declared no such flag. */
+   * literal prefix), and prose is blind to every message shape nobody captured first. G-05-7
+   * (05-REVIEW.md WR-02): a literal `false` is a real reading and is carried, exactly like its
+   * sibling {@link ResultEvent.isError} — never dropped as falsy. The field is absent entirely
+   * only when the backend's own envelope declared no such flag at all. */
   isApiErrorMessage?: boolean;
   /** G-05-6: the wire calls this `error` on the assistant envelope itself — the backend's own error
    * code for this message (e.g. `authentication_failed`), reported for diagnosis alongside
@@ -285,6 +287,50 @@ export interface BoardReadRequestEvent extends AgentEventBase {
 }
 
 /**
+ * G-05-7 (plan 05-37): a reasoning-only assistant message — the backend's own `thinking` content
+ * block, found with no `tool_use`/`tool_result`/`text` block ahead of it in the same message.
+ * `claude-opus-5` emitted roughly ELEVEN of these on turn 1 of live run
+ * `01M3C48C3PV1NSGHERBZ587YB1`; every one of them fell through to {@link UnknownEvent} and was
+ * dumped to stderr as raw JSON truncated at 200 characters — the gap this event closes. Grounded in
+ * `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json`.
+ */
+export interface ThinkingEvent extends AgentEventBase {
+  type: "thinking";
+  /** The reasoning block's own `thinking` string. The empty string when the backend redacts the
+   * reasoning and carries it in the signature instead — exactly what the live capture shows; never
+   * inferred or reconstructed when the wire itself carried nothing here. */
+  text: string;
+  /** Whether the block ALSO carried a `signature` — recorded WITHOUT ever carrying its value onto
+   * this event, the lifecycle record or any artifact (T-05-37-03). The signature is opaque
+   * cryptographic material with no consumer in this product, is potentially very large, and the
+   * only capture this repository has of one is cut off mid-value by the harness's own 200-character
+   * stderr slice — carrying even a partial value forward would misrepresent an incomplete fragment
+   * as the real thing. */
+  hasSignature: boolean;
+}
+
+/**
+ * G-05-7 (plan 05-37): the backend's own `rate_limit_event` top-level line — real operational
+ * information about how close this session is to its own rate limit, previously discarded entirely
+ * (normalised to {@link UnknownEvent}). Every field is independently optional, following
+ * `ClaudeStreamUsage`'s own established per-field degrade discipline (`claude-code-adapter.ts`): a
+ * malformed or partial notice degrades to "no reading" for the fields it lacks, never a fabricated
+ * zero — `isUsingOverage: false` is a real reading and is carried, never dropped as falsy. Measured
+ * live in run `01M3C48C3PV1NSGHERBZ587YB1` (`scripts/uat/fixtures/live-opus5-unmodelled-shapes.json`):
+ * `status: "allowed_warning"`, `rateLimitType: "seven_day"`, `utilization: 0.81`,
+ * `surpassedThreshold: 0.75`, `resetsAt: 1790596800`, `isUsingOverage: false`.
+ */
+export interface RateLimitEvent extends AgentEventBase {
+  type: "rate_limit";
+  status?: string;
+  rateLimitType?: string;
+  utilization?: number;
+  surpassedThreshold?: number;
+  resetsAt?: number;
+  isUsingOverage?: boolean;
+}
+
+/**
  * The normalised event union every adapter emits, in exactly the order the backend process
  * produced them (AGNT-01 ordering) — no reordering, no batching, no coalescing.
  */
@@ -304,7 +350,9 @@ export type AgentEvent =
   | GitLockExhaustedEvent
   | SummaryReportedEvent
   | ProposalCreatedEvent
-  | BoardReadRequestEvent;
+  | BoardReadRequestEvent
+  | ThinkingEvent
+  | RateLimitEvent;
 
 /** What an adapter declares it can do — gates which `AgentAdapter` methods are safe to call. */
 export interface AdapterCapabilities {

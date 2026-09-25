@@ -487,6 +487,207 @@ test("normaliseStreamEvent: every line in the frozen unauthenticated-CLI fixture
   assert.equal(resultEvent.terminalReason, "api_error");
 });
 
+// -------------------------------------------------------------------------------------------
+// Plan 05-37 (G-05-7 closure): the adapter's reasoning-event and rate-limit-event carry, plus the
+// two review warnings that lived inside `normaliseStreamEvent` (05-REVIEW.md WR-02 and WR-03). A
+// reasoning-only assistant message and a `rate_limit_event` line previously fell all the way
+// through to `unknown` — this repository's own live run `01M3C48C3PV1NSGHERBZ587YB1` produced
+// eleven of the former and one of the latter in a single turn. See scripts/uat/README.md for the
+// fuller narrative.
+// -------------------------------------------------------------------------------------------
+
+test("normaliseStreamEvent: a reasoning-only assistant message normalises to a thinking event with empty text and a recorded signature presence", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [{ type: "thinking", thinking: "", signature: "sig-abc-123" }],
+    },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "thinking");
+  assert.equal(event.text, "");
+  assert.equal(event.hasSignature, true);
+});
+
+test("normaliseStreamEvent: a reasoning-only assistant message with no signature at all still normalises to thinking, with hasSignature false", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "thinking", thinking: "" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "thinking");
+  assert.equal(event.hasSignature, false);
+});
+
+test("normaliseStreamEvent: a reasoning block's signature value never appears on the normalised event (T-05-37-03)", () => {
+  const SIGNATURE = "a-very-long-opaque-signature-value-that-must-never-leak-onto-the-event";
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "thinking", thinking: "", signature: SIGNATURE }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  for (const value of Object.values(event)) {
+    assert.notEqual(value, SIGNATURE, "the signature value must never be carried onto the normalised event");
+  }
+});
+
+test("normaliseStreamEvent: a reasoning block FOLLOWED BY a text block still normalises to assistant_text — the ordering constraint holds", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "", signature: "sig-1" },
+        { type: "text", text: "the agent's own reply, unaffected by the reasoning block ahead of it" },
+      ],
+    },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "assistant_text");
+  assert.equal(event.text, "the agent's own reply, unaffected by the reasoning block ahead of it");
+});
+
+test("normaliseStreamEvent: a reasoning block FOLLOWED BY a tool_use block still normalises to tool_call, with its correlation id intact", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "", signature: "sig-1" },
+        { type: "tool_use", name: "Bash", id: "toolu_after_reasoning", input: {} },
+      ],
+    },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "tool_call");
+  assert.equal(event.toolUseId, "toolu_after_reasoning");
+});
+
+test("normaliseStreamEvent: a user-role reasoning block normalises to unknown — reasoning is an assistant-side shape, never assumed for an unexpected role", () => {
+  const line = JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "thinking", thinking: "", signature: "sig-1" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "unknown");
+});
+
+test("normaliseStreamEvent: when a message carries two thinking blocks, the FIRST in array order is the one read (find-first rule)", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "first block's own text" },
+        { type: "thinking", thinking: "second block's own text" },
+      ],
+    },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "thinking");
+  assert.equal(event.text, "first block's own text");
+});
+
+test("normaliseStreamEvent: an assistant message with an empty content array normalises to unknown, without throwing", () => {
+  const line = JSON.stringify({ type: "assistant", message: { role: "assistant", content: [] } });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "unknown");
+});
+
+test("normaliseStreamEvent: an assistant message whose content is only unrecognised block types normalises to unknown, without throwing", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "an_unrecognised_block_kind" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "unknown");
+});
+
+test("normaliseStreamEvent: a rate_limit_event line normalises to a rate_limit event carrying all six fields", () => {
+  const line = JSON.stringify({
+    type: "rate_limit_event",
+    rate_limit_info: {
+      status: "allowed_warning",
+      resetsAt: 1790596800,
+      rateLimitType: "seven_day",
+      utilization: 0.81,
+      isUsingOverage: false,
+      surpassedThreshold: 0.75,
+    },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "rate_limit");
+  assert.equal(event.status, "allowed_warning");
+  assert.equal(event.resetsAt, 1790596800);
+  assert.equal(event.rateLimitType, "seven_day");
+  assert.equal(event.utilization, 0.81);
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(event, "isUsingOverage"),
+    "a literal false is a real reading and must be carried, not dropped as falsy",
+  );
+  assert.equal(event.isUsingOverage, false);
+  assert.equal(event.surpassedThreshold, 0.75);
+});
+
+test("normaliseStreamEvent: a rate_limit_event line with a missing info object normalises to rate_limit with every optional key absent, never a throw", () => {
+  const line = JSON.stringify({ type: "rate_limit_event" });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "rate_limit");
+  for (const key of ["status", "rateLimitType", "utilization", "surpassedThreshold", "resetsAt", "isUsingOverage"]) {
+    assert.ok(!Object.prototype.hasOwnProperty.call(event, key), `expected no ${key} key on a rate_limit event with no info object`);
+  }
+});
+
+test("normaliseStreamEvent: a rate_limit_event line with a non-numeric utilization omits the utilization key entirely, never 0 or NaN", () => {
+  const line = JSON.stringify({
+    type: "rate_limit_event",
+    rate_limit_info: { status: "allowed_warning", utilization: "not-a-number" },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "rate_limit");
+  assert.equal(event.status, "allowed_warning");
+  assert.ok(!Object.prototype.hasOwnProperty.call(event, "utilization"), "expected no utilization key for a non-numeric value");
+});
+
+test("normaliseStreamEvent: an assistant envelope with the API-error flag explicitly false produces that property with the value false (WR-02)", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "ordinary agent prose" }] },
+    is_api_error_message: false,
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(event, "isApiErrorMessage"),
+    "a literal false is a real reading and must be carried, not dropped as falsy",
+  );
+  assert.equal(event.isApiErrorMessage, false);
+});
+
+test("normaliseStreamEvent: a stream line that parsed to JSON null normalises to unknown, without throwing (WR-03)", () => {
+  const event = normaliseStreamEvent(null, "null", "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "unknown");
+});
+
+for (const [label, scalar] of [
+  ["number", 42],
+  ["string", "a bare string"],
+  ["boolean", true],
+]) {
+  test(`normaliseStreamEvent: a stream line that parsed to a JSON ${label} normalises to unknown, without throwing (WR-03)`, () => {
+    const event = normaliseStreamEvent(scalar, JSON.stringify(scalar), "run-1", 0, "2026-01-01T00:00:00.000Z");
+    assert.equal(event.type, "unknown");
+  });
+}
+
+test("normaliseStreamEvent: grep gate — the asymmetric is_api_error_message === true spread is gone", () => {
+  const source = readFileSync(path.join(__dirname, "../src/claude-code-adapter.ts"), "utf8");
+  assert.ok(
+    !source.includes("is_api_error_message === true"),
+    "expected the asymmetric strict-true-only spread to be replaced by a strict-boolean-typeof spread (WR-02)",
+  );
+});
+
 test("the stderr detail tail is bounded even by a single oversized line (T-02G-17-03)", () => {
   // The cap was a check-before-append with no truncate: a tail sitting one character below the
   // limit still accepted an arbitrarily long line whole, yielding CAP-1 + line.length. That tail

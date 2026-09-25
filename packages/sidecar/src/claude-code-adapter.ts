@@ -381,6 +381,15 @@ interface ClaudeStreamMessage {
       /** G-05-5: a `tool_result` block's own correlation id, referencing the `tool_use` block's
        * `id` it answers. Optional, for the same reason as `id` above. */
       tool_use_id?: string;
+      /** G-05-7 (plan 05-37): a `thinking` block's own reasoning string — optional for the same
+       * reason `id`/`tool_use_id` are: the adapter must parse a block that carries neither. The
+       * empty string when the backend redacts the reasoning and carries it in `signature` instead
+       * (measured live: `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json`). */
+      thinking?: string;
+      /** G-05-7 (plan 05-37): a `thinking` block's own signature. Its VALUE is read ONLY to test
+       * for presence (see `ThinkingEvent.hasSignature`'s own doc comment, `adapter.ts`) — it is
+       * NEVER carried onto any normalised event, lifecycle record or artifact. */
+      signature?: string;
     }>;
   };
   /** G-05-6: the wire's own statement that this assistant envelope is a non-conversation error
@@ -426,7 +435,31 @@ interface ClaudeStreamResult {
   terminal_reason?: string;
 }
 
-type ClaudeStreamEvent = ClaudeStreamInit | ClaudeStreamMessage | ClaudeStreamResult | Record<string, unknown>;
+/** G-05-7 (plan 05-37): the wire's own `rate_limit_event` top-level line — measured live in run
+ * `01M3C48C3PV1NSGHERBZ587YB1` (`scripts/uat/fixtures/live-opus5-unmodelled-shapes.json`):
+ * `status: "allowed_warning"`, `resetsAt: 1790596800`, `rateLimitType: "seven_day"`,
+ * `utilization: 0.81`, `isUsingOverage: false`, `surpassedThreshold: 0.75` — every field of
+ * `rate_limit_info` is optional, mirroring {@link ClaudeStreamUsage}'s own per-field degrade
+ * discipline: a malformed or partial notice degrades to "no reading" for the fields it lacks,
+ * never a fabricated zero. */
+interface ClaudeStreamRateLimit {
+  type: "rate_limit_event";
+  rate_limit_info?: {
+    status?: string;
+    resetsAt?: number;
+    rateLimitType?: string;
+    utilization?: number;
+    isUsingOverage?: boolean;
+    surpassedThreshold?: number;
+  };
+}
+
+type ClaudeStreamEvent =
+  | ClaudeStreamInit
+  | ClaudeStreamMessage
+  | ClaudeStreamResult
+  | ClaudeStreamRateLimit
+  | Record<string, unknown>;
 
 /** Read one optional numeric field out of a usage-shaped object, returning `undefined` for a
  * missing or non-numeric value rather than coercing it to zero — used four times over
@@ -593,6 +626,16 @@ export function normaliseStreamEvent(
 ): AgentEvent {
   const base = { runId, seq, at, raw };
 
+  // 05-REVIEW.md WR-03 (plan 05-37): `JSON.parse("null")` returns the primitive `null` WITHOUT
+  // throwing, so the try/catch around the parse in the `rl.on("line", ...)` callers below does not
+  // protect this — reading `.type` off `null` (or any other non-object JSON scalar: `true`, `42`,
+  // `"a string"`) throws a TypeError here, inside a synchronous `readline` 'line' event handler,
+  // uncaught, which crashes the sidecar process for the WHOLE FLEET it supervises, not just the one
+  // run whose backend emitted the stray line. Guarded before any property read.
+  if (parsed === null || typeof parsed !== "object") {
+    return { ...base, type: "unknown" };
+  }
+
   if (parsed.type === "system" && (parsed as ClaudeStreamInit).subtype === "init") {
     const init = parsed as ClaudeStreamInit;
     return { ...base, type: "init", sessionId: init.session_id, model: init.model };
@@ -666,9 +709,39 @@ export function normaliseStreamEvent(
         ...base,
         type: "assistant_text",
         text: textBlock.text ?? "",
-        ...(envelope.is_api_error_message === true ? { isApiErrorMessage: true } : {}),
+        // G-05-7 (05-REVIEW.md WR-02): spread on a strict boolean type check, mirroring the result
+        // branch's own `isError` idiom below — a literal `false` is a real reading and is carried
+        // as `false`, never dropped as falsy. The key is absent entirely only when the envelope
+        // declared no such flag at all.
+        ...(typeof envelope.is_api_error_message === "boolean"
+          ? { isApiErrorMessage: envelope.is_api_error_message }
+          : {}),
         ...(typeof envelope.error === "string" && envelope.error.length > 0 ? { errorCode: envelope.error } : {}),
       };
+    }
+
+    // G-05-7 (plan 05-37): a reasoning-only assistant message — reached ONLY after the
+    // tool_use/tool_result/text searches above all failed to find a matching block. This ordering
+    // is LOAD-BEARING: a message carrying [reasoning, text] must keep normalising to assistant_text
+    // (the text-block search above already finds and returns on that block first, unchanged), and
+    // moving this check earlier would silently reclassify that shape as reasoning and delete the
+    // agent's own speech — the exact failure class this phase has spent eight rounds closing.
+    // Emitted for the assistant role only; a user-role reasoning block is an unexpected shape and
+    // falls through to the final unknown return below, never assumed.
+    if (parsed.type === "assistant") {
+      // Find-first rule, stated explicitly (already the incidental behaviour of every `.find` call
+      // in this branch, including the tool_use/tool_result/text searches above): when a message
+      // carries several blocks of the same kind, the FIRST in array order is the one read.
+      const reasoningBlock = content.find((block) => block.type === "thinking");
+      if (reasoningBlock) {
+        return {
+          ...base,
+          type: "thinking",
+          text: reasoningBlock.thinking ?? "",
+          // G-05-7: presence only — the signature's VALUE never appears on this event (T-05-37-03).
+          hasSignature: typeof reasoningBlock.signature === "string" && reasoningBlock.signature.length > 0,
+        };
+      }
     }
     return { ...base, type: "unknown" };
   }
@@ -694,6 +767,27 @@ export function normaliseStreamEvent(
       ...(typeof result.terminal_reason === "string" && result.terminal_reason.length > 0
         ? { terminalReason: result.terminal_reason }
         : {}),
+    };
+  }
+
+  // G-05-7 (plan 05-37): the wire's own `rate_limit_event` top-level line — real operational
+  // information the seam previously discarded entirely by falling through to unknown. Every field
+  // is spread only on its own strict type check, the exact per-field degrade idiom the usage block
+  // above already follows — a missing or malformed value omits the key entirely, never a fabricated
+  // zero, and a literal `false` for the overage flag is a real reading and is carried.
+  if (parsed.type === "rate_limit_event") {
+    const info = (parsed as ClaudeStreamRateLimit).rate_limit_info;
+    return {
+      ...base,
+      type: "rate_limit",
+      ...(typeof info?.status === "string" && info.status.length > 0 ? { status: info.status } : {}),
+      ...(typeof info?.rateLimitType === "string" && info.rateLimitType.length > 0
+        ? { rateLimitType: info.rateLimitType }
+        : {}),
+      ...(typeof info?.utilization === "number" ? { utilization: info.utilization } : {}),
+      ...(typeof info?.surpassedThreshold === "number" ? { surpassedThreshold: info.surpassedThreshold } : {}),
+      ...(typeof info?.resetsAt === "number" ? { resetsAt: info.resetsAt } : {}),
+      ...(typeof info?.isUsingOverage === "boolean" ? { isUsingOverage: info.isUsingOverage } : {}),
     };
   }
 
