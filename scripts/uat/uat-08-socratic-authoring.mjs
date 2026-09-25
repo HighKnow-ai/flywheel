@@ -1644,8 +1644,8 @@ async function selfTest() {
   );
 
   check(
-    "[Plan 05-23, Task 2] a refused-then-unrefused pair and an unrefused-then-refused pair both " +
-      "read violated — the reading is order-independent over the attempt set",
+    "[Plan 05-23/05-27, Task 2/3] the reading is order-independent over the attempt set, " +
+      "INCLUDING the back-to-back-both-open shape",
     () => {
       const runId = "run-wr01-order";
 
@@ -1663,11 +1663,13 @@ async function selfTest() {
       );
 
       // Shape B: attempt1 unrefused (its own first subsequent tool_result names a DIFFERENT
-      // tool, so it is not attempt1's answer at all), attempt2 refused — the mirror image. A
-      // bare "attempt1 unanswered" shape would let attempt2's own refusal be found as attempt1's
-      // candidate too (nothing stops the positional scan at attempt2's own index), so this fixture
-      // uses the wrong-name exclusion (already covered on its own above) to keep attempt1 and
-      // attempt2 correlated with DISTINCT answers, exactly as a real two-attempt conversation would.
+      // tool, so it is not attempt1's answer at all), attempt2 refused — the mirror image. This
+      // fixture keeps the wrong-name exclusion (covered on its own, dedicated check above) because
+      // that exclusion is a real behaviour worth covering here too, alongside order-independence —
+      // not because a bare unanswered shape would otherwise be unreadable. Shapes C and D below
+      // cover the back-to-back-both-open collision this comment used to describe as a fixture
+      // requirement; it was actually the defect (plan 05-27, G-05-4 closure, 05-VERIFICATION.md
+      // truth #11's `coincidental-reliance` flag).
       const unrefusedThenRefused = [
         { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
         { type: "tool_result", runId, toolName: "mcp__flywheel-permissions__unrelated_tool", raw: "ok" }, // wrong name — not attempt1's answer
@@ -1678,6 +1680,60 @@ async function selfTest() {
         readNoWorkPlanned(unrefusedThenRefused, { runId, fromIndex: 0, toIndex: unrefusedThenRefused.length }),
         "violated",
         "expected an unrefused-then-refused pair to read violated — the SAME outcome as its mirror image",
+      );
+
+      // Shape C (plan 05-27, G-05-4 closure): the back-to-back-both-open collision — both
+      // attempts issued before either is answered, then a refusing UNNAMED result, then a
+      // non-refusing UNNAMED result. No wrong-name exclusion is available here to rescue the
+      // reading; the claimed-index pairing is what makes this order-independent.
+      const bothOpenRefusalFirst = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt2
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // claimed by attempt1, refuses
+        { type: "tool_result", runId, raw: "proposal created successfully" }, // claimed by attempt2, unrefused
+      ];
+      assert.equal(
+        readNoWorkPlanned(bothOpenRefusalFirst, { runId, fromIndex: 0, toIndex: bothOpenRefusalFirst.length }),
+        "violated",
+        "expected the back-to-back-both-open shape (refusal first) to read violated",
+      );
+      const bothOpenFirstCorrelated = correlateProposeAttempts(bothOpenRefusalFirst, {
+        runId,
+        fromIndex: 0,
+        toIndex: bothOpenRefusalFirst.length,
+      });
+      assert.equal(bothOpenFirstCorrelated.length, 2, "expected exactly two correlated attempts (Shape C)");
+      assert.notEqual(
+        bothOpenFirstCorrelated[0].answerIndex,
+        bothOpenFirstCorrelated[1].answerIndex,
+        "expected Shape C's two attempts to be paired with two DIFFERENT tool_result indices",
+      );
+
+      // Shape D: the mirror image of Shape C — non-refusing result first, refusing result second.
+      // The point of the C/D pair: the reading is the SAME whichever attempt's answer refuses,
+      // once each attempt genuinely has its own claimed answer.
+      const bothOpenRefusalSecond = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt2
+        { type: "tool_result", runId, raw: "proposal created successfully" }, // claimed by attempt1, unrefused
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // claimed by attempt2, refuses
+      ];
+      assert.equal(
+        readNoWorkPlanned(bothOpenRefusalSecond, { runId, fromIndex: 0, toIndex: bothOpenRefusalSecond.length }),
+        "violated",
+        "expected the back-to-back-both-open shape (refusal second) to read violated — the same " +
+          "outcome as Shape C",
+      );
+      const bothOpenSecondCorrelated = correlateProposeAttempts(bothOpenRefusalSecond, {
+        runId,
+        fromIndex: 0,
+        toIndex: bothOpenRefusalSecond.length,
+      });
+      assert.equal(bothOpenSecondCorrelated.length, 2, "expected exactly two correlated attempts (Shape D)");
+      assert.notEqual(
+        bothOpenSecondCorrelated[0].answerIndex,
+        bothOpenSecondCorrelated[1].answerIndex,
+        "expected Shape D's two attempts to be paired with two DIFFERENT tool_result indices",
       );
     },
   );
