@@ -90,9 +90,9 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Socratic Epic Authoring
 
-- [ ] **SHAPE-01**: User can start a conversational session to shape a new epic, in which the agent challenges assumptions and asks clarifying questions before any work is planned — instrument fixed and proven offline (plans 05-23/05-24/05-25/05-27): each propose attempt is now paired one-to-one with its own claimed `tool_result`, proven on the shape the live wire produces; the live dialogue-quality judgement itself remains UNJUDGED (`05-LIVE-CHALLENGE-TRANSCRIPT.md`)
+- [ ] **SHAPE-01**: User can start a conversational session to shape a new epic, in which the agent challenges assumptions and asks clarifying questions before any work is planned — the attempt/answer correlation is now exact by construction (plan 05-30): a lookup on the correlation id the wire itself supplies, carried through the adapter seam, replacing the positional heuristic six consecutive rounds of narrowing had failed to make correct; a stream whose backend supplies no correlation ids is reported as unjudgeable rather than passed, and the live `tool_use` block's `id` is the one half of this change this repository has no capture of, so the first live run is also the first measurement of that assumption; the live dialogue-quality judgement itself remains UNJUDGED (`05-LIVE-CHALLENGE-TRANSCRIPT.md`)
 - [x] **SHAPE-02**: The authoring session writes its outcome directly to the board as a structured epic with child tasks, not as a document
-- [ ] **SHAPE-03**: The agent drafts acceptance criteria for each generated task, which the user can edit before accepting — instrument fixed and proven offline (plans 05-23/05-24/05-25/05-27): each propose attempt is now paired one-to-one with its own claimed `tool_result`, proven on the shape the live wire produces; the live draft-usefulness judgement itself remains UNJUDGED (`05-LIVE-CHALLENGE-TRANSCRIPT.md`)
+- [ ] **SHAPE-03**: The agent drafts acceptance criteria for each generated task, which the user can edit before accepting — the attempt/answer correlation is now exact by construction (plan 05-30): a lookup on the correlation id the wire itself supplies, carried through the adapter seam, replacing the positional heuristic six consecutive rounds of narrowing had failed to make correct; a stream whose backend supplies no correlation ids is reported as unjudgeable rather than passed, and the live `tool_use` block's `id` is the one half of this change this repository has no capture of, so the first live run is also the first measurement of that assumption; the live draft-usefulness judgement itself remains UNJUDGED (`05-LIVE-CHALLENGE-TRANSCRIPT.md`)
 - [x] **SHAPE-04**: User can accept, reject or amend any individual item the authoring session proposes, rather than accepting the set wholesale
 - [x] **SHAPE-05**: User can reopen and continue shaping an existing epic at any time, and the agent challenges changes against what the epic already contains
 
@@ -279,9 +279,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CTX-06 | Phase 4 | Complete |
 | CTX-07 | Phase 4 | Complete |
 | CTX-08 | Phase 4 | Complete |
-| SHAPE-01 | Phase 5 | Gaps Found — instrument fixed and proven offline; live dialogue-quality judgement (`05-LIVE-CHALLENGE-TRANSCRIPT.md`) still UNJUDGED |
+| SHAPE-01 | Phase 5 | Gaps Found — correlation now exact by construction (wire's own id, adapter-seam carry); live `tool_use.id` unmeasured; live dialogue-quality judgement (`05-LIVE-CHALLENGE-TRANSCRIPT.md`) still UNJUDGED |
 | SHAPE-02 | Phase 5 | Complete |
-| SHAPE-03 | Phase 5 | Gaps Found — instrument fixed and proven offline; live draft-usefulness judgement (`05-LIVE-CHALLENGE-TRANSCRIPT.md`) still UNJUDGED |
+| SHAPE-03 | Phase 5 | Gaps Found — correlation now exact by construction (wire's own id, adapter-seam carry); live `tool_use.id` unmeasured; live draft-usefulness judgement (`05-LIVE-CHALLENGE-TRANSCRIPT.md`) still UNJUDGED |
 | SHAPE-04 | Phase 5 | Complete |
 | SHAPE-05 | Phase 5 | Complete |
 | PROP-01 | Phase 6 | Pending |
