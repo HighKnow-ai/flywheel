@@ -97,6 +97,19 @@ isolated from the developer's personal `~/.claude` (via `CLAUDE_CONFIG_DIR`, not
 `lib/sidecar-harness.mjs::cleanClaudeConfigEnv`'s own doc comment for why `HOME` isolation breaks
 `claude`'s own credential resolution instead of producing a clean room).
 
+**The credential seam (plan 05-33, gap `G-05-6`):** config isolation and credential availability
+are separate switches, not one. The live arm (Item 8) composes its `CLAUDE_CONFIG_DIR` from an
+explicit allow-list containing only the credential entry (`CREDENTIAL_LINK_ALLOWLIST`,
+`lib/sidecar-harness.mjs`), linked into the isolated directory by reference — a symbolic link —
+never copied. The developer's personal memory file, settings, skills, agents, commands, hooks and
+plugins are asserted absent from that composed directory (`BEHAVIOURAL_CONFIG_DENYLIST`), and the
+assertion throws the instant one is found. Before spawning anything, `assertBackendAuthenticated`
+reads the backend's own authentication state and refuses — naming the cause — rather than producing
+a short notice turn and burning a proposal deadline waiting on a conversation that was never going
+to happen. `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` are removed from the spawn environment by
+construction (`scrubApiKeyEnv`), unconditionally, because this project's execution-model constraint
+is that agents run on the developer's own existing local agent credentials — never an API key.
+
 Two modes, run separately:
 
 ```bash
@@ -210,7 +223,7 @@ Four arms, like every live script in this directory:
 - **`--replay-check`** — pure, offline, no `claude` binary and no API credential. Drives the REAL
   sidecar, the REAL watchdog and the REAL shipped normaliser (`claude-code-adapter.ts`) against
   `scripts/uat/lib/fake-authoring-claude.mjs`, a scripted, zero-token, multi-chunk stand-in backend
-  that is unreachable from the live arm. Ten scenarios, each proving one thing the live arm would
+  that is unreachable from the live arm. Eleven scenarios, each proving one thing the live arm would
   otherwise be the only way to check:
   - `truncation-repro` — the original multi-chunk truncation reproduction: a multi-block turn
     survives the whole wire intact.
@@ -227,10 +240,9 @@ Four arms, like every live script in this directory:
     at the refusal instead of quietly waiting out the proposal deadline.
   - `slow-tool-mid-turn` — the model pauses mid-turn on a slow tool call, proving the capture is not
     truncated by an idle window that fires on unrelated wire traffic.
-  - `back-to-back-proposals` — two propose calls issued back-to-back inside the challenge stage and
-    answered by two distinct unnamed results, the first refusing and the second not, proving the
-    reading is `violated` and that the correlation as it shipped on 2026-09-24 still reads `refused`
-    over the same run.
+  - `back-to-back-proposals` — two propose calls issued back-to-back inside the challenge stage,
+    answered by two distinct results, the first refusing and the second not, read by the id-based
+    pairing as `violated`.
   - `interleaved-read-during-proposal` — a propose attempt's own real, unrefused answer sits behind
     an unrelated `board_search` call's result, whose own text coincidentally matches the stage-gate
     refusal wording, proving the id-based pairing reads `violated` (correct) where the retired
@@ -240,6 +252,11 @@ Four arms, like every live script in this directory:
     neither `id` nor `tool_use_id` at all, proving the run degrades honestly to `uncorrelatable`
     through the real sidecar and the real shipped normaliser, and that SHAPE-01 does not pass on it
     — the absent-id decision's own end-to-end proof, not merely a unit fixture's claim.
+  - `unauthenticated-backend-first-turn` — replays a REAL captured stream of an unauthenticated
+    `claude` CLI's first turn (the frozen fixture at
+    `scripts/uat/fixtures/unauthenticated-cli-first-turn.json`), stopped by the wire's own error
+    flag rather than by any text match, proving the run stops on turn one instead of waiting out the
+    proposal deadline.
   Proves NOTHING WHATSOEVER about dialogue quality — its transcripts are synthetic, carry an
   unmissable synthetic marker in their first two lines, and structurally cannot hold a verdict line.
 - **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
@@ -418,6 +435,39 @@ shape neither version handled. `correlateProposeAttemptsPositionally` (this file
 control) exists to prove the shipped id-based lookup has teeth against the mechanism it replaced —
 not merely to prove the fix "did something."
 
+**Seventh finding, recorded here because it changed the script again (this closure, plans 05-33/05-34,
+gap `G-05-6`):** the class recurred again, this time as an unauthenticated CLI's login notice
+counted as the agent's first turn and as the distillation reply, with the run then waiting out the
+full 120000ms proposal deadline. Plan 05-24 had claimed to close this class and did not: its fix
+bound `readBackendRefusal` to the literal opening prefix (`API Error:`) of the single message shape
+this repository had captured — a sample of one. State the recurrence plainly: this is the SEVENTH
+consecutive round in which this phase's own defect-class register has had to name itself again. The
+root cause is the same shape as the six rounds of positional-correlation narrowing plan 05-30 ended:
+an instrument reconstructing by inference a fact the wire already carried. The wire carried it
+plainly all along — the assistant envelope's own `error`/`is_api_error_message` fields, and the
+result line's own `is_error`/`terminal_reason` fields.
+
+Record the trap that makes this finding worth writing down: the result line's own `subtype` reads
+`success` on this error, so the one field an engineer would reach for first is the one that lies.
+
+Record what was retained and why: the text-banner reader (`readBackendRefusal`) stays, unweakened,
+because this repository has no raw stream capture of the safety-classifier refusal and therefore
+cannot claim the wire flags that shape too.
+
+**A fifth rule, from this round's blocker, stated as a rule rather than as a story:**
+
+> When one mechanism enforces two properties at once, it will eventually be traded for the wrong
+> one. Separate the switch before the trade happens.
+
+Grounded in this round's record, not the abstract: `CLAUDE_CONFIG_DIR` was both the
+behavioural-config root and the credential root, the harness isolated it to keep the developer's
+personal configuration out of the run under test, and it unavoidably removed the credential with
+it — which made SHAPE-01's and SHAPE-03's live judgements unreachable rather than merely unspent,
+for four rounds, invisibly. State the second half too, because it is the part that stayed hidden
+longest: the project's only live run that ever reached the API (row `05-22-03`) must therefore have
+authenticated by an API key, and nothing anywhere recorded which credential path was in play. A
+guarantee whose cost is invisible is indistinguishable from a guarantee that is free.
+
 Costs real tokens: it drives a real, multi-turn model conversation. Not executed by an autonomous
 CI/executor run — a human runs it deliberately when judging SHAPE-01/SHAPE-03's own human-only half
 (`05-VALIDATION.md`'s "Manual-Only Verifications").
@@ -492,6 +542,7 @@ and the Abandoned/Acknowledge flow still need a human at the window.
 | `packages/core/tests/bin/uat_session_env.rs` | Builds the spawn environment from the **production** functions; also `--touch-heartbeat` |
 | `packages/core/tests/bin/uat_seed_ui.rs` | Seeds the two visual preconditions through the real domain functions |
 | `packages/core/tests/bin/uat_authoring_ops.rs` | Bridge binary for item 8's live arm — drives the real accept/reject/amend/reopen domain writes against a scratch board |
+| `scripts/uat/fixtures/` | Frozen, real, zero-cost captures replayed offline by `--replay-check` scenarios (e.g. the unauthenticated CLI first-turn stream) — read at module load, never retyped |
 
 The Rust binaries exist so the harness cannot drift: they call `shim::shim_env_for_run`,
 `runtime_protocol::runtime_dir`, `runtime_protocol::touch_heartbeat` and the domain layer directly,
