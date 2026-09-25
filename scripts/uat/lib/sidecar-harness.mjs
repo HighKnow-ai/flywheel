@@ -226,6 +226,135 @@ export function assertClaudeConfigIsolated(env, { configDir } = {}) {
   }
 }
 
+/**
+ * The environment variables that authenticate Claude Code by API key rather than by the
+ * developer's own claude.ai subscription login: the Anthropic API key variable and the Anthropic
+ * auth token variable. PROJECT.md's execution-model constraint names the developer's EXISTING
+ * LOCAL agent credentials as the only authorized path — an API key is a different billing and
+ * identity path, not a fallback, and this project's one live run that ever reached the API
+ * (validation ledger row `05-22-03`) must have taken this path with nothing recording that it had.
+ */
+export const API_KEY_ENV_VARS = Object.freeze(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]);
+
+/**
+ * Delete every name in {@link API_KEY_ENV_VARS} from `env`, mutating it in place, and return the
+ * array of names actually removed. Making the credential path deterministic — the subscription
+ * login, or a refusal — is the whole point: a run that removed a variable states so via its own
+ * `step()` line at the call site, because silence about it is exactly what made ledger row
+ * `05-22-03` unreadable after the fact.
+ */
+export function scrubApiKeyEnv(env) {
+  const removed = [];
+  for (const name of API_KEY_ENV_VARS) {
+    if (Object.prototype.hasOwnProperty.call(env, name)) {
+      delete env[name];
+      removed.push(name);
+    }
+  }
+  return removed;
+}
+
+/**
+ * The fail-closed ALLOW-list of `authMethod` values {@link assertBackendAuthenticated} accepts —
+ * exactly the method name the claude.ai subscription login reports. Same shape and same reason as
+ * `PASSING_NO_WORK_READINGS` (plan 05-30, `uat-08-socratic-authoring.mjs`): an unrecognised value
+ * is refused and reported VERBATIM, never waved through by a deny-list that did not happen to name
+ * it.
+ */
+export const ACCEPTED_AUTH_METHODS = Object.freeze(new Set(["claude.ai"]));
+
+/**
+ * Build the summary this harness family carries in evidence: EXACTLY three named keys —
+ * `loggedIn`, `authMethod`, `configDirectory` — constructed key by key from `raw`, never by
+ * spreading `raw` and deleting fields. A real `claude auth status` payload also carries `email`,
+ * `orgId` and `orgName` (plan 05-33's own `measured_ground_truth` item 1) — real developer identity
+ * fields that must never be returned, logged, or written to any artifact or repository file. Built
+ * key by key so an identity field a future backend version adds is dropped BY CONSTRUCTION, never
+ * by a delete-list nobody remembered to update.
+ */
+export function summariseAuthStatus(raw) {
+  return {
+    loggedIn: raw?.loggedIn === true,
+    authMethod: typeof raw?.authMethod === "string" ? raw.authMethod : "none",
+    configDirectory: typeof raw?.configDirectory === "string" ? raw.configDirectory : undefined,
+  };
+}
+
+/**
+ * Run the backend binary's own `auth status` subcommand with the supplied `env`, using the same
+ * `spawnSync` convention {@link probeClaudeAvailable} uses, and return the parsed JSON object.
+ * Bounded by a short timeout. Returns `null` — never guesses — on a non-zero exit, on empty
+ * stdout, or on unparseable stdout; the caller ({@link assertBackendAuthenticated}) decides what an
+ * unreadable state means.
+ *
+ * This function is the ONLY place in the harness that runs the real backend for authentication
+ * state, and it is injectable via {@link assertBackendAuthenticated}'s own `readAuthStatus`
+ * parameter precisely so no test ever calls it — a self-test that reached this function would be
+ * spending a real credential probe, which plan 05-33 exists to make provable WITHOUT.
+ */
+export function readClaudeAuthStatus({ env, bin = process.env.FLYWHEEL_REAL_CLAUDE_BIN ?? "claude" } = {}) {
+  const result = spawnSync(bin, ["auth", "status"], {
+    env,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 10_000,
+  });
+  if (result.error !== undefined || result.status !== 0) return null;
+  const stdout = (result.stdout ?? "").trim();
+  if (stdout.length === 0) return null;
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Refuse — throwing, prefixed with {@link HARNESS_PRECONDITION_PREFIX} — unless the backend can
+ * authenticate as the developer against the composed, isolated `configDir`. Reads the auth status
+ * via `readAuthStatus` (defaulting to {@link readClaudeAuthStatus}; every test injects its own),
+ * summarises it via {@link summariseAuthStatus}, and refuses when: the read returned nothing
+ * readable; the summary's `loggedIn` is not `true`; the summary's `authMethod` is not in
+ * {@link ACCEPTED_AUTH_METHODS}; or the summary's `configDirectory` does not match `configDir`
+ * (meaning the backend resolved a DIFFERENT directory than the one this harness asserted isolated).
+ *
+ * Called BEFORE the sidecar is spawned — a refusal here costs no process, no deadline and no
+ * credential. Returns the summary on success, held by the caller for Task 3's evidence recording.
+ */
+export function assertBackendAuthenticated({ env, configDir, readAuthStatus = readClaudeAuthStatus }) {
+  const raw = readAuthStatus({ env });
+  if (raw === null || raw === undefined) {
+    throw new Error(
+      `${HARNESS_PRECONDITION_PREFIX} the backend's own auth-status read returned nothing readable ` +
+        `while resolving configuration directory ${configDir} — refusing to spawn without a ` +
+        "confirmed authentication state.",
+    );
+  }
+  const summary = summariseAuthStatus(raw);
+  if (summary.loggedIn !== true) {
+    throw new Error(
+      `${HARNESS_PRECONDITION_PREFIX} the composed configuration directory ${configDir} presented no ` +
+        "usable credential (loggedIn=false) — check that CREDENTIAL_LINK_ALLOWLIST names an entry " +
+        "actually present in the developer's own Claude Code configuration directory.",
+    );
+  }
+  if (!ACCEPTED_AUTH_METHODS.has(summary.authMethod)) {
+    throw new Error(
+      `${HARNESS_PRECONDITION_PREFIX} the backend authenticated by method "${summary.authMethod}", ` +
+        `which is not in the accepted allow-list (${[...ACCEPTED_AUTH_METHODS].join(", ")}) — refusing ` +
+        "rather than assuming an unrecognised method is acceptable.",
+    );
+  }
+  if (summary.configDirectory !== configDir) {
+    throw new Error(
+      `${HARNESS_PRECONDITION_PREFIX} the backend reported resolving configuration directory ` +
+        `"${summary.configDirectory}", which differs from the composed directory "${configDir}" this ` +
+        "harness asserted isolated — refusing rather than trusting a directory nobody asserted.",
+    );
+  }
+  return summary;
+}
+
 /** The cadence the production supervisor touches the heartbeat at, mirroring
  * `runtime_protocol::HEARTBEAT_INTERVAL_MS`. Kept as a literal for the same reason `watchdog.ts`
  * keeps its own fallback literals: this file has no dependency on the Rust crate. */

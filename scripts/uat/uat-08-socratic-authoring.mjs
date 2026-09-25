@@ -36,7 +36,10 @@ import path from "node:path";
 
 import {
   accumulateTurn,
+  ACCEPTED_AUTH_METHODS,
+  API_KEY_ENV_VARS,
   assertAllHeldRequestsAnswered,
+  assertBackendAuthenticated,
   assertClaudeConfigIsolated,
   BACKEND_REFUSAL_KIND,
   BACKEND_REFUSAL_PREFIX,
@@ -55,9 +58,11 @@ import {
   REPO_ROOT,
   resolveHarnessBinary,
   runScript,
+  scrubApiKeyEnv,
   SidecarClient,
   skip,
   step,
+  summariseAuthStatus,
 } from "./lib/sidecar-harness.mjs";
 import { DEFAULT_SCENARIO, SCENARIOS, SCENARIO_ENV_VAR } from "./lib/fake-authoring-claude.mjs";
 
@@ -2533,6 +2538,111 @@ async function selfTest() {
     },
   );
 
+  // ---- Task 2: scrubApiKeyEnv / summariseAuthStatus / assertBackendAuthenticated ---------------
+
+  check(
+    "[Plan 05-33, Task 2] a logged-in, subscription-method auth-status payload returns a summary and does not throw",
+    () => {
+      const summary = assertBackendAuthenticated({
+        env: {},
+        configDir: "/scratch/claude-config",
+        readAuthStatus: () => ({ loggedIn: true, authMethod: "claude.ai", configDirectory: "/scratch/claude-config" }),
+      });
+      assert.deepEqual(summary, { loggedIn: true, authMethod: "claude.ai", configDirectory: "/scratch/claude-config" });
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 2] a not-logged-in payload throws, naming the resolved configuration directory and stating no credential was presented",
+    () => {
+      assert.throws(
+        () =>
+          assertBackendAuthenticated({
+            env: {},
+            configDir: "/scratch/claude-config",
+            readAuthStatus: () => ({ loggedIn: false, authMethod: "none", configDirectory: "/scratch/claude-config" }),
+          }),
+        (err) =>
+          err.message.startsWith(HARNESS_PRECONDITION_PREFIX) &&
+          err.message.includes("/scratch/claude-config") &&
+          err.message.includes("no usable credential"),
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 2] a payload logged in by an unrecognised method throws, reporting the observed method verbatim",
+    () => {
+      assert.throws(
+        () =>
+          assertBackendAuthenticated({
+            env: {},
+            configDir: "/scratch/claude-config",
+            readAuthStatus: () => ({ loggedIn: true, authMethod: "api-key", configDirectory: "/scratch/claude-config" }),
+          }),
+        (err) => err.message.includes("api-key"),
+      );
+      assert.ok(!ACCEPTED_AUTH_METHODS.has("api-key"));
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 2] a payload reporting a different configuration directory than the one composed throws",
+    () => {
+      assert.throws(() =>
+        assertBackendAuthenticated({
+          env: {},
+          configDir: "/scratch/claude-config",
+          readAuthStatus: () => ({ loggedIn: true, authMethod: "claude.ai", configDirectory: "/some/other/dir" }),
+        }),
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 2] the returned summary carries exactly loggedIn, authMethod and configDirectory — identity fields are dropped at the boundary",
+    () => {
+      const payloadWithIdentity = {
+        loggedIn: true,
+        authMethod: "claude.ai",
+        configDirectory: "/scratch/claude-config",
+        email: "dev@example.com",
+        orgId: "org_ABC123",
+        orgName: "Acme Corp",
+      };
+      const summary = summariseAuthStatus(payloadWithIdentity);
+      assert.equal(Object.keys(summary).length, 3);
+      assert.deepEqual(new Set(Object.keys(summary)), new Set(["loggedIn", "authMethod", "configDirectory"]));
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 2] a null reader result throws rather than defaulting to either outcome",
+    () => {
+      assert.throws(
+        () =>
+          assertBackendAuthenticated({
+            env: {},
+            configDir: "/scratch/claude-config",
+            readAuthStatus: () => null,
+          }),
+        (err) => err.message.startsWith(HARNESS_PRECONDITION_PREFIX),
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 2] scrubApiKeyEnv removes every API-key env var and reports which names were removed",
+    () => {
+      const env = { ANTHROPIC_API_KEY: "sk-synthetic", ANTHROPIC_AUTH_TOKEN: "tok-synthetic", UNRELATED: "keep-me" };
+      const removed = scrubApiKeyEnv(env);
+      assert.deepEqual(new Set(removed), new Set(API_KEY_ENV_VARS));
+      assert.ok(!Object.prototype.hasOwnProperty.call(env, "ANTHROPIC_API_KEY"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(env, "ANTHROPIC_AUTH_TOKEN"));
+      assert.equal(env.UNRELATED, "keep-me");
+    },
+  );
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -4147,6 +4257,24 @@ await runScript(
         `entr${harness.lastComposedClaudeConfig.linkedEntries.length === 1 ? "y" : "ies"} by reference ` +
         "(plan 05-33, gap G-05-6)",
     );
+
+    // Plan 05-33 (Task 2, gap G-05-6): scrub before spawn, refuse before spawn — BOTH before the
+    // sidecar itself exists, so a refusal here costs no process, no deadline and no credential.
+    // This is the direct countermeasure to validation ledger row `05-22-03`, whose credential path
+    // was never recorded: from here on, the path this run took is either the developer's own
+    // subscription login or a named, up-front refusal — never a silent API-key fallback.
+    const removedApiKeyVars = scrubApiKeyEnv(env);
+    step(
+      removedApiKeyVars.length > 0
+        ? `scrubbed ${removedApiKeyVars.length} API-key env var(s) from the spawn environment: ` +
+            `${removedApiKeyVars.join(", ")}`
+        : "no API-key env var was present in the spawn environment to scrub",
+    );
+    const credentialSummary = assertBackendAuthenticated({
+      env,
+      configDir: harness.lastComposedClaudeConfig.configDir,
+    });
+    step(`backend authenticated as the developer: method=${credentialSummary.authMethod} loggedIn=${credentialSummary.loggedIn}`);
 
     const opsHarnessBin = resolveHarnessBinary("uat_session_env");
     if (opsHarnessBin === undefined) {
