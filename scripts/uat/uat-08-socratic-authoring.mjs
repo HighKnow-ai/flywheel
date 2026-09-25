@@ -31,16 +31,22 @@
 import assert from "node:assert/strict";
 import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import {
   accumulateTurn,
   assertAllHeldRequestsAnswered,
+  assertClaudeConfigIsolated,
   BACKEND_REFUSAL_KIND,
   BACKEND_REFUSAL_PREFIX,
+  BEHAVIOURAL_CONFIG_DENYLIST,
+  composeIsolatedClaudeConfigDir,
   createPermissionAnswerHandler,
+  CREDENTIAL_LINK_ALLOWLIST,
   drainIncidentalPermissionRequests,
   drainInboundCoreRequests,
+  HARNESS_PRECONDITION_PREFIX,
   HEARTBEAT_TICK_MS,
   HELD_INBOUND_REQUEST_TYPES,
   LIVE_TURN_IDLE_MS,
@@ -2385,6 +2391,148 @@ async function selfTest() {
     },
   );
 
+  // -----------------------------------------------------------------------------------------
+  // Plan 05-33 (gap G-05-6) — separating config isolation from credential availability. All
+  // offline: every check builds its own synthetic directory under a temp root (never touching
+  // PERSONAL_CLAUDE_CONFIG_DIR) and injects its own auth-status payload (never calling the real
+  // `claude` binary). Zero credentials spent, no live arm executed.
+  // -----------------------------------------------------------------------------------------
+
+  /** Build a fresh temp directory, hand it to `fn`, and remove it afterward regardless of outcome
+   * — the same disposable-scratch-root idiom every check in this section uses. */
+  function withTempDir(fn) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-uat-plan33-"));
+    try {
+      return fn(root);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  // ---- Task 1: composeIsolatedClaudeConfigDir / assertClaudeConfigIsolated's directory checks --
+
+  check(
+    "[Plan 05-33, Task 1] composing from a source with a credential entry produces a directory containing ONLY a link to it — behavioural entries are absent",
+    () => {
+      withTempDir((root) => {
+        const source = path.join(root, "source");
+        fs.mkdirSync(source, { recursive: true });
+        fs.writeFileSync(path.join(source, CREDENTIAL_LINK_ALLOWLIST[0]), "synthetic-credential-bytes");
+        fs.writeFileSync(path.join(source, "settings.json"), "{}");
+        fs.mkdirSync(path.join(source, "skills"), { recursive: true });
+
+        const target = path.join(root, "target");
+        const composition = composeIsolatedClaudeConfigDir({ sourceConfigDir: source, targetConfigDir: target });
+
+        assert.deepEqual(composition.linkedEntries, [CREDENTIAL_LINK_ALLOWLIST[0]]);
+        const entries = fs.readdirSync(target);
+        assert.deepEqual(entries, [CREDENTIAL_LINK_ALLOWLIST[0]]);
+        for (const denied of BEHAVIOURAL_CONFIG_DENYLIST) {
+          assert.ok(!entries.includes(denied), `expected ${denied} to be absent from the composed directory`);
+        }
+      });
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 1] composing from a source with NO credential entry throws, naming the source directory",
+    () => {
+      withTempDir((root) => {
+        const source = path.join(root, "source-empty");
+        fs.mkdirSync(source, { recursive: true });
+        const target = path.join(root, "target-empty");
+        assert.throws(
+          () => composeIsolatedClaudeConfigDir({ sourceConfigDir: source, targetConfigDir: target }),
+          (err) => err.message.startsWith(HARNESS_PRECONDITION_PREFIX) && err.message.includes(source),
+        );
+      });
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 1] the linked credential entry is a symbolic link, never a regular file, proven by lstat",
+    () => {
+      withTempDir((root) => {
+        const source = path.join(root, "source");
+        fs.mkdirSync(source, { recursive: true });
+        fs.writeFileSync(path.join(source, CREDENTIAL_LINK_ALLOWLIST[0]), "synthetic-credential-bytes");
+        const target = path.join(root, "target");
+        composeIsolatedClaudeConfigDir({ sourceConfigDir: source, targetConfigDir: target });
+        const lstat = fs.lstatSync(path.join(target, CREDENTIAL_LINK_ALLOWLIST[0]));
+        assert.equal(lstat.isSymbolicLink(), true);
+      });
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 1] a planted behavioural entry in the composed directory makes assertClaudeConfigIsolated throw, naming that entry",
+    () => {
+      withTempDir((root) => {
+        const source = path.join(root, "source");
+        fs.mkdirSync(source, { recursive: true });
+        fs.writeFileSync(path.join(source, CREDENTIAL_LINK_ALLOWLIST[0]), "synthetic-credential-bytes");
+        const target = path.join(root, "target");
+        composeIsolatedClaudeConfigDir({ sourceConfigDir: source, targetConfigDir: target });
+        fs.writeFileSync(path.join(target, "settings.json"), "{}");
+        assert.throws(
+          () => assertClaudeConfigIsolated({ CLAUDE_CONFIG_DIR: target }, { configDir: target }),
+          (err) => err.message.includes("settings.json"),
+        );
+      });
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 1] an extra, non-allow-listed symbolic link planted in the composed directory makes assertClaudeConfigIsolated throw",
+    () => {
+      withTempDir((root) => {
+        const source = path.join(root, "source");
+        fs.mkdirSync(source, { recursive: true });
+        fs.writeFileSync(path.join(source, CREDENTIAL_LINK_ALLOWLIST[0]), "synthetic-credential-bytes");
+        const target = path.join(root, "target");
+        composeIsolatedClaudeConfigDir({ sourceConfigDir: source, targetConfigDir: target });
+        const strayTarget = path.join(root, "stray-file");
+        fs.writeFileSync(strayTarget, "not a credential");
+        fs.symlinkSync(strayTarget, path.join(target, "not-allow-listed"));
+        assert.throws(
+          () => assertClaudeConfigIsolated({ CLAUDE_CONFIG_DIR: target }, { configDir: target }),
+          (err) => err.message.includes("not-allow-listed"),
+        );
+      });
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 1] assertClaudeConfigIsolated still throws when CLAUDE_CONFIG_DIR is absent from the env map, and still throws when an unrelated env value reaches the personal config directory — both existing guarantees survive unchanged",
+    () => {
+      assert.throws(() => assertClaudeConfigIsolated({}));
+      assert.throws(() =>
+        assertClaudeConfigIsolated({
+          CLAUDE_CONFIG_DIR: "/tmp/some-scratch-dir",
+          SOME_OTHER_VAR: path.join(os.homedir(), ".claude", "settings.json"),
+        }),
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 1] entries the backend creates for itself inside the scratch root (projects, sessions, backups, a dot-file) do not trip the assertion",
+    () => {
+      withTempDir((root) => {
+        const source = path.join(root, "source");
+        fs.mkdirSync(source, { recursive: true });
+        fs.writeFileSync(path.join(source, CREDENTIAL_LINK_ALLOWLIST[0]), "synthetic-credential-bytes");
+        const target = path.join(root, "target");
+        composeIsolatedClaudeConfigDir({ sourceConfigDir: source, targetConfigDir: target });
+        fs.mkdirSync(path.join(target, "projects"), { recursive: true });
+        fs.mkdirSync(path.join(target, "sessions"), { recursive: true });
+        fs.mkdirSync(path.join(target, "backups"), { recursive: true });
+        fs.writeFileSync(path.join(target, ".claude.json"), "{}");
+        assert.doesNotThrow(() => assertClaudeConfigIsolated({ CLAUDE_CONFIG_DIR: target }, { configDir: target }));
+      });
+    },
+  );
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -3993,6 +4141,12 @@ await runScript(
     const runId = run1.runId;
     const env = harness.sessionEnv(runId, "main");
     Object.assign(env, harness.cleanClaudeConfigEnv());
+    step(
+      `composed isolated Claude config directory at ${harness.lastComposedClaudeConfig.configDir} — ` +
+        `linked ${harness.lastComposedClaudeConfig.linkedEntries.length} credential ` +
+        `entr${harness.lastComposedClaudeConfig.linkedEntries.length === 1 ? "y" : "ies"} by reference ` +
+        "(plan 05-33, gap G-05-6)",
+    );
 
     const opsHarnessBin = resolveHarnessBinary("uat_session_env");
     if (opsHarnessBin === undefined) {

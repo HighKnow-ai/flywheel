@@ -33,11 +33,121 @@ export const SIDECAR_ENTRY = path.join(REPO_ROOT, "packages", "sidecar", "dist",
 export const PERSONAL_CLAUDE_CONFIG_DIR = path.join(os.homedir(), ".claude");
 
 /**
+ * The prefix every precondition-failure message in this harness family opens with — distinct from
+ * an assertion failure raised INSIDE a run, so an operator scanning script output can tell "this
+ * run correctly refused to start" apart from "something broke mid-run" at a glance. Both
+ * {@link composeIsolatedClaudeConfigDir}'s empty-link-set error and
+ * {@link assertBackendAuthenticated}'s refusal messages (plan 05-33) open with this exact string.
+ */
+export const HARNESS_PRECONDITION_PREFIX = "HARNESS PRECONDITION FAILED:";
+
+/**
+ * The ALLOW-list of entries that may be linked, by reference, from the developer's personal Claude
+ * Code configuration directory into a composed, isolated one. Anything not named here is denied BY
+ * CONSTRUCTION — {@link composeIsolatedClaudeConfigDir} only ever iterates this list, so a future
+ * behavioural entry never becomes linkable by omission from a separate deny-list.
+ *
+ * Exactly one entry today: the dot-credentials JSON file Claude Code stores the claude.ai OAuth
+ * token in. Measured directly (plan 05-33's own `measured_ground_truth` item 3): a scratch
+ * `CLAUDE_CONFIG_DIR` containing ONLY a symbolic link named `.credentials.json`, pointing at the
+ * developer's own file, reports `claude auth status` as logged in via `claude.ai` — the credential
+ * is presented, and nothing else in the directory resolves to the developer's own configuration.
+ * Kept as an array, not a scalar, so a future measurement that finds a second credential entry
+ * extends DATA rather than control flow.
+ */
+export const CREDENTIAL_LINK_ALLOWLIST = Object.freeze([".credentials.json"]);
+
+/**
+ * The entry names that constitute the developer's personal BEHAVIOURAL configuration surface — the
+ * user-memory markdown file, the settings JSON and its local sibling, and the skills, agents,
+ * commands, hooks, plugins and output-styles directories. None of these may ever appear inside a
+ * composed, isolated configuration directory.
+ *
+ * This list is defense in depth BESIDE {@link CREDENTIAL_LINK_ALLOWLIST}, not instead of it: the
+ * allow-list already denies every one of these entries by omission (composition only ever links
+ * names on the allow-list). This list exists so a leak — a future change that composes from a full
+ * copy, or plants an entry directly — becomes a NAMED failure naming the offending entry, instead
+ * of a silent structural one nobody notices until a SHAPE judgement is contaminated.
+ */
+export const BEHAVIOURAL_CONFIG_DENYLIST = Object.freeze([
+  "CLAUDE.md",
+  "settings.json",
+  "settings.local.json",
+  "skills",
+  "agents",
+  "commands",
+  "hooks",
+  "plugins",
+  "output-styles",
+]);
+
+/** True when SOMETHING exists at `candidatePath` — a regular file, a directory, or a symbolic
+ * link, broken or not. Deliberately `lstatSync`, never `existsSync`/`statSync`: those FOLLOW a
+ * symbolic link and report `false` for a broken one, which would let
+ * {@link composeIsolatedClaudeConfigDir} attempt a second `symlinkSync` at a path that already has
+ * a filesystem entry and crash with a raw `EEXIST` instead of composing idempotently. */
+function fsEntryExists(candidatePath) {
+  try {
+    fs.lstatSync(candidatePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Compose an isolated Claude Code configuration directory at `targetConfigDir` that presents the
+ * developer's own credential BY REFERENCE — a symbolic link, never a copy — and contains none of
+ * the developer's behavioural configuration.
+ *
+ * For each name in {@link CREDENTIAL_LINK_ALLOWLIST} that exists in `sourceConfigDir`, creates a
+ * symbolic link of the same name inside `targetConfigDir` pointing at the source entry (skipping
+ * creation, idempotently, when a filesystem entry of that name already exists at the target —
+ * `cleanClaudeConfigEnv()`'s durable-override path may call this repeatedly against the same
+ * directory across runs). References only: no byte of the credential is ever read into this
+ * process or written anywhere by this function.
+ *
+ * Throws an error prefixed with {@link HARNESS_PRECONDITION_PREFIX} when zero entries were linked
+ * — a composed directory presenting no credential is exactly the unreachable state gap G-05-6
+ * exists to close, and it must be reported at composition time, not discovered 33 characters into
+ * an agent turn that never authenticated.
+ *
+ * `sourceConfigDir` defaults to {@link PERSONAL_CLAUDE_CONFIG_DIR}. The parameter exists so
+ * `--self-test` drives this REAL function against a synthetic source directory it built itself —
+ * never against the developer's own.
+ *
+ * Returns `{ configDir, linkedEntries, sourceConfigDir }` — `linkedEntries` is the array of names
+ * actually present (linked this call, or already linked from a prior call) at `targetConfigDir`.
+ */
+export function composeIsolatedClaudeConfigDir({ sourceConfigDir = PERSONAL_CLAUDE_CONFIG_DIR, targetConfigDir }) {
+  fs.mkdirSync(targetConfigDir, { recursive: true });
+  const linkedEntries = [];
+  for (const entry of CREDENTIAL_LINK_ALLOWLIST) {
+    const sourcePath = path.join(sourceConfigDir, entry);
+    if (!fs.existsSync(sourcePath)) continue;
+    const targetPath = path.join(targetConfigDir, entry);
+    if (!fsEntryExists(targetPath)) {
+      fs.symlinkSync(sourcePath, targetPath);
+    }
+    linkedEntries.push(entry);
+  }
+  if (linkedEntries.length === 0) {
+    throw new Error(
+      `${HARNESS_PRECONDITION_PREFIX} composeIsolatedClaudeConfigDir linked zero credential entries ` +
+        `from ${sourceConfigDir} — every name in CREDENTIAL_LINK_ALLOWLIST ` +
+        `(${CREDENTIAL_LINK_ALLOWLIST.join(", ")}) was absent from that directory, so the composed ` +
+        "directory would present no usable credential.",
+    );
+  }
+  return { configDir: targetConfigDir, linkedEntries, sourceConfigDir };
+}
+
+/**
  * Assert, at runtime and THROWING on violation, that a resolved spawn environment cannot reach
  * the developer's personal Claude Code configuration — the isolation `must_haves.truths` requires
  * "asserted by the harness rather than described in a comment" (plan 03-20).
  *
- * Two independent checks, both required:
+ * Two independent checks, always run, both required:
  * 1. `CLAUDE_CONFIG_DIR` is PRESENT and non-empty. Its absence is exactly as dangerous as a bad
  *    value: `claude` silently falls back to the real `~/.claude` by default when the variable is
  *    unset at all, so a merge-order bug that drops the key would otherwise leak nothing an
@@ -45,8 +155,22 @@ export const PERSONAL_CLAUDE_CONFIG_DIR = path.join(os.homedir(), ".claude");
  * 2. No value anywhere in `env` equals or starts with {@link PERSONAL_CLAUDE_CONFIG_DIR} —
  *    defense in depth beyond the `CLAUDE_CONFIG_DIR` key alone, since a caller can merge in other
  *    env after `cleanClaudeConfigEnv()` returns.
+ *
+ * When the optional second argument's `configDir` is supplied (plan 05-33, Task 1), three FURTHER
+ * directory-content checks run against the composed directory itself, each throwing with the
+ * offending entry named:
+ * 3. No entry in {@link BEHAVIOURAL_CONFIG_DENYLIST} is present in `configDir`.
+ * 4. Every symbolic link present in `configDir` is named in {@link CREDENTIAL_LINK_ALLOWLIST} —
+ *    nothing other than the credential may be linked through.
+ * 5. Every allow-listed entry present in `configDir` IS a symbolic link, via `lstat` (never a
+ *    regular file — a regular file there means the credential was duplicated, not referenced).
+ *
+ * Entries the backend creates for itself inside the scratch root (`projects`, `sessions`,
+ * `backups`, the backend's own dot-file) are ordinary directories/files, named in neither list —
+ * they pass all three content checks untouched, which is the intended behaviour (plan 05-33's own
+ * `measured_ground_truth` item 5).
  */
-export function assertClaudeConfigIsolated(env) {
+export function assertClaudeConfigIsolated(env, { configDir } = {}) {
   assert.ok(
     typeof env.CLAUDE_CONFIG_DIR === "string" && env.CLAUDE_CONFIG_DIR.length > 0,
     "HARNESS FAILURE: CLAUDE_CONFIG_DIR is missing (or empty) from the resolved spawn " +
@@ -59,6 +183,45 @@ export function assertClaudeConfigIsolated(env) {
       value !== PERSONAL_CLAUDE_CONFIG_DIR && !value.startsWith(`${PERSONAL_CLAUDE_CONFIG_DIR}${path.sep}`),
       `HARNESS FAILURE: spawn environment key "${key}" points at the developer's personal Claude ` +
         `config directory (${PERSONAL_CLAUDE_CONFIG_DIR}): ${value}`,
+    );
+  }
+
+  if (configDir === undefined) return;
+
+  let entries;
+  try {
+    entries = fs.readdirSync(configDir);
+  } catch {
+    entries = [];
+  }
+
+  for (const denied of BEHAVIOURAL_CONFIG_DENYLIST) {
+    assert.ok(
+      !entries.includes(denied),
+      `HARNESS FAILURE: composed Claude config directory ${configDir} contains the deny-listed ` +
+        `behavioural entry "${denied}" — the developer's personal configuration must never reach a ` +
+        "config-isolated session under test.",
+    );
+  }
+
+  for (const entry of entries) {
+    const lstat = fs.lstatSync(path.join(configDir, entry));
+    if (!lstat.isSymbolicLink()) continue;
+    assert.ok(
+      CREDENTIAL_LINK_ALLOWLIST.includes(entry),
+      `HARNESS FAILURE: composed Claude config directory ${configDir} contains a symbolic link ` +
+        `"${entry}" that is not in CREDENTIAL_LINK_ALLOWLIST — nothing other than the credential may ` +
+        "be linked through.",
+    );
+  }
+
+  for (const allowed of CREDENTIAL_LINK_ALLOWLIST) {
+    if (!entries.includes(allowed)) continue;
+    const lstat = fs.lstatSync(path.join(configDir, allowed));
+    assert.ok(
+      lstat.isSymbolicLink(),
+      `HARNESS FAILURE: composed Claude config directory ${configDir} contains "${allowed}" as a ` +
+        "regular file, not a symbolic link — the credential must be referenced, never duplicated.",
     );
   }
 }
@@ -215,34 +378,46 @@ export class Harness {
   }
 
   /**
-   * Resolve the `CLAUDE_CONFIG_DIR` a config-isolated live run spawns Claude Code against, and
-   * ASSERT (throwing on violation, via {@link assertClaudeConfigIsolated}) that the resolved value
-   * cannot reach the developer's personal Claude Code configuration.
+   * Resolve the `CLAUDE_CONFIG_DIR` a config-isolated live run spawns Claude Code against, compose
+   * it (via {@link composeIsolatedClaudeConfigDir}) so it presents the developer's own credential
+   * by reference, and ASSERT (throwing on violation, via {@link assertClaudeConfigIsolated}) both
+   * that the resolved value cannot reach the developer's personal Claude Code configuration AND
+   * that the composed directory's own contents carry nothing behavioural.
    *
    * Honors `FLYWHEEL_UAT_CLAUDE_CONFIG_DIR` as a DURABLE override — a directory a human has
-   * already staged, outside this process, with a real login copied into it — and falls back to a
-   * fresh scratch directory under `this.root` when unset. This harness NEVER copies, moves, reads
-   * or writes `.credentials.json` itself; the override exists so a human can stage that file once,
-   * by hand, and every run points at the directory by reference instead.
+   * already staged, outside this process — and falls back to a fresh scratch directory under
+   * `this.root` when unset. This harness NEVER copies, moves, reads or writes the contents of any
+   * entry in {@link CREDENTIAL_LINK_ALLOWLIST} itself; it links by reference only. The durable
+   * override gets the SAME content assertions as a fresh scratch directory: a human who staged a
+   * full copy of their configuration directory (rather than letting this method compose it) fails
+   * loudly, because that full copy is precisely the leak the isolation exists to prevent.
    *
    * WHY `CLAUDE_CONFIG_DIR` and not `HOME`: plan 03-19 measured that overriding `HOME` breaks
    * `claude`'s own resolution — it resolves through a `mise` shim keyed off the REAL `$HOME` and
    * fails with a config-trust error, so `HOME` isolation produced a DIFFERENT failure rather than
    * a clean room.
    *
-   * MEASURED (plan 03-20 Task 2, corrects this comment's own earlier claim): `CLAUDE_CONFIG_DIR`
-   * isolates Claude Code's settings, hooks, plugins and MCP server registrations — AND
-   * authentication. A brand-new scratch `CLAUDE_CONFIG_DIR` reports `claude auth status` as
-   * `{"loggedIn": false}`, confirmed live: `CLAUDE_CONFIG_DIR=<scratch> claude auth status` versus
-   * the same command with the variable unset. This is why the override exists at all — without a
-   * pre-authenticated durable directory, a config-isolated live session cannot authenticate.
+   * CORRECTED (plan 05-33, gap G-05-6 — this paragraph previously claimed the opposite): config
+   * isolation and credential availability are SEPARATE concerns, not one switch. Plan 03-20
+   * measured that a brand-new, EMPTY scratch `CLAUDE_CONFIG_DIR` reports `claude auth status` as
+   * logged out — but plan 05-33 measured further (its own `measured_ground_truth` item 3) that a
+   * scratch directory containing ONE symbolic link named `.credentials.json`, pointing at the
+   * developer's own file, reports logged in via `claude.ai` while every other entry still resolves
+   * against the scratch directory. {@link composeIsolatedClaudeConfigDir} and
+   * {@link CREDENTIAL_LINK_ALLOWLIST} are that mechanism: a config-isolated session can
+   * authenticate as the developer with NO durable override and NO pre-staged directory required.
+   *
+   * Records the full composition result on `this.lastComposedClaudeConfig` (never merged into the
+   * returned env map — `linkedEntries`/`sourceConfigDir` are not environment variables) so a caller
+   * can report the linked-entry count without this method's own return shape changing.
    */
   cleanClaudeConfigEnv() {
     const override = process.env.FLYWHEEL_UAT_CLAUDE_CONFIG_DIR;
     const configDir = override ?? path.join(this.root, "claude-config");
-    fs.mkdirSync(configDir, { recursive: true });
-    const result = { CLAUDE_CONFIG_DIR: configDir };
-    assertClaudeConfigIsolated(result);
+    const composition = composeIsolatedClaudeConfigDir({ targetConfigDir: configDir });
+    const result = { CLAUDE_CONFIG_DIR: composition.configDir };
+    assertClaudeConfigIsolated(result, { configDir: composition.configDir });
+    this.lastComposedClaudeConfig = composition;
     return result;
   }
 
