@@ -571,6 +571,40 @@ export const SCENARIOS = {
       terminal_reason: UNAUTHENTICATED_RESULT_LINE.terminal_reason,
     },
   },
+
+  // Plan 05-36 (Task 1, gap G-05-7): reproduces the EXACT mechanism that destroyed live run
+  // `01M3C48C3PV1NSGHERBZ587YB1` — a turn wait that exceeds its own wall-clock deadline. `emitTurn`
+  // ALWAYS writes a `result` line after a turn's blocks (see this file's own module doc comment),
+  // so the ONLY way a scenario can outlive a deadline is a block carrying a `delayMs` longer than
+  // the deadline the harness passes. An outstanding tool call is what makes the wall clock the ONLY
+  // backstop: WR-04's own idle policy (`scripts/uat/lib/sidecar-harness.mjs::waitForTurn`) stands
+  // the idle window down entirely while a tool call has no matching `tool_result` — which is
+  // precisely why the real run died on the wall clock with the idle guard never having a chance to
+  // fire. This scenario's own `tool_use` block therefore carries an id that nothing, in this turn
+  // or any other, ever answers. The final text block's `delayMs` is comfortably longer than
+  // `REPLAY_THROWN_DEADLINE_MS` (`uat-08-socratic-authoring.mjs`) and must never actually be
+  // observed by the harness — the wall-clock deadline fires first, exactly as it did live.
+  "turn-deadline-exceeded": {
+    turns: [
+      [
+        { type: "text", text: "Let me get oriented before shaping this." },
+        {
+          type: "tool_use",
+          name: "Bash",
+          id: "toolu_turn_deadline_never_answered",
+          input: { command: "git status --short && ls" },
+        },
+        {
+          type: "text",
+          text: "Still thinking this through — one more thing before I ask you anything.",
+          delayMs: 4_000,
+        },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "This fallback turn must never be reached — the deadline fires before it." },
+    ],
+  },
 };
 
 /** The scenario `--replay-check` drives by default — the exact reproduction of the truncation

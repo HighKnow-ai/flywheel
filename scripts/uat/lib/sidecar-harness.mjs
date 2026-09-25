@@ -943,6 +943,33 @@ export const LIVE_TURN_IDLE_MS = 30_000;
 export const DRAIN_POLL_MS = 5_000;
 
 /**
+ * Plan 05-36 (gap G-05-7): thrown by {@link SidecarClient.waitForTurn}'s `fail()` closure when a
+ * turn's wall-clock deadline (`timeoutMs`) elapses before the backend's own end-of-turn signal
+ * arrives. Carries the SAME structured object `fail()` already computed — `partial` (the exact
+ * `accumulateTurn` result), `label`, `timeoutMs`, `unanswered` (the held inbound requests array)
+ * and `pendingToolCalls` (the tool-name array the message text already lists) — as OWN properties
+ * on the error, not only inside a stringified message. A partial capture that exists only inside a
+ * message string is a partial capture that cannot be written to an evidence sheet, which is
+ * exactly what destroyed live run `01M3C48C3PV1NSGHERBZ587YB1`: it captured 539 characters of real
+ * agent speech across 2 chunks, and every downstream evidence write sat behind the throw this
+ * class now carries data through instead of just prose.
+ *
+ * The message string itself is UNCHANGED, character for character, from what a bare `Error` used
+ * to carry — existing assertions on that text (and the committed failure log) depend on it.
+ */
+export class TurnDeadlineError extends Error {
+  constructor(message, { partial, label, timeoutMs, unanswered, pendingToolCalls } = {}) {
+    super(message);
+    this.name = "TurnDeadlineError";
+    this.partial = partial;
+    this.label = label;
+    this.timeoutMs = timeoutMs;
+    this.unanswered = unanswered;
+    this.pendingToolCalls = pendingToolCalls;
+  }
+}
+
+/**
  * A live sidecar process, with the request/ack correlation and event fan-out its stdio protocol
  * implies. One instance drives one sidecar; a sidecar drives many runs.
  */
@@ -1191,21 +1218,28 @@ export class SidecarClient {
         // assumption `accumulateTurn` itself uses) so a genuine hang is diagnosable from the error
         // alone, beside the existing captured-chunk/character clause and the unanswered-held-
         // request clause above.
+        const pendingToolCalls =
+          partial.pendingToolCallCount > 0
+            ? partial.toolCalls
+                .slice(partial.toolCalls.length - partial.pendingToolCallCount)
+                .map((call) => call.toolName)
+            : [];
         const pendingToolCallsClause =
           partial.pendingToolCallCount > 0
             ? ` OUTSTANDING TOOL CALL(S) (likely cause of this timeout): ` +
               `${partial.pendingToolCallCount} — ` +
-              `${JSON.stringify(
-                partial.toolCalls
-                  .slice(partial.toolCalls.length - partial.pendingToolCallCount)
-                  .map((call) => call.toolName),
-              )}.`
+              `${JSON.stringify(pendingToolCalls)}.`
             : "";
+        // Plan 05-36 (gap G-05-7): the message text below is BYTE-IDENTICAL to what a bare `Error`
+        // used to carry — only the class and its own structured properties are new. `partial` is
+        // the exact object this closure already computed above, now attached to the error itself
+        // rather than existing only inside this string.
         reject(
-          new Error(
+          new TurnDeadlineError(
             `timed out after ${timeoutMs}ms waiting for ${label}. captured so far: ` +
               `${partial.chunkCount} chunk(s), ${partial.charCount} character(s). events so far: ` +
               `${JSON.stringify(this.events.map((e) => e.type))}.${unansweredClause}${pendingToolCallsClause}`,
+            { partial, label, timeoutMs, unanswered, pendingToolCalls },
           ),
         );
       };

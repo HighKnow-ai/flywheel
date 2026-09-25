@@ -33,6 +33,7 @@ import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 
 import {
   accumulateTurn,
@@ -65,6 +66,7 @@ import {
   skip,
   step,
   summariseAuthStatus,
+  TurnDeadlineError,
 } from "./lib/sidecar-harness.mjs";
 import { DEFAULT_SCENARIO, SCENARIOS, SCENARIO_ENV_VAR } from "./lib/fake-authoring-claude.mjs";
 
@@ -278,6 +280,13 @@ const EVIDENCE_FILE_NAME = "05-LIVE-CHALLENGE-TRANSCRIPT.md";
  *   synthetic sheets that must not drift. Never carries an email address, an organisation id or an
  *   organisation name — `summariseAuthStatus` already makes that structurally impossible before
  *   this function ever sees the object; this is the second fence, not the first.
+ * - `failure` (plan 05-36, gap G-05-7) — the `Error` (or `TurnDeadlineError`/
+ *   `ConversationAbortedError`) that ended the run, when the run ended in one. Rendered
+ *   immediately AFTER the drafted-criteria section and BEFORE the non-conversation section (the
+ *   verdict section stays last) — its own class name, message, and the FIRST stack frame only,
+ *   never the whole stack, which would put absolute developer paths into a committed file.
+ *   Optional; `null`/absent renders BYTE-IDENTICALLY to omitting the field entirely, the same
+ *   discipline every other optional section here already follows.
  */
 function renderChallengeEvidenceSheet(evidence) {
   const {
@@ -292,6 +301,7 @@ function renderChallengeEvidenceSheet(evidence) {
     scenario,
     nonConversation = null,
     credentialPath = null,
+    failure = null,
   } = evidence;
 
   const drafted = draftedCriteriaCount ?? 0;
@@ -395,6 +405,24 @@ function renderChallengeEvidenceSheet(evidence) {
       `(${credentialPath.scrubbedCount ?? 0} removed before spawn).\n\n`
     : "";
 
+  // Plan 05-36 (gap G-05-7): rendered immediately AFTER the drafted-criteria section and BEFORE
+  // the non-conversation section — a thrown exception ends the run in EITHER a conversational
+  // state (nonConversation may also be set) or a genuinely unexpected one (a deadline, a bridge
+  // error), and this section is the one place either shows up. Only the class name, message and
+  // FIRST stack frame are rendered — never the whole stack, which would put absolute developer
+  // paths into a committed repository file. Omitted entirely (not even an empty heading) when
+  // `failure` is absent or null, so an unaugmented sheet stays BYTE-IDENTICAL to what this
+  // function rendered before this field existed — the same discipline every other optional
+  // section here already follows.
+  const failureFirstFrame =
+    failure && typeof failure.stack === "string" ? failure.stack.split("\n")[1]?.trim() : undefined;
+  const failureSection = failure
+    ? `## Run failure\n\n` +
+      `This run did not complete. \`${failure.name ?? failure.constructor?.name ?? "Error"}\`: ` +
+      `${failure.message ?? String(failure)}\n\n` +
+      (failureFirstFrame ? `\`\`\`\n${failureFirstFrame}\n\`\`\`\n\n` : "")
+    : "";
+
   return `# Phase 5 — Socratic Epic Authoring — Live Challenge Transcript
 ${syntheticMarkerLine}
 
@@ -423,7 +451,7 @@ ${criterionLines || "(not yet available — populated once the decompose phase c
 - Amended criteria: ${amended}
 - Ratio (amended/drafted): ${amended}/${drafted}
 
-${nonConversationSection}${credentialPathSection}${verdictsSection}`;
+${failureSection}${nonConversationSection}${credentialPathSection}${verdictsSection}`;
 }
 
 /**
@@ -2798,6 +2826,235 @@ async function selfTest() {
     },
   );
 
+  // ---------------------------------------------------------------------------------------------
+  // Plan 05-36 (Task 1, gap G-05-7): one writer, one exit — a thrown exception anywhere in the
+  // live conversation still lands the evidence sheet, carrying what it captured and why it died.
+  // ---------------------------------------------------------------------------------------------
+
+  check(
+    "[Plan 05-36, Task 1] sidecar-harness.mjs exports TurnDeadlineError, and this file exports ConversationAbortedError/writeChallengeEvidence",
+    () => {
+      assert.equal(typeof TurnDeadlineError, "function");
+      assert.equal(typeof ConversationAbortedError, "function");
+      assert.equal(typeof writeChallengeEvidence, "function");
+    },
+  );
+
+  // A minimal fake child — no real process ever spawned, its stdout/stderr never written to — is
+  // enough to construct a REAL SidecarClient and drive its own waitForTurn/fail() path directly,
+  // the same mechanism the live sidecar uses, exercised entirely offline.
+  const turnDeadlineSidecar = new SidecarClient({
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    stdin: { write: () => {} },
+    on: () => {},
+  });
+  turnDeadlineSidecar.events.push(
+    { type: "assistant_text", runId: "stub-run-deadline", text: "partial reply" },
+    { type: "tool_call", runId: "stub-run-deadline", toolName: "Bash", toolUseId: "toolu_1" },
+  );
+  let turnDeadlineError;
+  try {
+    await turnDeadlineSidecar.waitForTurn("stub-run-deadline", 0, {
+      timeoutMs: 10,
+      idleMs: 5,
+      label: "self-test deadline",
+    });
+  } catch (err) {
+    turnDeadlineError = err;
+  }
+
+  check(
+    "[Plan 05-36, Task 1] a rejected turn wait produces a TurnDeadlineError instance carrying a partial object whose chunkCount matches the synthetic events",
+    () => {
+      assert.ok(
+        turnDeadlineError instanceof TurnDeadlineError,
+        `expected a TurnDeadlineError, got ${turnDeadlineError?.constructor?.name}`,
+      );
+      assert.equal(
+        turnDeadlineError.partial.chunkCount,
+        1,
+        "expected the partial capture's chunkCount to match the one synthetic assistant_text event",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-36, Task 1] the TurnDeadlineError message string still begins with the literal 'timed out after ' and still contains the literal 'captured so far: '",
+    () => {
+      assert.ok(turnDeadlineError.message.startsWith("timed out after "));
+      assert.ok(turnDeadlineError.message.includes("captured so far: "));
+    },
+  );
+
+  check(
+    "[Plan 05-36, Task 1] the body of writeChallengeEvidence contains exactly one writeFileSync call",
+    () => {
+      const source = fs.readFileSync(process.argv[1], "utf8");
+      // lastIndexOf, deliberately: this very check's own source text necessarily contains the
+      // declaration string literally (it is a check ABOUT that string), and that occurrence always
+      // sits EARLIER in the file than the real declaration — the real one is the LAST occurrence.
+      const declaration = "export function writeChallengeEvidence(state) {";
+      const start = source.lastIndexOf(declaration);
+      assert.ok(start >= 0, "expected to find writeChallengeEvidence's own declaration");
+      const end = source.indexOf("\n}\n", start);
+      const body = source.slice(start, end);
+      const count = (body.match(/writeFileSync\(/g) ?? []).length;
+      assert.equal(count, 1, `expected exactly one writeFileSync call inside writeChallengeEvidence, found ${count}`);
+    },
+  );
+
+  check(
+    "[Plan 05-36, Task 1] a sheet rendered with the failure field omitted is byte-identical to one rendered with it explicitly null",
+    () => {
+      const withoutField = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+      const withExplicitNull = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, failure: null });
+      assert.equal(withoutField, withExplicitNull);
+    },
+  );
+
+  check(
+    "[Plan 05-36, Task 1] the failure heading's index in a rendered sheet is greater than the drafted-criteria heading's index and lower than the verdict heading's index",
+    () => {
+      const failureError = new Error("stub failure for self-test");
+      const sheet = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, failure: failureError });
+      const draftedIndex = sheet.indexOf("## Draft usefulness (SHAPE-03)");
+      const failureIndex = sheet.indexOf("## Run failure");
+      const verdictIndex = sheet.indexOf("## Verdicts");
+      assert.ok(draftedIndex >= 0 && failureIndex >= 0 && verdictIndex >= 0);
+      assert.ok(failureIndex > draftedIndex, "expected the failure heading after the drafted-criteria heading");
+      assert.ok(failureIndex < verdictIndex, "expected the failure heading before the verdict heading");
+    },
+  );
+
+  check(
+    "[Plan 05-36, Task 1] a state with a null conversation and a failure renders a sheet containing the opening prompt and the failure cause, with no agent exchange and no throw",
+    () => {
+      const scratchPath = path.join(os.tmpdir(), `flywheel-uat08-selftest-null-conv-${Date.now()}-${Math.random()}.md`);
+      try {
+        writeChallengeEvidence({
+          evidencePath: scratchPath,
+          runId: "stub-run-null-conversation",
+          openingPrompt: OPENING_PROMPT,
+          conversation: null,
+          noWorkPlannedReading: "unproven",
+          draftedCriteriaCount: 0,
+          amendedCriteriaCount: 0,
+          results: [],
+          credentialPath: null,
+          nonConversation: null,
+          failure: new Error("stub failure — driver never returned"),
+        });
+        assert.ok(fs.existsSync(scratchPath));
+        const sheet = fs.readFileSync(scratchPath, "utf8");
+        assert.ok(sheet.includes(OPENING_PROMPT), "expected the opening prompt in the sheet");
+        assert.ok(
+          sheet.includes("stub failure — driver never returned"),
+          "expected the failure cause in the sheet",
+        );
+        assert.ok(!/### \d+\. Agent/.test(sheet), "expected no agent exchange heading");
+      } finally {
+        fs.rmSync(scratchPath, { force: true });
+      }
+    },
+  );
+
+  // A stub sidecar whose first waitForTurn resolves normally (one agent turn carrying a question,
+  // so the driver sends a developer reply and loops) then rejects on the second call with a
+  // partial-carrying error — mirroring the shape a real TurnDeadlineError carries.
+  class SelfTestPartialError extends Error {
+    constructor(partial) {
+      super("stub deadline error");
+      this.partial = partial;
+    }
+  }
+  const conversationAbortedStub = {
+    calls: 0,
+    async waitForTurn() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          text: "First reply — what's the audience for this feature?",
+          chunkCount: 1,
+          charCount: 52,
+          endedBy: "result",
+          endIndex: 5,
+          nonConversation: null,
+        };
+      }
+      throw new SelfTestPartialError({
+        text: "partial second reply, cut off mid-turn",
+        chunkCount: 2,
+        charCount: 39,
+        endIndex: 9,
+        nonConversation: null,
+      });
+    },
+    eventCursor() {
+      return 5;
+    },
+  };
+  let conversationAbortedError;
+  try {
+    await driveChallengeConversation({
+      sidecar: conversationAbortedStub,
+      runId: "stub-run-aborted",
+      sendTurn: async () => {},
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 4,
+    });
+  } catch (err) {
+    conversationAbortedError = err;
+  }
+
+  check(
+    "[Plan 05-36, Task 1] a ConversationAbortedError built from an error carrying a two-chunk partial exposes an exchange list whose LAST entry is the recovered agent exchange and whose earlier entries are in their original order",
+    () => {
+      assert.ok(conversationAbortedError instanceof ConversationAbortedError);
+      const exchanges = conversationAbortedError.exchanges;
+      assert.ok(exchanges.length >= 3, `expected at least 3 exchanges, got ${exchanges.length}`);
+      assert.equal(exchanges[0].speaker, "agent");
+      assert.ok(exchanges[0].text.includes("audience"));
+      assert.equal(exchanges[1].speaker, "developer");
+      const last = exchanges[exchanges.length - 1];
+      assert.equal(last.speaker, "agent");
+      assert.equal(last.chunkCount, 2);
+      assert.equal(last.endedBy, "turn-deadline");
+      assert.ok(last.text.includes("partial second reply"));
+    },
+  );
+
+  const zeroTurnStub = {
+    async waitForTurn() {
+      throw new SelfTestPartialError({ text: "", chunkCount: 0, charCount: 0, endIndex: 0, nonConversation: null });
+    },
+    eventCursor() {
+      return 0;
+    },
+  };
+  let zeroTurnError;
+  try {
+    await driveChallengeConversation({
+      sidecar: zeroTurnStub,
+      runId: "stub-run-zero",
+      sendTurn: async () => {},
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 4,
+    });
+  } catch (err) {
+    zeroTurnError = err;
+  }
+
+  check(
+    "[Plan 05-36, Task 1] a conversation driver whose turn wait rejects before ANY turn was captured carries an empty exchange list, never a fabricated entry",
+    () => {
+      assert.ok(zeroTurnError instanceof ConversationAbortedError);
+      assert.deepEqual(zeroTurnError.exchanges, []);
+    },
+  );
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -2974,7 +3231,38 @@ function composeDeveloperReply(questions) {
  * rather than throwing is deliberate and matches this phase's own standing discipline: a failed
  * capture reports what it DID capture (the turns already accumulated in `exchanges` are never
  * discarded).
+ *
+ * A turn wait that REJECTS (plan 05-36, gap G-05-7) — most commonly a {@link TurnDeadlineError}
+ * from a wall-clock deadline, but any rejection is handled the same way — is different again: it
+ * is not a backend reply at all, so there is nothing to return normally. The whole loop body is
+ * wrapped in a try/catch for exactly this; on catch, this function throws
+ * {@link ConversationAbortedError} carrying the exchanges it had already accumulated PLUS, when
+ * the caught error itself carries a `partial` capture with a non-zero chunk count (a
+ * {@link TurnDeadlineError}'s own field), one final recovered agent exchange built from that
+ * partial — appended LAST, after every exchange that completed before it. Never swallowed: the
+ * caller must still fail the run, exactly as a bare rejection always did.
  */
+
+/**
+ * Plan 05-36 (gap G-05-7): thrown by {@link driveChallengeConversation} when its own turn wait
+ * rejects — see that function's own doc comment for the full mechanism. Carries `cause` (the
+ * original error), `exchanges` (the driver's own accumulated array, including the recovered
+ * partial entry when one exists), `agentTurns`, `answeredQuestionCount` and `closingTurnSent` — a
+ * partial capture that escapes only as a thrown message is a capture that cannot be written to an
+ * evidence sheet, which is exactly what destroyed live run `01M3C48C3PV1NSGHERBZ587YB1`.
+ */
+export class ConversationAbortedError extends Error {
+  constructor(cause, { exchanges, agentTurns, answeredQuestionCount, closingTurnSent }) {
+    super(`driveChallengeConversation aborted: ${cause?.message ?? String(cause)}`);
+    this.name = "ConversationAbortedError";
+    this.cause = cause;
+    this.exchanges = exchanges;
+    this.agentTurns = agentTurns;
+    this.answeredQuestionCount = answeredQuestionCount;
+    this.closingTurnSent = closingTurnSent;
+  }
+}
+
 async function driveChallengeConversation({
   sidecar,
   runId,
@@ -2999,83 +3287,110 @@ async function driveChallengeConversation({
   let finalCursor = cursor;
 
   for (;;) {
-    const turn = await sidecar.waitForTurn(
-      runId,
-      nextCursor,
-      waitOpts(`driveChallengeConversation agent turn ${agentTurns + 1}`),
-    );
-    agentTurns += 1;
-    exchanges.push({
-      speaker: "agent",
-      text: turn.text,
-      chunkCount: turn.chunkCount,
-      charCount: turn.charCount,
-      endedBy: turn.endedBy,
-      endIndex: turn.endIndex,
-      nonConversation: turn.nonConversation ?? null,
-    });
-    finalCursor = turn.endIndex;
-
-    if (turn.nonConversation) {
-      return {
-        exchanges,
-        settled: false,
-        agentTurns,
-        answeredQuestionCount,
-        closingTurnSent,
-        cursor: finalCursor,
-        nonConversation: turn.nonConversation,
-      };
-    }
-
-    const questions = extractOpenQuestions(turn.text);
-    if (questions.length === 0) {
-      settled = true;
-      break;
-    }
-
-    if (agentTurns >= maxAgentTurns) {
-      const sendCursor = sidecar.eventCursor();
-      await sendTurn(CLOSING_TURN);
-      exchanges.push({ speaker: "developer", text: CLOSING_TURN, cursor: sendCursor });
-      const closingReply = await sidecar.waitForTurn(
+    try {
+      const turn = await sidecar.waitForTurn(
         runId,
-        sendCursor,
-        waitOpts("driveChallengeConversation closing-turn reply"),
+        nextCursor,
+        waitOpts(`driveChallengeConversation agent turn ${agentTurns + 1}`),
       );
       agentTurns += 1;
       exchanges.push({
         speaker: "agent",
-        text: closingReply.text,
-        chunkCount: closingReply.chunkCount,
-        charCount: closingReply.charCount,
-        endedBy: closingReply.endedBy,
-        endIndex: closingReply.endIndex,
-        nonConversation: closingReply.nonConversation ?? null,
+        text: turn.text,
+        chunkCount: turn.chunkCount,
+        charCount: turn.charCount,
+        endedBy: turn.endedBy,
+        endIndex: turn.endIndex,
+        nonConversation: turn.nonConversation ?? null,
       });
-      finalCursor = closingReply.endIndex;
-      closingTurnSent = true;
-      settled = false;
-      if (closingReply.nonConversation) {
+      finalCursor = turn.endIndex;
+
+      if (turn.nonConversation) {
         return {
           exchanges,
-          settled,
+          settled: false,
           agentTurns,
           answeredQuestionCount,
           closingTurnSent,
           cursor: finalCursor,
-          nonConversation: closingReply.nonConversation,
+          nonConversation: turn.nonConversation,
         };
       }
-      break;
-    }
 
-    const reply = composeDeveloperReply(questions);
-    answeredQuestionCount += questions.length;
-    const sendCursor = sidecar.eventCursor();
-    await sendTurn(reply);
-    exchanges.push({ speaker: "developer", text: reply, cursor: sendCursor });
-    nextCursor = sendCursor;
+      const questions = extractOpenQuestions(turn.text);
+      if (questions.length === 0) {
+        settled = true;
+        break;
+      }
+
+      if (agentTurns >= maxAgentTurns) {
+        const sendCursor = sidecar.eventCursor();
+        await sendTurn(CLOSING_TURN);
+        exchanges.push({ speaker: "developer", text: CLOSING_TURN, cursor: sendCursor });
+        const closingReply = await sidecar.waitForTurn(
+          runId,
+          sendCursor,
+          waitOpts("driveChallengeConversation closing-turn reply"),
+        );
+        agentTurns += 1;
+        exchanges.push({
+          speaker: "agent",
+          text: closingReply.text,
+          chunkCount: closingReply.chunkCount,
+          charCount: closingReply.charCount,
+          endedBy: closingReply.endedBy,
+          endIndex: closingReply.endIndex,
+          nonConversation: closingReply.nonConversation ?? null,
+        });
+        finalCursor = closingReply.endIndex;
+        closingTurnSent = true;
+        settled = false;
+        if (closingReply.nonConversation) {
+          return {
+            exchanges,
+            settled,
+            agentTurns,
+            answeredQuestionCount,
+            closingTurnSent,
+            cursor: finalCursor,
+            nonConversation: closingReply.nonConversation,
+          };
+        }
+        break;
+      }
+
+      const reply = composeDeveloperReply(questions);
+      answeredQuestionCount += questions.length;
+      const sendCursor = sidecar.eventCursor();
+      await sendTurn(reply);
+      exchanges.push({ speaker: "developer", text: reply, cursor: sendCursor });
+      nextCursor = sendCursor;
+    } catch (err) {
+      // Plan 05-36 (gap G-05-7): a rejected turn wait is not a backend reply — surrender what was
+      // already accumulated rather than let it vanish into a thrown message string. When the
+      // caught error itself carries a partial capture with real content (a TurnDeadlineError's own
+      // `partial` field), reconstruct one final agent exchange from it and append it LAST, after
+      // every exchange that completed before it — never a second throw, never a fabricated entry
+      // when nothing was captured.
+      const recoveredExchanges = [...exchanges];
+      if (err?.partial && err.partial.chunkCount > 0) {
+        recoveredExchanges.push({
+          speaker: "agent",
+          text: err.partial.text,
+          chunkCount: err.partial.chunkCount,
+          charCount: err.partial.charCount,
+          endedBy: "turn-deadline",
+          endIndex: err.partial.endIndex,
+          nonConversation: err.partial.nonConversation ?? null,
+        });
+      }
+      throw new ConversationAbortedError(err, {
+        exchanges: recoveredExchanges,
+        agentTurns,
+        answeredQuestionCount,
+        closingTurnSent,
+      });
+    }
   }
 
   return {
@@ -3108,6 +3423,48 @@ async function driveChallengeConversation({
  */
 function buildEvidenceExchanges({ openingPrompt, conversation }) {
   return [{ speaker: "developer", text: openingPrompt }, ...conversation.exchanges];
+}
+
+/**
+ * Plan 05-36 (gap G-05-7): the ONE function in this file that performs a filesystem write of the
+ * evidence sheet. Every write site in the live body funnels through here instead of calling
+ * `fs.writeFileSync` directly, so no future failure shape can be added that bypasses it — the
+ * defect this whole plan closes was exactly a write site sitting downstream of a call that could
+ * throw. Takes a single mutable state object carrying `evidencePath`, `runId`, `openingPrompt`,
+ * `conversation`, `noWorkPlannedReading`, `draftedCriteriaCount`, `amendedCriteriaCount`,
+ * `results`, `credentialPath`, `nonConversation` and `failure`.
+ *
+ * Tolerates a `conversation` of `null` or `undefined` by treating it as a conversation with zero
+ * exchanges — a run that died before `driveChallengeConversation` ever returned still gets the
+ * opening prompt and the failure cause written, never a throw from this function itself.
+ *
+ * NEVER THROWS: a writer that throws while recording a failure would destroy the failure it was
+ * recording, which is worse than a missing sheet. A write error is reported on stderr and this
+ * function simply returns.
+ */
+export function writeChallengeEvidence(state) {
+  try {
+    const exchanges = buildEvidenceExchanges({
+      openingPrompt: state.openingPrompt,
+      conversation: state.conversation ?? { exchanges: [] },
+    });
+    const sheet = renderChallengeEvidenceSheet({
+      runId: state.runId,
+      exchanges,
+      noWorkPlannedReading: state.noWorkPlannedReading,
+      draftedCriteriaCount: state.draftedCriteriaCount,
+      amendedCriteriaCount: state.amendedCriteriaCount,
+      results: state.results,
+      timestamp: new Date().toISOString(),
+      nonConversation: state.nonConversation ?? null,
+      credentialPath: state.credentialPath ?? null,
+      failure: state.failure ?? null,
+    });
+    fs.writeFileSync(state.evidencePath, sheet);
+    step(`wrote challenge evidence sheet: ${state.evidencePath}`);
+  } catch (err) {
+    process.stderr.write(`[uat-08] failed to write the challenge evidence sheet (continuing): ${String(err)}\n`);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -3552,6 +3909,13 @@ const REPLAY_TURN_DEADLINE_MS = 10_000;
  * {@link REPLAY_TURN_DEADLINE_MS} so the arm stays fast while the assertion stays decisive. */
 const SLOW_TOOL_IDLE_MS = 300;
 
+/** Plan 05-36 (Task 1, gap G-05-7): the deliberately SHORT wall-clock deadline the
+ * `turn-deadline-exceeded` scenario alone passes to `driveChallengeConversation`, so the offline
+ * arm reproduces the live run's own thrown timeout in well under two seconds rather than waiting
+ * out `REPLAY_TURN_DEADLINE_MS`. Never used by any other scenario — every one of them settles (or
+ * deliberately fails to settle) long before this fires. */
+const REPLAY_THROWN_DEADLINE_MS = 1_500;
+
 /**
  * Run one `--replay-check` scenario end to end: its own scratch repository, project, run, sidecar
  * (pointed at the fake backend via `FLYWHEEL_CLAUDE_BIN`/`SCENARIO_ENV_VAR`), heartbeat writer and
@@ -3774,6 +4138,101 @@ async function runReplayCheckScenario(scenarioName) {
             endedBy: turn.endedBy,
           },
         ];
+      } else if (scenarioName === "turn-deadline-exceeded") {
+        // ---- Task 1 closure (plan 05-36, gap G-05-7) — the thrown-deadline mechanism, offline ---
+        // Reproduces the EXACT mechanism that destroyed live run `01M3C48C3PV1NSGHERBZ587YB1`: a
+        // turn wait whose wall-clock deadline elapses while a tool call is genuinely outstanding —
+        // which stands the idle window down entirely (WR-04's own policy), so the deadline is the
+        // ONLY thing that can fire. `driveChallengeConversation` now THROWS `ConversationAbortedError`
+        // on this path instead of returning; this branch is the offline proof that the throw still
+        // carries what was captured, and that `writeChallengeEvidence` still lands a sheet from it.
+        step(
+          "driving the REAL driveChallengeConversation with a deliberately short " +
+            `REPLAY_THROWN_DEADLINE_MS=${REPLAY_THROWN_DEADLINE_MS} — an outstanding tool call ` +
+            "stands the idle window down entirely (WR-04), so only the wall-clock deadline can " +
+            "fire, exactly as it did on the live run this scenario reproduces",
+        );
+        let aborted;
+        try {
+          await driveChallengeConversation({
+            sidecar,
+            runId,
+            sendTurn: (text) => sidecar.request({ op: "authoring_turn", runId, text }),
+            cursor: turn1Cursor,
+            turnDeadlineMs: REPLAY_THROWN_DEADLINE_MS,
+            maxAgentTurns: MAX_AGENT_TURNS,
+          });
+          assert.fail("expected driveChallengeConversation to throw ConversationAbortedError for this scenario");
+        } catch (err) {
+          assert.ok(
+            err instanceof ConversationAbortedError,
+            `expected a ConversationAbortedError, got ${err?.constructor?.name}: ${err?.message}`,
+          );
+          aborted = err;
+        }
+        assertAllHeldRequestsAnswered(sidecar);
+        step(
+          `driver threw ConversationAbortedError as expected — ${aborted.exchanges.length} exchange(s) ` +
+            `recovered, cause: ${aborted.cause?.message}`,
+        );
+
+        const fixtureFirstChunk = SCENARIOS[scenarioName].turns[0].find((block) => block.type === "text").text;
+        assert.ok(
+          aborted.exchanges.some(
+            (exchange) => exchange.speaker === "agent" && exchange.text.includes(fixtureFirstChunk),
+          ),
+          "expected the recovered exchange list to carry the fixture's own first captured chunk verbatim",
+        );
+
+        // Never through `resolveEvidencePath()` and never anywhere near the phase directory —
+        // written under the harness's OWN scratch root, at a path distinct from the shared
+        // synthetic-sheet write below, so this scenario's own assertions read exactly what THIS
+        // branch produced.
+        const scratchDeadlineEvidenceDir = path.join(harness.root, "evidence-turn-deadline-exceeded");
+        fs.mkdirSync(scratchDeadlineEvidenceDir, { recursive: true });
+        const scratchDeadlineEvidencePath = path.join(scratchDeadlineEvidenceDir, EVIDENCE_FILE_NAME);
+        writeChallengeEvidence({
+          evidencePath: scratchDeadlineEvidencePath,
+          runId,
+          openingPrompt: OPENING_PROMPT,
+          conversation: { exchanges: aborted.exchanges },
+          noWorkPlannedReading: "unproven",
+          draftedCriteriaCount: 0,
+          amendedCriteriaCount: 0,
+          results: [],
+          credentialPath: null,
+          nonConversation: null,
+          failure: aborted.cause,
+        });
+        assert.ok(
+          fs.existsSync(scratchDeadlineEvidencePath),
+          "expected the scenario's own scratch evidence sheet to exist",
+        );
+        const deadlineSheet = fs.readFileSync(scratchDeadlineEvidencePath, "utf8");
+        assert.ok(
+          deadlineSheet.includes(fixtureFirstChunk),
+          "expected the sheet to contain the text of the first captured chunk",
+        );
+        assert.ok(
+          deadlineSheet.includes("## Run failure"),
+          "expected the sheet to contain the failure-section heading",
+        );
+        assert.ok(
+          deadlineSheet.includes(`${REPLAY_THROWN_DEADLINE_MS}ms`),
+          "expected the sheet's failure section to name the deadline in its failure message",
+        );
+        step(
+          "wrote and asserted the scenario's own scratch evidence sheet (never resolveEvidencePath()): " +
+            scratchDeadlineEvidencePath,
+        );
+
+        // This scenario aborted, not settled — D-90's gate is never opened on it. `exchanges`
+        // feeds the shared synthetic-sheet write and kill/dispose tail below, exactly like every
+        // other scenario.
+        exchanges = buildEvidenceExchanges({
+          openingPrompt: OPENING_PROMPT,
+          conversation: { exchanges: aborted.exchanges },
+        });
       } else {
         // ---- every other scenario — driven through the REAL driveChallengeConversation ---------
         step("driving the REAL driveChallengeConversation against the scripted backend");
@@ -4602,365 +5061,369 @@ await runScript(
     // (NF-01). The narration and `criterion1Challenged` scan below are derived from the driver's
     // own returned exchanges instead, so they survive without the duplicate capture behind them.
 
-    // G-05-3 (plan 05-24): resolved here, before the fail-fast below can need it — a refusal must
-    // be able to write the evidence sheet with whatever was captured before it fails the run.
+    // Resolved here, before anything below can need it. Plan 05-24 (G-05-3) claimed this location
+    // was enough to guarantee "a refusal can still write the evidence sheet" — it was not: live run
+    // `01M3C48C3PV1NSGHERBZ587YB1` proved that a THROW from `driveChallengeConversation` itself (a
+    // shape this comment did not name) bypassed every downstream write anyway, because every write
+    // sat behind the very call that threw. Plan 05-36 (gap G-05-7) is the actual fix: the sheet is
+    // now written from exactly ONE place, `writeChallengeEvidence`, reached from exactly ONE exit
+    // point — the `finally` below — so resolving the path early no longer needs to carry the whole
+    // guarantee on its own.
     const evidencePath = resolveEvidencePath();
 
-    step(
-      "driving the challenge conversation — capturing the agent's first turn (the WHOLE turn, " +
-        "every content block, bounded by its own result marker) then answering what it actually " +
-        `asked, never a canned follow-up, bounded at ${MAX_AGENT_TURNS} agent turns (G-05-2)`,
-    );
-    const conversation = await driveChallengeConversation({
-      sidecar,
-      runId,
-      sendTurn: (text) => sidecar.request({ op: "authoring_turn", runId, text }),
-      cursor: turn1Cursor,
-      turnDeadlineMs: TURN_DEADLINE_MS,
-      // WR-04 closure (plan 05-25): the live arm states, at its own call site, the pause it
-      // permits a REAL model turn to take mid-turn — never the short TURN_IDLE_MS default a test
-      // passes when deliberately measuring the degrade path.
-      idleMs: LIVE_TURN_IDLE_MS,
-      maxAgentTurns: MAX_AGENT_TURNS,
-    });
-    const firstAgentExchange = conversation.exchanges.find((exchange) => exchange.speaker === "agent");
-    if (firstAgentExchange) {
-      step(
-        `first reply (verbatim, for the human transcript review): ${JSON.stringify(firstAgentExchange.text)} ` +
-          `— chunks=${firstAgentExchange.chunkCount} chars=${firstAgentExchange.charCount} ` +
-          `endedBy=${firstAgentExchange.endedBy}`,
-      );
-    }
-    for (const exchange of conversation.exchanges) {
-      step(
-        exchange.speaker === "agent"
-          ? `agent turn: ${JSON.stringify(exchange.text)} — chunks=${exchange.chunkCount} ` +
-              `chars=${exchange.charCount} endedBy=${exchange.endedBy}`
-          : `developer turn: ${JSON.stringify(exchange.text)}`,
-      );
-    }
-
-    // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): a non-conversation backend message
-    // stopped the driver — this is the mechanism that killed run 01M399FP80B184QM2RXTXJDZTK, and
-    // the wire-fact classification is what stops a run like gap G-05-6's own (an unauthenticated
-    // first turn) at the point of detection instead of waiting out the full proposal deadline. Fail
-    // fast, naming the class, the firing source, the classifier/code and the request id, WITHOUT
-    // discarding the turns already captured and WITHOUT advancing the stage — D-90's gate exists to
-    // be opened on a finished conversation, and this one did not finish.
-    if (conversation.nonConversation) {
-      const refusalExchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
-      fs.writeFileSync(
-        evidencePath,
-        renderChallengeEvidenceSheet({
-          runId,
-          exchanges: refusalExchanges,
-          noWorkPlannedReading: "unproven",
-          draftedCriteriaCount: 0,
-          amendedCriteriaCount: 0,
-          results: [],
-          timestamp: new Date().toISOString(),
-          nonConversation: conversation.nonConversation,
-          credentialPath,
-        }),
-      );
-      throw new Error(
-        `backend non-conversation message (${BACKEND_REFUSAL_KIND}) stopped the challenge ` +
-          `conversation before it settled — source=${conversation.nonConversation.source ?? "unknown"} ` +
-          `classifier=${conversation.nonConversation.classifier ?? conversation.nonConversation.errorCode ?? "unknown"} ` +
-          `requestId=${conversation.nonConversation.requestId ?? "none"}. This is a backend-level ` +
-          "message, not a model turn; the conversation did not complete and the stage was never " +
-          `advanced. See ${evidencePath} for the captured turns.`,
-      );
-    }
-
-    if (conversation.closingTurnSent) {
-      step(
-        `the conversation did not settle within ${MAX_AGENT_TURNS} agent turns — sent the closing ` +
-          "turn and moved on rather than advancing into silence",
-      );
-    } else {
-      step(
-        `the conversation settled after ${conversation.agentTurns} agent turn(s), ` +
-          `${conversation.answeredQuestionCount} question(s) answered`,
-      );
-    }
-
-    // G-05-1 (plan 05-18): a starved held read must fail here, naming itself, rather than let the
-    // run limp on to a misleading per-criterion result.
-    assertAllHeldRequestsAnswered(sidecar);
-
-    // Plan 05-23 (CR-01 closure): the boundary is taken HERE, once — immediately after the driver
-    // returns and the held-request check passes. Everything from here on (advance-stage and the
-    // decompose stage it opens) is legitimate by construction (D-89: advancing is what distils the
-    // conversation into staged proposals; D-90: the developer alone opens that gate) and must
-    // never be read as evidence about the challenge stage.
-    const challengeWindowEnd = sidecar.eventCursor();
-    step(
-      `challenge-stage window closed at event index ${challengeWindowEnd} (from ${turn1Cursor}) — ` +
-        "everything from here on is decompose-stage activity and legitimate by construction",
-    );
-
-    // Task 3 (G-05-2) / Plan 05-23 (CR-01 closure): the real field (TOOL_NAME_FIELD), read once
-    // inside readNoWorkPlanned — event.name was always undefined (ToolCallEvent's real field is
-    // toolName), which made this criterion's "no work planned" half vacuously true. Now a
-    // three-valued, WINDOW-BOUNDED reading that can fail — and that a legitimate decompose-stage
-    // propose call can never contaminate. This is the ONE reading computed for gating; the
-    // "final" binding near the end of this run reuses it verbatim rather than recomputing it.
-    const noWorkPlannedReading = readNoWorkPlanned(sidecar.events, {
-      runId,
-      fromIndex: turn1Cursor,
-      toIndex: challengeWindowEnd,
-    });
-    // Plan 05-24 (Task 2, NF-01 closure): derived from the driver's OWN exchanges alone — the
-    // driver's first exchange already IS the agent's first turn, so there is no separate `turn1`
-    // to fold in here anymore.
-    const criterion1Challenged = conversation.exchanges.some(
-      (exchange) => exchange.speaker === "agent" && /\?/.test(exchange.text),
-    );
-
-    // Plan 05-24 (Task 2, NF-01 closure): the ONE shared assembly both arms use — see
-    // `buildEvidenceExchanges`'s own doc comment for why the live body no longer performs a
-    // separate first-turn capture the way it used to.
-    const exchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
-
-    // evidencePath was already resolved above, before the refusal fail-fast — reused here.
-    fs.writeFileSync(
+    // Plan 05-36 (gap G-05-7): ONE mutable state object, seeded here and assigned into as the run
+    // progresses, with `writeChallengeEvidence(evidenceState)` the ONE thing that turns it into a
+    // file on disk. Everything from here to the end of this run body is wrapped in one try/finally
+    // (below) whose `finally` calls `writeChallengeEvidence(evidenceState)` unconditionally — a
+    // thrown exception ANYWHERE in that span still lands a sheet carrying whatever had been
+    // captured before the throw, which is exactly the guarantee live run
+    // `01M3C48C3PV1NSGHERBZ587YB1` needed and did not have.
+    const evidenceState = {
       evidencePath,
-      renderChallengeEvidenceSheet({
-        runId,
-        exchanges,
-        noWorkPlannedReading,
-        draftedCriteriaCount: 0,
-        amendedCriteriaCount: 0,
-        results: [],
-        timestamp: new Date().toISOString(),
-        credentialPath,
-      }),
-    );
-    step(
-      `wrote challenge evidence sheet (pre-proposal, results pending): ${evidencePath} — a run ` +
-        "that dies later in the proposal phase still leaves this transcript for the human",
-    );
+      runId,
+      openingPrompt: OPENING_PROMPT,
+      conversation: null,
+      noWorkPlannedReading: "unproven",
+      draftedCriteriaCount: 0,
+      amendedCriteriaCount: 0,
+      results: [],
+      credentialPath,
+      nonConversation: null,
+      failure: null,
+    };
 
-    step(
-      "advancing the stage (Cyril's own gate, D-90) — the developer decides the challenge is " +
-        "done, only now that the driver's own conversation has returned",
-    );
-    const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
-    assert.equal(advanced.stage, "decompose");
-    if (advanced.distillationText) {
-      step("sending the distillation instruction and capturing its reply (not required for the run to continue)");
-      const distillationCursor = sidecar.eventCursor();
-      await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
-      exchanges.push({ speaker: "developer", text: advanced.distillationText, cursor: distillationCursor });
-      // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): `distillationReply` stays
-      // `undefined` on a genuine TIMEOUT (the catch branch below, unchanged from before this plan)
-      // so the non-conversation check after this try/catch is a no-op for that path — a timeout
-      // and a non-conversation message are different classes and must stay separately reported. A
-      // non-conversation message, by contrast, is a SUCCESSFUL capture (the turn ended cleanly on
-      // `result` — this is the exact place the real run actually died), so it must be checked and
-      // must fail the run OUTSIDE this try/catch, never swallowed by the timeout branch.
-      let distillationReply;
-      try {
-        distillationReply = await sidecar.waitForTurn(runId, distillationCursor, {
-          timeoutMs: TURN_DEADLINE_MS,
-          // WR-04 closure (plan 05-25): explicit, matching the driveChallengeConversation call
-          // above — the live arm never inherits the short test default at either capture site.
-          idleMs: LIVE_TURN_IDLE_MS,
-          label: "the decompose stage's reply to the distillation instruction",
-        });
-        exchanges.push({
-          speaker: "agent",
-          text: distillationReply.text,
-          chunkCount: distillationReply.chunkCount,
-          charCount: distillationReply.charCount,
-          endedBy: distillationReply.endedBy,
-          nonConversation: distillationReply.nonConversation ?? null,
-        });
-        step(
-          `distillation reply captured: chunks=${distillationReply.chunkCount} ` +
-            `chars=${distillationReply.charCount} endedBy=${distillationReply.endedBy}`,
-        );
-      } catch (err) {
-        // The decompose turn's completeness is not a gating property — a timeout here is recorded
-        // as a partial exchange (via the pure accumulateTurn scan, never a rethrow) and the
-        // proposal wait below still happens.
-        const partial = accumulateTurn(sidecar.events, runId, distillationCursor);
-        exchanges.push({
-          speaker: "agent",
-          text: partial.text,
-          chunkCount: partial.chunkCount,
-          charCount: partial.charCount,
-          endedBy: "timeout",
-          nonConversation: partial.nonConversation ?? null,
-        });
-        step(`distillation reply capture timed out (not fatal — the proposal wait still happens): ${err.message}`);
-      }
-
-      // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): the place the real run actually
-      // died. Never fall through into the proposal wait below — a non-conversation distillation
-      // turn means no propose call is ever coming.
-      if (distillationReply && distillationReply.nonConversation) {
-        fs.writeFileSync(
-          evidencePath,
-          renderChallengeEvidenceSheet({
-            runId,
-            exchanges,
-            noWorkPlannedReading,
-            draftedCriteriaCount: 0,
-            amendedCriteriaCount: 0,
-            results: [],
-            timestamp: new Date().toISOString(),
-            nonConversation: distillationReply.nonConversation,
-            credentialPath,
-          }),
-        );
-        throw new Error(
-          `backend non-conversation message (${BACKEND_REFUSAL_KIND}) stopped the run at the ` +
-            `distillation turn — source=${distillationReply.nonConversation.source ?? "unknown"} ` +
-            `classifier=${distillationReply.nonConversation.classifier ?? distillationReply.nonConversation.errorCode ?? "unknown"} ` +
-            `requestId=${distillationReply.nonConversation.requestId ?? "none"}. This is a ` +
-            "backend-level message, not a model turn; the conversation did not complete and the " +
-            `proposal wait was never entered. See ${evidencePath} for the captured turns.`,
-        );
-      }
-    }
-
-    step("waiting for at least one proposal (assumption or task) to arrive");
-    let sawProposal = false;
-    let taskProposalId = null;
-    let criterionProposalId = null;
-    let rejectedTaskId = null;
     try {
-      const proposalEvent = await sidecar.waitForEvent(
-        (event) => event.type === "proposal_created",
-        PROPOSAL_DEADLINE_MS,
-        "a proposal_created event",
+      step(
+        "driving the challenge conversation — capturing the agent's first turn (the WHOLE turn, " +
+          "every content block, bounded by its own result marker) then answering what it actually " +
+          `asked, never a canned follow-up, bounded at ${MAX_AGENT_TURNS} agent turns (G-05-2)`,
       );
-      sawProposal = true;
-      step(`first proposal observed: verb=${proposalEvent.verb} targetType=${proposalEvent.targetType}`);
-      // Apply every proposal_created event seen so far (and any that arrive over the next window)
-      // through the real bridge — this IS the inbound write path, not a simulation of it.
-      for (const event of sidecar.eventsOfType("proposal_created")) {
-        const outcome = runOps(opsBin, harness.appDataDir, ["apply-proposal-created"], JSON.stringify(event));
-        step(`applied proposal_created -> ${outcome.outcome} ${outcome.proposalId ?? ""}`);
+      const conversation = await driveChallengeConversation({
+        sidecar,
+        runId,
+        sendTurn: (text) => sidecar.request({ op: "authoring_turn", runId, text }),
+        cursor: turn1Cursor,
+        turnDeadlineMs: TURN_DEADLINE_MS,
+        // WR-04 closure (plan 05-25): the live arm states, at its own call site, the pause it
+        // permits a REAL model turn to take mid-turn — never the short TURN_IDLE_MS default a test
+        // passes when deliberately measuring the degrade path.
+        idleMs: LIVE_TURN_IDLE_MS,
+        maxAgentTurns: MAX_AGENT_TURNS,
+      });
+      evidenceState.conversation = conversation;
+      const firstAgentExchange = conversation.exchanges.find((exchange) => exchange.speaker === "agent");
+      if (firstAgentExchange) {
+        step(
+          `first reply (verbatim, for the human transcript review): ${JSON.stringify(firstAgentExchange.text)} ` +
+            `— chunks=${firstAgentExchange.chunkCount} chars=${firstAgentExchange.charCount} ` +
+            `endedBy=${firstAgentExchange.endedBy}`,
+        );
       }
-    } catch (err) {
-      step(`no proposal arrived within the deadline: ${err.message}`);
-    }
+      for (const exchange of conversation.exchanges) {
+        step(
+          exchange.speaker === "agent"
+            ? `agent turn: ${JSON.stringify(exchange.text)} — chunks=${exchange.chunkCount} ` +
+                `chars=${exchange.charCount} endedBy=${exchange.endedBy}`
+            : `developer turn: ${JSON.stringify(exchange.text)}`,
+        );
+      }
 
-    const pending = runOps(opsBin, harness.appDataDir, ["list-pending", runId]);
-    step(`${pending.proposals.length} proposal(s) pending after the first decompose window`);
+      // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): a non-conversation backend message
+      // stopped the driver — this is the mechanism that killed run 01M399FP80B184QM2RXTXJDZTK, and
+      // the wire-fact classification is what stops a run like gap G-05-6's own (an unauthenticated
+      // first turn) at the point of detection instead of waiting out the full proposal deadline. Fail
+      // fast, naming the class, the firing source, the classifier/code and the request id, WITHOUT
+      // discarding the turns already captured and WITHOUT advancing the stage — D-90's gate exists to
+      // be opened on a finished conversation, and this one did not finish.
+      if (conversation.nonConversation) {
+        evidenceState.nonConversation = conversation.nonConversation;
+        writeChallengeEvidence(evidenceState);
+        throw new Error(
+          `backend non-conversation message (${BACKEND_REFUSAL_KIND}) stopped the challenge ` +
+            `conversation before it settled — source=${conversation.nonConversation.source ?? "unknown"} ` +
+            `classifier=${conversation.nonConversation.classifier ?? conversation.nonConversation.errorCode ?? "unknown"} ` +
+            `requestId=${conversation.nonConversation.requestId ?? "none"}. This is a backend-level ` +
+            "message, not a model turn; the conversation did not complete and the stage was never " +
+            `advanced. See ${evidencePath} for the captured turns.`,
+        );
+      }
 
-    const taskProposal = pending.proposals.find((p) => p.targetType === "task");
-    const criterionProposals = pending.proposals.filter((p) => p.targetType === "criterion");
-    if (taskProposal) taskProposalId = taskProposal.id;
-    if (criterionProposals.length > 0) criterionProposalId = criterionProposals[0].id;
+      if (conversation.closingTurnSent) {
+        step(
+          `the conversation did not settle within ${MAX_AGENT_TURNS} agent turns — sent the closing ` +
+            "turn and moved on rather than advancing into silence",
+        );
+      } else {
+        step(
+          `the conversation settled after ${conversation.agentTurns} agent turn(s), ` +
+            `${conversation.answeredQuestionCount} question(s) answered`,
+        );
+      }
 
-    // The SHAPE-03 draft-usefulness judgement reads these two counts from the evidence sheet
-    // rather than a scrollback line — how many criteria the model drafted, and how many the
-    // developer had to amend before they were usable.
-    const draftedCriteriaCount = criterionProposals.length;
-    let amendedCriteriaCount = 0;
+      // G-05-1 (plan 05-18): a starved held read must fail here, naming itself, rather than let the
+      // run limp on to a misleading per-criterion result.
+      assertAllHeldRequestsAnswered(sidecar);
 
-    let criterion2Landed = false;
-    let criterion3Decided = false;
-    if (taskProposalId) {
-      step(`accepting the task subtree ${taskProposalId} (D-95's ONE bulk path)`);
-      const subtreeOutcome = runOps(opsBin, harness.appDataDir, ["accept-subtree", taskProposalId]);
-      criterion2Landed = subtreeOutcome.acceptedCount > 0;
+      // Plan 05-23 (CR-01 closure): the boundary is taken HERE, once — immediately after the driver
+      // returns and the held-request check passes. Everything from here on (advance-stage and the
+      // decompose stage it opens) is legitimate by construction (D-89: advancing is what distils the
+      // conversation into staged proposals; D-90: the developer alone opens that gate) and must
+      // never be read as evidence about the challenge stage.
+      const challengeWindowEnd = sidecar.eventCursor();
+      step(
+        `challenge-stage window closed at event index ${challengeWindowEnd} (from ${turn1Cursor}) — ` +
+          "everything from here on is decompose-stage activity and legitimate by construction",
+      );
 
-      const counts = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
-      step(`board counts after accept: tasks=${counts.tasks} criteria=${counts.criteria}`);
+      // Task 3 (G-05-2) / Plan 05-23 (CR-01 closure): the real field (TOOL_NAME_FIELD), read once
+      // inside readNoWorkPlanned — event.name was always undefined (ToolCallEvent's real field is
+      // toolName), which made this criterion's "no work planned" half vacuously true. Now a
+      // three-valued, WINDOW-BOUNDED reading that can fail — and that a legitimate decompose-stage
+      // propose call can never contaminate. This is the ONE reading computed for gating; the
+      // "final" binding near the end of this run reuses it verbatim rather than recomputing it.
+      const noWorkPlannedReading = readNoWorkPlanned(sidecar.events, {
+        runId,
+        fromIndex: turn1Cursor,
+        toIndex: challengeWindowEnd,
+      });
+      evidenceState.noWorkPlannedReading = noWorkPlannedReading;
+      // Plan 05-24 (Task 2, NF-01 closure): derived from the driver's OWN exchanges alone — the
+      // driver's first exchange already IS the agent's first turn, so there is no separate `turn1`
+      // to fold in here anymore.
+      const criterion1Challenged = conversation.exchanges.some(
+        (exchange) => exchange.speaker === "agent" && /\?/.test(exchange.text),
+      );
 
-      if (criterionProposals.length > 1) {
-        rejectedTaskId = criterionProposals[1].id;
-        step(`rejecting a second criterion proposal ${rejectedTaskId} with a reason`);
-        runOps(opsBin, harness.appDataDir, ["reject-proposal", rejectedTaskId, "Too vague to verify"]);
+      // Plan 05-36 (gap G-05-7): `writeChallengeEvidence` derives `exchanges` itself, via
+      // `buildEvidenceExchanges`, from `evidenceState.conversation` — there is no separate local
+      // assembly to keep in sync any more. Below, a distillation turn is recorded by pushing
+      // directly onto `evidenceState.conversation.exchanges` (the SAME array `conversation`
+      // returned), so every subsequent `writeChallengeEvidence` call sees it automatically.
+      writeChallengeEvidence(evidenceState);
+      step(
+        `wrote challenge evidence sheet (pre-proposal, results pending): ${evidencePath} — a run ` +
+          "that dies later in the proposal phase still leaves this transcript for the human",
+      );
+
+      step(
+        "advancing the stage (Cyril's own gate, D-90) — the developer decides the challenge is " +
+          "done, only now that the driver's own conversation has returned",
+      );
+      const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
+      assert.equal(advanced.stage, "decompose");
+      if (advanced.distillationText) {
+        step("sending the distillation instruction and capturing its reply (not required for the run to continue)");
+        const distillationCursor = sidecar.eventCursor();
+        await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
+        evidenceState.conversation.exchanges.push({
+          speaker: "developer",
+          text: advanced.distillationText,
+          cursor: distillationCursor,
+        });
+        // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): `distillationReply` stays
+        // `undefined` on a genuine TIMEOUT (the catch branch below, unchanged from before this plan)
+        // so the non-conversation check after this try/catch is a no-op for that path — a timeout
+        // and a non-conversation message are different classes and must stay separately reported. A
+        // non-conversation message, by contrast, is a SUCCESSFUL capture (the turn ended cleanly on
+        // `result` — this is the exact place the real run actually died), so it must be checked and
+        // must fail the run OUTSIDE this try/catch, never swallowed by the timeout branch.
+        let distillationReply;
+        try {
+          distillationReply = await sidecar.waitForTurn(runId, distillationCursor, {
+            timeoutMs: TURN_DEADLINE_MS,
+            // WR-04 closure (plan 05-25): explicit, matching the driveChallengeConversation call
+            // above — the live arm never inherits the short test default at either capture site.
+            idleMs: LIVE_TURN_IDLE_MS,
+            label: "the decompose stage's reply to the distillation instruction",
+          });
+          evidenceState.conversation.exchanges.push({
+            speaker: "agent",
+            text: distillationReply.text,
+            chunkCount: distillationReply.chunkCount,
+            charCount: distillationReply.charCount,
+            endedBy: distillationReply.endedBy,
+            nonConversation: distillationReply.nonConversation ?? null,
+          });
+          step(
+            `distillation reply captured: chunks=${distillationReply.chunkCount} ` +
+              `chars=${distillationReply.charCount} endedBy=${distillationReply.endedBy}`,
+          );
+        } catch (err) {
+          // The decompose turn's completeness is not a gating property — a timeout here is recorded
+          // as a partial exchange (via the pure accumulateTurn scan, never a rethrow) and the
+          // proposal wait below still happens.
+          const partial = accumulateTurn(sidecar.events, runId, distillationCursor);
+          evidenceState.conversation.exchanges.push({
+            speaker: "agent",
+            text: partial.text,
+            chunkCount: partial.chunkCount,
+            charCount: partial.charCount,
+            endedBy: "timeout",
+            nonConversation: partial.nonConversation ?? null,
+          });
+          step(`distillation reply capture timed out (not fatal — the proposal wait still happens): ${err.message}`);
+        }
+
+        // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): the place the real run actually
+        // died. Never fall through into the proposal wait below — a non-conversation distillation
+        // turn means no propose call is ever coming.
+        if (distillationReply && distillationReply.nonConversation) {
+          evidenceState.nonConversation = distillationReply.nonConversation;
+          writeChallengeEvidence(evidenceState);
+          throw new Error(
+            `backend non-conversation message (${BACKEND_REFUSAL_KIND}) stopped the run at the ` +
+              `distillation turn — source=${distillationReply.nonConversation.source ?? "unknown"} ` +
+              `classifier=${distillationReply.nonConversation.classifier ?? distillationReply.nonConversation.errorCode ?? "unknown"} ` +
+              `requestId=${distillationReply.nonConversation.requestId ?? "none"}. This is a ` +
+              "backend-level message, not a model turn; the conversation did not complete and the " +
+              `proposal wait was never entered. See ${evidencePath} for the captured turns.`,
+          );
+        }
+      }
+
+      step("waiting for at least one proposal (assumption or task) to arrive");
+      let sawProposal = false;
+      let taskProposalId = null;
+      let criterionProposalId = null;
+      let rejectedTaskId = null;
+      try {
+        const proposalEvent = await sidecar.waitForEvent(
+          (event) => event.type === "proposal_created",
+          PROPOSAL_DEADLINE_MS,
+          "a proposal_created event",
+        );
+        sawProposal = true;
+        step(`first proposal observed: verb=${proposalEvent.verb} targetType=${proposalEvent.targetType}`);
+        // Apply every proposal_created event seen so far (and any that arrive over the next window)
+        // through the real bridge — this IS the inbound write path, not a simulation of it.
+        for (const event of sidecar.eventsOfType("proposal_created")) {
+          const outcome = runOps(opsBin, harness.appDataDir, ["apply-proposal-created"], JSON.stringify(event));
+          step(`applied proposal_created -> ${outcome.outcome} ${outcome.proposalId ?? ""}`);
+        }
+      } catch (err) {
+        step(`no proposal arrived within the deadline: ${err.message}`);
+      }
+
+      const pending = runOps(opsBin, harness.appDataDir, ["list-pending", runId]);
+      step(`${pending.proposals.length} proposal(s) pending after the first decompose window`);
+
+      const taskProposal = pending.proposals.find((p) => p.targetType === "task");
+      const criterionProposals = pending.proposals.filter((p) => p.targetType === "criterion");
+      if (taskProposal) taskProposalId = taskProposal.id;
+      if (criterionProposals.length > 0) criterionProposalId = criterionProposals[0].id;
+
+      // The SHAPE-03 draft-usefulness judgement reads these two counts from the evidence sheet
+      // rather than a scrollback line — how many criteria the model drafted, and how many the
+      // developer had to amend before they were usable.
+      const draftedCriteriaCount = criterionProposals.length;
+      let amendedCriteriaCount = 0;
+
+      let criterion2Landed = false;
+      let criterion3Decided = false;
+      if (taskProposalId) {
+        step(`accepting the task subtree ${taskProposalId} (D-95's ONE bulk path)`);
+        const subtreeOutcome = runOps(opsBin, harness.appDataDir, ["accept-subtree", taskProposalId]);
+        criterion2Landed = subtreeOutcome.acceptedCount > 0;
+
+        const counts = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
+        step(`board counts after accept: tasks=${counts.tasks} criteria=${counts.criteria}`);
+
+        if (criterionProposals.length > 1) {
+          rejectedTaskId = criterionProposals[1].id;
+          step(`rejecting a second criterion proposal ${rejectedTaskId} with a reason`);
+          runOps(opsBin, harness.appDataDir, ["reject-proposal", rejectedTaskId, "Too vague to verify"]);
+          criterion3Decided = true;
+        }
+      }
+
+      if (criterionProposalId) {
+        step(`amending criterion proposal ${criterionProposalId} to the developer's own text`);
+        runOps(opsBin, harness.appDataDir, [
+          "amend-criterion",
+          criterionProposalId,
+          "A UAT-amended criterion, the developer's own wording",
+        ]);
+        amendedCriteriaCount += 1;
         criterion3Decided = true;
       }
-    }
 
-    if (criterionProposalId) {
-      step(`amending criterion proposal ${criterionProposalId} to the developer's own text`);
-      runOps(opsBin, harness.appDataDir, [
-        "amend-criterion",
-        criterionProposalId,
-        "A UAT-amended criterion, the developer's own wording",
-      ]);
-      amendedCriteriaCount += 1;
-      criterion3Decided = true;
-    }
+      step("closing this run with a summary (D-64's own guarantee)");
+      runOps(opsBin, harness.appDataDir, ["close-run", runId, "UAT 8 shaped one task."]);
 
-    step("closing this run with a summary (D-64's own guarantee)");
-    runOps(opsBin, harness.appDataDir, ["close-run", runId, "UAT 8 shaped one task."]);
+      // ---- SHAPE-05 — reopening --------------------------------------------------------------
+      let criterion4Reopened = false;
+      let criterion4PrimedRejected = false;
+      if (rejectedTaskId) {
+        // This session's proposals had no epic (a fresh session, D-84) — SHAPE-05's reopen check
+        // needs a REAL epic to reopen. Recorded here rather than faked: a fresh-epic session's own
+        // task proposals never carry an epic id until a SEPARATE epic proposal is accepted and a
+        // second session reopens it (the exact two-session shape `authoring_acceptance.rs`'s own
+        // Criterion 2/4 tests document and exercise directly against the database). This live
+        // script's own SHAPE-05 check is therefore reported honestly as unproven-this-run when the
+        // conversation never produced an epic proposal — not silently marked green.
+        step(
+          "no epic was materialised in this conversation (the model proposed a task without an " +
+            "epic) — SHAPE-05's reopen check is exercised structurally by " +
+            "authoring_acceptance.rs::criterion_4_* instead; this run reports it honestly as " +
+            "unproven rather than fabricating a pass",
+        );
+      }
 
-    // ---- SHAPE-05 — reopening ----------------------------------------------------------------
-    let criterion4Reopened = false;
-    let criterion4PrimedRejected = false;
-    if (rejectedTaskId) {
-      // This session's proposals had no epic (a fresh session, D-84) — SHAPE-05's reopen check
-      // needs a REAL epic to reopen. Recorded here rather than faked: a fresh-epic session's own
-      // task proposals never carry an epic id until a SEPARATE epic proposal is accepted and a
-      // second session reopens it (the exact two-session shape `authoring_acceptance.rs`'s own
-      // Criterion 2/4 tests document and exercise directly against the database). This live
-      // script's own SHAPE-05 check is therefore reported honestly as unproven-this-run when the
-      // conversation never produced an epic proposal — not silently marked green.
-      step(
-        "no epic was materialised in this conversation (the model proposed a task without an " +
-          "epic) — SHAPE-05's reopen check is exercised structurally by " +
-          "authoring_acceptance.rs::criterion_4_* instead; this run reports it honestly as " +
-          "unproven rather than fabricating a pass",
-      );
-    }
+      // Plan 05-23 (CR-01 closure): REUSE, never re-read. The challenge-stage reading captured
+      // above (bounded at challengeWindowEnd, before advance-stage) was already correct the moment
+      // driveChallengeConversation returned — decompose-stage propose calls (the proposal activity
+      // just above) are legitimate by construction and must never re-taint it. A second, unscoped
+      // computation here is exactly the CR-01 defect: it would see this stage's own legitimate
+      // propose_* calls and force "violated" on essentially every otherwise-successful run.
+      const finalNoWorkPlannedReading = noWorkPlannedReading;
+      evidenceState.noWorkPlannedReading = finalNoWorkPlannedReading;
 
-    // Plan 05-23 (CR-01 closure): REUSE, never re-read. The challenge-stage reading captured
-    // above (bounded at challengeWindowEnd, before advance-stage) was already correct the moment
-    // driveChallengeConversation returned — decompose-stage propose calls (the proposal activity
-    // just above) are legitimate by construction and must never re-taint it. A second, unscoped
-    // computation here is exactly the CR-01 defect: it would see this stage's own legitimate
-    // propose_* calls and force "violated" on essentially every otherwise-successful run.
-    const finalNoWorkPlannedReading = noWorkPlannedReading;
-
-    const results = buildCriteriaResults({
-      criterion1Challenged,
-      noWorkPlannedReading: finalNoWorkPlannedReading,
-      criterion2Landed,
-      criterion3Decided,
-      criterion4Reopened,
-      criterion4PrimedRejected,
-    });
-
-    fs.writeFileSync(
-      evidencePath,
-      renderChallengeEvidenceSheet({
-        runId,
-        exchanges,
+      const results = buildCriteriaResults({
+        criterion1Challenged,
         noWorkPlannedReading: finalNoWorkPlannedReading,
-        draftedCriteriaCount,
-        amendedCriteriaCount,
-        results,
-        timestamp: new Date().toISOString(),
-        credentialPath,
-      }),
-    );
-    step(`wrote challenge evidence sheet (final): ${evidencePath}`);
+        criterion2Landed,
+        criterion3Decided,
+        criterion4Reopened,
+        criterion4PrimedRejected,
+      });
+      evidenceState.draftedCriteriaCount = draftedCriteriaCount;
+      evidenceState.amendedCriteriaCount = amendedCriteriaCount;
+      evidenceState.results = results;
 
-    // G-05-1 (plan 05-18): the last chance, immediately before the verdict, to catch a starved
-    // held read that a criterion's own booleans would otherwise silently misreport as a plain
-    // failure rather than the starvation it actually is.
-    assertAllHeldRequestsAnswered(sidecar);
+      writeChallengeEvidence(evidenceState);
+      step(`wrote challenge evidence sheet (final): ${evidencePath}`);
 
-    const allPassed = reportCriteria(results);
-    harness.writeArtifact("uat-08-results", { sawProposal, results });
+      // G-05-1 (plan 05-18): the last chance, immediately before the verdict, to catch a starved
+      // held read that a criterion's own booleans would otherwise silently misreport as a plain
+      // failure rather than the starvation it actually is.
+      assertAllHeldRequestsAnswered(sidecar);
 
-    assert.ok(
-      allPassed,
-      "one or more gating SHAPE criteria (SHAPE-01, SHAPE-02, SHAPE-03/SHAPE-04) did not pass " +
-        "this run — see the per-criterion lines above. SHAPE-05 is reported informationally and " +
-        "never gates this assertion. See also 05-10-PLAN.md Task 3's own human-check " +
-        "instructions for the two judgements only a human reading the transcript can make once " +
-        "this exits 0.",
-    );
+      const allPassed = reportCriteria(results);
+      harness.writeArtifact("uat-08-results", { sawProposal, results });
+
+      assert.ok(
+        allPassed,
+        "one or more gating SHAPE criteria (SHAPE-01, SHAPE-02, SHAPE-03/SHAPE-04) did not pass " +
+          "this run — see the per-criterion lines above. SHAPE-05 is reported informationally and " +
+          "never gates this assertion. See also 05-10-PLAN.md Task 3's own human-check " +
+          "instructions for the two judgements only a human reading the transcript can make once " +
+          "this exits 0.",
+      );
+    } catch (err) {
+      // Plan 05-36 (gap G-05-7): a `ConversationAbortedError` (or any other error carrying an
+      // `exchanges` array) that escaped BEFORE `evidenceState.conversation` was ever assigned still
+      // gets its captured turns into the sheet — this is the direct fix for the live failure, where
+      // 539 characters of real agent speech existed only inside a thrown message string.
+      if (evidenceState.conversation === null && Array.isArray(err?.exchanges)) {
+        evidenceState.conversation = { exchanges: err.exchanges };
+      }
+      evidenceState.failure = err;
+      throw err;
+    } finally {
+      // The ONE unconditional write for this run — reached whether the try block returned
+      // normally, threw partway through, or never captured a single turn. Every other
+      // `writeChallengeEvidence` call above is a progressive convenience; this is the guarantee.
+      writeChallengeEvidence(evidenceState);
+    }
   },
 );
