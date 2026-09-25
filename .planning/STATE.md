@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 05
-current_phase_name: socratic-epic-authoring
+current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-26-PLAN.md
-last_updated: "2026-09-24T23:40:18.672Z"
-last_activity: 2026-09-24
+stopped_at: Completed 05-27-PLAN.md
+last_updated: "2026-09-25T00:28:43.010Z"
+last_activity: 2026-09-25
 last_activity_desc: Phase 05 execution started
-state_head: a12e6002c944365458add0b9a8291026408d8330
+state_head: 5df8ff6dcd47778e7249f297e7150b42e47bff7d
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 122
-  completed_plans: 118
+  completed_plans: 120
   percent: 0
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 
 ## Current Position
 
-Phase: 05 (socratic-epic-authoring) — READY TO EXECUTE
-Plan: 5 of 26
+Phase: 05 (Socratic Epic Authoring) — EXECUTING
+Plan: 2 of 29
 Status: Ready to execute
-Last activity: 2026-09-24 — Phase 05 execution started
+Last activity: 2026-09-25 — Phase 05 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -176,6 +176,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P24 | 25min | 2 tasks | 3 files |
 | Phase 05 P25 | 24min | 2 tasks | 3 files |
 | Phase 05 P26 | 35min | 2 tasks | 5 files |
+| Phase 05 P27 | 25min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -392,6 +393,8 @@ Recent decisions affecting current work:
 - [Phase 05]: LIVE_TURN_IDLE_MS (30s) is the live arm's own explicit idle window at both remaining capture sites; TURN_IDLE_MS (5s, the test default) is unchanged.
 - [Phase 05]: [Phase 05] G-05-3 closed (plans 05-23..05-26): the offline-provability rule was sharpened, not replaced — an offline arm only proves a property if it exercises the SAME code path, in the same order, with the same inputs the live arm hits. — CR-01 (gating window scoped over the whole run), NF-01 (live body duplicated its own first-turn capture) and WR-04 (no fixture could express a mid-turn pause) all survived the prior G-05-2 rule because each offline arm took a shortcut around what the live arm actually does. Item 8 now states this as one sharpened rule plus the practical consequence: when a fixture cannot express a condition, the fixture is the gap.
 - [Phase 05]: [Phase 05] REQUIREMENTS.md: SHAPE-01 and SHAPE-03 deliberately left at Gaps Found (not flipped to Complete) despite requirements.ready-ids reporting all five SHAPE requirements ready; SHAPE-02/04/05 marked Complete. — Plan 05-26's own <outstanding_after_this_closure> section states SHAPE-01's live dialogue-quality judgement and SHAPE-03's draft-usefulness judgement remain OUTSTANDING — no offline arm can close them, and this closure spent no credentials by design. REQUIREMENTS.md has already been bulk-reverted from premature Complete twice for this exact requirement set (commits f1f6882-adjacent and 670cff9) after gaps were found in the instrument. Marking SHAPE-01/SHAPE-03 Complete now, on the strength of a documentation/ledger closure that explicitly disclaims resolving the live judgement, would repeat that exact mistake. SHAPE-02/04/05 carry no such caveat in this plan and are unaffected.
+- [Phase 05]: correlateProposeAttempts claims a tool_result index on examination (even wrong-name), matching 05-REVIEW.md's CR-01 fix sketch
+- [Phase 05]: Task 1's RED commit asserted only against the still-unfixed readNoWorkPlanned; the full assertion set (needing correlateProposeAttempts/readNoWorkPlannedWithoutClaiming) was added in the GREEN commit alongside the fix, per the plan's own Step 6
 
 ### Pending Todos
 
@@ -439,6 +442,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-24T12:05:05.044Z
-Stopped at: Completed 05-26-PLAN.md
+Last session: 2026-09-25T00:28:42.871Z
+Stopped at: Completed 05-27-PLAN.md
 Resume file: None
