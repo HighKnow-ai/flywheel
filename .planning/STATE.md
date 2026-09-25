@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-33-PLAN.md
-last_updated: "2026-09-25T09:25:17.924Z"
+stopped_at: Completed 05-34-PLAN.md
+last_updated: "2026-09-25T10:10:59.851Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 05 execution started
-state_head: 00a5f7dbe31deb8e489442495d4dba224147565a
+state_head: 84832ea464db90912e1ab0565ff49bfe613fa01b
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 128
-  completed_plans: 126
+  completed_plans: 127
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 2 of 35
+Plan: 3 of 35
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 05 execution started
 
@@ -183,6 +183,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P31 | 45min | 3 tasks | 3 files |
 | Phase 05-socratic-epic-authoring P32 | 12min | 2 tasks | 2 files |
 | Phase 05 P33 | 55min | 3 tasks | 2 files |
+| Phase 05 P34 | 62min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -409,6 +410,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Plan 05-31: the round-7 self-test battery deliberately duplicates 05-30's own positional-control check under a new tag rather than relying on scattered pre-existing checks, so all three defect-class shapes are grep-discoverable from one self-contained region. — A verification that reads this file must be able to tell from the PASS lines alone that every shape is covered, without re-reading bodies scattered across prior rounds.
 - [Phase 05]: G-05-5 closure: ledger corrected to ranged provenance; SHAPE-01/SHAPE-03 narrowed to plan 05-30's exact id-lookup correlation, staying unchecked/UNJUDGED — 05-REVIEW.md WR-01 found bare unranged git diff --quiet cited as post-commit ledger evidence; 05-VERIFICATION.md's advisory independently re-confirmed it. Fixed forward (new rows use ranged commands) without rewriting the four historical rows that established the convention.
 - [Phase 05]: Gap G-05-6 closed: composeIsolatedClaudeConfigDir presents the developer's own claude.ai credential by symlink reference; assertBackendAuthenticated refuses before spawn on any authentication mismatch; the credential path in force is now recorded in both the evidence sheet and a durable artifact. — The config-isolated UAT live arm previously conflated isolation (no personal config leaking into the session under test) with credential availability (the session must still authenticate as the developer) -- one CLAUDE_CONFIG_DIR switch controlled both, making SHAPE-01/SHAPE-03's live judgements structurally unreachable without an API key. Separating them via a fixed credential allow-list keeps isolation intact while making authentication provable offline.
+- [Phase 05]: Gap G-05-6 closed: a non-conversation backend message is now classified from categorical wire facts (assistant envelope's own is_api_error_message/error, result line's own is_error/terminal_reason) via classifyNonConversationTurn, with the retained readBackendRefusal text-banner reader kept unweakened as the only measured fallback for the safety-classifier shape.
 
 ### Pending Todos
 
@@ -456,6 +458,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-25T09:25:17.790Z
-Stopped at: Completed 05-33-PLAN.md
+Last session: 2026-09-25T10:10:59.705Z
+Stopped at: Completed 05-34-PLAN.md
 Resume file: None
