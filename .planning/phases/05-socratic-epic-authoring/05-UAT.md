@@ -3,7 +3,7 @@ status: partial
 phase: 05-socratic-epic-authoring
 source: [05-VERIFICATION.md]
 started: 2026-09-25T15:55:00Z
-updated: 2026-09-25T16:10:00Z
+updated: 2026-09-25T16:25:00Z
 ---
 
 ## Current Test
@@ -17,7 +17,7 @@ expected: Run `scripts/uat/uat-08-socratic-authoring.mjs` in live mode against a
 why_human: Judgment about live model dialogue quality and draft usefulness; no structural check can certify either.
 result: blocked
 blocked_by: third-party
-reason: "Live arm run 2026-09-25 (run 01M3BSBJ05CJD49YFPC5VV26EG) exited 1. The `claude` CLI at /opt/homebrew/bin/claude is not authenticated — the backend's only reply, captured verbatim, was `Not logged in · Please run /login` (chunks=1 chars=33 endedBy=result). No agent conversation occurred, so neither judgement could be made. No API credential was spent: the CLI never reached the API. Both verdict lines remain UNJUDGED."
+reason: "Live arm run twice (runs 01M3BSBJ05CJD49YFPC5VV26EG and 01M3BSKG32D3QRDGEJJS2B7YHD), both exited 1 with the backend's only reply being `Not logged in \u00b7 Please run /login` (chunks=1 chars=33 endedBy=result). ROOT CAUSE IS NOT A MISSING LOGIN: `claude auth status` reports loggedIn=true, authMethod=claude.ai, subscriptionType=max, and `claude -p` returns normally from this shell. The live arm calls `harness.cleanClaudeConfigEnv()` (scripts/uat/uat-08-socratic-authoring.mjs, live path) which points CLAUDE_CONFIG_DIR at an isolated temp directory, and `assertClaudeConfigIsolated` actively asserts that no spawn-env value references the developer's personal ~/.claude. That directory is also where the claude.ai OAuth credential lives, so isolating the config necessarily strips the credential. Proven directly: `CLAUDE_CONFIG_DIR=$(mktemp -d) claude auth status` returns loggedIn=false, authMethod=none. No API credential was spent by either run. Both verdict lines remain UNJUDGED."
 
 ## Summary
 
@@ -57,4 +57,20 @@ blocked: 1
       issue: "WR-01, still open: back-to-back-proposals bullet describes a comparison this round's diff removed"
   missing:
     - "Correct both stale descriptions to match shipped behavior"
+  debug_session: ""
+
+- truth: "The live acceptance arm can authenticate as the developer whose machine it runs on, using that developer's existing local agent credentials."
+  status: failed
+  reason: "The live arm is structurally unable to authenticate for a developer whose auth is claude.ai OAuth (Pro/Max subscription). `cleanClaudeConfigEnv()` sets CLAUDE_CONFIG_DIR to an isolated temp directory and `assertClaudeConfigIsolated` enforces that nothing in the spawn env points at the personal ~/.claude — but Claude Code stores the OAuth credential under CLAUDE_CONFIG_DIR, so config isolation and credential availability are the same switch. Verified: `claude auth status` = loggedIn true / authMethod claude.ai / max; `CLAUDE_CONFIG_DIR=<temp> claude auth status` = loggedIn false / authMethod none. The isolation was wired into the live arm by plan 05-10; the one live run that DID reach the API (row 05-22-03, 2026-09-24) must therefore have authenticated via ANTHROPIC_API_KEY, which survives config isolation — an API-key billing path, not the subscription path this project's core constraint names. This directly contradicts PROJECT.md's execution-model constraint that agents run using the developer's existing local agent credentials, and it makes SHAPE-01's and SHAPE-03's live judgements UNREACHABLE by the current harness rather than merely unspent."
+  severity: blocker
+  test: 1
+  root_cause: "CLAUDE_CONFIG_DIR is both the config root and the credential root for Claude Code; the harness isolates it to keep the developer's personal CLAUDE.md/settings/skills out of the run under test, and unavoidably removes the credential with them."
+  artifacts:
+    - path: "scripts/uat/lib/sidecar-harness.mjs"
+      issue: "cleanClaudeConfigEnv() / assertClaudeConfigIsolated() isolate CLAUDE_CONFIG_DIR, which also strips the claude.ai OAuth credential"
+    - path: "scripts/uat/uat-08-socratic-authoring.mjs"
+      issue: "live path applies cleanClaudeConfigEnv() unconditionally, so the live arm can never authenticate via a subscription login"
+  missing:
+    - "Separate config isolation from credential availability for the live arm — isolate the config surface (CLAUDE.md, settings, skills) while still presenting the developer's own credential, or document ANTHROPIC_API_KEY as a hard precondition of the live arm and fail fast with that message instead of producing a 33-character 'Not logged in' agent turn"
+    - "A precondition check that reads auth state BEFORE spawning and refuses the run with a named cause, rather than spending two 120s proposal deadlines discovering it"
   debug_session: ""
