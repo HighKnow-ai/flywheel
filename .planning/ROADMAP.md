@@ -616,7 +616,7 @@ Plans:
 
 **Gap closure round 7 — wave 3** *(blocked on 05-31 — the ledger cannot record a command until every command in this closure exists and has been observed)*
 
-- [ ] 05-32-PLAN.md — G-05-5: a ledger row per task with provenance anchored to a commit range rather than the bare unranged diff `05-REVIEW.md` WR-01 showed exits 0 unconditionally, manual-only rows naming what was proven AND what was assumed rather than claiming zero residual gaps, and SHAPE-01/SHAPE-03 narrowed while staying unchecked and UNJUDGED (all five SHAPE ids)
+- [x] 05-32-PLAN.md — G-05-5: a ledger row per task with provenance anchored to a commit range rather than the bare unranged diff `05-REVIEW.md` WR-01 showed exits 0 unconditionally, manual-only rows naming what was proven AND what was assumed rather than claiming zero residual gaps, and SHAPE-01/SHAPE-03 narrowed while staying unchecked and UNJUDGED (all five SHAPE ids)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is

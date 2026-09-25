@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-31-PLAN.md
-last_updated: "2026-09-25T07:12:46.171Z"
+stopped_at: Completed 05-32-PLAN.md
+last_updated: "2026-09-25T07:23:45.913Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 05 execution started
-state_head: 88712205a455bc98290d47a668a0a5e160645277
+state_head: 9921b43a10da53f17103e2f518394d017644f002
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 125
-  completed_plans: 124
+  completed_plans: 125
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 3 of 32
+Plan: 4 of 32
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 05 execution started
 
@@ -181,6 +181,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P29 | ~10min | 2 tasks | 2 files |
 | Phase 05-socratic-epic-authoring P30 | 55 min | 3 tasks | 5 files |
 | Phase 05 P31 | 45min | 3 tasks | 3 files |
+| Phase 05-socratic-epic-authoring P32 | 12min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -405,6 +406,7 @@ Recent decisions affecting current work:
 - [Phase 05]: SHAPE-01's attempt/answer correlation is now an exact id lookup on the wire's own tool_use/tool_result correlation id, replacing six rounds of narrowed positional heuristics; an id-less stream reads 'uncorrelatable' and fails closed rather than silently passing.
 - [Phase 05]: Exactly one frozen negative control lives in scripts/uat/uat-08-socratic-authoring.mjs at a time; round 6's control was retired outright (not accumulated) when superseded by correlateProposeAttemptsPositionally.
 - [Phase 05]: Plan 05-31: the round-7 self-test battery deliberately duplicates 05-30's own positional-control check under a new tag rather than relying on scattered pre-existing checks, so all three defect-class shapes are grep-discoverable from one self-contained region. — A verification that reads this file must be able to tell from the PASS lines alone that every shape is covered, without re-reading bodies scattered across prior rounds.
+- [Phase 05]: G-05-5 closure: ledger corrected to ranged provenance; SHAPE-01/SHAPE-03 narrowed to plan 05-30's exact id-lookup correlation, staying unchecked/UNJUDGED — 05-REVIEW.md WR-01 found bare unranged git diff --quiet cited as post-commit ledger evidence; 05-VERIFICATION.md's advisory independently re-confirmed it. Fixed forward (new rows use ranged commands) without rewriting the four historical rows that established the convention.
 
 ### Pending Todos
 
@@ -452,6 +454,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-25T07:12:46.041Z
-Stopped at: Completed 05-31-PLAN.md
+Last session: 2026-09-25T07:23:45.787Z
+Stopped at: Completed 05-32-PLAN.md
 Resume file: None
