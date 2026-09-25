@@ -262,6 +262,13 @@ const EVIDENCE_FILE_NAME = "05-LIVE-CHALLENGE-TRANSCRIPT.md";
  *   true) — G-05-2's own guard against laundering a scripted run as a live one: a synthetic sheet
  *   carries an unmissable marker in its first two lines naming the scenario, and its verdict
  *   section is REPLACED by a refusal — the unfilled-verdict token appears zero times.
+ * - `credentialPath` (plan 05-33, Task 3) — the summary `assertBackendAuthenticated` returned,
+ *   PLUS a `scrubbedCount` naming how many API-key env vars `scrubApiKeyEnv` removed before spawn.
+ *   Optional; `null`/absent renders BYTE-IDENTICALLY to omitting the field entirely — the same
+ *   discipline `refusal` already carries, for the same reason: `--replay-check` produces synthetic
+ *   sheets that must not drift. Never carries an email address, an organisation id or an
+ *   organisation name — `summariseAuthStatus` already makes that structurally impossible before
+ *   this function ever sees the object; this is the second fence, not the first.
  */
 function renderChallengeEvidenceSheet(evidence) {
   const {
@@ -275,6 +282,7 @@ function renderChallengeEvidenceSheet(evidence) {
     synthetic = false,
     scenario,
     refusal = null,
+    credentialPath = null,
   } = evidence;
 
   const drafted = draftedCriteriaCount ?? 0;
@@ -354,6 +362,20 @@ function renderChallengeEvidenceSheet(evidence) {
       "no verdict below should be read as covering a finished conversation.\n\n"
     : "";
 
+  // Plan 05-33 (Task 3): rendered ABOVE the verdict section, mirroring the refusal section's own
+  // placement — the direct countermeasure to validation ledger row `05-22-03`, whose credential
+  // path is unrecoverable after the fact. Omitted entirely (not even an empty heading) when
+  // `credentialPath` is absent or null, so an unaugmented sheet stays BYTE-IDENTICAL to what this
+  // function rendered before this field existed.
+  const credentialPathSection = credentialPath
+    ? `## Credential path\n\n` +
+      `- Authentication method: ${credentialPath.authMethod}\n` +
+      `- Logged in: ${credentialPath.loggedIn}\n` +
+      `- Configuration directory: ${credentialPath.configDirectory}\n` +
+      `- No API-key environment variable was present in the spawned environment ` +
+      `(${credentialPath.scrubbedCount ?? 0} removed before spawn).\n\n`
+    : "";
+
   return `# Phase 5 — Socratic Epic Authoring — Live Challenge Transcript
 ${syntheticMarkerLine}
 
@@ -382,7 +404,7 @@ ${criterionLines || "(not yet available — populated once the decompose phase c
 - Amended criteria: ${amended}
 - Ratio (amended/drafted): ${amended}/${drafted}
 
-${refusalSection}${verdictsSection}`;
+${refusalSection}${credentialPathSection}${verdictsSection}`;
 }
 
 /**
@@ -2643,6 +2665,56 @@ async function selfTest() {
     },
   );
 
+  // ---- Task 3: renderChallengeEvidenceSheet's credentialPath section ----------------------------
+
+  const CREDENTIAL_PATH_SUMMARY = {
+    loggedIn: true,
+    authMethod: "claude.ai",
+    configDirectory: "/scratch/claude-config",
+    scrubbedCount: 0,
+  };
+
+  check(
+    "[Plan 05-33, Task 3] a sheet rendered with credentialPath omitted is byte-identical to one rendered with credentialPath explicitly null",
+    () => {
+      const withoutField = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+      const withExplicitNull = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, credentialPath: null });
+      assert.equal(withoutField, withExplicitNull);
+      assert.ok(!withoutField.includes("## Credential path"));
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 3] a sheet rendered WITH a credentialPath summary carries the credential-path heading ABOVE the verdict heading",
+    () => {
+      const sheet = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, credentialPath: CREDENTIAL_PATH_SUMMARY });
+      const credentialHeadingIndex = sheet.indexOf("## Credential path");
+      const verdictHeadingIndex = sheet.indexOf("## Verdicts");
+      assert.ok(credentialHeadingIndex >= 0 && verdictHeadingIndex >= 0);
+      assert.ok(credentialHeadingIndex < verdictHeadingIndex);
+      assert.ok(sheet.includes("claude.ai"));
+    },
+  );
+
+  check(
+    "[Plan 05-33, Task 3] a sheet rendered with a credentialPath summary contains none of the identity strings from a payload that carried them",
+    () => {
+      const identityPayload = {
+        loggedIn: true,
+        authMethod: "claude.ai",
+        configDirectory: "/scratch/claude-config",
+        email: "dev@example.com",
+        orgId: "org_ABC123",
+        orgName: "Acme Corp",
+      };
+      const credentialPath = { ...summariseAuthStatus(identityPayload), scrubbedCount: 0 };
+      const sheet = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, credentialPath });
+      assert.ok(!sheet.includes(identityPayload.email));
+      assert.ok(!sheet.includes(identityPayload.orgId));
+      assert.ok(!sheet.includes(identityPayload.orgName));
+    },
+  );
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -4275,6 +4347,12 @@ await runScript(
       configDir: harness.lastComposedClaudeConfig.configDir,
     });
     step(`backend authenticated as the developer: method=${credentialSummary.authMethod} loggedIn=${credentialSummary.loggedIn}`);
+    // Plan 05-33 (Task 3, gap G-05-6): the direct countermeasure to validation ledger row
+    // `05-22-03`, whose credential path was never recorded — this summary is written into both a
+    // durable artifact (here) and the evidence sheet itself (every renderChallengeEvidenceSheet
+    // call below), so which credential authenticated a run can never again be invisible.
+    const credentialPath = { ...credentialSummary, scrubbedCount: removedApiKeyVars.length };
+    harness.writeArtifact("uat-08-credential-path", credentialPath);
 
     const opsHarnessBin = resolveHarnessBinary("uat_session_env");
     if (opsHarnessBin === undefined) {
@@ -4391,6 +4469,7 @@ await runScript(
           results: [],
           timestamp: new Date().toISOString(),
           refusal: conversation.refusal,
+          credentialPath,
         }),
       );
       throw new Error(
@@ -4463,6 +4542,7 @@ await runScript(
         amendedCriteriaCount: 0,
         results: [],
         timestamp: new Date().toISOString(),
+        credentialPath,
       }),
     );
     step(
@@ -4538,6 +4618,7 @@ await runScript(
             results: [],
             timestamp: new Date().toISOString(),
             refusal: distillationReply.refusal,
+            credentialPath,
           }),
         );
         throw new Error(
@@ -4665,6 +4746,7 @@ await runScript(
         amendedCriteriaCount,
         results,
         timestamp: new Date().toISOString(),
+        credentialPath,
       }),
     );
     step(`wrote challenge evidence sheet (final): ${evidencePath}`);
