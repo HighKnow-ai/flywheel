@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 05
-current_phase_name: socratic-epic-authoring
+current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-29-PLAN.md
-last_updated: "2026-09-25T02:09:43.646Z"
+stopped_at: Completed 05-30-PLAN.md
+last_updated: "2026-09-25T06:52:53.042Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 05 execution started
-state_head: 78cb52d55948168bdfcc416f4f7759ef32b03bcc
+state_head: 27fc6fabfeab52a271a41f5039745f1434c9c31e
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 125
-  completed_plans: 122
+  completed_plans: 123
   percent: 0
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 
 ## Current Position
 
-Phase: 05 (socratic-epic-authoring) — READY TO EXECUTE
-Plan: 4 of 29
+Phase: 05 (Socratic Epic Authoring) — EXECUTING
+Plan: 2 of 32
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 05 execution started
 
@@ -179,6 +179,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P27 | 25min | 3 tasks | 2 files |
 | Phase 05-socratic-epic-authoring P28 | ~15min | 2 tasks | 2 files |
 | Phase 05 P29 | ~10min | 2 tasks | 2 files |
+| Phase 05-socratic-epic-authoring P30 | 55 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -400,6 +401,8 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05]: readBackendRefusal's doc comment is doc-accuracy-only, not a behaviour change — 05-REVIEW.md's own WR-01 analysis rejected tightening the match, since that would trade back toward the false-negative direction the function exists to close; the comment now names the residual false-positive shape instead of overclaiming zero.
 - [Phase 05]: [Phase 05]: A third README Item 8 rule -- when a fixture is shaped around an ambiguity in the algorithm under test, the ambiguity is the finding — Grounded in 05-23-SUMMARY.md's own Issues Encountered section, which documents the exact moment this phase's fifth-round defect (G-05-4) was routed into a fixture instead of the correlation algorithm.
 - [Phase 05]: [Phase 05]: Plan 05-29 closes gap-closure round G-05-4: 05-VALIDATION.md now carries a ledger row for every task in the closure (05-27-01..05-29-02), each naming a command actually run and observed; REQUIREMENTS.md's SHAPE-01/SHAPE-03 lines are narrowed to credit plan 05-27's claimed-index tool_result correlation fix while staying unchecked, with the live dialogue-quality/draft-usefulness judgements still UNJUDGED. The credential-spend decision for one live run is put to the developer, unanswered by design.
+- [Phase 05]: SHAPE-01's attempt/answer correlation is now an exact id lookup on the wire's own tool_use/tool_result correlation id, replacing six rounds of narrowed positional heuristics; an id-less stream reads 'uncorrelatable' and fails closed rather than silently passing.
+- [Phase 05]: Exactly one frozen negative control lives in scripts/uat/uat-08-socratic-authoring.mjs at a time; round 6's control was retired outright (not accumulated) when superseded by correlateProposeAttemptsPositionally.
 
 ### Pending Todos
 
@@ -447,6 +450,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-25T00:52:57.498Z
-Stopped at: Completed 05-29-PLAN.md
+Last session: 2026-09-25T06:52:52.287Z
+Stopped at: Completed 05-30-PLAN.md
 Resume file: None
