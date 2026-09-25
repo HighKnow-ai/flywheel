@@ -369,7 +369,20 @@ interface ClaudeStreamInit {
 
 interface ClaudeStreamMessage {
   type: "assistant" | "user";
-  message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> };
+  message?: {
+    content?: Array<{
+      type: string;
+      text?: string;
+      name?: string;
+      input?: unknown;
+      /** G-05-5: a `tool_use` block's own correlation id, when the backend declares one. Optional
+       * — the adapter must parse a block that has neither this nor `tool_use_id`. */
+      id?: string;
+      /** G-05-5: a `tool_result` block's own correlation id, referencing the `tool_use` block's
+       * `id` it answers. Optional, for the same reason as `id` above. */
+      tool_use_id?: string;
+    }>;
+  };
 }
 
 /** The real CLI's usage block, measured live against claude 2.1.236 during G-02-4's planning
@@ -588,16 +601,31 @@ export function normaliseStreamEvent(
     const content = message?.content ?? [];
     const toolCall = content.find((block) => block.type === "tool_use");
     if (toolCall) {
+      // G-05-5: a `tool_use` block's own `id` — and ONLY its own `id`, never `tool_use_id` — is
+      // this event's correlation key. Spread only when it is a non-empty string, so an absent or
+      // malformed id omits the key ENTIRELY rather than setting it to `undefined`, mirroring the
+      // `inputTokens`/`outputTokens` idiom in the `result` branch below.
       return {
         ...base,
         type: "tool_call",
         toolName: toolCall.name ?? "unknown_tool",
         input: toolCall.input,
+        ...(typeof toolCall.id === "string" && toolCall.id.length > 0 ? { toolUseId: toolCall.id } : {}),
       };
     }
     const toolResult = content.find((block) => block.type === "tool_result");
     if (toolResult) {
-      return { ...base, type: "tool_result", output: toolResult.text };
+      // G-05-5: a `tool_result` block's own `tool_use_id` — and ONLY its own `tool_use_id`, never
+      // `id` — is this event's correlation key. A result block carrying an `id` but no
+      // `tool_use_id` must NOT have that `id` adopted as the correlation key.
+      return {
+        ...base,
+        type: "tool_result",
+        output: toolResult.text,
+        ...(typeof toolResult.tool_use_id === "string" && toolResult.tool_use_id.length > 0
+          ? { toolUseId: toolResult.tool_use_id }
+          : {}),
+      };
     }
     const textBlock = content.find((block) => block.type === "text");
     if (textBlock) {

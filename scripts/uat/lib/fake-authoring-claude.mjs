@@ -198,6 +198,10 @@ export const SCENARIOS = {
         {
           type: "tool_use",
           name: "mcp__flywheel-permissions__propose_task",
+          // Plan 05-30 (G-05-5 closure): every tool_use block in this scenario carries its own
+          // distinct id — no tool_result follows in this scenario, so the id has nothing to pair
+          // with, but the plan's own instruction is to id every tool_use block regardless.
+          id: "toolu_swdc_propose",
           input: { title: "Build notifications", description: "Notify the user of run outcomes." },
         },
         { type: "text", text: "I've staged the first task for your review." },
@@ -220,7 +224,7 @@ export const SCENARIOS = {
       // call anywhere in this turn.
       [
         { type: "text", text: "Let me get oriented before shaping this." },
-        { type: "tool_use", name: "Bash", input: { command: "git status --short && ls" } },
+        { type: "tool_use", name: "Bash", id: "toolu_pwaa_bash1", input: { command: "git status --short && ls" } },
         {
           type: "text",
           text:
@@ -233,7 +237,7 @@ export const SCENARIOS = {
       // what makes the conversation SETTLE. Still no propose tool call.
       [
         { type: "text", text: "Good — locking that in." },
-        { type: "tool_use", name: "Bash", input: { command: "true" } },
+        { type: "tool_use", name: "Bash", id: "toolu_pwaa_bash2", input: { command: "true" } },
         {
           type: "text",
           text:
@@ -248,6 +252,10 @@ export const SCENARIOS = {
         {
           type: "tool_use",
           name: "mcp__flywheel-permissions__propose_task",
+          // Plan 05-30 (G-05-5 closure): every tool_use block in this scenario carries its own
+          // distinct id — no tool_result follows this one either, so the id has nothing to pair
+          // with here, but every tool_use block in this scenario is idded regardless.
+          id: "toolu_pwaa_propose",
           input: { title: "Build notifications", description: "Notify the user of run outcomes." },
         },
         { type: "text", text: "I've staged the first task for your review." },
@@ -357,24 +365,84 @@ export const SCENARIOS = {
         {
           type: "tool_use",
           name: "mcp__flywheel-permissions__propose_task",
+          // Plan 05-30 (G-05-5 closure): ids added so the live wire shape (two back-to-back
+          // propose attempts, each with its own tool_use_id-bearing answer) matches what the
+          // product now actually reads. The refusing result below carries THIS id — it answers
+          // the FIRST attempt, mirroring exactly which result the pre-05-30 claimed-index pairing
+          // paired it with, so this fixture's own expected readings are unchanged by this edit.
+          id: "toolu_btb_1",
           input: { title: "Build notifications", description: "Notify the user of run outcomes." },
         },
         {
           type: "tool_use",
           name: "mcp__flywheel-permissions__propose_assumption",
+          id: "toolu_btb_2",
           input: { assumption: "Notifications are opt-in by default." },
         },
         {
           type: "tool_result",
           role: "user",
+          tool_use_id: "toolu_btb_1",
           text: "still in the challenge stage — no proposals yet.",
         },
         {
           type: "tool_result",
           role: "user",
+          tool_use_id: "toolu_btb_2",
           text: "proposal created successfully.",
         },
         { type: "text", text: "I've staged both items for your review." },
+      ],
+    ],
+    fallback: [
+      { type: "text", text: "Still staging more work based on what you've told me." },
+    ],
+  },
+
+  // Plan 05-30 (gap G-05-5): the vacuous-pass shape this plan closes — a propose attempt's OWN real,
+  // unrefused answer sits BEHIND an unrelated tool's result, and that unrelated result's own text
+  // happens to match the stage-gate refusal wording. A pairing that infers its answer from POSITION
+  // (the earliest unclaimed subsequent tool_result, whatever order the two interleave in) claims the
+  // unrelated board_search result as the propose attempt's own answer, reads a refusal that was never
+  // about this attempt, and certifies a genuine SHAPE-01 violation as a pass. A pairing that looks up
+  // the wire's own correlation id instead pairs each attempt with its OWN result regardless of
+  // interleaving, and reads this shape correctly: `violated`. This scenario is the ordinary case, not
+  // a contrived one — `mcp-permission-server.ts`'s three read tools (including `board_search`) are
+  // pre-approved in every stage including the challenge stage, so an agent issuing a read alongside a
+  // staged proposal is exactly the shape a real session can produce.
+  "interleaved-read-during-proposal": {
+    turns: [
+      [
+        { type: "text", text: "This premise is clear enough — I'll stage the work now." },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_task",
+          id: "toolu_propose_1",
+          input: { title: "Build notifications", description: "Notify the user of run outcomes." },
+        },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__board_search",
+          id: "toolu_read_1",
+          input: { term: "notifications" },
+        },
+        {
+          // The UNRELATED read's own result — its text coincidentally matches the stage-gate
+          // refusal wording, which is the coincidence that makes this gap severe rather than
+          // merely untidy. Answers toolu_read_1, NOT the propose attempt.
+          type: "tool_result",
+          role: "user",
+          tool_use_id: "toolu_read_1",
+          text: "board_search is unavailable during challenge stage",
+        },
+        {
+          // The propose attempt's REAL answer — not refusing. Answers toolu_propose_1.
+          type: "tool_result",
+          role: "user",
+          tool_use_id: "toolu_propose_1",
+          text: "proposal created successfully.",
+        },
+        { type: "text", text: "I've staged that item for your review." },
       ],
     ],
     fallback: [

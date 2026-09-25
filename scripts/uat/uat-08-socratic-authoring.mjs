@@ -138,6 +138,17 @@ function reportCriteria(results) {
 }
 
 /**
+ * Plan 05-30 (G-05-5 closure): the fail-closed ALLOW-list of `readNoWorkPlanned` readings that may
+ * pass SHAPE-01's second half. Replaces the prior `!== "violated"` DENY-list, under which any
+ * reading value the author had not anticipated passed by default — exactly the mechanism that let
+ * a fourth reading (`"uncorrelatable"`, added by this same plan) have silently passed SHAPE-01 had
+ * the deny-list been left in place. A reading added later and not added HERE does not pass, and
+ * that is deliberate: this is the generalisation of the defect class this plan closes, not a
+ * detail specific to one new value.
+ */
+const PASSING_NO_WORK_READINGS = new Set(["refused", "unproven"]);
+
+/**
  * Pure: builds the `results` array `reportCriteria` expects, from the booleans the live run
  * computes. Extracted out of the live body so `--self-test` can assert the gating SHAPE of the
  * REAL result set the live run produces, rather than a synthetic stand-in that could drift from
@@ -159,21 +170,30 @@ function buildCriteriaResults(flags) {
     criterion4PrimedRejected,
   } = flags;
 
-  // Task 3 (G-05-2): a THREE-valued reading, never a boolean that goes vacuously true the moment
-  // no propose attempt happens to be observed. "unproven" names WHERE the structural guarantee is
-  // actually proven — never leaves a reader thinking an absence of evidence was a measurement.
+  // Task 3 (G-05-2): never a boolean that goes vacuously true the moment no propose attempt
+  // happens to be observed. "unproven" names WHERE the structural guarantee is actually proven —
+  // never leaves a reader thinking an absence of evidence was a measurement. Plan 05-30 (G-05-5
+  // closure) added a FOURTH value, "uncorrelatable": propose attempts were observed but at least
+  // one carried no correlation id, so the backend supplied no exact key and this run cannot be
+  // judged either way — its own detail line, distinct from "unproven"'s, because the two states
+  // differ in whether the criterion could even be evaluated at all.
   const noWorkPlannedDetail =
     noWorkPlannedReading === "unproven"
       ? "unproven — no propose attempt observed this run; the structural guarantee (the proposal " +
         "tools are absent from the tool set until the stage advances) is proven by " +
         "packages/core/tests/authoring_stage.rs and " +
         "packages/sidecar/test/authoring-stage-gate.test.mjs, not by this run"
-      : noWorkPlannedReading;
+      : noWorkPlannedReading === "uncorrelatable"
+        ? "uncorrelatable — a propose attempt was observed but the backend's own tool_call block " +
+          "carried no correlation id, so this run cannot be paired with its own answer and cannot " +
+          "be judged either way; see CORRELATION_ID_FIELD's own doc comment for the asymmetric " +
+          "grounding behind this abstention"
+        : noWorkPlannedReading;
 
   return [
     [
       "SHAPE-01 — the agent challenges before any work is planned",
-      criterion1Challenged && noWorkPlannedReading !== "violated",
+      criterion1Challenged && PASSING_NO_WORK_READINGS.has(noWorkPlannedReading),
       `challenged=${criterion1Challenged} noWorkPlanned=${noWorkPlannedDetail}`,
     ],
     [
@@ -1586,23 +1606,41 @@ async function selfTest() {
         new RegExp(`\\b${TOOL_NAME_FIELD}\\?\\s*:\\s*string`).test(resultMatch[1]),
         `expected ToolResultEvent to declare an OPTIONAL field named ${JSON.stringify(TOOL_NAME_FIELD)}`,
       );
+
+      // Plan 05-30 (G-05-5 closure): the wire's own correlation id, pinned the same way, over the
+      // SAME two interface bodies captured above — a rename fails this check instead of silently
+      // degrading the pairing back to bare position.
+      assert.ok(
+        new RegExp(`\\b${CORRELATION_ID_FIELD}\\?\\s*:\\s*string`).test(callMatch[1]),
+        `expected ToolCallEvent to declare an OPTIONAL field named ${JSON.stringify(CORRELATION_ID_FIELD)} — ` +
+          "a rename in the product must fail this check, not silently degrade the pairing back to position",
+      );
+      assert.ok(
+        new RegExp(`\\b${CORRELATION_ID_FIELD}\\?\\s*:\\s*string`).test(resultMatch[1]),
+        `expected ToolResultEvent to declare an OPTIONAL field named ${JSON.stringify(CORRELATION_ID_FIELD)}`,
+      );
     },
   );
 
   check("readNoWorkPlanned distinguishes unproven, violated and refused, and ignores the old wrong field", () => {
     // Plan 05-23 (CR-01 closure): the window is now required — every fixture below carries a
-    // matching runId and a window spanning its own whole array.
+    // matching runId and a window spanning its own whole array. Plan 05-30 (G-05-5 closure): every
+    // correlatable attempt below now carries its own toolUseId, matched (or not) on its own
+    // tool_result — an attempt with no id at all reads "uncorrelatable", covered by its own
+    // dedicated checks further down, not by this one.
     const runId = "run-nwp-basic";
     const win = (events) => ({ runId, fromIndex: 0, toIndex: events.length });
 
     assert.equal(readNoWorkPlanned([], win([])), "unproven");
 
-    const attemptOnly = [{ type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }];
+    const attemptOnly = [
+      { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_basic_1" },
+    ];
     assert.equal(readNoWorkPlanned(attemptOnly, win(attemptOnly)), "violated");
 
     const attemptAndRefusal = [
-      { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
-      { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+      { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_basic_2" },
+      { type: "tool_result", runId, toolUseId: "toolu_basic_2", raw: "still in the challenge stage — no proposals yet." },
     ];
     assert.equal(readNoWorkPlanned(attemptAndRefusal, win(attemptAndRefusal)), "refused");
 
@@ -1629,9 +1667,9 @@ async function selfTest() {
     () => {
       const runId = "run-wr01-bypass";
       const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt 1
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt 1
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt 2, unanswered
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_bypass_1" }, // attempt 1
+        { type: "tool_result", runId, toolUseId: "toolu_bypass_1", raw: "still in the challenge stage — no proposals yet." }, // refuses attempt 1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_bypass_2" }, // attempt 2, unanswered
       ];
       const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: events.length });
       assert.equal(
@@ -1652,9 +1690,9 @@ async function selfTest() {
       // Shape A: attempt1 refused, attempt2 unanswered (the WR-01 bypass shape, re-asserted here
       // explicitly as "order-independent" rather than duplicated for its own sake).
       const refusedThenUnrefused = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt1
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt2, unanswered
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_ord_a1" }, // attempt1
+        { type: "tool_result", runId, toolUseId: "toolu_ord_a1", raw: "still in the challenge stage — no proposals yet." }, // refuses attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_ord_a2" }, // attempt2, unanswered
       ];
       assert.equal(
         readNoWorkPlanned(refusedThenUnrefused, { runId, fromIndex: 0, toIndex: refusedThenUnrefused.length }),
@@ -1662,19 +1700,17 @@ async function selfTest() {
         "expected a refused-then-unrefused pair to read violated",
       );
 
-      // Shape B: attempt1 unrefused (its own first subsequent tool_result names a DIFFERENT
-      // tool, so it is not attempt1's answer at all), attempt2 refused — the mirror image. This
-      // fixture keeps the wrong-name exclusion (covered on its own, dedicated check above) because
-      // that exclusion is a real behaviour worth covering here too, alongside order-independence —
-      // not because a bare unanswered shape would otherwise be unreadable. Shapes C and D below
-      // cover the back-to-back-both-open collision this comment used to describe as a fixture
+      // Shape B: attempt1 unrefused (the FIRST subsequent tool_result carries a DIFFERENT
+      // correlation id, so it is not attempt1's answer at all — an id mismatch, not the retired
+      // tool-name mismatch plan 05-30 deleted), attempt2 refused — the mirror image. Shapes C and D
+      // below cover the back-to-back-both-open collision this comment used to describe as a fixture
       // requirement; it was actually the defect (plan 05-27, G-05-4 closure, 05-VERIFICATION.md
       // truth #11's `coincidental-reliance` flag).
       const unrefusedThenRefused = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
-        { type: "tool_result", runId, toolName: "mcp__flywheel-permissions__unrelated_tool", raw: "ok" }, // wrong name — not attempt1's answer
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt2
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt2
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_ord_b1" }, // attempt1
+        { type: "tool_result", runId, toolUseId: "toolu_ord_other", raw: "ok" }, // different id — not attempt1's answer
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_ord_b2" }, // attempt2
+        { type: "tool_result", runId, toolUseId: "toolu_ord_b2", raw: "still in the challenge stage — no proposals yet." }, // refuses attempt2
       ];
       assert.equal(
         readNoWorkPlanned(unrefusedThenRefused, { runId, fromIndex: 0, toIndex: unrefusedThenRefused.length }),
@@ -1682,15 +1718,16 @@ async function selfTest() {
         "expected an unrefused-then-refused pair to read violated — the SAME outcome as its mirror image",
       );
 
-      // Shape C (plan 05-27, G-05-4 closure): the back-to-back-both-open collision — both
-      // attempts issued before either is answered, then a refusing UNNAMED result, then a
-      // non-refusing UNNAMED result. No wrong-name exclusion is available here to rescue the
-      // reading; the claimed-index pairing is what makes this order-independent.
+      // Shape C (plan 05-27, G-05-4 closure; ids added plan 05-30, G-05-5 closure): the
+      // back-to-back-both-open collision — both attempts issued before either is answered, then a
+      // refusing result, then a non-refusing result. Each result carries the id of the attempt it
+      // actually answers, which is what makes this order-independent by construction rather than by
+      // a claimed-index scan.
       const bothOpenRefusalFirst = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt2
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // claimed by attempt1, refuses
-        { type: "tool_result", runId, raw: "proposal created successfully" }, // claimed by attempt2, unrefused
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_ord_c1" }, // attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_ord_c2" }, // attempt2
+        { type: "tool_result", runId, toolUseId: "toolu_ord_c1", raw: "still in the challenge stage — no proposals yet." }, // answers attempt1, refuses
+        { type: "tool_result", runId, toolUseId: "toolu_ord_c2", raw: "proposal created successfully" }, // answers attempt2, unrefused
       ];
       assert.equal(
         readNoWorkPlanned(bothOpenRefusalFirst, { runId, fromIndex: 0, toIndex: bothOpenRefusalFirst.length }),
@@ -1711,12 +1748,12 @@ async function selfTest() {
 
       // Shape D: the mirror image of Shape C — non-refusing result first, refusing result second.
       // The point of the C/D pair: the reading is the SAME whichever attempt's answer refuses,
-      // once each attempt genuinely has its own claimed answer.
+      // once each attempt genuinely has its own id-matched answer.
       const bothOpenRefusalSecond = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt2
-        { type: "tool_result", runId, raw: "proposal created successfully" }, // claimed by attempt1, unrefused
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // claimed by attempt2, refuses
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_ord_d1" }, // attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_ord_d2" }, // attempt2
+        { type: "tool_result", runId, toolUseId: "toolu_ord_d1", raw: "proposal created successfully" }, // answers attempt1, unrefused
+        { type: "tool_result", runId, toolUseId: "toolu_ord_d2", raw: "still in the challenge stage — no proposals yet." }, // answers attempt2, refuses
       ];
       assert.equal(
         readNoWorkPlanned(bothOpenRefusalSecond, { runId, fromIndex: 0, toIndex: bothOpenRefusalSecond.length }),
@@ -1743,10 +1780,10 @@ async function selfTest() {
     () => {
       const runId = "run-wr01-both-refused";
       const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // attempt1
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt1
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // attempt2
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // refuses attempt2
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_both_1" }, // attempt1
+        { type: "tool_result", runId, toolUseId: "toolu_both_1", raw: "still in the challenge stage — no proposals yet." }, // refuses attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_both_2" }, // attempt2
+        { type: "tool_result", runId, toolUseId: "toolu_both_2", raw: "still in the challenge stage — no proposals yet." }, // refuses attempt2
       ];
       const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: events.length });
       assert.equal(reading, "refused", "expected both individually-refused attempts to read refused");
@@ -1754,15 +1791,21 @@ async function selfTest() {
   );
 
   check(
-    "[Plan 05-23, Task 2] a tool_result naming a DIFFERENT tool is not this attempt's answer — unrefused, violated",
+    "[Plan 05-30, G-05-5 closure] a tool_result carrying a DIFFERENT correlation id is not this " +
+      "attempt's answer — unrefused, violated",
     () => {
-      const runId = "run-wr01-wrong-name";
+      // Retires the pre-05-30 "wrong tool name" check: the tool-name cross-check this test used to
+      // exercise no longer exists in correlateProposeAttempts at all (it is never consulted, per
+      // this plan's own STEP 4) — a result's toolName, present or absent, is irrelevant now. What
+      // this test now proves is the mechanism that actually replaced it: an id mismatch, not a name
+      // mismatch, is what keeps an unrelated result from being adopted as this attempt's answer.
+      const runId = "run-wr30-wrong-id";
       const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_wrongid_mine" },
         {
           type: "tool_result",
           runId,
-          toolName: "mcp__flywheel-permissions__some_other_tool",
+          toolUseId: "toolu_wrongid_someone_elses",
           raw: "still in the challenge stage — no proposals yet.",
         },
       ];
@@ -1770,22 +1813,23 @@ async function selfTest() {
       assert.equal(
         reading,
         "violated",
-        "a tool_result naming a different tool must not count as this attempt's answer, even " +
-          "though its own text matches the refusal wording",
+        "a tool_result carrying a DIFFERENT correlation id must not count as this attempt's " +
+          "answer, even though its own text matches the refusal wording",
       );
     },
   );
 
   check(
-    "[Plan 05-23, Task 2] a tool_result carrying no toolName at all is accepted positionally as the answer",
+    "[Plan 05-30, G-05-5 closure] a tool_result carrying a matching correlation id but no " +
+      "toolName is still accepted as the answer — the name is never consulted",
     () => {
-      const runId = "run-wr01-unnamed-result";
+      const runId = "run-wr30-matched-unnamed";
       const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_matched_1" },
+        { type: "tool_result", runId, toolUseId: "toolu_matched_1", raw: "still in the challenge stage — no proposals yet." },
       ];
       const reading = readNoWorkPlanned(events, { runId, fromIndex: 0, toIndex: events.length });
-      assert.equal(reading, "refused", "expected an unnamed tool_result to be accepted positionally");
+      assert.equal(reading, "refused", "expected a matching-id tool_result with no toolName to be accepted as the answer");
     },
   );
 
@@ -1833,7 +1877,7 @@ async function selfTest() {
     );
   });
 
-  check("all three noWorkPlanned readings map to SHAPE-01's own outcome, with the challenge half held true", () => {
+  check("all four noWorkPlanned readings map to SHAPE-01's own outcome, with the challenge half held true", () => {
     const outcomeFor = (reading) =>
       buildCriteriaResults({
         criterion1Challenged: true,
@@ -1847,6 +1891,20 @@ async function selfTest() {
     assert.equal(outcomeFor("refused"), true, "a refused propose attempt should still pass");
     assert.equal(outcomeFor("unproven"), true, "absence of evidence should pass, never a fabricated fail");
     assert.equal(outcomeFor("violated"), false, "the one reading that must sink SHAPE-01's second half");
+    // Plan 05-30 (G-05-5 closure): the fourth reading must NOT pass — this is the fail-closed
+    // allow-list itself under test, not merely the reading's existence. Also proves the allow-list
+    // is genuinely an allow-list: a reading value this test does not otherwise name must still fail
+    // closed rather than pass by omission.
+    assert.equal(
+      outcomeFor("uncorrelatable"),
+      false,
+      "an unjudgeable run must not pass SHAPE-01 — the whole point of the fail-closed allow-list",
+    );
+    assert.equal(
+      outcomeFor("a-reading-nobody-anticipated"),
+      false,
+      "a reading value not in the allow-list must fail closed, never pass by default",
+    );
   });
 
   check("the unproven detail line names where the structural guarantee is actually proven, not just that it is unproven", () => {
@@ -1867,7 +1925,12 @@ async function selfTest() {
   // [Plan 05-27, Task 2] G-05-4 closure — the back-to-back propose collision, in both its live
   // and reviewed shapes, with the claimed pairing itself asserted. Every check below carries its
   // own negative control: the frozen `readNoWorkPlannedWithoutClaiming` reading over the IDENTICAL
-  // fixture, asserted to still be wrong, so the fix cannot rot into a tautology.
+  // fixture, asserted to still be wrong, so the fix cannot rot into a tautology. Plan 05-30 (G-05-5
+  // closure) added a `toolUseId` to every tool_call/tool_result below, mirroring exactly which
+  // result the claimed-index pairing used to pair each attempt with — the shipped reading
+  // (`readNoWorkPlanned`) now derives that SAME pairing from the id lookup instead, while the
+  // frozen `readNoWorkPlannedWithoutClaiming` control below ignores the ids entirely (it never
+  // reads them) and keeps producing its own historically-wrong reading over the identical array.
   // -----------------------------------------------------------------------------------------
 
   check(
@@ -1877,10 +1940,10 @@ async function selfTest() {
     () => {
       const runId = "run-05-27-live-shape";
       const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // idx0 attempt1
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // idx1 attempt2
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // idx2 — unnamed, answers attempt1
-        { type: "tool_result", runId, raw: "proposal created successfully" }, // idx3 — unnamed, answers attempt2, unrefused
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_g4_live1" }, // idx0 attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_g4_live2" }, // idx1 attempt2
+        { type: "tool_result", runId, toolUseId: "toolu_g4_live1", raw: "still in the challenge stage — no proposals yet." }, // idx2 — answers attempt1
+        { type: "tool_result", runId, toolUseId: "toolu_g4_live2", raw: "proposal created successfully" }, // idx3 — answers attempt2, unrefused
       ];
       const win = { runId, fromIndex: 0, toIndex: events.length };
       const claimed = readNoWorkPlanned(events, win);
@@ -1888,7 +1951,7 @@ async function selfTest() {
       assert.equal(
         claimed,
         "violated",
-        "the shipped (claimed) reading must be violated — this is the defect this plan closes",
+        "the shipped (id-based) reading must be violated — this is the defect G-05-4 closed",
       );
       assert.equal(
         preClaiming,
@@ -1909,20 +1972,21 @@ async function selfTest() {
     () => {
       const runId = "run-05-27-cr01-repro";
       const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // idx0 attempt1
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // idx1 attempt2
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // idx2 — unnamed, answers attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_g4_cr1" }, // idx0 attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_g4_cr2" }, // idx1 attempt2
+        { type: "tool_result", runId, toolUseId: "toolu_g4_cr1", raw: "still in the challenge stage — no proposals yet." }, // idx2 — answers attempt1
         {
           type: "tool_result",
           runId,
+          toolUseId: "toolu_g4_cr2",
           toolName: "mcp__flywheel-permissions__propose_assumption",
           raw: "proposal created successfully",
-        }, // idx3 — NAMED for attempt2, unrefused
+        }, // idx3 — NAMED for attempt2 (name irrelevant now), unrefused
       ];
       const win = { runId, fromIndex: 0, toIndex: events.length };
       const claimed = readNoWorkPlanned(events, win);
       const preClaiming = readNoWorkPlannedWithoutClaiming(events, win);
-      assert.equal(claimed, "violated", "the shipped (claimed) reading must be violated");
+      assert.equal(claimed, "violated", "the shipped (id-based) reading must be violated");
       assert.equal(
         preClaiming,
         "refused",
@@ -1939,18 +2003,19 @@ async function selfTest() {
     () => {
       const runId = "run-05-27-pairing-invariant";
       const liveShape = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" },
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
-        { type: "tool_result", runId, raw: "proposal created successfully" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_g4_pi1" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_g4_pi2" },
+        { type: "tool_result", runId, toolUseId: "toolu_g4_pi1", raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_result", runId, toolUseId: "toolu_g4_pi2", raw: "proposal created successfully" },
       ];
       const cr01Repro = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" },
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_g4_pi3" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_g4_pi4" },
+        { type: "tool_result", runId, toolUseId: "toolu_g4_pi3", raw: "still in the challenge stage — no proposals yet." },
         {
           type: "tool_result",
           runId,
+          toolUseId: "toolu_g4_pi4",
           toolName: "mcp__flywheel-permissions__propose_assumption",
           raw: "proposal created successfully",
         },
@@ -1984,12 +2049,12 @@ async function selfTest() {
     () => {
       const runId = "run-05-27-three-all-refused";
       const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" },
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_epic" },
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_g4_three1" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_g4_three2" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_epic", toolUseId: "toolu_g4_three3" },
+        { type: "tool_result", runId, toolUseId: "toolu_g4_three1", raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_result", runId, toolUseId: "toolu_g4_three2", raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_result", runId, toolUseId: "toolu_g4_three3", raw: "still in the challenge stage — no proposals yet." },
       ];
       const win = { runId, fromIndex: 0, toIndex: events.length };
       assert.equal(
@@ -2006,9 +2071,9 @@ async function selfTest() {
     () => {
       const runId = "run-05-27-one-result-two-attempts";
       const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" },
-        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_g4_one1" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_g4_one2" },
+        { type: "tool_result", runId, toolUseId: "toolu_g4_one1", raw: "still in the challenge stage — no proposals yet." },
       ];
       const win = { runId, fromIndex: 0, toIndex: events.length };
       assert.equal(
@@ -2361,6 +2426,13 @@ function buildEvidenceExchanges({ openingPrompt, conversation }) {
  * real field is `toolName`). */
 const TOOL_NAME_FIELD = "toolName";
 
+/** The ONE place this harness names the correlation field it reads for the wire's own
+ * attempt/answer pairing (plan 05-30, G-05-5 closure) — pinned against `ToolCallEvent`'s and
+ * `ToolResultEvent`'s own declarations in `packages/sidecar/src/adapter.ts` by the same self-test
+ * check that pins {@link TOOL_NAME_FIELD} above, so a product rename fails a check instead of
+ * silently degrading the pairing back to bare position. */
+const CORRELATION_ID_FIELD = "toolUseId";
+
 /** The propose-tool substring `readNoWorkPlanned` matches a `tool_call`'s tool-name field
  * against — named (plan 05-23, CR-01 closure) so a self-test check can pin it, rather than a
  * literal a future edit could quietly loosen. */
@@ -2375,39 +2447,52 @@ const CHALLENGE_REFUSAL_PATTERN = /challenge stage/i;
 /**
  * The one-to-one correlation between every propose attempt (a `tool_call` event whose tool name
  * matches {@link PROPOSE_TOOL_NAME_FRAGMENT}) in `window` and the `tool_result` event that answers
- * it, from the raw sidecar `events` array. Promoted to its own named, top-level pure function (plan
- * 05-27, G-05-4 closure) so the attempt/answer pairing is directly observable rather than an
- * accident buried inside a boolean reading — see {@link readNoWorkPlanned}'s own doc comment below
- * for the defect this closes.
+ * it, from the raw sidecar `events` array.
+ *
+ * Rewritten (plan 05-30, G-05-5 closure) from a positional claiming scan into an EXACT LOOKUP on
+ * the wire's own correlation id ({@link CORRELATION_ID_FIELD}) — no scan, no claimed-index set, no
+ * earliest-unclaimed rule anywhere in this pairing. Six consecutive gap-closure rounds narrowed the
+ * positional heuristic one more shape each time because every positional scheme is ambiguous on
+ * some ordinary wire shape; this rewrite deletes the heuristic instead of narrowing it again, using
+ * the id the Anthropic stream already puts on every `tool_use`/`tool_result` block. The grounding
+ * is deliberately stated as ASYMMETRIC, because it is: the `tool_result` side is grounded in a REAL
+ * captured block from this repository's own history
+ * (`.planning/phases/03-nothing-lost-nothing-left-running/03-27-SUMMARY.md` line 110 shows the live
+ * CLI emitting `"tool_use_id":"toolu_..."`), while the `tool_use` side's `id` is grounded only in
+ * the content-block schema that `tool_use_id` must reference — no capture of a live `tool_use`
+ * block exists in this repository. This asymmetry is exactly WHY the absent-id path
+ * (`correlatable: false` below) abstains loudly instead of guessing: a lookup key this function
+ * cannot prove exists must never be treated as though it does.
  *
  * `window` is REQUIRED — `{ runId, fromIndex, toIndex }`, all three REQUIRED — carrying the SAME
- * three guards `readNoWorkPlanned` has always enforced (moved here, not duplicated): a non-empty
- * string `runId`; an integer `fromIndex` at least 0; an integer `toIndex` at least `fromIndex`.
- * Omitting any member throws a `TypeError` naming it, rather than silently returning a false
- * reading — an unscoped reading stays unwritable. Only indices in the half-open range `[fromIndex,
- * toIndex)` whose own `event.runId` equals `window.runId` are ever considered.
+ * three guards this function has always enforced: a non-empty string `runId`; an integer
+ * `fromIndex` at least 0; an integer `toIndex` at least `fromIndex`. Omitting any member throws a
+ * `TypeError` naming it, rather than silently returning a false reading — an unscoped reading stays
+ * unwritable. Only indices in the half-open range `[fromIndex, toIndex)` whose own `event.runId`
+ * equals `window.runId` are ever considered.
  *
- * Attempts are collected in ASCENDING event index — a stable, specified order the pairing's own
- * correctness depends on. Each attempt then claims the EARLIEST `tool_result` event for this run,
- * after its own index, that no EARLIER attempt (in this same ascending pass) has already claimed —
- * tracked with a `Set` of claimed indices, checked before a candidate is accepted. This is what
- * makes the pairing one-to-one: once a `tool_result` is claimed, no later attempt in the same
- * window can be paired with it again — closing the exact collision {@link
- * readNoWorkPlannedWithoutClaiming} below cannot see, where two `propose_*` calls issued
- * back-to-back, before either is answered, have independent scans that both land on the SAME first
- * subsequent `tool_result`.
+ * Attempts are collected in ASCENDING event index. A SEPARATE map is built once, ascending, from
+ * every in-window `tool_result` declaring a non-empty string {@link CORRELATION_ID_FIELD} to its
+ * own event index — first occurrence wins. Each attempt's answer is then a SINGLE lookup of the
+ * attempt's OWN correlation id in that map. Two propose attempts can never collide on one result by
+ * construction: they carry two different ids (when both are correlatable at all), and the map holds
+ * exactly one entry per id — the exact collision the prior claimed-index scan needed a whole extra
+ * data structure (a claimed-index `Set`, checked before every candidate) to prevent. That prior
+ * scan is retired by a later task in this same plan, which freezes it as this rewrite's own
+ * negative control (proving the id-bearing fixtures have teeth the positional scheme lacked).
  *
- * Returns one entry per attempt, in the SAME ascending order, each `{ index, toolName, answerIndex,
- * refused }`:
- * - `answerIndex` is the index of the `tool_result` this attempt claimed, or `null` if nothing was
- *   left unclaimed before the window closed (this attempt has no answer at all — unrefused).
- * - `refused` tests {@link CHALLENGE_REFUSAL_PATTERN} against the claimed result's own `raw` text —
- *   but ONLY when that result's `toolName` (if it declares one at all) equals this attempt's own; a
- *   claimed result naming a DIFFERENT tool is still not this attempt's answer (`refused` stays
- *   `false`), preserving the existing wrong-name exclusion. A result declaring no `toolName` is
- *   still accepted positionally — the live wire never names one at all (`packages/sidecar/src/
- *   claude-code-adapter.ts:598-600`), so positional claiming is not an optimisation here, it is the
- *   only correlation available.
+ * Returns one entry per attempt, in the SAME ascending order, each `{ index, toolName, toolUseId,
+ * correlatable, answerIndex, refused }`:
+ * - An attempt with no correlation id: `correlatable: false`, `toolUseId: null`, `answerIndex:
+ *   null`, `refused: false`. Its answer is not guessed, not scanned for, not inferred from
+ *   position. There is no fallback path.
+ * - An attempt with an id that matches no in-window result: `correlatable: true`, `answerIndex:
+ *   null`, `refused: false` — deliberately conservative (an unanswered staged proposal fails the
+ *   criterion rather than silently passing).
+ * - An attempt whose id matches a result: `answerIndex` is that index and `refused` is
+ *   {@link CHALLENGE_REFUSAL_PATTERN} tested against that result's own `raw`. The result's
+ *   `toolName`, if it declares one at all, is NOT consulted — the id is exact and authoritative,
+ *   and a name cross-check on top of an exact key can only ever suppress a genuine refusal.
  */
 function correlateProposeAttempts(events, window) {
   const w = window ?? {};
@@ -2432,8 +2517,7 @@ function correlateProposeAttempts(events, window) {
   const { runId, fromIndex, toIndex } = w;
 
   // Collect every propose attempt in the window, in ascending array order, each carrying its own
-  // index and tool name — the name is needed so this attempt's answer can be correlated against
-  // ITS OWN name, never any other attempt's.
+  // index, tool name, and correlation id (possibly `undefined` — its own tool_call declared none).
   const attempts = [];
   for (let i = fromIndex; i < toIndex; i += 1) {
     const event = events[i];
@@ -2443,46 +2527,70 @@ function correlateProposeAttempts(events, window) {
       typeof event[TOOL_NAME_FIELD] === "string" &&
       event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT)
     ) {
-      attempts.push({ index: i, toolName: event[TOOL_NAME_FIELD] });
+      attempts.push({ index: i, toolName: event[TOOL_NAME_FIELD], toolUseId: event[CORRELATION_ID_FIELD] });
     }
   }
 
-  const claimedIndices = new Set();
+  // One map from correlation id to event index, built once over the in-window, same-runId
+  // tool_result events declaring a non-empty string id, in ascending index order — first
+  // occurrence wins. This is the WHOLE pairing mechanism: no scan, no claiming, no per-attempt
+  // state — every attempt's answer is a single lookup into this one map.
+  const resultIndexById = new Map();
+  for (let i = fromIndex; i < toIndex; i += 1) {
+    const event = events[i];
+    if (event.runId !== runId) continue;
+    if (event.type !== "tool_result") continue;
+    const id = event[CORRELATION_ID_FIELD];
+    if (typeof id !== "string" || id.length === 0) continue;
+    if (!resultIndexById.has(id)) resultIndexById.set(id, i);
+  }
+
   return attempts.map((attempt) => {
-    let answerIndex = null;
-    let refused = false;
-    for (let i = attempt.index + 1; i < toIndex; i += 1) {
-      if (claimedIndices.has(i)) continue;
-      const event = events[i];
-      if (event.runId !== runId) continue;
-      if (event.type !== "tool_result") continue;
-      // The EARLIEST still-unclaimed tool_result in-window IS the candidate answer — claimed the
-      // instant it is found, so no later attempt in this same pass can ever be paired with it
-      // again. A named result that names a DIFFERENT tool is still claimed (it is examined and
-      // consumed) but is not this attempt's answer (unrefused); an unnamed result is accepted
-      // positionally.
-      claimedIndices.add(i);
-      answerIndex = i;
-      refused =
-        (typeof event[TOOL_NAME_FIELD] !== "string" || event[TOOL_NAME_FIELD] === attempt.toolName) &&
-        typeof event.raw === "string" &&
-        CHALLENGE_REFUSAL_PATTERN.test(event.raw);
-      break;
+    const correlatable = typeof attempt.toolUseId === "string" && attempt.toolUseId.length > 0;
+    if (!correlatable) {
+      return {
+        index: attempt.index,
+        toolName: attempt.toolName,
+        toolUseId: null,
+        correlatable: false,
+        answerIndex: null,
+        refused: false,
+      };
     }
-    return { index: attempt.index, toolName: attempt.toolName, answerIndex, refused };
+    const answerIndex = resultIndexById.has(attempt.toolUseId) ? resultIndexById.get(attempt.toolUseId) : null;
+    const refused =
+      answerIndex !== null &&
+      typeof events[answerIndex].raw === "string" &&
+      CHALLENGE_REFUSAL_PATTERN.test(events[answerIndex].raw);
+    return {
+      index: attempt.index,
+      toolName: attempt.toolName,
+      toolUseId: attempt.toolUseId,
+      correlatable: true,
+      answerIndex,
+      refused,
+    };
   });
 }
 
 /**
- * The three-valued reading of whether the agent staged work within `window`, from the raw
- * sidecar `events` array (never a pre-reduced boolean, so the field-name fix above lives in
- * exactly one function):
+ * The FOUR-valued reading of whether the agent staged work within `window`, from the raw sidecar
+ * `events` array (never a pre-reduced boolean):
  * - `"unproven"` — no `tool_call` event named a propose tool at all. Absence of evidence, reported
  *   as exactly that — never a silent pass with no reading behind it.
- * - `"refused"` — EVERY propose attempt was individually refused, per {@link
- *   correlateProposeAttempts}'s own one-to-one pairing.
+ * - `"uncorrelatable"` (plan 05-30, G-05-5 closure) — at least one propose attempt's own `tool_call`
+ *   declared no correlation id, so it cannot be paired with its own answer either way. Deliberately
+ *   NOT folded into `"unproven"`: `"unproven"` means "no propose attempt was observed at all" and
+ *   correctly PASSES SHAPE-01 (nothing was staged, so the criterion held); "attempts happened and
+ *   cannot be judged" is a different state entirely, and routing it to `"unproven"` would make an
+ *   unjudgeable run report a pass — the identical vacuous-pass disease this whole plan exists to
+ *   eliminate, wearing a new label. Checked BEFORE the refused/violated decision below and AFTER
+ *   the zero-attempts check, so `"unproven"` is untouched.
+ * - `"refused"` — every CORRELATABLE propose attempt was individually refused, per {@link
+ *   correlateProposeAttempts}'s own id-based pairing. Reached only when nothing in the window is
+ *   uncorrelatable.
  * - `"violated"` — at least one propose attempt was left unrefused. The one reading that makes
- *   SHAPE-01's second half FAIL — the property this whole task exists to make true.
+ *   SHAPE-01's second half FAIL.
  *
  * `window` (plan 05-23, CR-01 closure) is a REQUIRED second parameter, delegated verbatim to
  * {@link correlateProposeAttempts} — CR-01 was exactly this reading's implicit "whole array"
@@ -2491,22 +2599,19 @@ function correlateProposeAttempts(events, window) {
  * caller re-read the unscoped array after decompose began. Promoting the window to required makes
  * the unscoped call unwritable rather than merely discouraged.
  *
- * Plan 05-27 (G-05-4 closure): the per-attempt answer used to be found by an INDEPENDENT
- * positional scan per attempt, tracking nothing — the exact shape `packages/sidecar/src/
- * claude-code-adapter.ts:598-600` produces on a real run, since a live `tool_result` never carries
- * a `toolName` at all. Two `propose_*` calls issued back-to-back, in one turn, before either is
- * answered, made the SECOND attempt's independent scan land on the exact SAME `tool_result` the
- * FIRST attempt's scan had already consumed — if that shared result refused, BOTH attempts read
- * refused, and the second attempt's own later, unrefused answer was never reached. `readNoWorkPlanned`
- * now only INTERPRETS {@link correlateProposeAttempts}'s claimed-index pairing, which makes that
- * collision unwritable: each attempt claims the EARLIEST STILL-UNCLAIMED result after its own
- * index, so no two attempts can ever be paired with the same `tool_result`. The prior, unclaimed
- * scan is preserved verbatim as {@link readNoWorkPlannedWithoutClaiming} below — a frozen
- * historical control, never called from here.
+ * Plan 05-30 (G-05-5 closure): `readNoWorkPlanned` now only INTERPRETS {@link
+ * correlateProposeAttempts}'s id-based pairing, replacing the claimed-index pairing plan 05-27
+ * shipped for the identical purpose (closing a collision an even earlier positional scan could not
+ * see). Six consecutive rounds narrowed a positional heuristic one shape at a time; this round
+ * deletes it instead. The claimed-index pairing that shipped immediately before this plan is
+ * preserved verbatim below as {@link readNoWorkPlannedWithoutClaiming} — the prior round's own
+ * frozen negative control, itself due to be retired once this plan's own id-based negative control
+ * replaces it (a separate, later task in this same plan).
  */
 function readNoWorkPlanned(events, window) {
   const correlated = correlateProposeAttempts(events, window);
   if (correlated.length === 0) return "unproven";
+  if (correlated.some((attempt) => !attempt.correlatable)) return "uncorrelatable";
   return correlated.every((attempt) => attempt.refused) ? "refused" : "violated";
 }
 
@@ -3150,6 +3255,93 @@ async function runReplayCheckScenario(scenarioName) {
           step(
             `back-to-back reading (claimed): ${claimedReading} — pre-claiming reading (the ` +
               `2026-09-24 algorithm, still wrong): ${preClaimingReading} — SHAPE-01 entry ` +
+              `passed=${shape01[1]} (expected false)`,
+          );
+        } else if (scenarioName === "interleaved-read-during-proposal") {
+          // Plan 05-30 (gap G-05-5): the propose attempt's own real, unrefused answer sits BEHIND
+          // an unrelated board_search call's result, and that unrelated result's own text
+          // coincidentally matches the stage-gate refusal wording. A positional pairing would claim
+          // the wrong result as the propose attempt's answer and certify a genuine violation as a
+          // pass; the id-based lookup must pair each attempt with its OWN result regardless of
+          // interleaving.
+          const challengeWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
+
+          // Non-vacuity gate: the window must genuinely hold at least one propose tool_call, at
+          // least one NON-propose tool_call, and at least two tool_result events for this run —
+          // proving the fixture actually normalised as intended before the assertions below run
+          // over it.
+          const proposeCallCount = sidecar.events.filter(
+            (event, index) =>
+              index >= challengeWindow.fromIndex &&
+              index < challengeWindow.toIndex &&
+              event.runId === runId &&
+              event.type === "tool_call" &&
+              typeof event[TOOL_NAME_FIELD] === "string" &&
+              event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
+          ).length;
+          const nonProposeCallCount = sidecar.events.filter(
+            (event, index) =>
+              index >= challengeWindow.fromIndex &&
+              index < challengeWindow.toIndex &&
+              event.runId === runId &&
+              event.type === "tool_call" &&
+              !(typeof event[TOOL_NAME_FIELD] === "string" && event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT)),
+          ).length;
+          const toolResultCount = sidecar.events.filter(
+            (event, index) =>
+              index >= challengeWindow.fromIndex &&
+              index < challengeWindow.toIndex &&
+              event.runId === runId &&
+              event.type === "tool_result",
+          ).length;
+          assert.ok(
+            proposeCallCount >= 1,
+            `expected at least one propose tool_call event in the challenge window, got ${proposeCallCount}`,
+          );
+          assert.ok(
+            nonProposeCallCount >= 1,
+            `expected at least one NON-propose tool_call event in the challenge window, got ${nonProposeCallCount}`,
+          );
+          assert.ok(
+            toolResultCount >= 2,
+            `expected at least two tool_result events in the challenge window, got ${toolResultCount}`,
+          );
+
+          const correlated = correlateProposeAttempts(sidecar.events, challengeWindow);
+          assert.equal(correlated.length, 1, "expected exactly one correlated propose attempt");
+          const [attempt] = correlated;
+          assert.ok(attempt.answerIndex !== null, "expected the propose attempt to carry a non-null answerIndex");
+          assert.equal(
+            sidecar.events[attempt.answerIndex][CORRELATION_ID_FIELD],
+            attempt.toolUseId,
+            "expected the paired result's own correlation id to equal the attempt's own — the id " +
+              "lookup, not position, is what decided this pairing",
+          );
+          assert.equal(attempt.refused, false, "expected the propose attempt's OWN answer to be unrefused");
+
+          const reading = readNoWorkPlanned(sidecar.events, challengeWindow);
+          assert.equal(
+            reading,
+            "violated",
+            "expected the interleaved-read shape to read violated — the vacuous SHAPE-01 pass this " +
+              "gap describes must be gone",
+          );
+
+          const shapeResults = buildCriteriaResults({
+            criterion1Challenged: true,
+            noWorkPlannedReading: reading,
+            criterion2Landed: false,
+            criterion3Decided: false,
+            criterion4Reopened: false,
+            criterion4PrimedRejected: false,
+          });
+          const shape01 = shapeResults.find(([name]) => name.includes("SHAPE-01"));
+          assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
+          assert.equal(shape01[1], false, "expected SHAPE-01 to NOT pass over the interleaved-read shape");
+
+          step(
+            `interleaved-read reading: ${reading} — propose attempt at index ${attempt.index} paired ` +
+              `with its own result at index ${attempt.answerIndex} — SHAPE-01 entry ` +
               `passed=${shape01[1]} (expected false)`,
           );
         } else if (scenarioName === "backend-refuses-mid-conversation") {

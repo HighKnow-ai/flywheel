@@ -52,12 +52,25 @@ export interface ToolCallEvent extends AgentEventBase {
   type: "tool_call";
   toolName: string;
   input: unknown;
+  /** G-05-5: the backend's own correlation id for THIS tool call — the tool_use content block's
+   * own id, carried end to end so a consumer can pair THIS call's result with THIS call and no
+   * other, exactly the problem PermissionRequestEvent's own requestId field already solves for a
+   * held permission request. Absent entirely — never present-but-empty, never fabricated — when
+   * the backend's own content block declared none, so a consumer can branch on its presence
+   * alone, the same convention destructiveCategory below already states. */
+  toolUseId?: string;
 }
 
 export interface ToolResultEvent extends AgentEventBase {
   type: "tool_result";
   toolName?: string;
   output: unknown;
+  /** G-05-5: the backend's own correlation id THIS result answers — the tool_result content
+   * block's own tool_use_id, the SAME value as the answered call's own ToolCallEvent toolUseId
+   * field, which is the whole point: a consumer can pair THIS result with THIS call and no other
+   * via an exact lookup rather than an inference from position. Absent entirely — never
+   * present-but-empty, never fabricated — when the backend's own content block declared none. */
+  toolUseId?: string;
 }
 
 export interface PermissionRequestEvent extends AgentEventBase {
