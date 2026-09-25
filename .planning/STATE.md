@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-35-PLAN.md
-last_updated: "2026-09-25T12:02:22.835Z"
+stopped_at: Completed 05-36-PLAN.md
+last_updated: "2026-09-25T12:43:16.466Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 05 execution started
-state_head: df9f876d48c23b2f9af7418ff320a994834ace3d
+state_head: 5c7eb451d4e48d2a06243783fd23a12082082003
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 132
-  completed_plans: 128
+  completed_plans: 129
   percent: 0
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 
 ## Current Position
 
-Phase: 05 (Socratic Epic Authoring) — READY TO EXECUTE
-Plan: 4 of 35
+Phase: 05 (Socratic Epic Authoring) — EXECUTING
+Plan: 2 of 39
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 05 execution started
 
@@ -185,6 +185,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P33 | 55min | 3 tasks | 2 files |
 | Phase 05 P34 | 62min | 3 tasks | 7 files |
 | Phase 05 P35 | 12min | 3 tasks | 3 files |
+| Phase 05-socratic-epic-authoring P36 | 40min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -413,6 +414,10 @@ Recent decisions affecting current work:
 - [Phase 05]: Gap G-05-6 closed: composeIsolatedClaudeConfigDir presents the developer's own claude.ai credential by symlink reference; assertBackendAuthenticated refuses before spawn on any authentication mismatch; the credential path in force is now recorded in both the evidence sheet and a durable artifact. — The config-isolated UAT live arm previously conflated isolation (no personal config leaking into the session under test) with credential availability (the session must still authenticate as the developer) -- one CLAUDE_CONFIG_DIR switch controlled both, making SHAPE-01/SHAPE-03's live judgements structurally unreachable without an API key. Separating them via a fixed credential allow-list keeps isolation intact while making authentication provable offline.
 - [Phase 05]: Gap G-05-6 closed: a non-conversation backend message is now classified from categorical wire facts (assistant envelope's own is_api_error_message/error, result line's own is_error/terminal_reason) via classifyNonConversationTurn, with the retained readBackendRefusal text-banner reader kept unweakened as the only measured fallback for the safety-classifier shape.
 - [Phase 05]: Corrected two shipped scripts/uat/ descriptions (05-REVIEW.md WR-01), recorded gap G-05-6's seventh finding and fifth rule, and documented the credential seam plans 05-33/05-34 built for the next operator.
+- [Phase 05]: TurnDeadlineError/ConversationAbortedError carry structured recovery data as own properties instead of only a formatted message string
+- [Phase 05]: writeChallengeEvidence is the ONE function that writes the evidence sheet, called from a try/finally whose finally is the unconditional guarantee
+- [Phase 05]: Harness.cleanup({ preserveRoot }) replaces the automatic LIFO root-removal teardown that always ran last, on every exit including a throw
+- [Phase 05]: The replay arm's advance-stage gate reads conversation.nonConversation (the driver's own returned fact) instead of a scenario-name disjunction
 
 ### Pending Todos
 
@@ -460,6 +465,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-25T10:32:10.097Z
-Stopped at: Completed 05-35-PLAN.md
+Last session: 2026-09-25T12:43:16.321Z
+Stopped at: Completed 05-36-PLAN.md
 Resume file: None
