@@ -31,6 +31,17 @@ export interface InitEvent extends AgentEventBase {
 export interface AssistantTextEvent extends AgentEventBase {
   type: "assistant_text";
   text: string;
+  /** G-05-6: the wire calls this `is_api_error_message` on the assistant envelope itself — the
+   * backend's own statement that this text is a non-conversation error message, not agent speech.
+   * The harness has been reconstructing this fact from prose (matching one observed message's
+   * literal prefix), and prose is blind to every message shape nobody captured first. Absent
+   * entirely — never present-but-false — when the backend's own envelope declared no such flag. */
+  isApiErrorMessage?: boolean;
+  /** G-05-6: the wire calls this `error` on the assistant envelope itself — the backend's own error
+   * code for this message (e.g. `authentication_failed`), reported for diagnosis alongside
+   * {@link isApiErrorMessage}. Absent entirely — never a present-but-empty string — when the
+   * backend's own envelope declared none. */
+  errorCode?: string;
 }
 
 /**
@@ -120,6 +131,18 @@ export interface ResultEvent extends AgentEventBase {
    * needs no renderer change at all to make the header read the real figures. */
   inputTokens?: number;
   outputTokens?: number;
+  /** G-05-6: the wire calls this `is_error` on the result line itself — the backend's own statement
+   * that this run terminated in error. WARNING: this run's own `subtype` reads `"success"` on a
+   * captured error termination (measured in `scripts/uat/fixtures/unauthenticated-cli-first-turn.json`)
+   * — `subtype` is NOT a usable signal for this purpose; classify on this boolean flag instead. A
+   * literal `false` is a real reading and is carried, never dropped as falsy; the field is absent
+   * entirely only when the backend's own result line declared no such flag. */
+  isError?: boolean;
+  /** G-05-6: the wire calls this `terminal_reason` on the result line itself. Reported for
+   * diagnosis only — never classified on its value, since no capture of a healthy run's value
+   * exists in this repository. Absent entirely — never a present-but-empty string — when the
+   * backend's own result line declared none. */
+  terminalReason?: string;
 }
 
 /** A line that parsed as JSON but matched no known shape — still carries `raw`, never dropped. */

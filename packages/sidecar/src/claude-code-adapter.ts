@@ -383,6 +383,16 @@ interface ClaudeStreamMessage {
       tool_use_id?: string;
     }>;
   };
+  /** G-05-6: the wire's own statement that this assistant envelope is a non-conversation error
+   * message, not agent speech — a sibling of `type`/`message`, not nested inside `message.content`.
+   * Measured live in `scripts/uat/fixtures/unauthenticated-cli-first-turn.json`, whose assistant
+   * line carries `"error":"authentication_failed"` on an unauthenticated CLI's first turn. Optional
+   * — the adapter must parse an envelope that carries neither this nor `is_api_error_message`. */
+  error?: string;
+  /** G-05-6: the wire's own boolean flag naming this envelope an API error message, siblings of
+   * `type`/`message`. Measured live in the same fixture as `error` above
+   * (`"is_api_error_message":true`). Optional, for the same reason as `error`. */
+  is_api_error_message?: boolean;
 }
 
 /** The real CLI's usage block, measured live against claude 2.1.236 during G-02-4's planning
@@ -403,6 +413,17 @@ interface ClaudeStreamResult {
   total_cost_usd?: number;
   session_id?: string;
   usage?: ClaudeStreamUsage;
+  /** G-05-6: the wire's own boolean flag naming this result line an error termination. Measured
+   * live in `scripts/uat/fixtures/unauthenticated-cli-first-turn.json` (`"is_error":true`). WARNING:
+   * `subtype` reads `"success"` on that same captured error — `subtype` is NOT a usable signal for
+   * this purpose and must never be read as one; classify on this boolean flag instead. Optional —
+   * the adapter must parse a result line that carries neither this nor `terminal_reason`. */
+  is_error?: boolean;
+  /** G-05-6: the wire's own statement of why the run terminated, siblings of `type`/`subtype`.
+   * Measured live in the same fixture as `is_error` above (`"terminal_reason":"api_error"`).
+   * Reported for diagnosis only — never classified on its value, since no capture of a healthy
+   * run's `terminal_reason` exists in this repository. Optional, for the same reason as `is_error`. */
+  terminal_reason?: string;
 }
 
 type ClaudeStreamEvent = ClaudeStreamInit | ClaudeStreamMessage | ClaudeStreamResult | Record<string, unknown>;
@@ -636,7 +657,18 @@ export function normaliseStreamEvent(
       if (parsed.type === "user") {
         return { ...base, type: "backend_echo", text: textBlock.text ?? "" };
       }
-      return { ...base, type: "assistant_text", text: textBlock.text ?? "" };
+      // G-05-6: the wire's own error facts on the assistant envelope, spread only on a strict type
+      // check — mirroring plan 05-30's `toolUseId` idiom — so an absent or malformed value omits
+      // the key ENTIRELY rather than fabricating a reading. Applied to the assistant-role text
+      // outcome only; the backend-echo, tool-call and tool-result outcomes are untouched.
+      const envelope = parsed as ClaudeStreamMessage;
+      return {
+        ...base,
+        type: "assistant_text",
+        text: textBlock.text ?? "",
+        ...(envelope.is_api_error_message === true ? { isApiErrorMessage: true } : {}),
+        ...(typeof envelope.error === "string" && envelope.error.length > 0 ? { errorCode: envelope.error } : {}),
+      };
     }
     return { ...base, type: "unknown" };
   }
@@ -655,6 +687,13 @@ export function normaliseStreamEvent(
       sessionId: result.session_id,
       ...(inputTokens !== undefined ? { inputTokens } : {}),
       ...(outputTokens !== undefined ? { outputTokens } : {}),
+      // G-05-6: spread only when the wire's own error flag is strictly a boolean, so a literal
+      // `false` is carried as `false` (a real reading, never dropped as falsy) and a missing or
+      // malformed value omits the key entirely.
+      ...(typeof result.is_error === "boolean" ? { isError: result.is_error } : {}),
+      ...(typeof result.terminal_reason === "string" && result.terminal_reason.length > 0
+        ? { terminalReason: result.terminal_reason }
+        : {}),
     };
   }
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -17,6 +18,15 @@ import { startPermissionServer } from "../dist/mcp-permission-server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
+// Plan 05-34 (G-05-6 closure): the frozen real capture of an unauthenticated CLI's first turn —
+// see scripts/uat/fixtures/unauthenticated-cli-first-turn.json's own `note` field for the full
+// provenance. Read once at module load so every test below normalises the SAME real lines rather
+// than a hand-typed copy that could drift from the capture.
+const UNAUTHENTICATED_FIXTURE_PATH = path.join(
+  __dirname,
+  "../../../scripts/uat/fixtures/unauthenticated-cli-first-turn.json",
+);
+const UNAUTHENTICATED_FIXTURE = JSON.parse(readFileSync(UNAUTHENTICATED_FIXTURE_PATH, "utf8"));
 
 test("buildClaudeArgv returns the exact expected array for the default mode, with no credential in it", () => {
   // Exact-array assertions are the fastest signal when the argv changes unintentionally, but
@@ -334,6 +344,147 @@ test("normaliseStreamEvent: an empty-string id yields NO toolUseId, never a pres
   });
   const resultEvent = normaliseStreamEvent(JSON.parse(resultLine), resultLine, "run-1", 1, "2026-01-01T00:00:00.000Z");
   assert.ok(!("toolUseId" in resultEvent), "expected no toolUseId key for an empty-string tool_use_id");
+});
+
+// -------------------------------------------------------------------------------------------
+// Plan 05-34 (G-05-6 closure): the adapter's wire-error-fact carry. Gap G-05-6's live run counted
+// an unauthenticated backend's "Not logged in · Please run /login" message as agent speech because
+// the adapter dropped the wire's own statement that the message was an API error. These tests
+// prove the carry at the seam: the assistant envelope's own `error`/`is_api_error_message` fields
+// and the result line's own `is_error`/`terminal_reason` fields round-trip exactly onto normalised
+// fields, a block declaring neither pair normalises without throwing and carries NO key at all —
+// key ABSENCE, never a present-but-undefined or present-but-empty value — a literal `false` on
+// `is_error` is carried as `false` rather than dropped as falsy, and no field is ever adopted from
+// a neighbouring key. See scripts/uat/README.md for the fuller narrative.
+// -------------------------------------------------------------------------------------------
+
+test("normaliseStreamEvent: an assistant envelope's own error flag and error code round-trip onto isApiErrorMessage/errorCode", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "Not logged in · Please run /login" }] },
+    error: "authentication_failed",
+    is_api_error_message: true,
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "assistant_text");
+  assert.equal(event.isApiErrorMessage, true);
+  assert.equal(event.errorCode, "authentication_failed");
+});
+
+test("normaliseStreamEvent: an assistant envelope carrying neither error field normalises with BOTH keys absent", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "ordinary agent prose" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "assistant_text");
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(event, "isApiErrorMessage"),
+    "expected no isApiErrorMessage key on an ordinary assistant envelope",
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(event, "errorCode"),
+    "expected no errorCode key on an ordinary assistant envelope",
+  );
+});
+
+test("normaliseStreamEvent: an assistant envelope's empty-string error code omits errorCode entirely", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "prose" }] },
+    error: "",
+    is_api_error_message: true,
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.isApiErrorMessage, true);
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(event, "errorCode"),
+    "expected no errorCode key for an empty-string error code, never a present-but-empty value",
+  );
+});
+
+test("normaliseStreamEvent: a result line's own error flag and terminal reason round-trip onto isError/terminalReason", () => {
+  const line = JSON.stringify({ type: "result", subtype: "success", is_error: true, terminal_reason: "api_error" });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "result");
+  assert.equal(event.isError, true);
+  assert.equal(event.terminalReason, "api_error");
+});
+
+test("normaliseStreamEvent: a result line's error flag literally false is carried as false, never dropped as falsy", () => {
+  const line = JSON.stringify({ type: "result", subtype: "success", is_error: false });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "result");
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(event, "isError"),
+    "a literal false is a real reading and must be carried, not dropped as falsy",
+  );
+  assert.equal(event.isError, false);
+});
+
+test("normaliseStreamEvent: a result line carrying neither wire-error field normalises with BOTH keys absent", () => {
+  const line = JSON.stringify({ type: "result", subtype: "success" });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "result");
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(event, "isError"),
+    "expected no isError key on an ordinary result line",
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(event, "terminalReason"),
+    "expected no terminalReason key on an ordinary result line",
+  );
+});
+
+test("normaliseStreamEvent: a neighbouring, differently-named field is never adopted as the wire error flag or error code", () => {
+  const assistantLine = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "prose" }] },
+    error_code: "authentication_failed",
+    apiErrorMessage: true,
+  });
+  const assistantEvent = normaliseStreamEvent(
+    JSON.parse(assistantLine),
+    assistantLine,
+    "run-1",
+    0,
+    "2026-01-01T00:00:00.000Z",
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(assistantEvent, "isApiErrorMessage"),
+    "a neighbouring differently-named field must never be adopted as isApiErrorMessage",
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(assistantEvent, "errorCode"),
+    "a neighbouring differently-named field must never be adopted as errorCode",
+  );
+
+  const resultLine = JSON.stringify({ type: "result", subtype: "success", error: true, terminalReason: "api_error" });
+  const resultEvent = normaliseStreamEvent(JSON.parse(resultLine), resultLine, "run-1", 1, "2026-01-01T00:00:00.000Z");
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(resultEvent, "isError"),
+    "a neighbouring differently-named field must never be adopted as isError",
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(resultEvent, "terminalReason"),
+    "a neighbouring differently-named field must never be adopted as terminalReason",
+  );
+});
+
+test("normaliseStreamEvent: every line in the frozen unauthenticated-CLI fixture normalises without throwing, and the assistant line reports the error flag true", () => {
+  assert.equal(UNAUTHENTICATED_FIXTURE.lines.length, 3, "the frozen fixture must have exactly three captured lines");
+  const events = UNAUTHENTICATED_FIXTURE.lines.map((parsed, index) =>
+    normaliseStreamEvent(parsed, JSON.stringify(parsed), "run-1", index, "2026-01-01T00:00:00.000Z"),
+  );
+  const assistantEvent = events.find((event) => event.type === "assistant_text");
+  assert.ok(assistantEvent, "expected one assistant_text event among the fixture's normalised lines");
+  assert.equal(assistantEvent.isApiErrorMessage, true);
+  assert.equal(assistantEvent.errorCode, "authentication_failed");
+
+  const resultEvent = events.find((event) => event.type === "result");
+  assert.ok(resultEvent, "expected one result event among the fixture's normalised lines");
+  assert.equal(resultEvent.isError, true);
+  assert.equal(resultEvent.terminalReason, "api_error");
 });
 
 test("the stderr detail tail is bounded even by a single oversized line (T-02G-17-03)", () => {
