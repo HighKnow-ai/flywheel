@@ -238,6 +238,104 @@ test("normaliseStreamEvent: a user-role message's tool result still normalises t
   assert.equal(event.output, "the tool's own output");
 });
 
+// -------------------------------------------------------------------------------------------
+// Plan 05-30 (G-05-5 closure): the adapter's correlation-id carry. The harness that grades
+// SHAPE-01 must pair a propose tool call with the result that answers it, and for six rounds it
+// inferred that pairing from position because this adapter dropped the id the wire already
+// supplied. These tests prove the carry at the seam: a `tool_use` block's own `id` and a
+// `tool_result` block's own `tool_use_id` round-trip exactly onto `toolUseId`, a block declaring
+// neither normalises without throwing and carries NO correlation field at all — key ABSENCE,
+// never a present-but-undefined or present-but-empty value — and no id is ever adopted from a
+// neighbouring field. See `scripts/uat/README.md` for the fuller narrative.
+// -------------------------------------------------------------------------------------------
+
+test("normaliseStreamEvent: a tool_use block's own id round-trips exactly onto toolUseId", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", id: "toolu_call_001", input: {} }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "tool_call");
+  assert.equal(event.toolUseId, "toolu_call_001");
+});
+
+test("normaliseStreamEvent: a tool_result block's own tool_use_id round-trips exactly onto toolUseId", () => {
+  const line = JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_result_001", text: "ok" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "tool_result");
+  assert.equal(event.toolUseId, "toolu_result_001");
+});
+
+test("normaliseStreamEvent: a tool_use's id and its answering tool_result's tool_use_id normalise to the SAME toolUseId — the property the whole harness pairing rests on", () => {
+  const callLine = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", id: "toolu_shared_1", input: {} }] },
+  });
+  const resultLine = JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_shared_1", text: "ok" }] },
+  });
+  const callEvent = normaliseStreamEvent(JSON.parse(callLine), callLine, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  const resultEvent = normaliseStreamEvent(JSON.parse(resultLine), resultLine, "run-1", 1, "2026-01-01T00:00:00.000Z");
+  assert.equal(callEvent.toolUseId, resultEvent.toolUseId);
+  assert.equal(callEvent.toolUseId, "toolu_shared_1");
+});
+
+test("normaliseStreamEvent: a tool_use block with no id normalises without throwing, and carries NO toolUseId key at all", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", input: {} }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "tool_call");
+  // Key-presence check, not an equality-to-undefined check: the sidecar serialises events to a
+  // JSON line, and a present-but-undefined key disappears in serialisation while a
+  // present-but-empty-string key would survive and be read downstream as a real id.
+  assert.ok(!("toolUseId" in event), "expected no toolUseId key on a tool_call event with no id");
+});
+
+test("normaliseStreamEvent: a tool_result block with no tool_use_id normalises without throwing, and carries NO toolUseId key at all", () => {
+  const line = JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", text: "ok" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "tool_result");
+  assert.ok(!("toolUseId" in event), "expected no toolUseId key on a tool_result event with no tool_use_id");
+});
+
+test("normaliseStreamEvent: a tool_result block carrying an id but no tool_use_id produces NO toolUseId — the result side reads tool_use_id and nothing else", () => {
+  const line = JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", id: "toolu_neighbouring_field", text: "ok" }] },
+  });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "tool_result");
+  assert.ok(
+    !("toolUseId" in event),
+    "a tool_result must never adopt a neighbouring id field as its correlation key",
+  );
+});
+
+test("normaliseStreamEvent: an empty-string id yields NO toolUseId, never a present-but-empty value", () => {
+  const callLine = JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", id: "", input: {} }] },
+  });
+  const callEvent = normaliseStreamEvent(JSON.parse(callLine), callLine, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.ok(!("toolUseId" in callEvent), "expected no toolUseId key for an empty-string tool_use id");
+
+  const resultLine = JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "", text: "ok" }] },
+  });
+  const resultEvent = normaliseStreamEvent(JSON.parse(resultLine), resultLine, "run-1", 1, "2026-01-01T00:00:00.000Z");
+  assert.ok(!("toolUseId" in resultEvent), "expected no toolUseId key for an empty-string tool_use_id");
+});
+
 test("the stderr detail tail is bounded even by a single oversized line (T-02G-17-03)", () => {
   // The cap was a check-before-append with no truncate: a tail sitting one character below the
   // limit still accepted an arbitrarily long line whole, yielding CAP-1 + line.length. That tail
