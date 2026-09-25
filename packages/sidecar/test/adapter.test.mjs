@@ -680,6 +680,110 @@ for (const [label, scalar] of [
   });
 }
 
+// -------------------------------------------------------------------------------------------
+// Plan 05-37 Task 2 (G-05-7 closure): the two wire shapes above, grounded in a REAL frozen capture
+// from the committed live-run log rather than a hand-typed reconstruction. Two mechanical gates
+// make it impossible for the fixture to drift from its source or grow a field nobody observed —
+// they walk the fixture's own data, not the shipped code, and would fail on the fixture itself if
+// either property broke, independent of whether `normaliseStreamEvent` is correct.
+// -------------------------------------------------------------------------------------------
+
+const UNMODELLED_SHAPES_FIXTURE_PATH = path.join(
+  __dirname,
+  "../../../scripts/uat/fixtures/live-opus5-unmodelled-shapes.json",
+);
+const UNMODELLED_SHAPES_FIXTURE = JSON.parse(readFileSync(UNMODELLED_SHAPES_FIXTURE_PATH, "utf8"));
+const UNMODELLED_LOG_PATH = path.join(__dirname, "../../../", UNMODELLED_SHAPES_FIXTURE.capturedFrom);
+const UNMODELLED_LOG_CONTENTS = readFileSync(UNMODELLED_LOG_PATH, "utf8");
+
+/** Recursively collect every object key name and every scalar leaf value out of `value` — the
+ * walker both mechanical honesty gates below share, so "every key and every scalar" means the
+ * exact same traversal for both checks. */
+function collectKeysAndScalars(value, keys, scalars) {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectKeysAndScalars(entry, keys, scalars);
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const [key, val] of Object.entries(value)) {
+      keys.push(key);
+      collectKeysAndScalars(val, keys, scalars);
+    }
+    return;
+  }
+  scalars.push(value);
+}
+
+test("live-opus5-unmodelled-shapes fixture: an invented field is impossible — every key name and scalar value in a shape's line appears verbatim in that shape's OWN observedPrefix", () => {
+  assert.equal(UNMODELLED_SHAPES_FIXTURE.shapes.length, 2, "expected exactly two frozen shapes");
+  for (const shape of UNMODELLED_SHAPES_FIXTURE.shapes) {
+    const keys = [];
+    const scalars = [];
+    collectKeysAndScalars(shape.line, keys, scalars);
+    for (const key of keys) {
+      assert.ok(
+        shape.observedPrefix.includes(`"${key}"`),
+        `shape "${shape.name}": key "${key}" does not appear as a quoted key inside its own observedPrefix — an invented field`,
+      );
+    }
+    for (const scalar of scalars) {
+      assert.ok(
+        shape.observedPrefix.includes(JSON.stringify(scalar)),
+        `shape "${shape.name}": value ${JSON.stringify(scalar)} does not appear verbatim inside its own observedPrefix — an invented value`,
+      );
+    }
+  }
+});
+
+test("live-opus5-unmodelled-shapes fixture: drift from the source is impossible — every observedPrefix appears verbatim in the committed live-run log, at exactly the harness's own 200-character slice length", () => {
+  for (const shape of UNMODELLED_SHAPES_FIXTURE.shapes) {
+    assert.equal(
+      shape.observedPrefix.length,
+      200,
+      `shape "${shape.name}": observedPrefix must be exactly 200 characters — the harness's own slice length, proving it is the raw slice and not a hand-retyped approximation`,
+    );
+    assert.ok(
+      UNMODELLED_LOG_CONTENTS.includes(shape.observedPrefix),
+      `shape "${shape.name}": observedPrefix no longer appears verbatim in ${UNMODELLED_SHAPES_FIXTURE.capturedFrom} — the fixture has drifted from its source`,
+    );
+  }
+});
+
+test("live-opus5-unmodelled-shapes fixture: the rate-limit shape's line normalises through the shipped normaliser to a rate_limit event carrying all four gap-report fields at their measured values", () => {
+  const shape = UNMODELLED_SHAPES_FIXTURE.shapes.find((s) => s.expectedEventType === "rate_limit");
+  assert.ok(shape, "expected a rate_limit shape in the fixture");
+  const raw = JSON.stringify(shape.line);
+  const event = normaliseStreamEvent(shape.line, raw, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "rate_limit");
+  assert.equal(event.rateLimitType, shape.line.rate_limit_info.rateLimitType);
+  assert.equal(event.status, shape.line.rate_limit_info.status);
+  assert.equal(event.utilization, shape.line.rate_limit_info.utilization);
+  assert.equal(event.surpassedThreshold, shape.line.rate_limit_info.surpassedThreshold);
+});
+
+test("live-opus5-unmodelled-shapes fixture: the reasoning shape's line normalises through the shipped normaliser to a thinking event with empty reasoning text; the fixture's own lostToTruncation records that a signature was present on the wire", () => {
+  const shape = UNMODELLED_SHAPES_FIXTURE.shapes.find((s) => s.expectedEventType === "thinking");
+  assert.ok(shape, "expected a thinking shape in the fixture");
+  const raw = JSON.stringify(shape.line);
+  const event = normaliseStreamEvent(shape.line, raw, "run-1", 0, "2026-01-01T00:00:00.000Z");
+  assert.equal(event.type, "thinking");
+  assert.equal(event.text, "");
+  // The frozen line itself carries NO signature key (Task 2's own honesty rule: the wire's
+  // signature value was cut by truncation and this fixture must never invent one), so this
+  // specific replayed line reads hasSignature=false — a fact about what THIS fixture can honestly
+  // claim, not a fact about the wire itself. Task 1's own tests (above) already prove hasSignature
+  // reads true when a signature genuinely is present on the parsed input.
+  assert.equal(event.hasSignature, false);
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(shape.line.message.content[0], "signature"),
+    "expected the fixture's own reasoning line to carry no signature key at all",
+  );
+  assert.ok(
+    /signature/i.test(shape.lostToTruncation),
+    "expected lostToTruncation to record that a signature was present on the wire and cut",
+  );
+});
+
 test("normaliseStreamEvent: grep gate — the asymmetric is_api_error_message === true spread is gone", () => {
   const source = readFileSync(path.join(__dirname, "../src/claude-code-adapter.ts"), "utf8");
   assert.ok(

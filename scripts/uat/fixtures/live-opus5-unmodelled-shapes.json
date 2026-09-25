@@ -1,0 +1,52 @@
+{
+  "capturedFrom": ".planning/phases/05-socratic-epic-authoring/05-LIVE-RUN-01M3C48C-FAILED.log",
+  "capturedAt": "2026-09-25",
+  "runId": "01M3C48C3PV1NSGHERBZ587YB1",
+  "capturedWith": "Recovered from a failed live UAT run's own stderr log — not a deliberate capture. The run this fixture is frozen from timed out and failed (05-LIVE-RUN-01M3C48C-FAILED.log). These twelve lines were the harness's own unrecognised-sidecar-event stderr slices, emitted while the run was still in progress.",
+  "truncation": {
+    "mechanism": "scripts/uat/lib/sidecar-harness.mjs writes `[uat] unrecognised sidecar event: ${(raw ?? \"\").slice(0, 200)}` to stderr for every event the shipped normaliser classifies as unknown — 200 characters of raw JSON, then nothing.",
+    "characterLimit": 200,
+    "lineLength": 234
+  },
+  "note": "These are PREFIXES, cut at 200 characters of raw JSON by the harness's own unmodelled-event logger (scripts/uat/lib/sidecar-harness.mjs). Each reconstructed `line` below carries ONLY the complete key/value pairs visible before the cut. Nothing after the cut is reconstructed, guessed, or inferred from how the shape probably continues. The cost of this — that the product cannot know what else these lines carry — is exactly why plan 05-37's Task 3 replaces the truncating logger with a durable, full-fidelity capture beside it.",
+  "shapes": [
+    {
+      "name": "rate-limit-notice",
+      "observedPrefix": "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed_warning\",\"resetsAt\":1790596800,\"rateLimitType\":\"seven_day\",\"utilization\":0.81,\"isUsingOverage\":false,\"surpassedThreshold\":0.75,\"unifiedW",
+      "expectedEventType": "rate_limit",
+      "line": {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+          "status": "allowed_warning",
+          "resetsAt": 1790596800,
+          "rateLimitType": "seven_day",
+          "utilization": 0.81,
+          "isUsingOverage": false,
+          "surpassedThreshold": 0.75
+        }
+      },
+      "lostToTruncation": "A further field inside rate_limit_info whose key begins with the visible partial key \"unifiedW\" — its full name and value are unknown and are not reconstructed."
+    },
+    {
+      "name": "reasoning-only-assistant-message",
+      "observedPrefix": "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-5\",\"id\":\"msg_011CfQ4JeBv9Bn3Hvg78AT3S\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"CAIS0AkK2AIIEhgC",
+      "expectedEventType": "thinking",
+      "line": {
+        "type": "assistant",
+        "message": {
+          "model": "claude-opus-5",
+          "id": "msg_011CfQ4JeBv9Bn3Hvg78AT3S",
+          "type": "message",
+          "role": "assistant",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": ""
+            }
+          ]
+        }
+      },
+      "lostToTruncation": "The thinking block's own signature value — present on the wire (the observed prefix ends mid-value inside the signature field) but not reconstructed here. This shape's line intentionally carries NO signature key at all: a signature was present on the wire, but its value is unknown, and inventing one would assert something nobody measured."
+    }
+  ]
+}
