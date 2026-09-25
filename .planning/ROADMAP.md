@@ -497,7 +497,7 @@ holds.
   3. User accepts, rejects or amends each proposed item and each drafted criterion individually, rather than accepting the set wholesale.
   4. User reopens an epic weeks later, continues shaping it, and the agent challenges the change against what the epic already contains.
 
-**Plans**: 27/29 plans executed — 26/26 executed, 3 planned (05-27 through 05-29). 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail — plus 4 planned gap-closure plans (05-23 through 05-26) in 4 waves opened by `05-VERIFICATION.md` `gaps_found` 25/27: FAILED truth #19 (`CR-01`, the gating window contaminated by legitimate decompose-stage proposals), the safety-classifier refusal captured as ordinary agent text, `WR-04`'s idle window that can truncate a live turn, and the unfiled-todo bookkeeping — plus 3 planned gap-closure plans (05-27 through 05-29) in 3 waves opened by `05-VERIFICATION.md` `gaps_found` 27/28: FAILED truth #9, the per-attempt `tool_result` correlation reusing one result as the answer to two back-to-back propose attempts (a vacuous SHAPE-01 pass), the missing self-test that let it ship, truth #11's coincidental fixture reliance, and `WR-01`'s doc-comment overclaim
+**Plans**: 29/29 plans executed — 26/26 executed, 3 planned (05-27 through 05-29). 17/17 executed (10/10 in 8 waves, plus 3 gap-closure plans 05-11 through 05-13 in 2 waves opened by conversational UAT, plus 4 gap-closure plans 05-14 through 05-17 in 3 waves opened by `05-VERIFICATION.md` — CR-01 failed truth #7, warnings WR-04/WR-05/WR-06, and the two end-of-phase human judgements), plus 2 gap-closure plans (05-18 and 05-19) in 2 waves opened by `05-UAT.md` G-05-1 — the live acceptance arm starving on an unanswered `board_read_request` — plus 3 gap-closure plans (05-20 through 05-22) in 3 waves opened by `05-UAT.md` G-05-2 — the live arm now finishing but capturing one chunk per turn, advancing mid-generation, and reporting a criterion that could not fail — plus 4 planned gap-closure plans (05-23 through 05-26) in 4 waves opened by `05-VERIFICATION.md` `gaps_found` 25/27: FAILED truth #19 (`CR-01`, the gating window contaminated by legitimate decompose-stage proposals), the safety-classifier refusal captured as ordinary agent text, `WR-04`'s idle window that can truncate a live turn, and the unfiled-todo bookkeeping — plus 3 planned gap-closure plans (05-27 through 05-29) in 3 waves opened by `05-VERIFICATION.md` `gaps_found` 27/28: FAILED truth #9, the per-attempt `tool_result` correlation reusing one result as the answer to two back-to-back propose attempts (a vacuous SHAPE-01 pass), the missing self-test that let it ship, truth #11's coincidental fixture reliance, and `WR-01`'s doc-comment overclaim
 **UI hint**: yes
 
 Plans:
@@ -604,7 +604,7 @@ Plans:
 
 **Gap closure round 6 — wave 3** *(blocked on 05-28 — the ledger cannot record a command until every command in this closure exists and has been observed)*
 
-- [ ] 05-29-PLAN.md — G-05-4: a ledger row per task in this closure, a narrowed and honest statement of what "instrument fixed" now means for SHAPE-01/SHAPE-03, and the credential-spend decision put to the developer rather than taken for them (all five SHAPE ids)
+- [x] 05-29-PLAN.md — G-05-4: a ledger row per task in this closure, a narrowed and honest statement of what "instrument fixed" now means for SHAPE-01/SHAPE-03, and the credential-spend decision put to the developer rather than taken for them (all five SHAPE ids)
 
 **Notes**: Sequenced ahead of the commodity git/forge and diff surfaces because research ranks
 this among the three hardest-to-copy layers and rates the competitive window in weeks. This is
@@ -855,7 +855,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 27/29 | In Progress|  |
+| 5. Socratic Epic Authoring | 29/29 | In Progress|  |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |

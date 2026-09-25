@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-28-PLAN.md
-last_updated: "2026-09-25T00:42:56.501Z"
+stopped_at: Completed 05-29-PLAN.md
+last_updated: "2026-09-25T00:52:57.624Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 05 execution started
-state_head: ec82bbc9dfef4b31747e99b926dd318eb53470b1
+state_head: 6a7a61f2e2e80bcc343ee26a833b7e7a709f2979
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 122
-  completed_plans: 121
+  completed_plans: 122
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 3 of 29
+Plan: 4 of 29
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 05 execution started
 
@@ -178,6 +178,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P26 | 35min | 2 tasks | 5 files |
 | Phase 05 P27 | 25min | 3 tasks | 2 files |
 | Phase 05-socratic-epic-authoring P28 | ~15min | 2 tasks | 2 files |
+| Phase 05 P29 | ~10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -398,6 +399,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Task 1's RED commit asserted only against the still-unfixed readNoWorkPlanned; the full assertion set (needing correlateProposeAttempts/readNoWorkPlannedWithoutClaiming) was added in the GREEN commit alongside the fix, per the plan's own Step 6
 - [Phase 05]: [Phase 05]: readBackendRefusal's doc comment is doc-accuracy-only, not a behaviour change — 05-REVIEW.md's own WR-01 analysis rejected tightening the match, since that would trade back toward the false-negative direction the function exists to close; the comment now names the residual false-positive shape instead of overclaiming zero.
 - [Phase 05]: [Phase 05]: A third README Item 8 rule -- when a fixture is shaped around an ambiguity in the algorithm under test, the ambiguity is the finding — Grounded in 05-23-SUMMARY.md's own Issues Encountered section, which documents the exact moment this phase's fifth-round defect (G-05-4) was routed into a fixture instead of the correlation algorithm.
+- [Phase 05]: [Phase 05]: Plan 05-29 closes gap-closure round G-05-4: 05-VALIDATION.md now carries a ledger row for every task in the closure (05-27-01..05-29-02), each naming a command actually run and observed; REQUIREMENTS.md's SHAPE-01/SHAPE-03 lines are narrowed to credit plan 05-27's claimed-index tool_result correlation fix while staying unchecked, with the live dialogue-quality/draft-usefulness judgements still UNJUDGED. The credential-spend decision for one live run is put to the developer, unanswered by design.
 
 ### Pending Todos
 
@@ -445,6 +447,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-25T00:42:34.026Z
-Stopped at: Completed 05-28-PLAN.md
+Last session: 2026-09-25T00:52:57.498Z
+Stopped at: Completed 05-29-PLAN.md
 Resume file: None
