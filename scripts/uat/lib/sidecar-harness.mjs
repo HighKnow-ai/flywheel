@@ -384,11 +384,19 @@ export const BACKEND_REFUSAL_KIND = "backend_refusal";
  * Anchored on {@link BACKEND_REFUSAL_PREFIX} at the very START of `text`, after trimming leading
  * whitespace — deliberately NEVER a substring match anywhere in the text. A model turn that
  * discusses an error, an API or a safeguard in its own prose does not OPEN with the backend's own
- * error banner, and this position anchor is what keeps the false-positive rate at zero. A false
- * positive here aborts a genuine, in-progress run and costs the credentials it was spending — a
- * strictly worse outcome than the false negative this function exists to close (a refusal quietly
- * read as ordinary agent text) — which is why every check proving this function does NOT fire is
- * written, and passes, before every check proving that it does.
+ * error banner, and this position anchor meaningfully reduces — but does not eliminate — the
+ * false-positive risk a substring match anywhere in the text would carry. The residual shape is
+ * concrete, not hypothetical: a genuine model turn whose own first words happen to echo the
+ * banner text verbatim — for example a reply that opens by quoting a log line the agent just read
+ * through a tool — is still misclassified, because nothing distinguishes it from the real banner
+ * at the string level (05-REVIEW.md's WR-01, gap `G-05-4`, plan 05-28). The anchor is left this
+ * loose on purpose: tightening it further (demanding the "Learn more:" or "Request ID:" markers
+ * too) would trade back toward the false-negative direction this function's own comment already
+ * names as the worse failure to reintroduce. A false positive here aborts a genuine, in-progress
+ * run and costs the credentials it was spending — a strictly worse outcome than the false negative
+ * this function exists to close (a refusal quietly read as ordinary agent text) — which is why
+ * every check proving this function does NOT fire is written, and passes, before every check
+ * proving that it does.
  */
 export function readBackendRefusal(text) {
   if (typeof text !== "string") return null;
