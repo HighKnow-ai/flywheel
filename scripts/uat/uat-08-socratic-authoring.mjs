@@ -2101,6 +2101,290 @@ async function selfTest() {
     },
   );
 
+  // -----------------------------------------------------------------------------------------
+  // [Plan 05-31, Task 1] G-05-5 — the defect class, all three shapes. Round 6's own mutation
+  // test (`correlateProposeAttemptsPositionally` above) reverted to the pre-fix control and
+  // therefore tested only that the fix CHANGED something, over one fixture shape. It still
+  // missed this gap. This battery tests that the fix is CORRECT across every shape the wire can
+  // produce — a different property, and the one that was missing — by asserting the shipped
+  // reading AND the frozen positional control's reading side by side over the identical array in
+  // every check below, never the shipped reading alone. Each check constructs its own events
+  // inline; no shared fixture builder, because these checks exist specifically to disagree with
+  // each other's shapes.
+  // -----------------------------------------------------------------------------------------
+
+  check(
+    "[Plan 05-31, Task 1] Check A — interleaved, vacuous-pass direction: an unrelated read's " +
+      "coincidentally-refusal-shaped result must not stand in for the propose attempt's own " +
+      "unrefused answer",
+    () => {
+      const runId = "run-05-31-check-a";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_a_propose" }, // idx0 — propose attempt
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__board_search", toolUseId: "toolu_a_read" }, // idx1 — unrelated read
+        { type: "tool_result", runId, toolUseId: "toolu_a_read", raw: "board_search is unavailable during challenge stage" }, // idx2 — answers the READ, coincidentally refusal-shaped
+        { type: "tool_result", runId, toolUseId: "toolu_a_propose", raw: "proposal created successfully." }, // idx3 — the propose attempt's OWN real, unrefused answer
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+
+      const shipped = readNoWorkPlanned(events, win);
+      assert.equal(
+        shipped,
+        "violated",
+        "Check A: the shipped, id-based reading must be violated — the propose attempt's own " +
+          "answer does not refuse",
+      );
+
+      const positionalCorrelated = correlateProposeAttemptsPositionally(events, win);
+      const positionalReading =
+        positionalCorrelated.length === 0
+          ? "unproven"
+          : positionalCorrelated.every((attempt) => attempt.refused)
+            ? "refused"
+            : "violated";
+      assert.equal(
+        positionalReading,
+        "refused",
+        "Check A: the frozen positional control must STILL read refused — it claims the read's " +
+          "own result as the propose attempt's answer, the exact vacuous pass this closure fixed",
+      );
+
+      assert.notEqual(shipped, positionalReading, "Check A: the shipped and positional readings must differ");
+    },
+  );
+
+  check(
+    "[Plan 05-31, Task 1] Check B — interleaved, false-fail direction: the propose attempt's own " +
+      "refusing answer must not be masked by an unrelated read's non-refusing result",
+    () => {
+      const runId = "run-05-31-check-b";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_b_propose" }, // idx0 — propose attempt
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__board_search", toolUseId: "toolu_b_read" }, // idx1 — unrelated read
+        { type: "tool_result", runId, toolUseId: "toolu_b_read", raw: "here are the matching cards." }, // idx2 — answers the READ, does NOT refuse
+        { type: "tool_result", runId, toolUseId: "toolu_b_propose", raw: "still in the challenge stage — no proposals yet." }, // idx3 — the propose attempt's OWN real, refusing answer
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+
+      const shipped = readNoWorkPlanned(events, win);
+      assert.equal(
+        shipped,
+        "refused",
+        "Check B: the shipped, id-based reading must be refused — the propose attempt's own " +
+          "answer does refuse",
+      );
+
+      const positionalCorrelated = correlateProposeAttemptsPositionally(events, win);
+      const positionalReading =
+        positionalCorrelated.length === 0
+          ? "unproven"
+          : positionalCorrelated.every((attempt) => attempt.refused)
+            ? "refused"
+            : "violated";
+      assert.equal(
+        positionalReading,
+        "violated",
+        "Check B: the frozen positional control must read violated — it claims the read's own " +
+          "non-refusing result as the propose attempt's answer, masking the attempt's genuine refusal",
+      );
+
+      assert.notEqual(shipped, positionalReading, "Check B: the shipped and positional readings must differ");
+    },
+  );
+
+  check(
+    "[Plan 05-31, Task 1] Check C — back-to-back under ids: pairing asserted by IDENTITY, not " +
+      "merely by two answerIndex values differing",
+    () => {
+      const runId = "run-05-31-check-c";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_c1" }, // idx0 — attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_c2" }, // idx1 — attempt2
+        { type: "tool_result", runId, toolUseId: "toolu_c1", raw: "still in the challenge stage — no proposals yet." }, // idx2 — refuses attempt1
+        { type: "tool_result", runId, toolUseId: "toolu_c2", raw: "proposal created successfully." }, // idx3 — does NOT refuse attempt2
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+
+      const shipped = readNoWorkPlanned(events, win);
+      assert.equal(shipped, "violated", "Check C: expected violated — attempt2's own answer does not refuse");
+
+      const correlated = correlateProposeAttempts(events, win);
+      assert.equal(correlated.length, 2, "Check C: expected exactly two correlated attempts");
+      assert.notEqual(
+        correlated[0].answerIndex,
+        correlated[1].answerIndex,
+        "Check C: expected two DIFFERENT non-null answerIndex values",
+      );
+      for (const entry of correlated) {
+        assert.ok(entry.answerIndex !== null, "Check C: expected a non-null answerIndex for every entry");
+        assert.equal(
+          events[entry.answerIndex][CORRELATION_ID_FIELD],
+          entry.toolUseId,
+          "Check C: the event at this entry's answerIndex must carry a correlation field equal to " +
+            "this entry's OWN toolUseId — pairing by identity, not merely by distinctness",
+        );
+      }
+
+      const positionalCorrelated = correlateProposeAttemptsPositionally(events, win);
+      const positionalReading =
+        positionalCorrelated.length === 0
+          ? "unproven"
+          : positionalCorrelated.every((attempt) => attempt.refused)
+            ? "refused"
+            : "violated";
+      assert.equal(
+        shipped,
+        positionalReading,
+        "Check C: on a clean back-to-back-under-ids shape the claiming-based positional control " +
+          "also reads violated — the identity assertion above, not disagreement with the control, " +
+          "is what proves this shape's pairing correctness",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-31, Task 1] Check D — back-to-back, order mirrored: the reading does not depend on " +
+      "wire arrival order, because it never consults position",
+    () => {
+      const runId = "run-05-31-check-d";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_d1" }, // idx0 — attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_d2" }, // idx1 — attempt2
+        { type: "tool_result", runId, toolUseId: "toolu_d2", raw: "proposal created successfully." }, // idx2 — answers attempt2 FIRST on the wire, does NOT refuse
+        { type: "tool_result", runId, toolUseId: "toolu_d1", raw: "still in the challenge stage — no proposals yet." }, // idx3 — answers attempt1 SECOND on the wire, refuses
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+
+      const shipped = readNoWorkPlanned(events, win);
+      assert.equal(
+        shipped,
+        "violated",
+        "Check D: expected violated, unchanged from Check C, despite the mirrored arrival order",
+      );
+
+      const correlated = correlateProposeAttempts(events, win);
+      for (const entry of correlated) {
+        assert.equal(
+          events[entry.answerIndex][CORRELATION_ID_FIELD],
+          entry.toolUseId,
+          "Check D: pairing by identity must hold regardless of wire order",
+        );
+      }
+
+      const positionalCorrelated = correlateProposeAttemptsPositionally(events, win);
+      const positionalReading =
+        positionalCorrelated.length === 0
+          ? "unproven"
+          : positionalCorrelated.every((attempt) => attempt.refused)
+            ? "refused"
+            : "violated";
+      assert.equal(
+        shipped,
+        positionalReading,
+        "Check D: the claiming-based positional control also reads violated here — the point of " +
+          "this check is order-independence, proven above by identity, not by disagreement with " +
+          "the control",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-31, Task 1] Check E — no correlation ids anywhere: the run is uncorrelatable, and " +
+      "the frozen positional control answers where the shipped reading abstains",
+    () => {
+      const runId = "run-05-31-check-e";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // idx0 — attempt1, NO toolUseId at all
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // idx1 — attempt2, NO toolUseId at all
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // idx2 — NO tool_use_id at all
+        { type: "tool_result", runId, raw: "proposal created successfully." }, // idx3 — NO tool_use_id at all
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+
+      const shipped = readNoWorkPlanned(events, win);
+      assert.equal(shipped, "uncorrelatable", "Check E: an id-less stream must read uncorrelatable, never a guess");
+
+      const correlated = correlateProposeAttempts(events, win);
+      assert.equal(correlated.length, 2, "Check E: expected exactly two correlated entries");
+      for (const entry of correlated) {
+        assert.equal(entry.correlatable, false, "Check E: every entry must be correlatable: false");
+        assert.equal(entry.answerIndex, null, "Check E: every entry must have a null answerIndex");
+      }
+
+      const results = buildCriteriaResults({
+        criterion1Challenged: true,
+        noWorkPlannedReading: shipped,
+        criterion2Landed: false,
+        criterion3Decided: false,
+        criterion4Reopened: false,
+        criterion4PrimedRejected: false,
+      });
+      const [, shape01Passed] = results.find(([name]) => name.includes("SHAPE-01"));
+      assert.equal(
+        shape01Passed,
+        false,
+        "Check E: SHAPE-01 must NOT pass on an uncorrelatable run, with criterion1Challenged held true",
+      );
+
+      const positionalCorrelated = correlateProposeAttemptsPositionally(events, win);
+      const positionalReading =
+        positionalCorrelated.length === 0
+          ? "unproven"
+          : positionalCorrelated.every((attempt) => attempt.refused)
+            ? "refused"
+            : "violated";
+      assert.notEqual(
+        positionalReading,
+        "uncorrelatable",
+        "Check E: the frozen positional control PAIRS these events anyway, over the SAME array — " +
+          "the old mechanism answers exactly where the new one abstains",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-31, Task 1] Check F — a partial stream, one attempt with an id and one without: " +
+      "one unjudgeable attempt makes the whole window uncorrelatable",
+    () => {
+      const runId = "run-05-31-check-f";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_f_correlatable" }, // idx0 — attempt1, HAS an id
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // idx1 — attempt2, NO id at all
+        { type: "tool_result", runId, toolUseId: "toolu_f_correlatable", raw: "still in the challenge stage — no proposals yet." }, // idx2 — answers attempt1 by id, refuses
+        { type: "tool_result", runId, raw: "proposal created successfully." }, // idx3 — no id, unclaimed by the shipped mechanism
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+
+      const shipped = readNoWorkPlanned(events, win);
+      assert.equal(
+        shipped,
+        "uncorrelatable",
+        "Check F: one uncorrelatable attempt among two must make the whole window uncorrelatable, " +
+          "rather than letting the judgeable attempt carry the verdict for both",
+      );
+
+      const correlated = correlateProposeAttempts(events, win);
+      assert.equal(correlated.length, 2, "Check F: expected exactly two correlated entries");
+      const [withId, withoutId] = correlated;
+      assert.equal(withId.correlatable, true, "Check F: the id-bearing attempt must remain correlatable: true");
+      assert.equal(withoutId.correlatable, false, "Check F: the id-less attempt must be correlatable: false");
+
+      const positionalCorrelated = correlateProposeAttemptsPositionally(events, win);
+      const positionalReading =
+        positionalCorrelated.length === 0
+          ? "unproven"
+          : positionalCorrelated.every((attempt) => attempt.refused)
+            ? "refused"
+            : "violated";
+      assert.notEqual(
+        positionalReading,
+        "uncorrelatable",
+        "Check F: the frozen positional control still pairs both attempts anyway — the abstention " +
+          "is a property of the shipped mechanism, not an accident of this particular array",
+      );
+    },
+  );
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
