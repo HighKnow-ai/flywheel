@@ -1923,78 +1923,16 @@ async function selfTest() {
 
   // -----------------------------------------------------------------------------------------
   // [Plan 05-27, Task 2] G-05-4 closure — the back-to-back propose collision, in both its live
-  // and reviewed shapes, with the claimed pairing itself asserted. Every check below carries its
-  // own negative control: the frozen `readNoWorkPlannedWithoutClaiming` reading over the IDENTICAL
-  // fixture, asserted to still be wrong, so the fix cannot rot into a tautology. Plan 05-30 (G-05-5
-  // closure) added a `toolUseId` to every tool_call/tool_result below, mirroring exactly which
-  // result the claimed-index pairing used to pair each attempt with — the shipped reading
-  // (`readNoWorkPlanned`) now derives that SAME pairing from the id lookup instead, while the
-  // frozen `readNoWorkPlannedWithoutClaiming` control below ignores the ids entirely (it never
-  // reads them) and keeps producing its own historically-wrong reading over the identical array.
+  // and reviewed shapes. Plan 05-30 (G-05-5 closure) retired the two dedicated side-by-side
+  // checks that used to live here: their entire job was proving these fixtures had teeth against
+  // the ROUND-6 frozen control (`readNoWorkPlannedWithoutClaiming`, the pre-claiming algorithm).
+  // Once pairing is an id lookup, two back-to-back attempts carry two different ids and cannot
+  // collide by construction — the property that control guarded is subsumed, and the "Shape
+  // C"/"Shape D" checks above already cover the back-to-back-both-open collision generally, with
+  // the shipped `correlateProposeAttempts`. The round-6 control itself, and the ONE frozen
+  // control that replaces it (`correlateProposeAttemptsPositionally`, the positional claiming
+  // scan THIS round replaces), are covered further down.
   // -----------------------------------------------------------------------------------------
-
-  check(
-    "[Plan 05-27, Task 2] the LIVE wire shape — two back-to-back attempts answered by two " +
-      "UNNAMED results, first refusing, second not — reads violated; the frozen pre-claiming " +
-      "reading over the SAME array reads refused",
-    () => {
-      const runId = "run-05-27-live-shape";
-      const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_g4_live1" }, // idx0 attempt1
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_g4_live2" }, // idx1 attempt2
-        { type: "tool_result", runId, toolUseId: "toolu_g4_live1", raw: "still in the challenge stage — no proposals yet." }, // idx2 — answers attempt1
-        { type: "tool_result", runId, toolUseId: "toolu_g4_live2", raw: "proposal created successfully" }, // idx3 — answers attempt2, unrefused
-      ];
-      const win = { runId, fromIndex: 0, toIndex: events.length };
-      const claimed = readNoWorkPlanned(events, win);
-      const preClaiming = readNoWorkPlannedWithoutClaiming(events, win);
-      assert.equal(
-        claimed,
-        "violated",
-        "the shipped (id-based) reading must be violated — this is the defect G-05-4 closed",
-      );
-      assert.equal(
-        preClaiming,
-        "refused",
-        "the frozen 2026-09-24 algorithm must still read refused over the same array — this is " +
-          "the vacuous pass G-05-4 describes",
-      );
-      assert.notEqual(claimed, preClaiming, "the two readings must differ, or the fix has no effect");
-    },
-  );
-
-  check(
-    "[Plan 05-27, Task 2] 05-REVIEW.md's own CR-01 repro — an unnamed refusing result then a " +
-      "result NAMED for the second attempt and not refusing — reads violated; the frozen " +
-      "pre-claiming reading over the SAME array reads refused. Note: the live wire never names a " +
-      "tool_result at all (see the check above) — this shape is the reviewer's own executed " +
-      "reproduction, reproduced verbatim here as its own dedicated regression",
-    () => {
-      const runId = "run-05-27-cr01-repro";
-      const events = [
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_g4_cr1" }, // idx0 attempt1
-        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption", toolUseId: "toolu_g4_cr2" }, // idx1 attempt2
-        { type: "tool_result", runId, toolUseId: "toolu_g4_cr1", raw: "still in the challenge stage — no proposals yet." }, // idx2 — answers attempt1
-        {
-          type: "tool_result",
-          runId,
-          toolUseId: "toolu_g4_cr2",
-          toolName: "mcp__flywheel-permissions__propose_assumption",
-          raw: "proposal created successfully",
-        }, // idx3 — NAMED for attempt2 (name irrelevant now), unrefused
-      ];
-      const win = { runId, fromIndex: 0, toIndex: events.length };
-      const claimed = readNoWorkPlanned(events, win);
-      const preClaiming = readNoWorkPlannedWithoutClaiming(events, win);
-      assert.equal(claimed, "violated", "the shipped (id-based) reading must be violated");
-      assert.equal(
-        preClaiming,
-        "refused",
-        "the frozen 2026-09-24 algorithm must still read refused over the reviewer's own repro",
-      );
-      assert.notEqual(claimed, preClaiming, "the two readings must differ, or the fix has no effect");
-    },
-  );
 
   check(
     "[Plan 05-27, Task 2] correlateProposeAttempts returns exactly two entries, ascending by " +
@@ -2085,8 +2023,55 @@ async function selfTest() {
   );
 
   check(
-    "[Plan 05-27, Task 2] the frozen control is never referenced from the live body — a live run " +
-      "must never be graded by it",
+    "[Plan 05-30, G-05-5 closure] correlateProposeAttemptsPositionally reads WRONG on the " +
+      "interleaved vacuous-pass fixture — the positional control has teeth",
+    () => {
+      // The SAME fixture shape Task 1's own RED test proved the shipped, id-based reading
+      // against: a propose attempt and an unrelated board_search call interleaved, the read's own
+      // result coincidentally matching the refusal wording ahead of the propose attempt's own real
+      // answer.
+      const runId = "run-05-30-positional-control";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_propose_1" }, // idx0 — propose attempt
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__board_search", toolUseId: "toolu_read_1" }, // idx1 — unrelated read
+        { type: "tool_result", runId, toolUseId: "toolu_read_1", raw: "board_search is unavailable during challenge stage" }, // idx2 — answers the READ, coincidentally refusal-shaped
+        { type: "tool_result", runId, toolUseId: "toolu_propose_1", raw: "proposal created successfully." }, // idx3 — the propose attempt's OWN real, unrefused answer
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+
+      const shipped = readNoWorkPlanned(events, win);
+      assert.equal(
+        shipped,
+        "violated",
+        "the shipped, id-based reading must be violated — the propose attempt's own answer does not refuse",
+      );
+
+      const positionalCorrelated = correlateProposeAttemptsPositionally(events, win);
+      const positionalReading =
+        positionalCorrelated.length === 0
+          ? "unproven"
+          : positionalCorrelated.every((attempt) => attempt.refused)
+            ? "refused"
+            : "violated";
+      assert.equal(
+        positionalReading,
+        "refused",
+        "the frozen positional control must STILL read refused over the identical array — it claims " +
+          "the read's own result as the propose attempt's answer, which is the exact vacuous pass " +
+          "this plan closes",
+      );
+
+      assert.notEqual(
+        shipped,
+        positionalReading,
+        "the shipped and positional readings must differ, or the id-based fix has no effect",
+      );
+    },
+  );
+
+  check(
+    "the frozen positional control is never referenced from the live body — a live run must " +
+      "never be graded by it — and round 6's retired control is gone from the file entirely",
     () => {
       const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
       // Scoped to the LIVE body specifically, the same idiom used by the other live-body-scoped
@@ -2095,11 +2080,23 @@ async function selfTest() {
       const liveBodyStart = thisFile.indexOf("\nawait runScript(\n");
       assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
       const liveBodySource = thisFile.slice(liveBodyStart);
-      const frozenControlMarker = ["readNoWorkPlanned", "WithoutClaiming"].join("");
+      const positionalControlMarker = ["correlateProposeAttempts", "Positionally"].join("");
       assert.ok(
-        !liveBodySource.includes(frozenControlMarker),
-        "the frozen control exists only so the offline arms can prove the fixture has teeth — a " +
-          "live run must never be graded by it",
+        !liveBodySource.includes(positionalControlMarker),
+        "the frozen positional control exists only so the offline arms can prove the id-bearing " +
+          "fixtures have teeth — a live run must never be graded by it",
+      );
+
+      // Plan 05-30 (G-05-5 closure): round 6's own frozen control is retired outright, not merely
+      // unreferenced — its function DECLARATION must no longer exist anywhere in the file. Built
+      // from parts, none of which is the whole identifier, so this check's own source is never
+      // what it finds.
+      const retiredControlDeclaration = ["function readNoWorkPlanned", "WithoutClaiming"].join("");
+      assert.ok(
+        !thisFile.includes(retiredControlDeclaration),
+        "round 6's frozen control must be retired outright, not left behind as dead code under a " +
+          "comment claiming it is load-bearing — exactly one frozen control lives in this file at " +
+          "a time",
       );
     },
   );
@@ -2603,10 +2600,12 @@ function correlateProposeAttempts(events, window) {
  * correlateProposeAttempts}'s id-based pairing, replacing the claimed-index pairing plan 05-27
  * shipped for the identical purpose (closing a collision an even earlier positional scan could not
  * see). Six consecutive rounds narrowed a positional heuristic one shape at a time; this round
- * deletes it instead. The claimed-index pairing that shipped immediately before this plan is
- * preserved verbatim below as {@link readNoWorkPlannedWithoutClaiming} — the prior round's own
- * frozen negative control, itself due to be retired once this plan's own id-based negative control
- * replaces it (a separate, later task in this same plan).
+ * deletes it instead. The claimed-index pairing that shipped immediately before this plan (commit
+ * 47c10a0) is preserved verbatim below as {@link correlateProposeAttemptsPositionally} — THIS
+ * round's own frozen negative control, proving the id-bearing fixtures have teeth the positional
+ * scheme lacked. Round 6's own frozen control (the pairing that predated the claimed-index fix) is
+ * retired outright rather than accumulated alongside it — exactly one frozen control lives in this
+ * file at a time, the immediately-superseded mechanism.
  */
 function readNoWorkPlanned(events, window) {
   const correlated = correlateProposeAttempts(events, window);
@@ -2616,40 +2615,48 @@ function readNoWorkPlanned(events, window) {
 }
 
 /**
- * FROZEN (plan 05-27, G-05-4 closure). A verbatim snapshot of `readNoWorkPlanned`'s own
- * correlation exactly as it shipped on 2026-09-24 (plan 05-23) — before the claimed-index fix
- * above. Its per-attempt scan tracks nothing, so it can still let a single `tool_result` answer
- * two different propose attempts, producing a false `"refused"` reading (G-05-4). Retained ONLY as
- * the offline arms' negative control: it is asserted, side by side with the fixed reading, to
- * STILL read `refused` over the exact same events the fixed reading reads as `violated` — proof
- * the `back-to-back-proposals` fixture and the self-tests built around it have real teeth. NEVER
- * called by the live body. NEVER to be "fixed" — fixing it would defeat its entire purpose as a
- * historical control, and a future edit that reverts the claiming rule above would make this
- * function's own reading and the live reading converge, which is exactly what the offline
- * assertions built against it are designed to catch.
+ * FROZEN (plan 05-30, G-05-5 closure). A verbatim snapshot — recovered via `git show
+ * 47c10a0:scripts/uat/uat-08-socratic-authoring.mjs`, not retyped — of `correlateProposeAttempts`'s
+ * own claimed-index pairing exactly as it shipped at commit 47c10a0, immediately before this plan
+ * replaced it with the id-based lookup above. Retained ONLY as the offline arms' negative control:
+ * over the interleaved vacuous-pass fixture (a propose attempt and an unrelated read interleaved,
+ * the read's own result coincidentally matching the refusal wording ahead of the propose attempt's
+ * own real answer), this function still claims the read's own result as the propose attempt's
+ * answer — the exact vacuous pass this plan closes — proving the new, id-bearing fixtures have
+ * real teeth against the mechanism they replace. NEVER called by the live body. NEVER to be
+ * "fixed" — fixing it would defeat its entire purpose as a historical control.
+ *
+ * This is the ONLY frozen control that may exist in this file at a time. Round 6's own frozen
+ * control (`readNoWorkPlannedWithoutClaiming`, the pairing that predated the claimed-index fix) is
+ * retired outright by this same plan rather than accumulated alongside this one — a second
+ * generation of frozen control is dead code with a load-bearing claim on it, not a negative
+ * control. Superseding THIS control in turn means deleting it, not adding a third.
  */
-function readNoWorkPlannedWithoutClaiming(events, window) {
+function correlateProposeAttemptsPositionally(events, window) {
   const w = window ?? {};
   if (typeof w.runId !== "string" || w.runId.length === 0) {
     throw new TypeError(
-      'readNoWorkPlannedWithoutClaiming requires a window with a non-empty "runId" member — an ' +
-        "unscoped reading is not expressible",
+      'correlateProposeAttemptsPositionally requires a window with a non-empty "runId" member — ' +
+        "an unscoped reading is not expressible",
     );
   }
   if (!Number.isInteger(w.fromIndex) || w.fromIndex < 0) {
     throw new TypeError(
-      'readNoWorkPlannedWithoutClaiming requires a window with an integer "fromIndex" member ' +
+      'correlateProposeAttemptsPositionally requires a window with an integer "fromIndex" member ' +
         "(>= 0) — an unscoped reading is not expressible",
     );
   }
   if (!Number.isInteger(w.toIndex) || w.toIndex < w.fromIndex) {
     throw new TypeError(
-      'readNoWorkPlannedWithoutClaiming requires a window with an integer "toIndex" member ' +
+      'correlateProposeAttemptsPositionally requires a window with an integer "toIndex" member ' +
         "(>= fromIndex) — an unscoped reading is not expressible",
     );
   }
   const { runId, fromIndex, toIndex } = w;
 
+  // Collect every propose attempt in the window, in ascending array order, each carrying its own
+  // index and tool name — the name is needed so this attempt's answer can be correlated against
+  // ITS OWN name, never any other attempt's.
   const attempts = [];
   for (let i = fromIndex; i < toIndex; i += 1) {
     const event = events[i];
@@ -2662,26 +2669,31 @@ function readNoWorkPlannedWithoutClaiming(events, window) {
       attempts.push({ index: i, toolName: event[TOOL_NAME_FIELD] });
     }
   }
-  if (attempts.length === 0) return "unproven";
 
-  const isAttemptRefused = (attempt) => {
+  const claimedIndices = new Set();
+  return attempts.map((attempt) => {
+    let answerIndex = null;
+    let refused = false;
     for (let i = attempt.index + 1; i < toIndex; i += 1) {
+      if (claimedIndices.has(i)) continue;
       const event = events[i];
       if (event.runId !== runId) continue;
       if (event.type !== "tool_result") continue;
-      // The FIRST subsequent tool_result in-window IS the candidate answer — there is no second
-      // chance to find a different one. A named result that names a DIFFERENT tool is not this
-      // attempt's answer at all (the attempt has none — unrefused); an unnamed result is accepted
+      // The EARLIEST still-unclaimed tool_result in-window IS the candidate answer — claimed the
+      // instant it is found, so no later attempt in this same pass can ever be paired with it
+      // again. A named result that names a DIFFERENT tool is still claimed (it is examined and
+      // consumed) but is not this attempt's answer (unrefused); an unnamed result is accepted
       // positionally.
-      if (typeof event[TOOL_NAME_FIELD] === "string" && event[TOOL_NAME_FIELD] !== attempt.toolName) {
-        return false;
-      }
-      return typeof event.raw === "string" && CHALLENGE_REFUSAL_PATTERN.test(event.raw);
+      claimedIndices.add(i);
+      answerIndex = i;
+      refused =
+        (typeof event[TOOL_NAME_FIELD] !== "string" || event[TOOL_NAME_FIELD] === attempt.toolName) &&
+        typeof event.raw === "string" &&
+        CHALLENGE_REFUSAL_PATTERN.test(event.raw);
+      break;
     }
-    return false; // no answer at all — unrefused
-  };
-
-  return attempts.every(isAttemptRefused) ? "refused" : "violated";
+    return { index: attempt.index, toolName: attempt.toolName, answerIndex, refused };
+  });
 }
 
 // `--self-test` short-circuits BEFORE the live `runScript` call below is ever reached — it must
@@ -3170,10 +3182,13 @@ async function runReplayCheckScenario(scenarioName) {
         } else if (scenarioName === "back-to-back-proposals") {
           // Task 1 (plan 05-27, G-05-4 closure): the collision `isAttemptRefused`'s independent
           // per-attempt scan could not see — two propose attempts issued back-to-back, in ONE
-          // turn, before either is answered. GREEN: `correlateProposeAttempts`'s claimed-index
-          // pairing makes the claimed reading `violated`; the frozen 2026-09-24 algorithm
-          // (`readNoWorkPlannedWithoutClaiming`) is asserted side by side to still read `refused`
-          // over the SAME window, so the regression cannot rot into a tautology.
+          // turn, before either is answered. The shipped, id-based `correlateProposeAttempts`
+          // pairs each attempt with its OWN result by construction (two attempts carry two
+          // different ids and cannot collide), making the reading `violated`. Plan 05-30 (G-05-5
+          // closure): the round-6 side-by-side comparison against the pre-claiming algorithm that
+          // used to live here is retired — the property it guarded is subsumed by the id lookup —
+          // and the file's one remaining frozen control (`correlateProposeAttemptsPositionally`)
+          // is exercised offline in `--self-test`, not against this live-driven fixture.
           const challengeWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
 
           // Non-vacuity gate: the window must genuinely hold at least two propose tool_call
@@ -3226,20 +3241,6 @@ async function runReplayCheckScenario(scenarioName) {
               "attempt must sink SHAPE-01",
           );
 
-          const preClaimingReading = readNoWorkPlannedWithoutClaiming(sidecar.events, challengeWindow);
-          assert.equal(
-            preClaimingReading,
-            "refused",
-            "expected the frozen 2026-09-24 algorithm to still report the wrong answer over the " +
-              "SAME window — this is what gives the regression teeth",
-          );
-          assert.notEqual(
-            claimedReading,
-            preClaimingReading,
-            "expected the claimed and pre-claiming readings to differ — a future revert that makes " +
-              "them converge must fail this assertion, not pass it",
-          );
-
           const shapeResults = buildCriteriaResults({
             criterion1Challenged: true,
             noWorkPlannedReading: claimedReading,
@@ -3252,11 +3253,7 @@ async function runReplayCheckScenario(scenarioName) {
           assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
           assert.equal(shape01[1], false, "expected SHAPE-01 to NOT pass when a propose attempt went unrefused");
 
-          step(
-            `back-to-back reading (claimed): ${claimedReading} — pre-claiming reading (the ` +
-              `2026-09-24 algorithm, still wrong): ${preClaimingReading} — SHAPE-01 entry ` +
-              `passed=${shape01[1]} (expected false)`,
-          );
+          step(`back-to-back reading (id-based): ${claimedReading} — SHAPE-01 entry passed=${shape01[1]} (expected false)`);
         } else if (scenarioName === "interleaved-read-during-proposal") {
           // Plan 05-30 (gap G-05-5): the propose attempt's own real, unrefused answer sits BEHIND
           // an unrelated board_search call's result, and that unrelated result's own text
