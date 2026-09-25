@@ -1807,6 +1807,182 @@ async function selfTest() {
     assert.ok(detail.includes("authoring-stage-gate.test.mjs"), "expected the sidecar-side structural proof site named");
   });
 
+  // -----------------------------------------------------------------------------------------
+  // [Plan 05-27, Task 2] G-05-4 closure — the back-to-back propose collision, in both its live
+  // and reviewed shapes, with the claimed pairing itself asserted. Every check below carries its
+  // own negative control: the frozen `readNoWorkPlannedWithoutClaiming` reading over the IDENTICAL
+  // fixture, asserted to still be wrong, so the fix cannot rot into a tautology.
+  // -----------------------------------------------------------------------------------------
+
+  check(
+    "[Plan 05-27, Task 2] the LIVE wire shape — two back-to-back attempts answered by two " +
+      "UNNAMED results, first refusing, second not — reads violated; the frozen pre-claiming " +
+      "reading over the SAME array reads refused",
+    () => {
+      const runId = "run-05-27-live-shape";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // idx0 attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // idx1 attempt2
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // idx2 — unnamed, answers attempt1
+        { type: "tool_result", runId, raw: "proposal created successfully" }, // idx3 — unnamed, answers attempt2, unrefused
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+      const claimed = readNoWorkPlanned(events, win);
+      const preClaiming = readNoWorkPlannedWithoutClaiming(events, win);
+      assert.equal(
+        claimed,
+        "violated",
+        "the shipped (claimed) reading must be violated — this is the defect this plan closes",
+      );
+      assert.equal(
+        preClaiming,
+        "refused",
+        "the frozen 2026-09-24 algorithm must still read refused over the same array — this is " +
+          "the vacuous pass G-05-4 describes",
+      );
+      assert.notEqual(claimed, preClaiming, "the two readings must differ, or the fix has no effect");
+    },
+  );
+
+  check(
+    "[Plan 05-27, Task 2] 05-REVIEW.md's own CR-01 repro — an unnamed refusing result then a " +
+      "result NAMED for the second attempt and not refusing — reads violated; the frozen " +
+      "pre-claiming reading over the SAME array reads refused. Note: the live wire never names a " +
+      "tool_result at all (see the check above) — this shape is the reviewer's own executed " +
+      "reproduction, reproduced verbatim here as its own dedicated regression",
+    () => {
+      const runId = "run-05-27-cr01-repro";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" }, // idx0 attempt1
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" }, // idx1 attempt2
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." }, // idx2 — unnamed, answers attempt1
+        {
+          type: "tool_result",
+          runId,
+          toolName: "mcp__flywheel-permissions__propose_assumption",
+          raw: "proposal created successfully",
+        }, // idx3 — NAMED for attempt2, unrefused
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+      const claimed = readNoWorkPlanned(events, win);
+      const preClaiming = readNoWorkPlannedWithoutClaiming(events, win);
+      assert.equal(claimed, "violated", "the shipped (claimed) reading must be violated");
+      assert.equal(
+        preClaiming,
+        "refused",
+        "the frozen 2026-09-24 algorithm must still read refused over the reviewer's own repro",
+      );
+      assert.notEqual(claimed, preClaiming, "the two readings must differ, or the fix has no effect");
+    },
+  );
+
+  check(
+    "[Plan 05-27, Task 2] correlateProposeAttempts returns exactly two entries, ascending by " +
+      "index, with two DIFFERENT non-null answerIndex values, for both the live-shape and the " +
+      "CR-01-repro fixtures",
+    () => {
+      const runId = "run-05-27-pairing-invariant";
+      const liveShape = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" },
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_result", runId, raw: "proposal created successfully" },
+      ];
+      const cr01Repro = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" },
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+        {
+          type: "tool_result",
+          runId,
+          toolName: "mcp__flywheel-permissions__propose_assumption",
+          raw: "proposal created successfully",
+        },
+      ];
+      for (const fixture of [liveShape, cr01Repro]) {
+        const win = { runId, fromIndex: 0, toIndex: fixture.length };
+        const correlated = correlateProposeAttempts(fixture, win);
+        assert.equal(correlated.length, 2, "expected exactly two correlated attempts");
+        assert.ok(
+          correlated[0].index < correlated[1].index,
+          "expected the two entries to be returned in ascending index order",
+        );
+        assert.ok(
+          correlated[0].answerIndex !== null && correlated[1].answerIndex !== null,
+          "expected both entries to carry a non-null answerIndex",
+        );
+        // Comparing the two values directly, not counting a Set — a Set-size assertion passes
+        // when both entries are null, which would prove nothing.
+        assert.notEqual(
+          correlated[0].answerIndex,
+          correlated[1].answerIndex,
+          "expected the two attempts to be paired with two DIFFERENT tool_result indices",
+        );
+      }
+    },
+  );
+
+  check(
+    "[Plan 05-27, Task 2] three back-to-back attempts answered by three unnamed refusing " +
+      "results read refused — the fix must not launder a genuinely all-refused window into violated",
+    () => {
+      const runId = "run-05-27-three-all-refused";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_epic" },
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+      assert.equal(
+        readNoWorkPlanned(events, win),
+        "refused",
+        "expected three genuinely refused attempts to read refused, never over-corrected to violated",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-27, Task 2] two back-to-back attempts with only ONE subsequent unnamed refusing " +
+      "result read violated — the second attempt has nothing left to claim and is unrefused by definition",
+    () => {
+      const runId = "run-05-27-one-result-two-attempts";
+      const events = [
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_task" },
+        { type: "tool_call", runId, toolName: "mcp__flywheel-permissions__propose_assumption" },
+        { type: "tool_result", runId, raw: "still in the challenge stage — no proposals yet." },
+      ];
+      const win = { runId, fromIndex: 0, toIndex: events.length };
+      assert.equal(
+        readNoWorkPlanned(events, win),
+        "violated",
+        "expected the second attempt (with no answer left to claim) to make the reading violated",
+      );
+    },
+  );
+
+  check(
+    "[Plan 05-27, Task 2] the frozen control is never referenced from the live body — a live run " +
+      "must never be graded by it",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      // Scoped to the LIVE body specifically, the same idiom used by the other live-body-scoped
+      // checks in this file. Built from parts at runtime so this check's own source is never what
+      // it finds.
+      const liveBodyStart = thisFile.indexOf("\nawait runScript(\n");
+      assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
+      const liveBodySource = thisFile.slice(liveBodyStart);
+      const frozenControlMarker = ["readNoWorkPlanned", "WithoutClaiming"].join("");
+      assert.ok(
+        !liveBodySource.includes(frozenControlMarker),
+        "the frozen control exists only so the offline arms can prove the fixture has teeth — a " +
+          "live run must never be graded by it",
+      );
+    },
+  );
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
