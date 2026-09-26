@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-41-PLAN.md
-last_updated: "2026-09-26T09:19:55.463Z"
+stopped_at: Completed 05-42-PLAN.md
+last_updated: "2026-09-26T09:51:05.316Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 05 execution started
-state_head: 83a2ad38e3bb4dd0e1ff1ea15e7fa4990e97c870
+state_head: 3645dd29cdbbb93ff7356fcc26155f1f0f14d708
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 136
-  completed_plans: 134
+  completed_plans: 135
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 3 of 43
+Plan: 4 of 43
 Status: Ready to execute
 Last activity: 2026-09-26 — Phase 05 execution started
 
@@ -191,6 +191,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P39 | ~20min | 3 tasks | 3 files |
 | Phase 05 P40 | 35min | 3 tasks | 3 files |
 | Phase 05 P41 | ~25min | 3 tasks | 5 files |
+| Phase 05 P42 | 50min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -429,6 +430,8 @@ Recent decisions affecting current work:
 - [Phase 05]: The marker write in start_authoring_run copies transition_stage's T-05-03-05 ordering rule (last write before commit, bail before commit on failure) directly via write_authoring_stage, rather than routing through transition_stage's guarded-UPDATE machinery, which exists for a different problem (concurrent double-transition) that a brand-new run has not yet encountered.
 - [Phase 05]: ToolCallEvent.questions is additive only — AgentEvent's union membership is unchanged (05-41)
 - [Phase 05]: An authoring session's argv disallows AskUserQuestion unconditionally (buildAuthoringClaudeArgv), never folded into the permission-prompt-tool branch -- the challenge stage stays free conversation (05-41, D-88/D-89)
+- [Phase 05]: One agent-exchange builder (buildAgentExchange/questionsFromTurn) carries typed AskUserQuestion prompts from the adapter seam onto every captured turn, wired at all nine capture sites.
+- [Phase 05]: Relaxed the shared --replay-check composition-invariant check to accept OPTION_SELECTION_PREFIX-prefixed developer lines alongside answer-bank values, since composeDeveloperReply now selects offered options rather than only answer-bank text.
 
 ### Pending Todos
 
@@ -478,6 +481,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-26T09:19:28.953Z
-Stopped at: Completed 05-41-PLAN.md
+Last session: 2026-09-26T09:50:42.450Z
+Stopped at: Completed 05-42-PLAN.md
 Resume file: None
