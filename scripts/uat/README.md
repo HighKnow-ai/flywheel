@@ -238,7 +238,7 @@ Four arms, like every live script in this directory:
 - **`--replay-check`** — pure, offline, no `claude` binary and no API credential. Drives the REAL
   sidecar, the REAL watchdog and the REAL shipped normaliser (`claude-code-adapter.ts`) against
   `scripts/uat/lib/fake-authoring-claude.mjs`, a scripted, zero-token, multi-chunk stand-in backend
-  that is unreachable from the live arm. Fifteen scenarios, each proving one thing the live arm would
+  that is unreachable from the live arm. Sixteen scenarios, each proving one thing the live arm would
   otherwise be the only way to check:
   - `truncation-repro` — the original multi-chunk truncation reproduction: a multi-block turn
     survives the whole wire intact.
@@ -285,6 +285,12 @@ Four arms, like every live script in this directory:
     three things at once: the typed question payload survives the whole wire, the conversation
     driver answers an offered option instead of reading the turn as settled, and the rendered
     evidence sheet carries the questions inside the turn that asked them.
+  - `drafts-criteria-after-second-advance` — a conversation that advances twice, replying to both
+    the distillation instruction and the criteria instruction, reads a staged proposal's id back
+    through `proposal_list`, and stages a criterion naming that same id as its `parent_proposal_id`
+    — through the real sidecar and the real shipped normaliser. Proves NOTHING about the board: it
+    opens no socket, so no row reaches the board in this arm; that leg is owned by
+    `--board-read-check` and by `authoring_criterion_reachability.rs`'s Rust regression.
   Proves NOTHING WHATSOEVER about dialogue quality — its transcripts are synthetic, carry an
   unmissable synthetic marker in their first two lines, and structurally cannot hold a verdict line.
 - **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
@@ -625,6 +631,99 @@ it added is provable through the same path the live arm uses, and deliberately d
 full extraction), IN-01 and IN-02 — all three still open. No live run happened and no credential was
 spent. The live board write has still never once succeeded, so SHAPE-02, SHAPE-03 and SHAPE-04 have
 offline coverage only.
+
+**Tenth finding, recorded here because it changed the script again (this closure, plans
+05-44/05-45/05-46, gap `G-05-9`):** this is the TENTH instance of the defect class this register
+exists to name, and this round earns it twice over, in one round, in two independent places — the
+same shape rounds 8 and 9 each earned twice in a single round.
+
+- **The id that never came back.** `stageAuthoringProposal` resolved every `propose_*` call with a
+  bare staged acknowledgement carrying no id, for all six write verbs; `propose_criterion` required a
+  `parent_proposal_id` at `minLength: 1`; and the agent's only read tools were `board_search`,
+  `epic_get` and `task_list`, none of which can see `authoring_proposals`. The consequence is
+  stronger than one bad run: `propose_criterion` was UNREACHABLE in a fresh-epic session, by
+  construction, and a drafted-criteria count of zero was the only value the design could produce.
+  Record the cost exactly: live run `01M3ENQMC3E4M2HP7014MA84PX` was the first in this phase ever to
+  get past the stage-marker blocker, applied 13 proposals through the real inbound bridge where every
+  prior live run applied none, and still failed SHAPE-02 as "no subtree was accepted" and
+  SHAPE-03/SHAPE-04 as "not enough proposals to exercise all three verbs" — because the 13 were one
+  epic and twelve assumptions, with zero tasks and zero criteria. Record who found it: the agent
+  itself, unprompted, in turn 8 of the transcript — staged proposals do not come back in
+  `board_search`, so there is no proposal id to hang tasks and criteria off within the session.
+  Record why ten rounds of green tests missed it: every prior live run died before the proposal
+  stage, so nothing had ever reached far enough to exercise it, and no offline arm expressed the
+  property either.
+- **The instruction that never asked.** Advancing into D-88's third stage returned no instruction at
+  all, and the only instruction the second stage ever delivered asked for D-89 assumption rows and
+  nothing else. The opening prompt's closing line told the agent not to propose tasks or criteria
+  until the developer advanced the stage, and nothing that followed ever said the moment had arrived.
+  So the live run's `epic: 1, assumption: 12` is the instruction set read literally, not a model
+  failure. Record the half this round deliberately did NOT engineer away: the agent gave a second,
+  judgement-based reason for not staging tasks — they were downstream of twelve assumptions the
+  developer had not triaged — and that reasoning was left intact.
+
+Root cause, once, for both: the product required a thing it had made impossible to produce, and never
+asked for it — and the only signal either way was a number that reads as the model's own choice.
+
+This round also carries a correction to its own gap report, for the THIRD consecutive round — and the
+thing that makes this one different from the two before it. The gap's first-filed root cause blamed a
+single-shot proposal drain in `uat-08-socratic-authoring.mjs`, which would have sent a closure plan at
+the harness while the defect sat in `packages/`. It was retracted in the gap's own `correction` field,
+before any plan was written, with the superseded reasoning kept verbatim rather than deleted and with
+the evidence that refuted it named. Record that this is the register's own hypothesis rule operating
+as designed, rather than being rescued after the fact as in rounds 9 and 10 — and that the difference
+is worth naming, because a rule that only works when someone remembers to apply it late is not yet a
+habit.
+
+Record what this round did with the superseded cause instead of filing it as the fix: the single-shot
+drain was real but latent, and it stopped being latent the moment proposals had to be collected across
+two stage windows. It was fixed on those grounds and under its own name (`drainProposalsUntilQuiet`),
+never as this gap's centrepiece.
+
+Also record the second correction, to the gap's framing rather than to its artifact: the gap posed a
+one-way door between D-07's canonical-parent rule and SHAPE-03's wording, on the premise that both
+could not stand. Measurement found they always could — `accept_proposal_in_tx`'s D-96 implied-parent
+walk accepts a still-pending parent proposal first, in the same transaction, so a criterion drafted
+against an unaccepted parent never reaches a canonical table with a dangling parent. The door was not
+one-way and no requirement was reworded. Record this plainly, because a closure that had taken the
+framing at face value would have rewritten a shipped requirement to accommodate a constraint that did
+not exist.
+
+**An eighth rule, from this round's pair of findings, stated as a rule rather than as a story:**
+
+> A capability the product requires but cannot reach reads, from the outside, exactly like a
+> capability nobody used. Assert reachability, not usage — and make the impossibility say its own
+> name, because a zero that cannot distinguish "would not" from "could not" will be read as "would
+> not" every time.
+
+Ground it: `Drafted criteria: 0` was reported by the instrument for the whole life of this phase's
+offline coverage and read, every time, as a fact about the model.
+
+**Operator note — the id-read tool, the criteria instruction, the two-advance live arm and the
+reachability reading (plans 05-44/05-45/05-46):**
+
+- An authoring session now has `proposal_list`, a fourth capped read tool that reads back the id,
+  verb, target type, parent id, status and label of any proposal staged this run, scoped server-side
+  to the run's own `run_id` — never from the event — through the same `board_read` channel
+  `board_search`/`epic_get`/`task_list` already use. It is registered statically at spawn, alongside
+  those three, because the installed CLI does not honour mid-session tool-list changes.
+- D-88's criteria stage now carries its own instruction (`CRITERIA_INSTRUCTION_TEXT`), naming
+  `propose_criterion` by its exact tool name and the one-call-per-criterion rule, and states plainly
+  that a criterion may name a still-pending parent — accepting it accepts the parent first, via
+  D-96's implied-parent walk.
+- The live arm now advances D-88's stage machine twice (challenge -> decompose -> criteria), captures
+  the reply to both stage instructions, and drains proposals after each window via
+  `drainProposalsUntilQuiet`, which reports whether it stopped `quiet` or on its `deadline` —
+  narrated as two different facts about a run, never collapsed into one boolean.
+- `readCriteriaReachability` reads a criteria count of zero as one of four values — `drafted`,
+  `blocked`, `declined` or `not-attempted` — reusing `correlateProposeAttempts` verbatim, rendered
+  into the evidence sheet immediately beside the drafted-criteria count, with the criteria-stage
+  drain's own `stoppedBy` value alongside it.
+
+What this round did NOT resolve: no live run happened and no credential was spent; the live board
+write has still never once succeeded, so SHAPE-02, SHAPE-03 and SHAPE-04 retain offline coverage
+only; whether a real backend given the new instructions actually drafts criteria is a live-run
+observation this round does not make; and `05-REVIEW.md`'s WR-01, IN-01 and IN-02 all remain open.
 
 ### Items 2 and 4 — the visual ones
 
