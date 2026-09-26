@@ -147,6 +147,19 @@ const LIVE_TURN_CEILING_MS = 900_000;
  */
 const PROPOSAL_DEADLINE_MS = 120_000;
 
+/**
+ * The two bounds {@link drainProposalsUntilQuiet} takes for a re-drain window, named here beside
+ * {@link PROPOSAL_DEADLINE_MS} (the FIRST wait, for the very first proposal in a stage) since all
+ * three bound the same phase of a run — proposals arriving after a stage advances:
+ * - `PROPOSAL_DRAIN_QUIET_MS` — how long the watermark must sit unchanged before a burst is called
+ *   done.
+ * - `PROPOSAL_DRAIN_DEADLINE_MS` — the outer ceiling if the wire never goes quiet at all. Reuses
+ *   {@link PROPOSAL_DEADLINE_MS}'s own derivation (nothing in this repository has ever measured a
+ *   real multi-window proposal burst either) as its own independent total bound.
+ */
+const PROPOSAL_DRAIN_QUIET_MS = 3_000;
+const PROPOSAL_DRAIN_DEADLINE_MS = 120_000;
+
 // ---------------------------------------------------------------------------------------------
 // The `uat_authoring_ops` bridge — one small wrapper per subcommand, all synchronous
 // (`spawnSync`), all throwing with the binary's own stderr on a non-zero exit so a bridge failure
@@ -3892,6 +3905,85 @@ async function selfTest() {
     },
   );
 
+  // ---------------------------------------------------------------------------------------------
+  // drainProposalsUntilQuiet (plan 05-46, gap G-05-9) — a stub sidecar whose `events` array grows
+  // on a real timer, exercising the SAME function the live body calls. The two-burst fixture is
+  // written FIRST: it is the fixture this defect's single-shot drain was always dodging.
+  // ---------------------------------------------------------------------------------------------
+
+  {
+    const twoBurstStub = { events: [{ type: "proposal_created", id: "p1" }, { type: "proposal_created", id: "p2" }] };
+    const twoBurstApplied = [];
+    const twoBurstResultPromise = drainProposalsUntilQuiet(twoBurstStub, {
+      applyEvent: (event) => twoBurstApplied.push(event.id),
+      quietMs: 300,
+      deadlineMs: 5_000,
+      label: "self-test two-burst",
+    });
+    // The gap between bursts: longer than PROPOSAL_DRAIN_SCAN_TICK_MS (50ms — so the drain's own
+    // loop gets at least one scan pass in between) but shorter than quietMs (300ms — so the drain
+    // must NOT report "quiet" before the second burst ever arrives).
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    twoBurstStub.events.push({ type: "proposal_created", id: "p3" }, { type: "other_event" }, { type: "proposal_created", id: "p4" });
+    const twoBurstResult = await twoBurstResultPromise;
+
+    check(
+      "drainProposalsUntilQuiet collects both bursts separated in time, applies each event exactly once, and reports stoppedBy \"quiet\"",
+      () => {
+        assert.deepEqual(twoBurstApplied, ["p1", "p2", "p3", "p4"]);
+        assert.equal(twoBurstResult.applied, 4);
+        assert.equal(twoBurstResult.stoppedBy, "quiet");
+        assert.equal(twoBurstResult.nextIndex, twoBurstStub.events.length);
+      },
+    );
+  }
+
+  {
+    const neverQuietStub = { events: [] };
+    let neverQuietCounter = 0;
+    const neverQuietTimer = setInterval(() => {
+      neverQuietCounter += 1;
+      neverQuietStub.events.push({ type: "proposal_created", id: `forever-${neverQuietCounter}` });
+    }, 40);
+    const neverQuietApplied = [];
+    const neverQuietResult = await drainProposalsUntilQuiet(neverQuietStub, {
+      applyEvent: (event) => neverQuietApplied.push(event.id),
+      quietMs: 10_000, // never reached — a new event lands well inside this window every 40ms
+      deadlineMs: 300,
+      label: "self-test never-quiet",
+    });
+    clearInterval(neverQuietTimer);
+
+    check(
+      "drainProposalsUntilQuiet returns on its deadline, rather than running forever, when events never stop arriving",
+      () => {
+        assert.equal(neverQuietResult.stoppedBy, "deadline");
+        assert.ok(neverQuietApplied.length > 0, "expected at least one event to have been applied before the deadline fired");
+      },
+    );
+  }
+
+  {
+    const oneBurstStub = { events: [{ type: "proposal_created", id: "only" }, { type: "some_other_event" }] };
+    const oneBurstApplied = [];
+    const oneBurstResult = await drainProposalsUntilQuiet(oneBurstStub, {
+      applyEvent: (event) => oneBurstApplied.push(event.id),
+      quietMs: 150,
+      deadlineMs: 2_000,
+      label: "self-test one-burst-no-duplicate",
+    });
+
+    check(
+      "drainProposalsUntilQuiet applies exactly one event for a single burst with nothing else arriving, with no duplicate across passes",
+      () => {
+        assert.deepEqual(oneBurstApplied, ["only"]);
+        assert.equal(oneBurstResult.applied, 1);
+        assert.ok(oneBurstResult.passes >= 2, "expected more than one scan pass while waiting out the quiet window");
+        assert.equal(oneBurstResult.stoppedBy, "quiet");
+      },
+    );
+  }
+
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
     process.exit(1);
@@ -4670,6 +4762,85 @@ function correlateProposeAttemptsPositionally(events, window) {
     }
     return { index: attempt.index, toolName: attempt.toolName, answerIndex, refused };
   });
+}
+
+/** Plan 05-46 (gap G-05-9): the internal scan tick {@link drainProposalsUntilQuiet} sleeps between
+ * passes — never a literal at its own call site. Deliberately small and NOT derived from a caller's
+ * `quietMs`/`deadlineMs`, so a self-test fixture can choose its own quiet/deadline windows freely
+ * without also having to reason about their relationship to the tick. */
+const PROPOSAL_DRAIN_SCAN_TICK_MS = 50;
+
+/**
+ * Plan 05-46 (gap G-05-9): implements the window the OLD single-pass loop's own comment always
+ * promised and the code never built — proposals now arrive across more than one stage window (the
+ * decompose stage's distillation proposals, and, once Task 2 opens a second stage window, the
+ * criteria stage's proposals too), so a single pass over `sidecar.eventsOfType("proposal_created")`
+ * structurally cannot collect them. This is the gap's `superseded_root_cause` becoming load-bearing.
+ *
+ * Deliberately NOT built out of repeated `waitForEvent` calls: `waitForEvent` scans already-received
+ * events FIRST (see its own doc comment in `sidecar-harness.mjs`), so a second call made after the
+ * first `proposal_created` already arrived would resolve INSTANTLY on that same already-applied
+ * event — a `waitForEvent`-based re-drain loop never actually re-arms. A watermark scanned forward
+ * over the raw `sidecar.events` array is the only shape that does.
+ *
+ * `applyEvent` is invoked EXACTLY ONCE per matching event, in ascending index order, however many
+ * scan passes see it — the watermark advances past every index a pass examines, so no later pass
+ * can ever re-offer an index the watermark has already crossed. Mirrors `drainInboundCoreRequests`'s
+ * own once-only idiom (a `seen` Set there, a plain integer cursor here, since `sidecar.events` is
+ * append-only and never re-orders or re-emits an entry the way held inbound requests can appear to).
+ *
+ * `fromIndex` (default 0) lets a caller resume a SECOND drain window from where a prior one left
+ * off, via the `nextIndex` this function returns — required the moment more than one stage window
+ * calls this function against the same growing `sidecar.events` array, so the second call's own
+ * first scan does not re-walk (and therefore re-apply) everything the first call already handled.
+ *
+ * Returns `{ applied, passes, stoppedBy, nextIndex, label }`:
+ * - `applied` — the count of events actually handed to `applyEvent`.
+ * - `passes` — how many scan passes ran (at least 1 — the first scan runs synchronously before any
+ *   sleep, so a burst already fully buffered when this function is called pays no tick latency at
+ *   all to be noticed).
+ * - `stoppedBy` — `"quiet"` when `quietMs` elapsed with the watermark unchanged, or `"deadline"`
+ *   when `deadlineMs` elapsed first. These are different facts about a run ("the window closed
+ *   quiet" vs. "the window ran out") and the caller reports which one happened rather than
+ *   collapsing them into one boolean.
+ * - `nextIndex` — the watermark's final position, for a caller that wants to resume a later window
+ *   from here.
+ */
+async function drainProposalsUntilQuiet(
+  sidecar,
+  { applyEvent, quietMs = PROPOSAL_DRAIN_QUIET_MS, deadlineMs = PROPOSAL_DRAIN_DEADLINE_MS, label, fromIndex = 0 },
+) {
+  let watermark = fromIndex;
+  let applied = 0;
+  let passes = 0;
+  const startedAt = Date.now();
+  let lastProgressAt = startedAt;
+
+  const scanOnce = () => {
+    passes += 1;
+    let sawNew = false;
+    while (watermark < sidecar.events.length) {
+      const event = sidecar.events[watermark];
+      watermark += 1;
+      if (event.type !== "proposal_created") continue;
+      applyEvent(event);
+      applied += 1;
+      sawNew = true;
+    }
+    return sawNew;
+  };
+
+  for (;;) {
+    if (scanOnce()) lastProgressAt = Date.now();
+    const now = Date.now();
+    if (now - lastProgressAt >= quietMs) {
+      return { applied, passes, stoppedBy: "quiet", nextIndex: watermark, label };
+    }
+    if (now - startedAt >= deadlineMs) {
+      return { applied, passes, stoppedBy: "deadline", nextIndex: watermark, label };
+    }
+    await new Promise((resolve) => setTimeout(resolve, PROPOSAL_DRAIN_SCAN_TICK_MS));
+  }
 }
 
 /** Plan 05-38 (Task 3, gap G-05-7): the deliberately SHORT ceiling the
@@ -6510,6 +6681,7 @@ await runScript(
       let taskProposalId = null;
       let criterionProposalId = null;
       let rejectedTaskId = null;
+      let decomposeDrainResult = null;
       try {
         const proposalEvent = await sidecar.waitForEvent(
           (event) => event.type === "proposal_created",
@@ -6518,12 +6690,21 @@ await runScript(
         );
         sawProposal = true;
         step(`first proposal observed: verb=${proposalEvent.verb} targetType=${proposalEvent.targetType}`);
-        // Apply every proposal_created event seen so far (and any that arrive over the next window)
-        // through the real bridge — this IS the inbound write path, not a simulation of it.
-        for (const event of sidecar.eventsOfType("proposal_created")) {
-          const outcome = runOps(opsBin, harness.appDataDir, ["apply-proposal-created"], JSON.stringify(event));
-          step(`applied proposal_created -> ${outcome.outcome} ${outcome.proposalId ?? ""}`);
-        }
+        // Plan 05-46 (gap G-05-9): a re-scanning quiet window, not one pass — this IS the inbound
+        // write path (apply-proposal-created), not a simulation of it. See
+        // drainProposalsUntilQuiet's own doc comment for why a single pass, or a waitForEvent-based
+        // re-drain, structurally cannot collect a burst that arrives after the first proposal.
+        decomposeDrainResult = await drainProposalsUntilQuiet(sidecar, {
+          applyEvent: (event) => {
+            const outcome = runOps(opsBin, harness.appDataDir, ["apply-proposal-created"], JSON.stringify(event));
+            step(`applied proposal_created -> ${outcome.outcome} ${outcome.proposalId ?? ""}`);
+          },
+          label: "decompose-stage proposal drain",
+        });
+        step(
+          `decompose-stage proposal drain stopped ${decomposeDrainResult.stoppedBy} after ` +
+            `${decomposeDrainResult.passes} pass(es), ${decomposeDrainResult.applied} proposal(s) applied`,
+        );
       } catch (err) {
         step(`no proposal arrived within the deadline: ${err.message}`);
       }
