@@ -96,6 +96,16 @@ const ASK_USER_QUESTION_TOOL_USE_BLOCK = ASK_USER_QUESTION_FIXTURE.shapes.find(
 ).line.message.content[0];
 
 /**
+ * Plan 05-46 (gap G-05-9): the id `drafts-criteria-after-second-advance`'s own `propose_criterion`
+ * call names as its `parent_proposal_id` — the SAME id its own `proposal_list` call reports back
+ * as a pending proposal's id. A 26-character synthetic ULID-shaped string (obviously fake, never a
+ * real captured id), declared once here and read by both the scenario below and by
+ * `uat-08-socratic-authoring.mjs`'s own assertions (via `SCENARIOS[...].readBackProposalId`) —
+ * never retyped as a second literal, so the two cannot drift apart.
+ */
+const CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID = "01FAKECRITERIONPARENTIDA01";
+
+/**
  * The scripted turn fixtures, keyed by scenario name. Each scenario is `{ turns, fallback }`:
  * `turns` is an array of arrays of content blocks (`{ type: "text", text }` or
  * `{ type: "tool_use", name, input }`) — one array per conversational turn, each block becoming
@@ -764,6 +774,137 @@ export const SCENARIOS = {
           text: ASK_USER_QUESTION_FIXTURE.cliAnsweredToolResult.content,
         },
         { type: "text", text: "Noted — moving on without those picks locked in." },
+      ],
+    ],
+    fallback: [{ type: "text", text: "Still here if you need anything else." }],
+  },
+
+  // Plan 05-46 (gap G-05-9), Task 3: drives D-88's WHOLE three-stage machine offline —
+  // challenge -> decompose -> criteria, replying to BOTH stage instructions, and staging a
+  // criterion against an id read back via plan 05-44's `proposal_list` tool. `stageTargets`
+  // (read by `uat-08-socratic-authoring.mjs`'s own replay-body loop) declares both advances;
+  // every scenario that omits it defaults to a single "decompose" advance, so this is the ONLY
+  // scenario in this file that reaches the criteria stage at all.
+  //
+  // THE BOUND (Task 3(c)): this scenario drives the REAL sidecar, the REAL watchdog and the
+  // REAL shipped normaliser, and it proves ordering, capture, correlation and every reading
+  // computed from the event stream. It opens no socket — no real `claude` CLI ever exists in
+  // this arm, so no MCP tool call this scenario's tool_use blocks NAME is ever actually
+  // dispatched to a real MCP server. NO ROW REACHES THE BOARD: `apply-proposal-created` is
+  // never called and `list-pending` is never called either. The drafted-criteria count the
+  // replay body computes for this scenario is a READING derived from the wire's own
+  // tool_call/tool_result correlation (the same `correlateProposeAttempts` the shipped product
+  // code uses), never a database row count. The board-write leg — that a criterion staged
+  // against a still-pending parent id actually materialises — is owned by
+  // `--board-read-check` (plan 05-44 Task 2) and by `cargo test -p core --test
+  // authoring_criterion_reachability`, not by this scenario.
+  //
+  // Turns 1-2 mirror `proposes-work-after-advance`'s own clean-challenge shape verbatim (three
+  // questions matching distinct ANSWER_BANK patterns, then a settling reply with no question) —
+  // the challenge stage's own shape is not this scenario's point and is reused rather than
+  // re-invented.
+  "drafts-criteria-after-second-advance": {
+    stageTargets: ["decompose", "criteria"],
+    readBackProposalId: CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID,
+    turns: [
+      // Turn 1 — three questions, each matching a distinct ANSWER_BANK pattern. NO propose tool
+      // call anywhere in this turn.
+      [
+        { type: "text", text: "Let me get oriented before shaping this." },
+        { type: "tool_use", name: "Bash", id: "toolu_dcsa_bash1", input: { command: "git status --short && ls" } },
+        {
+          type: "text",
+          text:
+            "Who can dismiss a notification once it fires?\n" +
+            "Does an unattended run finishing on its own warrant a notification?\n" +
+            "Should multiple notifications ever batch together?",
+        },
+      ],
+      // Turn 2 — the reply to the developer's answers. No interrogative fragment at all: this is
+      // what makes the conversation SETTLE.
+      [
+        { type: "text", text: "Good — locking that in." },
+        { type: "tool_use", name: "Bash", id: "toolu_dcsa_bash2", input: { command: "true" } },
+        {
+          type: "text",
+          text:
+            "Got it — only the assignee dismisses it, an unattended finish alone doesn't warrant " +
+            "one, and no batching in this slice. That's enough to move forward.",
+        },
+      ],
+      // Turn 3 — the reply to the DISTILLATION instruction (entering decompose): a propose_epic
+      // and a propose_assumption tool-use block, each carrying its own distinct id and followed
+      // by its own tool_result block naming that SAME id as tool_use_id — the real correlation
+      // pair plan 05-30's id-based pairing depends on. Split across multiple content blocks (an
+      // opening block, propose_epic + its result, propose_assumption + its result, a closing
+      // block) so the multi-chunk capture is exercised, matching this file's own convention.
+      [
+        { type: "text", text: "Now that we're decomposing, I'll stage the shape I've settled on." },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_epic",
+          id: "toolu_dcsa_epic",
+          input: { title: "Run notifications", description: "Notify the developer when a run needs them." },
+        },
+        {
+          type: "tool_result",
+          role: "user",
+          tool_use_id: "toolu_dcsa_epic",
+          text: JSON.stringify({ staged: true, id: CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID }),
+        },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_assumption",
+          id: "toolu_dcsa_assumption",
+          input: { statement: "Only the assignee dismisses a notification.", answer: "confirmed" },
+        },
+        {
+          type: "tool_result",
+          role: "user",
+          tool_use_id: "toolu_dcsa_assumption",
+          text: JSON.stringify({ staged: true, id: "01FAKEASSUMPTIONPROPOSALA1" }),
+        },
+        { type: "text", text: "Epic and assumption both staged for your review." },
+      ],
+      // Turn 4 — the reply to the CRITERIA instruction (entering criteria): reads the epic
+      // proposal's own id back via proposal_list, then stages a criterion naming that SAME id as
+      // parent_proposal_id — the exact reachability path gap G-05-9 asked to prove. Also split
+      // across multiple content blocks.
+      [
+        { type: "text", text: "Before drafting criteria, let me confirm the epic proposal's own id." },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__proposal_list",
+          id: "toolu_dcsa_list",
+          input: {},
+        },
+        {
+          type: "tool_result",
+          role: "user",
+          tool_use_id: "toolu_dcsa_list",
+          text: JSON.stringify({
+            proposals: [
+              { id: CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID, verb: "propose", targetType: "epic", status: "pending" },
+            ],
+            truncated: false,
+          }),
+        },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_criterion",
+          id: "toolu_dcsa_criterion",
+          input: {
+            statement: "A notification tray entry appears within one second of the triggering event.",
+            parent_proposal_id: CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID,
+          },
+        },
+        {
+          type: "tool_result",
+          role: "user",
+          tool_use_id: "toolu_dcsa_criterion",
+          text: JSON.stringify({ staged: true, id: "01FAKECRITERIONROWIDXXXA1" }),
+        },
+        { type: "text", text: "Criterion staged against the still-pending epic proposal." },
       ],
     ],
     fallback: [{ type: "text", text: "Still here if you need anything else." }],

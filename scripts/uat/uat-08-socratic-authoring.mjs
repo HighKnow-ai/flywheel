@@ -5272,6 +5272,13 @@ if (process.argv.includes("--board-read-check")) {
  * stall. */
 const REPLAY_TURN_DEADLINE_MS = 10_000;
 
+/** Plan 05-46 (gap G-05-9): the quiet window `--replay-check`'s own criteria-stage
+ * `drainProposalsUntilQuiet` call uses — short, for the same reason {@link REPLAY_TURN_DEADLINE_MS}
+ * is: the scripted backend and the real bridge both respond immediately, so there is no real-world
+ * latency to wait out. The deadline stays the shipped default ({@link PROPOSAL_DRAIN_DEADLINE_MS}) —
+ * only the quiet window is shortened here. */
+const REPLAY_PROPOSAL_DRAIN_QUIET_MS = 500;
+
 /** Plan 05-25 (WR-04 closure): the EXPLICIT, short idle window the `slow-tool-mid-turn` scenario
  * passes — short enough that the fixture's own `delayMs` pause (1500ms, `fake-authoring-claude.mjs`)
  * would certainly have tripped the PRE-FIX idle policy (which reset its timer on ANY event and
@@ -6331,108 +6338,228 @@ async function runReplayCheckScenario(scenarioName) {
           step(`confirmed via recent-authoring-runs: authoringStage=${thisRun.authoringStage} (still challenge)`);
         } else {
           step("advancing the stage (Cyril's own gate, D-90) through the bridge, mirroring the live body");
-          const advanceCursor = sidecar.eventCursor();
-          const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
-          assert.equal(advanced.stage, "decompose");
-          assert.ok(
-            advanceCursor >= conversation.cursor,
-            `expected the cursor recorded at advance-stage (${advanceCursor}) to be at or after the ` +
-              `final agent turn's own end index (${conversation.cursor})`,
-          );
-
           exchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
 
-          if (scenarioName === "proposes-work-after-advance") {
-            // Plan 05-23 (CR-01 closure): the fixture reaches decompose LEGITIMATELY — a clean
-            // challenge stage, then one post-advance developer turn (the distillation instruction,
-            // mirroring the live body's own step) that triggers the fixture's scripted decompose-
-            // stage propose call. This is the exact combination CR-01's own defect needed and no
-            // offline arm ever exercised before this plan: a propose call that lands strictly AFTER
-            // challengeWindowEnd, which the bounded reading must never see and the unbounded
-            // (CR-01) reading must still misread.
-            assert.ok(
-              typeof advanced.instructionText === "string" && advanced.instructionText.length > 0,
-              "expected advance-stage to return a distillation instruction for this scenario",
-            );
-            const postAdvanceCursor = sidecar.eventCursor();
-            await sidecar.request({ op: "authoring_turn", runId, text: advanced.instructionText });
-            exchanges.push({ speaker: "developer", text: advanced.instructionText, cursor: postAdvanceCursor });
-            const postAdvanceReply = await sidecar.waitForTurn(runId, postAdvanceCursor, {
-              timeoutMs: REPLAY_TURN_DEADLINE_MS,
-              label: "the post-advance decompose-stage reply (proposes-work-after-advance)",
-            });
-            exchanges.push(buildAgentExchange(postAdvanceReply));
+          // Plan 05-46 (gap G-05-9), Task 3(b): a scenario may declare how many stage advances it
+          // wants via its own `stageTargets` array (e.g. `["decompose", "criteria"]`) — defaulting
+          // to a single `["decompose"]` advance so every PRE-EXISTING scenario is byte-identical in
+          // behaviour. Looping around this ONE call site (rather than adding a second, duplicated
+          // one) keeps the replay body holding exactly one `advance-stage` call site in its source.
+          const stageTargets = SCENARIOS[scenarioName].stageTargets ?? ["decompose"];
+          let capturedInstructionReplies = 0;
+          let criteriaReachabilityReadingForReplay = null;
+          let criteriaDrainStoppedByForReplay = null;
 
-            // Assertion 1: the bounded challenge-window reading is unproven — the challenge stage
-            // was genuinely clean.
-            const boundedWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
-            const boundedReading = readNoWorkPlanned(sidecar.events, boundedWindow);
+          for (const stageTarget of stageTargets) {
+            const advanceCursor = sidecar.eventCursor();
+            const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
+            assert.equal(advanced.stage, stageTarget);
+            if (stageTarget === "decompose") {
+              assert.ok(
+                advanceCursor >= conversation.cursor,
+                `expected the cursor recorded at advance-stage (${advanceCursor}) to be at or after ` +
+                  `the final agent turn's own end index (${conversation.cursor})`,
+              );
+            }
+
+            if (advanced.instructionText) {
+              const postAdvanceCursor = sidecar.eventCursor();
+              await sidecar.request({ op: "authoring_turn", runId, text: advanced.instructionText });
+              exchanges.push({ speaker: "developer", text: advanced.instructionText, cursor: postAdvanceCursor });
+              const postAdvanceReply = await sidecar.waitForTurn(runId, postAdvanceCursor, {
+                timeoutMs: REPLAY_TURN_DEADLINE_MS,
+                label: `the post-advance ${stageTarget}-stage reply (${scenarioName})`,
+              });
+              exchanges.push(buildAgentExchange(postAdvanceReply));
+              capturedInstructionReplies += 1;
+
+              if (stageTarget === "criteria") {
+                // Plan 05-46 (gap G-05-9), Task 3(c)'s own honesty bound: this arm opens no socket,
+                // so NO row ever reaches the board here — `apply-proposal-created` is never called
+                // and `list-pending` is never called either. `drainProposalsUntilQuiet` is still
+                // exercised (proving it does not hang against the real sidecar's own event array),
+                // but its `applyEvent` is a plain counter, never the real bridge — nothing this
+                // scenario emits is a genuine `proposal_created` sidecar event (no real MCP round
+                // trip ever happens against a scripted backend), so there is nothing FOR the real
+                // bridge to apply regardless.
+                step("waiting for the criteria-stage proposal drain to go quiet (replay-check, no board write)");
+                let replayDrainAppliedCount = 0;
+                const criteriaDrainResult = await drainProposalsUntilQuiet(sidecar, {
+                  applyEvent: () => {
+                    replayDrainAppliedCount += 1;
+                  },
+                  quietMs: REPLAY_PROPOSAL_DRAIN_QUIET_MS,
+                  label: `${scenarioName}-criteria-drain`,
+                });
+                criteriaDrainStoppedByForReplay = criteriaDrainResult.stoppedBy;
+                assertAllHeldRequestsAnswered(sidecar);
+
+                // The reading, not the row (Task 3(c)): `draftedCriteriaCount` here is a WIRE-ONLY
+                // signal — the count of `propose_criterion` attempts in this window that are
+                // correlatable and were NOT refused — never a `list-pending` row count, since no
+                // row exists to count in this offline arm.
+                const criteriaWindow = { runId, fromIndex: challengeWindowEnd, toIndex: sidecar.eventCursor() };
+                const wireDraftedCriteriaCount = correlateProposeAttempts(sidecar.events, criteriaWindow).filter(
+                  (attempt) => attempt.toolName.includes(PROPOSE_CRITERION_TOOL_NAME_FRAGMENT) && attempt.correlatable && !attempt.refused,
+                ).length;
+                criteriaReachabilityReadingForReplay = readCriteriaReachability(sidecar.events, criteriaWindow, {
+                  draftedCriteriaCount: wireDraftedCriteriaCount,
+                });
+                step(
+                  `criteria-stage proposal drain stopped ${criteriaDrainStoppedByForReplay} ` +
+                    `(applied=${replayDrainAppliedCount}, expected 0 — no board write in this arm) — ` +
+                    `wire-derived drafted count=${wireDraftedCriteriaCount} — ` +
+                    `reachability=${criteriaReachabilityReadingForReplay}`,
+                );
+              }
+            }
+
+            if (scenarioName === "proposes-work-after-advance" && stageTarget === "decompose") {
+              // Plan 05-23 (CR-01 closure): the fixture reaches decompose LEGITIMATELY — a clean
+              // challenge stage, then one post-advance developer turn (the distillation
+              // instruction, mirroring the live body's own step) that triggers the fixture's
+              // scripted decompose-stage propose call. This is the exact combination CR-01's own
+              // defect needed and no offline arm ever exercised before this plan: a propose call
+              // that lands strictly AFTER challengeWindowEnd, which the bounded reading must never
+              // see and the unbounded (CR-01) reading must still misread.
+              assert.ok(
+                typeof advanced.instructionText === "string" && advanced.instructionText.length > 0,
+                "expected advance-stage to return a distillation instruction for this scenario",
+              );
+
+              // Assertion 1: the bounded challenge-window reading is unproven — the challenge
+              // stage was genuinely clean.
+              const boundedWindow = { runId, fromIndex: turn1Cursor, toIndex: challengeWindowEnd };
+              const boundedReading = readNoWorkPlanned(sidecar.events, boundedWindow);
+              assert.equal(
+                boundedReading,
+                "unproven",
+                "expected the bounded challenge-window reading to be unproven — the challenge stage " +
+                  "was genuinely clean",
+              );
+
+              // Assertion 2: at least one propose tool_call for this run exists at an index at or
+              // after challengeWindowEnd — so the scenario provably reached the contaminating
+              // state and the assertions below are not vacuous.
+              const proposeAfterBoundary = sidecar.events.some(
+                (event, index) =>
+                  index >= challengeWindowEnd &&
+                  event.runId === runId &&
+                  event.type === "tool_call" &&
+                  typeof event[TOOL_NAME_FIELD] === "string" &&
+                  event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
+              );
+              assert.ok(
+                proposeAfterBoundary,
+                "expected at least one propose tool_call for this run at an index at or after " +
+                  "challengeWindowEnd — the scenario must provably reach the contaminating state",
+              );
+
+              // Assertion 3: the reading over the WHOLE unscoped range (from turn1Cursor to the
+              // current events length) is still violated — this is the CR-01 reading, asserted to
+              // still be wrong, which is what gives the regression teeth.
+              const unboundedWindow = { runId, fromIndex: turn1Cursor, toIndex: sidecar.events.length };
+              const unboundedReading = readNoWorkPlanned(sidecar.events, unboundedWindow);
+              assert.equal(
+                unboundedReading,
+                "violated",
+                "expected the WHOLE unscoped range's reading (the CR-01 reading) to still be " +
+                  "violated — this is what gives the regression teeth",
+              );
+
+              // Assertion 4: the bounded reading reused as the final gating value is NOT violated.
+              assert.notEqual(
+                boundedReading,
+                "violated",
+                "expected the bounded reading reused as the final gating value to NOT be violated",
+              );
+
+              // Assertion 5: buildCriteriaResults with criterion1Challenged held true and the
+              // bounded reading yields a SHAPE-01 entry whose passed flag is true — the successful
+              // path SHAPE-01 and SHAPE-02 must be able to share.
+              const shapeResults = buildCriteriaResults({
+                criterion1Challenged: true,
+                noWorkPlannedReading: boundedReading,
+                criterion2Landed: false,
+                criterion3Decided: false,
+                criterion4Reopened: false,
+                criterion4PrimedRejected: false,
+              });
+              const shape01 = shapeResults.find(([name]) => name.includes("SHAPE-01"));
+              assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
+              assert.equal(
+                shape01[1],
+                true,
+                "expected SHAPE-01 to pass on the successful path — a clean challenge followed by " +
+                  "a legitimate decompose-stage proposal",
+              );
+
+              step(
+                `bounded reading (gating): ${boundedReading} — unbounded reading (CR-01's own ` +
+                  `reading, still wrong): ${unboundedReading} — SHAPE-01 entry passed=${shape01[1]} ` +
+                  "(expected true)",
+              );
+            }
+          }
+
+          if (scenarioName === "drafts-criteria-after-second-advance") {
+            // Plan 05-46 (gap G-05-9), Task 3: the two-advance shape's own assertions — both
+            // instruction replies captured, the criteria-reachability reading reads "drafted" (from
+            // the wire's own tool_call/tool_result shape, never a board row — see Task 3(c)'s own
+            // honesty bound above), and the criteria-stage drain reports it stopped quiet.
             assert.equal(
-              boundedReading,
-              "unproven",
-              "expected the bounded challenge-window reading to be unproven — the challenge stage " +
-                "was genuinely clean",
+              capturedInstructionReplies,
+              2,
+              `expected both the distillation and criteria instruction replies to be captured, got ${capturedInstructionReplies}`,
+            );
+            assert.equal(
+              criteriaReachabilityReadingForReplay,
+              "drafted",
+              `expected the criteria-reachability reading to be "drafted", got ${criteriaReachabilityReadingForReplay}`,
+            );
+            assert.equal(
+              criteriaDrainStoppedByForReplay,
+              "quiet",
+              `expected the criteria-stage proposal drain to stop quiet, got ${criteriaDrainStoppedByForReplay}`,
             );
 
-            // Assertion 2: at least one propose tool_call for this run exists at an index at or
-            // after challengeWindowEnd — so the scenario provably reached the contaminating state
-            // and the assertions below are not vacuous.
-            const proposeAfterBoundary = sidecar.events.some(
-              (event, index) =>
-                index >= challengeWindowEnd &&
+            const readIdCallEvent = sidecar.events.find(
+              (event) =>
                 event.runId === runId &&
                 event.type === "tool_call" &&
                 typeof event[TOOL_NAME_FIELD] === "string" &&
-                event[TOOL_NAME_FIELD].includes(PROPOSE_TOOL_NAME_FRAGMENT),
+                event[TOOL_NAME_FIELD].includes(PROPOSAL_LIST_TOOL_NAME_FRAGMENT),
             );
-            assert.ok(
-              proposeAfterBoundary,
-              "expected at least one propose tool_call for this run at an index at or after " +
-                "challengeWindowEnd — the scenario must provably reach the contaminating state",
-            );
+            assert.ok(readIdCallEvent, "expected a proposal_list tool_call event for this run");
 
-            // Assertion 3: the reading over the WHOLE unscoped range (from turn1Cursor to the
-            // current events length) is still violated — this is the CR-01 reading, asserted to
-            // still be wrong, which is what gives the regression teeth.
-            const unboundedWindow = { runId, fromIndex: turn1Cursor, toIndex: sidecar.events.length };
-            const unboundedReading = readNoWorkPlanned(sidecar.events, unboundedWindow);
+            const criterionCallEvent = sidecar.events.find(
+              (event) =>
+                event.runId === runId &&
+                event.type === "tool_call" &&
+                typeof event[TOOL_NAME_FIELD] === "string" &&
+                event[TOOL_NAME_FIELD].includes(PROPOSE_CRITERION_TOOL_NAME_FRAGMENT),
+            );
+            assert.ok(criterionCallEvent, "expected a propose_criterion tool_call event for this run");
+            // The fixture's own declared id — read from the scenario, never retyped as a second
+            // literal — so this assertion cannot drift from what the fixture actually emits.
+            const expectedParentId = SCENARIOS[scenarioName].readBackProposalId;
             assert.equal(
-              unboundedReading,
-              "violated",
-              "expected the WHOLE unscoped range's reading (the CR-01 reading) to still be violated " +
-                "— this is what gives the regression teeth",
+              expectedParentId.length,
+              26,
+              `expected the scenario's own readBackProposalId to be a 26-character id, got length ${expectedParentId.length}`,
             );
-
-            // Assertion 4: the bounded reading reused as the final gating value is NOT violated.
-            assert.notEqual(
-              boundedReading,
-              "violated",
-              "expected the bounded reading reused as the final gating value to NOT be violated",
-            );
-
-            // Assertion 5: buildCriteriaResults with criterion1Challenged held true and the bounded
-            // reading yields a SHAPE-01 entry whose passed flag is true — the successful path
-            // SHAPE-01 and SHAPE-02 must be able to share.
-            const shapeResults = buildCriteriaResults({
-              criterion1Challenged: true,
-              noWorkPlannedReading: boundedReading,
-              criterion2Landed: false,
-              criterion3Decided: false,
-              criterion4Reopened: false,
-              criterion4PrimedRejected: false,
-            });
-            const shape01 = shapeResults.find(([name]) => name.includes("SHAPE-01"));
-            assert.ok(shape01, "expected a SHAPE-01 entry in the built results");
             assert.equal(
-              shape01[1],
-              true,
-              "expected SHAPE-01 to pass on the successful path — a clean challenge followed by a " +
-                "legitimate decompose-stage proposal",
+              criterionCallEvent.input?.parent_proposal_id,
+              expectedParentId,
+              "expected the propose_criterion call to name the SAME id the proposal_list read back " +
+                "as its own parent_proposal_id",
             );
 
             step(
-              `bounded reading (gating): ${boundedReading} — unbounded reading (CR-01's own reading, ` +
-                `still wrong): ${unboundedReading} — SHAPE-01 entry passed=${shape01[1]} (expected true)`,
+              "drafts-criteria-after-second-advance: both instruction replies captured, " +
+                `reachability=${criteriaReachabilityReadingForReplay}, criteria drain ` +
+                `stoppedBy=${criteriaDrainStoppedByForReplay}, proposal_list and propose_criterion ` +
+                "both observed on the wire",
             );
           }
         }
