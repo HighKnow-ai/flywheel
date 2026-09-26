@@ -529,6 +529,11 @@ pub fn render_epic_prompt(packet: &EpicContextPacket, premise: Option<&str>) -> 
              existing contents (above, if any) already contradict. Do not propose tasks or criteria \
              until the developer advances the stage.\n",
         );
+        out.push_str(
+            "This session has three stages — challenge, then decompose, then criteria — and only \
+             the developer advances between them; each advance will bring its own instruction \
+             saying what that stage wants.\n",
+        );
     } else {
         out.push_str(
             "You are in the challenge stage of a Socratic epic-authoring session, and no framing \
@@ -537,6 +542,11 @@ pub fn render_epic_prompt(packet: &EpicContextPacket, premise: Option<&str>) -> 
              plan. No proposal tool exists in this stage, and nothing you say here can write to \
              the board; that stays true once the developer does answer. Do not propose tasks or \
              criteria until the developer advances the stage.\n",
+        );
+        out.push_str(
+            "This session has three stages — challenge, then decompose, then criteria — and only \
+             the developer advances between them; each advance will bring its own instruction \
+             saying what that stage wants.\n",
         );
     }
 

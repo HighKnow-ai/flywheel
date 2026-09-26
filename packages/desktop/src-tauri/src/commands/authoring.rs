@@ -779,13 +779,15 @@ pub fn authoring_proposal_amend(
 /// `domain::authoring_session::advance_stage`; emits `board:changed` for the run so the stage
 /// indicator (`SessionSurface.tsx`) and any other consumer of this run's row re-read it.
 ///
-/// D-89 (plan 05-05): when `advance_stage` returns a distillation instruction (advancing OUT of
-/// `challenge`), it is relayed to the live session as an `authoring_turn` — AFTER the stage row
-/// has already committed above. Distillation is a REQUEST, not a precondition: a missing sidecar
-/// handle or a delivery failure is swallowed here (never surfaced as a command error), matching
-/// the plan's own "the stage advances even when the turn cannot be delivered" requirement — a
-/// stage machine that cannot move because a model declined (or a process is not reachable) to
-/// emit a row is a worse failure than a thin assumption record.
+/// Plan 05-45 (closing gap G-05-9): `advance_stage` now returns an instruction for BOTH
+/// transitions that have one — D-89's distillation instruction on entering `decompose`, and the
+/// criteria draft request on entering `criteria` — and both are relayed to the live session as an
+/// `authoring_turn` the SAME way, AFTER the stage row has already committed above. An instruction
+/// is a REQUEST, not a precondition: a missing sidecar handle or a delivery failure is swallowed
+/// here (never surfaced as a command error), matching the plan's own "the stage advances even when
+/// the turn cannot be delivered" requirement — a stage machine that cannot move because a model
+/// declined (or a process is not reachable) to emit a row is a worse failure than a thin draft
+/// record.
 #[tauri::command]
 pub fn authoring_stage_advance(
     state: State<AppState>,
@@ -796,7 +798,7 @@ pub fn authoring_stage_advance(
     let human_actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
 
-    let (stage, distillation) = flywheel_core::domain::authoring_session::advance_stage(
+    let (stage, instruction) = flywheel_core::domain::authoring_session::advance_stage(
         &mut conn,
         &agent_run_id,
         &human_actor_id,
@@ -811,7 +813,7 @@ pub fn authoring_stage_advance(
     )
     .ok();
 
-    if let Some(instruction) = distillation {
+    if let Some(instruction) = instruction {
         if let Some(sidecar) = state.sidecar.as_ref() {
             let _ = sidecar.send_authoring_turn(
                 &app,

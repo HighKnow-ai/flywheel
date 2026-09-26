@@ -117,6 +117,12 @@ fn a_stated_premise_carries_under_its_own_heading_and_the_closing_instruction_na
         "with a premise present, the closing instruction must speak about challenging the \
          STATED framing, exactly as it did before this plan"
     );
+    assert!(
+        prompt.contains("challenge") && prompt.contains("decompose") && prompt.contains("criteria")
+            && prompt.contains("only the developer advances between them"),
+        "plan 05-45 (G-05-9): the opening prompt must name the three-stage shape once, even with \
+         a premise present, got: {prompt:?}"
+    );
 }
 
 #[test]
@@ -144,6 +150,12 @@ fn no_premise_carries_no_premise_heading_and_the_closing_instruction_asks_instea
     assert!(
         prompt.contains("Do not propose tasks or criteria until the developer advances the stage."),
         "both wordings keep the existing prohibition on drafting a plan before the developer advances"
+    );
+    assert!(
+        prompt.contains("challenge") && prompt.contains("decompose") && prompt.contains("criteria")
+            && prompt.contains("only the developer advances between them"),
+        "plan 05-45 (G-05-9): the opening prompt must name the three-stage shape once, even for a \
+         wholly fresh epic with no premise, got: {prompt:?}"
     );
 }
 
