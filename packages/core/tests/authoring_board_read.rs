@@ -5,6 +5,12 @@
 //! pre-extraction one — every test calls `resolve_board_read` directly, exactly as both real
 //! callers do.
 //!
+//! Widened plan 05-44 (gap G-05-9): the fourth `readKind`, `list_proposals`, gets its own clamp
+//! and truncation coverage beside the pre-existing three — `authoring_criterion_reachability.rs`
+//! owns the reachability finding itself (the id round-trip and the D-96 implied-parent accept);
+//! this file owns only `list_proposals`'s own dispatch arithmetic, mirroring how
+//! `board_read_clamps_an_enormous_limit_and_flags_truncation` already covers `list_tasks`'s.
+//!
 //! Every fixture seeds through the real domain functions this crate's other authoring suites use
 //! (`common::seeded_project`, `project::create_project`, `epic::create_epic`, `task::create_task`,
 //! `authoring_session::start_authoring_run`) — never a hand-rolled `INSERT` — mirroring
@@ -12,6 +18,7 @@
 
 mod common;
 
+use core::domain::authoring_proposal::{create_proposal, ProposalPayload, ProposalVerb};
 use core::domain::authoring_session::start_authoring_run;
 use core::domain::epic::create_epic;
 use core::domain::project;
@@ -132,5 +139,89 @@ fn board_read_unknown_kind_is_an_error_not_a_panic() {
     assert!(
         err.to_string().contains("not_a_real_kind"),
         "the error message should name the offending kind, got: {err}",
+    );
+}
+
+/// Plan 05-44 (gap G-05-9): `list_proposals`'s own clamp-and-truncate coverage, mirroring
+/// `board_read_clamps_an_enormous_limit_and_flags_truncation`'s own `list_tasks` shape exactly — a
+/// caller-supplied limit far above the module's own ceiling is clamped, and a tighter request
+/// against the same staged proposals reports truncation through its `truncated` flag.
+#[test]
+fn list_proposals_clamps_an_enormous_limit_and_flags_truncation() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+        .expect("start_authoring_run should succeed");
+    for i in 0..3 {
+        create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Epic { title: format!("epic {i}"), description: None },
+            None,
+            None,
+        )
+        .expect("create_proposal should succeed");
+    }
+
+    let enormous_event = json!({ "readKind": "list_proposals", "limit": i64::MAX });
+    let enormous_answer = resolve_board_read(&conn, &run.id, &enormous_event)
+        .expect("resolve_board_read should succeed for an enormous limit");
+    let enormous_proposals =
+        enormous_answer["proposals"].as_array().expect("proposals should be an array");
+    assert!(
+        enormous_proposals.len() as i64 <= MAX_LIMIT,
+        "an enormous requested limit must never return more than MAX_LIMIT rows, got {}",
+        enormous_proposals.len(),
+    );
+
+    let tight_event = json!({ "readKind": "list_proposals", "limit": 1 });
+    let tight_answer = resolve_board_read(&conn, &run.id, &tight_event)
+        .expect("resolve_board_read should succeed for a tight limit");
+    assert_eq!(tight_answer["truncated"], json!(true));
+    assert_eq!(
+        tight_answer["proposals"]
+            .as_array()
+            .expect("proposals should be an array")
+            .len(),
+        1,
+    );
+}
+
+/// The arm's own documented edge case (`resolve_board_read`'s `peek_limit` comment): a request
+/// already sitting at [`MAX_LIMIT`] cannot peek past it, so truncation at the EXACT ceiling reads
+/// `false` even though more rows exist on disk — an accepted, documented edge case (more rows past
+/// the ceiling are simply invisible, never returned unclamped), not a silent unbounded read.
+#[test]
+fn list_proposals_at_the_exact_ceiling_reports_truncated_false_per_the_documented_edge_case() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
+        .expect("start_authoring_run should succeed");
+    for i in 0..(MAX_LIMIT + 1) {
+        create_proposal(
+            &mut conn,
+            &run.id,
+            ProposalVerb::Create,
+            ProposalPayload::Epic { title: format!("epic {i}"), description: None },
+            None,
+            None,
+        )
+        .expect("create_proposal should succeed");
+    }
+
+    let event = json!({ "readKind": "list_proposals", "limit": MAX_LIMIT });
+    let answer = resolve_board_read(&conn, &run.id, &event)
+        .expect("resolve_board_read should succeed at the exact ceiling");
+    assert_eq!(
+        answer["truncated"],
+        json!(false),
+        "a request already sitting at MAX_LIMIT cannot peek past it, so truncation at the exact \
+         ceiling reads false — the documented edge case resolve_board_read's own doc comment names"
+    );
+    assert_eq!(
+        answer["proposals"]
+            .as_array()
+            .expect("proposals should be an array")
+            .len() as i64,
+        MAX_LIMIT,
     );
 }

@@ -1,7 +1,8 @@
 /**
- * Plan 05-05 (D-80/D-81/D-87) — proves the write-tool and read-tool surfaces at the wire level,
- * sibling of `authoring-proposal-wire.test.mjs` (plan 05-02, left unchanged in spirit — extended
- * only where `buildAuthoringClaudeArgv`'s own signature changed under it).
+ * Plan 05-05 (D-80/D-81/D-87), widened plan 05-44 (gap G-05-9) — proves the write-tool and
+ * read-tool surfaces at the wire level, sibling of `authoring-proposal-wire.test.mjs` (plan 05-02,
+ * left unchanged in spirit — extended only where `buildAuthoringClaudeArgv`'s own signature changed
+ * under it).
  *
  * Eight+ things this file proves:
  *   1. All six write tools carry a propose_/amend_/delete_ prefix and match plan 05-03's
@@ -10,15 +11,20 @@
  *   3. A malformed call to each of the six write tools is rejected before any socket write.
  *   4. propose_criterion without parent_proposal_id is rejected.
  *   5. No write tool schema declares a run_id/project_id/epic_id property.
- *   6. --allowedTools for an authoring spawn carries exactly the nine authoring tools; an
- *      ordinary task spawn carries none of them.
+ *   6. --allowedTools for an authoring spawn carries exactly the TEN authoring tools (plan 05-44
+ *      added `proposal_list`); an ordinary task spawn carries none of them.
  *   7. amend_proposal/delete_proposal require a target_id of exactly 26 characters.
  *   8. delete_proposal requires a non-empty reason.
- *   9. The three read tools' names sit outside the write matcher's regex, and each declares limit.
+ *   9. The FOUR read tools' names sit outside the write matcher's regex, and each declares limit
+ *      (epic_get excepted — a single-row lookup).
  *  10. authoring_turn (plan 05-05 Task 3): the op routes to sendAuthoringTurn; an unknown run id
  *      rejects with UnknownRunError; a closed session resolves rather than throwing.
+ *  11. Plan 05-44: `proposal_list`'s emitted `readKind` agrees with the Rust dispatch's own match
+ *      arm — asserted from the side that writes, read out of both shipped sources, never
+ *      hand-fabricated on either side.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -32,6 +38,7 @@ import {
   AUTHORING_BOARD_SEARCH_TOOL_NAME,
   AUTHORING_DELETE_PROPOSAL_TOOL_NAME,
   AUTHORING_EPIC_GET_TOOL_NAME,
+  AUTHORING_PROPOSAL_LIST_TOOL_NAME,
   AUTHORING_PROPOSE_ASSUMPTION_TOOL_NAME,
   AUTHORING_PROPOSE_CRITERION_TOOL_NAME,
   AUTHORING_PROPOSE_EPIC_TOOL_NAME,
@@ -51,6 +58,8 @@ import {
   epicGetToolDefinition,
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
+  PROPOSAL_LIST_TOOL_NAME,
+  proposalListToolDefinition,
   PROPOSE_ASSUMPTION_TOOL_NAME,
   proposeAssumptionToolDefinition,
   PROPOSE_CRITERION_TOOL_NAME,
@@ -156,19 +165,19 @@ test("no write tool schema declares a run_id/project_id/epic_id property", () =>
   }
 });
 
-test("--allowedTools for an authoring spawn carries exactly the nine authoring tools; an ordinary task spawn carries none of them", () => {
-  const allNine = [...AUTHORING_WRITE_TOOL_NAMES, ...AUTHORING_READ_TOOL_NAMES];
-  assert.equal(allNine.length, 9);
+test("--allowedTools for an authoring spawn carries exactly the ten authoring tools; an ordinary task spawn carries none of them", () => {
+  const allTen = [...AUTHORING_WRITE_TOOL_NAMES, ...AUTHORING_READ_TOOL_NAMES];
+  assert.equal(allTen.length, 10);
 
   const argv = buildAuthoringClaudeArgv({
     permissionMode: "default",
     permissionPromptToolName: PERMISSION_TOOL_NAME,
     mcpConfig: "{}",
-    authoringToolNames: allNine,
+    authoringToolNames: allTen,
   });
   const allowedToolsIndex = argv.indexOf("--allowedTools");
   assert.ok(allowedToolsIndex !== -1, "expected --allowedTools to be present");
-  assert.deepEqual(argv.slice(allowedToolsIndex + 1), allNine);
+  assert.deepEqual(argv.slice(allowedToolsIndex + 1), allTen);
 
   const bareArgv = buildAuthoringClaudeArgv({ permissionMode: "default" });
   assert.ok(!bareArgv.includes("--allowedTools"), "an ordinary/bare spawn must carry none of them");
@@ -200,22 +209,66 @@ test("delete_proposal requires a non-empty reason and carries it on the wire pay
   assert.equal(deleted.targetId, A_ULID);
 });
 
-test("the three read tools' names sit outside the write matcher's regex, and each declares limit", () => {
-  const readNames = [AUTHORING_BOARD_SEARCH_TOOL_NAME, AUTHORING_EPIC_GET_TOOL_NAME, AUTHORING_TASK_LIST_TOOL_NAME];
+test("the four read tools' names sit outside the write matcher's regex, and each declares limit (epic_get excepted)", () => {
+  const readNames = [
+    AUTHORING_BOARD_SEARCH_TOOL_NAME,
+    AUTHORING_EPIC_GET_TOOL_NAME,
+    AUTHORING_TASK_LIST_TOOL_NAME,
+    AUTHORING_PROPOSAL_LIST_TOOL_NAME,
+  ];
   assert.deepEqual(readNames, [...AUTHORING_READ_TOOL_NAMES]);
   for (const name of readNames) {
     assert.ok(!STAGE_GATE_MATCHER.test(name), `expected ${name} NOT to match the stage-gate matcher`);
   }
   assert.ok("limit" in boardSearchToolDefinition.inputSchema.properties);
   assert.ok("limit" in taskListToolDefinition.inputSchema.properties);
+  assert.ok("limit" in proposalListToolDefinition.inputSchema.properties);
   // epic_get is a single-row lookup — no limit property is expected or required.
   assert.ok(!("limit" in epicGetToolDefinition.inputSchema.properties));
 });
 
-test("board_search/task_list tool names are outside the propose_/amend_/delete_ prefix literally", () => {
+/**
+ * Plan 05-44 (Task 3, gap G-05-9): the two-sided read-kind contract — asserted from the side that
+ * WRITES, never hand-fabricated on both sides (the seventh rule `scripts/uat/README.md` Item 8
+ * records from the previous round: a test that hand-writes both sides of a contract proves nothing
+ * about the product). `PROPOSAL_LIST_TOOL_NAME`'s own `CallToolRequestSchema` branch lives inside
+ * `runStandaloneServer`'s unexported closure — reachable only by spawning this module as a
+ * subprocess — so, per this task's own documented fallback ("if the handler cannot be driven in
+ * isolation, the exported definition plus the one literal the branch passes"), this test reads the
+ * ONE `readKind` literal that branch actually passes to `requestBoardRead` directly out of the
+ * shipped TypeScript source, and the match arm it must agree with directly out of the shipped Rust
+ * source — never retyping either string as a hand-written literal in this test.
+ */
+test("proposal_list's emitted readKind agrees with the Rust dispatch's own match arm", () => {
+  const sidecarSourcePath = path.join(__dirname, "..", "src", "mcp-permission-server.ts");
+  const sidecarSource = readFileSync(sidecarSourcePath, "utf8");
+  const branchMatch = sidecarSource.match(
+    /request\.params\.name === PROPOSAL_LIST_TOOL_NAME\)\s*\{[\s\S]*?readKind:\s*"([^"]+)"/,
+  );
+  assert.ok(
+    branchMatch,
+    `expected to find PROPOSAL_LIST_TOOL_NAME's own requestBoardRead call with a readKind ` +
+      `literal in ${sidecarSourcePath}`,
+  );
+  const emittedReadKind = branchMatch[1];
+
+  const rustSourcePath = path.join(__dirname, "..", "..", "core", "src", "query", "authoring.rs");
+  const rustSource = readFileSync(rustSourcePath, "utf8");
+  assert.ok(
+    rustSource.includes(`"${emittedReadKind}" =>`),
+    `expected ${rustSourcePath} to declare a "${emittedReadKind}" match arm — the sidecar emits ` +
+      `this exact string, read from its own shipped source, never hand-copied`,
+  );
+  assert.equal(emittedReadKind, "list_proposals");
+});
+
+test("board_search/task_list/proposal_list tool names are outside the propose_/amend_/delete_ prefix literally", () => {
   assert.ok(!AUTHORING_BOARD_SEARCH_TOOL_NAME.includes("propose_"));
   assert.ok(!AUTHORING_TASK_LIST_TOOL_NAME.includes("amend_"));
   assert.ok(!AUTHORING_EPIC_GET_TOOL_NAME.includes("delete_"));
+  assert.ok(!AUTHORING_PROPOSAL_LIST_TOOL_NAME.includes("propose_"));
+  assert.equal(proposalListToolDefinition.name, PROPOSAL_LIST_TOOL_NAME);
+  assert.equal(AUTHORING_PROPOSAL_LIST_TOOL_NAME, `mcp__${MCP_SERVER_NAME}__${PROPOSAL_LIST_TOOL_NAME}`);
 });
 
 test("every write tool's fully-qualified name is composed from MCP_SERVER_NAME, never hand-written", () => {
