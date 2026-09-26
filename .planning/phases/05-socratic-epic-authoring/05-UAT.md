@@ -279,20 +279,72 @@ blocked: 0
   debug_session: ""
 
 - gap_id: G-05-9
-  truth: "Every proposal an authoring session emits during its decompose window is drained and applied, so the tasks and acceptance criteria the agent drafts are present to accept, reject or amend."
+  truth: "An authoring session that has proposed an epic can hang tasks and acceptance criteria off it, so the drafted criteria SHAPE-03 is about can exist at all."
   status: failed
+  correction: |
+    CORRECTED 2026-09-26, before any closure plan was written. The `root_cause` first filed against
+    this gap — a single-shot proposal drain in `uat-08-socratic-authoring.mjs` truncating a
+    multi-burst decompose — is WRONG, and naming it would have sent a closure plan at the harness
+    when the defect is in `packages/`. The superseded reasoning is kept verbatim under
+    `superseded_root_cause` below rather than deleted.
+
+    What refuted it: the agent SAID why it stopped, in turn 8 of the transcript, and it was right.
+    "I stopped short of staging tasks. Staged proposals don't come back in `board_search`, so
+    there's no proposal id to hang tasks and criteria off within this session." The tasks were never
+    emitted, so no drain — however long its window — could have collected them. Measurement
+    confirms the agent's account on every point; see `root_cause`.
+
+    This is the THIRD consecutive round in which a gap report named the wrong artifact and
+    measurement during planning caught it (rounds 9 and 10 are the prior two, both recorded in
+    `scripts/uat/README.md` Item 8). The first two were written by the gap reporter; this one was
+    written by the orchestrator reading a failed run. The rule those rounds earned — measure the
+    named artifact before planning against it — is what caught this, and it has now earned its keep
+    a third consecutive time.
   reason: "Live run 01M3ENQMC3E4M2HP7014MA84PX (2026-09-26) — the first run in which the board write path actually worked. 13 proposals were applied through the real inbound bridge, but the preserved scratch database shows what they were: `epic: 1, assumption: 12`, and ZERO of `targetType: task` or `targetType: criterion`. The agent had stated it would stage \"five tasks ... acceptance criteria for each, and the assumption rows\"; it emitted the epic and its assumptions first, and the harness snapshotted `list-pending` before the tasks arrived. Because `taskProposalId` and `criterionProposalId` are both null, the whole accept/reject/amend block is skipped and `epics`/`tasks`/`acceptance_criteria` stay at 0 rows — so SHAPE-02 fails as `no subtree was accepted` and SHAPE-03/SHAPE-04 fail as `not enough proposals to exercise all three verbs`, even though the proposal mechanism itself demonstrably works. This is NOT G-05-8 recurring: the stage-marker refusal that caused the previous live failure is entirely absent from this run."
   severity: blocker
   test: 2
-  root_cause: "The proposal drain is single-shot. `uat-08-socratic-authoring.mjs` awaits the FIRST `proposal_created` event, then makes one pass over `sidecar.eventsOfType(\"proposal_created\")` at :6429 and immediately snapshots `list-pending`. The comment directly above that loop states it applies \"every proposal_created event seen so far (and any that arrive over the next window)\" — but no such window is implemented: `eventsOfType(\"proposal_created\")` has exactly one call site in the file, and `PROPOSAL_DEADLINE_MS` is used only by the initial wait. A decompose that emits its proposals in more than one burst is therefore truncated at the first burst."
-  recurrence_class: "TENTH instance of the defect class `scripts/uat/README.md` Item 8 records: a comment describes a guarantee the code does not provide. Directly comparable to G-05-7's first finding, where `evidencePath`'s comment promised failure-path evidence that the write sites' placement did not deliver."
+  root_cause: |
+    A staged proposal's id is never returned to the agent that staged it, and no tool can read it
+    back — so a proposal can never become the parent of another proposal within its own session.
+    Three measurements, all in `packages/`, close the loop:
+
+    1. `stageAuthoringProposal` (`packages/sidecar/src/mcp-permission-server.ts:960`) resolves every
+       `propose_*` tool call with exactly `{"staged": true}`. No id, for any of the four verbs.
+    2. `proposeCriterionToolDefinition` (:577-599) declares `required: ["statement",
+       "parent_proposal_id"]`, with `parent_proposal_id` at `minLength: 1`, and
+       `parseProposeCriterionArgs` (:797) throws on a missing or empty one. Its own doc comment
+       states the intent — "a drafted criterion has no canonical parent until its own parent
+       proposal is accepted, so this is the schema-layer rejection point for a criterion with
+       nowhere to hang."
+    3. The agent's only read tools are `board_search`, `epic_get` and `task_list`
+       (`AUTHORING_READ_TOOL_NAMES`, :145). `board_search` routes to
+       `flywheel_core::query::search::search_items` over board rows; `authoring_proposals` appears
+       nowhere in `packages/desktop/src-tauri/src/commands/board.rs`. Staged proposals are invisible
+       to every read path the agent has.
+
+    The consequence is stronger than this one run: `propose_criterion` is UNREACHABLE in a
+    fresh-epic session, by construction. `Drafted criteria: 0` is not this run's bad luck — it is
+    the only value the current design can produce, and SHAPE-03 ("the agent drafts acceptance
+    criteria for each generated task") therefore cannot be satisfied live at all. Every prior live
+    run was blocked before the proposal stage by G-05-8(b), so no run had ever reached far enough
+    to expose this.
+
+    `propose_task`'s `parent_proposal_id` is OPTIONAL (`required: ["title"]`, :553), so tasks were
+    reachable without a parent; the agent declined to stage them for its own second, judgement-based
+    reason (they are downstream of twelve un-triaged assumptions). That half is arguably correct
+    behaviour rather than a defect. The criterion half is a hard deadlock.
+  superseded_root_cause: "WRONG — kept for the record, see `correction` above. Claimed: the proposal drain is single-shot; `uat-08-socratic-authoring.mjs` awaits the FIRST `proposal_created` event, makes one pass over `sidecar.eventsOfType(\"proposal_created\")` at :6429 and immediately snapshots `list-pending`, while the comment above that loop promises it also applies \"any that arrive over the next window\". The comment/code divergence is REAL and still worth fixing as a latent defect — `eventsOfType(\"proposal_created\")` has exactly one call site and `PROPOSAL_DEADLINE_MS` only one use — but it is NOT what failed this run, because the tasks and criteria it would have collected were never emitted."
+  recurrence_class: "The comment/code divergence noted in `superseded_root_cause` would be a TENTH instance of `scripts/uat/README.md` Item 8's defect class (a comment describing a guarantee the code does not provide) — but it is latent, not this run's cause, and must not be filed as this gap's fix. The genuine recurrence here is the OTHER standing rule: for the third consecutive round, a gap report named the wrong artifact and measurement caught it before planning."
   artifacts:
-    - path: "scripts/uat/uat-08-socratic-authoring.mjs"
-      issue: ":6428 comment promises a second drain window; :6429's single loop over eventsOfType(\"proposal_created\") never waits for one, so proposals emitted after the first burst are never applied"
-    - path: "scripts/uat/uat-08-socratic-authoring.mjs"
-      issue: ":6443-6510 the entire accept/reject/amend block is gated on taskProposalId, so a truncated drain silently degrades SHAPE-02/03/04 to a fail rather than reporting that the drain was incomplete"
+    - path: "packages/sidecar/src/mcp-permission-server.ts"
+      issue: ":960 every propose_* call resolves with {\"staged\": true} and no proposal id, so the agent never learns what it just staged"
+    - path: "packages/sidecar/src/mcp-permission-server.ts"
+      issue: ":577-599/:797 propose_criterion requires a parent_proposal_id that no tool in the session can supply — the tool is unreachable in a fresh-epic session"
+    - path: "packages/desktop/src-tauri/src/commands/board.rs"
+      issue: ":227 board_search reads board rows via search_items; authoring_proposals is not read by any agent-visible tool, so a staged proposal cannot be looked up"
   missing:
-    - "Drain proposals until the decompose window genuinely closes — quiescence or an explicit deadline — rather than once, immediately after the first event"
-    - "Distinguish 'the agent proposed no tasks' from 'the harness stopped draining before the tasks arrived'; today both render as `no subtree was accepted`, and only the preserved database tells them apart"
-    - "A regression that fails when proposals arrive in two bursts and the second burst is dropped"
+    - "Return the staged proposal's id in the propose_* tool result, so the agent can parent a criterion to the epic or task it just proposed"
+    - "Decide and record whether criteria may be drafted against an unaccepted parent at all — if D-07's 'no canonical parent until accepted' rule is to stand, then SHAPE-03's wording needs revisiting, because the two cannot both be true"
+    - "A regression that fails when a fresh-epic session cannot reach propose_criterion — today the only signal is Drafted criteria: 0, which reads as the model's choice rather than a structural block"
+    - "Separately and independently: close the latent single-shot drain in uat-08-socratic-authoring.mjs, or correct the comment that promises a window it does not implement"
   debug_session: ""
