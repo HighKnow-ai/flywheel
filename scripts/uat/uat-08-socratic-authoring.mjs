@@ -95,10 +95,45 @@ const UNAUTHENTICATED_FIXTURE = JSON.parse(fs.readFileSync(UNAUTHENTICATED_FIXTU
 const UNMODELLED_SHAPES_FIXTURE_PATH = path.join(REPO_ROOT, "scripts", "uat", "fixtures", "live-opus5-unmodelled-shapes.json");
 const UNMODELLED_SHAPES_FIXTURE = JSON.parse(fs.readFileSync(UNMODELLED_SHAPES_FIXTURE_PATH, "utf8"));
 
-/** How long to wait for the model to produce its first challenging reply. */
-const TURN_DEADLINE_MS = 120_000;
+/**
+ * Plan 05-38 (Task 2, gap G-05-7): the live arm's own wall-clock CEILING on a single turn wait. This
+ * name asserts that a turn past the value is presumed RUNAWAY — never that a turn must complete
+ * within it, a claim this repository cannot support. Plan 05-38's own Task 1 gave `waitForTurn`
+ * idle-primary bounds
+ * (the ordinary idle window, and now `LIVE_TOOL_CALL_IDLE_MS` for a mid-flight tool call) that reset
+ * on every observed progress signal — this ceiling now resets alongside them, so a turn that keeps
+ * producing tool calls, tool results, text and reasoning back-to-back never reaches it no matter how
+ * long its TOTAL run grows. It remains a genuine backstop for the one state nothing else bounds: a
+ * turn that stops advancing in EVERY sense (no chunk, no tool call, no reasoning) for this long
+ * straight — most plausibly before its very first chunk.
+ *
+ * The derivation, in four parts, each closing a different way the next reader could misuse this
+ * number:
+ * - What was measured: turn 1 of live run `01M3C48C3PV1NSGHERBZ587YB1`, backend `claude-opus-5`, was
+ *   still producing events at 120000ms — roughly 130 of them, about sixty tool-call/tool-result
+ *   pairs — and was killed by the instrument at that point.
+ * - What that measurement IS: a LOWER bound. The turn did not finish. No upper bound on a real
+ *   first turn exists anywhere in this repository, and none can be obtained without spending a
+ *   credential.
+ * - What this number therefore is: a runaway bound, not a completion bound — chosen well above the
+ *   only observed lower bound so that a turn doing genuine work cannot reach it, and explicitly NOT
+ *   a claim that a real turn completes inside it.
+ * - What actually stops a stuck turn: the idle bounds, not this ceiling. If this ceiling EVER fires
+ *   on a real run, that is itself a reportable finding — it means a turn went 900000ms without ever
+ *   going silent long enough to trip either idle window — and the next reader should treat it as new
+ *   information rather than as a number to raise again.
+ */
+const LIVE_TURN_CEILING_MS = 900_000;
 
-/** How long to wait for a proposal to arrive after advancing the stage. */
+/**
+ * How long to wait for a proposal to arrive after advancing the stage. Plan 05-38 (Task 2):
+ * deliberately UNCHANGED this round — the same SHAPE of bound as {@link LIVE_TURN_CEILING_MS} (a
+ * wall clock on a real model producing a real artefact), but nothing in this repository has ever
+ * measured a real post-advance proposal turn, so there is no derivation to write here, and inventing
+ * one would be the exact defect this plan exists to close. What would change that: the first live
+ * run that reaches the decompose stage and produces a real measurement — this constant should be
+ * revisited the moment it does, not before.
+ */
 const PROPOSAL_DEADLINE_MS = 120_000;
 
 // ---------------------------------------------------------------------------------------------
@@ -3700,7 +3735,7 @@ async function driveChallengeConversation({
   runId,
   sendTurn,
   cursor,
-  turnDeadlineMs = TURN_DEADLINE_MS,
+  turnDeadlineMs = LIVE_TURN_CEILING_MS,
   idleMs,
   maxAgentTurns = MAX_AGENT_TURNS,
 }) {
@@ -4345,8 +4380,9 @@ if (process.argv.includes("--board-read-check")) {
 
 /** The per-turn deadline `--replay-check` waits on — short, because the scripted backend replies
  * immediately; this is a safety ceiling, never a budget the offline arm is expected to spend. Kept
- * far below `TURN_DEADLINE_MS` (the live arm's own 120s budget) so the whole multi-scenario arm
- * stays inside its own 90-second ceiling even if a scenario were to genuinely stall. */
+ * far below the live arm's own runaway ceiling ({@link LIVE_TURN_CEILING_MS}) so the whole
+ * multi-scenario arm stays inside its own 90-second ceiling even if a scenario were to genuinely
+ * stall. */
 const REPLAY_TURN_DEADLINE_MS = 10_000;
 
 /** Plan 05-25 (WR-04 closure): the EXPLICIT, short idle window the `slow-tool-mid-turn` scenario
@@ -5599,7 +5635,11 @@ await runScript(
         runId,
         sendTurn: (text) => sidecar.request({ op: "authoring_turn", runId, text }),
         cursor: turn1Cursor,
-        turnDeadlineMs: TURN_DEADLINE_MS,
+        // Plan 05-38 (Task 2): confirmed by reading — this call site still passes the live idle
+        // window explicitly (below), and now also passes the ceiling under its own name, so this
+        // caller never silently inherits a default that means something different to it than to
+        // the offline arms.
+        turnDeadlineMs: LIVE_TURN_CEILING_MS,
         // WR-04 closure (plan 05-25): the live arm states, at its own call site, the pause it
         // permits a REAL model turn to take mid-turn — never the short TURN_IDLE_MS default a test
         // passes when deliberately measuring the degrade path.
@@ -5726,7 +5766,7 @@ await runScript(
         let distillationReply;
         try {
           distillationReply = await sidecar.waitForTurn(runId, distillationCursor, {
-            timeoutMs: TURN_DEADLINE_MS,
+            timeoutMs: LIVE_TURN_CEILING_MS,
             // WR-04 closure (plan 05-25): explicit, matching the driveChallengeConversation call
             // above — the live arm never inherits the short test default at either capture site.
             idleMs: LIVE_TURN_IDLE_MS,
