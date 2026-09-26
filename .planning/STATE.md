@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-42-PLAN.md
-last_updated: "2026-09-26T09:51:05.316Z"
+stopped_at: Completed 05-43-PLAN.md
+last_updated: "2026-09-26T10:02:38.602Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 05 execution started
-state_head: 3645dd29cdbbb93ff7356fcc26155f1f0f14d708
+state_head: cb513f7fca80a970914e3d98f3757081b29cd250
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 136
-  completed_plans: 135
+  completed_plans: 136
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 4 of 43
+Plan: 5 of 43
 Status: Ready to execute
 Last activity: 2026-09-26 — Phase 05 execution started
 
@@ -192,6 +192,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P40 | 35min | 3 tasks | 3 files |
 | Phase 05 P41 | ~25min | 3 tasks | 5 files |
 | Phase 05 P42 | 50min | 3 tasks | 2 files |
+| Phase 05 P43 | ~20min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -432,6 +433,8 @@ Recent decisions affecting current work:
 - [Phase 05]: An authoring session's argv disallows AskUserQuestion unconditionally (buildAuthoringClaudeArgv), never folded into the permission-prompt-tool branch -- the challenge stage stays free conversation (05-41, D-88/D-89)
 - [Phase 05]: One agent-exchange builder (buildAgentExchange/questionsFromTurn) carries typed AskUserQuestion prompts from the adapter seam onto every captured turn, wired at all nine capture sites.
 - [Phase 05]: Relaxed the shared --replay-check composition-invariant check to accept OPTION_SELECTION_PREFIX-prefixed developer lines alongside answer-bank values, since composeDeveloperReply now selects offered options rather than only answer-bank text.
+- [Phase 05]: [Phase 05]: Ledger rows must avoid the literal substring of a frozen row's id when describing it, or the row's own byte-identity gate reads the new row as a change to the old one. — Caught during 05-43 Task 2 by running the plan's own verify command before committing.
+- [Phase 05]: [Phase 05]: Manual-Only Verifications round-summary text is replaced each closure round, not appended cumulatively — each cell describes the state as of the latest round only. — Matches the existing convention (round 9's text names only its own plans, not round 8's).
 
 ### Pending Todos
 
@@ -481,6 +484,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-26T09:50:42.450Z
-Stopped at: Completed 05-42-PLAN.md
+Last session: 2026-09-26T10:02:26.268Z
+Stopped at: Completed 05-43-PLAN.md
 Resume file: None
