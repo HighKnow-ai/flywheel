@@ -317,6 +317,30 @@ export function buildClaudeArgv(options: {
  * function. Otherwise mirrors {@link buildClaudeArgv}'s own structure: the mandatory
  * `--output-format stream-json --verbose` pair, the permission-prompt-tool/mcp-config pairing,
  * and the independently-optional `--settings` flag.
+ *
+ * G-05-8(a) (plan 05-41): this function, and ONLY this function, also pushes
+ * `--disallowedTools {@link ASK_USER_QUESTION_TOOL_NAME}` — unconditionally, alongside the
+ * mandatory block above, not folded into the `permissionPromptToolName`/`mcpConfig` branch (an
+ * authoring session's conversational contract does not depend on whether a permission-prompt tool
+ * was supplied). {@link buildClaudeArgv} is never touched: a task-execution session's argv must
+ * stay byte-identical (out of this round's scope).
+ *
+ * The reasoning, grounded in decisions already made rather than presented as a workaround:
+ * - **D-89 already decided this.** The challenge stage is free conversation — "Cyril talks
+ *   normally", the thing that has to beat a terminal. D-89's rejected option was structured
+ *   challenges the developer answers as rows, rejected because it "turns the conversation into a
+ *   form, which is the friction FEATURES.md names as what sends people back to the terminal".
+ *   `AskUserQuestion` is that form, rendered by the backend instead of by us.
+ * - **D-88 already decided HOW.** The challenge stage enforces its shape by ABSENCE — during
+ *   `challenge` there is literally no proposal tool in the tool set. Removing the form from the
+ *   tool set is that same mechanism applied to the same stage, not a new one.
+ * - **The cost of leaving it in, measured:** in live run `01M3DNC0G9CYAWSD8DYEGTRP8C` the agent put
+ *   its three clarifying questions inside the tool call, the harness captured assistant text only,
+ *   and the evidence a human is asked to judge SHAPE-01 from contained none of them. Worse, in
+ *   non-interactive mode the CLI answers the call itself with a fixed unanswered-questions string,
+ *   so the exchange could not develop past turn one.
+ * - **The residual, stated honestly:** this is proven as argv only. No live run in this round
+ *   observes a real backend's response to it.
  */
 export function buildAuthoringClaudeArgv(options: {
   permissionMode: string;
@@ -341,6 +365,8 @@ export function buildAuthoringClaudeArgv(options: {
     "--verbose",
     "--permission-mode",
     options.permissionMode,
+    "--disallowedTools",
+    ASK_USER_QUESTION_TOOL_NAME,
   ];
   if (options.permissionPromptToolName && options.mcpConfig) {
     pushPermissionPromptFlags(argv, options.permissionPromptToolName, options.mcpConfig);

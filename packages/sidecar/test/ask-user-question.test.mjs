@@ -17,6 +17,8 @@ import {
   ASK_USER_QUESTION_TOOL_NAME,
   MAX_ASK_USER_QUESTIONS,
   MAX_ASK_USER_QUESTION_OPTIONS,
+  buildAuthoringClaudeArgv,
+  buildClaudeArgv,
   normaliseStreamEvent,
   parseAskUserQuestionInput,
 } from "../dist/claude-code-adapter.js";
@@ -210,5 +212,32 @@ test("fixture-wide invariant (05-40-PLAN.md <assumption_delta_decision>): every 
   assert.ok(
     observedContentBlockTypes.size > 0,
     "expected at least one distinct content-block type observed across every fixture — a vacuous invariant proves nothing",
+  );
+});
+
+test("buildAuthoringClaudeArgv disallows AskUserQuestion (D-88/D-89) while buildClaudeArgv's task-execution argv stays untouched", () => {
+  const authoringArgv = buildAuthoringClaudeArgv({ permissionMode: "default" });
+  const disallowedIndex = authoringArgv.indexOf("--disallowedTools");
+  assert.ok(disallowedIndex !== -1, "expected --disallowedTools in the authoring argv");
+  assert.equal(authoringArgv[disallowedIndex + 1], ASK_USER_QUESTION_TOOL_NAME);
+  for (const flag of ["-p", "--input-format", "--output-format", "--verbose"]) {
+    assert.ok(authoringArgv.includes(flag), `expected authoring argv to still contain ${flag}`);
+  }
+
+  const authoringToolNames = ["mcp__flywheel-permissions__propose_task", "mcp__flywheel-permissions__board_search"];
+  const withAllowedTools = buildAuthoringClaudeArgv({
+    permissionMode: "default",
+    permissionPromptToolName: "mcp__flywheel-permissions__approve_action",
+    mcpConfig: JSON.stringify({ mcpServers: {} }),
+    authoringToolNames,
+  });
+  const allowedIndex = withAllowedTools.indexOf("--allowedTools");
+  assert.ok(allowedIndex !== -1, "expected --allowedTools still present when authoringToolNames is supplied");
+  assert.deepEqual(withAllowedTools.slice(allowedIndex + 1, allowedIndex + 1 + authoringToolNames.length), authoringToolNames);
+
+  const taskExecutionArgv = buildClaudeArgv({ prompt: "p", permissionMode: "default" });
+  assert.ok(
+    !taskExecutionArgv.includes("--disallowedTools"),
+    "expected buildClaudeArgv's task-execution argv to carry no --disallowedTools entry at all",
   );
 });

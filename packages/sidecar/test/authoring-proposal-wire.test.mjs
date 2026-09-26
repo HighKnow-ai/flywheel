@@ -73,6 +73,11 @@ test("buildAuthoringClaudeArgv for an authoring spawn pushes the proposal tool o
     "--verbose",
     "--permission-mode",
     "default",
+    // G-05-8(a) (plan 05-41, D-88/D-89): every authoring spawn disallows AskUserQuestion
+    // unconditionally, alongside this mandatory block — the challenge stage stays free
+    // conversation regardless of whether a permission-prompt tool was supplied.
+    "--disallowedTools",
+    "AskUserQuestion",
     "--permission-prompt-tool",
     "mcp__flywheel-permissions__approve_action",
     "--mcp-config",
@@ -93,5 +98,8 @@ test("buildAuthoringClaudeArgv for an authoring spawn pushes the proposal tool o
     "--verbose",
     "--permission-mode",
     "default",
+    // G-05-8(a) (plan 05-41): disallowed unconditionally, even with no permission-prompt tool.
+    "--disallowedTools",
+    "AskUserQuestion",
   ]);
 });
