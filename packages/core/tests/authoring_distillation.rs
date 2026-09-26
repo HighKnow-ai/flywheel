@@ -53,24 +53,61 @@ fn advancing_out_of_challenge_returns_a_distillation_instruction_naming_propose_
             "the instruction must state the one-call-per-assumption rule: {}",
             instruction.text
         );
+        assert!(
+            instruction.text.contains("proposal_list"),
+            "the distillation instruction must additionally name proposal_list as the way to read \
+             a staged proposal's id back (plan 05-44 shipped it): {}",
+            instruction.text
+        );
+        assert!(
+            !instruction.text.contains("propose_task"),
+            "the distillation instruction must not instruct the agent to stage tasks: {}",
+            instruction.text
+        );
     });
 }
 
 #[test]
-fn advancing_out_of_decompose_returns_no_distillation_instruction() {
+fn advancing_out_of_decompose_into_criteria_returns_a_criteria_instruction_naming_propose_criterion()
+{
     with_scratch_runtime_dir(|| {
         let (mut conn, human_actor_id, project) = common::seeded_project();
         let run = start_authoring_run(&mut conn, &project.id, None, "default", &human_actor_id)
             .expect("start_authoring_run should succeed");
 
-        let (stage, _) = advance_stage(&mut conn, &run.id, &human_actor_id).unwrap(); // challenge -> decompose
+        let (stage, distillation) = advance_stage(&mut conn, &run.id, &human_actor_id).unwrap(); // challenge -> decompose
         assert_eq!(stage, AuthoringStage::Decompose);
+        let distillation_text = distillation
+            .expect("advancing out of challenge must return a distillation instruction")
+            .text;
 
-        let (stage, distillation) = advance_stage(&mut conn, &run.id, &human_actor_id).unwrap(); // decompose -> criteria
+        let (stage, criteria_instruction) =
+            advance_stage(&mut conn, &run.id, &human_actor_id).unwrap(); // decompose -> criteria
         assert_eq!(stage, AuthoringStage::Criteria);
+
+        let instruction = criteria_instruction.expect(
+            "advancing out of decompose into criteria must return an instruction — no turn in \
+             the product has ever asked the agent for acceptance criteria before this plan",
+        );
         assert!(
-            distillation.is_none(),
-            "advancing out of decompose must not return a distillation instruction"
+            instruction.text.contains("propose_criterion"),
+            "the criteria instruction must name propose_criterion by its exact tool name: {}",
+            instruction.text
+        );
+        assert!(
+            instruction.text.to_lowercase().contains("one tool call per criterion"),
+            "the criteria instruction must state the one-call-per-criterion rule: {}",
+            instruction.text
+        );
+        assert!(
+            instruction.text.to_lowercase().contains("does not need to be accepted first"),
+            "the criteria instruction must state that a still-pending parent proposal does not \
+             need to be accepted first (D-96's implied-parent walk): {}",
+            instruction.text
+        );
+        assert_ne!(
+            instruction.text, distillation_text,
+            "the distillation instruction and the criteria instruction must be different texts"
         );
     });
 }
