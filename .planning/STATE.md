@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-43-PLAN.md
-last_updated: "2026-09-26T10:02:38.602Z"
+stopped_at: Completed 05-44-PLAN.md
+last_updated: "2026-09-26T12:23:09.431Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 05 execution started
-state_head: cb513f7fca80a970914e3d98f3757081b29cd250
+state_head: fb615a244d9297656386cdb6144da12a97f95cde
 progress:
   total_phases: 12
   completed_phases: 0
-  total_plans: 136
-  completed_plans: 136
+  total_plans: 140
+  completed_plans: 137
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 5 of 43
+Plan: 2 of 47
 Status: Ready to execute
 Last activity: 2026-09-26 — Phase 05 execution started
 
@@ -193,6 +193,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P41 | ~25min | 3 tasks | 5 files |
 | Phase 05 P42 | 50min | 3 tasks | 2 files |
 | Phase 05 P43 | ~20min | 2 tasks | 3 files |
+| Phase 05 P44 | 50min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -435,6 +436,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Relaxed the shared --replay-check composition-invariant check to accept OPTION_SELECTION_PREFIX-prefixed developer lines alongside answer-bank values, since composeDeveloperReply now selects offered options rather than only answer-bank text.
 - [Phase 05]: [Phase 05]: Ledger rows must avoid the literal substring of a frozen row's id when describing it, or the row's own byte-identity gate reads the new row as a change to the old one. — Caught during 05-43 Task 2 by running the plan's own verify command before committing.
 - [Phase 05]: [Phase 05]: Manual-Only Verifications round-summary text is replaced each closure round, not appended cumulatively — each cell describes the state as of the latest round only. — Matches the existing convention (round 9's text names only its own plans, not round 8's).
+- [Phase 05]: 05-44: Option A — a fourth capped read tool, proposal_list, routed through the existing board_read channel, closes G-05-9 (propose_criterion was unreachable in a fresh-epic session). — The only reversible option of the four; needs no new answering handler in any arm so no arm can starve; leaves D-07, D-88, D-96 and SHAPE-03's wording all unchanged.
 
 ### Pending Todos
 
@@ -484,6 +486,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-26T10:02:26.268Z
-Stopped at: Completed 05-43-PLAN.md
+Last session: 2026-09-26T12:23:09.276Z
+Stopped at: Completed 05-44-PLAN.md
 Resume file: None
