@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-37-PLAN.md
-last_updated: "2026-09-25T13:14:06.758Z"
+stopped_at: Completed 05-38-PLAN.md
+last_updated: "2026-09-26T00:18:15.561Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 05 execution started
-state_head: 957448730ed7bc09b485d2ef75ac72c43119ed48
+state_head: c2cb31ebb18cc996251f8f2af5ae119917df78c6
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 132
-  completed_plans: 130
+  completed_plans: 131
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 3 of 39
+Plan: 4 of 39
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 05 execution started
 
@@ -187,6 +187,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P35 | 12min | 3 tasks | 3 files |
 | Phase 05-socratic-epic-authoring P36 | 40min | 3 tasks | 3 files |
 | Phase 05 P37 | 37min | 3 tasks | 7 files |
+| Phase 05 P38 | 25min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -420,6 +421,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Harness.cleanup({ preserveRoot }) replaces the automatic LIFO root-removal teardown that always ran last, on every exit including a throw
 - [Phase 05]: The replay arm's advance-stage gate reads conversation.nonConversation (the driver's own returned fact) instead of a scenario-name disjunction
 - [Phase 05]: ThinkingEvent/RateLimitEvent modelled at the adapter seam; WR-02/WR-03 closed; durable unmodelled-event sink added beside the truncating stderr slice
+- [Phase 05]: [Phase 05]: The live turn's wall-clock ceiling (LIVE_TURN_CEILING_MS, formerly TURN_DEADLINE_MS) now resets on every observed progress signal instead of firing unconditionally from call start — An absolute-from-start timer fires regardless of activity, which is the exact mechanism that killed live run 01M3C48C3PV1NSGHERBZ587YB1 (a turn still working at 120000ms). Resetting the ceiling on progress makes it a silence window like the ordinary idle window and the new mid-flight window, satisfying the plan's own truth that a turn must never be bounded by a total wall-clock budget.
 
 ### Pending Todos
 
@@ -467,6 +469,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-25T13:14:06.607Z
-Stopped at: Completed 05-37-PLAN.md
+Last session: 2026-09-26T00:18:15.431Z
+Stopped at: Completed 05-38-PLAN.md
 Resume file: None
