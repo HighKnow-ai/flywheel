@@ -308,6 +308,38 @@ const UNJUDGED_TOKEN = "UNJUDGED";
 const EVIDENCE_FILE_NAME = "05-LIVE-CHALLENGE-TRANSCRIPT.md";
 
 /**
+ * Pure: renders the Markdown "Questions asked" block for one agent exchange's typed
+ * `AskUserQuestion` prompts (plan 05-42, gap G-05-8(a)). Returns the EMPTY STRING for `undefined`,
+ * a non-array, or an empty array — the same present-or-absent discipline `nonConversation`/
+ * `credentialPath`/`failure` already follow in `renderChallengeEvidenceSheet` below: an exchange
+ * with no `questions` key and one whose `questions` is `[]` must render byte-identically, so a
+ * synthetic sheet produced by `--replay-check` never drifts from a live one over a field that was
+ * not there.
+ *
+ * Never sorts, de-duplicates or merges — two questions with identical text render as two entries,
+ * each rendered in the order the agent asked it, under a bold label naming the tool the questions
+ * came through, carrying its own header when present and marked as accepting multiple answers only
+ * when `multiSelect` is strictly `true`. Beneath each, its own option labels render as nested
+ * bullets in offered order, each carrying its own description when present.
+ */
+function renderQuestionsAsked(questions) {
+  if (!Array.isArray(questions) || questions.length === 0) return "";
+  const questionBlocks = questions.map((question) => {
+    const headerPrefix = question.header ? `**${question.header}:** ` : "";
+    const multiSelectSuffix = question.multiSelect === true ? " _(accepts multiple answers)_" : "";
+    const options = Array.isArray(question.options) ? question.options : [];
+    const optionLines = options
+      .map((option) => {
+        const description = option.description ? ` — ${option.description}` : "";
+        return `  - ${option.label}${description}`;
+      })
+      .join("\n");
+    return `- ${headerPrefix}${question.question}${multiSelectSuffix}\n${optionLines}`;
+  });
+  return `\n\n**Questions asked (via AskUserQuestion):**\n\n${questionBlocks.join("\n")}`;
+}
+
+/**
  * Pure: renders the Markdown evidence sheet a human reads their one judgement call from. No
  * filesystem or process access — it formats `evidence` and returns a string, so `--self-test` can
  * assert its shape offline (T-05-16-06). Byte-identical output for identical input (T-05-16-06,
@@ -346,6 +378,12 @@ const EVIDENCE_FILE_NAME = "05-LIVE-CHALLENGE-TRANSCRIPT.md";
  *   never the whole stack, which would put absolute developer paths into a committed file.
  *   Optional; `null`/absent renders BYTE-IDENTICALLY to omitting the field entirely, the same
  *   discipline every other optional section here already follows.
+ * - `questions` (plan 05-42, gap G-05-8(a)) — on an agent exchange ONLY: the typed
+ *   `AskUserQuestion` prompts {@link questionsFromTurn}/{@link buildAgentExchange} carried onto
+ *   that exchange, rendered by {@link renderQuestionsAsked} inside that same turn's own block.
+ *   Arrives typed from the adapter seam (`ToolCallEvent.questions`, plan 05-41) — never parsed out
+ *   of the turn's own text. Absent entirely, or `[]`, renders BYTE-IDENTICALLY to omitting the
+ *   field — the same discipline `nonConversation`/`credentialPath`/`failure` above already follow.
  */
 function renderChallengeEvidenceSheet(evidence) {
   const {
@@ -384,7 +422,13 @@ function renderChallengeEvidenceSheet(evidence) {
         exchange.speaker === "agent"
           ? ` — chunks=${exchange.chunkCount ?? 0} chars=${exchange.charCount ?? 0} endedBy=${exchange.endedBy ?? "unknown"}`
           : "";
-      return `### ${index + 1}. ${speakerLabel}${integritySuffix}\n\n\`\`\`\n${exchange.text}\n\`\`\``;
+      // Plan 05-42 (gap G-05-8(a)): the typed AskUserQuestion prompts this turn carried, rendered
+      // immediately after the fenced text and before the next exchange's own heading — the empty
+      // string for a developer entry or an agent entry with no (or empty) `questions`, which is
+      // what keeps this byte-identical to how this renderer produced output before this field
+      // existed.
+      const questionsBlock = exchange.speaker === "agent" ? renderQuestionsAsked(exchange.questions) : "";
+      return `### ${index + 1}. ${speakerLabel}${integritySuffix}\n\n\`\`\`\n${exchange.text}\n\`\`\`${questionsBlock}`;
     })
     .join("\n\n");
 
@@ -744,6 +788,126 @@ async function selfTest() {
     assert.ok(firstTwoLines.includes("SYNTHETIC"), "expected a synthetic marker in the first two lines");
     assert.ok(firstTwoLines.includes("truncation-repro"), "expected the scenario name in the first two lines");
   });
+
+  // ---------------------------------------------------------------------------------------------
+  // renderQuestionsAsked / the Questions section (plan 05-42, gap G-05-8(a))
+  // ---------------------------------------------------------------------------------------------
+
+  check("renderQuestionsAsked returns the empty string for undefined, a non-array, or an empty array", () => {
+    assert.equal(renderQuestionsAsked(undefined), "");
+    assert.equal(renderQuestionsAsked("x"), "");
+    assert.equal(renderQuestionsAsked([]), "");
+  });
+
+  check(
+    "an agent exchange with no questions key renders byte-identically to one whose questions is an empty array, with no Questions section either way",
+    () => {
+      const withoutField = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+      const withEmptyArray = renderChallengeEvidenceSheet({
+        ...SYNTHETIC_EVIDENCE,
+        exchanges: SYNTHETIC_EVIDENCE.exchanges.map((exchange) =>
+          exchange.speaker === "agent" ? { ...exchange, questions: [] } : exchange,
+        ),
+      });
+      assert.equal(withoutField, withEmptyArray);
+      assert.ok(!withoutField.includes("Questions asked"), "expected no Questions section when no exchange carries questions");
+    },
+  );
+
+  check(
+    "each question renders its header, question text, and its option labels (with descriptions) as nested entries in emitted order, marking multiSelect true distinctly from false/absent",
+    () => {
+      const rendered = renderQuestionsAsked(ASK_USER_QUESTION_PROMPTS);
+      const triggersIndex = rendered.indexOf("Triggers");
+      const channelsIndex = rendered.indexOf("Channels");
+      const timingIndex = rendered.indexOf("Timing");
+      assert.ok(triggersIndex >= 0 && channelsIndex >= 0 && timingIndex >= 0, "expected all three headers");
+      assert.ok(triggersIndex < channelsIndex && channelsIndex < timingIndex, "expected headers in emitted order");
+
+      for (const prompt of ASK_USER_QUESTION_PROMPTS) {
+        assert.ok(rendered.includes(prompt.question), `expected question text verbatim: ${JSON.stringify(prompt.question)}`);
+        for (const option of prompt.options) {
+          assert.ok(rendered.includes(option.label), `expected option label verbatim: ${JSON.stringify(option.label)}`);
+        }
+      }
+
+      const multiSelectMarker = "accepts multiple answers";
+      const triggersBlock = rendered.slice(triggersIndex, channelsIndex);
+      const channelsBlock = rendered.slice(channelsIndex, timingIndex);
+      const timingBlock = rendered.slice(timingIndex);
+      assert.ok(triggersBlock.includes(multiSelectMarker), "expected the Triggers prompt (multiSelect true) to be marked");
+      assert.ok(channelsBlock.includes(multiSelectMarker), "expected the Channels prompt (multiSelect true) to be marked");
+      assert.ok(!timingBlock.includes(multiSelectMarker), "expected the Timing prompt (multiSelect false) NOT to be marked");
+    },
+  );
+
+  check("two questions with identical text render as two entries, never merged into one", () => {
+    const duplicateQuestions = [
+      { question: "Same question text?", header: "A", options: [{ label: "Yes" }] },
+      { question: "Same question text?", header: "B", options: [{ label: "No" }] },
+    ];
+    const rendered = renderQuestionsAsked(duplicateQuestions);
+    const occurrences = rendered.split("Same question text?").length - 1;
+    assert.equal(occurrences, 2, "expected two rendered question entries, never merged into one");
+  });
+
+  {
+    // Built from SYNTHETIC_EVIDENCE's OWN exchanges (spread, never a fresh `speaker: "agent"`
+    // literal) — SYNTHETIC_EVIDENCE.exchanges[1] is already its first agent turn ("### 2. Agent"),
+    // so attaching `questions` there keeps this file's non-comment `speaker: "agent"` construction
+    // count exactly at the four Task 1 named as legitimate (its own doc comment, its own
+    // acceptance criteria): the renderer's SYNTHETIC_EVIDENCE fixture (x2), the frozen pre-fix
+    // negative control (x1), and buildAgentExchange itself (x1).
+    const QUESTIONS_EVIDENCE = {
+      ...SYNTHETIC_EVIDENCE,
+      exchanges: SYNTHETIC_EVIDENCE.exchanges.map((exchange, index) =>
+        index === 1 ? { ...exchange, questions: ASK_USER_QUESTION_PROMPTS } : exchange,
+      ),
+    };
+
+    check(
+      "the Questions section for an agent exchange renders inside that exchange's own block: after its fenced text, before the next exchange's heading, carrying every question text and every one of the eleven option labels",
+      () => {
+        const sheet = renderChallengeEvidenceSheet(QUESTIONS_EVIDENCE);
+        assert.ok(sheet.includes("Questions asked"), "expected a Questions section heading");
+        const turnHeadingIndex = sheet.indexOf("### 2. Agent");
+        const questionsIndex = sheet.indexOf("Questions asked");
+        const nextHeadingIndex = sheet.indexOf("### 3. Developer");
+        assert.ok(turnHeadingIndex >= 0 && questionsIndex >= 0 && nextHeadingIndex >= 0, "expected all three markers present");
+        assert.ok(
+          turnHeadingIndex < questionsIndex && questionsIndex < nextHeadingIndex,
+          "expected the Questions section between its own turn's heading and the next exchange's heading",
+        );
+        let totalOptions = 0;
+        for (const prompt of ASK_USER_QUESTION_PROMPTS) {
+          assert.ok(sheet.includes(prompt.question), `expected the sheet to include the question text verbatim: ${JSON.stringify(prompt.question)}`);
+          for (const option of prompt.options) {
+            totalOptions += 1;
+            assert.ok(sheet.includes(option.label), `expected the sheet to include the option label verbatim: ${JSON.stringify(option.label)}`);
+          }
+        }
+        assert.equal(totalOptions, 11, "expected the frozen capture to carry eleven option labels total");
+      },
+    );
+
+    check("rendering the same questions-carrying evidence object twice produces byte-identical output", () => {
+      const first = renderChallengeEvidenceSheet(QUESTIONS_EVIDENCE);
+      const second = renderChallengeEvidenceSheet(QUESTIONS_EVIDENCE);
+      assert.equal(first, second);
+    });
+
+    check(
+      "a synthetic sheet whose agent exchange carries questions still carries the synthetic marker in its first two lines and the unfilled-verdict token zero times",
+      () => {
+        const sheet = renderChallengeEvidenceSheet({ ...QUESTIONS_EVIDENCE, synthetic: true, scenario: "ask-user-question" });
+        const occurrences = sheet.split(UNJUDGED_TOKEN).length - 1;
+        assert.equal(occurrences, 0);
+        const firstTwoLines = sheet.split("\n").slice(0, 2).join("\n");
+        assert.ok(firstTwoLines.includes("SYNTHETIC"));
+        assert.ok(firstTwoLines.includes("ask-user-question"));
+      },
+    );
+  }
 
   check("the capture-integrity table has exactly one row per agent exchange, each carrying a Non-conversation column (plan 05-24, generalised by 05-34)", () => {
     const sheet = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
