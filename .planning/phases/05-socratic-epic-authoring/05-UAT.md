@@ -75,7 +75,47 @@ why_human: |
   PRESENT_BEHAVIOR_UNVERIFIED on this basis, and SHAPE-02/03/04's state in `REQUIREMENTS.md` was
   deliberately not upgraded on the strength of an unproven fix. Spending a credential to settle it
   is the developer's own call. Same live run as test 1 — one run answers both.
-result: [pending]
+result: issue
+reported: |
+  Live run 01M3ENQMC3E4M2HP7014MA84PX (2026-09-26T10:56:17Z), the first live run after gap-closure
+  round 10. Exit 1, but on entirely new ground — and round 10's own fixes are now confirmed in
+  production, not merely offline.
+
+  WHAT IS NOW PROVEN LIVE, for the first time in this phase:
+  - The `no authoring stage marker could be read for this run` refusal is GONE — zero occurrences
+    in the whole run log. G-05-8(b)'s mechanism is closed in production, exactly as the contract
+    test predicted.
+  - Proposals reached the board's write path: 13 `proposal_created` events applied through the real
+    inbound bridge (`apply-proposal-created`), against `Drafted criteria: 0` and zero successful
+    proposals in every prior live run.
+  - `✅ SHAPE-01 — the agent challenges before any work is planned — challenged=true
+    noWorkPlanned=refused`. First live PASS of a gating SHAPE criterion in this phase.
+  - The Socratic exchange developed past turn one: 3 agent turns, 4 questions answered, `the
+    conversation settled` rather than being cut off. The agent's second turn is a substantive
+    push-back ("Four challenges to the framing") that disputes the premise itself.
+  - The `AskUserQuestion` disallow held against the real backend: zero occurrences in the run. The
+    agent asked its five clarifying questions as PROSE, captured verbatim in the evidence sheet —
+    the exact outcome round 10 designed for, now proven against a real backend rather than as argv.
+
+  WHY IT STILL FAILED — a NEW defect, not G-05-8:
+  `❌ SHAPE-02 (no subtree was accepted)` and `❌ SHAPE-03/SHAPE-04 (not enough proposals to
+  exercise all three verbs)`. The preserved scratch database gives the exact cause — of the 13
+  pending proposals, `select target_type, count(*) from authoring_proposals group by 1` returns
+  `epic: 1, assumption: 12`. ZERO tasks and ZERO criteria. `taskProposalId` and
+  `criterionProposalId` are therefore both null, so the entire accept/reject/amend block at
+  uat-08-socratic-authoring.mjs:6443-6510 is skipped wholesale, and `epics`/`tasks`/
+  `acceptance_criteria` all remain at 0 rows.
+
+  The agent had explicitly promised "five tasks ... acceptance criteria for each, and the
+  assumption rows"; it emitted the epic and its 12 assumptions first and was snapshotted before the
+  tasks followed. The harness drains proposals EXACTLY ONCE — `waitForEvent` for the first
+  `proposal_created`, then a single `for (const event of sidecar.eventsOfType("proposal_created"))`
+  pass at :6429 — and the comment directly above that loop claims it applies "every proposal_created
+  event seen so far (AND ANY THAT ARRIVE OVER THE NEXT WINDOW)". There is no next window:
+  `eventsOfType("proposal_created")` has exactly one call site in the file and `PROPOSAL_DEADLINE_MS`
+  has exactly one use, in the first wait. The code does not implement the window its own comment
+  promises.
+severity: blocker
 
 ### 3. Credential seam's general reliability (carried forward)
 expected: |
@@ -93,8 +133,8 @@ result: [pending]
 
 total: 3
 passed: 0
-issues: 0
-pending: 3
+issues: 1
+pending: 2
 skipped: 0
 blocked: 0
 
@@ -221,7 +261,8 @@ blocked: 0
   resolved_by: 05-40-PLAN.md
   resolved_at: 2026-09-26
   resolution_evidence: "The finding was stated before the fix, as the gap demanded: the WRITE side of the marker contract was wrong, not the read side — correcting this gap report's own `artifacts` entries, which named `mcp-permission-server.ts` and left the responsible side undetermined. `start_authoring_run` (`packages/core/src/domain/authoring_session.rs:145-156`) now writes the D-88 stage marker as the last step before `tx.commit()`, and a marker-write failure `bail!`s before commit so no `agent_runs` row survives without its marker. Proven end-to-end by `cargo test -p core --test authoring_stage_marker_contract` (3/3), which spawns the SHIPPED, compiled `stage-gate-hook.ts` as a real process against a marker a real `start_authoring_run` call produced — not a database-row assertion. The hook still fails closed on an absent, unparseable or unrecognised marker and still resolves the run id from its own environment; a third test asserts the challenge-stage denial reason and the fail-closed denial reason are provably distinct, so a challenging agent is now told it is still challenging rather than that its run is unusable. `advance_stage` has no agent-reachable caller. `cargo test --workspace` green."
-  residual: "The truth as WORDED — the outcome ARRIVES on the board as structured items — is not yet met in a live run, and nothing in this round claims it is. The live board write has still never once succeeded: no live run has been attempted since the fix landed, so SHAPE-02/03/04 retain offline and structural coverage only (`authoring_proposal.rs`, `authoring_acceptance.rs`, the replay scenarios). This is recorded as `resolved_partially` rather than `resolved` for the same reason G-05-7's third finding was: closing a truth about live behaviour on offline evidence is exactly the overclaim this phase's Item 8 register exists to prevent. Carried into test 2 below. `05-VERIFICATION.md` (round 10) independently re-scored roadmap SC2 and SC3/SHAPE-04 from VERIFIED down to PRESENT_BEHAVIOR_UNVERIFIED on this basis."
+  residual: "The truth as WORDED — the outcome ARRIVES on the board as structured items — was not yet met when this entry was first reconciled, and nothing in round 10 claimed it was. This is recorded as `resolved_partially` rather than `resolved` for the same reason G-05-7's third finding was: closing a truth about live behaviour on offline evidence is exactly the overclaim this phase's Item 8 register exists to prevent. `05-VERIFICATION.md` (round 10) independently re-scored roadmap SC2 and SC3/SHAPE-04 from VERIFIED down to PRESENT_BEHAVIOR_UNVERIFIED on the same basis."
+  residual_update: "PARTIALLY DISCHARGED by live run 01M3ENQMC3E4M2HP7014MA84PX (2026-09-26T10:56:17Z), the first live run after round 10. The MECHANISM this gap named is confirmed closed in production: the `no authoring stage marker could be read for this run` refusal has zero occurrences in the run, and 13 proposals were applied through the real inbound bridge where every prior live run applied none. What the truth's own wording still lacks is the last leg — `epics`, `tasks` and `acceptance_criteria` all remain at 0 rows, because the 13 proposals were `epic: 1, assumption: 12` with no task or criterion for the accept path to act on. That shortfall has a different and independently located cause (the single-shot proposal drain) and is tracked as its own gap `G-05-9`, not as a recurrence of this one. Kept `resolved_partially` rather than promoted: the write path this gap was about now demonstrably works live."
   reason: "Live run 01M3DNC0G9CYAWSD8DYEGTRP8C (2026-09-26): every `propose_epic` and `propose_assumption` call was refused with `Flywheel could not verify the authoring stage allows this call (no authoring stage marker could be read for this run) — refusing it.` The run log nevertheless reports `run 01M3DNC0G9CYAWSD8DYEGTRP8C started in the challenge stage`, and the driver later advanced the stage through the D-90 human gate without error — so the marker was set for the run and the MCP tool could not read it. Nothing reached the board: the evidence sheet records `Drafted criteria: 0`, and the shaped epic (six tasks, each with acceptance criteria) exists only as prose in the conversation. SHAPE-02, SHAPE-03 and SHAPE-04 therefore have NO live evidence at all, only offline coverage. This is the project's Core Value failing in a live run — `every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob` — and in this run it was exactly a chat blob."
   severity: blocker
   test: 1
@@ -235,4 +276,23 @@ blocked: 0
     - "Determine which side of the marker contract is wrong — the write at session start, or the read from the MCP tool's run context — and state the finding before fixing either"
     - "A regression that fails when a run started in the challenge stage cannot have its stage marker read by the proposal tools"
     - "Live-path coverage for SHAPE-02/03/04: the offline arms pass while the live board write has never once succeeded, which is precisely the offline/live divergence rule recorded in Item 8 (plan 05-26)"
+  debug_session: ""
+
+- gap_id: G-05-9
+  truth: "Every proposal an authoring session emits during its decompose window is drained and applied, so the tasks and acceptance criteria the agent drafts are present to accept, reject or amend."
+  status: failed
+  reason: "Live run 01M3ENQMC3E4M2HP7014MA84PX (2026-09-26) — the first run in which the board write path actually worked. 13 proposals were applied through the real inbound bridge, but the preserved scratch database shows what they were: `epic: 1, assumption: 12`, and ZERO of `targetType: task` or `targetType: criterion`. The agent had stated it would stage \"five tasks ... acceptance criteria for each, and the assumption rows\"; it emitted the epic and its assumptions first, and the harness snapshotted `list-pending` before the tasks arrived. Because `taskProposalId` and `criterionProposalId` are both null, the whole accept/reject/amend block is skipped and `epics`/`tasks`/`acceptance_criteria` stay at 0 rows — so SHAPE-02 fails as `no subtree was accepted` and SHAPE-03/SHAPE-04 fail as `not enough proposals to exercise all three verbs`, even though the proposal mechanism itself demonstrably works. This is NOT G-05-8 recurring: the stage-marker refusal that caused the previous live failure is entirely absent from this run."
+  severity: blocker
+  test: 2
+  root_cause: "The proposal drain is single-shot. `uat-08-socratic-authoring.mjs` awaits the FIRST `proposal_created` event, then makes one pass over `sidecar.eventsOfType(\"proposal_created\")` at :6429 and immediately snapshots `list-pending`. The comment directly above that loop states it applies \"every proposal_created event seen so far (and any that arrive over the next window)\" — but no such window is implemented: `eventsOfType(\"proposal_created\")` has exactly one call site in the file, and `PROPOSAL_DEADLINE_MS` is used only by the initial wait. A decompose that emits its proposals in more than one burst is therefore truncated at the first burst."
+  recurrence_class: "TENTH instance of the defect class `scripts/uat/README.md` Item 8 records: a comment describes a guarantee the code does not provide. Directly comparable to G-05-7's first finding, where `evidencePath`'s comment promised failure-path evidence that the write sites' placement did not deliver."
+  artifacts:
+    - path: "scripts/uat/uat-08-socratic-authoring.mjs"
+      issue: ":6428 comment promises a second drain window; :6429's single loop over eventsOfType(\"proposal_created\") never waits for one, so proposals emitted after the first burst are never applied"
+    - path: "scripts/uat/uat-08-socratic-authoring.mjs"
+      issue: ":6443-6510 the entire accept/reject/amend block is gated on taskProposalId, so a truncated drain silently degrades SHAPE-02/03/04 to a fail rather than reporting that the drain was incomplete"
+  missing:
+    - "Drain proposals until the decompose window genuinely closes — quiescence or an explicit deadline — rather than once, immediately after the first event"
+    - "Distinguish 'the agent proposed no tasks' from 'the harness stopped draining before the tasks arrived'; today both render as `no subtree was accepted`, and only the preserved database tells them apart"
+    - "A regression that fails when proposals arrive in two bursts and the second burst is dropped"
   debug_session: ""
