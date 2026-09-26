@@ -4696,12 +4696,24 @@ if (process.argv.includes("--self-test")) {
 }
 
 /**
- * `--board-read-check` (plan 05-18, G-05-1): proves the whole Task 1 slice — a `board_read_request`
- * raised on the wire, answered from the real scratch board through the SAME dispatch the desktop
- * app uses — WITHOUT spending a token. Offline by construction: it spawns the `uat_authoring_ops`
- * bridge binary and `git`, nothing else. No sidecar process, no `claude` binary, no
- * `probeClaudeAvailable`/`startSidecar` call anywhere in this block. Short-circuits BEFORE the
- * live `runScript` call below, exactly like `--self-test` above.
+ * `--board-read-check` (plan 05-18, G-05-1; extended plan 05-44, gap G-05-9): proves the whole
+ * Task 1 slice — a `board_read_request` raised on the wire, answered from the real scratch board
+ * through the SAME dispatch the desktop app uses — WITHOUT spending a token. Offline by
+ * construction: it spawns the `uat_authoring_ops` bridge binary and `git`, nothing else. No
+ * sidecar process, no `claude` binary, no `probeClaudeAvailable`/`startSidecar` call anywhere in
+ * this block. Short-circuits BEFORE the live `runScript` call below, exactly like `--self-test`
+ * above.
+ *
+ * Plan 05-44 extends this arm with the end-to-end slice gap G-05-9 asks for: while the epic
+ * proposal is STILL PENDING, a `list_proposals` board read hands the agent its own id back — the
+ * ONLY route an agent actually has, since `stageAuthoringProposal` never returns one. That id is
+ * then used, exactly as an agent would, as a criterion proposal's `parent_proposal_id`. Accepting
+ * the criterion (not the epic — see the inline note at that call) drives D-96's implied-parent walk
+ * (`accept_proposal_in_tx`, `authoring_proposal.rs:679`), which accepts the still-pending epic
+ * FIRST, in the same transaction, before the criterion materialises. `board-counts` then proves a
+ * real `acceptance_criteria` row exists. This slice runs BEFORE the epic proposal's own (pre-
+ * existing, unchanged) `accept-proposal` call below — the epic is already accepted by the time that
+ * call runs, so it exercises `accept_proposal_in_tx`'s documented already-accepted no-op branch.
  */
 if (process.argv.includes("--board-read-check")) {
   await runScript(
@@ -4746,19 +4758,14 @@ if (process.argv.includes("--board-read-check")) {
       const pending = runOps(opsBin, harness.appDataDir, ["list-pending", runId]);
       const epicProposal = pending.proposals.find((p) => p.targetType === "epic");
       assert.ok(epicProposal, "expected a pending epic proposal after apply-proposal-created");
-      const accepted = runOps(opsBin, harness.appDataDir, ["accept-proposal", epicProposal.id]);
-      const epicId = accepted.materialisedId;
-      assert.ok(epicId, "expected accept-proposal to return a materialisedId for the epic");
-      step(`materialised epic ${epicId}`);
 
-      step("queueing three board_read_request events (get_epic, search, unrecognised-kind) against a stub sidecar");
-      const stubEvents = [
-        { type: "board_read_request", requestId: "req-get-epic", readKind: "get_epic", epicId, runId },
-        { type: "board_read_request", requestId: "req-search", readKind: "search", term: epicTitle, runId },
-        { type: "board_read_request", requestId: "req-unknown-kind", readKind: "not_a_real_kind", runId },
-      ];
+      // Shared across BOTH drains below (the early list_proposals-only drain and the later
+      // get_epic/search/unrecognised-kind drain) so `recordedRequests.length` at the end reads as
+      // one cumulative tally, and `stubEvents` is reassigned per drain since a fresh
+      // `drainInboundCoreRequests` call starts its own internal `seen` set each time.
       const recordedRequests = [];
       let emptyLookups = 0;
+      let stubEvents = [];
       const stubSidecar = {
         unansweredHeldRequests: [],
         async waitForEvent(predicate, _timeoutMs, _label) {
@@ -4774,24 +4781,111 @@ if (process.argv.includes("--board-read-check")) {
           return {};
         },
       };
+      const boardReadHandler = createBoardReadHandler({
+        opsBin,
+        appDataDir: harness.appDataDir,
+        sidecar: stubSidecar,
+        runId,
+      });
+
+      step(
+        "reading the epic proposal's id back through a list_proposals board_read_request, WHILE IT IS STILL PENDING",
+      );
+      stubEvents = [
+        { type: "board_read_request", requestId: "req-list-proposals", readKind: "list_proposals", runId },
+      ];
+      emptyLookups = 0;
+      await drainInboundCoreRequests(stubSidecar, runId, {
+        handlers: { board_read_request: boardReadHandler },
+        shouldStop: () => emptyLookups >= 1,
+      });
+      const listProposalsAnswer = recordedRequests.find((r) => r.requestId === "req-list-proposals");
+      assert.ok(listProposalsAnswer, "expected an answer for the list_proposals request");
+      const pendingRows = listProposalsAnswer.result?.proposals;
+      assert.ok(Array.isArray(pendingRows) && pendingRows.length === 1, `expected exactly one pending proposal, got ${JSON.stringify(pendingRows)}`);
+      const [proposalRow] = pendingRows;
+      assert.equal(proposalRow.targetType, "epic", "expected the one pending proposal to be the staged epic");
+      assert.equal(proposalRow.id.length, 26, "expected a 26-character proposal id");
+      assert.equal(
+        proposalRow.id,
+        applied.proposalId,
+        "the id list_proposals hands back must equal the id apply-proposal-created reported — the two representations of the same fact must agree",
+      );
+      step(`list_proposals answer: 1 pending proposal, id=${proposalRow.id} (agrees with apply-proposal-created's own report)`);
+
+      step("staging a criterion whose parent_proposal_id names the STILL-PENDING epic proposal, through the real bridge");
+      const criterionEvent = {
+        type: "proposal_created",
+        runId,
+        verb: "create",
+        targetType: "criterion",
+        parentProposalId: proposalRow.id,
+        payload: { kind: "criterion", statement: "UAT board-read check criterion", verification_hint: null },
+      };
+      const appliedCriterion = runOps(
+        opsBin,
+        harness.appDataDir,
+        ["apply-proposal-created"],
+        JSON.stringify(criterionEvent),
+      );
+      assert.equal(
+        appliedCriterion.outcome,
+        "created",
+        `expected the criterion proposal_created event to deserialise and apply, got ${JSON.stringify(appliedCriterion)}`,
+      );
+      step(`applied proposal_created (criterion) -> ${appliedCriterion.outcome} ${appliedCriterion.proposalId}`);
+
+      // Deviation (Rule 1 — auto-fixed bug in the plan's own literal instruction): `accept_subtree`
+      // (packages/core/src/domain/authoring_proposal.rs:986) asserts its own root proposal must be
+      // a TASK proposal — calling it here on the EPIC proposal would error
+      // ("accept_subtree's root must be a task proposal, got a Epic proposal"). The mechanism this
+      // slice actually proves — D-96's implied-parent walk inside `accept_proposal_in_tx`
+      // (authoring_proposal.rs:679-684) — is reached by accepting the CRITERION proposal instead:
+      // it recursively accepts its still-pending epic PARENT first, in the same transaction, then
+      // materialises the criterion against it. `accept-proposal` already exists in this bridge
+      // binary for exactly this call shape.
+      step("accepting the criterion proposal — D-96's implied-parent walk must accept the still-pending epic first");
+      const acceptedCriterion = runOps(opsBin, harness.appDataDir, ["accept-proposal", appliedCriterion.proposalId]);
+      assert.ok(acceptedCriterion.materialisedId, "expected accept-proposal to return a materialisedId for the criterion");
+      step(`materialised criterion ${acceptedCriterion.materialisedId}`);
+
+      const countsAfterCriterion = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
+      assert.equal(
+        countsAfterCriterion.criteria,
+        1,
+        `expected exactly 1 criterion on the board after accepting the criterion proposal, got ${JSON.stringify(countsAfterCriterion)}`,
+      );
+      step(
+        `board-counts after accepting the criterion: epics=${countsAfterCriterion.epics} tasks=${countsAfterCriterion.tasks} criteria=${countsAfterCriterion.criteria}`,
+      );
+
+      // Pre-existing call, unchanged: the epic proposal is ALREADY accepted (by the implied-parent
+      // walk above), so this exercises `accept_proposal_in_tx`'s documented already-accepted no-op
+      // branch — the existing materialised_id is returned unchanged, no second canonical row is
+      // written.
+      const accepted = runOps(opsBin, harness.appDataDir, ["accept-proposal", epicProposal.id]);
+      const epicId = accepted.materialisedId;
+      assert.ok(epicId, "expected accept-proposal to return a materialisedId for the epic");
+      step(`materialised epic ${epicId}`);
+
+      step("queueing three board_read_request events (get_epic, search, unrecognised-kind) against the stub sidecar");
+      stubEvents = [
+        { type: "board_read_request", requestId: "req-get-epic", readKind: "get_epic", epicId, runId },
+        { type: "board_read_request", requestId: "req-search", readKind: "search", term: epicTitle, runId },
+        { type: "board_read_request", requestId: "req-unknown-kind", readKind: "not_a_real_kind", runId },
+      ];
+      emptyLookups = 0;
 
       step("driving the REAL drainInboundCoreRequests against the stub with only a board_read_request handler");
       await drainInboundCoreRequests(stubSidecar, runId, {
-        handlers: {
-          board_read_request: createBoardReadHandler({
-            opsBin,
-            appDataDir: harness.appDataDir,
-            sidecar: stubSidecar,
-            runId,
-          }),
-        },
+        handlers: { board_read_request: boardReadHandler },
         shouldStop: () => emptyLookups >= 1,
       });
 
       assert.equal(
         recordedRequests.length,
-        3,
-        `expected exactly 3 recorded authoring_read_answer ops, got ${recordedRequests.length}`,
+        4,
+        `expected exactly 4 recorded authoring_read_answer ops (1 list_proposals + 3 below), got ${recordedRequests.length}`,
       );
       for (const req of recordedRequests) {
         assert.equal(req.op, "authoring_read_answer");
@@ -4824,7 +4918,7 @@ if (process.argv.includes("--board-read-check")) {
       assert.deepEqual(
         stubSidecar.unansweredHeldRequests,
         [],
-        "expected zero unanswered held requests after all three were answered",
+        "expected zero unanswered held requests after all four were answered",
       );
       step("zero unanswered held requests remain — no starvation");
     },

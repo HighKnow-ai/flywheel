@@ -15,7 +15,9 @@ use anyhow::Context;
 use rusqlite::{named_params, params, Connection, OptionalExtension};
 use serde::Serialize;
 
-use crate::domain::authoring_proposal::{row_to_proposal, Proposal, PROPOSAL_COLUMNS};
+use crate::domain::authoring_proposal::{
+    pending_proposals_for_run, row_to_proposal, Proposal, PROPOSAL_COLUMNS,
+};
 use crate::domain::epic::EpicSummary;
 use crate::epic_context_packet::TaskRosterEntry;
 
@@ -493,18 +495,28 @@ pub fn list_recent_authoring_runs(
     rows.context("failed to list recent authoring runs")
 }
 
-/// D-87 (plan 05-05, extracted plan 05-18/G-05-1): the ONE board-read dispatch, called from BOTH
-/// `commands::authoring::handle_inbound_board_read_request` (the real desktop app's own inbound
-/// handler) and the UAT bridge's `answer-board-read` subcommand — never a second copy of this
-/// arithmetic anywhere else (SHAPE-02's own integrity requirement). Resolves the run's own
-/// `project_id` from `agent_runs` INSIDE this function's body — scope comes from the run's row,
-/// NEVER from anything `event` itself claims (T-05-05-03 / T-05-18-01) — then applies the SAME
-/// clamp-and-peek arithmetic `handle_inbound_board_read_request` applied before this extraction (a
-/// request one row past the resolved limit, itself clamped at [`MAX_LIMIT`], so a page's own length
-/// need not be trusted to report truncation) and dispatches on `event`'s `readKind` string to
-/// exactly one of [`search_board_for_agent`], [`get_epic_for_agent`] or [`list_tasks_for_epic`].
+/// D-87 (plan 05-05, extracted plan 05-18/G-05-1), widened plan 05-44 (gap G-05-9): the ONE
+/// board-read dispatch, called from BOTH `commands::authoring::handle_inbound_board_read_request`
+/// (the real desktop app's own inbound handler) and the UAT bridge's `answer-board-read`
+/// subcommand — never a second copy of this arithmetic anywhere else (SHAPE-02's own integrity
+/// requirement). Resolves the run's own `project_id` from `agent_runs` INSIDE this function's
+/// body — scope comes from the run's row, NEVER from anything `event` itself claims (T-05-05-03 /
+/// T-05-18-01) — then applies the SAME clamp-and-peek arithmetic `handle_inbound_board_read_request`
+/// applied before this extraction (a request one row past the resolved limit, itself clamped at
+/// [`MAX_LIMIT`], so a page's own length need not be trusted to report truncation) and dispatches
+/// on `event`'s `readKind` string to exactly one of [`search_board_for_agent`],
+/// [`get_epic_for_agent`], [`list_tasks_for_epic`] or (plan 05-44) `pending_proposals_for_run`.
 /// Performs no writes. An unrecognised `readKind` returns `Err` naming the offending kind — never
 /// panics, matching every read in this module's own discipline.
+///
+/// The fourth kind, `"list_proposals"` (gap G-05-9): scoped by the `run_id` PARAMETER this
+/// function already receives — never from anything `event` claims — exactly like `list_tasks`'s
+/// own epic-scoping guarantee above. This is the read that closes the gap: a proposal's id was
+/// never returned to the agent that staged it, so `propose_criterion`'s REQUIRED
+/// `parent_proposal_id` was unreachable in a fresh-epic session by construction. Each row is
+/// projected to `id`/`verb`/`targetType`/`parentProposalId`/`status`/`label` only —
+/// `project_id`/`created_by`/`agent_run_id` are the run's own internals and are never serialised
+/// onto an agent-facing page (T-05-44-02).
 pub fn resolve_board_read(
     conn: &Connection,
     run_id: &str,
@@ -583,6 +595,29 @@ pub fn resolve_board_read(
             Ok(serde_json::json!({
                 "tasks": tasks, "found": true, "truncated": truncated, "total": total
             }))
+        }
+        "list_proposals" => {
+            // Plan 05-44 (gap G-05-9): reads NOTHING from `event` except `limit` — this run's own
+            // pending proposals are scoped by the `run_id` PARAMETER this function already
+            // received, never from anything `event` itself claims (T-05-05-03 / V4 Access
+            // Control), exactly like `list_tasks`'s own epic-scoping above.
+            let mut proposals = pending_proposals_for_run(conn, run_id, peek_limit)?;
+            let truncated = proposals.len() as i64 > resolved_limit;
+            proposals.truncate(resolved_limit.max(0) as usize);
+            let rows: Vec<serde_json::Value> = proposals
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "id": p.id,
+                        "verb": p.verb,
+                        "targetType": p.target_type,
+                        "parentProposalId": p.parent_proposal_id,
+                        "status": p.status,
+                        "label": p.payload.label(),
+                    })
+                })
+                .collect();
+            Ok(serde_json::json!({ "proposals": rows, "truncated": truncated }))
         }
         other => anyhow::bail!("unknown board read kind {other:?}"),
     }

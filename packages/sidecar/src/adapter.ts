@@ -301,19 +301,21 @@ export interface ProposalCreatedEvent extends AgentEventBase {
 }
 
 /**
- * D-87 (plan 05-05): a HELD `board_search`/`epic_get`/`task_list` call, relayed over the SAME
- * per-run permission socket {@link ProposalCreatedEvent} already travels (a FOURTH message kind,
- * not a second socket). Unlike {@link ProposalCreatedEvent}, this event's `requestId` names a call
- * still WAITING for an answer — the Rust core resolves it via `SidecarHandle::relay_authoring_read_answer`
- * / the sidecar's own `authoring_read_answer` op, which reaches
- * {@link AgentAdapter.resolveBoardRead}. `runId` (from {@link AgentEventBase}) is filled by the
- * sidecar from the session this event fires inside — NEVER from the model's own tool-call
- * arguments, matching every other authoring event in this union.
+ * D-87 (plan 05-05), widened plan 05-44 (gap G-05-9): a HELD `board_search`/`epic_get`/
+ * `task_list`/`proposal_list` call, relayed over the SAME per-run permission socket
+ * {@link ProposalCreatedEvent} already travels (a FOURTH message kind, not a second socket).
+ * Unlike {@link ProposalCreatedEvent}, this event's `requestId` names a call still WAITING for an
+ * answer — the Rust core resolves it via `SidecarHandle::relay_authoring_read_answer` / the
+ * sidecar's own `authoring_read_answer` op, which reaches {@link AgentAdapter.resolveBoardRead}.
+ * `runId` (from {@link AgentEventBase}) is filled by the sidecar from the session this event fires
+ * inside — NEVER from the model's own tool-call arguments, matching every other authoring event in
+ * this union. `list_proposals` carries no `term`/`epicId` — the run this session's own pending
+ * proposals belong to is resolved from the socket, exactly like the other three read kinds.
  */
 export interface BoardReadRequestEvent extends AgentEventBase {
   type: "board_read_request";
   requestId: string;
-  readKind: "search" | "get_epic" | "list_tasks";
+  readKind: "search" | "get_epic" | "list_tasks" | "list_proposals";
   term?: string;
   epicId?: string;
   limit?: number;

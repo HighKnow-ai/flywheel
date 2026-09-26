@@ -138,7 +138,19 @@ export const AUTHORING_EPIC_GET_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${EPIC_GET
 export const TASK_LIST_TOOL_NAME = "task_list";
 export const AUTHORING_TASK_LIST_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${TASK_LIST_TOOL_NAME}`;
 
-/** The three read tools' own fully-qualified names — pre-approved via `--allowedTools` alongside
+/** Plan 05-44 (gap G-05-9, D-87's fourth capped read): a proposal staged this session is never
+ * handed its own id — `stageAuthoringProposal` resolves EVERY `propose_*` call with the literal
+ * `{"staged": true}` and no agent-visible tool could read the id back, so `propose_criterion`'s
+ * REQUIRED `parent_proposal_id` was unreachable in a fresh-epic session by construction. This tool
+ * reads the run's OWN still-pending proposals back through the SAME `board_read` channel the other
+ * three read tools already use — deliberately named OUTSIDE the `propose_`/`amend_`/`delete_`
+ * prefix for the identical reason `BOARD_SEARCH_TOOL_NAME` and its siblings are: a read is
+ * available in every stage (D-88 gates writing a proposal, never looking something up), and
+ * plan 05-03's stage-gate matcher must never catch it. */
+export const PROPOSAL_LIST_TOOL_NAME = "proposal_list";
+export const AUTHORING_PROPOSAL_LIST_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${PROPOSAL_LIST_TOOL_NAME}`;
+
+/** The four capped read tools' own fully-qualified names — pre-approved via `--allowedTools` alongside
  * {@link AUTHORING_WRITE_TOOL_NAMES} for the identical D-46 reason: a bounded, scoped-server-side
  * board lookup costs nothing and blocks nothing, so it must never wait on a human permission
  * answer either. */
@@ -146,6 +158,7 @@ export const AUTHORING_READ_TOOL_NAMES = [
   AUTHORING_BOARD_SEARCH_TOOL_NAME,
   AUTHORING_EPIC_GET_TOOL_NAME,
   AUTHORING_TASK_LIST_TOOL_NAME,
+  AUTHORING_PROPOSAL_LIST_TOOL_NAME,
 ] as const;
 
 /** The documented ceiling every read tool's `inputSchema` advertises for its own `limit` property
@@ -211,7 +224,7 @@ export interface AuthoringProposalPayload {
 export interface BoardReadRequestPayload {
   kind: "board_read";
   requestId: string;
-  readKind: "search" | "get_epic" | "list_tasks";
+  readKind: "search" | "get_epic" | "list_tasks" | "list_proposals";
   term?: string;
   epicId?: string;
   limit?: number;
@@ -577,12 +590,16 @@ export const proposeEpicToolDefinition = {
 /** Plan 05-05 (D-07/D-81): `propose_criterion`'s own registration object. `parent_proposal_id` is
  * REQUIRED — D-07 puts criteria on tasks and epics and nowhere else, and a drafted criterion has
  * no canonical parent until its own parent proposal is accepted, so this is the schema-layer
- * rejection point for a criterion with nowhere to hang. */
+ * rejection point for a criterion with nowhere to hang. Plan 05-44 (gap G-05-9): the description
+ * now names `proposal_list` as the way to obtain that id — `required`/`minLength` are otherwise
+ * UNCHANGED, D-07's schema-layer rejection point stays exactly as it was, it now simply has a
+ * reachable way to be satisfied. */
 export const proposeCriterionToolDefinition = {
   name: PROPOSE_CRITERION_TOOL_NAME,
   description:
     "Stage a proposed acceptance criterion on the Flywheel board, for a task or epic you already " +
-    "proposed earlier in this session (required: parent_proposal_id). This does NOT create a " +
+    "proposed earlier in this session (required: parent_proposal_id — call proposal_list to see " +
+    "the ids of proposals you have staged and not yet decided on). This does NOT create a " +
     "criterion — it drafts one for a human to review, edit and accept.",
   inputSchema: {
     type: "object",
@@ -722,6 +739,27 @@ export const taskListToolDefinition = {
       limit: { type: "integer", minimum: 1, maximum: MAX_READ_LIMIT },
     },
     required: ["epic_id"],
+  },
+} as const;
+
+/** Plan 05-44 (gap G-05-9): `proposal_list`'s own registration object. Lists the proposals THIS
+ * session has staged and not yet decided on — no `run_id`/`project_id`/`epic_id`/`task_id`
+ * property of any kind, because the run is resolved server-side from the socket this call arrives
+ * on, exactly like every write tool in this file (T-05-02-01). Each row carries the id
+ * `propose_criterion`'s REQUIRED `parent_proposal_id` needs. Bounded to a page — check the
+ * `truncated` field before assuming you have seen everything. */
+export const proposalListToolDefinition = {
+  name: PROPOSAL_LIST_TOOL_NAME,
+  description:
+    "List the proposals THIS session has staged and is not yet decided on. Each row carries the " +
+    "id propose_criterion's parent_proposal_id needs. Bounded to a page — check the `truncated` " +
+    "field in the result before assuming you have seen everything.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      limit: { type: "integer", minimum: 1, maximum: MAX_READ_LIMIT },
+    },
+    required: [],
   },
 } as const;
 
@@ -1026,6 +1064,7 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
       boardSearchToolDefinition,
       epicGetToolDefinition,
       taskListToolDefinition,
+      proposalListToolDefinition,
     ],
   }));
 
@@ -1206,6 +1245,16 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
       }
       const limit = typeof args.limit === "number" ? args.limit : undefined;
       const result = await requestBoardRead(socketPath, { readKind: "list_tasks", epicId, ...(limit !== undefined ? { limit } : {}) });
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+
+    if (request.params.name === PROPOSAL_LIST_TOOL_NAME) {
+      // Plan 05-44 (gap G-05-9): a read tool — carries NO id of any kind, because the run this
+      // session's proposals belong to is resolved from the socket, exactly like every other
+      // authoring tool call in this file.
+      const args = (request.params.arguments ?? {}) as { limit?: unknown };
+      const limit = typeof args.limit === "number" ? args.limit : undefined;
+      const result = await requestBoardRead(socketPath, { readKind: "list_proposals", ...(limit !== undefined ? { limit } : {}) });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
 
