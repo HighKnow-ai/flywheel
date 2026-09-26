@@ -1704,6 +1704,56 @@ async function selfTest() {
   );
 
   check(
+    "buildAgentExchange on a turn with no AskUserQuestion returns an object carrying no questions key at all (key-presence, never truthiness)",
+    () => {
+      const plainTurn = { text: "ordinary reply", chunkCount: 1, charCount: 14, endedBy: "result", endIndex: 5, toolCalls: [] };
+      const exchange = buildAgentExchange(plainTurn);
+      assert.equal(exchange.speaker, "agent");
+      assert.equal(exchange.text, plainTurn.text);
+      assert.equal(exchange.nonConversation, null);
+      assert.equal(Object.hasOwn(exchange, "questions"), false, "expected no questions key on a turn with no AskUserQuestion");
+
+      const askTurn = {
+        text: "a follow-up",
+        chunkCount: 1,
+        charCount: 11,
+        endedBy: "result",
+        endIndex: 9,
+        toolCalls: [{ toolName: "AskUserQuestion", questions: [{ question: "Which?", options: [{ label: "A" }] }] }],
+      };
+      const askExchange = buildAgentExchange(askTurn);
+      assert.equal(Object.hasOwn(askExchange, "questions"), true, "expected a questions key when the turn carried AskUserQuestion prompts");
+      assert.equal(askExchange.questions.length, 1);
+
+      const overridden = buildAgentExchange(plainTurn, { endedBy: "timeout" });
+      assert.equal(overridden.endedBy, "timeout", "expected overrides to take precedence without reconstructing the rest");
+      assert.equal(overridden.text, plainTurn.text);
+    },
+  );
+
+  check(
+    "questionsFromTurn returns [] for a turn with no toolCalls, a turn whose tool calls are other tools, and an AskUserQuestion call with no parsed questions",
+    () => {
+      assert.deepEqual(questionsFromTurn({ text: "x" }), []);
+      assert.deepEqual(questionsFromTurn({ text: "x", toolCalls: [{ toolName: "Bash" }] }), []);
+      assert.deepEqual(
+        questionsFromTurn({ text: "x", toolCalls: [{ toolName: "AskUserQuestion", questions: [] }] }),
+        [],
+      );
+      assert.deepEqual(
+        questionsFromTurn({ text: "x", toolCalls: [{ toolName: "AskUserQuestion" }] }),
+        [],
+      );
+      const found = questionsFromTurn({
+        text: "x",
+        toolCalls: [{ toolName: "AskUserQuestion", questions: [{ question: "Which?", options: [] }] }],
+      });
+      assert.equal(found.length, 1);
+      assert.equal(found[0].question, "Which?");
+    },
+  );
+
+  check(
     "no answer-bank entry, the fallback, the closing turn, or the option-selection prefix coaches the model to challenge, push back, ask clarifying questions, or names the Socratic method",
     () => {
       const forbidden = /challenge|push[\s-]?back|clarify|clarifying|socratic/i;
