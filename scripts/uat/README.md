@@ -238,7 +238,7 @@ Four arms, like every live script in this directory:
 - **`--replay-check`** — pure, offline, no `claude` binary and no API credential. Drives the REAL
   sidecar, the REAL watchdog and the REAL shipped normaliser (`claude-code-adapter.ts`) against
   `scripts/uat/lib/fake-authoring-claude.mjs`, a scripted, zero-token, multi-chunk stand-in backend
-  that is unreachable from the live arm. Fourteen scenarios, each proving one thing the live arm would
+  that is unreachable from the live arm. Fifteen scenarios, each proving one thing the live arm would
   otherwise be the only way to check:
   - `truncation-repro` — the original multi-chunk truncation reproduction: a multi-block turn
     survives the whole wire intact.
@@ -280,6 +280,11 @@ Four arms, like every live script in this directory:
     run's unknown-event count is zero.
   - `works-continuously-past-old-deadline` — a turn whose total elapsed time exceeds the bound while
     every gap between events stays small, the combination the old arrangement could not survive.
+  - `ask-user-question` — replays the frozen real `AskUserQuestion` tool call live run
+    `01M3DNC0G9CYAWSD8DYEGTRP8C` emitted, imported from the fixture rather than retyped, proving
+    three things at once: the typed question payload survives the whole wire, the conversation
+    driver answers an offered option instead of reading the turn as settled, and the rendered
+    evidence sheet carries the questions inside the turn that asked them.
   Proves NOTHING WHATSOEVER about dialogue quality — its transcripts are synthetic, carry an
   unmissable synthetic marker in their first two lines, and structurally cannot hold a verdict line.
 - **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
@@ -543,6 +548,84 @@ runaway backstop, not a measurement.
 > to catch. Put emission on the exit, not on the outcome — and never abbreviate what you cannot
 > re-capture.
 
+**Ninth finding, recorded here because it changed the script again (this closure, plans
+05-40/05-41/05-42, gap `G-05-8`):** this is the NINTH instance of the defect class this register
+exists to name, and this round earns it twice over, in one round, in two independent places — the
+same shape round 8 earned twice in a single round.
+
+- The stage marker. `start_authoring_run` inserted `agent_runs.authoring_stage = 'challenge'` and
+  never wrote the runtime marker file the stage gate reads. The only production caller of
+  `write_authoring_stage` was `transition_stage`, so the marker did not exist from session start
+  until the first advance — the whole of the challenge stage, which is exactly the window the gate
+  is supposed to be denying in with an actionable reason. It denied with the fail-closed reason
+  instead, which reads as an infrastructure defect. The cost is exact: in live run
+  `01M3DNC0G9CYAWSD8DYEGTRP8C` the model concluded the run was structurally unusable, said so in as
+  many words, and emitted a fully shaped six-task epic with acceptance criteria as prose — the
+  project's Core Value failing in production as exactly a chat blob. Nine rounds of green tests
+  missed it because `packages/core/tests/authoring_stage.rs` asserted the database row,
+  `packages/sidecar/test/authoring-stage-gate.test.mjs` asserted the hook against a marker its own
+  helper hand-wrote, each side fabricating the other's state, and nothing asserted the product makes
+  them agree.
+- `AskUserQuestion`. A third unmodelled wire shape, and worse than the two round 9 modelled, because
+  this one carried the feature under test rather than diagnostic noise. The agent asked its three
+  clarifying questions through the tool; the harness captured assistant text only; the sheet a human
+  judges SHAPE-01 from jumped from the announcement of three questions straight to the agent noting
+  they had not been answered. Record the second half too, because it is the part that made the
+  exchange unrecoverable: the conversation driver decided a turn had settled because its PROSE
+  carried no question mark, so even a working capture would not have kept the conversation going.
+  And record the mechanism nobody could have answered around — in non-interactive mode the CLI
+  itself answers the call with a fixed unanswered-questions string, so the harness never had a
+  chance to respond to it at all, which is why the fix removes the tool from an authoring session's
+  tool set rather than trying to answer it.
+
+Root cause, once, for both: a fact with two representations and nothing asserting the product makes
+them agree — the stage row and the stage file; the questions on the wire and the questions in the
+sheet.
+
+This round also carries, for the second consecutive round, a correction to its own gap report.
+`05-UAT.md` named `packages/sidecar/src/mcp-permission-server.ts` as the artifact refusing the
+propose calls. It is not: the refusal string is emitted by `packages/sidecar/src/stage-gate-hook.ts`'s
+own fail-closed path, a `PreToolUse` hook, and a closure that had searched the MCP handler for a
+stage read would have found nothing to fix. The report also declined to name which side of the
+marker contract was wrong — the right call for a report, and the wrong thing to implement without
+measuring first. Repeat the register's existing lesson: a gap report is a hypothesis, and it has now
+earned its keep for a second consecutive round.
+
+**A seventh rule, from this round's pair of findings, stated as a rule rather than as a story:**
+
+> When one fact has two representations, a test that fabricates either one proves nothing about
+> the product. Assert that the product makes them agree, and assert it from the side that
+> writes.
+
+**Operator note — the authoring tool set and the questions section (plans 05-40/05-41/05-42):**
+
+- An authoring session is now spawned without the backend's multiple-choice tool
+  (`--disallowedTools AskUserQuestion` in `buildAuthoringClaudeArgv`), so the challenge stage stays
+  free conversation as D-88/D-89 chose. This is proven as argv only — the fixed flag this
+  repository's own argv builder emits, matching what the installed `claude` CLI documents — and not
+  against a live backend; whether a real backend, given that argv, then asks its clarifying
+  questions as prose instead of failing to call the tool at all is a live-run observation this round
+  does not make.
+- An `AskUserQuestion` call arriving anyway is modelled at the adapter seam as typed data on the
+  ordinary `tool_call` event (`ToolCallEvent.questions?: AskUserQuestionPrompt[]`) rather than as a
+  new `AgentEvent` union member. That is deliberate, not an oversight: the turn-boundary bookkeeping
+  in `waitForTurn` counts tool calls, so a reclassified call would never be answered and every turn
+  containing one would run to the ceiling.
+- The questions and their options now render inside the agent turn that asked them in
+  `05-LIVE-CHALLENGE-TRANSCRIPT.md`, via `renderQuestionsAsked`/`buildAgentExchange`/
+  `questionsFromTurn` — grep for those three names to find every capture site.
+- A run started in the challenge stage now carries its stage marker from the first transaction
+  (`start_authoring_run` → `write_authoring_stage`), so a `propose_*` call during `challenge` is
+  refused by `denyForChallengeStage`, whose reason tells the agent to keep challenging — never by
+  `failClosed`'s infrastructure-error reason.
+
+What this round did NOT resolve: `05-REVIEW.md`'s WR-01 (the live arm's own try/catch/finally is
+still executed by no automated command — plan 05-42 extracted one exchange builder so the property
+it added is provable through the same path the live arm uses, and deliberately did not attempt the
+full extraction), IN-01 and IN-02 — all three still open. No live run happened and no credential was
+spent. The live board write has still never once succeeded, so SHAPE-02, SHAPE-03 and SHAPE-04 have
+offline coverage only.
+
 ### Items 2 and 4 — the visual ones
 
 ```bash
@@ -615,6 +698,7 @@ and the Abandoned/Acknowledge flow still need a human at the window.
 | `packages/core/tests/bin/uat_authoring_ops.rs` | Bridge binary for item 8's live arm — drives the real accept/reject/amend/reopen domain writes against a scratch board |
 | `scripts/uat/fixtures/` | Frozen, real, zero-cost captures replayed offline by `--replay-check` scenarios (e.g. the unauthenticated CLI first-turn stream) — read at module load, never retyped |
 | `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json` | The frozen real capture (200-character prefixes) of the reasoning-only assistant message and the `rate_limit_event` line live run `01M3C48C3PV1NSGHERBZ587YB1` emitted and the adapter did not model, with mechanical anti-drift/anti-invention gates |
+| `scripts/uat/fixtures/live-opus5-ask-user-question.json` | Unlike its sibling fixture above, this one is FULL FIDELITY — read from Claude Code's own session log inside a preserved scratch root of live run `01M3DNC0G9CYAWSD8DYEGTRP8C`, not from a 200-character stderr prefix. References the committed capture artifact `.planning/phases/05-socratic-epic-authoring/05-ASK-USER-QUESTION-CAPTURE.json` in the phase directory, never an absolute scratch path |
 
 The Rust binaries exist so the harness cannot drift: they call `shim::shim_env_for_run`,
 `runtime_protocol::runtime_dir`, `runtime_protocol::touch_heartbeat` and the domain layer directly,
