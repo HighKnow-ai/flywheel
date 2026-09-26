@@ -672,7 +672,7 @@ Plans:
 
 **Gap closure round 11 — wave 3** *(blocked on 05-44 and 05-45 — the instrument can only observe a path that exists and an instruction that is sent)*
 
-- [ ] 05-46-PLAN.md — G-05-9: the instrument catches up — the single-shot proposal drain (this gap's retracted root cause, real but latent) becomes a real quiet-window re-drain because a two-stage collection makes it load-bearing, each event applied exactly once, proven by the two-burst fixture that was being dodged; the live arm advances twice and drains after each so D-88's criteria stage is reached at all; a four-valued reachability reading makes a drafted count of zero say whether the agent would not or could not; and one replay scenario drives the shape offline with an explicit statement of the leg it cannot prove (all five SHAPE ids)
+- [x] 05-46-PLAN.md — G-05-9: the instrument catches up — the single-shot proposal drain (this gap's retracted root cause, real but latent) becomes a real quiet-window re-drain because a two-stage collection makes it load-bearing, each event applied exactly once, proven by the two-burst fixture that was being dodged; the live arm advances twice and drains after each so D-88's criteria stage is reached at all; a four-valued reachability reading makes a drafted count of zero say whether the agent would not or could not; and one replay scenario drives the shape offline with an explicit statement of the leg it cannot prove (all five SHAPE ids)
 
 **Gap closure round 11 — wave 4** *(blocked on 05-44, 05-45 and 05-46 — the ledger cannot record a command until every command in this closure has been run)*
 
