@@ -76,8 +76,19 @@ impl AuthoringStage {
 /// existing one (SHAPE-05). In ONE transaction: creates a `user_action` trigger with
 /// `target_task_id` NULL and `target_epic_id = epic_id` ([`create_user_action_trigger_for_epic`]),
 /// inserts the `agent_runs` row with `task_id` NULL, `worktree_id` NULL,
-/// `authoring_stage = 'challenge'` and `status = 'running'`, and appends one `agent_run.started`
-/// event whose payload names the subject in human-renderable prose (D-19).
+/// `authoring_stage = 'challenge'` and `status = 'running'`, appends one `agent_run.started`
+/// event whose payload names the subject in human-renderable prose (D-19), and — as the LAST step
+/// before `commit` — writes the runtime stage marker (G-05-8(b)).
+///
+/// **Why the marker write belongs here, and not anywhere later:** `agent_runs.authoring_stage` and
+/// the marker file are two representations of one fact, read by two different processes, and the
+/// window in which they can disagree must be zero. This follows [`transition_stage`]'s own
+/// ordering rule (T-05-03-05) exactly, rather than inventing a second one: write the marker as the
+/// last step before `commit`, and bail BEFORE `commit` on a write failure so the transaction rolls
+/// back and no row is left without its marker. Before this change, the two disagreed for the whole
+/// of the challenge stage — the entire window during which `stage-gate-hook.ts` is supposed to be
+/// denying `propose_*` calls with an actionable reason. A run that cannot record its stage must not
+/// start; a permissive fallback here would silently reopen the exact gap G-05-8(b) closes.
 pub fn start_authoring_run(
     conn: &mut Connection,
     project_id: &str,
@@ -130,6 +141,16 @@ pub fn start_authoring_run(
         &started_payload,
         &now,
     )?;
+
+    // G-05-8(b), T-05-03-05's ordering rule applied to the start path: last step before commit —
+    // see this function's own doc comment above.
+    if let crate::runtime_protocol::RuntimeIo::WriteFailed(reason) =
+        crate::runtime_protocol::write_authoring_stage(&run_id, AuthoringStage::Challenge.as_str())
+    {
+        anyhow::bail!(
+            "failed to write the authoring stage runtime marker for {run_id:?}: {reason}"
+        );
+    }
 
     tx.commit()
         .context("failed to commit start_authoring_run transaction")?;
