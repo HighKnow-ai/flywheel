@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 05-socratic-epic-authoring
-source: [05-VERIFICATION.md]
+source: [05-VERIFICATION.md, 05-36-SUMMARY.md, 05-37-SUMMARY.md, 05-38-SUMMARY.md, 05-39-SUMMARY.md]
 started: 2026-09-25T15:55:00Z
-updated: 2026-09-25T20:15:00Z
+updated: 2026-09-26T01:45:00Z
 ---
 
 ## Current Test
@@ -23,9 +23,17 @@ why_human: |
   self-test. If the composed directory does not actually authenticate, that is a new reportable
   finding, not a failure of this verification.
 result: issue
-reported: "Live run 01M3C48C3PV1NSGHERBZ587YB1 (2026-09-25T11:12:22Z). Authentication SUCCEEDED — the run logged `backend authenticated as the developer: method=claude.ai loggedIn=true`, confirming plan 05-33's credential fix against a real ~/.claude for the first time. The run then failed at the turn-1 deadline (120000ms) and produced NO evidence sheet: 05-LIVE-CHALLENGE-TRANSCRIPT.md is byte-unchanged from the previous run, and the uat-08-credential-path artifact the run logged writing does not survive either. SHAPE-01 and SHAPE-03 remain unjudged — not because the agent failed to challenge, but because the instrument discarded what it captured."
+reported: "Live run 01M3DNC0G9CYAWSD8DYEGTRP8C (2026-09-26T01:30:43Z), the first live run after gap-closure round 9. Round 9's own fixes ALL HELD and are now confirmed in production, not just offline: the run exited 1 and the evidence sheet still grew 2645 -> 10556 bytes (written 4x including a `pre-proposal, results pending` checkpoint), the scratch root was preserved (`[uat] preserved scratch root (run failed)`), the uat-08-credential-path artifact survived, no turn deadline fired (2 full agent turns completed where the previous run died at 120000ms), and the terminating failure was classified from the wire's own error flag (`source=assistant_envelope_error_flag classifier=invalid_request`) rather than from prose. But SHAPE-01 and SHAPE-03 STILL cannot be judged, for two NEW reasons. (a) The agent asked its three clarifying questions through the `AskUserQuestion` tool; the harness captures only `assistant_text`, so the questions are absent from the evidence sheet — the transcript jumps from 'three things would materially change the shape of the spec:' straight to 'You didn't pick' — and the driver answered the tool with 'The user did not answer the questions' because it has no handler, so the Socratic exchange could never develop. (b) Every propose_epic/propose_assumption call was refused with 'Flywheel could not verify the authoring stage allows this call (no authoring stage marker could be read for this run)' although the run demonstrably started in the challenge stage; nothing reached the board, `Drafted criteria: 0`, and the shaped epic exists only as prose. The questions were recovered post hoc from Claude Code's own session JSONL inside the preserved scratch root — which only existed because round 9's preserveRoot fix worked."
 severity: blocker
 previously: |
+  issue (round 9, 2026-09-25T11:12:22Z) — live run 01M3C48C3PV1NSGHERBZ587YB1. Authentication
+  SUCCEEDED (`method=claude.ai loggedIn=true`), confirming plan 05-33's credential fix against a
+  real ~/.claude for the first time. The run then failed at the turn-1 deadline (120000ms) and
+  produced NO evidence sheet: `05-LIVE-CHALLENGE-TRANSCRIPT.md` was byte-unchanged and the
+  credential-path artifact did not survive either. Opened gap `G-05-7`; closed by plans 05-36
+  (evidence on every exit), 05-37 (unmodelled wire shapes) and 05-38 (idle-primary turn bounds),
+  all three confirmed by the 2026-09-26 run above.
+
   blocked (round 8, 2026-09-25T16:25:00Z) — runs 01M3BSBJ05CJD49YFPC5VV26EG and
   01M3BSKG32D3QRDGEJJS2B7YHD both exited 1 with the backend's only reply being
   `Not logged in · Please run /login`. Root cause was NOT a missing login: config isolation and
@@ -76,7 +84,10 @@ blocked: 0
 
 - gap_id: G-05-7
   truth: "A live run that fails still writes the evidence sheet with whatever it captured, so a run that spent real tokens is never invisible after the fact."
-  status: failed
+  status: resolved
+  resolved_by: 05-36-PLAN.md
+  resolved_at: 2026-09-26
+  resolution_evidence: "Confirmed in production by live run 01M3DNC0G9CYAWSD8DYEGTRP8C, which exited 1 and still grew the sheet 2645 -> 10556 bytes (4 writes, including a `pre-proposal, results pending` checkpoint), preserved the scratch root, and kept the credential-path artifact. Structural, not additive: `writeFileSync(evidencePath` call sites went 4 -> 0, replaced by a single `writeChallengeEvidence` writer invoked from one `finally`. The preserved scratch root is what made gap G-05-8(a) diagnosable at all."
   reason: "Live run 01M3C48C3PV1NSGHERBZ587YB1 spent real tokens, captured 539 characters of genuine agent speech across 2 chunks and a ~130-event trace, then discarded all of it. `evidencePath` is resolved at uat-08-socratic-authoring.mjs:4607 under a comment that states the intent explicitly — \"a refusal must be able to write the evidence sheet with whatever was captured before it fails the run\" (G-05-3, plan 05-24) — but every `fs.writeFileSync(evidencePath, ...)` site is downstream of the `await driveChallengeConversation(...)` call at :4614. A refusal RETURNED from that call reaches the writes; an exception THROWN from it (here, the turn-1 deadline) bypasses all of them. The guarantee was implemented for one failure shape and not the other. This is an eighth instance of the defect class README Item 8 records: the comment describes a guarantee the code does not provide. Worse, the `uat-08-credential-path` artifact plan 05-33 Task 3 added so that \"which credential authenticated a run can never again be invisible after the fact\" is likewise gone — the harness cleanup removed it on the failure path. 05-33 self-tested that the artifact RENDERS; nothing tested that it SURVIVES."
   severity: blocker
   test: 1
@@ -94,7 +105,10 @@ blocked: 0
 
 - gap_id: G-05-7
   truth: "The live arm completes a first agent turn against the real backend within its own deadline."
-  status: failed
+  status: resolved
+  resolved_by: 05-38-PLAN.md
+  resolved_at: 2026-09-26
+  resolution_evidence: "Confirmed in production by live run 01M3DNC0G9CYAWSD8DYEGTRP8C: no deadline fired and two full agent turns completed, where the previous run was killed at 120000ms mid-work. `TURN_DEADLINE_MS` is gone (bare references 0, `REPLAY_TURN_DEADLINE_MS` intact at 11); `LIVE_TOOL_CALL_IDLE_MS = 120_000` now bounds the mid-flight tool-call state that plan 05-25 had left backstopped only by the wall clock, and `LIVE_TURN_CEILING_MS = 900_000` resets on every progress signal. The constant carries a four-part derivation stating explicitly that 120000ms is a LOWER bound, that no upper bound exists in this repository, and that the ceiling firing would itself be a reportable finding rather than a number to raise."
   reason: "Turn 1 exceeded TURN_DEADLINE_MS = 120000 (uat-08-socratic-authoring.mjs:84). This is NOT a stall: the separate idle guard LIVE_TURN_IDLE_MS = 30000 never fired, and the captured event list shows continuous activity to the deadline — roughly 60 tool_call/tool_result pairs, several board_read_request round trips, and repeated permission_request drains. The backend is claude-opus-5 doing genuine exploratory tool work on its first turn. The deadline was calibrated against a scripted fake backend whose turns are instant, never against a real reasoning model's first turn."
   severity: major
   test: 1
@@ -109,7 +123,11 @@ blocked: 0
 
 - gap_id: G-05-7
   truth: "Every event shape the shipped backend emits is modelled by the adapter rather than dumped as unrecognised raw text."
-  status: failed
+  status: resolved_partially
+  resolved_by: 05-37-PLAN.md
+  resolved_at: 2026-09-26
+  resolution_evidence: "The two shapes this gap named ARE now modelled at the adapter seam: `grep -ci thinking` on `packages/sidecar/src/adapter.ts` / `claude-code-adapter.ts` went 0/0 -> 5 and 7, `rate_limit` 0/0 -> 2 and 8, with a real capture frozen as `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json` and the 200-char truncating logger replaced by `createUnmodelledEventSink`. Live run 01M3DNC0G9CYAWSD8DYEGTRP8C emitted no `unrecognised sidecar event` lines for either shape."
+  residual: "The truth as WORDED — *every* event shape is modelled — is not fully met, and the same run proved it: the `AskUserQuestion` tool call is a third shape the harness does not model, and its payload is dropped from the evidence sheet rather than dumped to stderr. Carried forward as gap G-05-8(a) rather than marked closed, because closing a universally-quantified truth on two instances is exactly the overclaim this phase's Item 8 register exists to prevent."
   reason: "Two wire event types the real backend emits are absent from the entire repository. `thinking` content blocks: `grep -c thinking` reports 0 in both packages/sidecar/src/adapter.ts and claude-code-adapter.ts, yet claude-opus-5 emitted roughly eleven assistant messages whose content began with a thinking block during turn 1 — each normalised to `unknown` and dumped to stderr as `[uat] unrecognised sidecar event` with its full raw JSON. `rate_limit_event`: zero occurrences repo-wide, also dumped raw — and it carried real operational information the product will want (rateLimitType=seven_day, utilization=0.81, status=allowed_warning, surpassedThreshold=0.75). The harness's event model does not match the wire it consumes, which is the same root shape as G-05-6's MAJOR finding."
   severity: major
   test: 1
@@ -123,4 +141,43 @@ blocked: 0
     - "Model thinking content blocks explicitly — at minimum so they stop being dumped as raw unrecognised text"
     - "Model rate_limit_event and surface its utilization/threshold fields"
     - "Freeze a real captured fixture of each shape from this run's log, as the other shapes already are"
+  debug_session: ""
+
+- gap_id: G-05-8
+  truth: "The clarifying questions the agent asks are visible in the evidence sheet a human judges SHAPE-01 from, and the driver answers them so the exchange can continue."
+  status: failed
+  reason: "Live run 01M3DNC0G9CYAWSD8DYEGTRP8C (2026-09-26): the agent asked its three clarifying questions through the `AskUserQuestion` tool rather than as assistant text. The harness captures only `assistant_text` chunks, so the questions never reached `05-LIVE-CHALLENGE-TRANSCRIPT.md` — the transcript reads `...three things would materially change the shape of the spec:` and then jumps straight to `You didn't pick — no problem.` The agent itself later refers to `the three questions you skipped`, confirming they were asked. Separately, the driver has no handler for the tool and answered it with the literal string `The user did not answer the questions.`, so the agent proceeded on stated defaults and the Socratic exchange could never develop past turn one. SHAPE-01 is `the agent challenges assumptions and asks clarifying questions` — the questions ARE the evidence, and the artifact a human is asked to judge does not contain them. This is the same root shape as G-05-7's third finding (a content-block type the harness does not model), and more damaging, because the unmodelled shape carries the feature under test rather than diagnostic noise. Recovered post hoc from Claude Code's own session JSONL inside the preserved scratch root — an artifact that only survived because plan 05-36's preserveRoot fix landed first."
+  severity: blocker
+  test: 1
+  root_cause: "`AskUserQuestion` is not modelled at the adapter seam, so it is neither carried into the harness's turn capture nor exposed to the driver as something answerable."
+  artifacts:
+    - path: "packages/sidecar/src/claude-code-adapter.ts"
+      issue: "no branch for an AskUserQuestion tool_use block; its question/option payload is not normalised into a typed event"
+    - path: "scripts/uat/uat-08-socratic-authoring.mjs"
+      issue: "the turn capture accumulates assistant_text chunks only, so a turn's questions are absent from the rendered evidence sheet"
+    - path: "scripts/uat/lib/sidecar-harness.mjs"
+      issue: "the inbound-request drain has no handler for AskUserQuestion; it resolves as an unanswered question rather than routing to the driver"
+  missing:
+    - "Carry the AskUserQuestion tool call's own question/option payload through the adapter seam as a typed event, the same remedy plans 05-30/05-34/05-37 used for prior instances of this class — not a harness-side reconstruction"
+    - "Render the questions and their options into the evidence sheet as part of the agent's turn, so SHAPE-01's evidence is in the artifact a human reads"
+    - "Give the driver a real handler so it selects an option (or answers in text) and the conversation continues, instead of returning `The user did not answer the questions.`"
+    - "Freeze a fixture of the AskUserQuestion shape from this run's preserved session JSONL and replay it offline, as the other shapes already are"
+  debug_session: ""
+
+- gap_id: G-05-8
+  truth: "An authoring session started in the challenge stage can write its outcome to the board — the epic, its tasks and their drafted acceptance criteria arrive as structured items."
+  status: failed
+  reason: "Live run 01M3DNC0G9CYAWSD8DYEGTRP8C (2026-09-26): every `propose_epic` and `propose_assumption` call was refused with `Flywheel could not verify the authoring stage allows this call (no authoring stage marker could be read for this run) — refusing it.` The run log nevertheless reports `run 01M3DNC0G9CYAWSD8DYEGTRP8C started in the challenge stage`, and the driver later advanced the stage through the D-90 human gate without error — so the marker was set for the run and the MCP tool could not read it. Nothing reached the board: the evidence sheet records `Drafted criteria: 0`, and the shaped epic (six tasks, each with acceptance criteria) exists only as prose in the conversation. SHAPE-02, SHAPE-03 and SHAPE-04 therefore have NO live evidence at all, only offline coverage. This is the project's Core Value failing in a live run — `every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob` — and in this run it was exactly a chat blob."
+  severity: blocker
+  test: 1
+  root_cause: "A read-path or scoping mismatch between where the run's authoring stage marker is written and where the MCP proposal tools look for it — not a missing marker. Unlike G-05-8(a) this is a PRODUCT defect in the authoring gate, so the fix belongs in `packages/`, not `scripts/uat/`."
+  artifacts:
+    - path: "packages/sidecar/src/mcp-permission-server.ts"
+      issue: "propose_* refuse on an unreadable stage marker for a run that demonstrably started in the challenge stage"
+    - path: "packages/core"
+      issue: "the stage marker's write path and the MCP tool's read path disagree for a harness-spawned authoring run; which side is wrong is undetermined"
+  missing:
+    - "Determine which side of the marker contract is wrong — the write at session start, or the read from the MCP tool's run context — and state the finding before fixing either"
+    - "A regression that fails when a run started in the challenge stage cannot have its stage marker read by the proposal tools"
+    - "Live-path coverage for SHAPE-02/03/04: the offline arms pass while the live board write has never once succeeded, which is precisely the offline/live divergence rule recorded in Item 8 (plan 05-26)"
   debug_session: ""
