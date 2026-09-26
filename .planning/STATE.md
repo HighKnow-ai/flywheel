@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-40-PLAN.md
-last_updated: "2026-09-26T03:18:33.117Z"
+stopped_at: Completed 05-41-PLAN.md
+last_updated: "2026-09-26T09:19:55.463Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 05 execution started
-state_head: 0eda78ae511c8cd1e008fd259ffa4e94993ab176
+state_head: 83a2ad38e3bb4dd0e1ff1ea15e7fa4990e97c870
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 136
-  completed_plans: 133
+  completed_plans: 134
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 2 of 43
+Plan: 3 of 43
 Status: Ready to execute
 Last activity: 2026-09-26 — Phase 05 execution started
 
@@ -190,6 +190,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P38 | 25min | 3 tasks | 3 files |
 | Phase 05 P39 | ~20min | 3 tasks | 3 files |
 | Phase 05 P40 | 35min | 3 tasks | 3 files |
+| Phase 05 P41 | ~25min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -426,6 +427,8 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05]: The live turn's wall-clock ceiling (LIVE_TURN_CEILING_MS, formerly TURN_DEADLINE_MS) now resets on every observed progress signal instead of firing unconditionally from call start — An absolute-from-start timer fires regardless of activity, which is the exact mechanism that killed live run 01M3C48C3PV1NSGHERBZ587YB1 (a turn still working at 120000ms). Resetting the ceiling on progress makes it a silence window like the ordinary idle window and the new mid-flight window, satisfying the plan's own truth that a turn must never be bounded by a total wall-clock budget.
 - [Phase 05]: Corrected this round's own gap report rather than implementing it as written: harness cleanup destroys harness.root, not the uat-08-credential-path artifact (which resolves outside it and was never registered for teardown).
 - [Phase 05]: The marker write in start_authoring_run copies transition_stage's T-05-03-05 ordering rule (last write before commit, bail before commit on failure) directly via write_authoring_stage, rather than routing through transition_stage's guarded-UPDATE machinery, which exists for a different problem (concurrent double-transition) that a brand-new run has not yet encountered.
+- [Phase 05]: ToolCallEvent.questions is additive only — AgentEvent's union membership is unchanged (05-41)
+- [Phase 05]: An authoring session's argv disallows AskUserQuestion unconditionally (buildAuthoringClaudeArgv), never folded into the permission-prompt-tool branch -- the challenge stage stays free conversation (05-41, D-88/D-89)
 
 ### Pending Todos
 
@@ -475,6 +478,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-26T03:18:32.971Z
-Stopped at: Completed 05-40-PLAN.md
+Last session: 2026-09-26T09:19:28.953Z
+Stopped at: Completed 05-41-PLAN.md
 Resume file: None
