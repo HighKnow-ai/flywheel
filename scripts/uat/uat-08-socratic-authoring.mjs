@@ -371,6 +371,13 @@ function renderQuestionsAsked(questions) {
  *   vacuously true the moment no propose attempt happens to be observed. Defaults to `"unproven"`
  *   when omitted (no propose attempt observed by the time this sheet was written).
  * - `draftedCriteriaCount`, `amendedCriteriaCount`
+ * - `criteriaReachabilityReading` (plan 05-46, gap G-05-9) — the FOUR-valued `readCriteriaReachability`
+ *   reading (`"drafted" | "blocked" | "declined" | "not-attempted"`), rendered immediately next to
+ *   `draftedCriteriaCount` so a zero count reads as a NAMED reason, never a bare number a reader
+ *   could mistake for the model's own considered choice when it was, in fact, impossible. Defaults
+ *   to `"not-attempted"` when omitted. `criteriaDrainStoppedBy` (`"quiet" | "deadline" | null`)
+ *   renders alongside it — "the window closed quiet" and "the window ran out" are different facts
+ *   about a run and must not read the same.
  * - `results` (the array `buildCriteriaResults`/`reportCriteria` share — may be `[]` before the
  *   decompose phase completes)
  * - `synthetic` (boolean, default `false`) and `scenario` (the scenario name, when `synthetic` is
@@ -405,6 +412,8 @@ function renderChallengeEvidenceSheet(evidence) {
     noWorkPlannedReading = "unproven",
     draftedCriteriaCount,
     amendedCriteriaCount,
+    criteriaReachabilityReading = "not-attempted",
+    criteriaDrainStoppedBy = null,
     results,
     timestamp,
     synthetic = false,
@@ -564,6 +573,7 @@ ${criterionLines || "(not yet available — populated once the decompose phase c
 ## Draft usefulness (SHAPE-03)
 
 - Drafted criteria: ${drafted}
+- Criteria reachability: ${criteriaReachabilityReading} (criteria-stage proposal drain stoppedBy: ${criteriaDrainStoppedBy ?? "n/a"})
 - Amended criteria: ${amended}
 - Ratio (amended/drafted): ${amended}/${drafted}
 
@@ -2002,33 +2012,58 @@ async function selfTest() {
     },
   );
 
-  check("the live body calls advance-stage exactly once, after the driver returns, and never inside it", () => {
-    const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
-    // The runOps call-site shape (an array literal opening with the advance-stage op name) —
-    // deliberately narrower than a bare string-literal scan, which would also match this very
-    // check's own source below (a self-referential scan reads itself too). The pattern is built
-    // from parts at runtime so its own source line never spells out the literal shape it hunts for.
-    const advanceOpPattern = new RegExp("\\[\\s*" + JSON.stringify("advance-stage") + "\\s*,");
-    // Scoped to the LIVE body specifically — `--replay-check` (plan 05-21) legitimately carries
-    // its OWN advance-stage call site, once per non-default scenario, mirroring the live body
-    // rather than duplicating this invariant. The live body's own runScript call is the only
-    // TOP-LEVEL (column-zero) one in the file; every other call lives inside an indented helper.
-    const liveBodyStart = thisFile.indexOf("\nawait runScript(\n");
-    assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
-    const liveBodySource = thisFile.slice(liveBodyStart);
-    const advanceCallCount = (liveBodySource.match(new RegExp(advanceOpPattern.source, "g")) ?? []).length;
-    assert.equal(advanceCallCount, 1, "expected exactly one advance-stage call site in the live body");
-    // lastIndexOf, not indexOf: the ONLY real declaration is textually last in the file — every
-    // earlier occurrence of this literal is a self-referential mention inside a check's own source
-    // (this one included), which `indexOf` would otherwise find first and mis-slice from.
-    const driverStart = thisFile.lastIndexOf("async function driveChallengeConversation");
-    const driverEnd = thisFile.indexOf("\n}\n", driverStart);
-    const driverBody = thisFile.slice(driverStart, driverEnd);
-    assert.ok(!driverBody.includes("advance-stage"), "driveChallengeConversation must never call advance-stage itself");
-  });
+  check(
+    "the live body calls advance-stage exactly twice, both after the driver returns, and never inside it",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      // The runOps call-site shape (an array literal opening with the advance-stage op name) —
+      // deliberately narrower than a bare string-literal scan, which would also match this very
+      // check's own source below (a self-referential scan reads itself too). The pattern is built
+      // from parts at runtime so its own source line never spells out the literal shape it hunts for.
+      const advanceOpPattern = new RegExp("\\[\\s*" + JSON.stringify("advance-stage") + "\\s*,");
+      // Scoped to the LIVE body specifically — `--replay-check` (plan 05-21) legitimately carries
+      // its OWN advance-stage call site(s), mirroring the live body rather than duplicating this
+      // invariant. The live body's own runScript call is the only TOP-LEVEL (column-zero) one in
+      // the file; every other call lives inside an indented helper.
+      const liveBodyStart = thisFile.indexOf("\nawait runScript(\n");
+      assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
+      const liveBodySource = thisFile.slice(liveBodyStart);
+      const globalAdvancePattern = new RegExp(advanceOpPattern.source, "g");
+      const advanceMatches = [...liveBodySource.matchAll(globalAdvancePattern)];
+      // Plan 05-46 (gap G-05-9): D-88's own three-stage machine holds TWO developer gates (D-90) —
+      // challenge -> decompose, and decompose -> criteria — so the live body now carries two
+      // advance-stage call sites, never one and never a third.
+      assert.equal(
+        advanceMatches.length,
+        2,
+        `expected exactly two advance-stage call sites in the live body (one per developer-held ` +
+          `gate in D-88's three-stage machine: challenge -> decompose, decompose -> criteria), got ` +
+          `${advanceMatches.length}`,
+      );
+      // Both call sites must appear textually AFTER the driver's own call — an advance can never
+      // migrate back inside the conversation the driver is still running.
+      const driverCallMarker = "await driveChallengeConversation(";
+      const driverCallIndex = liveBodySource.indexOf(driverCallMarker);
+      assert.ok(driverCallIndex >= 0, "expected to find the live body's own call to driveChallengeConversation");
+      advanceMatches.forEach((match, position) => {
+        assert.ok(
+          match.index > driverCallIndex,
+          `expected advance-stage call site #${position + 1} (at index ${match.index}) to appear ` +
+            `after the live body's own call to driveChallengeConversation (at index ${driverCallIndex})`,
+        );
+      });
+      // lastIndexOf, not indexOf: the ONLY real declaration is textually last in the file — every
+      // earlier occurrence of this literal is a self-referential mention inside a check's own source
+      // (this one included), which `indexOf` would otherwise find first and mis-slice from.
+      const driverStart = thisFile.lastIndexOf("async function driveChallengeConversation");
+      const driverEnd = thisFile.indexOf("\n}\n", driverStart);
+      const driverBody = thisFile.slice(driverStart, driverEnd);
+      assert.ok(!driverBody.includes("advance-stage"), "driveChallengeConversation must never call advance-stage itself");
+    },
+  );
 
   check(
-    "[Plan 05-24, NF-01] the live body holds exactly one waitForTurn( call site — no standalone first-turn capture duplicating the driver's own first exchange",
+    "[Plan 05-24, NF-01; extended plan 05-46, gap G-05-9] the live body holds exactly two waitForTurn( call sites — the distillation and criteria captures — never a standalone first-turn capture duplicating the driver's own first exchange",
     () => {
       const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
       // Scoped to the LIVE body specifically, exactly like the advance-stage check above — the
@@ -2044,12 +2079,16 @@ async function selfTest() {
         .split("\n")
         .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
         .filter((line) => line.includes(waitForTurnMarker)).length;
+      // Plan 05-46 (gap G-05-9): TWO legitimate call sites now — the distillation reply (entering
+      // decompose) and the criteria reply (entering criteria) — neither one a standalone capture of
+      // the driver's OWN first turn, which NF-01 named and which the driver itself still captures.
       assert.equal(
         nonCommentLineCount,
-        1,
-        `expected exactly one ${waitForTurnMarker} call site in the live body, got ` +
-          `${nonCommentLineCount} — a standalone first-turn capture would double-record the seed ` +
-          "turn the driver already captures as its own first exchange (NF-01)",
+        2,
+        `expected exactly two ${waitForTurnMarker} call sites in the live body (the distillation ` +
+          `and criteria replies), got ${nonCommentLineCount} — a standalone first-turn capture ` +
+          "would double-record the seed turn the driver already captures as its own first exchange " +
+          "(NF-01); a third capture site beyond the two named here would be equally unexpected",
       );
     },
   );
@@ -2422,6 +2461,72 @@ async function selfTest() {
     const [, , detail] = results.find(([name]) => name.includes("SHAPE-01"));
     assert.ok(detail.includes("authoring_stage.rs"), "expected the core-side structural proof site named");
     assert.ok(detail.includes("authoring-stage-gate.test.mjs"), "expected the sidecar-side structural proof site named");
+  });
+
+  // -----------------------------------------------------------------------------------------
+  // readCriteriaReachability (plan 05-46, gap G-05-9) — the four-valued reading, against
+  // in-memory event fixtures, reusing correlateProposeAttempts verbatim.
+  // -----------------------------------------------------------------------------------------
+
+  check("readCriteriaReachability reads \"drafted\" whenever draftedCriteriaCount is greater than zero, regardless of event content", () => {
+    const reading = readCriteriaReachability([], { runId: "run-a", fromIndex: 0, toIndex: 0 }, { draftedCriteriaCount: 2 });
+    assert.equal(reading, "drafted");
+  });
+
+  check("readCriteriaReachability reads \"blocked\" when a propose_criterion attempt is refused, paired by correlation id", () => {
+    const events = [
+      { type: "tool_call", runId: "run-b", toolName: "mcp__flywheel-permissions__propose_criterion", toolUseId: "toolu_pc_1" },
+      {
+        type: "tool_result",
+        runId: "run-b",
+        toolUseId: "toolu_pc_1",
+        raw: "still in the challenge stage — no proposals yet",
+      },
+    ];
+    const reading = readCriteriaReachability(
+      events,
+      { runId: "run-b", fromIndex: 0, toIndex: events.length },
+      { draftedCriteriaCount: 0 },
+    );
+    assert.equal(reading, "blocked");
+  });
+
+  check("readCriteriaReachability reads \"declined\" when proposal_list was called and no criterion was drafted and nothing was refused", () => {
+    const events = [
+      { type: "tool_call", runId: "run-c", toolName: "mcp__flywheel-permissions__proposal_list", toolUseId: "toolu_pl_1" },
+      { type: "tool_result", runId: "run-c", toolUseId: "toolu_pl_1", raw: "[]" },
+    ];
+    const reading = readCriteriaReachability(
+      events,
+      { runId: "run-c", fromIndex: 0, toIndex: events.length },
+      { draftedCriteriaCount: 0 },
+    );
+    assert.equal(reading, "declined");
+  });
+
+  check("readCriteriaReachability reads \"not-attempted\" when there is no propose_criterion attempt and no proposal_list call at all", () => {
+    const events = [
+      { type: "tool_call", runId: "run-d", toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "toolu_pt_1" },
+      { type: "tool_result", runId: "run-d", toolUseId: "toolu_pt_1", raw: "ok" },
+    ];
+    const reading = readCriteriaReachability(
+      events,
+      { runId: "run-d", fromIndex: 0, toIndex: events.length },
+      { draftedCriteriaCount: 0 },
+    );
+    assert.equal(reading, "not-attempted");
+  });
+
+  check("readCriteriaReachability never confuses a foreign run's proposal_list call with this run's own", () => {
+    const events = [
+      { type: "tool_call", runId: "run-someone-elses", toolName: "mcp__flywheel-permissions__proposal_list", toolUseId: "toolu_foreign_1" },
+    ];
+    const reading = readCriteriaReachability(
+      events,
+      { runId: "run-e", fromIndex: 0, toIndex: events.length },
+      { draftedCriteriaCount: 0 },
+    );
+    assert.equal(reading, "not-attempted");
   });
 
   // -----------------------------------------------------------------------------------------
@@ -4444,7 +4549,8 @@ export function conversationStoppedOnNonConversationTurn(conversation) {
  * defect this whole plan closes was exactly a write site sitting downstream of a call that could
  * throw. Takes a single mutable state object carrying `evidencePath`, `runId`, `openingPrompt`,
  * `conversation`, `noWorkPlannedReading`, `draftedCriteriaCount`, `amendedCriteriaCount`,
- * `results`, `credentialPath`, `nonConversation` and `failure`.
+ * `criteriaReachabilityReading`, `criteriaDrainStoppedBy` (plan 05-46, gap G-05-9), `results`,
+ * `credentialPath`, `nonConversation` and `failure`.
  *
  * Tolerates a `conversation` of `null` or `undefined` by treating it as a conversation with zero
  * exchanges — a run that died before `driveChallengeConversation` ever returned still gets the
@@ -4466,6 +4572,8 @@ export function writeChallengeEvidence(state) {
       noWorkPlannedReading: state.noWorkPlannedReading,
       draftedCriteriaCount: state.draftedCriteriaCount,
       amendedCriteriaCount: state.amendedCriteriaCount,
+      criteriaReachabilityReading: state.criteriaReachabilityReading,
+      criteriaDrainStoppedBy: state.criteriaDrainStoppedBy,
       results: state.results,
       timestamp: new Date().toISOString(),
       nonConversation: state.nonConversation ?? null,
@@ -4508,6 +4616,16 @@ const PROPOSE_TOOL_NAME_FRAGMENT = "propose_";
  * reason as {@link PROPOSE_TOOL_NAME_FRAGMENT} above. Matches what this script has always
  * matched (`stage-gate-hook.ts`'s own `denyForChallengeStage` wording). */
 const CHALLENGE_REFUSAL_PATTERN = /challenge stage/i;
+
+/** Plan 05-46 (gap G-05-9): the propose-tool fragment {@link readCriteriaReachability} filters
+ * propose attempts by, specifically — never the broader {@link PROPOSE_TOOL_NAME_FRAGMENT}, which
+ * also matches `propose_task`/`propose_assumption`. Named for the same reason that constant is. */
+const PROPOSE_CRITERION_TOOL_NAME_FRAGMENT = "propose_criterion";
+
+/** Plan 05-46 (gap G-05-9): the tool-name fragment {@link readCriteriaReachability} scans for to
+ * detect that the agent read a staged proposal's id back — plan 05-44's `proposal_list` tool.
+ * Named for the same reason {@link PROPOSE_CRITERION_TOOL_NAME_FRAGMENT} above is. */
+const PROPOSAL_LIST_TOOL_NAME_FRAGMENT = "proposal_list";
 
 /**
  * The one-to-one correlation between every propose attempt (a `tool_call` event whose tool name
@@ -4680,6 +4798,56 @@ function readNoWorkPlanned(events, window) {
   if (correlated.length === 0) return "unproven";
   if (correlated.some((attempt) => !attempt.correlatable)) return "uncorrelatable";
   return correlated.every((attempt) => attempt.refused) ? "refused" : "violated";
+}
+
+/**
+ * Plan 05-46 (gap G-05-9): the reachability reading the gap asked for BY NAME — distinguishing a
+ * `Drafted criteria: 0` reading caused by the agent CHOOSING not to draft from one caused by the
+ * agent being STRUCTURALLY UNABLE to. Computed over `events` in `window` (`{ runId, fromIndex,
+ * toIndex }`, delegated verbatim to {@link correlateProposeAttempts} — the SAME required-window
+ * discipline CR-01 already established for `readNoWorkPlanned`, for the identical reason: an
+ * unscoped reading here could see a LATER stage's own legitimate activity and misclassify it).
+ *
+ * Four values, checked in this order:
+ * - `"drafted"` — `draftedCriteriaCount` (the caller's own `list-pending` count, never re-derived
+ *   from the event stream here — `list-pending`'s real database snapshot is this harness's one
+ *   source of truth for what actually landed) is greater than zero.
+ * - `"blocked"` — otherwise, at least one `propose_criterion` attempt in `window`, paired by the
+ *   wire's own correlation id through the EXISTING {@link correlateProposeAttempts} (never a second
+ *   pairing scheme — six consecutive rounds of this phase shipped a criterion that could not report
+ *   a genuine result, every one of them building a new correlation mechanism), was refused.
+ * - `"declined"` — otherwise, a `tool_call` naming {@link PROPOSAL_LIST_TOOL_NAME_FRAGMENT} appears
+ *   in `window` (the agent read a staged proposal's id back) and nothing above already returned.
+ * - `"not-attempted"` — otherwise: no `propose_criterion` attempt and no `proposal_list` call at
+ *   all in `window`.
+ *
+ * NEVER fails the run on any value — a zero count is a REPORTED reading; the developer judges
+ * whether zero drafted criteria after `"declined"` is a legitimate judgement call or a prompting gap.
+ */
+function readCriteriaReachability(events, window, { draftedCriteriaCount }) {
+  if (draftedCriteriaCount > 0) return "drafted";
+
+  const criteriaAttempts = correlateProposeAttempts(events, window).filter((attempt) =>
+    attempt.toolName.includes(PROPOSE_CRITERION_TOOL_NAME_FRAGMENT),
+  );
+  if (criteriaAttempts.some((attempt) => attempt.correlatable && attempt.refused)) return "blocked";
+
+  const { runId, fromIndex, toIndex } = window;
+  let sawProposalListCall = false;
+  for (let i = fromIndex; i < toIndex; i += 1) {
+    const event = events[i];
+    if (event.runId !== runId) continue;
+    if (
+      event.type === "tool_call" &&
+      typeof event[TOOL_NAME_FIELD] === "string" &&
+      event[TOOL_NAME_FIELD].includes(PROPOSAL_LIST_TOOL_NAME_FRAGMENT)
+    ) {
+      sawProposalListCall = true;
+      break;
+    }
+  }
+  if (sawProposalListCall) return "declined";
+  return "not-attempted";
 }
 
 /**
@@ -6491,6 +6659,8 @@ await runScript(
       noWorkPlannedReading: "unproven",
       draftedCriteriaCount: 0,
       amendedCriteriaCount: 0,
+      criteriaReachabilityReading: "not-attempted",
+      criteriaDrainStoppedBy: null,
       results: [],
       credentialPath,
       nonConversation: null,
@@ -6682,6 +6852,10 @@ await runScript(
       let criterionProposalId = null;
       let rejectedTaskId = null;
       let decomposeDrainResult = null;
+      // Plan 05-46 (gap G-05-9): a running watermark across BOTH stage windows, so the criteria
+      // window's own drain call resumes exactly where the decompose window's drain left off,
+      // rather than re-walking (and re-applying) everything the first call already handled.
+      let proposalDrainWatermark = sidecar.eventCursor();
       try {
         const proposalEvent = await sidecar.waitForEvent(
           (event) => event.type === "proposal_created",
@@ -6699,8 +6873,10 @@ await runScript(
             const outcome = runOps(opsBin, harness.appDataDir, ["apply-proposal-created"], JSON.stringify(event));
             step(`applied proposal_created -> ${outcome.outcome} ${outcome.proposalId ?? ""}`);
           },
+          fromIndex: proposalDrainWatermark,
           label: "decompose-stage proposal drain",
         });
+        proposalDrainWatermark = decomposeDrainResult.nextIndex;
         step(
           `decompose-stage proposal drain stopped ${decomposeDrainResult.stoppedBy} after ` +
             `${decomposeDrainResult.passes} pass(es), ${decomposeDrainResult.applied} proposal(s) applied`,
@@ -6709,8 +6885,102 @@ await runScript(
         step(`no proposal arrived within the deadline: ${err.message}`);
       }
 
+      const pendingAfterDecompose = runOps(opsBin, harness.appDataDir, ["list-pending", runId]);
+      step(`${pendingAfterDecompose.proposals.length} proposal(s) pending after the first decompose window`);
+
+      // ---- Task 2 (gap G-05-9): the SECOND developer-held gate (D-90) — into the stage literally
+      // named for what plan 05-45 gave it: criteria. Placed here, BEFORE the accept/reject/amend
+      // block below, and never inside driveChallengeConversation (D-90 stays the developer's own
+      // gate, fired a second time exactly like the first).
+      step(
+        "advancing the stage a second time (Cyril's own gate, D-90) — into the criteria stage " +
+          "plan 05-45 gave its own instruction",
+      );
+      const criteriaAdvanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
+      assert.equal(criteriaAdvanced.stage, "criteria");
+      let criteriaDrainResult = null;
+      if (criteriaAdvanced.instructionText) {
+        step("sending the criteria instruction and capturing its reply (not required for the run to continue)");
+        const criteriaInstructionCursor = sidecar.eventCursor();
+        await sidecar.request({ op: "authoring_turn", runId, text: criteriaAdvanced.instructionText });
+        evidenceState.conversation.exchanges.push({
+          speaker: "developer",
+          text: criteriaAdvanced.instructionText,
+          cursor: criteriaInstructionCursor,
+        });
+        // Mirrors the distillation capture above verbatim in shape: a timeout is a partial
+        // exchange, never fatal; a genuine non-conversation reply IS fatal, checked OUTSIDE this
+        // try/catch so the timeout branch never swallows it.
+        let criteriaInstructionReply;
+        try {
+          criteriaInstructionReply = await sidecar.waitForTurn(runId, criteriaInstructionCursor, {
+            timeoutMs: LIVE_TURN_CEILING_MS,
+            idleMs: LIVE_TURN_IDLE_MS,
+            label: "the criteria stage's reply to the criteria instruction",
+          });
+          evidenceState.conversation.exchanges.push(buildAgentExchange(criteriaInstructionReply));
+          step(
+            `criteria reply captured: chunks=${criteriaInstructionReply.chunkCount} ` +
+              `chars=${criteriaInstructionReply.charCount} endedBy=${criteriaInstructionReply.endedBy}`,
+          );
+        } catch (err) {
+          const partial = accumulateTurn(sidecar.events, runId, criteriaInstructionCursor);
+          evidenceState.conversation.exchanges.push(buildAgentExchange(partial, { endedBy: "timeout" }));
+          step(
+            `criteria reply capture timed out (not fatal — the criteria-stage proposal drain still ` +
+              `happens): ${err.message}`,
+          );
+        }
+        writeChallengeEvidence(evidenceState);
+        step(
+          `wrote challenge evidence sheet (post-criteria-turn, results pending): ${evidencePath} — a ` +
+            "run that dies in the criteria stage still leaves this transcript for the human",
+        );
+
+        // A non-conversation reply here means no propose_criterion call is ever coming — as true
+        // in the criteria stage as in the decompose stage above.
+        if (criteriaInstructionReply && criteriaInstructionReply.nonConversation) {
+          evidenceState.nonConversation = criteriaInstructionReply.nonConversation;
+          writeChallengeEvidence(evidenceState);
+          throw new Error(
+            `backend non-conversation message (${BACKEND_REFUSAL_KIND}) stopped the run at the ` +
+              `criteria turn — source=${criteriaInstructionReply.nonConversation.source ?? "unknown"} ` +
+              `classifier=${criteriaInstructionReply.nonConversation.classifier ?? criteriaInstructionReply.nonConversation.errorCode ?? "unknown"} ` +
+              `requestId=${criteriaInstructionReply.nonConversation.requestId ?? "none"}. This is a ` +
+              "backend-level message, not a model turn; the conversation did not complete and the " +
+              `criteria-stage proposal drain was never entered. See ${evidencePath} for the captured turns.`,
+          );
+        }
+
+        step("waiting for the criteria-stage proposal drain to go quiet");
+        criteriaDrainResult = await drainProposalsUntilQuiet(sidecar, {
+          applyEvent: (event) => {
+            const outcome = runOps(opsBin, harness.appDataDir, ["apply-proposal-created"], JSON.stringify(event));
+            step(`applied proposal_created -> ${outcome.outcome} ${outcome.proposalId ?? ""}`);
+          },
+          fromIndex: proposalDrainWatermark,
+          label: "criteria-stage proposal drain",
+        });
+        proposalDrainWatermark = criteriaDrainResult.nextIndex;
+        evidenceState.criteriaDrainStoppedBy = criteriaDrainResult.stoppedBy;
+        step(
+          `criteria-stage proposal drain stopped ${criteriaDrainResult.stoppedBy} after ` +
+            `${criteriaDrainResult.passes} pass(es), ${criteriaDrainResult.applied} proposal(s) applied`,
+        );
+      }
+
+      // G-05-1 (plan 05-18): a held request starved in the criteria stage must fail fast here,
+      // naming itself, rather than read as a quiet model.
+      assertAllHeldRequestsAnswered(sidecar);
+
+      // Plan 05-46 (gap G-05-9): recomputed from the SECOND `list-pending` snapshot, which is a
+      // superset of `pendingAfterDecompose` above — never re-derived from the first snapshot, which
+      // cannot see anything the criteria-stage instruction produced.
       const pending = runOps(opsBin, harness.appDataDir, ["list-pending", runId]);
-      step(`${pending.proposals.length} proposal(s) pending after the first decompose window`);
+      step(
+        `${pending.proposals.length} proposal(s) pending after the criteria window (superset of the ` +
+          "decompose-window snapshot)",
+      );
 
       const taskProposal = pending.proposals.find((p) => p.targetType === "task");
       const criterionProposals = pending.proposals.filter((p) => p.targetType === "criterion");
@@ -6722,6 +6992,19 @@ await runScript(
       // developer had to amend before they were usable.
       const draftedCriteriaCount = criterionProposals.length;
       let amendedCriteriaCount = 0;
+
+      // Plan 05-46 (gap G-05-9): the reachability reading the gap asked for by name, computed over
+      // everything from the challenge-stage boundary onward (decompose- and criteria-stage
+      // activity) so it can see a propose_criterion attempt or a proposal_list read wherever either
+      // happened. Reuses correlateProposeAttempts verbatim via readCriteriaReachability — no second
+      // pairing scheme.
+      const criteriaReachabilityReading = readCriteriaReachability(
+        sidecar.events,
+        { runId, fromIndex: challengeWindowEnd, toIndex: sidecar.eventCursor() },
+        { draftedCriteriaCount },
+      );
+      evidenceState.criteriaReachabilityReading = criteriaReachabilityReading;
+      step(`criteria-reachability reading: ${criteriaReachabilityReading}`);
 
       let criterion2Landed = false;
       let criterion3Decided = false;
