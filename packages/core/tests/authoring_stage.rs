@@ -69,9 +69,12 @@ fn advance_walks_challenge_to_decompose_to_criteria() {
             Some(AuthoringStage::Decompose)
         );
 
-        let (stage, distillation) = advance_stage(&mut conn, &run.id, &human_actor_id).unwrap();
+        let (stage, criteria_instruction) = advance_stage(&mut conn, &run.id, &human_actor_id).unwrap();
         assert_eq!(stage, AuthoringStage::Criteria);
-        assert!(distillation.is_none(), "advancing out of decompose must NOT return a distillation instruction");
+        assert!(
+            criteria_instruction.is_some(),
+            "advancing out of decompose into criteria must return the criteria instruction (plan 05-45, G-05-9)"
+        );
         assert_eq!(
             current_stage(&conn, &run.id).unwrap(),
             Some(AuthoringStage::Criteria)

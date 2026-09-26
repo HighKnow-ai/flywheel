@@ -289,16 +289,22 @@ fn transition_stage(
     Ok(next)
 }
 
-/// D-89 (plan 05-05): the distillation instruction [`advance_stage`] returns exactly once — when
-/// the transition just landed on the far side of `challenge` (i.e. `challenge -> decompose`). The
-/// command layer sends this text as an `authoring_turn`, asking the agent to distil what it
-/// challenged into staged `propose_assumption` rows — one call per assumption, never a list, and
-/// never prose folded into another row's field (`PITFALLS.md` pitfall 3's general rule, applied
-/// here). Those rows go through the SAME accept/amend path as every other proposal (D-92), which
-/// is what makes the model's reading of the conversation *correctable rather than authoritative*
-/// (D-89's own sentence) — the only reason a distilled record is acceptable at all.
+/// The instruction [`advance_stage`] returns for a transition that has one — of which there are
+/// now two (plan 05-45, closing gap G-05-9): D-89's distillation instruction on entering
+/// `decompose` (asking the agent to distil what it challenged into staged `propose_assumption`
+/// rows — one call per assumption, never a list, and never prose folded into another row's field,
+/// `PITFALLS.md` pitfall 3's general rule applied here), and the criteria draft request on
+/// entering `criteria` (asking the agent to draft acceptance criteria via `propose_criterion`, the
+/// same one-call-per-row discipline applied to a different row type — SHAPE-03's own ask, never
+/// delivered by any turn before this plan). Both sets of rows go through the SAME accept/amend
+/// path as every other proposal (D-92), which is what makes the model's reading *correctable
+/// rather than authoritative* (D-89's own sentence) — the only reason either kind of drafted
+/// record is acceptable at all. D-90: an instruction is a REQUEST, never a precondition —
+/// `advance_stage`'s own job is done the moment the stage row transitions; delivering this text as
+/// a live `authoring_turn` is the command layer's job, and its own success or failure never
+/// unwinds the transition.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DistillationInstruction {
+pub struct StageInstruction {
     pub text: String,
 }
 
@@ -306,21 +312,54 @@ pub struct DistillationInstruction {
 /// tool name and states the one-call-per-assumption rule explicitly, so the agent never has to
 /// guess either. Also states what the rows are FOR (a draft the developer decides on, primed into
 /// a later session only once accepted) — the framing D-89 says is what makes a distilled record
-/// acceptable at all.
+/// acceptable at all. Plan 05-44 (gap G-05-9): the closing sentence, before "Go ahead now.", names
+/// `proposal_list` as the way a staged proposal's id is read back, since `parent_proposal_id`
+/// (`propose_criterion`'s required field, and any later amendment) needs that id and no earlier
+/// turn ever told the agent how to obtain it.
 const DISTILLATION_INSTRUCTION_TEXT: &str = "Before we move on: call `propose_assumption` once for \
     EACH assumption you challenged in this stage, each call carrying that one assumption and the \
     answer I gave you — one tool call per assumption, never a single call carrying a list, and \
     never folding more than one assumption's text into a single call. These rows are a DRAFT of \
     your own reasoning: I will accept, amend or reject each one myself, and only the ones I accept \
-    will be primed into a later session on this epic. Go ahead now.";
+    will be primed into a later session on this epic. Any proposal you stage in this session can \
+    have its id read back with `proposal_list` — that id is what `parent_proposal_id` takes. Go \
+    ahead now.";
+
+/// The criteria instruction's own fixed text (plan 05-45, closing gap G-05-9: entering D-88's
+/// third stage used to deliver NO instruction at all, so no turn in the product ever asked the
+/// agent for the acceptance criteria SHAPE-03 is about). Written to the same discipline as
+/// [`DISTILLATION_INSTRUCTION_TEXT`]: names `propose_criterion` by its exact tool name, states the
+/// one-call-per-criterion rule explicitly (PITFALLS.md Pitfall 3: a criterion is a first-class
+/// row, never prose folded into another row's field), says what a criterion should be drafted FOR
+/// (every task staged this session, any task that already existed on the epic, or the epic
+/// proposal itself — never conditional on a task existing, since `materialise_proposal` permits an
+/// epic-scoped criterion directly), names `parent_proposal_id` as how the parent is identified and
+/// `proposal_list` as where its id comes from, and states plainly that the parent does NOT need to
+/// be accepted first — D-96's implied-parent walk accepts a still-pending parent in the same
+/// transaction as the criterion, so the agent must not reason itself into waiting for an
+/// acceptance that will never come inside its own session (exactly what happened in live run
+/// `01M3ENQMC3E4M2HP7014MA84PX`).
+const CRITERIA_INSTRUCTION_TEXT: &str = "Now for the acceptance criteria: call `propose_criterion` \
+    once for EACH criterion — one tool call per criterion, never a single call carrying a list, \
+    and never folding more than one criterion's text into a single call. Draft criteria for every \
+    task you staged this session, for any task that already existed on this epic, and directly on \
+    the epic proposal itself where a criterion belongs there instead — don't wait for a task to \
+    exist first if none does. Name the parent with `parent_proposal_id`; call `proposal_list` to \
+    see the id of anything you have staged and not yet decided on. The parent does NOT need to be \
+    accepted first: accepting a criterion accepts its still-pending parent in the same \
+    transaction, so go ahead and name a pending parent directly. These rows are a DRAFT of your \
+    own reasoning: I will accept, amend or reject each one myself, and only the ones I accept will \
+    be primed into a later session on this epic. Go ahead now.";
 
 /// Advance `agent_run_id` to the next stage (D-88, D-90) — `challenge -> decompose -> criteria`,
-/// erroring at the last stage rather than wrapping or no-opping. Returns the new stage alongside
-/// D-89's distillation instruction, present ONLY when this transition just left `challenge` (i.e.
-/// the new stage is `decompose`) — advancing out of `decompose` (into `criteria`) returns `None`.
-/// Distillation is a REQUEST, not a precondition (D-90): this function's own job is done the
-/// moment the row transitions; delivering the returned instruction as a live `authoring_turn` is
-/// the command layer's job, and its own success or failure never unwinds this transition.
+/// erroring at the last stage rather than wrapping or no-opping. Returns the new stage alongside a
+/// [`StageInstruction`], present for the two transitions that have one (plan 05-45): `challenge ->
+/// decompose` returns D-89's distillation instruction, and `decompose -> criteria` returns the
+/// criteria draft request. Advancing out of `criteria` never reaches this instruction logic at
+/// all — `next()` errors first, since there is nowhere further forward to go. An instruction is a
+/// REQUEST, not a precondition (D-90): this function's own job is done the moment the row
+/// transitions; delivering the returned instruction as a live `authoring_turn` is the command
+/// layer's job, and its own success or failure never unwinds this transition.
 ///
 /// **Takes a human actor id and has no agent-reachable caller anywhere in this workspace**: D-90
 /// gives Cyril — the developer — the SOLE advance gate. An agent that could end its own challenge
@@ -333,7 +372,7 @@ pub fn advance_stage(
     conn: &mut Connection,
     agent_run_id: &str,
     human_actor_id: &str,
-) -> anyhow::Result<(AuthoringStage, Option<DistillationInstruction>)> {
+) -> anyhow::Result<(AuthoringStage, Option<StageInstruction>)> {
     let next = transition_stage(
         conn,
         agent_run_id,
@@ -347,13 +386,19 @@ pub fn advance_stage(
         |before, after| format!("Advanced from {before} to {after}"),
     )?;
 
-    let distillation = if next == AuthoringStage::Decompose {
-        Some(DistillationInstruction { text: DISTILLATION_INSTRUCTION_TEXT.to_string() })
-    } else {
-        None
+    let instruction = match next {
+        AuthoringStage::Decompose => {
+            Some(StageInstruction { text: DISTILLATION_INSTRUCTION_TEXT.to_string() })
+        }
+        AuthoringStage::Criteria => {
+            Some(StageInstruction { text: CRITERIA_INSTRUCTION_TEXT.to_string() })
+        }
+        // `AuthoringStage::next` has no arm producing `Challenge` — this transition can never
+        // actually land here. The arm exists only so the match stays exhaustive.
+        AuthoringStage::Challenge => None,
     };
 
-    Ok((next, distillation))
+    Ok((next, instruction))
 }
 
 /// D-93/D-94 (plan 05-05 Task 3(c)): one developer decision on a proposal, as the turn
