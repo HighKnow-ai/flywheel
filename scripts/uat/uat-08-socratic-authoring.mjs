@@ -50,12 +50,14 @@ import {
   createPermissionAnswerHandler,
   createUnmodelledEventSink,
   CREDENTIAL_LINK_ALLOWLIST,
+  decideTurnArmedWindow,
   drainIncidentalPermissionRequests,
   drainInboundCoreRequests,
   HARNESS_PRECONDITION_PREFIX,
   Harness,
   HEARTBEAT_TICK_MS,
   HELD_INBOUND_REQUEST_TYPES,
+  LIVE_TOOL_CALL_IDLE_MS,
   LIVE_TURN_IDLE_MS,
   NON_CONVERSATION_SOURCES,
   probeClaudeAvailable,
@@ -3341,6 +3343,149 @@ async function selfTest() {
       );
     },
   );
+
+  // ---------------------------------------------------------------------------------------------
+  // Plan 05-38 (Task 1, gap G-05-7 second finding): a turn is bounded by silence in every state —
+  // the mid-flight window's own finite bound, and reasoning counted as turn progress.
+  // ---------------------------------------------------------------------------------------------
+
+  check(
+    "[Plan 05-38, Task 1] LIVE_TOOL_CALL_IDLE_MS is exported with the derived value 120000",
+    () => {
+      assert.equal(LIVE_TOOL_CALL_IDLE_MS, 120_000);
+    },
+  );
+
+  check(
+    "[Plan 05-38, Task 1] accumulateTurn returns a thinkingCount on the result-terminated return path",
+    () => {
+      const events = [
+        { type: "thinking", runId: "run-t38-1", text: "weighing the options" },
+        { type: "assistant_text", runId: "run-t38-1", text: "hi" },
+        { type: "result", runId: "run-t38-1" },
+      ];
+      const partial = accumulateTurn(events, "run-t38-1", 0);
+      assert.equal(partial.endedBy, "result");
+      assert.equal(partial.thinkingCount, 1);
+      assert.equal(partial.chunkCount, 1);
+    },
+  );
+
+  check(
+    "[Plan 05-38, Task 1] accumulateTurn returns a thinkingCount on the fall-through (unterminated) return path",
+    () => {
+      const events = [{ type: "thinking", runId: "run-t38-2", text: "weighing the options" }];
+      const partial = accumulateTurn(events, "run-t38-2", 0);
+      assert.equal(partial.endedBy, undefined);
+      assert.equal(partial.thinkingCount, 1);
+    },
+  );
+
+  check(
+    "[Plan 05-38, Task 1] a reasoning event increments thinkingCount and leaves chunkCount/charCount unchanged — reasoning is not agent speech",
+    () => {
+      const events = [{ type: "thinking", runId: "run-t38-3", text: "a stretch of reasoning" }];
+      const partial = accumulateTurn(events, "run-t38-3", 0);
+      assert.equal(partial.thinkingCount, 1);
+      assert.equal(partial.chunkCount, 0);
+      assert.equal(partial.charCount, 0);
+      assert.deepEqual(partial.chunks, []);
+    },
+  );
+
+  check(
+    "[Plan 05-38, Task 1] a reasoning event belonging to a DIFFERENT run changes nothing for this run",
+    () => {
+      const events = [{ type: "thinking", runId: "some-other-run", text: "not this run's reasoning" }];
+      const partial = accumulateTurn(events, "run-t38-4", 0);
+      assert.equal(partial.thinkingCount, 0);
+      assert.equal(partial.chunkCount, 0);
+    },
+  );
+
+  // A minimal fake child, driving a REAL SidecarClient directly — the same mechanism used above for
+  // the plan 05-36 TurnDeadlineError checks — with events pushed straight onto `.events` and
+  // `turnWatchers` invoked by hand, so no real wire is needed to exercise `waitForTurn`'s own timers.
+  const midFlightSidecar = new SidecarClient({
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    stdin: { write: () => {} },
+    on: () => {},
+  });
+  midFlightSidecar.events.push({ type: "tool_call", runId: "run-t38-midflight", toolName: "Bash", toolUseId: "toolu_t38_mf" });
+  const midFlightResult = await midFlightSidecar.waitForTurn("run-t38-midflight", 0, {
+    timeoutMs: 5_000,
+    idleMs: 5_000,
+    toolCallIdleMs: 20,
+    label: "self-test mid-flight window",
+  });
+
+  check(
+    "[Plan 05-38, Task 1] a turn with an outstanding tool call and a short explicitly-passed mid-flight window concludes with the idle marker, reporting it ended mid-flight and naming the outstanding tool",
+    () => {
+      assert.equal(midFlightResult.endedBy, "idle");
+      assert.equal(midFlightResult.midFlight, true);
+      assert.deepEqual(midFlightResult.outstandingTools, ["Bash"]);
+    },
+  );
+
+  const resultWinsSidecar = new SidecarClient({
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    stdin: { write: () => {} },
+    on: () => {},
+  });
+  resultWinsSidecar.events.push(
+    { type: "tool_call", runId: "run-t38-resultwins", toolName: "Bash", toolUseId: "toolu_t38_rw" },
+    { type: "result", runId: "run-t38-resultwins" },
+  );
+  const resultWinsResult = await resultWinsSidecar.waitForTurn("run-t38-resultwins", 0, {
+    timeoutMs: 5_000,
+    idleMs: 5_000,
+    toolCallIdleMs: 5_000,
+    label: "self-test result-wins-while-pending",
+  });
+
+  check(
+    "[Plan 05-38, Task 1] the backend's own end-of-turn line still ends the turn immediately even while a tool call is outstanding",
+    () => {
+      assert.equal(resultWinsResult.endedBy, "result");
+    },
+  );
+
+  const reasoningAliveSidecar = new SidecarClient({
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    stdin: { write: () => {} },
+    on: () => {},
+  });
+  reasoningAliveSidecar.events.push({ type: "assistant_text", runId: "run-t38-reasoning-alive", text: "starting" });
+  const reasoningAliveIdleMs = 60;
+  const reasoningAlivePromise = reasoningAliveSidecar.waitForTurn("run-t38-reasoning-alive", 0, {
+    timeoutMs: 5_000,
+    idleMs: reasoningAliveIdleMs,
+    toolCallIdleMs: 5_000,
+    label: "self-test reasoning-keeps-turn-alive",
+  });
+  // Three reasoning events, each pushed WITHIN the previous one's own idle window — if a reasoning
+  // event did not re-arm the window (the hazard this plan closes), the turn would have already
+  // concluded after the FIRST window elapsed, well before this loop finishes.
+  for (let i = 0; i < 3; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, Math.floor(reasoningAliveIdleMs / 2)));
+    reasoningAliveSidecar.events.push({ type: "thinking", runId: "run-t38-reasoning-alive", text: `reasoning ${i}` });
+    for (const watcher of reasoningAliveSidecar.turnWatchers) watcher();
+  }
+  const reasoningAliveResult = await reasoningAlivePromise;
+
+  check(
+    "[Plan 05-38, Task 1] a sequence of reasoning events keeps a turn alive past the caller's ordinary idle window",
+    () => {
+      assert.equal(reasoningAliveResult.endedBy, "idle");
+      assert.equal(reasoningAliveResult.midFlight, undefined);
+      assert.equal(reasoningAliveResult.thinkingCount, 3);
+    },
+  );
+
 
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);

@@ -1013,12 +1013,25 @@ export function classifyNonConversationTurn({ text, events }) {
  * is exactly what lets {@link SidecarClient.waitForTurn} tell "the model is mid-flight on a tool"
  * apart from "the model went quiet with nothing outstanding." Returned on BOTH return paths,
  * exactly like `nonConversation` above.
+ *
+ * `thinkingCount` (plan 05-38, gap G-05-7 second finding): the number of `thinking` events
+ * (`ThinkingEvent`, plan 05-37) in this scanned window, for this run. A reasoning block is not agent
+ * speech — it never touches `chunks`/`chunkCount`/`charCount`, so a transcript never quotes it back
+ * to the developer as though it were the reply — but it IS the model actively working, and before
+ * this counter existed a `thinking` event advanced none of `accumulateTurn`'s progress signals at
+ * all: a long reasoning stretch with no text and no tool call would leave `waitForTurn`'s idle timer
+ * running unperturbed from whatever it was armed at BEFORE the reasoning began, and it could fire
+ * while the model was still actively reasoning. Modelling reasoning (plan 05-37) created this hazard
+ * the moment it landed; `thinkingCount` closes it by giving `waitForTurn` a fourth progress signal
+ * that a reasoning-only stretch genuinely advances, so it re-arms whichever window applies instead
+ * of being invisible to it. Returned on BOTH return paths, exactly like `pendingToolCallCount` above.
  */
 export function accumulateTurn(events, runId, cursor) {
   const chunks = [];
   const toolCalls = [];
   const turnEvents = [];
   let pendingToolCallCount = 0;
+  let thinkingCount = 0;
   for (let i = cursor; i < events.length; i += 1) {
     const event = events[i];
     if (event.runId !== runId) continue;
@@ -1033,6 +1046,11 @@ export function accumulateTurn(events, runId, cursor) {
     } else if (event.type === "tool_result") {
       if (pendingToolCallCount > 0) pendingToolCallCount -= 1;
       turnEvents.push(event);
+    } else if (event.type === "thinking") {
+      // Plan 05-38: counted as progress, NEVER as speech — no push onto `chunks`, no contribution
+      // to `charCount`. See this function's own doc comment above for the hazard this closes.
+      thinkingCount += 1;
+      turnEvents.push(event);
     } else if (event.type === "result") {
       turnEvents.push(event);
       const text = chunks.join("\n\n");
@@ -1046,6 +1064,7 @@ export function accumulateTurn(events, runId, cursor) {
         endIndex: i + 1,
         nonConversation: classifyNonConversationTurn({ text, events: turnEvents }),
         pendingToolCallCount,
+        thinkingCount,
       };
     }
   }
@@ -1060,7 +1079,45 @@ export function accumulateTurn(events, runId, cursor) {
     endIndex: events.length,
     nonConversation: classifyNonConversationTurn({ text, events: turnEvents }),
     pendingToolCallCount,
+    thinkingCount,
   };
+}
+
+/**
+ * Plan 05-38 (Task 1, gap G-05-7): given a turn's own {@link accumulateTurn} reading, decide which
+ * window {@link SidecarClient.waitForTurn} should arm next — the PURE arming rule, exported so
+ * `--self-test` can drive the exact shipped decision directly against synthetic states, with no
+ * timer and no waiting at all, mirroring how {@link accumulateTurn} already lets the pure
+ * accumulation half of the turn-boundary primitive be tested this way.
+ *
+ * Returns `{ window, ms }`:
+ * - `"tool-call"` — a tool call is outstanding (`pendingToolCallCount > 0`), demonstrably
+ *   mid-flight; arm at `toolCallIdleMs`. This REPLACES plan 05-25's own superseded rule, which
+ *   stood the window down entirely in this state (see {@link SidecarClient.waitForTurn}'s own doc
+ *   comment for the full history).
+ * - `"idle"` — nothing is outstanding and at least one chunk has been captured; arm at `idleMs`,
+ *   exactly as before this plan.
+ * - `"none"` — neither applies (no chunk yet, nothing pending — a turn that has so far produced
+ *   only reasoning, or nothing at all). No window is armed for this state; the caller's own
+ *   wall-clock ceiling is the only thing that bounds it.
+ */
+export function decideTurnArmedWindow(partial, { idleMs, toolCallIdleMs }) {
+  if (partial.pendingToolCallCount > 0) return { window: "tool-call", ms: toolCallIdleMs };
+  if (partial.chunkCount > 0) return { window: "idle", ms: idleMs };
+  return { window: "none", ms: undefined };
+}
+
+/**
+ * Plan 05-38 (Task 1, gap G-05-7): the tool names {@link SidecarClient.waitForTurn}'s own mid-flight
+ * conclusion and deadline failure both name, under the same FIFO-answering assumption
+ * {@link accumulateTurn} itself uses — the most recently issued `pendingToolCallCount` of them.
+ * Extracted once so both call sites read the identical list rather than two copies of the same
+ * slice-and-map that could drift.
+ */
+function outstandingToolNames(partial) {
+  return partial.pendingToolCallCount > 0
+    ? partial.toolCalls.slice(partial.toolCalls.length - partial.pendingToolCallCount).map((call) => call.toolName)
+    : [];
 }
 
 /** The declared idle window a turn may end on when the backend never emits a `result` line. The
@@ -1083,6 +1140,25 @@ export const TURN_IDLE_MS = 5_000;
  * each of its own `waitForTurn`/`driveChallengeConversation` call sites rather than inheriting a
  * default tuned for tests. */
 export const LIVE_TURN_IDLE_MS = 30_000;
+
+/**
+ * Plan 05-38 (Task 1, gap G-05-7 second finding): the window a turn may go completely SILENT for
+ * WHILE a tool call is outstanding, before the turn is concluded as having stalled mid-flight — the
+ * replacement for plan 05-25's own superseded stand-down, which left the wall-clock deadline
+ * (`TURN_DEADLINE_MS`/`LIVE_TURN_CEILING_MS`, `scripts/uat/uat-08-socratic-authoring.mjs`) as the
+ * ONLY backstop in this state. Live run `01M3C48C3PV1NSGHERBZ587YB1`'s turn 1 spent essentially its
+ * whole life in exactly that state — roughly sixty tool-call/tool-result pairs, several board-read
+ * round trips, repeated permission drains, unbroken activity to the 120000ms deadline — and the
+ * separate idle guard never got a chance to fire because it was never armed.
+ *
+ * 120000ms, and it is DERIVED, not guessed: all roughly 130 events of that turn fit inside 120000ms,
+ * so no single gap in that turn reached this value. A window set at the one measurement this
+ * repository has is therefore generous enough to never have fired on the turn that motivated it,
+ * while still being a genuine, finite bound rather than the absence of one. Callers measuring an
+ * edge case pass a short, explicit `toolCallIdleMs` instead of relying on this default, exactly as
+ * {@link TURN_IDLE_MS}'s own doc comment already tells such a caller to do for the ordinary window.
+ */
+export const LIVE_TOOL_CALL_IDLE_MS = 120_000;
 
 /** `DRAIN_POLL_MS` (IN-02, 05-REVIEW.md): the per-iteration wait `drainInboundCoreRequests` uses
  * while polling for the next held inbound request — a poll interval, never a deadline, so a
@@ -1303,46 +1379,68 @@ export class SidecarClient {
    * accumulation logic directly with no timers at all, and exercise this method's own timing
    * behaviour separately with a short, explicitly-passed `idleMs`/`timeoutMs`.
    *
-   * WR-04 closure (plan 05-25): the idle timer is reset ONLY on this watcher's own progress —
-   * tracked as the tuple `(chunkCount, toolCalls.length, pendingToolCallCount)` from
-   * {@link accumulateTurn}'s own return — never on an event that advances none of them. A foreign
-   * run's event, or a non-turn event for this same run, changes none of the three (they are all
-   * already scoped to this `runId` by `accumulateTurn` itself) and therefore neither arms nor
-   * extends the running timer; it is left exactly as it was. This is deliberately NOT a raw
-   * scan-position index (`events.length`/`endIndex` on the fall-through path) — that value grows on
-   * ANY event appended to the shared buffer, including one from a completely different run, and
-   * using it as a progress signal would silently reintroduce the exact cross-run coupling this fix
-   * removes. `pendingToolCallCount` is the one signal `chunkCount`/`toolCalls.length` cannot
-   * express on their own: a `tool_result` answering a pending call changes neither of those two
-   * numbers, yet it is real progress on this turn that must be allowed to re-arm the window.
+   * WR-04 closure (plan 05-25), RETUNED by plan 05-38 (gap G-05-7 second finding): the idle timer
+   * is reset ONLY on this watcher's own progress — tracked as the tuple `(chunkCount,
+   * toolCalls.length, pendingToolCallCount, thinkingCount)` from {@link accumulateTurn}'s own
+   * return — never on an event that advances none of them. A foreign run's event, or a non-turn
+   * event for this same run, changes none of the four (they are all already scoped to this `runId`
+   * by `accumulateTurn` itself) and therefore touches nothing: this call returns without touching
+   * any timer. This is deliberately NOT a raw scan-position index (`events.length`/`endIndex` on
+   * the fall-through path) — that value grows on ANY event appended to the shared buffer, including
+   * one from a completely different run, and using it as a progress signal would silently
+   * reintroduce the exact cross-run coupling this fix removes. `pendingToolCallCount` is a signal
+   * `chunkCount`/`toolCalls.length` cannot express on their own: a `tool_result` answering a
+   * pending call changes neither of those two numbers, yet it is real progress on this turn that
+   * must be allowed to re-arm the window. `thinkingCount` (plan 05-38) closes the hazard plan 05-37
+   * created the moment it modelled reasoning: without it, a long reasoning stretch advanced nothing
+   * in this tuple, so the ordinary idle timer — armed from whatever chunk arrived BEFORE the
+   * reasoning began — could fire while the model was still actively reasoning.
    *
-   * Additionally, the idle window is STOOD DOWN ENTIRELY while `pendingToolCallCount` is above
-   * zero — a turn that has issued a tool call and not yet received its result is PROVABLY
-   * mid-flight, and concluding it early (while the backend may still be generating the result of
-   * that call) is precisely the WR-04 defect. In that state no idle timer is armed at all; the
-   * outer `timeoutMs` deadline is the only backstop, which is what it was always for. TRADEOFF,
-   * named here rather than left to be discovered: a turn whose tool call is NEVER answered now
-   * waits out the full `timeoutMs` deadline instead of the short `idleMs` window — a real change in
-   * how long a stuck turn takes to fail. This is the correct trade: the deadline path already
-   * reports what it captured (plan 05-20's own truth) rather than discarding it, and a false
-   * "the turn is over" while a tool call is genuinely outstanding is a worse failure than a slower,
-   * honest one.
+   * Which window is armed for the current state is decided by the PURE, exported
+   * {@link decideTurnArmedWindow} — see its own doc comment for the three states. TRADEOFF, restated
+   * here because plan 05-25's own version of this paragraph was WRONG in consequence even though it
+   * was correct in reasoning, and this directory's own record is more useful than a clean-looking
+   * comment: plan 05-25 stood the idle window down ENTIRELY while a tool call was outstanding,
+   * reasoning that the outer `timeoutMs` deadline was the honest backstop for that state. Live run
+   * `01M3C48C3PV1NSGHERBZ587YB1` spent essentially its ENTIRE first turn in exactly that state —
+   * roughly sixty tool-call/tool-result pairs, unbroken activity to the deadline — so the "honest
+   * backstop" was the ONLY thing that could fire, and it killed a turn that was still working. Plan
+   * 05-38 gives that state a window of its own (`LIVE_TOOL_CALL_IDLE_MS`/`toolCallIdleMs`, DERIVED
+   * from that same run — see its own doc comment), so a turn is now bounded by SILENCE in every
+   * state a caller can distinguish, never by a budget in one of them.
+   *
+   * The outer `timeoutMs` deadline is likewise now reset on every notification that advances this
+   * watcher's own progress tuple, exactly like the idle windows above — plan 05-38's answer to the
+   * gap's own first truth: a live turn must never be bounded by a TOTAL wall-clock budget, only by
+   * an absence of progress within a declared window. A turn that keeps producing tool calls, tool
+   * results and reasoning back-to-back — never falling silent for as long as `timeoutMs` itself —
+   * therefore never reaches the deadline no matter how long its TOTAL run grows, exactly the shape
+   * of the turn that killed the live run this plan closes. `timeoutMs` remains a genuine, unarmed-
+   * by-nothing backstop: a turn that stops advancing in EVERY sense (no chunk, no tool call, no
+   * reasoning) for `timeoutMs` straight — most plausibly before its very first chunk, the one state
+   * {@link decideTurnArmedWindow} arms no window for at all — still fails on it, named `label`,
+   * exactly as before.
    *
    * The `result` branch (below) is UNCHANGED by any of this — the backend's own end-of-turn line
    * remains the primary signal and always wins immediately, including while a tool call is pending.
    */
-  waitForTurn(runId, cursor, { timeoutMs = 30_000, idleMs = TURN_IDLE_MS, label = "a turn" } = {}) {
+  waitForTurn(
+    runId,
+    cursor,
+    { timeoutMs = 30_000, idleMs = TURN_IDLE_MS, toolCallIdleMs = LIVE_TOOL_CALL_IDLE_MS, label = "a turn" } = {},
+  ) {
     if (this.turnWatchers === undefined) this.turnWatchers = [];
     return new Promise((resolve, reject) => {
       let settled = false;
       let idleTimer;
       let deadlineTimer;
       // The last-observed progress tuple this watcher has already reacted to — see the doc
-      // comment above for why `pendingToolCallCount`, not a raw scan-position index, is the third
-      // member.
+      // comment above for why `pendingToolCallCount`/`thinkingCount`, not a raw scan-position
+      // index, are members of it.
       let lastChunkCount = 0;
       let lastToolCallCount = 0;
       let lastPendingToolCallCount = 0;
+      let lastThinkingCount = 0;
 
       const cleanup = () => {
         clearTimeout(idleTimer);
@@ -1357,9 +1455,9 @@ export class SidecarClient {
         resolve(result);
       };
 
-      const finishIdle = () => {
+      const finishIdle = (extra) => {
         if (settled) return;
-        finish({ ...accumulateTurn(this.events, runId, cursor), endedBy: "idle" });
+        finish({ ...accumulateTurn(this.events, runId, cursor), endedBy: "idle", ...(extra ?? {}) });
       };
 
       const fail = () => {
@@ -1379,12 +1477,7 @@ export class SidecarClient {
         // assumption `accumulateTurn` itself uses) so a genuine hang is diagnosable from the error
         // alone, beside the existing captured-chunk/character clause and the unanswered-held-
         // request clause above.
-        const pendingToolCalls =
-          partial.pendingToolCallCount > 0
-            ? partial.toolCalls
-                .slice(partial.toolCalls.length - partial.pendingToolCallCount)
-                .map((call) => call.toolName)
-            : [];
+        const pendingToolCalls = outstandingToolNames(partial);
         const pendingToolCallsClause =
           partial.pendingToolCallCount > 0
             ? ` OUTSTANDING TOOL CALL(S) (likely cause of this timeout): ` +
@@ -1405,6 +1498,33 @@ export class SidecarClient {
         );
       };
 
+      // Plan 05-38: arm whichever window {@link decideTurnArmedWindow} names for the CURRENT
+      // state — "tool-call" concludes via the idle marker, naming the outstanding tool(s), so a
+      // caller can tell "went quiet holding an unanswered tool call" apart from "went quiet with
+      // nothing in flight"; "idle" concludes exactly as it always did; "none" arms nothing here
+      // (the state before any chunk/tool/reasoning progress, or reasoning-only so far) — the outer
+      // deadline below is what bounds that state.
+      const armWindow = (partial) => {
+        clearTimeout(idleTimer);
+        const decision = decideTurnArmedWindow(partial, { idleMs, toolCallIdleMs });
+        if (decision.window === "tool-call") {
+          idleTimer = setTimeout(() => {
+            const p = accumulateTurn(this.events, runId, cursor);
+            finishIdle({ midFlight: true, outstandingTools: outstandingToolNames(p) });
+          }, decision.ms);
+        } else if (decision.window === "idle") {
+          idleTimer = setTimeout(() => finishIdle(), decision.ms);
+        }
+      };
+
+      // Plan 05-38: the outer ceiling is reset on every notification that advances this watcher's
+      // own progress tuple, exactly like the idle windows above — see this method's own doc
+      // comment for why a turn must never be bounded by a TOTAL wall-clock budget.
+      const armCeiling = () => {
+        clearTimeout(deadlineTimer);
+        deadlineTimer = setTimeout(fail, timeoutMs);
+      };
+
       const onEvent = () => {
         if (settled) return;
         const partial = accumulateTurn(this.events, runId, cursor);
@@ -1412,35 +1532,22 @@ export class SidecarClient {
           finish(partial);
           return;
         }
-        // WR-04 closure (plan 05-25): only react when THIS watcher's own progress tuple has
-        // advanced since the previous notification — see this method's own doc comment for why
-        // `pendingToolCallCount`, not a raw scan-position index, is the third member. An event
-        // that advances none of the three (a different run's event, or a non-turn event) leaves
-        // the running idle timer exactly as it is: this call returns without touching it.
         const advanced =
           partial.chunkCount !== lastChunkCount ||
           partial.toolCalls.length !== lastToolCallCount ||
-          partial.pendingToolCallCount !== lastPendingToolCallCount;
+          partial.pendingToolCallCount !== lastPendingToolCallCount ||
+          partial.thinkingCount !== lastThinkingCount;
         lastChunkCount = partial.chunkCount;
         lastToolCallCount = partial.toolCalls.length;
         lastPendingToolCallCount = partial.pendingToolCallCount;
+        lastThinkingCount = partial.thinkingCount;
         if (!advanced) return;
-        clearTimeout(idleTimer);
-        if (partial.pendingToolCallCount > 0) {
-          // A tool call is outstanding for this turn — demonstrably mid-flight. Stand the idle
-          // window down entirely rather than arming it; the outer `timeoutMs` deadline is the
-          // honest backstop. The next notification that changes this tuple (most likely this same
-          // call's own `tool_result` arriving) re-evaluates from scratch and re-arms the window if
-          // the count has dropped back to zero.
-          return;
-        }
-        if (partial.chunkCount > 0) {
-          idleTimer = setTimeout(finishIdle, idleMs);
-        }
+        armWindow(partial);
+        armCeiling();
       };
 
       this.turnWatchers.push(onEvent);
-      deadlineTimer = setTimeout(fail, timeoutMs);
+      armCeiling(); // initial arm, mirroring the pre-05-38 `deadlineTimer = setTimeout(fail, timeoutMs)`
       onEvent(); // handle events already buffered at/after cursor before this call was made
     });
   }
