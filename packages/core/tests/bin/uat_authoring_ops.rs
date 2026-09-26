@@ -241,11 +241,11 @@ fn main() {
             if run_id.is_empty() {
                 fail("usage: uat_authoring_ops advance-stage <run_id>");
             }
-            let (stage, distillation) = advance_stage(&mut conn, &run_id, &human_actor_id)
+            let (stage, instruction) = advance_stage(&mut conn, &run_id, &human_actor_id)
                 .unwrap_or_else(|err| fail(&format!("could not advance the stage: {err:#}")));
             print_json(serde_json::json!({
                 "stage": stage.as_str(),
-                "distillationText": distillation.map(|d| d.text),
+                "instructionText": instruction.map(|i| i.text),
             }));
         }
         "apply-proposal-created" => {

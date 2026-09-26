@@ -6012,12 +6012,12 @@ async function runReplayCheckScenario(scenarioName) {
             // challengeWindowEnd, which the bounded reading must never see and the unbounded
             // (CR-01) reading must still misread.
             assert.ok(
-              typeof advanced.distillationText === "string" && advanced.distillationText.length > 0,
+              typeof advanced.instructionText === "string" && advanced.instructionText.length > 0,
               "expected advance-stage to return a distillation instruction for this scenario",
             );
             const postAdvanceCursor = sidecar.eventCursor();
-            await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
-            exchanges.push({ speaker: "developer", text: advanced.distillationText, cursor: postAdvanceCursor });
+            await sidecar.request({ op: "authoring_turn", runId, text: advanced.instructionText });
+            exchanges.push({ speaker: "developer", text: advanced.instructionText, cursor: postAdvanceCursor });
             const postAdvanceReply = await sidecar.waitForTurn(runId, postAdvanceCursor, {
               timeoutMs: REPLAY_TURN_DEADLINE_MS,
               label: "the post-advance decompose-stage reply (proposes-work-after-advance)",
@@ -6449,41 +6449,41 @@ await runScript(
       );
       const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
       assert.equal(advanced.stage, "decompose");
-      if (advanced.distillationText) {
+      if (advanced.instructionText) {
         step("sending the distillation instruction and capturing its reply (not required for the run to continue)");
-        const distillationCursor = sidecar.eventCursor();
-        await sidecar.request({ op: "authoring_turn", runId, text: advanced.distillationText });
+        const instructionCursor = sidecar.eventCursor();
+        await sidecar.request({ op: "authoring_turn", runId, text: advanced.instructionText });
         evidenceState.conversation.exchanges.push({
           speaker: "developer",
-          text: advanced.distillationText,
-          cursor: distillationCursor,
+          text: advanced.instructionText,
+          cursor: instructionCursor,
         });
-        // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): `distillationReply` stays
+        // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): `instructionReply` stays
         // `undefined` on a genuine TIMEOUT (the catch branch below, unchanged from before this plan)
         // so the non-conversation check after this try/catch is a no-op for that path — a timeout
         // and a non-conversation message are different classes and must stay separately reported. A
         // non-conversation message, by contrast, is a SUCCESSFUL capture (the turn ended cleanly on
         // `result` — this is the exact place the real run actually died), so it must be checked and
         // must fail the run OUTSIDE this try/catch, never swallowed by the timeout branch.
-        let distillationReply;
+        let instructionReply;
         try {
-          distillationReply = await sidecar.waitForTurn(runId, distillationCursor, {
+          instructionReply = await sidecar.waitForTurn(runId, instructionCursor, {
             timeoutMs: LIVE_TURN_CEILING_MS,
             // WR-04 closure (plan 05-25): explicit, matching the driveChallengeConversation call
             // above — the live arm never inherits the short test default at either capture site.
             idleMs: LIVE_TURN_IDLE_MS,
             label: "the decompose stage's reply to the distillation instruction",
           });
-          evidenceState.conversation.exchanges.push(buildAgentExchange(distillationReply));
+          evidenceState.conversation.exchanges.push(buildAgentExchange(instructionReply));
           step(
-            `distillation reply captured: chunks=${distillationReply.chunkCount} ` +
-              `chars=${distillationReply.charCount} endedBy=${distillationReply.endedBy}`,
+            `distillation reply captured: chunks=${instructionReply.chunkCount} ` +
+              `chars=${instructionReply.charCount} endedBy=${instructionReply.endedBy}`,
           );
         } catch (err) {
           // The decompose turn's completeness is not a gating property — a timeout here is recorded
           // as a partial exchange (via the pure accumulateTurn scan, never a rethrow) and the
           // proposal wait below still happens.
-          const partial = accumulateTurn(sidecar.events, runId, distillationCursor);
+          const partial = accumulateTurn(sidecar.events, runId, instructionCursor);
           evidenceState.conversation.exchanges.push(buildAgentExchange(partial, { endedBy: "timeout" }));
           step(`distillation reply capture timed out (not fatal — the proposal wait still happens): ${err.message}`);
         }
@@ -6491,14 +6491,14 @@ await runScript(
         // G-05-3 (plan 05-24), generalised by G-05-6 (plan 05-34): the place the real run actually
         // died. Never fall through into the proposal wait below — a non-conversation distillation
         // turn means no propose call is ever coming.
-        if (distillationReply && distillationReply.nonConversation) {
-          evidenceState.nonConversation = distillationReply.nonConversation;
+        if (instructionReply && instructionReply.nonConversation) {
+          evidenceState.nonConversation = instructionReply.nonConversation;
           writeChallengeEvidence(evidenceState);
           throw new Error(
             `backend non-conversation message (${BACKEND_REFUSAL_KIND}) stopped the run at the ` +
-              `distillation turn — source=${distillationReply.nonConversation.source ?? "unknown"} ` +
-              `classifier=${distillationReply.nonConversation.classifier ?? distillationReply.nonConversation.errorCode ?? "unknown"} ` +
-              `requestId=${distillationReply.nonConversation.requestId ?? "none"}. This is a ` +
+              `distillation turn — source=${instructionReply.nonConversation.source ?? "unknown"} ` +
+              `classifier=${instructionReply.nonConversation.classifier ?? instructionReply.nonConversation.errorCode ?? "unknown"} ` +
+              `requestId=${instructionReply.nonConversation.requestId ?? "none"}. This is a ` +
               "backend-level message, not a model turn; the conversation did not complete and the " +
               `proposal wait was never entered. See ${evidencePath} for the captured turns.`,
           );
