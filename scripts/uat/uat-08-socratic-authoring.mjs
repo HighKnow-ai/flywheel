@@ -3521,6 +3521,78 @@ async function selfTest() {
     },
   );
 
+  // ---------------------------------------------------------------------------------------------
+  // Plan 05-38 (Task 3, gap G-05-7): the frozen negative control — plan 05-25's own superseded
+  // arming rule, proven to differ from the shipped rule over the same accumulated turn state.
+  // ---------------------------------------------------------------------------------------------
+
+  check(
+    "[Plan 05-38, Task 3] the superseded arming rule stands the window down entirely on an outstanding tool call (only the ceiling backstops that state), while the shipped rule arms its own tool-call window",
+    () => {
+      const events = [{ type: "tool_call", runId: "run-t38-superseded", toolName: "Bash", toolUseId: "toolu_t38_sc" }];
+      const partial = accumulateTurn(events, "run-t38-superseded", 0);
+      assert.equal(partial.pendingToolCallCount, 1);
+      const superseded = decideTurnArmedWindowSuperseded(partial, { idleMs: 100 });
+      assert.equal(
+        superseded.window,
+        "none",
+        "expected the superseded rule to stand the window down entirely — nothing left but the wall clock",
+      );
+      const shipped = decideTurnArmedWindow(partial, { idleMs: 100, toolCallIdleMs: 500 });
+      assert.equal(shipped.window, "tool-call");
+      assert.equal(shipped.ms, 500);
+    },
+  );
+
+  check(
+    "[Plan 05-38, Task 3] decideTurnArmedWindow (the shipped arming rule) arms the ordinary idle window once a chunk has been captured and nothing is pending, and arms nothing before either happens",
+    () => {
+      const chunkOnly = accumulateTurn([{ type: "assistant_text", runId: "run-t38-arming", text: "hi" }], "run-t38-arming", 0);
+      const idleDecision = decideTurnArmedWindow(chunkOnly, { idleMs: 250, toolCallIdleMs: 999 });
+      assert.equal(idleDecision.window, "idle");
+      assert.equal(idleDecision.ms, 250);
+
+      const nothingYet = accumulateTurn([], "run-t38-arming", 0);
+      const noneDecision = decideTurnArmedWindow(nothingYet, { idleMs: 250, toolCallIdleMs: 999 });
+      assert.equal(noneDecision.window, "none");
+    },
+  );
+
+  check(
+    "[Plan 05-38, Task 3] SCENARIOS contains works-continuously-past-old-deadline, built from repeated reasoning/tool-use/tool-result blocks each carrying a small delayMs",
+    () => {
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(SCENARIOS, "works-continuously-past-old-deadline"),
+        "expected fake-authoring-claude.mjs to declare a works-continuously-past-old-deadline scenario",
+      );
+      const scenario = SCENARIOS["works-continuously-past-old-deadline"];
+      const blocks = scenario.turns[0];
+      const thinkingBlocks = blocks.filter((block) => block.type === "thinking");
+      const toolUseBlocks = blocks.filter((block) => block.type === "tool_use");
+      const toolResultBlocks = blocks.filter((block) => block.type === "tool_result");
+      assert.ok(thinkingBlocks.length >= 2, "expected at least two reasoning blocks");
+      assert.equal(toolUseBlocks.length, toolResultBlocks.length, "expected every tool_use to have its own matching tool_result");
+      assert.ok(
+        toolUseBlocks.every((block) => typeof block.id === "string" && block.id.length > 0),
+        "expected every tool_use block to carry its own id",
+      );
+      for (const toolUse of toolUseBlocks) {
+        assert.ok(
+          toolResultBlocks.some((result) => result.tool_use_id === toolUse.id),
+          `expected a tool_result matching tool_use id ${toolUse.id}`,
+        );
+      }
+      const lastBlock = blocks[blocks.length - 1];
+      assert.equal(lastBlock.type, "text");
+      assert.ok(/\?/.test(lastBlock.text), "expected the final block to carry a question");
+      const totalDelayMs = blocks.reduce((sum, block) => sum + (typeof block.delayMs === "number" ? block.delayMs : 0), 0);
+      assert.ok(
+        totalDelayMs > REPLAY_CONTINUOUS_WORK_CEILING_MS,
+        `expected the scenario's own total delay (${totalDelayMs}ms) to comfortably exceed ` +
+          `REPLAY_CONTINUOUS_WORK_CEILING_MS (${REPLAY_CONTINUOUS_WORK_CEILING_MS}ms)`,
+      );
+    },
+  );
 
   if (failures > 0) {
     console.error(`[self-test] ${failures} assertion(s) failed`);
@@ -3737,11 +3809,17 @@ async function driveChallengeConversation({
   cursor,
   turnDeadlineMs = LIVE_TURN_CEILING_MS,
   idleMs,
+  // Plan 05-38 (Task 3): threaded through exactly like `idleMs` above — `undefined` (every call
+  // site before this plan) inherits `waitForTurn`'s own default (`LIVE_TOOL_CALL_IDLE_MS`), so no
+  // pre-existing caller's behaviour changes. Exists so the `works-continuously-past-old-deadline`
+  // replay-check scenario can pass an explicit mid-flight window comfortably above its own gaps.
+  toolCallIdleMs,
   maxAgentTurns = MAX_AGENT_TURNS,
 }) {
   const waitOpts = (label) => ({
     timeoutMs: turnDeadlineMs,
     ...(idleMs !== undefined ? { idleMs } : {}),
+    ...(toolCallIdleMs !== undefined ? { toolCallIdleMs } : {}),
     label,
   });
 
@@ -4234,6 +4312,22 @@ function correlateProposeAttemptsPositionally(events, window) {
   });
 }
 
+/** Plan 05-38 (Task 3, gap G-05-7): the deliberately SHORT ceiling the
+ * `works-continuously-past-old-deadline` scenario passes as its own `turnDeadlineMs` — smaller than
+ * the scenario's own total elapsed time (the sum of its per-block `delayMs` pauses), so completing
+ * at all proves the new, progress-reset ceiling survives a turn that runs past it while never
+ * falling silent for as long as any single gap. Declared HERE, before the `--self-test` trigger
+ * below, rather than alongside its sibling `REPLAY_*` constants further down — `selfTest()` reads
+ * this constant directly (its own SCENARIOS-shape check), and `--self-test` calls it before module
+ * evaluation ever reaches the `--replay-check` section's own constant declarations. */
+const REPLAY_CONTINUOUS_WORK_CEILING_MS = 2_000;
+
+/** Plan 05-38 (Task 3, gap G-05-7): the mid-flight idle window the same scenario passes — larger
+ * than any single gap between the scenario's own alternating blocks, so no individual pause is ever
+ * read as a mid-flight stall. Declared beside {@link REPLAY_CONTINUOUS_WORK_CEILING_MS} for the same
+ * reason. */
+const REPLAY_CONTINUOUS_WORK_TOOL_IDLE_MS = 3_000;
+
 // `--self-test` short-circuits BEFORE the live `runScript` call below is ever reached — it must
 // never spawn a sidecar, a claude process, or even resolve REPO_ROOT-relative binaries as a
 // precondition, mirroring `authoring-stage-gate-spike.mjs`'s own "no child process, ever" rule.
@@ -4398,6 +4492,25 @@ const SLOW_TOOL_IDLE_MS = 300;
  * out `REPLAY_TURN_DEADLINE_MS`. Never used by any other scenario — every one of them settles (or
  * deliberately fails to settle) long before this fires. */
 const REPLAY_THROWN_DEADLINE_MS = 1_500;
+
+/**
+ * Plan 05-38 (Task 3, gap G-05-7): the FROZEN negative control — plan 05-25's own superseded arming
+ * rule, exactly as `waitForTurn` implemented it before this plan: stand the window down entirely
+ * while a tool call is outstanding, so the outer wall-clock ceiling is the ONLY thing that can ever
+ * conclude that state. Retained ONLY as the offline arm's negative control, run over the SAME
+ * accumulated turn state {@link decideTurnArmedWindow} (the shipped rule) is asserted against, so a
+ * regression cannot pass for the wrong reason — this phase has already paid for that twice
+ * (`scripts/uat/README.md`'s own recorded history). NEVER called by the live body. NEVER to be
+ * "fixed" — fixing it would defeat its entire purpose as a historical control. Mirrors exactly how
+ * `correlateProposeAttemptsPositionally` (above) is this file's frozen control for a different,
+ * unrelated mechanism (propose-attempt correlation, not turn-window arming) — this is not a second
+ * generation of THAT lineage, it is the one frozen control for THIS one.
+ */
+function decideTurnArmedWindowSuperseded(partial, { idleMs }) {
+  if (partial.pendingToolCallCount > 0) return { window: "none", ms: undefined };
+  if (partial.chunkCount > 0) return { window: "idle", ms: idleMs };
+  return { window: "none", ms: undefined };
+}
 
 /**
  * Run one `--replay-check` scenario end to end: its own scratch repository, project, run, sidecar
@@ -4716,6 +4829,82 @@ async function runReplayCheckScenario(scenarioName) {
           openingPrompt: OPENING_PROMPT,
           conversation: { exchanges: aborted.exchanges },
         });
+      } else if (scenarioName === "works-continuously-past-old-deadline") {
+        // ---- Task 3 closure (plan 05-38, gap G-05-7) — a turn that works continuously past the
+        // OLD wall-clock deadline still completes, because the ceiling now resets on every
+        // observed progress signal exactly like the idle windows do. -----------------------------
+        step(
+          "driving the REAL driveChallengeConversation with a deliberately short " +
+            `REPLAY_CONTINUOUS_WORK_CEILING_MS=${REPLAY_CONTINUOUS_WORK_CEILING_MS} — smaller than ` +
+            "this scenario's own total elapsed time, while every single gap stays comfortably below " +
+            `both this ceiling and REPLAY_CONTINUOUS_WORK_TOOL_IDLE_MS=${REPLAY_CONTINUOUS_WORK_TOOL_IDLE_MS} ` +
+            "— the exact combination live run 01M3C48C3PV1NSGHERBZ587YB1's own turn 1 produced, and " +
+            "exactly what the OLD arrangement (an unconditional wall-clock deadline from call start) " +
+            "could not survive",
+        );
+        const continuousWorkStartMs = Date.now();
+        const conversation = await driveChallengeConversation({
+          sidecar,
+          runId,
+          sendTurn: (text) => sidecar.request({ op: "authoring_turn", runId, text }),
+          cursor: turn1Cursor,
+          turnDeadlineMs: REPLAY_CONTINUOUS_WORK_CEILING_MS,
+          toolCallIdleMs: REPLAY_CONTINUOUS_WORK_TOOL_IDLE_MS,
+          maxAgentTurns: MAX_AGENT_TURNS,
+        });
+        const continuousWorkElapsedMs = Date.now() - continuousWorkStartMs;
+        assertAllHeldRequestsAnswered(sidecar);
+
+        const firstAgentExchange = conversation.exchanges.find((exchange) => exchange.speaker === "agent");
+        assert.ok(firstAgentExchange, "expected at least one captured agent exchange");
+        assert.equal(
+          firstAgentExchange.endedBy,
+          "result",
+          "expected the turn to end on the backend's own result marker, never the idle marker and " +
+            "never a thrown deadline",
+        );
+        const continuousWorkScenario = SCENARIOS[scenarioName];
+        const continuousWorkBlocks = continuousWorkScenario.turns[0];
+        const questionBlock = continuousWorkBlocks[continuousWorkBlocks.length - 1];
+        assert.ok(
+          firstAgentExchange.text.includes(questionBlock.text),
+          "expected the captured turn's text to include the scenario's own final question verbatim",
+        );
+        assert.ok(
+          continuousWorkElapsedMs > REPLAY_CONTINUOUS_WORK_CEILING_MS,
+          `expected the measured elapsed time (${continuousWorkElapsedMs}ms) to exceed ` +
+            `REPLAY_CONTINUOUS_WORK_CEILING_MS (${REPLAY_CONTINUOUS_WORK_CEILING_MS}ms) — a turn ` +
+            "that settles faster than the ceiling it was given proves nothing about surviving past it",
+        );
+        step(
+          `turn completed normally after ${continuousWorkElapsedMs}ms — past ` +
+            `REPLAY_CONTINUOUS_WORK_CEILING_MS (${REPLAY_CONTINUOUS_WORK_CEILING_MS}ms) — ended by ` +
+            `${firstAgentExchange.endedBy}, ${firstAgentExchange.chunkCount} chunk(s) captured`,
+        );
+
+        // The silent case (Task 1's own behavior 3): a genuinely silent mid-flight turn still
+        // concludes in bounded time, naming the outstanding tool — proven here with the same
+        // hand-pushed-event technique the self-test above uses, so this scenario proves BOTH
+        // halves: working continuously past the old deadline, AND a genuine silence still bounded.
+        step("driving a further silent-mid-flight wait against a deliberately unanswered, hand-pushed tool call");
+        const silentMidFlightMs = 200;
+        const silentCursor = sidecar.eventCursor();
+        sidecar.events.push({ type: "tool_call", runId, toolName: "Bash", toolUseId: "toolu_wcpd_silent" });
+        const silentReading = await sidecar.waitForTurn(runId, silentCursor, {
+          timeoutMs: 5_000,
+          idleMs: 5_000,
+          toolCallIdleMs: silentMidFlightMs,
+          label: "the works-continuously-past-old-deadline scenario's own silent mid-flight check",
+        });
+        assert.equal(silentReading.endedBy, "idle");
+        assert.equal(silentReading.midFlight, true);
+        assert.deepEqual(silentReading.outstandingTools, ["Bash"]);
+        step(
+          `silent mid-flight check concluded on its own short window (${silentMidFlightMs}ms), ` +
+            `naming the outstanding tool: ${JSON.stringify(silentReading.outstandingTools)}`,
+        );
+
+        exchanges = buildEvidenceExchanges({ openingPrompt: OPENING_PROMPT, conversation });
       } else {
         // ---- every other scenario — driven through the REAL driveChallengeConversation ---------
         step("driving the REAL driveChallengeConversation against the scripted backend");

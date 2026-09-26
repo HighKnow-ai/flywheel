@@ -157,6 +157,59 @@ const UNMODELLED_REASONING_CONTENT_BLOCK = UNMODELLED_SHAPES_FIXTURE.shapes.find
  * already a complete, real wire-shaped object (read from `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json`
  * below, never retyped).
  */
+
+/** Plan 05-38 (Task 3, gap G-05-7): the per-block pause `works-continuously-past-old-deadline`
+ * (below) uses for EVERY delayed block — deliberately small enough that no INDIVIDUAL gap ever
+ * approaches either the mid-flight window or the short ceiling the matching `--replay-check` branch
+ * passes (`REPLAY_CONTINUOUS_WORK_TOOL_IDLE_MS`/`REPLAY_CONTINUOUS_WORK_CEILING_MS`,
+ * `uat-08-socratic-authoring.mjs`), while enough of them chained together comfortably exceed that
+ * same ceiling in TOTAL — the exact combination live run `01M3C48C3PV1NSGHERBZ587YB1`'s own turn 1
+ * produced. */
+const CONTINUOUS_WORK_GAP_MS = 400;
+
+/**
+ * Plan 05-38 (Task 3, gap G-05-7): builds `works-continuously-past-old-deadline`'s single scripted
+ * turn — `repetitions` repetitions of (a reasoning block, a tool-use block carrying its own id, its
+ * own matching tool-result block), reproducing live run `01M3C48C3PV1NSGHERBZ587YB1`'s turn-1 SHAPE
+ * in miniature (roughly sixty tool-call/tool-result pairs and repeated reasoning, all inside one
+ * unbroken 120000ms turn). Finished by one text block carrying a question, so
+ * `driveChallengeConversation` behaves exactly as it does on a real challenge turn, and `emitTurn`'s
+ * own `result` line ends it. Every block after the first carries `delayMs: CONTINUOUS_WORK_GAP_MS` —
+ * the delays are chosen so the TOTAL comfortably exceeds the short ceiling the matching
+ * `--replay-check` branch passes while every INDIVIDUAL gap stays small, because that combination is
+ * exactly what the real run produced and exactly what the superseded arrangement (an unconditional
+ * wall-clock deadline from call start) could not survive.
+ */
+function buildContinuousWorkTurn(repetitions) {
+  const blocks = [{ type: "text", text: "Let me look at a few things before I answer." }];
+  for (let i = 1; i <= repetitions; i += 1) {
+    blocks.push({
+      type: "thinking",
+      thinking: `Weighing angle ${i} before I ask anything.`,
+      delayMs: CONTINUOUS_WORK_GAP_MS,
+    });
+    blocks.push({
+      type: "tool_use",
+      name: "Bash",
+      id: `toolu_wcpd_${i}`,
+      input: { command: "git status --short" },
+    });
+    blocks.push({
+      type: "tool_result",
+      role: "user",
+      tool_use_id: `toolu_wcpd_${i}`,
+      text: "clean",
+      delayMs: CONTINUOUS_WORK_GAP_MS,
+    });
+  }
+  blocks.push({
+    type: "text",
+    text: "Who is the audience for this feature? Where should the notification appear?",
+    delayMs: CONTINUOUS_WORK_GAP_MS,
+  });
+  return blocks;
+}
+
 export const SCENARIOS = {
   "truncation-repro": {
     turns: [
@@ -659,6 +712,20 @@ export const SCENARIOS = {
         type: "text",
         text: "This fallback turn must never be reached — the conversation settles cleanly on turn 2.",
       },
+    ],
+  },
+
+  // Plan 05-38 (Task 3, gap G-05-7): the mechanism that actually killed live run
+  // `01M3C48C3PV1NSGHERBZ587YB1` — a turn that works continuously, well past the old wall-clock
+  // deadline, and still completes. See `buildContinuousWorkTurn`'s own doc comment above for the
+  // full shape and the arithmetic this scenario depends on. Turn 2 (the fallback) is an ordinary
+  // settling reply with no question mark — the SAME pattern `unmodelled-wire-shapes` above uses —
+  // since turn 1's own closing question means `driveChallengeConversation` answers it and waits for
+  // a second turn before settling.
+  "works-continuously-past-old-deadline": {
+    turns: [buildContinuousWorkTurn(5)],
+    fallback: [
+      { type: "text", text: "Understood — settling on that scope now, nothing further to ask." },
     ],
   },
 };
