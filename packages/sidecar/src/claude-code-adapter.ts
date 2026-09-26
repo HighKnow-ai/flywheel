@@ -18,6 +18,7 @@ import {
   type AdapterCapabilities,
   type AgentAdapter,
   type AgentEvent,
+  type AskUserQuestionPrompt,
   type BoardReadRequestEvent,
   CapabilityUnsupportedError,
   defaultResumeSession,
@@ -612,6 +613,78 @@ export function normalizeBoardReadRequest(
   };
 }
 
+/** G-05-8(a) (plan 05-41): the exact `tool_use` block name this repository's `AskUserQuestion`
+ * handling gates on — referenced by both {@link parseAskUserQuestionInput}'s call site inside
+ * {@link normaliseStreamEvent} and {@link buildAuthoringClaudeArgv}'s `--disallowedTools` pair, so
+ * the two can never drift apart (T-05-41-03). */
+export const ASK_USER_QUESTION_TOOL_NAME = "AskUserQuestion";
+
+/** G-05-8(a) (plan 05-41): a bound on how many questions {@link parseAskUserQuestionInput} will
+ * carry from one `AskUserQuestion` payload — the real capture (`01M3DNC0G9CYAWSD8DYEGTRP8C`)
+ * carried 3; this is a runaway bound on model-supplied data, not a measurement, guarding the
+ * DoS surface a synchronous readline handler exposes (T-05-41-01). */
+export const MAX_ASK_USER_QUESTIONS = 20;
+
+/** G-05-8(a) (plan 05-41): the same bound as {@link MAX_ASK_USER_QUESTIONS}, applied per-question
+ * to its `options` array — the real capture carried at most 4; this is a runaway bound on
+ * model-supplied data, not a measurement. */
+export const MAX_ASK_USER_QUESTION_OPTIONS = 20;
+
+/**
+ * G-05-8(a) (plan 05-41): parse an `AskUserQuestion` tool call's raw `input` into typed, bounded
+ * {@link AskUserQuestionPrompt}s — or `undefined` for anything that is not an object with a
+ * non-empty array at `questions` (T-05-41-01: `undefined`, never an empty array, never a throw).
+ * A pure, total function: no property read here can throw, because every access is guarded by its
+ * own `typeof`/shape check first, exactly the discipline {@link normaliseStreamEvent}'s own
+ * non-object guard states the reason for (a throw here runs inside the same synchronous readline
+ * handler and would crash the sidecar for the whole fleet it supervises).
+ *
+ * Each question entry is kept only when it is an object whose `question` is a non-empty string;
+ * `header`/`multiSelect` are spread only on their own strict type check — mirroring the
+ * `rate_limit` branch's own per-field degrade idiom below — so a missing value omits the key
+ * rather than fabricating one. `options` is mapped from entries that are objects with a non-empty
+ * string `label`, carrying `description` only when it is a string; an option with no qualifying
+ * `label` is skipped, not repaired, while its siblings survive. Entries and options are both
+ * bounded ({@link MAX_ASK_USER_QUESTIONS}/{@link MAX_ASK_USER_QUESTION_OPTIONS}) and truncated IN
+ * ORDER — never sorted, merged or de-duplicated (T-05-41 must_haves). If no question entry
+ * qualifies, returns `undefined`.
+ */
+export function parseAskUserQuestionInput(input: unknown): AskUserQuestionPrompt[] | undefined {
+  if (input === null || typeof input !== "object") return undefined;
+  const questionsRaw = (input as Record<string, unknown>).questions;
+  if (!Array.isArray(questionsRaw) || questionsRaw.length === 0) return undefined;
+
+  const prompts: AskUserQuestionPrompt[] = [];
+  for (const entry of questionsRaw.slice(0, MAX_ASK_USER_QUESTIONS)) {
+    if (entry === null || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const question = record.question;
+    if (typeof question !== "string" || question.length === 0) continue;
+
+    const optionsRaw = Array.isArray(record.options) ? record.options : [];
+    const options: AskUserQuestionPrompt["options"] = [];
+    for (const optionEntry of optionsRaw.slice(0, MAX_ASK_USER_QUESTION_OPTIONS)) {
+      if (optionEntry === null || typeof optionEntry !== "object") continue;
+      const optionRecord = optionEntry as Record<string, unknown>;
+      const label = optionRecord.label;
+      if (typeof label !== "string" || label.length === 0) continue;
+      options.push({
+        label,
+        ...(typeof optionRecord.description === "string" ? { description: optionRecord.description } : {}),
+      });
+    }
+
+    prompts.push({
+      question,
+      ...(typeof record.header === "string" ? { header: record.header } : {}),
+      ...(typeof record.multiSelect === "boolean" ? { multiSelect: record.multiSelect } : {}),
+      options,
+    });
+  }
+
+  return prompts.length > 0 ? prompts : undefined;
+}
+
 /**
  * Map one parsed `stream-json` object to exactly one {@link AgentEvent}. A shape this function
  * does not recognise becomes `unknown`, still carrying the verbatim `raw` text, never dropped
@@ -669,12 +742,19 @@ export function normaliseStreamEvent(
       // this event's correlation key. Spread only when it is a non-empty string, so an absent or
       // malformed id omits the key ENTIRELY rather than setting it to `undefined`, mirroring the
       // `inputTokens`/`outputTokens` idiom in the `result` branch below.
+      //
+      // G-05-8(a) (plan 05-41): `questions` is spread ONLY for an `AskUserQuestion` call whose
+      // input parsed — `input` above still carries the raw payload unchanged either way, so
+      // nothing is lost and nothing existing is reinterpreted; the typed field is purely additive.
+      const askUserQuestions =
+        toolCall.name === ASK_USER_QUESTION_TOOL_NAME ? parseAskUserQuestionInput(toolCall.input) : undefined;
       return {
         ...base,
         type: "tool_call",
         toolName: toolCall.name ?? "unknown_tool",
         input: toolCall.input,
         ...(typeof toolCall.id === "string" && toolCall.id.length > 0 ? { toolUseId: toolCall.id } : {}),
+        ...(askUserQuestions !== undefined ? { questions: askUserQuestions } : {}),
       };
     }
     const toolResult = content.find((block) => block.type === "tool_result");

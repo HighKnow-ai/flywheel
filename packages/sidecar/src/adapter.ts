@@ -72,6 +72,39 @@ export interface ToolCallEvent extends AgentEventBase {
    * the backend's own content block declared none, so a consumer can branch on its presence
    * alone, the same convention destructiveCategory below already states. */
   toolUseId?: string;
+  /** G-05-8(a) (plan 05-41): the model-authored questions and options of an `AskUserQuestion`
+   * tool call — the only shape this field is ever populated for, and only when the payload
+   * parsed (`claude-code-adapter.ts::parseAskUserQuestionInput`). Absent entirely for every other
+   * tool call, and absent entirely (never a present-but-empty array) when the payload did not
+   * parse — the same present-or-absent convention `toolUseId` above already states, so a consumer
+   * can branch on presence alone. Order is the backend's own emitted order, verbatim — never
+   * sorted, merged or de-duplicated. Carries only the model-authored question/header/multiSelect
+   * flag and option label/description — nothing else from the envelope (T-05-41-02).
+   *
+   * This is a field on `tool_call` rather than a new {@link AgentEvent} union member because an
+   * `AskUserQuestion` call IS a tool call: `accumulateTurn` counts `tool_call` events and
+   * decrements on the matching `tool_result` to decide when a turn is mid-flight. Reclassifying it
+   * to a different event type would leave the call permanently pending, so every turn containing
+   * one would run to the ceiling instead of ending (T-05-41-05). */
+  questions?: AskUserQuestionPrompt[];
+}
+
+/** G-05-8(a) (plan 05-41): one option offered by an `AskUserQuestion` prompt — the model-authored
+ * `label`/`description` pair a human reads on screen, nothing else from the envelope. */
+export interface AskUserQuestionOption {
+  label: string;
+  description?: string;
+}
+
+/** G-05-8(a) (plan 05-41): one question inside an `AskUserQuestion` tool call's `input.questions`
+ * array, typed for {@link ToolCallEvent.questions}. `header`/`multiSelect` are independently
+ * optional, mirroring every other per-field degrade convention in this file — absent entirely,
+ * never fabricated, when the backend's own payload declared none. */
+export interface AskUserQuestionPrompt {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: AskUserQuestionOption[];
 }
 
 export interface ToolResultEvent extends AgentEventBase {
