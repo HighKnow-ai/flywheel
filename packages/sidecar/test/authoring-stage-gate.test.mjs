@@ -7,6 +7,17 @@
  * against `fake-claude.mjs` (mirroring `adapter.test.mjs`'s own harness) and read the resulting
  * `<runtimeDir>/settings/<runId>.json` back off disk, since `writeHookSettings` itself is a
  * private function this module never exports.
+ *
+ * G-05-8(b): what this file does and does not prove. It drives the SHIPPED compiled hook, which
+ * is real; but every marker fixture below is HAND-WRITTEN by `scratchRuntimeDirWithStage` — this
+ * file proves the hook's DECISION given a marker, and proves NOTHING about whether the product
+ * ever writes one. `packages/core/tests/authoring_stage_marker_contract.rs` is the test that owns
+ * that write-side contract, driving a real `start_authoring_run` through to the same shipped hook
+ * this file also spawns. This separation is deliberate, not an omission — but it is worth stating
+ * plainly, because for nine gap-closure rounds these two files each fabricated the other's state
+ * (this file hand-writes the marker; that file asserts only the database row) and the product's
+ * own disagreement between the two went unasserted the entire time. That is exactly the gap
+ * `01M3DNC0G9CYAWSD8DYEGTRP8C` hit in production.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -84,6 +95,34 @@ test("the hook produces no denial for the criteria stage", () => {
   const { status, decision } = runHook(baseEnv(dir));
   assert.equal(status, 0);
   assert.deepEqual(decision, {});
+});
+
+test("a legitimately-challenging run and a run whose marker cannot be read are denied for DIFFERENT reasons", () => {
+  // G-05-8(b): this is the property the live run violated. During challenge a propose call
+  // SHOULD be denied — that is D-88 working — but it must be denied by denyForChallengeStage,
+  // whose reason tells the agent to keep challenging. A run whose marker cannot be read must
+  // still fail closed (this assertion does NOT weaken that posture: both cases below deny and
+  // both exit non-zero), but it must be denied by failClosed's own reason, never the other one.
+  const challengeDir = scratchRuntimeDirWithStage("challenge");
+  const absentDir = scratchRuntimeDirWithStage(undefined);
+
+  const challenge = runHook(baseEnv(challengeDir));
+  const absent = runHook(baseEnv(absentDir));
+
+  assert.notEqual(challenge.status, 0, "the challenge-stage case must still deny");
+  assert.notEqual(absent.status, 0, "the absent-marker case must still deny (fail-closed)");
+  assert.equal(challenge.decision?.hookSpecificOutput?.permissionDecision, "deny");
+  assert.equal(absent.decision?.hookSpecificOutput?.permissionDecision, "deny");
+
+  const challengeReason = challenge.decision?.hookSpecificOutput?.permissionDecisionReason ?? "";
+  const absentReason = absent.decision?.hookSpecificOutput?.permissionDecisionReason ?? "";
+
+  assert.match(challengeReason, /challenge stage/);
+  assert.doesNotMatch(absentReason, /challenge stage/);
+  // A future edit that collapses these two paths into one message would hand a
+  // legitimately-challenging agent an infrastructure error again — the exact defect that turned
+  // a six-task epic into prose in run 01M3DNC0G9CYAWSD8DYEGTRP8C.
+  assert.notEqual(challengeReason, absentReason, "the two denial reasons must never collapse into one message");
 });
 
 test("a missing marker file denies (fail-closed)", () => {
