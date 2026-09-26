@@ -427,7 +427,9 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-1 pending. See `.planning/todos/pending/`.
+2 pending. See `.planning/todos/pending/`.
+
+- **[blocker] G-05-8: `AskUserQuestion` invisible and board unwritable in live run** — from live run `01M3DNC0G9CYAWSD8DYEGTRP8C` (2026-09-26, first live run after gap-closure round 9). (a) The agent asked its three clarifying questions through the `AskUserQuestion` tool; the harness captures only `assistant_text`, so they never reached the evidence sheet, and the driver answered them with "The user did not answer the questions" because it has no handler — SHAPE-01's evidence is missing and the Socratic loop cannot develop. Same root shape as `G-05-7`'s third finding. (b) Every `propose_epic`/`propose_assumption` call was refused with "no authoring stage marker could be read for this run" although the run demonstrably started in the challenge stage — nothing reached the board, `Drafted criteria: 0`, so SHAPE-02/03/04 have no live evidence. Round 9's own fixes all held: the sheet grew 2645 → 10556 bytes on the failure path and the preserved scratch root is what made (a) diagnosable. File: `.planning/todos/pending/2026-09-26-g-05-8-askuserquestion-invisible-and-board-unwritable-in-liv.md`
 
 - **[major] Adapter drops assistant text when a stream line carries text and tool_use** — `packages/sidecar/src/claude-code-adapter.ts:589-612` tests `content.find(tool_use)` and returns before the text branch, so a stream-json line carrying both block types silently discards the narration. Latent against the current binary (which splits blocks across lines, per `scripts/spike/authoring-transport-spike.mjs:114-119`), but it would blank the desktop session feed's narration if that emission shape changes. Found incidentally while diagnosing gap `G-05-2`; deliberately kept out of that gap-closure wave because it is product code on a different failure path. File: `.planning/todos/pending/2026-09-24-adapter-drops-assistant-text-when-a-stream-line-carries-text.md`
 
