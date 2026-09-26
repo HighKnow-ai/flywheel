@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-39-PLAN.md
-last_updated: "2026-09-26T02:52:17.421Z"
-last_activity: 2026-09-25
+stopped_at: Completed 05-40-PLAN.md
+last_updated: "2026-09-26T03:18:33.117Z"
+last_activity: 2026-09-26
 last_activity_desc: Phase 05 execution started
-state_head: 17f1d98ef195a4b3c9ebe486f263b17c6c7fa6a5
+state_head: 0eda78ae511c8cd1e008fd259ffa4e94993ab176
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 136
-  completed_plans: 132
+  completed_plans: 133
   percent: 0
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 
 ## Current Position
 
-Phase: 05 (Socratic Epic Authoring) — READY TO EXECUTE
-Plan: 5 of 39
+Phase: 05 (Socratic Epic Authoring) — EXECUTING
+Plan: 2 of 43
 Status: Ready to execute
-Last activity: 2026-09-25 — Phase 05 execution started
+Last activity: 2026-09-26 — Phase 05 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -189,6 +189,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P37 | 37min | 3 tasks | 7 files |
 | Phase 05 P38 | 25min | 3 tasks | 3 files |
 | Phase 05 P39 | ~20min | 3 tasks | 3 files |
+| Phase 05 P40 | 35min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -424,6 +425,7 @@ Recent decisions affecting current work:
 - [Phase 05]: ThinkingEvent/RateLimitEvent modelled at the adapter seam; WR-02/WR-03 closed; durable unmodelled-event sink added beside the truncating stderr slice
 - [Phase 05]: [Phase 05]: The live turn's wall-clock ceiling (LIVE_TURN_CEILING_MS, formerly TURN_DEADLINE_MS) now resets on every observed progress signal instead of firing unconditionally from call start — An absolute-from-start timer fires regardless of activity, which is the exact mechanism that killed live run 01M3C48C3PV1NSGHERBZ587YB1 (a turn still working at 120000ms). Resetting the ceiling on progress makes it a silence window like the ordinary idle window and the new mid-flight window, satisfying the plan's own truth that a turn must never be bounded by a total wall-clock budget.
 - [Phase 05]: Corrected this round's own gap report rather than implementing it as written: harness cleanup destroys harness.root, not the uat-08-credential-path artifact (which resolves outside it and was never registered for teardown).
+- [Phase 05]: The marker write in start_authoring_run copies transition_stage's T-05-03-05 ordering rule (last write before commit, bail before commit on failure) directly via write_authoring_stage, rather than routing through transition_stage's guarded-UPDATE machinery, which exists for a different problem (concurrent double-transition) that a brand-new run has not yet encountered.
 
 ### Pending Todos
 
@@ -473,6 +475,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-26T00:37:20.350Z
-Stopped at: Completed 05-39-PLAN.md
+Last session: 2026-09-26T03:18:32.971Z
+Stopped at: Completed 05-40-PLAN.md
 Resume file: None
