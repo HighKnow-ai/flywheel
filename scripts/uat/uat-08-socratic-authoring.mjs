@@ -1540,7 +1540,7 @@ async function selfTest() {
   );
 
   check(
-    "no answer-bank entry, the fallback, or the closing turn coaches the model to challenge, push back, ask clarifying questions, or names the Socratic method",
+    "no answer-bank entry, the fallback, the closing turn, or the option-selection prefix coaches the model to challenge, push back, ask clarifying questions, or names the Socratic method",
     () => {
       const forbidden = /challenge|push[\s-]?back|clarify|clarifying|socratic/i;
       for (const entry of ANSWER_BANK) {
@@ -1548,35 +1548,81 @@ async function selfTest() {
       }
       assert.ok(!forbidden.test(ANSWER_BANK_FALLBACK), "the fallback answer coaches conversational behaviour");
       assert.ok(!forbidden.test(CLOSING_TURN), "the closing turn coaches conversational behaviour");
+      assert.ok(!forbidden.test(OPTION_SELECTION_PREFIX), "the option-selection prefix coaches conversational behaviour");
     },
   );
 
-  check("extractOpenQuestions recovers every interrogative fragment from a multi-block turn, in order, capped", () => {
-    const text =
-      "Three things would materially change what gets built:\n" +
-      "1. Who can dismiss a notification once it fires?\n" +
-      "2. Should a notification survive the app restarting?\n" +
-      "3. When an agent finishes unattended, does that alone warrant a notification?";
-    const questions = extractOpenQuestions(text);
-    assert.equal(questions.length, 3);
-    assert.ok(questions[0].startsWith("Who can dismiss"));
-    assert.ok(questions[1].startsWith("Should a notification survive"));
-    assert.ok(questions[2].startsWith("When an agent finishes"));
+  check(
+    "extractOpenQuestions recovers every interrogative fragment from a multi-block turn's prose, in order, capped, each carrying empty options",
+    () => {
+      const text =
+        "Three things would materially change what gets built:\n" +
+        "1. Who can dismiss a notification once it fires?\n" +
+        "2. Should a notification survive the app restarting?\n" +
+        "3. When an agent finishes unattended, does that alone warrant a notification?";
+      const questions = extractOpenQuestions({ text, toolCalls: [] });
+      assert.equal(questions.length, 3);
+      assert.ok(questions[0].text.startsWith("Who can dismiss"));
+      assert.deepEqual(questions[0].options, []);
+      assert.ok(questions[1].text.startsWith("Should a notification survive"));
+      assert.ok(questions[2].text.startsWith("When an agent finishes"));
 
-    const manyQuestions = Array.from({ length: MAX_EXTRACTED_QUESTIONS + 5 }, (_, i) => `Question ${i}?`).join(" ");
-    assert.equal(extractOpenQuestions(manyQuestions).length, MAX_EXTRACTED_QUESTIONS);
+      const manyQuestionsText = Array.from({ length: MAX_EXTRACTED_QUESTIONS + 5 }, (_, i) => `Question ${i}?`).join(" ");
+      assert.equal(extractOpenQuestions({ text: manyQuestionsText, toolCalls: [] }).length, MAX_EXTRACTED_QUESTIONS);
 
-    assert.equal(extractOpenQuestions("This has no interrogative fragment at all.").length, 0);
-  });
+      assert.equal(extractOpenQuestions({ text: "This has no interrogative fragment at all.", toolCalls: [] }).length, 0);
+    },
+  );
 
   check(
-    "every line of a composed reply, minus its fixed preamble and its ordinal prefix, is an exact member of the answer bank's value set",
+    "extractOpenQuestions puts every typed tool-call question first, in order, then the prose fragments, capped in total — a turn's cap is never reached by prose alone once tool-call questions already fill it",
+    () => {
+      const mixedTurn = {
+        text: "Here's a follow-up question in prose too?",
+        toolCalls: [
+          {
+            toolName: "AskUserQuestion",
+            questions: [
+              { question: "Which trigger?", header: "Triggers", options: [{ label: "Assigned to me" }, { label: "Mentioned" }] },
+              { question: "Which channel?", header: "Channels", options: [{ label: "In-app" }] },
+            ],
+          },
+        ],
+      };
+      const questions = extractOpenQuestions(mixedTurn);
+      assert.equal(questions.length, 3);
+      assert.equal(questions[0].text, "Which trigger?");
+      assert.deepEqual(questions[0].options, ["Assigned to me", "Mentioned"]);
+      assert.equal(questions[1].text, "Which channel?");
+      assert.deepEqual(questions[1].options, ["In-app"]);
+      assert.ok(questions[2].text.startsWith("Here's a follow-up question in prose too?"));
+      assert.deepEqual(questions[2].options, []);
+
+      const manyToolCallQuestions = Array.from({ length: MAX_EXTRACTED_QUESTIONS + 2 }, (_, i) => ({
+        question: `Tool-call question ${i}?`,
+        options: [{ label: `Option ${i}` }],
+      }));
+      const overflowTurn = {
+        text: "A trailing prose question that must never appear?",
+        toolCalls: [{ toolName: "AskUserQuestion", questions: manyToolCallQuestions }],
+      };
+      const cappedQuestions = extractOpenQuestions(overflowTurn);
+      assert.equal(cappedQuestions.length, MAX_EXTRACTED_QUESTIONS);
+      assert.ok(
+        cappedQuestions.every((q) => q.text.startsWith("Tool-call question")),
+        "expected every capped entry to be a tool-call question — a trailing prose question must never appear once the cap is already reached by tool-call questions alone",
+      );
+    },
+  );
+
+  check(
+    "every line of a composed reply to a no-options question, minus its fixed preamble and its ordinal prefix, is an exact member of the answer bank's value set",
     () => {
       const syntheticQuestions = [
-        "Who can dismiss a notification once it fires?",
-        "Should a notification survive an app restart?",
-        "When an agent finishes a run unattended, does that alone warrant a notification?",
-        "This one matches nothing in the bank at all, so what happens?",
+        { text: "Who can dismiss a notification once it fires?", options: [] },
+        { text: "Should a notification survive an app restart?", options: [] },
+        { text: "When an agent finishes a run unattended, does that alone warrant a notification?", options: [] },
+        { text: "This one matches nothing in the bank at all, so what happens?", options: [] },
       ];
       const reply = composeDeveloperReply(syntheticQuestions);
       const lines = reply.split("\n");
@@ -1591,6 +1637,33 @@ async function selfTest() {
       // The fourth question matches no pattern — pinning that the fallback is reachable, not just
       // declared.
       assert.equal(lines[4].replace(/^\d+\.\s/, ""), ANSWER_BANK_FALLBACK);
+    },
+  );
+
+  check(
+    "composeDeveloperReply answers a question WITH options by selecting exactly one offered label, verbatim, prefixed by OPTION_SELECTION_PREFIX, and never quotes the question's own text",
+    () => {
+      const optionsQuestion = {
+        text: "How should notifications reach the user in v1?",
+        options: ["In-app inbox only", "Email", "Browser / mobile push", "Slack"],
+      };
+      const reply = composeDeveloperReply([optionsQuestion]);
+      const lines = reply.split("\n");
+      assert.equal(lines.length, 2);
+      const answerLine = lines[1].replace(/^\d+\.\s/, "");
+      assert.ok(
+        answerLine.startsWith(OPTION_SELECTION_PREFIX),
+        `expected the answer line to open with the fixed selection prefix: ${JSON.stringify(answerLine)}`,
+      );
+      const selectedLabel = answerLine.slice(OPTION_SELECTION_PREFIX.length);
+      assert.ok(
+        optionsQuestion.options.includes(selectedLabel),
+        `expected the selected label to be an exact member of the offered options: ${JSON.stringify(selectedLabel)}`,
+      );
+      assert.ok(
+        !answerLine.includes(optionsQuestion.text),
+        `expected the composed reply to contain no substring of the question's own text: ${JSON.stringify(answerLine)}`,
+      );
     },
   );
 
@@ -3720,31 +3793,66 @@ const CLOSING_TURN =
   "Those are my answers to everything you've asked so far. For anything still open, state your " +
   "own assumption explicitly and move on — we're not going back and forth any further on this.";
 
+/** Plan 05-42 (gap G-05-8(a), Task 2): the fixed prefix of an option-selection reply line —
+ * `composeDeveloperReply`'s answer for a question that carries offered options. Never itself
+ * coaching text (asserted alongside `ANSWER_BANK_FALLBACK`/`CLOSING_TURN` in the forbidden-coaching
+ * self-test check below): selecting an option the agent itself offered is answering, not
+ * paraphrasing the question back at it. */
+const OPTION_SELECTION_PREFIX = "Picking: ";
+
 /**
- * From a completed turn's WHOLE text, return the interrogative fragments, in order, capped at
- * {@link MAX_EXTRACTED_QUESTIONS}. Deliberately simple and deterministic — a "question" is a
- * fragment ending in a question mark, recovered by splitting on sentence-ish boundaries (any of
- * `. ? !` followed by whitespace, which also splits a numbered list's own newlines). This is a
- * heuristic over the agent's own prose, not a parser — it does not understand embedded quotation,
- * abbreviations or rhetorical questions, and is not asked to.
+ * From a completed `turn`, return the open questions in order, each `{ text, options }` —
+ * `options` an array of offered label strings, empty for a prose-derived question. Every typed
+ * `AskUserQuestion` prompt {@link questionsFromTurn} finds comes FIRST, in order, each entry's
+ * `text` its own `question` and `options` its own offered labels in offered order; then the
+ * interrogative fragments recovered from `turn.text` — a fragment ending in a question mark, split
+ * on sentence-ish boundaries (any of `. ? !` followed by whitespace, which also splits a numbered
+ * list's own newlines), exactly as before this plan — each carrying an empty `options`; the
+ * combined list is then capped at {@link MAX_EXTRACTED_QUESTIONS}.
+ *
+ * Ordering is guaranteed WITHIN each source; tool-call questions come first because a tool call
+ * precedes the trailing prose of the turn that issued it — this harness does not claim a merged
+ * wire ordering it does not measure. This is a heuristic over the agent's own prose (for the
+ * fragment half), not a parser — it does not understand embedded quotation, abbreviations or
+ * rhetorical questions, and is not asked to.
  */
-function extractOpenQuestions(text) {
-  const fragments = text
+function extractOpenQuestions(turn) {
+  const toolCallQuestions = questionsFromTurn(turn).map((prompt) => ({
+    text: prompt.question,
+    options: Array.isArray(prompt.options) ? prompt.options.map((option) => option.label) : [],
+  }));
+  const fragments = turn.text
     .split(/(?<=[?.!])\s+/)
     .map((fragment) => fragment.trim())
     .filter((fragment) => fragment.length > 0);
-  return fragments.filter((fragment) => fragment.endsWith("?")).slice(0, MAX_EXTRACTED_QUESTIONS);
+  const proseQuestions = fragments
+    .filter((fragment) => fragment.endsWith("?"))
+    .map((fragment) => ({ text: fragment, options: [] }));
+  return [...toolCallQuestions, ...proseQuestions].slice(0, MAX_EXTRACTED_QUESTIONS);
 }
 
 /**
- * Compose a numbered developer reply to `questions`. For each question, in order, select the
- * first {@link ANSWER_BANK} entry whose pattern matches it, else {@link ANSWER_BANK_FALLBACK}.
- * The ONLY thing derived from the agent's own text is the ORDINAL a question appears at — every
- * answer line is an EXACT member of the answer bank's value set, never a paraphrase or a quote.
+ * Compose a numbered developer reply to `questions` (each `{ text, options }`). For an entry with
+ * NO options, select the first {@link ANSWER_BANK} entry whose pattern matches its `text`, else
+ * {@link ANSWER_BANK_FALLBACK} — unchanged from before this plan. For an entry WITH options, the
+ * answer line is {@link OPTION_SELECTION_PREFIX} followed by exactly one offered label, verbatim:
+ * the first label matching an `ANSWER_BANK` pattern, else the first offered label.
+ *
+ * Every answer line is now an exact member of one of two fixed sets: the answer bank's values, or
+ * the option labels the agent itself offered in that same turn — never a paraphrase or a quote of
+ * the QUESTION text itself. Selecting an option is NOT the failure the rest of this rule guards
+ * against: an option label is a choice the agent itself put on the table, and choosing one is the
+ * entire semantics of answering it. What stays forbidden, and is asserted below, is echoing any
+ * part of the question's own text.
  */
 function composeDeveloperReply(questions) {
-  const lines = questions.map((question, index) => {
-    const entry = ANSWER_BANK.find(({ pattern }) => pattern.test(question));
+  const lines = questions.map(({ text, options }, index) => {
+    if (Array.isArray(options) && options.length > 0) {
+      const matched = options.find((label) => ANSWER_BANK.some(({ pattern }) => pattern.test(label)));
+      const chosen = matched ?? options[0];
+      return `${index + 1}. ${OPTION_SELECTION_PREFIX}${chosen}`;
+    }
+    const entry = ANSWER_BANK.find(({ pattern }) => pattern.test(text));
     const answer = entry ? entry.answer : ANSWER_BANK_FALLBACK;
     return `${index + 1}. ${answer}`;
   });
@@ -3865,7 +3973,7 @@ async function driveChallengeConversation({
         };
       }
 
-      const questions = extractOpenQuestions(turn.text);
+      const questions = extractOpenQuestions(turn);
       if (questions.length === 0) {
         settled = true;
         break;
@@ -4984,8 +5092,8 @@ async function runReplayCheckScenario(scenarioName) {
           }
         }
 
-        // Composition invariant: every developer exchange's lines are drawn from the answer bank
-        // or are the closing turn verbatim.
+        // Composition invariant: every developer exchange's lines are drawn from the answer bank,
+        // select an offered option (plan 05-42, gap G-05-8(a)), or are the closing turn verbatim.
         const bankValues = new Set([...ANSWER_BANK.map((entry) => entry.answer), ANSWER_BANK_FALLBACK]);
         for (const exchange of conversation.exchanges) {
           if (exchange.speaker !== "developer") continue;
@@ -4999,8 +5107,8 @@ async function runReplayCheckScenario(scenarioName) {
           for (const line of lines.slice(1)) {
             const stripped = line.replace(/^\d+\.\s/, "");
             assert.ok(
-              bankValues.has(stripped),
-              `developer exchange line is not an exact answer-bank member: ${JSON.stringify(stripped)}`,
+              bankValues.has(stripped) || stripped.startsWith(OPTION_SELECTION_PREFIX),
+              `developer exchange line is not an exact answer-bank member and does not select an offered option: ${JSON.stringify(stripped)}`,
             );
           }
         }
@@ -5481,13 +5589,13 @@ async function runReplayCheckScenario(scenarioName) {
               "a thinking event was captured, and zero unknown-type events were seen for this run",
           );
         } else if (scenarioName === "ask-user-question") {
-          // Plan 05-42 (gap G-05-8(a)): the harness-side half of this gap — the questions and
+          // Plan 05-42 (gap G-05-8(a)): proves BOTH halves of this gap together — the questions and
           // options a real `AskUserQuestion` tool call carries survive the wire onto the captured
-          // turn's own `toolCalls`, and from there onto the built agent exchange, through the real
-          // watchdog, the real shipped normaliser and the real sidecar. Whether the DRIVER treats
-          // them as open questions (rather than settling on a turn whose prose carries no question
-          // mark) is Task 2's own property, not asserted here — Task 1 proves the questions arrive,
-          // Task 2 proves the driver reads them.
+          // turn's own `toolCalls` and from there onto the built agent exchange (Task 1), AND the
+          // driver treats them as open questions rather than reading a turn whose prose carries no
+          // question mark as settled (Task 2) — this scenario's closing text block deliberately
+          // carries no "?" at all, so the ONLY thing that can keep the conversation going past turn
+          // 1 is the driver reading the tool call's own typed questions.
           const firstAgentExchange = conversation.exchanges.find((exchange) => exchange.speaker === "agent");
           assert.ok(firstAgentExchange, "expected at least one captured agent exchange");
           assert.ok(
@@ -5522,9 +5630,34 @@ async function runReplayCheckScenario(scenarioName) {
               `${JSON.stringify(unknownEvents.map((e) => e.raw))}`,
           );
 
+          // Task 2's own property: the driver must NOT read this turn as settled — it must send a
+          // developer reply selecting an offered option for each of the three typed questions, and
+          // that reply must never quote any of the question texts themselves.
+          const developerTurns = conversation.exchanges.filter((exchange) => exchange.speaker === "developer");
+          assert.ok(
+            developerTurns.length >= 1,
+            "expected the driver to send at least one developer turn answering the tool call's own " +
+              "questions — a turn whose questions live in a tool call must never be read as settled",
+          );
+          assert.ok(
+            developerTurns.every((exchange) => exchange.text.includes(OPTION_SELECTION_PREFIX)),
+            "expected every developer reply to this scenario to select an offered option",
+          );
+          for (const prompt of ASK_USER_QUESTION_PROMPTS) {
+            assert.ok(
+              !developerTurns.some((exchange) => exchange.text.includes(prompt.question)),
+              `expected no developer reply to quote a question's own text verbatim: ${JSON.stringify(prompt.question)}`,
+            );
+          }
+          assert.ok(
+            conversation.answeredQuestionCount >= 3,
+            `expected at least three questions answered, got ${conversation.answeredQuestionCount}`,
+          );
+
           step(
             `captured three typed question(s) on the wire and on the built exchange — headers: ` +
-              `${JSON.stringify(headers)} — zero unknown-type events`,
+              `${JSON.stringify(headers)} — zero unknown-type events — answeredQuestionCount=` +
+              `${conversation.answeredQuestionCount}, developer turn(s)=${developerTurns.length}`,
           );
         }
 
