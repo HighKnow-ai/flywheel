@@ -82,6 +82,20 @@ const UNMODELLED_REASONING_CONTENT_BLOCK = UNMODELLED_SHAPES_FIXTURE.shapes.find
 ).line.message.content[0];
 
 /**
+ * Plan 05-42 (gap G-05-8(a)): the frozen real capture of live run `01M3DNC0G9CYAWSD8DYEGTRP8C`'s
+ * `AskUserQuestion` tool call (plan 05-41's own fixture) — read once at MODULE LOAD, exactly like
+ * the fixtures above, so the `ask-user-question` scenario below cannot drift from the real capture
+ * by retyping a copy of it. `ASK_USER_QUESTION_TOOL_USE_BLOCK` is the fixture's own `tool_use`
+ * content block, imported verbatim (never retyped as an object literal here) — the exact discipline
+ * `scripts/uat/README.md` Item 8's third rule requires.
+ */
+const ASK_USER_QUESTION_FIXTURE_PATH = path.join(__dirname, "..", "fixtures", "live-opus5-ask-user-question.json");
+const ASK_USER_QUESTION_FIXTURE = JSON.parse(fs.readFileSync(ASK_USER_QUESTION_FIXTURE_PATH, "utf8"));
+const ASK_USER_QUESTION_TOOL_USE_BLOCK = ASK_USER_QUESTION_FIXTURE.shapes.find(
+  (shape) => shape.name === "ask-user-question",
+).line.message.content[0];
+
+/**
  * The scripted turn fixtures, keyed by scenario name. Each scenario is `{ turns, fallback }`:
  * `turns` is an array of arrays of content blocks (`{ type: "text", text }` or
  * `{ type: "tool_use", name, input }`) — one array per conversational turn, each block becoming
@@ -727,6 +741,32 @@ export const SCENARIOS = {
     fallback: [
       { type: "text", text: "Understood — settling on that scope now, nothing further to ask." },
     ],
+  },
+
+  // Plan 05-42 (gap G-05-8(a)): replays the REAL captured `AskUserQuestion` tool call frozen at
+  // `scripts/uat/fixtures/live-opus5-ask-user-question.json` — the exact wire shape whose three
+  // questions and eleven option labels went missing from the evidence sheet on live run
+  // `01M3DNC0G9CYAWSD8DYEGTRP8C`. A short opening text block, then the imported `tool_use` block
+  // verbatim, then a `tool_result` block carrying the fixture's own `cliAnsweredToolResult` text
+  // (replaying what the CLI's non-interactive mode actually did — it answers the call itself, since
+  // no human is there to pick — never an idealised answer), then a closing text block carrying NO
+  // question mark at all. The only thing that can keep the conversation going past this turn is the
+  // driver reading the tool call's own typed questions, not its prose.
+  "ask-user-question": {
+    turns: [
+      [
+        { type: "text", text: "Before I stage anything, a few things would materially change the shape of this." },
+        { ...ASK_USER_QUESTION_TOOL_USE_BLOCK },
+        {
+          type: "tool_result",
+          role: "user",
+          tool_use_id: ASK_USER_QUESTION_FIXTURE.cliAnsweredToolResult.tool_use_id,
+          text: ASK_USER_QUESTION_FIXTURE.cliAnsweredToolResult.content,
+        },
+        { type: "text", text: "Noted — moving on without those picks locked in." },
+      ],
+    ],
+    fallback: [{ type: "text", text: "Still here if you need anything else." }],
   },
 };
 

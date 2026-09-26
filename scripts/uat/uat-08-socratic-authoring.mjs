@@ -95,6 +95,17 @@ const UNAUTHENTICATED_FIXTURE = JSON.parse(fs.readFileSync(UNAUTHENTICATED_FIXTU
 const UNMODELLED_SHAPES_FIXTURE_PATH = path.join(REPO_ROOT, "scripts", "uat", "fixtures", "live-opus5-unmodelled-shapes.json");
 const UNMODELLED_SHAPES_FIXTURE = JSON.parse(fs.readFileSync(UNMODELLED_SHAPES_FIXTURE_PATH, "utf8"));
 
+/** Plan 05-42 (gap G-05-8(a)): the frozen real capture of live run `01M3DNC0G9CYAWSD8DYEGTRP8C`'s
+ * `AskUserQuestion` tool call (plan 05-41's own fixture) — the SAME fixture
+ * `fake-authoring-claude.mjs`'s `ask-user-question` scenario reads, read once here too so this
+ * script's own assertions (the `--replay-check` branch below and the `--self-test` renderer checks)
+ * cannot drift from the real capture by retyping a copy of it. */
+const ASK_USER_QUESTION_FIXTURE_PATH = path.join(REPO_ROOT, "scripts", "uat", "fixtures", "live-opus5-ask-user-question.json");
+const ASK_USER_QUESTION_FIXTURE = JSON.parse(fs.readFileSync(ASK_USER_QUESTION_FIXTURE_PATH, "utf8"));
+const ASK_USER_QUESTION_PROMPTS = ASK_USER_QUESTION_FIXTURE.shapes.find(
+  (shape) => shape.name === "ask-user-question",
+).line.message.content[0].input.questions;
+
 /**
  * Plan 05-38 (Task 2, gap G-05-7): the live arm's own wall-clock CEILING on a single turn wait. This
  * name asserts that a turn past the value is presumed RUNAWAY — never that a turn must complete
@@ -3839,15 +3850,7 @@ async function driveChallengeConversation({
         waitOpts(`driveChallengeConversation agent turn ${agentTurns + 1}`),
       );
       agentTurns += 1;
-      exchanges.push({
-        speaker: "agent",
-        text: turn.text,
-        chunkCount: turn.chunkCount,
-        charCount: turn.charCount,
-        endedBy: turn.endedBy,
-        endIndex: turn.endIndex,
-        nonConversation: turn.nonConversation ?? null,
-      });
+      exchanges.push(buildAgentExchange(turn));
       finalCursor = turn.endIndex;
 
       if (turn.nonConversation) {
@@ -3878,15 +3881,7 @@ async function driveChallengeConversation({
           waitOpts("driveChallengeConversation closing-turn reply"),
         );
         agentTurns += 1;
-        exchanges.push({
-          speaker: "agent",
-          text: closingReply.text,
-          chunkCount: closingReply.chunkCount,
-          charCount: closingReply.charCount,
-          endedBy: closingReply.endedBy,
-          endIndex: closingReply.endIndex,
-          nonConversation: closingReply.nonConversation ?? null,
-        });
+        exchanges.push(buildAgentExchange(closingReply));
         finalCursor = closingReply.endIndex;
         closingTurnSent = true;
         settled = false;
@@ -3919,15 +3914,7 @@ async function driveChallengeConversation({
       // when nothing was captured.
       const recoveredExchanges = [...exchanges];
       if (err?.partial && err.partial.chunkCount > 0) {
-        recoveredExchanges.push({
-          speaker: "agent",
-          text: err.partial.text,
-          chunkCount: err.partial.chunkCount,
-          charCount: err.partial.charCount,
-          endedBy: "turn-deadline",
-          endIndex: err.partial.endIndex,
-          nonConversation: err.partial.nonConversation ?? null,
-        });
+        recoveredExchanges.push(buildAgentExchange(err.partial, { endedBy: "turn-deadline" }));
       }
       throw new ConversationAbortedError(err, {
         exchanges: recoveredExchanges,
@@ -3968,6 +3955,57 @@ async function driveChallengeConversation({
  */
 function buildEvidenceExchanges({ openingPrompt, conversation }) {
   return [{ speaker: "developer", text: openingPrompt }, ...conversation.exchanges];
+}
+
+/**
+ * Plan 05-42 (gap G-05-8(a)): the typed `AskUserQuestion` prompts a captured turn's tool calls
+ * carried, in emitted order — read ONLY from `turn.toolCalls` (`ToolCallEvent.questions`, plan
+ * 05-41's adapter-seam field). Returns `[]` for a turn with no `toolCalls`, no `toolCalls` entries
+ * whose `toolName` is `AskUserQuestion`, or an `AskUserQuestion` entry whose payload did not parse
+ * (so `questions` is absent on that event). NEVER parses raw text, stderr or a session log — the
+ * payload arrives typed from the adapter seam, and reconstructing it here would be the exact
+ * wrong-layer fix `scripts/uat/README.md` Item 8's fourth rule forbids.
+ */
+export function questionsFromTurn(turn) {
+  const toolCalls = Array.isArray(turn?.toolCalls) ? turn.toolCalls : [];
+  const prompts = [];
+  for (const call of toolCalls) {
+    if (call?.toolName !== "AskUserQuestion") continue;
+    if (!Array.isArray(call.questions) || call.questions.length === 0) continue;
+    prompts.push(...call.questions);
+  }
+  return prompts;
+}
+
+/**
+ * Plan 05-42 (gap G-05-8(a)): the ONE place an agent exchange object is constructed from a
+ * captured turn — `speaker: "agent"`, `text`/`chunkCount`/`charCount`/`endedBy`/`endIndex` read
+ * straight from `turn`, `nonConversation` defaulting to `null`, and `questions` (the typed prompts
+ * {@link questionsFromTurn} returns) spread in ONLY when non-empty — absent entirely otherwise, the
+ * same present-or-absent discipline `nonConversation`/`credentialPath` already follow in
+ * `renderChallengeEvidenceSheet`. `overrides` lets a call site force a field (the timeout paths
+ * pass `{ endedBy: "timeout" }` / `{ endedBy: "turn-deadline" }`) without reconstructing the rest.
+ *
+ * Exists because nine separate literal exchange objects — three in `driveChallengeConversation`,
+ * several in `runReplayCheckScenario`'s own scenario branches, and two in the live arm's inline
+ * callback — had to stay in sync by hand, which is exactly how the NF-01 duplicate-turn defect
+ * happened. Adding a sixth field (`questions`) to every one of those sites by hand would be the
+ * same bet again.
+ */
+export function buildAgentExchange(turn, overrides = {}) {
+  const exchange = {
+    speaker: "agent",
+    text: turn.text,
+    chunkCount: turn.chunkCount,
+    charCount: turn.charCount,
+    endedBy: turn.endedBy,
+    endIndex: turn.endIndex,
+    nonConversation: turn.nonConversation ?? null,
+    ...overrides,
+  };
+  const questions = questionsFromTurn(turn);
+  if (questions.length > 0) exchange.questions = questions;
+  return exchange;
 }
 
 /**
@@ -4674,9 +4712,9 @@ async function runReplayCheckScenario(scenarioName) {
 
         exchanges = [
           { speaker: "developer", text: OPENING_PROMPT },
-          { speaker: "agent", text: turn1.text, chunkCount: turn1.chunkCount, charCount: turn1.charCount, endedBy: turn1.endedBy },
+          buildAgentExchange(turn1),
           { speaker: "developer", text: SECOND_TURN },
-          { speaker: "agent", text: turn2.text, chunkCount: turn2.chunkCount, charCount: turn2.charCount, endedBy: turn2.endedBy },
+          buildAgentExchange(turn2),
         ];
       } else if (scenarioName === "slow-tool-mid-turn") {
         // ---- WR-04 closure (plan 05-25) — a real mid-turn pause, captured whole ----------------
@@ -4726,13 +4764,7 @@ async function runReplayCheckScenario(scenarioName) {
 
         exchanges = [
           { speaker: "developer", text: OPENING_PROMPT },
-          {
-            speaker: "agent",
-            text: turn.text,
-            chunkCount: turn.chunkCount,
-            charCount: turn.charCount,
-            endedBy: turn.endedBy,
-          },
+          buildAgentExchange(turn),
         ];
       } else if (scenarioName === "turn-deadline-exceeded") {
         // ---- Task 1 closure (plan 05-36, gap G-05-7) — the thrown-deadline mechanism, offline ---
@@ -5448,6 +5480,52 @@ async function runReplayCheckScenario(scenarioName) {
             `both new shapes flowed end to end: rate_limit utilization=${rateLimitEvent.utilization}, ` +
               "a thinking event was captured, and zero unknown-type events were seen for this run",
           );
+        } else if (scenarioName === "ask-user-question") {
+          // Plan 05-42 (gap G-05-8(a)): the harness-side half of this gap — the questions and
+          // options a real `AskUserQuestion` tool call carries survive the wire onto the captured
+          // turn's own `toolCalls`, and from there onto the built agent exchange, through the real
+          // watchdog, the real shipped normaliser and the real sidecar. Whether the DRIVER treats
+          // them as open questions (rather than settling on a turn whose prose carries no question
+          // mark) is Task 2's own property, not asserted here — Task 1 proves the questions arrive,
+          // Task 2 proves the driver reads them.
+          const firstAgentExchange = conversation.exchanges.find((exchange) => exchange.speaker === "agent");
+          assert.ok(firstAgentExchange, "expected at least one captured agent exchange");
+          assert.ok(
+            Array.isArray(firstAgentExchange.questions) && firstAgentExchange.questions.length === 3,
+            `expected the built agent exchange to carry three typed questions, got ${JSON.stringify(firstAgentExchange.questions)}`,
+          );
+
+          const rawToolCallEvent = sidecar.events.find(
+            (event) => event.runId === runId && event.type === "tool_call" && event.toolName === "AskUserQuestion",
+          );
+          assert.ok(rawToolCallEvent, "expected a raw tool_call event for this run whose toolName is AskUserQuestion");
+          assert.ok(
+            Array.isArray(rawToolCallEvent.questions) && rawToolCallEvent.questions.length === 3,
+            "expected the raw wire event itself to carry three typed questions",
+          );
+
+          const directQuestions = questionsFromTurn(accumulateTurn(sidecar.events, runId, turn1Cursor));
+          const headers = directQuestions.map((question) => question.header);
+          const expectedHeaders = ASK_USER_QUESTION_PROMPTS.map((prompt) => prompt.header);
+          assert.deepEqual(
+            headers,
+            expectedHeaders,
+            `expected questionsFromTurn to return the fixture's own headers in emitted order, got ${JSON.stringify(headers)}`,
+          );
+
+          const runEvents = sidecar.events.filter((event) => event.runId === runId);
+          const unknownEvents = runEvents.filter((event) => event.type === "unknown");
+          assert.equal(
+            unknownEvents.length,
+            0,
+            `expected zero unknown-type events for this run, got ${unknownEvents.length}: ` +
+              `${JSON.stringify(unknownEvents.map((e) => e.raw))}`,
+          );
+
+          step(
+            `captured three typed question(s) on the wire and on the built exchange — headers: ` +
+              `${JSON.stringify(headers)} — zero unknown-type events`,
+          );
         }
 
         // Plan 05-24 (gap G-05-3), generalised by plan 05-34 (G-05-6), and by plan 05-36 (Task 3,
@@ -5503,13 +5581,7 @@ async function runReplayCheckScenario(scenarioName) {
               timeoutMs: REPLAY_TURN_DEADLINE_MS,
               label: "the post-advance decompose-stage reply (proposes-work-after-advance)",
             });
-            exchanges.push({
-              speaker: "agent",
-              text: postAdvanceReply.text,
-              chunkCount: postAdvanceReply.chunkCount,
-              charCount: postAdvanceReply.charCount,
-              endedBy: postAdvanceReply.endedBy,
-            });
+            exchanges.push(buildAgentExchange(postAdvanceReply));
 
             // Assertion 1: the bounded challenge-window reading is unproven — the challenge stage
             // was genuinely clean.
@@ -5961,14 +6033,7 @@ await runScript(
             idleMs: LIVE_TURN_IDLE_MS,
             label: "the decompose stage's reply to the distillation instruction",
           });
-          evidenceState.conversation.exchanges.push({
-            speaker: "agent",
-            text: distillationReply.text,
-            chunkCount: distillationReply.chunkCount,
-            charCount: distillationReply.charCount,
-            endedBy: distillationReply.endedBy,
-            nonConversation: distillationReply.nonConversation ?? null,
-          });
+          evidenceState.conversation.exchanges.push(buildAgentExchange(distillationReply));
           step(
             `distillation reply captured: chunks=${distillationReply.chunkCount} ` +
               `chars=${distillationReply.charCount} endedBy=${distillationReply.endedBy}`,
@@ -5978,14 +6043,7 @@ await runScript(
           // as a partial exchange (via the pure accumulateTurn scan, never a rethrow) and the
           // proposal wait below still happens.
           const partial = accumulateTurn(sidecar.events, runId, distillationCursor);
-          evidenceState.conversation.exchanges.push({
-            speaker: "agent",
-            text: partial.text,
-            chunkCount: partial.chunkCount,
-            charCount: partial.charCount,
-            endedBy: "timeout",
-            nonConversation: partial.nonConversation ?? null,
-          });
+          evidenceState.conversation.exchanges.push(buildAgentExchange(partial, { endedBy: "timeout" }));
           step(`distillation reply capture timed out (not fatal — the proposal wait still happens): ${err.message}`);
         }
 
