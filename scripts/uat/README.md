@@ -110,6 +110,21 @@ to happen. `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` are removed from the spawn
 construction (`scrubApiKeyEnv`), unconditionally, because this project's execution-model constraint
 is that agents run on the developer's own existing local agent credentials — never an API key.
 
+**Live turn bounds and the durable capture (plan 05-39, gap `G-05-7`):** a live turn is now bounded
+by silence in every state it can be in, never by a total wall-clock budget — the ordinary idle window
+when nothing is outstanding, and a separate, longer `LIVE_TOOL_CALL_IDLE_MS` (120000ms) window while a
+tool call is outstanding. The surviving wall-clock number, `LIVE_TURN_CEILING_MS` (900000ms,
+replacing `TURN_DEADLINE_MS`), is a runaway bound whose four-part derivation is written beside it in
+`uat-08-socratic-authoring.mjs` — its own firing is itself a reportable finding, not a routine
+timeout. A run that fails for ANY reason — a thrown deadline included — now writes
+`05-LIVE-CHALLENGE-TRANSCRIPT.md` with whatever it captured and why it died, from one writer reached
+through one `try/finally` exit; a FAILED run additionally leaves its scratch root on disk and prints
+the path exactly once (`Harness.cleanup({ preserveRoot: true })`), while a successful run removes it
+as before. Every event the adapter cannot model is captured in full — never truncated — to a bounded
+JSONL file under the artifact directory (`createUnmodelledEventSink`, capped at 500 lines and 65536
+bytes per line), beside the unchanged 200-character stderr line, so a future unmodelled shape is
+fully knowable rather than a guessed prefix.
+
 Two modes, run separately:
 
 ```bash
@@ -223,7 +238,7 @@ Four arms, like every live script in this directory:
 - **`--replay-check`** — pure, offline, no `claude` binary and no API credential. Drives the REAL
   sidecar, the REAL watchdog and the REAL shipped normaliser (`claude-code-adapter.ts`) against
   `scripts/uat/lib/fake-authoring-claude.mjs`, a scripted, zero-token, multi-chunk stand-in backend
-  that is unreachable from the live arm. Eleven scenarios, each proving one thing the live arm would
+  that is unreachable from the live arm. Fourteen scenarios, each proving one thing the live arm would
   otherwise be the only way to check:
   - `truncation-repro` — the original multi-chunk truncation reproduction: a multi-block turn
     survives the whole wire intact.
@@ -257,6 +272,14 @@ Four arms, like every live script in this directory:
     `scripts/uat/fixtures/unauthenticated-cli-first-turn.json`), stopped by the wire's own error
     flag rather than by any text match, proving the run stops on turn one instead of waiting out the
     proposal deadline.
+  - `turn-deadline-exceeded` — reproduces the live failure's exact mechanism: a captured chunk, an
+    unanswered tool call standing the idle window down, and a block delayed past the wall-clock
+    bound, so the throw is real and the sheet it leaves behind is the thing under test.
+  - `unmodelled-wire-shapes` — replays the frozen rate-limit line and the frozen reasoning-only
+    assistant message, both imported from the frozen fixture rather than retyped, and asserts the
+    run's unknown-event count is zero.
+  - `works-continuously-past-old-deadline` — a turn whose total elapsed time exceeds the bound while
+    every gap between events stays small, the combination the old arrangement could not survive.
   Proves NOTHING WHATSOEVER about dialogue quality — its transcripts are synthetic, carry an
   unmissable synthetic marker in their first two lines, and structurally cannot hold a verdict line.
 - **The live arm** — `node scripts/uat/uat-08-socratic-authoring.mjs` with no flags. Drives the
@@ -472,6 +495,54 @@ Costs real tokens: it drives a real, multi-turn model conversation. Not executed
 CI/executor run — a human runs it deliberately when judging SHAPE-01/SHAPE-03's own human-only half
 (`05-VALIDATION.md`'s "Manual-Only Verifications").
 
+**Eighth finding, recorded here because it changed the script again (this closure, plans
+05-36/05-37/05-38, gap `G-05-7`):** this is the EIGHTH instance of the defect class this register
+exists to name — a comment describing a guarantee the code does not provide — and this round earns
+it twice over, in one round, in two independent places:
+
+- The evidence sheet. `evidencePath` was resolved under a comment stating the intent in so many
+  words — a refusal must be able to write the sheet with whatever was captured before it fails the
+  run — and every write site sat downstream of the call that can throw. A RETURNED refusal reached
+  them; a THROWN deadline did not. The guarantee was implemented for one failure shape and not the
+  other. The cost is exact: live run `01M3C48C3PV1NSGHERBZ587YB1` authenticated on the developer's
+  own claude.ai login for the first time in this phase's history, spent real tokens, captured 539
+  characters of genuine agent speech across two chunks and a roughly 130-event trace, and left
+  nothing behind but a stderr log somebody thought to save by hand — no evidence sheet was written.
+- The unmodelled-event logger. It wrote 200 characters of each unrecognised raw line and discarded
+  the rest. That is why the two wire shapes this round modelled — a reasoning-only assistant message
+  and a `rate_limit_event` line — could only be frozen as PREFIXES: the rate-limit capture stops
+  mid-key, and every reasoning capture stops mid-signature. An instrument that abbreviates what it
+  cannot re-capture has decided, in advance, how much of the next unknown thing will be knowable.
+
+Root cause, once, for both: evidence emission was placed on the path where nothing went wrong.
+
+This round also carries something the register has not had to carry before: a correction to its own
+gap report. The report said harness cleanup destroyed the `uat-08-credential-path` artifact on the
+failure path. Measurement during planning found that artifact still on disk —
+`Harness.artifactDir()` resolves outside `harness.root`, is never registered for teardown, and its
+own doc comment says so. What IS destroyed on failure is `harness.root` itself, which holds the
+composed configuration directory, the scratch repository, the app-data directory and the runtime
+lifecycle records — the whole diagnostic surface, not the one artifact the report named. A closure
+that had implemented the report as written would have fixed a non-defect and left the real one
+intact. State the general lesson in this register's own plain voice: a gap report is a hypothesis,
+and this directory's own history is what happens when a hypothesis is implemented without being
+checked.
+
+This closure also closed all three of `05-REVIEW.md`'s open warnings: WR-01 (the advance-stage gate
+reading a scenario-name list instead of the driver's own returned fact) was closed by plan 05-36;
+WR-02 (`isApiErrorMessage` silently dropping an explicit wire `false`) and WR-03 (a non-object/null
+stream line throwing a `TypeError` out of the readline handler) were both closed by plan 05-37.
+
+What this round did NOT resolve: no upper bound on a real first turn exists anywhere in this
+repository, and none can be obtained without spending a credential — `LIVE_TURN_CEILING_MS` is a
+runaway backstop, not a measurement.
+
+**A sixth rule, from this round's pair of findings, stated as a rule rather than as a story:**
+
+> An instrument that writes its record on the success path has no record of the failures it exists
+> to catch. Put emission on the exit, not on the outcome — and never abbreviate what you cannot
+> re-capture.
+
 ### Items 2 and 4 — the visual ones
 
 ```bash
@@ -543,6 +614,7 @@ and the Abandoned/Acknowledge flow still need a human at the window.
 | `packages/core/tests/bin/uat_seed_ui.rs` | Seeds the two visual preconditions through the real domain functions |
 | `packages/core/tests/bin/uat_authoring_ops.rs` | Bridge binary for item 8's live arm — drives the real accept/reject/amend/reopen domain writes against a scratch board |
 | `scripts/uat/fixtures/` | Frozen, real, zero-cost captures replayed offline by `--replay-check` scenarios (e.g. the unauthenticated CLI first-turn stream) — read at module load, never retyped |
+| `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json` | The frozen real capture (200-character prefixes) of the reasoning-only assistant message and the `rate_limit_event` line live run `01M3C48C3PV1NSGHERBZ587YB1` emitted and the adapter did not model, with mechanical anti-drift/anti-invention gates |
 
 The Rust binaries exist so the harness cannot drift: they call `shim::shim_env_for_run`,
 `runtime_protocol::runtime_dir`, `runtime_protocol::touch_heartbeat` and the domain layer directly,
