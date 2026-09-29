@@ -2496,6 +2496,67 @@ async function selfTest() {
   );
 
   check(
+    "[Plan 260929-lq1] every proposal-decision call site in the live body is immediately preceded " +
+      "by its own pickPendingProposal( pick, with no mutating decision op between them — the " +
+      "structural gate pairing the round-12 crash fix",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      // Scoped to the LIVE body specifically, the same idiom as the advance-stage/waitForTurn
+      // checks above — this is their sibling, not a second scanning style.
+      const liveBodyStart = thisFile.indexOf("\nawait runScript(\n");
+      assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
+      const liveBodySource = thisFile.slice(liveBodyStart);
+
+      // Built from parts at runtime, and the op-name list built by splitting a single
+      // space-separated string rather than writing an array literal, so this check's own source
+      // never spells out the argv shape it hunts for — the same self-match discipline the
+      // advance-stage check above uses.
+      const decisionOpNames = "accept-proposal accept-subtree reject-proposal amend-criterion".split(" ");
+      const argvPattern = (opName) => new RegExp("\\[\\s*" + JSON.stringify(opName) + "\\s*,");
+      const pickMarker = ["pickPendingProposal", "("].join("");
+
+      const decisionMatches = [];
+      for (const opName of decisionOpNames) {
+        const globalPattern = new RegExp(argvPattern(opName).source, "g");
+        for (const match of liveBodySource.matchAll(globalPattern)) {
+          decisionMatches.push({ opName, index: match.index });
+        }
+      }
+      decisionMatches.sort((a, b) => a.index - b.index);
+      assert.ok(decisionMatches.length > 0, "expected at least one proposal-decision call site in the live body");
+
+      for (const { opName, index } of decisionMatches) {
+        const precedingSource = liveBodySource.slice(0, index);
+        const pickIndex = precedingSource.lastIndexOf(pickMarker);
+        assert.ok(
+          pickIndex >= 0,
+          `expected a ${pickMarker} pick to precede the ${opName} decision at live-body offset ` +
+            `${index} — every decision target must be derived from a read taken immediately ` +
+            "before the deciding call, never from an older snapshot",
+        );
+        // The pick statement's own terminating semicolon — everything before it is the pick call
+        // itself (whose own argv, `["list-pending", runId]`, never matches a DECISION op's argv
+        // shape, so it is safe to include in the scan too; this just skips re-scanning it).
+        const pickStatementEnd = liveBodySource.indexOf(";", pickIndex);
+        assert.ok(
+          pickStatementEnd >= 0 && pickStatementEnd < index,
+          `expected the ${pickMarker} pick before offset ${index} to terminate before the ${opName} decision itself`,
+        );
+        const betweenSource = liveBodySource.slice(pickStatementEnd + 1, index);
+        for (const otherOpName of decisionOpNames) {
+          assert.ok(
+            !argvPattern(otherOpName).test(betweenSource),
+            `expected no mutating decision op between the pick and the ${opName} decision at ` +
+              `offset ${index}, but found a ${otherOpName} argv-shaped occurrence — a proposal id ` +
+              "read before a mutating decision is a fact about a board state that no longer " +
+              "exists (the round-12 crash: a snapshot taken before accept-subtree's own cascade)",
+          );
+        }
+      }
+    },
+  );
+
+  check(
     "[Plan 05-25, WR-04] the live body names LIVE_TURN_IDLE_MS at least twice — once per capture site — never inheriting the short test default",
     () => {
       const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
@@ -5784,6 +5845,131 @@ if (process.argv.includes("--board-read-check")) {
         "expected zero unanswered held requests after all four were answered",
       );
       step("zero unanswered held requests remain — no starvation");
+
+      // -----------------------------------------------------------------------------------------
+      // Plan 260929-lq1 — decision-ordering regression: reproduces round-12's crash
+      // (`01M3NXWP72VACQJQNVGDK7AXJ8`) against the REAL core, zero tokens. Reuses this arm's still-
+      // open run and project, and its existing `apply-proposal-created` event shape. Proves the
+      // collision is real, that the core (not the harness) refuses it, for BOTH reject and amend,
+      // and that `pickPendingProposal` never hands back a decided id — the fresh read the fixed
+      // live sequence now performs.
+      // -----------------------------------------------------------------------------------------
+      step("decision-ordering regression: staging two task proposals, each with one criterion child");
+      const firstTaskEvent = {
+        type: "proposal_created",
+        runId,
+        verb: "create",
+        targetType: "task",
+        payload: { kind: "task", title: "Regression task 1 (subtree accepted)", description: null },
+      };
+      const appliedFirstTask = runOps(opsBin, harness.appDataDir, ["apply-proposal-created"], JSON.stringify(firstTaskEvent));
+      assert.equal(appliedFirstTask.outcome, "created", "expected the first regression task proposal to apply");
+
+      const firstCriterionEvent = {
+        type: "proposal_created",
+        runId,
+        verb: "create",
+        targetType: "criterion",
+        parentProposalId: appliedFirstTask.proposalId,
+        payload: { kind: "criterion", statement: "Regression criterion 1 (decided by the cascade)", verification_hint: null },
+      };
+      const appliedFirstCriterion = runOps(
+        opsBin,
+        harness.appDataDir,
+        ["apply-proposal-created"],
+        JSON.stringify(firstCriterionEvent),
+      );
+      assert.equal(appliedFirstCriterion.outcome, "created", "expected the first regression criterion proposal to apply");
+
+      const secondTaskEvent = {
+        type: "proposal_created",
+        runId,
+        verb: "create",
+        targetType: "task",
+        payload: { kind: "task", title: "Regression task 2 (never touched by the cascade)", description: null },
+      };
+      const appliedSecondTask = runOps(opsBin, harness.appDataDir, ["apply-proposal-created"], JSON.stringify(secondTaskEvent));
+      assert.equal(appliedSecondTask.outcome, "created", "expected the second regression task proposal to apply");
+
+      const secondCriterionEvent = {
+        type: "proposal_created",
+        runId,
+        verb: "create",
+        targetType: "criterion",
+        parentProposalId: appliedSecondTask.proposalId,
+        payload: { kind: "criterion", statement: "Regression criterion 2 (the surviving sibling)", verification_hint: null },
+      };
+      const appliedSecondCriterion = runOps(
+        opsBin,
+        harness.appDataDir,
+        ["apply-proposal-created"],
+        JSON.stringify(secondCriterionEvent),
+      );
+      assert.equal(appliedSecondCriterion.outcome, "created", "expected the second regression criterion proposal to apply");
+
+      step("taking one stale list-pending snapshot — the shape a careless author would index — then accepting the first task's subtree");
+      const staleSnapshot = runOps(opsBin, harness.appDataDir, ["list-pending", runId]);
+      const staleFirstCriterion = staleSnapshot.proposals.find((p) => p.id === appliedFirstCriterion.proposalId);
+      assert.ok(staleFirstCriterion, "expected the first regression criterion to still be pending in the stale snapshot");
+      const regressionSubtreeOutcome = runOps(opsBin, harness.appDataDir, ["accept-subtree", appliedFirstTask.proposalId]);
+      assert.ok(
+        regressionSubtreeOutcome.acceptedCount > 0,
+        "expected accept-subtree to accept at least the task itself, cascading to its criterion child",
+      );
+
+      step("asserting the CORE itself refuses reject-proposal on the id the cascade already decided");
+      assert.throws(
+        () => runOps(opsBin, harness.appDataDir, ["reject-proposal", staleFirstCriterion.id, "stale target"]),
+        /is not pending/,
+        "expected reject-proposal on a cascade-decided id to throw, naming the core's own pending guard",
+      );
+      step("asserting the CORE itself refuses amend-criterion on the SAME already-decided id, the same way");
+      assert.throws(
+        () => runOps(opsBin, harness.appDataDir, ["amend-criterion", staleFirstCriterion.id, "stale amend"]),
+        /is not pending/,
+        "expected amend-criterion on a cascade-decided id to throw, naming the same pending guard reject-proposal does",
+      );
+
+      step("asserting pickPendingProposal never hands back the decided id — it finds the surviving sibling instead");
+      const freshCriterionPick = pickPendingProposal(opsBin, harness.appDataDir, runId, { targetType: "criterion" });
+      assert.ok(freshCriterionPick.proposal, "expected pickPendingProposal to find the surviving sibling criterion");
+      assert.equal(
+        freshCriterionPick.proposal.id,
+        appliedSecondCriterion.proposalId,
+        "expected pickPendingProposal to return regression task 2's criterion, the one the cascade never touched",
+      );
+      assert.notEqual(
+        freshCriterionPick.proposal.id,
+        staleFirstCriterion.id,
+        "pickPendingProposal must never hand back the id the cascade already decided",
+      );
+      step(
+        `pickPendingProposal returned the surviving sibling ${freshCriterionPick.proposal.id} ` +
+          `(${freshCriterionPick.pendingOfType} criterion proposal(s) pending)`,
+      );
+
+      step("rejecting the surviving sibling, then asserting the exhaustion path reports null with zero pending");
+      runOps(opsBin, harness.appDataDir, [
+        "reject-proposal",
+        freshCriterionPick.proposal.id,
+        "regression: exercising the exhaustion path",
+      ]);
+      const exhaustedCriterionPick = pickPendingProposal(opsBin, harness.appDataDir, runId, { targetType: "criterion" });
+      assert.equal(
+        exhaustedCriterionPick.proposal,
+        null,
+        "expected pickPendingProposal to report null once no criterion proposal remains pending",
+      );
+      assert.equal(
+        exhaustedCriterionPick.pendingOfType,
+        0,
+        "expected pendingOfType to be zero once every criterion proposal has been decided",
+      );
+      step(
+        "decision-ordering regression complete — the reject/amend collision was reproduced against " +
+          "the real core, both verbs were proven to refuse it, and the exhaustion path was proven " +
+          "to report null rather than an id",
+      );
     },
   );
   process.exit(process.exitCode ?? 0);
