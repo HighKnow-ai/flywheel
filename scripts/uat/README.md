@@ -766,6 +766,86 @@ What this task did NOT resolve: no live run happened, no credential was spent, a
 SHAPE-01/02/03/04 table still has never been computed by a completed live run — that remains a
 deliberate developer decision, not something this closure claims.
 
+**Twelfth finding (this closure, task 260929-nxq): the driver never read the question the agent
+actually asked, and advanced D-90's gate over an agent that had said, in plain words, it was not
+ready.** Live run `01M3P4VZCA1M0C37C8V7ZE72WG` — the first run in twelve rounds to reach a
+SHAPE-01/02/03/04 table at all — scored SHAPE-01/03/04 PASS and SHAPE-02 **FAIL** ("no subtree was
+accepted"). The instrument's whole notion of "the agent asked something" was a literal `?` at the
+end of a sentence-split fragment, and that failed twice in one run for two independent reasons.
+Turn 1 asked five numbered, bolded questions; the extractor saw ONE, because markdown emphasis
+(`**`) sat between the `?` and the whitespace the splitter required — the other four were invisible
+to the harness. Turn 2 opened with *"I don't think this is settled enough to advance"* and then
+asked its real question in the imperative — *"Tell me: attention router or activity log…"* — with
+no `?` character anywhere in the turn; the extractor saw ZERO questions, read the turn as settled,
+and the live body advanced the stage twice over it. The harness reported *"the conversation settled
+after 2 agent turn(s), 1 question(s) answered"* — a clean-sounding sentence describing exactly the
+opposite of what happened.
+
+**That the agent behaved well and the instrument did not.** Told, by the harness's own fallback
+answer, to use its own judgement and keep going, the agent staged an epic plus eight assumption
+rows covering the question nobody had actually answered, rather than tasks it had no basis to
+write. Recorded explicitly, because the number this run produced — zero task proposals — reads from
+the outside exactly like a model failure, which is this register's own eighth rule operating on a
+new instance.
+
+The cost, exactly, as the ledger's other findings do: the run completed and produced the
+SHAPE-01/02/03/04 table for the first time in twelve rounds, at the price of a credential, and
+SHAPE-02's failure in it was an instrument artefact rather than a product fact. Two quieter defects
+the same audit found: `criterion2Landed` could only ever be assigned inside the task branch, so a
+pending epic whose acceptance would have materialised a real board row could not pass SHAPE-02
+regardless of what the model did; and the SHAPE-05 narration explained an absent epic with the
+fixed string *"the model proposed a task without an epic"* for a run that was the precise inverse
+(one epic proposal, zero task proposals). This is the same family as G-05-2 ("the live arm stopped
+starving and started lying") and G-05-7 ("the live arm no longer kills a healthy turn") — the
+scripted driver mis-driving the conversation — which is why it is stated as a property rather than
+closed as three line fixes.
+
+**A tenth rule, from this finding, stated as a rule rather than as a story:**
+
+> Answer the question the agent actually asked, and never open a gate the agent has said it is not
+> ready for. An instrument that decides the conversation is over on the agent's behalf will report a
+> clean run and a useless one, and the number it prints will be read as a fact about the model.
+
+Ground it, specifically enough to act on: a question is not defined by a `?` — markdown emphasis and
+the imperative mood both hide one, and both were measured against this run's own transcript, not
+invented. `classifyWithheldConsent` requires a first-person statement of the agent's own readiness,
+with *"I can't stage anything yet, and only you can advance it"* and *"the stage has advanced on
+your side"* named as the verbatim negatives (both from this same transcript) that forced that
+boundary — a bare mention of advancing is never enough. The reading is taken from the **last**
+agent turn, so an agent that got its answer is never punished for having once objected. Only a
+later **agent** turn can clear a withheld consent, never the driver's own reply — a canned
+deflection cannot satisfy the detector by construction, which is what stops `ANSWER_BANK_FALLBACK`
+from being read as consent. The refusal lives at **both** developer-held gates (challenge ->
+decompose, decompose -> criteria), because installing it at one and not the other is exactly the
+fix-the-instance failure this register exists to name. A fallback answer is a legitimate delegation
+as one line among real answers and a deflection when it is the entire reply, which is why the ratio
+is now narrated in the scrollback rather than left silent.
+
+**The canned-turn audit — every developer turn the live driver can send, judged individually:**
+
+| # | canned turn | verdict |
+|---|---|---|
+| 1 | `OPENING_PROMPT` | fine — an ordinary feature request, deliberately not meta; a seed, not a reply, so it cannot deflect |
+| 2 | `REPLY_PREAMBLE` | fine — a preamble, never itself an answer |
+| 3 | `ANSWER_BANK[0]` dismiss / clear | fine — a concrete product decision |
+| 4 | `ANSWER_BANK[1]` restart / persist | fine |
+| 5 | `ANSWER_BANK[2]` unattended / trigger | fine |
+| 6 | `ANSWER_BANK[3]` audience | fine |
+| 7 | `ANSWER_BANK[4]` `where` alternative | **the one defect this audit found** — the bare `where` alternative mis-answered "Where does the board app actually live?" by claiming it was asking where a notification surfaces; narrowed in this closure so `where` only fires alongside an explicit notification referent |
+| 8 | `ANSWER_BANK[5]` batch / group | fine |
+| 9 | `ANSWER_BANK[6]` out-of-scope / v1 | fine |
+| 10 | `ANSWER_BANK_FALLBACK` | the deflection, conditionally — a legitimate delegation as one line among answered questions, a deflection as the entire reply; now narrated as a ratio rather than left silent |
+| 11 | `CLOSING_TURN` | fine, but newly bounded — it IS the developer closing his own gate (D-90), not a deflection; what was missing is that a reply to it that still withholds consent must not be advanced over |
+| 12 | `OPTION_SELECTION_PREFIX` + an agent-offered label | fine — choosing an option the agent itself put on the table is the entire semantics of answering it |
+| 13 | `SECOND_TURN` | **the one latent risk** — "Let's move on when you're ready" is precisely the shape this rule names, harmless only because the live arm never sends it (only `--replay-check` does); recorded so a future author does not promote it into the live arm |
+| 14 | `advanced.instructionText` / `criteriaAdvanced.instructionText` | not harness-canned — D-89's distillation instruction and plan 05-45's `CRITERIA_INSTRUCTION_TEXT`, both from `packages/core`; named so the audit is complete rather than silently partial |
+
+What this task did NOT resolve: no live run happened and no credential was spent, so whether a real
+backend given a driver that actually answers its questions then stages tasks is a live-run
+observation this task does not make; `05-REVIEW.md`'s WR-01, IN-01 and IN-02 all remain open; and
+the credential seam (`composeIsolatedClaudeConfigDir`) still has no committed test against a real
+`~/.claude`, unchanged since round 8.
+
 ### Items 2 and 4 — the visual ones
 
 ```bash
