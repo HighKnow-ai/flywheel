@@ -212,6 +212,74 @@ function createBoardReadHandler({ opsBin, appDataDir, sidecar, runId }) {
   };
 }
 
+/** Plan 05-49 (G-05-10 missing[1]/[2]): the ONE sidecar op a `proposal_created` handler answers
+ * on — the staging-path sibling of the literal `"authoring_read_answer"` above — named ONCE here so
+ * this harness and the sidecar's own dispatch (`packages/sidecar/src/index.ts`'s
+ * `"authoring_proposal_answer"` case) cannot drift on the string. */
+const PROPOSAL_STAGED_RELAY_OP = "authoring_proposal_answer";
+
+/** Plan 05-49: the error text relayed for each non-`created` `ProposalOutcome` the
+ * `apply-proposal-created` bridge subcommand reports — copied verbatim from
+ * `commands::authoring::handle_inbound_proposal_created`'s own wording (the real desktop app's
+ * inbound handler) so a human reading either side's error sees the identical sentence. */
+const PROPOSAL_OUTCOME_ERROR_TEXT = Object.freeze({
+  ignored: "the proposal event was ignored: malformed or unparseable payload",
+  unknown_run: "no agent_runs row matches this run",
+  terminal_run: "this run has already reached a terminal status",
+});
+
+/** Plan 05-49 (G-05-10 missing[2]): every `proposal_created` event's own `requestId` that
+ * {@link createProposalStagedHandler}'s returned handler has already applied to the database —
+ * checked by {@link drainProposalsUntilQuiet} so the post-turn sweep, which scans the SAME growing
+ * `sidecar.events` array the held handler already observed, never re-applies an event the held
+ * handler already wrote. Module-level (never threaded through either function's own parameter
+ * list) because this script drives exactly one authoring session per process — a second concurrent
+ * session driven from the same process is not a shape this harness produces anywhere. */
+const proposalStagedAppliedRequestIds = new Set();
+
+/**
+ * D-80/D-81/D-92 (plan 05-48; this plan's own in-turn fix, G-05-10): the harness's own inbound half
+ * of the proposal-STAGING round trip — the staging sibling of {@link createBoardReadHandler}
+ * immediately above, built to the IDENTICAL four-key options shape. Before this plan, nothing in
+ * this harness ever answered a held `proposal_created` call at all — `drainProposalsUntilQuiet`
+ * only picked events up AFTER the agent's own turn returned, so `proposal_list` called inside that
+ * SAME turn could never see the row (the exact defect `05-LIVE-CHALLENGE-TRANSCRIPT.md` turn 6
+ * captured). This handler applies the event to the database DURING the held tool call by piping it,
+ * RAW, to the `apply-proposal-created` bridge subcommand — the SAME `apply_proposal_created` domain
+ * function `commands::authoring::handle_inbound_proposal_created` (the real desktop app's own
+ * inbound half) calls in production — then relays the bridge's own `proposalId` (a `created`
+ * outcome) or a named error (the three non-created outcomes, via {@link
+ * PROPOSAL_OUTCOME_ERROR_TEXT}) back over the sidecar as one {@link PROPOSAL_STAGED_RELAY_OP}
+ * op. A thrown bridge failure is converted to `{ error: String(err) }` rather than rethrown, for
+ * the exact reason `createBoardReadHandler`'s own comment gives: an errored apply still has to
+ * release the held call, or this handler recreates the starvation it exists to prevent.
+ *
+ * An event carrying no `requestId` is applied but never relayed — the identical compatibility rule
+ * `handle_inbound_proposal_created` itself follows for a `requestId`-less inbound event.
+ */
+function createProposalStagedHandler({ opsBin, appDataDir, sidecar, runId }) {
+  return async (event) => {
+    let answer;
+    try {
+      const outcome = runOps(opsBin, appDataDir, ["apply-proposal-created"], JSON.stringify(event));
+      answer =
+        outcome.outcome === "created"
+          ? { result: { proposalId: outcome.proposalId } }
+          : { error: PROPOSAL_OUTCOME_ERROR_TEXT[outcome.outcome] ?? `unrecognised proposal outcome: ${outcome.outcome}` };
+    } catch (err) {
+      answer = { error: String(err) };
+    }
+    if (typeof event.requestId === "string") {
+      proposalStagedAppliedRequestIds.add(event.requestId);
+    }
+    if (typeof event.requestId !== "string") return true;
+    await sidecar
+      .request({ op: PROPOSAL_STAGED_RELAY_OP, runId, requestId: event.requestId, ...answer })
+      .catch(() => {});
+    return true;
+  };
+}
+
 /** Report per-criterion pass/fail lines and return whether every criterion passed — the shape
  * both the live run and `--self-test` (which exercises this function directly, with a synthetic
  * result set) share, so the report format is asserted once.
@@ -600,15 +668,141 @@ function resolveEvidencePath() {
 
 async function selfTest() {
   let failures = 0;
-  const check = (label, fn) => {
+  // Plan 05-49: `check` is now async-tolerant — `fn()` may return a plain value (every pre-existing
+  // check in this file) OR a Promise (the new handler-driving checks Task 1/Task 2 need, since
+  // `createProposalStagedHandler` and `stageAuthoringProposal` are both genuinely async). A
+  // synchronous `fn` runs to completion with no `await` ever reached, so every existing call site
+  // (none of which is itself awaited) keeps its EXACT prior ordering and behaviour; only a caller
+  // that explicitly writes `await check(...)` for an async `fn` gets the new awaited behaviour.
+  const check = async (label, fn) => {
     try {
-      fn();
+      const result = fn();
+      if (result && typeof result.then === "function") await result;
       console.log(`[self-test] PASS — ${label}`);
     } catch (err) {
       failures += 1;
       console.error(`[self-test] FAIL — ${label}: ${err?.message ?? err}`);
     }
   };
+
+  // -----------------------------------------------------------------------------------------
+  // Plan 05-49 (G-05-10): a tiny, self-test-only stand-in for the `uat_authoring_ops` bridge
+  // binary. `createProposalStagedHandler` calls the module-level `runOps` (a real `spawnSync`)
+  // directly, exactly like `createBoardReadHandler` beside it — so exercising it here against a
+  // REAL executable, rather than mocking `runOps` itself, proves the handler's own argv/stdin/
+  // stdout contract with the bridge, not a stand-in for that contract. Writes a shebang script
+  // (never invoked outside this process) that reads all of stdin (mirroring the real bridge's own
+  // `read_to_string`) and echoes one fixed line of JSON, matching `runOps`'s own
+  // "trim, then JSON.parse if non-empty" reading exactly.
+  // -----------------------------------------------------------------------------------------
+  function writeStubOpsBin(dir, stdoutJson) {
+    const scriptPath = path.join(dir, `stub-ops-bin-${Math.random().toString(36).slice(2)}.mjs`);
+    const body =
+      "#!/usr/bin/env node\n" +
+      "let chunks = [];\n" +
+      "process.stdin.on('data', (c) => chunks.push(c));\n" +
+      "process.stdin.on('end', () => {\n" +
+      `  process.stdout.write(${JSON.stringify(JSON.stringify(stdoutJson))});\n` +
+      "  process.exit(0);\n" +
+      "});\n";
+    fs.writeFileSync(scriptPath, body, { mode: 0o755 });
+    return scriptPath;
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Task 1 (G-05-10 missing[1]/[2]): createProposalStagedHandler — the held staging-answer
+  // handler that applies a proposal_created event DURING the agent's own turn.
+  // -----------------------------------------------------------------------------------------
+  await check(
+    "createProposalStagedHandler relays the bridge's proposalId into the authoring_proposal_answer op",
+    async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "uat08-selftest-staged-"));
+      try {
+        const opsBin = writeStubOpsBin(tmpDir, { outcome: "created", proposalId: "01SELFTESTCREATEDPROPOSAL1" });
+        const requests = [];
+        const stubSidecar = {
+          request: async (payload) => {
+            requests.push(payload);
+            return {};
+          },
+        };
+        const handler = createProposalStagedHandler({
+          opsBin,
+          appDataDir: tmpDir,
+          sidecar: stubSidecar,
+          runId: "run-self-test-staged-1",
+        });
+        const event = {
+          type: "proposal_created",
+          runId: "run-self-test-staged-1",
+          requestId: "req-self-test-staged-1",
+          verb: "create",
+          targetType: "epic",
+          payload: { title: "t", description: "d" },
+        };
+        const handled = await handler(event);
+        assert.equal(handled, true, "expected the handler to report it handled the event");
+        assert.equal(requests.length, 1, "expected exactly one relayed answer");
+        assert.equal(requests[0].op, PROPOSAL_STAGED_RELAY_OP);
+        assert.equal(requests[0].runId, "run-self-test-staged-1");
+        assert.equal(requests[0].requestId, "req-self-test-staged-1");
+        assert.deepEqual(requests[0].result, { proposalId: "01SELFTESTCREATEDPROPOSAL1" });
+        assert.equal(requests[0].error, undefined, "a created outcome must never also carry an error");
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  await check(
+    "a proposal_created event is applied exactly once when both the held handler and the sweep see it",
+    async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "uat08-selftest-dedupe-"));
+      try {
+        const opsBin = writeStubOpsBin(tmpDir, { outcome: "created", proposalId: "01SELFTESTDEDUPEPROPOSAL1" });
+        const stubSidecar = { request: async () => ({}) };
+        const requestId = `req-self-test-dedupe-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const event = {
+          type: "proposal_created",
+          runId: "run-self-test-dedupe-1",
+          requestId,
+          verb: "create",
+          targetType: "epic",
+          payload: { title: "t", description: "d" },
+        };
+
+        const handler = createProposalStagedHandler({
+          opsBin,
+          appDataDir: tmpDir,
+          sidecar: stubSidecar,
+          runId: "run-self-test-dedupe-1",
+        });
+        await handler(event);
+
+        // The sweep now observes the SAME event, in a stub sidecar's own `events` array — exactly
+        // the shape drainProposalsUntilQuiet scans in production.
+        let sweepAppliedCount = 0;
+        const stubSidecarForSweep = { events: [event] };
+        const result = await drainProposalsUntilQuiet(stubSidecarForSweep, {
+          applyEvent: () => {
+            sweepAppliedCount += 1;
+          },
+          quietMs: 20,
+          deadlineMs: 200,
+          label: "self-test dedupe sweep",
+        });
+        assert.equal(
+          sweepAppliedCount,
+          0,
+          "expected the sweep to skip an event the held handler already applied",
+        );
+        assert.equal(result.applied, 0);
+        assert.ok(result.nextIndex >= 1);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    },
+  );
 
   check("reportCriteria reports all-passed as true when every entry passed", () => {
     const originalWrite = process.stdout.write.bind(process.stdout);
@@ -4957,6 +5151,17 @@ const PROPOSAL_DRAIN_SCAN_TICK_MS = 50;
  * own once-only idiom (a `seen` Set there, a plain integer cursor here, since `sidecar.events` is
  * append-only and never re-orders or re-emits an entry the way held inbound requests can appear to).
  *
+ * Plan 05-49 (G-05-10): this function NO LONGER carries the id-reachability property by itself — a
+ * `proposal_created` event is now, first and foremost, answered DURING the agent's own held tool
+ * call by {@link createProposalStagedHandler} (registered in `drainInboundCoreRequests`), which is
+ * what makes the minted id reachable within the SAME turn that staged it. This sweep now only
+ * catches a `proposal_created` event that arrives with NO held caller — a genuine possibility this
+ * script has always modelled (see the loop's own history), never the primary path a live run
+ * exercises. Every event this sweep would otherwise re-see, {@link createProposalStagedHandler} has
+ * already applied and recorded in {@link proposalStagedAppliedRequestIds}; `scanOnce` below skips
+ * any such event so ONE event is never applied twice by two different mechanisms observing the same
+ * growing `sidecar.events` array.
+ *
  * `fromIndex` (default 0) lets a caller resume a SECOND drain window from where a prior one left
  * off, via the `nextIndex` this function returns — required the moment more than one stage window
  * calls this function against the same growing `sidecar.events` array, so the second call's own
@@ -4991,6 +5196,9 @@ async function drainProposalsUntilQuiet(
       const event = sidecar.events[watermark];
       watermark += 1;
       if (event.type !== "proposal_created") continue;
+      // Plan 05-49 (G-05-10): already applied by the held `createProposalStagedHandler` — never
+      // re-applied here.
+      if (typeof event.requestId === "string" && proposalStagedAppliedRequestIds.has(event.requestId)) continue;
       applyEvent(event);
       applied += 1;
       sawNew = true;
@@ -5407,6 +5615,7 @@ async function runReplayCheckScenario(scenarioName) {
         handlers: {
           permission_request: createPermissionAnswerHandler(sidecar, runId, isDeliberateRequest),
           board_read_request: createBoardReadHandler({ opsBin, appDataDir: harness.appDataDir, sidecar, runId }),
+          proposal_created: createProposalStagedHandler({ opsBin, appDataDir: harness.appDataDir, sidecar, runId }),
         },
         shouldStop: () => !draining,
       });
@@ -6750,6 +6959,7 @@ await runScript(
       handlers: {
         permission_request: createPermissionAnswerHandler(sidecar, runId, isDeliberateRequest),
         board_read_request: createBoardReadHandler({ opsBin, appDataDir: harness.appDataDir, sidecar, runId }),
+        proposal_created: createProposalStagedHandler({ opsBin, appDataDir: harness.appDataDir, sidecar, runId }),
       },
       shouldStop: () => !draining,
     });

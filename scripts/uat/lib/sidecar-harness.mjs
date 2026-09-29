@@ -1578,17 +1578,25 @@ export class SidecarClient {
 }
 
 /**
- * D-87 (plan 05-18, G-05-1): every event kind the sidecar HOLDS OPEN until the core answers it —
- * `permission_request` (answered via `permission_answer`) and `board_read_request` (answered via
- * `authoring_read_answer`). This is the harness's own registry of the role D-87 assigns to the
- * Rust core: an entry here with no handler registered in a `drainInboundCoreRequests` call starves
- * the session it belongs to, exactly as it starved the live `uat-08` run before this plan (G-05-1).
- * `assertAllHeldRequestsAnswered`'s invariant check (plan 05-18 Task 3) compares this array's
- * length against the sidecar's own answering-op count, so a THIRD held kind added to
- * `packages/sidecar/src/index.ts` without a corresponding entry here fails a check instead of a
- * live run.
+ * D-87 (plan 05-18, G-05-1); extended plan 05-49 (G-05-10, deviation — see that plan's own SUMMARY):
+ * every event kind the sidecar HOLDS OPEN until the core answers it — `permission_request`
+ * (answered via `permission_answer`), `board_read_request` (answered via `authoring_read_answer`),
+ * and `proposal_created` (answered via `authoring_proposal_answer`, plan 05-48's D-80/D-81/D-92
+ * staging round trip). This is the harness's own registry of the role D-87 assigns to the Rust
+ * core: an entry here with no handler registered in a `drainInboundCoreRequests` call starves the
+ * session it belongs to, exactly as it starved the live `uat-08` run before plan 05-18 (G-05-1) —
+ * and exactly as an UNREGISTERED third kind would have left `uat-08-socratic-authoring.mjs`'s own
+ * `createProposalStagedHandler` (plan 05-49) unreachable dead code, since `drainInboundCoreRequests`
+ * filters by this very array before ever consulting its `handlers` map. `assertAllHeldRequestsAnswered`'s
+ * invariant check (plan 05-18 Task 3) compares this array's length against the sidecar's own
+ * answering-op count, so a FOURTH held kind added to `packages/sidecar/src/index.ts` without a
+ * corresponding entry here fails a check instead of a live run.
  */
-export const HELD_INBOUND_REQUEST_TYPES = Object.freeze(["permission_request", "board_read_request"]);
+export const HELD_INBOUND_REQUEST_TYPES = Object.freeze([
+  "permission_request",
+  "board_read_request",
+  "proposal_created",
+]);
 
 /**
  * Build a `drainInboundCoreRequests` handler for `permission_request` events: resolves `false`
@@ -1635,7 +1643,7 @@ export async function drainInboundCoreRequests(sidecar, runId, { handlers, shoul
       event = await sidecar.waitForEvent(
         (e) => HELD_INBOUND_REQUEST_TYPES.includes(e.type) && !seen.has(`${e.type}:${e.requestId}`),
         DRAIN_POLL_MS,
-        "a held inbound core request (permission_request or board_read_request)",
+        "a held inbound core request (permission_request, board_read_request, or proposal_created)",
       );
     } catch {
       continue;
