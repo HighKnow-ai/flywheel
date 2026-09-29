@@ -229,3 +229,12 @@ None - no external service configuration required.
 ---
 *Phase: 05-socratic-epic-authoring*
 *Completed: 2026-09-29*
+
+## Self-Check: PASSED
+
+All 8 key files verified present on disk (`[ -f ]`); all 5 commits (`8964e25`, `ffa0200`,
+`3dffa36`, `c7bef01`, `948b2ff`) verified present in `git log --oneline --all`. All task-level
+`<acceptance_criteria>` and the plan-level `<verification>` block were re-run and passed
+immediately before each commit (`npm --prefix packages/sidecar test`: 198/198;
+`cargo build --workspace`: clean; `cargo test --workspace`: exit 0, no `FAILED`;
+`cargo test -p core --test authoring_proposal`: 42/42, confirming the core stayed untouched).
