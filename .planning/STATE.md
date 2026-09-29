@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-49-PLAN.md
-last_updated: "2026-09-29T06:17:34.090Z"
+stopped_at: Completed 05-50-PLAN.md
+last_updated: "2026-09-29T06:48:27.315Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 05 execution started
-state_head: d0f395ac6e6d08abd81c5ce213782711616af7dd
+state_head: a67719ed8b98ef6931b5a3f1f044b097a4ba3bca
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 143
-  completed_plans: 142
+  completed_plans: 143
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 3 of 50
+Plan: 4 of 50
 Status: Ready to execute
 Last activity: 2026-09-29 — Phase 05 execution started
 
@@ -199,6 +199,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P47 | ~35min | 2 tasks | 3 files |
 | Phase 05 P48 | ~30 min | 3 tasks | 6 files |
 | Phase 05 P49 | ~80min | 3 tasks | 3 files |
+| Phase 05 P50 | 35min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -447,6 +448,7 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05, Plan 46]: readCriteriaReachability reuses correlateProposeAttempts verbatim for its 'blocked' value — no second attempt/answer correlation mechanism, per this phase's own six-round history of that exact recurring mistake.
 - [Phase 05]: [Phase 05-48]: The proposal id stays core-minted (new_id() in create_proposal_in_tx) — a sidecar-minted alternative was rejected since it could hand back an id for a row that might never exist (terminal run, unknown run, failed validation), reintroducing the same defect class this plan closes.
 - [Phase 05]: [Phase 05]: HELD_INBOUND_REQUEST_TYPES (scripts/uat/lib/sidecar-harness.mjs) gained proposal_created as a third held kind — without it, drainInboundCoreRequests's own type filter discards a proposal_created event before createProposalStagedHandler's registration can ever see it, making Task 1's mechanism unreachable dead code. — Confirmed necessary, not speculative: this file's own pre-existing self-test ("every kind the sidecar can hold open has an answering handler") already compared the registry's length against the sidecar's real answering-op count and was already red before this fix.
+- [Phase 05]: Both D-88 stage instructions now name the staging call's own tool result (proposalId) as the parent-id source instead of proposal_list, closing G-05-10's contract-to-instruction gap. — Plans 05-48/05-49 fixed the write contract and harness; this plan retired the now-stale read-back framing in the instruction text itself, which three prior rounds (10-12) had reworded against the unfixed contract.
 
 ### Pending Todos
 
@@ -474,6 +476,7 @@ Recent decisions affecting current work:
 - ⚠️ **[Phase 03] Session-termination finding investigated — root-cause-identified (03-20/03-21).** 03-19's ~15-16s session-termination finding was root-caused by the dedicated follow-up spike it recommended: `03-SESSION-LIFECYCLE-FINDINGS.md` records **Disposition: root-cause-identified**, H1 CONFIRMED — the watchdog's own heartbeat-staleness kill (`DEFAULT_HEARTBEAT_STALE_MS=15000`) correctly reaped an unsupervised session (`--heartbeat=off`: terminated at `elapsed_ms=7397`, `closeOrigin: watchdog-heartbeat-stale`), while a production-shaped `--heartbeat=on` run sustained the block for the full 90s window with zero termination artifacts — the product was never at fault; the prior measurement harness was. Plan 03-21 took Branch B (harness-only doc fix; no change to `watchdog.ts`'s stale-kill condition) and added a repeatable acceptance command (`uat-06-permission-block-lifecycle.mjs --heartbeat=on --answer-after=60000 --decision=deny`, `honoured=true`) proving a supervised session survives a 60+ second unanswered destructive-gate block and honours the eventual answer. **AGNT-07 is NOT Complete**: a separate, broader bypass class was found afterwards (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`) and the requirement was walked back to Gaps Found in `db18b0e`. Still genuinely open per the findings document's own "What this does not claim": reproduction inside a packaged `.app` (only the dev-mode sidecar bundle was driven), on a machine other than the one measured, and against a `claude` version other than 2.1.267 remain untested; H1a (whether 03-19's specific `FLYWHEEL_HEARTBEAT_STALE_MS=120000` override reached the watchdog) was not directly retested with a non-default value.
 - AGNT-07 open: round-six destructive-gate bypass found live and non-destructively (env -S opaque-reparse defeated by backslash-split env, zero human confirmation for a nested altpath payload). See 03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md. Needs a round-seven plan before AGNT-07 can close.
 - [Phase 03] scripts/uat/run-all.sh failed 4/6 scriptable items (UAT 3, 5, 6a, 6b) when run once as plan 03-34's own end-of-phase regression gate. This plan's diff (test-corpus + docs only) cannot plausibly cause a live-claude-session failure; judged pre-existing flakiness matching the phase's repeated 03-24/03-26/03-29/03-30/03-32 pattern, per 03-34-SUMMARY.md. Next phase verification should judge whether this needs a dedicated live-session investigation before AGNT-07 closes. See WINDOWS.md entry 11.
+- Live gate (uat-08-socratic-authoring.mjs) exits 1 on a NEW harness defect (reject-proposal targets a stale pre-accept-subtree snapshot index) — unrelated to G-05-10's contract fix, which the same run proved working. Needs its own plan; see 05-LIVE-CHALLENGE-TRANSCRIPT.md 'Live gate outcome'.
 
 ### Quick Tasks Completed
 
@@ -496,6 +499,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-29T06:17:33.951Z
-Stopped at: Completed 05-49-PLAN.md
+Last session: 2026-09-29T06:48:27.133Z
+Stopped at: Completed 05-50-PLAN.md
 Resume file: None
