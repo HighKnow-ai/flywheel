@@ -846,6 +846,78 @@ observation this task does not make; `05-REVIEW.md`'s WR-01, IN-01 and IN-02 all
 the credential seam (`composeIsolatedClaudeConfigDir`) still has no committed test against a real
 `~/.claude`, unchanged since round 8.
 
+**Thirteenth finding (this closure, task 260929-p61): the driver heard the agent's real questions
+and had no real answers for them, because none exist anywhere but in the developer's own head.**
+Live run `01M3P9QF58AAFKXH2EAZ3ZEM65` — the first run after `260929-nxq`'s extractor fix — read the
+whole turn correctly: **6 questions extracted (not 1)**, `readAdvanceConsent` scored `clear`, and the
+run settled honestly after 3 agent turns. The harness then said this about itself, in the exact
+diagnostic `260929-nxq` had just added:
+
+> `answer-bank fallback ratio this conversation: 6/6 composed answer line(s) were the wholly-generic
+> fallback`
+
+All six composed answers were one sentence — the generic delegation — because every one of the six
+questions (*"attention router or activity log?"*, *"where does the board app actually live?"* and
+four more like them) was a genuine product decision with no entry in `ANSWER_BANK` that could
+possibly answer it honestly. This is a THIRD failure of the same underlying shape, not a new class:
+round 12 (`01M3P4VZCA1M0C37C8V7ZE72WG`) indexed a stale snapshot and never saw the question was
+answered; this closure's own predecessor run never heard the question at all; this run heard it and
+had nothing true to say back. Each round made the instrument better at *detecting* that it cannot
+hold up its end of a product conversation, and none of them made it able to. Widening the bank was
+refused as a fix, deliberately: the questions being failed are not a vocabulary gap the next pattern
+closes, they are decisions that exist only in the developer's head, so a wider bank produces the
+next round of this same finding against the next question it does not anticipate.
+
+**An eleventh rule, from this finding, stated as a rule rather than as a story:**
+
+> An instrument may not answer, on the developer's behalf, a question only he can answer — and a run
+> whose answers were not his may never be reported as clean.
+
+Ground it, specifically enough to act on, as the tenth rule was grounded above: the arm boundary
+stays exactly where D-90 already drew it for the offline arms — `ANSWER_BANK` remains their own
+answer source, because none of the three offline arms (`--self-test`, `--board-read-check`,
+`--replay-check`) may ever block on a human, and the developer prompt is reachable only from the
+live arm, refused at construction by argv (`assertLiveArm`) and proven by a source scan rather than
+by a comment a future edit could silently invalidate. The no-TTY transport (a per-turn questions
+sheet written to the evidence directory, polled for a matching answers file) is the PRIMARY path,
+not the edge case, because the developer runs this gate backgrounded — a transport that only worked
+with a real TTY attached would not work on the one run that matters. An empty answer is a failure
+rather than a delegation, on purpose: a developer who genuinely wants to delegate a decision can
+*type* that delegation, and typing it makes it his answer — a blank line is the absence of one, not
+a choice. A malformed handoff file keeps the transport polling rather than failing it immediately,
+because the developer is editing that file by hand while the run waits, and a half-saved file must
+not kill a run he is actively answering; only the deadline turns silence into a named failure, and it
+carries the last parse defect so the scrollback says what was actually wrong rather than only that
+time ran out. Per-turn filenames are load-bearing, not cosmetic: embedding the turn number is the
+only thing that stops turn N from ever consuming turn N-1's stale answers file.
+
+**Why this one gate may require a human, stated plainly against this project's own standing
+preference for automated verification:** this is not a capability the harness lacks and could build
+its way out of — the standing preference elsewhere in this register is to automate the check rather
+than ask a person to perform it by hand, and every other property Item 8 asserts stays automated
+under that preference. This gate is different in kind: the six questions this run's transcript
+carried are product judgement that exists in exactly one place, the developer's own head, and no
+amount of instrument-building manufactures an answer that is not there. The gate buys back its human
+cost by making the one path that WOULD launder a fabricated answer as clean — the live arm reaching
+`ANSWER_BANK` at all — structurally unreachable, so the human cost is paid exactly once per real
+product decision and never again for the same one.
+
+**Amending the canned-turn audit** rather than rewriting it: the table above now describes the
+**offline arms only** (`--self-test`, `--board-read-check`, `--replay-check`) — the live arm no
+longer sends any canned turn from `ANSWER_BANK`/`composeDeveloperReply` at all. Row 10
+(`ANSWER_BANK_FALLBACK`) is amended accordingly: it remains a legitimate delegation as one line
+among real answers, or a deflection as the whole reply, for the three offline arms that still
+compose from the bank — but it is no longer reachable from the live arm under any conversation
+shape, which is this closure's own structural scan, not a narrowed claim about the fallback's
+meaning.
+
+What this task did NOT resolve: no live run happened and no credential was spent — this gate's own
+no-TTY transport, argv refusal and source-scan proof are all exercised offline, exactly as this
+project's constraints require. The undiagnosed `backend_refusal` (`classifier=invalid_request`)
+that killed run `01M3P9QF58AAFKXH2EAZ3ZEM65`'s distillation turn — reached only AFTER the challenge
+stage above had already succeeded — remains open and out of scope for this closure; the live gate
+may still die there the next time it runs.
+
 ### Items 2 and 4 — the visual ones
 
 ```bash
