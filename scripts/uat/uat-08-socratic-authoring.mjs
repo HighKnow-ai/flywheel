@@ -332,6 +332,12 @@ function buildCriteriaResults(flags) {
     criterion3Decided,
     criterion4Reopened,
     criterion4PrimedRejected,
+    // Plan 05-49 (Task 3, G-05-10 missing[3]): defaults to "not-applicable" so every PRE-EXISTING
+    // caller of this function (every `--replay-check` self-check above, and every offline
+    // `--self-test` fixture that built a `flags` object before this field existed) stays
+    // byte-identical in its own gating outcome — "not-applicable" is a PASSING verdict, so an
+    // absent flag never turns a previously-passing synthetic result red.
+    proposalListVerdict = "not-applicable",
   } = flags;
 
   // Task 3 (G-05-2): never a boolean that goes vacuously true the moment no propose attempt
@@ -367,10 +373,11 @@ function buildCriteriaResults(flags) {
     ],
     [
       "SHAPE-03/SHAPE-04 — accept, reject and amend decided individually",
-      criterion3Decided,
-      criterion3Decided
+      criterion3Decided && PASSING_PROPOSAL_LIST_VERDICTS.has(proposalListVerdict),
+      (criterion3Decided
         ? "at least one reject and one amend were exercised"
-        : "not enough proposals to exercise all three verbs",
+        : "not enough proposals to exercise all three verbs") +
+        ` — proposalListVerdict=${proposalListVerdict}`,
     ],
     [
       "SHAPE-05 — reopening primes the challenge against what the epic already contains",
@@ -448,6 +455,10 @@ function renderQuestionsAsked(questions) {
  *   to `"not-attempted"` when omitted. `criteriaDrainStoppedBy` (`"quiet" | "deadline" | null`)
  *   renders alongside it — "the window closed quiet" and "the window ran out" are different facts
  *   about a run and must not read the same.
+ * - `proposalListVerdict` (plan 05-49, Task 3, G-05-10 `missing[3]`) — the FOUR-valued
+ *   `assertProposalListNonEmptyInTurn` verdict (`"satisfied" | "violated" | "not-applicable" |
+ *   "unknown"`), rendered immediately beside `criteriaReachabilityReading` since both describe the
+ *   same criteria-stage turn. Defaults to `"not-applicable"` when omitted.
  * - `results` (the array `buildCriteriaResults`/`reportCriteria` share — may be `[]` before the
  *   decompose phase completes)
  * - `synthetic` (boolean, default `false`) and `scenario` (the scenario name, when `synthetic` is
@@ -484,6 +495,7 @@ function renderChallengeEvidenceSheet(evidence) {
     amendedCriteriaCount,
     criteriaReachabilityReading = "not-attempted",
     criteriaDrainStoppedBy = null,
+    proposalListVerdict = "not-applicable",
     results,
     timestamp,
     synthetic = false,
@@ -644,6 +656,7 @@ ${criterionLines || "(not yet available — populated once the decompose phase c
 
 - Drafted criteria: ${drafted}
 - Criteria reachability: ${criteriaReachabilityReading} (criteria-stage proposal drain stoppedBy: ${criteriaDrainStoppedBy ?? "n/a"})
+- proposal_list-in-staging-turn verdict: ${proposalListVerdict}
 - Amended criteria: ${amended}
 - Ratio (amended/drafted): ${amended}/${drafted}
 
@@ -870,6 +883,92 @@ async function selfTest() {
       } finally {
         handle?.close();
       }
+    },
+  );
+
+  // -----------------------------------------------------------------------------------------
+  // Task 3 (G-05-10 missing[3]): assertProposalListNonEmptyInTurn — pure, synthetic, no live run.
+  // -----------------------------------------------------------------------------------------
+  check("an empty proposal_list inside a staging turn fails the live assertion", () => {
+    const turn = [
+      { type: "tool_call", toolName: "mcp__flywheel-permissions__propose_criterion", toolUseId: "t1" },
+      {
+        type: "tool_result",
+        toolUseId: "t1",
+        output: JSON.stringify({ staged: true, proposalId: "01SYNTHETICCRITERIONID001" }),
+      },
+      { type: "tool_call", toolName: "mcp__flywheel-permissions__proposal_list", toolUseId: "t2" },
+      { type: "tool_result", toolUseId: "t2", output: JSON.stringify({ proposals: [], truncated: false }) },
+    ];
+    assert.equal(assertProposalListNonEmptyInTurn(turn), "violated");
+  });
+
+  check("a proposal_list with rows after a staging call satisfies the assertion", () => {
+    const turn = [
+      { type: "tool_call", toolName: "mcp__flywheel-permissions__propose_epic", toolUseId: "t1" },
+      {
+        type: "tool_result",
+        toolUseId: "t1",
+        output: JSON.stringify({ staged: true, proposalId: "01SYNTHETICEPICID00000001" }),
+      },
+      { type: "tool_call", toolName: "mcp__flywheel-permissions__proposal_list", toolUseId: "t2" },
+      {
+        type: "tool_result",
+        toolUseId: "t2",
+        output: JSON.stringify({ proposals: [{ id: "01SYNTHETICEPICID00000001" }], truncated: false }),
+      },
+    ];
+    assert.equal(assertProposalListNonEmptyInTurn(turn), "satisfied");
+  });
+
+  check("a turn with no staging call is not-applicable", () => {
+    const turnWithNoToolCallsAtAll = [{ type: "tool_call", toolName: "Bash", toolUseId: "t1" }];
+    assert.equal(assertProposalListNonEmptyInTurn(turnWithNoToolCallsAtAll), "not-applicable");
+
+    // A staging call with no LATER proposal_list call is equally not-applicable — the turn does
+    // not exercise the property either way.
+    const stagedButNoListCall = [
+      { type: "tool_call", toolName: "mcp__flywheel-permissions__propose_epic", toolUseId: "t1" },
+      {
+        type: "tool_result",
+        toolUseId: "t1",
+        output: JSON.stringify({ staged: true, proposalId: "01SYNTHETICEPICID00000002" }),
+      },
+    ];
+    assert.equal(assertProposalListNonEmptyInTurn(stagedButNoListCall), "not-applicable");
+  });
+
+  check(
+    "an unrecognised proposal_list verdict is fail-closed — only satisfied/not-applicable pass",
+    () => {
+      // A proposal_list call whose result cannot be parsed into a proposals array (a malformed
+      // body, or no correlation id at all) reads "unknown" — never silently treated as a pass.
+      const turnWithUnparsableListResult = [
+        { type: "tool_call", toolName: "mcp__flywheel-permissions__propose_task", toolUseId: "t1" },
+        {
+          type: "tool_result",
+          toolUseId: "t1",
+          output: JSON.stringify({ staged: true, proposalId: "01SYNTHETICTASKID000000001" }),
+        },
+        { type: "tool_call", toolName: "mcp__flywheel-permissions__proposal_list", toolUseId: "t2" },
+        { type: "tool_result", toolUseId: "t2", output: JSON.stringify({ notProposals: [] }) },
+      ];
+      const unknownVerdict = assertProposalListNonEmptyInTurn(turnWithUnparsableListResult);
+      assert.equal(unknownVerdict, "unknown");
+      assert.ok(
+        !PASSING_PROPOSAL_LIST_VERDICTS.has(unknownVerdict),
+        "expected the fail-closed allow-list to NOT pass an unrecognised/unknown verdict",
+      );
+      assert.ok(
+        !PASSING_PROPOSAL_LIST_VERDICTS.has("violated"),
+        "expected the fail-closed allow-list to NOT pass a violated verdict",
+      );
+      assert.ok(
+        !PASSING_PROPOSAL_LIST_VERDICTS.has("some-future-unanticipated-verdict"),
+        "expected the fail-closed allow-list to NOT pass a verdict string it has never seen before",
+      );
+      assert.ok(PASSING_PROPOSAL_LIST_VERDICTS.has("satisfied"));
+      assert.ok(PASSING_PROPOSAL_LIST_VERDICTS.has("not-applicable"));
     },
   );
 
@@ -4812,8 +4911,9 @@ export function conversationStoppedOnNonConversationTurn(conversation) {
  * defect this whole plan closes was exactly a write site sitting downstream of a call that could
  * throw. Takes a single mutable state object carrying `evidencePath`, `runId`, `openingPrompt`,
  * `conversation`, `noWorkPlannedReading`, `draftedCriteriaCount`, `amendedCriteriaCount`,
- * `criteriaReachabilityReading`, `criteriaDrainStoppedBy` (plan 05-46, gap G-05-9), `results`,
- * `credentialPath`, `nonConversation` and `failure`.
+ * `criteriaReachabilityReading`, `criteriaDrainStoppedBy` (plan 05-46, gap G-05-9),
+ * `proposalListVerdict` (plan 05-49, Task 3, G-05-10 `missing[3]`), `results`, `credentialPath`,
+ * `nonConversation` and `failure`.
  *
  * Tolerates a `conversation` of `null` or `undefined` by treating it as a conversation with zero
  * exchanges — a run that died before `driveChallengeConversation` ever returned still gets the
@@ -4837,6 +4937,7 @@ export function writeChallengeEvidence(state) {
       amendedCriteriaCount: state.amendedCriteriaCount,
       criteriaReachabilityReading: state.criteriaReachabilityReading,
       criteriaDrainStoppedBy: state.criteriaDrainStoppedBy,
+      proposalListVerdict: state.proposalListVerdict,
       results: state.results,
       timestamp: new Date().toISOString(),
       nonConversation: state.nonConversation ?? null,
@@ -5111,6 +5212,112 @@ function readCriteriaReachability(events, window, { draftedCriteriaCount }) {
   }
   if (sawProposalListCall) return "declined";
   return "not-attempted";
+}
+
+/** Plan 05-49 (Task 3, G-05-10 `missing[3]`): the six write-verb tool-name fragments
+ * {@link assertProposalListNonEmptyInTurn} treats as a "staging call" — every verb whose
+ * successful staging result now carries a `proposalId` (plan 05-48). Named as its own array,
+ * rather than reusing the broader {@link PROPOSE_TOOL_NAME_FRAGMENT} alone, because `amend_` and
+ * `delete_` calls also resolve with a `proposalId` and must count here too. */
+const STAGING_VERB_TOOL_NAME_FRAGMENTS = Object.freeze([
+  "propose_task",
+  "propose_epic",
+  "propose_criterion",
+  "propose_assumption",
+  "amend_proposal",
+  "delete_proposal",
+]);
+
+/** Plan 05-49 (Task 3): the fail-closed ALLOW-list of {@link assertProposalListNonEmptyInTurn}
+ * verdicts that may pass the SHAPE-03/SHAPE-04 criterion — mirrors {@link
+ * PASSING_NO_WORK_READINGS}'s own allow-list discipline exactly (never a deny-list a future,
+ * unanticipated verdict could pass by accident). Only `"satisfied"` (a later `proposal_list`
+ * returned rows) and `"not-applicable"` (no staging call, or no `proposal_list` call, in this
+ * turn) pass; `"violated"` and `"unknown"` do not. */
+const PASSING_PROPOSAL_LIST_VERDICTS = new Set(["satisfied", "not-applicable"]);
+
+/**
+ * Plan 05-49 (Task 3, G-05-10 `missing[3]`): the live-path assertion the gap names by hand —
+ * `proposal_list` returning empty inside the SAME turn as a successful staging call is a NAMED,
+ * gating failure, not something only a human reading `05-LIVE-CHALLENGE-TRANSCRIPT.md` would
+ * notice (turn 6's own live capture is exactly this failure). Pure: `turn` is a plain array of this
+ * ONE turn's own raw sidecar events (`tool_call`/`tool_result`, in ascending order — the same shape
+ * a caller already has as a slice of `sidecar.events`), so a self-test can drive this with a
+ * synthetic array and no live run, timer or child process at all.
+ *
+ * Correlates every `tool_result` in `turn` to its own `tool_call` via {@link CORRELATION_ID_FIELD}
+ * — the SAME exact-lookup key {@link correlateProposeAttempts} uses, never a second pairing scheme
+ * — then scans `turn`'s tool calls in order:
+ * - A call whose name matches {@link STAGING_VERB_TOOL_NAME_FRAGMENTS} and whose correlated result
+ *   parses to an object carrying a string `proposalId` marks `sawStagedProposal`.
+ * - Once `sawStagedProposal` is true, a LATER call naming {@link PROPOSAL_LIST_TOOL_NAME_FRAGMENT}
+ *   marks `sawProposalListCall` and inspects its own correlated result's `proposals` field:
+ *   - not an array at all (missing correlation id, unparsable result, or a `proposals` field that
+ *     is absent or the wrong shape) → returns `"unknown"` immediately — a verdict that cannot be
+ *     determined is never silently folded into a pass.
+ *   - an array of length zero → returns `"violated"` immediately — the exact defect this task
+ *     closes.
+ *   - a non-empty array → keeps scanning (a LATER `proposal_list` call in the same turn could still
+ *     be empty).
+ *
+ * Returns `"not-applicable"` when the turn has no staging call, or a staging call but no
+ * `proposal_list` call at all — the turn simply does not exercise this property either way.
+ * Returns `"satisfied"` when at least one staging call and at least one later `proposal_list` call
+ * exist, and every such `proposal_list` call in the turn returned a non-empty array.
+ */
+function assertProposalListNonEmptyInTurn(turn) {
+  if (!Array.isArray(turn)) {
+    throw new TypeError(
+      "assertProposalListNonEmptyInTurn requires an array of this turn's own tool_call/tool_result events",
+    );
+  }
+
+  const resultBodyById = new Map();
+  for (const event of turn) {
+    if (event?.type !== "tool_result") continue;
+    const id = event[CORRELATION_ID_FIELD];
+    if (typeof id !== "string" || id.length === 0) continue;
+    if (resultBodyById.has(id)) continue;
+    let parsed;
+    try {
+      parsed = typeof event.output === "string" ? JSON.parse(event.output) : event.output;
+    } catch {
+      parsed = undefined;
+    }
+    resultBodyById.set(id, parsed);
+  }
+
+  const bodyFor = (event) => {
+    const id = event[CORRELATION_ID_FIELD];
+    return typeof id === "string" ? resultBodyById.get(id) : undefined;
+  };
+
+  let sawStagedProposal = false;
+  let sawProposalListCall = false;
+
+  for (const event of turn) {
+    if (event?.type !== "tool_call" || typeof event[TOOL_NAME_FIELD] !== "string") continue;
+    const name = event[TOOL_NAME_FIELD];
+
+    if (STAGING_VERB_TOOL_NAME_FRAGMENTS.some((fragment) => name.includes(fragment))) {
+      const body = bodyFor(event);
+      if (body !== undefined && typeof body === "object" && typeof body.proposalId === "string") {
+        sawStagedProposal = true;
+      }
+      continue;
+    }
+
+    if (!sawStagedProposal || !name.includes(PROPOSAL_LIST_TOOL_NAME_FRAGMENT)) continue;
+
+    sawProposalListCall = true;
+    const body = bodyFor(event);
+    const proposals = body !== undefined && typeof body === "object" ? body.proposals : undefined;
+    if (!Array.isArray(proposals)) return "unknown";
+    if (proposals.length === 0) return "violated";
+  }
+
+  if (!sawStagedProposal || !sawProposalListCall) return "not-applicable";
+  return "satisfied";
 }
 
 /**
@@ -7067,6 +7274,9 @@ await runScript(
       amendedCriteriaCount: 0,
       criteriaReachabilityReading: "not-attempted",
       criteriaDrainStoppedBy: null,
+      // Plan 05-49 (Task 3, G-05-10 missing[3]): defaults byte-identically to the value used when
+      // the criteria stage never sends its own instruction turn — see that call site's own comment.
+      proposalListVerdict: "not-applicable",
       results: [],
       credentialPath,
       nonConversation: null,
@@ -7305,6 +7515,10 @@ await runScript(
       const criteriaAdvanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
       assert.equal(criteriaAdvanced.stage, "criteria");
       let criteriaDrainResult = null;
+      // Plan 05-49 (Task 3, G-05-10 missing[3]): "not-applicable" (a PASSING verdict) when the
+      // criteria stage never sends its own instruction turn at all — that turn simply never ran,
+      // so the property this verdict names was never exercised either way.
+      let proposalListVerdict = "not-applicable";
       if (criteriaAdvanced.instructionText) {
         step("sending the criteria instruction and capturing its reply (not required for the run to continue)");
         const criteriaInstructionCursor = sidecar.eventCursor();
@@ -7318,12 +7532,14 @@ await runScript(
         // exchange, never fatal; a genuine non-conversation reply IS fatal, checked OUTSIDE this
         // try/catch so the timeout branch never swallows it.
         let criteriaInstructionReply;
+        let criteriaTurnEndIndex = criteriaInstructionCursor;
         try {
           criteriaInstructionReply = await sidecar.waitForTurn(runId, criteriaInstructionCursor, {
             timeoutMs: LIVE_TURN_CEILING_MS,
             idleMs: LIVE_TURN_IDLE_MS,
             label: "the criteria stage's reply to the criteria instruction",
           });
+          criteriaTurnEndIndex = criteriaInstructionReply.endIndex;
           evidenceState.conversation.exchanges.push(buildAgentExchange(criteriaInstructionReply));
           step(
             `criteria reply captured: chunks=${criteriaInstructionReply.chunkCount} ` +
@@ -7331,12 +7547,24 @@ await runScript(
           );
         } catch (err) {
           const partial = accumulateTurn(sidecar.events, runId, criteriaInstructionCursor);
+          criteriaTurnEndIndex = partial.endIndex;
           evidenceState.conversation.exchanges.push(buildAgentExchange(partial, { endedBy: "timeout" }));
           step(
             `criteria reply capture timed out (not fatal — the criteria-stage proposal drain still ` +
               `happens): ${err.message}`,
           );
         }
+
+        // Plan 05-49 (Task 3, G-05-10 missing[3]): the live gating check — an empty proposal_list
+        // inside the SAME turn as a successful staging call must never pass silently. Scoped to
+        // exactly this turn's own slice of `sidecar.events` (never the whole run), so a LATER
+        // turn's own unrelated proposal_list call can never taint this reading.
+        proposalListVerdict = assertProposalListNonEmptyInTurn(
+          sidecar.events.slice(criteriaInstructionCursor, criteriaTurnEndIndex),
+        );
+        evidenceState.proposalListVerdict = proposalListVerdict;
+        step(`proposal_list-in-staging-turn verdict: ${proposalListVerdict}`);
+
         writeChallengeEvidence(evidenceState);
         step(
           `wrote challenge evidence sheet (post-criteria-turn, results pending): ${evidencePath} — a ` +
@@ -7479,6 +7707,7 @@ await runScript(
         criterion3Decided,
         criterion4Reopened,
         criterion4PrimedRejected,
+        proposalListVerdict,
       });
       evidenceState.draftedCriteriaCount = draftedCriteriaCount;
       evidenceState.amendedCriteriaCount = amendedCriteriaCount;
