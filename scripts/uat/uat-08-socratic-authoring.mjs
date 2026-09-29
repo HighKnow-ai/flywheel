@@ -2749,6 +2749,244 @@ async function selfTest() {
     },
   );
 
+  // -----------------------------------------------------------------------------------------
+  // Quick task 260929-p61 (Task 2) — reachability, purity and the no-TTY transport.
+  // -----------------------------------------------------------------------------------------
+
+  check(
+    "[Quick 260929-p61] the developer answer source factory is reachable only from the live body: the offline-arms region (from the first offline guard to the live body's own top-level runScript call) holds zero call sites, and the live body holds exactly one",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      // Built from parts at runtime — never a literal spelled out in this check's own source —
+      // reusing this file's established source-scan idiom (see the advance-stage check above).
+      const factoryCallMarker = ["createDeveloperAnswerSource", "("].join("");
+      const firstOfflineGuardMarker = [
+        "if (process.argv.includes(",
+        JSON.stringify(OFFLINE_ARM_FLAGS[0]),
+        "))",
+      ].join("");
+      const offlineArmsStart = thisFile.indexOf(firstOfflineGuardMarker);
+      assert.ok(offlineArmsStart >= 0, "expected to find the first offline arm's own top-level guard");
+      const liveBodyMarker = "\nawait runScript(\n";
+      const liveBodyStart = thisFile.indexOf(liveBodyMarker);
+      assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
+      assert.ok(
+        liveBodyStart > offlineArmsStart,
+        "expected the live body to appear textually after the first offline arm's own guard",
+      );
+
+      // Proves the two I/O-performing offline arms (--board-read-check, --replay-check, and every
+      // helper either calls) cannot reach the factory textually. --self-test reaches it only by
+      // handing it a fabricated live-shaped argv — its own real argv is refused by the checks
+      // above, and --self-test's own body (selfTest(), defined far earlier in this file) sits
+      // OUTSIDE this region entirely, so its test-only call sites are never counted here.
+      const offlineArmsRegion = thisFile.slice(offlineArmsStart, liveBodyStart);
+      const offlineArmsCallCount = offlineArmsRegion.split(factoryCallMarker).length - 1;
+      assert.equal(
+        offlineArmsCallCount,
+        0,
+        "expected zero call sites of the developer answer source factory in the offline-arms region",
+      );
+
+      const liveBodyRegion = thisFile.slice(liveBodyStart);
+      const liveBodyCallCount = liveBodyRegion.split(factoryCallMarker).length - 1;
+      assert.equal(
+        liveBodyCallCount,
+        1,
+        "expected exactly one call site of the developer answer source factory in the live body",
+      );
+    },
+  );
+
+  check(
+    "[Quick 260929-p61] every offline arm flag has its own top-level argv-membership guard, and the guard count equals OFFLINE_ARM_FLAGS' own length — so the list cannot drift from the arms it describes when a fourth arm is added",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      const guardPattern = /^if \(process\.argv\.includes\("([^"]+)"\)\) \{$/gm;
+      const guardFlags = [...thisFile.matchAll(guardPattern)].map((match) => match[1]);
+      assert.equal(
+        guardFlags.length,
+        OFFLINE_ARM_FLAGS.length,
+        `expected exactly ${OFFLINE_ARM_FLAGS.length} top-level argv-membership guard(s) in the ` +
+          `whole file, found ${guardFlags.length}: ${JSON.stringify(guardFlags)}`,
+      );
+      for (const flag of OFFLINE_ARM_FLAGS) {
+        assert.ok(guardFlags.includes(flag), `expected a top-level argv guard for offline flag "${flag}"`);
+      }
+    },
+  );
+
+  check(
+    "[Quick 260929-p61] renderHandoffQuestionsSheet/parseHandoffAnswers round-trip a completed template",
+    () => {
+      const questions = [
+        { text: "Attention router or activity log?", options: [] },
+        { text: "Where does the board app actually live?", options: [] },
+      ];
+      const sheet = renderHandoffQuestionsSheet({ runId: "stub-run-handoff", turnNumber: 3, questions });
+      assert.ok(sheet.includes("ANSWER 1: "));
+      assert.ok(sheet.includes("ANSWER 2: "));
+      const completed = sheet
+        .replace("ANSWER 1: ", "ANSWER 1: attention router")
+        .replace("ANSWER 2: ", "ANSWER 2: it lives inside the desktop app itself");
+      const answers = parseHandoffAnswers(completed, questions.length);
+      assert.deepEqual(answers, ["attention router", "it lives inside the desktop app itself"]);
+    },
+  );
+
+  check("[Quick 260929-p61] parseHandoffAnswers names the missing-marker defect", () => {
+    assert.throws(() => parseHandoffAnswers("ANSWER 1: only one\n", 2), /missing the marker for question 2/);
+  });
+
+  check("[Quick 260929-p61] parseHandoffAnswers names the duplicate-marker defect", () => {
+    assert.throws(() => parseHandoffAnswers("ANSWER 1: a\nANSWER 1: b\n", 1), /duplicate marker for question 1/);
+  });
+
+  check("[Quick 260929-p61] parseHandoffAnswers names the empty-answer defect", () => {
+    assert.throws(() => parseHandoffAnswers("ANSWER 1: \n", 1), /empty answer for question 1/);
+  });
+
+  check("[Quick 260929-p61] parseHandoffAnswers names the out-of-range-ordinal defect", () => {
+    assert.throws(
+      () => parseHandoffAnswers("ANSWER 1: a\nANSWER 2: b\n", 1),
+      /but only 1 question\(s\) were asked/,
+    );
+  });
+
+  await check(
+    "[Quick 260929-p61] createDeveloperAnswerSource (no-TTY) returns the developer's answers immediately when the answers file is already present",
+    async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uat08-handoff-present-"));
+      try {
+        const questions = [{ text: "Where does the board app actually live?", options: [] }];
+        const answersPath = path.join(dir, handoffAnswersFileName(1));
+        fs.writeFileSync(answersPath, "ANSWER 1: it lives inside the desktop app itself\n");
+        const source = createDeveloperAnswerSource({
+          argv: ["node", "uat-08-socratic-authoring.mjs"],
+          isTty: false,
+          handoffDir: dir,
+          runId: "stub-run-transport-present",
+          deadlineMs: 5_000,
+          pollMs: 5,
+        });
+        const reply = await source.answerQuestions(questions);
+        assert.equal(reply, `${REPLY_PREAMBLE}\n1. it lives inside the desktop app itself`);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  await check(
+    "[Quick 260929-p61] createDeveloperAnswerSource (no-TTY) rejects at the deadline naming that no answers file ever appeared, and never yields a bank value",
+    async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uat08-handoff-absent-"));
+      try {
+        const questions = [{ text: "Attention router or activity log?", options: [] }];
+        const source = createDeveloperAnswerSource({
+          argv: ["node", "uat-08-socratic-authoring.mjs"],
+          isTty: false,
+          handoffDir: dir,
+          runId: "stub-run-transport-absent",
+          deadlineMs: 20,
+          pollMs: 5,
+        });
+        await assert.rejects(() => source.answerQuestions(questions), /no answers file ever appeared/);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  await check(
+    "[Quick 260929-p61] createDeveloperAnswerSource (no-TTY) keeps polling past a malformed answers file, rejecting only at the deadline with the last parse defect named rather than on the first bad read",
+    async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uat08-handoff-malformed-"));
+      try {
+        const questions = [{ text: "Where does the board app actually live?", options: [] }];
+        const answersPath = path.join(dir, handoffAnswersFileName(1));
+        fs.writeFileSync(answersPath, "ANSWER 1: \n");
+        const source = createDeveloperAnswerSource({
+          argv: ["node", "uat-08-socratic-authoring.mjs"],
+          isTty: false,
+          handoffDir: dir,
+          runId: "stub-run-transport-malformed",
+          deadlineMs: 40,
+          pollMs: 5,
+        });
+        await assert.rejects(
+          () => source.answerQuestions(questions),
+          /last parse defect: .*empty answer for question 1/,
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  check(
+    "[Quick 260929-p61] two successive calls to the same createDeveloperAnswerSource write to different filenames — a stale answers file from the previous turn cannot be consumed by the next",
+    () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uat08-handoff-filenames-"));
+      try {
+        const source = createDeveloperAnswerSource({
+          argv: ["node", "uat-08-socratic-authoring.mjs"],
+          isTty: false,
+          handoffDir: dir,
+          runId: "stub-run-transport-filenames",
+          deadlineMs: 1,
+          pollMs: 1,
+        });
+        const questions = [{ text: "Where does the board app actually live?", options: [] }];
+        // Neither call is awaited to completion here — each writes its own turn's questions sheet
+        // SYNCHRONOUSLY before it ever reaches its first await, so both filenames are observable
+        // immediately regardless of how either call eventually settles. Both are given a `.catch`
+        // so an eventual deadline rejection never surfaces as an unhandled rejection.
+        source.answerQuestions(questions).catch(() => {});
+        source.answerQuestions(questions).catch(() => {});
+        const firstPath = path.join(dir, handoffQuestionsFileName(1));
+        const secondPath = path.join(dir, handoffQuestionsFileName(2));
+        assert.notEqual(firstPath, secondPath);
+        assert.ok(fs.existsSync(firstPath), "expected the first turn's own questions sheet to exist");
+        assert.ok(fs.existsSync(secondPath), "expected the second turn's own questions sheet to exist");
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  check(
+    "[Quick 260929-p61] the live body carries both the provenance gate and the wholly-generic-answers gate, textually after driveChallengeConversation returns and before assertAllHeldRequestsAnswered",
+    () => {
+      const thisFile = fs.readFileSync(new URL(import.meta.url), "utf8");
+      const liveBodyMarker = "\nawait runScript(\n";
+      const liveBodyStart = thisFile.indexOf(liveBodyMarker);
+      assert.ok(liveBodyStart >= 0, "expected to find the live body's own top-level runScript call");
+      const liveBodySource = thisFile.slice(liveBodyStart);
+      const provenanceMarker = ["the challenge answers were therefore not", "the developer's own"].join(" ");
+      const whollyGenericMarker = ["the live arm reaching the answer bank at all is", "a regression"].join(" ");
+      assert.ok(
+        liveBodySource.includes(provenanceMarker),
+        "expected the provenance gate's message to be reachable in the live body",
+      );
+      assert.ok(
+        liveBodySource.includes(whollyGenericMarker),
+        "expected the wholly-generic-answers gate's message to be reachable in the live body",
+      );
+      const driverCallIndex = liveBodySource.indexOf("await driveChallengeConversation(");
+      const heldRequestsIndex = liveBodySource.indexOf("assertAllHeldRequestsAnswered(sidecar)");
+      const provenanceIndex = liveBodySource.indexOf(provenanceMarker);
+      const whollyGenericIndex = liveBodySource.indexOf(whollyGenericMarker);
+      assert.ok(driverCallIndex >= 0 && heldRequestsIndex >= 0);
+      assert.ok(
+        driverCallIndex < provenanceIndex &&
+          provenanceIndex < whollyGenericIndex &&
+          whollyGenericIndex < heldRequestsIndex,
+        "expected both gates textually between the driver's own call and assertAllHeldRequestsAnswered",
+      );
+    },
+  );
+
   check(
     "a timeout capturing the distillation reply does not abort the run — recorded as a partial exchange via accumulateTurn instead",
     () => {
@@ -8531,6 +8769,34 @@ await runScript(
           "fallback — a nonzero ratio is a legitimate delegation as one line among real answers, " +
           "and a deflection when it is the entire reply",
       );
+
+      // Quick task 260929-p61 (T-p61-01): a live run's answers must carry the developer
+      // provenance value before any advance-stage fires — the bank must never stand in for him.
+      // The outer catch/finally below still records this as `failure` and writes the evidence
+      // sheet — no explicit write here.
+      if (conversation.answerSource !== ANSWER_SOURCE_DEVELOPER) {
+        throw new Error(
+          `challenge conversation reported answer source "${conversation.answerSource}" — ` +
+            "the challenge answers were therefore not the developer's own, and the stage was " +
+            `never advanced. See ${evidencePath} for the captured turns.`,
+        );
+      }
+
+      // Quick task 260929-p61: the live arm structurally cannot reach the answer bank (T-p61-04),
+      // so this gate can only fire if a future edit reconnects it — a tripwire on the exact
+      // regression this closure prevents, not a claim that it is reachable today.
+      if (
+        conversation.answeredQuestionCount > 0 &&
+        conversation.fallbackAnswerCount === conversation.answeredQuestionCount
+      ) {
+        throw new Error(
+          `every one of this conversation's ${conversation.answeredQuestionCount} composed answer ` +
+            `line(s) was the wholly-generic answer-bank fallback (${conversation.fallbackAnswerCount}/` +
+            `${conversation.answeredQuestionCount}) — ` +
+            "the live arm reaching the answer bank at all is a regression of quick task " +
+            "260929-p61's closure.",
+        );
+      }
 
       // G-05-1 (plan 05-18): a starved held read must fail here, naming itself, rather than let the
       // run limp on to a misleading per-criterion result.
