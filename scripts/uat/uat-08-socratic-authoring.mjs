@@ -2255,6 +2255,99 @@ async function selfTest() {
   );
 
   check(
+    "[Plan 260929-nxq, Task 1a] extractOpenQuestions finds all five of a bolded, numbered turn's " +
+      "questions — the fixture is the real shape from the transcript (`**1. Where does the board " +
+      "app actually live?** This repo is empty.`), which today yields one",
+    () => {
+      const text =
+        "That changes what I need from you. Five questions, each with the default I'd otherwise assume.\n\n" +
+        "**1. Where does the board app actually live?** This repo is empty.\n" +
+        "*Default: the app exists elsewhere.*\n\n" +
+        "**2. Which channels?** In-app only is a feed plus unread badge.\n" +
+        "*Default: in-app only for v1.*\n\n" +
+        "**3. What actually pings someone?** The candidate list: assigned, mentioned, commented on.\n" +
+        "*Default: assigned and mentioned only.*\n\n" +
+        "**4. Real-time or not?** Live push versus polling on an interval.\n" +
+        "*Default: poll every 30 seconds.*\n\n" +
+        "**5. How much user control?** Mark read and mark all read is table stakes.\n" +
+        "*Default: read state only.*";
+      const questions = extractOpenQuestions({ text, toolCalls: [] });
+      assert.equal(
+        questions.length,
+        5,
+        `expected all five bolded questions, got ${questions.length}: ${JSON.stringify(questions.map((q) => q.text))}`,
+      );
+      assert.ok(questions[0].text.endsWith("Where does the board app actually live?"));
+      assert.ok(questions[1].text.endsWith("Which channels?"));
+      assert.ok(questions[2].text.endsWith("What actually pings someone?"));
+      assert.ok(questions[3].text.endsWith("Real-time or not?"));
+      assert.ok(questions[4].text.endsWith("How much user control?"));
+    },
+  );
+
+  check(
+    "[Plan 260929-nxq, Task 1b] extractOpenQuestions finds the imperative ask in a turn containing " +
+      'no ? at all — the fixture is the verbatim "Tell me: attention router or activity log…" ' +
+      "sentence",
+    () => {
+      const text =
+        "Tell me: attention router or activity log — and if it's the router, whether a filtered " +
+        "board view would do the job.";
+      assert.ok(!text.includes("?"), "expected the fixture itself to contain no ? character, matching the real turn it is drawn from");
+      const questions = extractOpenQuestions({ text, toolCalls: [] });
+      assert.equal(questions.length, 1, `expected the imperative ask to be recognised as one open question, got ${questions.length}`);
+      assert.ok(questions[0].text.startsWith("Tell me:"));
+    },
+  );
+
+  check(
+    "[Plan 260929-nxq, Task 1c] classifyWithheldConsent matches the verbatim withholding sentence " +
+      "from run 01M3P4VZCA1M0C37C8V7ZE72WG and reads each of the transcript's own near-miss " +
+      "negatives as clear, named individually",
+    () => {
+      const positive = classifyWithheldConsent(
+        "**I don't think this is settled enough to advance.** Tell me: attention router or " +
+          "activity log — and if it's the router, whether a filtered board view would do the job.",
+      );
+      assert.ok(positive, "expected the verbatim withholding sentence to be classified as withheld");
+      assert.ok(/don.t think this is settled enough to advance/i.test(positive.sentence));
+
+      const negativeOnlyYouCanAdvance = classifyWithheldConsent(
+        "I can't stage anything yet, and only you can advance it.",
+      );
+      assert.equal(
+        negativeOnlyYouCanAdvance,
+        null,
+        "the developer-gate description ('only you can advance it') must read clear, not withheld",
+      );
+
+      const negativeStageAdvancedOnYourSide = classifyWithheldConsent(
+        "All eight staged. Proposals are landing now, so the stage has advanced on your side.",
+      );
+      assert.equal(
+        negativeStageAdvancedOnYourSide,
+        null,
+        "the core's own stage-advance narration ('the stage has advanced on your side') must read clear, not withheld",
+      );
+
+      const negativeCriteriaInstruction = classifyWithheldConsent(
+        "Before we move on: call propose_assumption once for EACH assumption you challenged in this stage.",
+      );
+      assert.equal(
+        negativeCriteriaInstruction,
+        null,
+        "the core's own criteria instruction ('Before we move on…') must read clear, not withheld",
+      );
+    },
+  );
+
+  check("[Plan 260929-nxq, Task 1c] readAdvanceConsent reads undefined, null and an empty string as unreadable, never as clear", () => {
+    assert.equal(readAdvanceConsent(undefined), "unreadable");
+    assert.equal(readAdvanceConsent(null), "unreadable");
+    assert.equal(readAdvanceConsent(""), "unreadable");
+  });
+
+  check(
     "every line of a composed reply to a no-options question, minus its fixed preamble and its ordinal prefix, is an exact member of the answer bank's value set",
     () => {
       const syntheticQuestions = [
@@ -2388,6 +2481,128 @@ async function selfTest() {
       assert.equal(escapingResult.agentTurns, 4, "expected the declared cap (3) plus the one final turn after the closing turn");
       assert.equal(escapingSendCalls.filter((text) => text === CLOSING_TURN).length, 1);
       assert.equal(escapingSendCalls[escapingSendCalls.length - 1], CLOSING_TURN);
+    });
+  }
+
+  {
+    // Plan 260929-nxq (Task 1h): THE deflection-proof check, the one the rule turns on — driven
+    // through the REAL driveChallengeConversation against a scripted stub whose every turn
+    // withholds consent. No reply the driver itself composes can clear the flag.
+    let withholdingCursorValue = 0;
+    let withholdingTurnIndex = 0;
+    const withholdingSendCalls = [];
+    const WITHHOLDING_TEXT =
+      "I'm not ready to advance on this yet — I don't think this is settled enough to advance.";
+    const withholdingStub = {
+      async waitForTurn() {
+        withholdingTurnIndex += 1;
+        withholdingCursorValue += 10;
+        return {
+          text: WITHHOLDING_TEXT,
+          chunkCount: 1,
+          charCount: WITHHOLDING_TEXT.length,
+          endedBy: "result",
+          endIndex: withholdingCursorValue,
+        };
+      },
+      eventCursor() {
+        return withholdingCursorValue;
+      },
+    };
+    const withholdingResult = await driveChallengeConversation({
+      sidecar: withholdingStub,
+      runId: "stub-run-withholds-throughout",
+      sendTurn: async (text) => {
+        withholdingSendCalls.push(text);
+      },
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 3,
+    });
+
+    check(
+      "driveChallengeConversation never reports settled and never lets its own composed reply " +
+        "clear a withheld consent — it drives to its cap, sends CLOSING_TURN exactly once, and " +
+        "still reads the last (closing-reply) turn as withheld",
+      () => {
+        assert.equal(withholdingResult.settled, false);
+        assert.equal(withholdingResult.closingTurnSent, true);
+        assert.equal(withholdingSendCalls.length, 3, "expected two ordinary developer sends plus the one closing turn");
+        assert.equal(withholdingSendCalls.filter((text) => text === CLOSING_TURN).length, 1);
+        assert.equal(withholdingSendCalls[2], CLOSING_TURN);
+        assert.ok(
+          withholdingSendCalls.slice(0, 2).every((text) => text !== CLOSING_TURN),
+          "expected the driver to keep sending its ordinary composed replies before it ever reaches the cap",
+        );
+        assert.equal(withholdingResult.consentReading, "withheld");
+        assert.equal(withholdingResult.consentWithheldSentence, classifyWithheldConsent(WITHHOLDING_TEXT).sentence);
+      },
+    );
+
+    // The mirror: withholds on its first turn, clear by its last — the rule must not punish a run
+    // where the agent got its answer.
+    const MIRROR_TURNS = [
+      { text: "I don't think this is settled enough to advance yet.", endIndex: 5 },
+      { text: "Understood — that's clear now, thanks for confirming.", endIndex: 9 },
+    ];
+    let mirrorPointer = 0;
+    let mirrorCursorValue = 0;
+    const mirrorStub = {
+      async waitForTurn() {
+        const turn = MIRROR_TURNS[mirrorPointer];
+        mirrorPointer += 1;
+        mirrorCursorValue = turn.endIndex;
+        return { ...turn, chunkCount: 1, charCount: turn.text.length, endedBy: "result" };
+      },
+      eventCursor() {
+        return mirrorCursorValue;
+      },
+    };
+    const mirrorResult = await driveChallengeConversation({
+      sidecar: mirrorStub,
+      runId: "stub-run-withholds-then-clears",
+      sendTurn: async () => {},
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 4,
+    });
+    check(
+      "driveChallengeConversation reads consentReading from the LAST agent turn only — a run that withheld once and cleared by its final turn reports clear",
+      () => {
+        assert.equal(mirrorResult.consentReading, "clear");
+      },
+    );
+  }
+
+  {
+    // Plan 260929-nxq (Task 1h): fallbackAnswerCount counts a wholly-fallback composed reply.
+    let fallbackCursorValue = 0;
+    let fallbackPointer = 0;
+    const FALLBACK_TURNS = [
+      { text: "This one matches nothing in the bank at all, so what happens?", endIndex: 4 },
+      { text: "Understood, moving forward with that.", endIndex: 8 },
+    ];
+    const fallbackStub = {
+      async waitForTurn() {
+        const turn = FALLBACK_TURNS[fallbackPointer];
+        fallbackPointer += 1;
+        fallbackCursorValue = turn.endIndex;
+        return { ...turn, chunkCount: 1, charCount: turn.text.length, endedBy: "result" };
+      },
+      eventCursor() {
+        return fallbackCursorValue;
+      },
+    };
+    const fallbackResult = await driveChallengeConversation({
+      sidecar: fallbackStub,
+      runId: "stub-run-wholly-fallback",
+      sendTurn: async () => {},
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 4,
+    });
+    check("fallbackAnswerCount counts a wholly-fallback composed reply as such", () => {
+      assert.equal(fallbackResult.fallbackAnswerCount, 1);
     });
   }
 
@@ -4597,6 +4812,29 @@ const MAX_AGENT_TURNS = 4;
  * contain. */
 const MAX_EXTRACTED_QUESTIONS = 5;
 
+/**
+ * Plan 260929-nxq (Task 1a): the sentence-fragment split boundary `extractOpenQuestions` uses to
+ * recover interrogative fragments from a turn's own prose — and the IDENTICAL rule
+ * `classifyWithheldConsent` (1c) reuses below, so the two functions cannot invent two different
+ * notions of "a sentence" from the same prose. Widened from a bare `(?<=[?.!])\s+` to also
+ * consume any closing markdown emphasis, quote or bracket character sitting between the sentence
+ * terminator and the following whitespace — measured against turn 1 of run
+ * `01M3P4VZCA1M0C37C8V7ZE72WG`: the bare separator saw ONE of the turn's five numbered, bolded
+ * questions (`**1. Where does the board app actually live?**`), because `**` sat between the `?`
+ * and the space the old pattern required. The terminator set itself (`[?.!]`) is UNCHANGED — a
+ * numbered-list marker ("1.", "2." …) must keep being split off by the `.` terminator exactly as
+ * before this plan.
+ */
+const QUESTION_FRAGMENT_SPLIT_PATTERN = /(?<=[?.!])[*_`"'’”)\]]*\s+/;
+
+/** The same closing-markdown character class {@link QUESTION_FRAGMENT_SPLIT_PATTERN} consumes
+ * between a terminator and trailing whitespace, applied here to a fragment's own TRAILING edge
+ * before an `endsWith("?")` test — belt-and-braces for the fragment that ends the whole turn (no
+ * trailing whitespace ever follows it, so the split pattern above never fires on it there), so
+ * `…live?**` sitting at the very end of a turn's text reads as ending in `?` exactly like one that
+ * ends mid-turn. */
+const TRAILING_MARKDOWN_PATTERN = /[*_`"'’”)\]]*$/;
+
 /** The fixed line every composed reply opens with — never itself an answer-bank value, so the
  * self-test's "strip the preamble" check has an unambiguous first line to strip. */
 const REPLY_PREAMBLE = "Here's what I can tell you:";
@@ -4644,7 +4882,12 @@ const ANSWER_BANK = [
       "this slice.",
   },
   {
-    pattern: /surface|appear|show up|display|where/i,
+    // Plan 260929-nxq (Task 1g): narrowed. The bare `where` alternative used to claim ANY
+    // question containing the word "where" — measured at planning time against turn 1's real
+    // text, it mis-answered "Where does the board app actually live?" by claiming it was asking
+    // where a notification surfaces. Now `where` only fires alongside an explicit notification
+    // referent, never a bare location question.
+    pattern: /surface|appear|show up|display|where (?:does|do|is|will) (?:it|this|a notification|the notification)/i,
     answer: "It appears in an in-app notification tray only — no OS-level toast, no email, no push.",
   },
   {
@@ -4657,7 +4900,100 @@ const ANSWER_BANK = [
       "Anything not named above is out of scope for the first slice — cross-device sync, digest " +
       "emails and per-project mute settings all wait for a later pass.",
   },
+  // Plan 260929-nxq (Task 1g): six new entries, each a concrete product decision covering a
+  // question shape the widened extractor (1a/1b) now surfaces, matched to the exact fork this
+  // agent actually raised in run 01M3P4VZCA1M0C37C8V7ZE72WG.
+  {
+    pattern: /where does the (?:board )?app(?:lication)? (?:actually )?live|is (?:this|it) greenfield|another repo/i,
+    answer:
+      "The board app lives in a separate repo from this one — this repo is the planning board of " +
+      "record, not greenfield application code.",
+  },
+  {
+    pattern: /which channels?\b|channels? (?:should|would|will|does)/i,
+    answer: "In-app only for v1, with the data model built so email can be layered on later.",
+  },
+  {
+    pattern: /what (?:actually )?(?:fires|triggers|pings)|what fires a notification/i,
+    answer:
+      "Only a run that needs the developer — a decision, a blocked permission, something it " +
+      "can't resolve on its own — raises a notification. A clean, unattended finish does not.",
+  },
+  {
+    pattern: /real-?time or (?:not|polling)|live push|websockets?|\bpoll(?:ing)?\b/i,
+    answer: "Poll every ~30 seconds — no realtime transport (websockets/SSE) in v1.",
+  },
+  {
+    pattern: /how much (?:user )?control|per-event-type toggles|quiet hours|mark[- ]all[- ]read/i,
+    answer:
+      "Read state plus mark-all-read only — no per-event-type toggles, per-board mute or quiet " +
+      "hours in v1.",
+  },
+  {
+    pattern: /attention router|activity log/i,
+    answer:
+      "Activity log — an immutable historical notification, not a live claim about present " +
+      "state. A filtered board view (\"cards waiting on me\") is not a substitute for it: it " +
+      "computes from state that already exists, which is a different product than what's being " +
+      "asked for here.",
+  },
 ];
+
+/**
+ * Plan 260929-nxq (Task 1c): every pattern requires a FIRST-PERSON statement about the agent's
+ * own readiness — never a bare mention of advancing. Measured across all eight transcript blocks
+ * of run `01M3P4VZCA1M0C37C8V7ZE72WG` plus seven hand-built negatives and five hand-built
+ * positives: 1 true positive (the verbatim sentence from that run), 0 false positives. Two
+ * earlier, looser pattern sets were discarded during planning because they tripped on *"I can't
+ * stage anything yet, and only you can advance it"* (the agent describing the stage machine, not
+ * withholding) and on the core's own criteria instruction *"Before we move on: call
+ * `propose_assumption`…"* — both must read clear, and both are asserted as named negatives in
+ * this file's self-test below.
+ */
+const WITHHELD_CONSENT_PATTERNS = [
+  /\bi(?:'m| am) not ready to advance\b/i,
+  /\bi(?:'d| would) rather not move on\b/i,
+  /\bi don.t think (?:this|that|it) is settled\b/i,
+  /\bnot settled enough to advance\b/i,
+  /\b(?:this|that|it)(?:'s| is) not settled\b/i,
+];
+
+/**
+ * Plan 260929-nxq (Task 1c): classify a withheld consent from the agent's OWN text only —
+ * splitting on the same {@link QUESTION_FRAGMENT_SPLIT_PATTERN} `extractOpenQuestions` uses, so
+ * this never invents a second notion of "a sentence" from the same prose. Returns `{ sentence,
+ * patternSource }` for the first fragment matching any {@link WITHHELD_CONSENT_PATTERNS} entry,
+ * or `null` when none matches (including an empty or non-string `text`).
+ */
+function classifyWithheldConsent(text) {
+  if (typeof text !== "string" || text.length === 0) return null;
+  const fragments = text
+    .split(QUESTION_FRAGMENT_SPLIT_PATTERN)
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => fragment.length > 0);
+  for (const fragment of fragments) {
+    for (const pattern of WITHHELD_CONSENT_PATTERNS) {
+      if (pattern.test(fragment)) {
+        return { sentence: fragment, patternSource: pattern.source };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Plan 260929-nxq (Task 1c): a THREE-valued reading of a single captured agent turn's own consent
+ * to advance — `"withheld"` when {@link classifyWithheldConsent} matches, `"clear"` when the turn
+ * carries real text and it does not match, and `"unreadable"` for a missing or empty turn text
+ * (e.g. a timed-out capture). An absence of evidence is not consent — this register's own eighth
+ * rule ("Assert reachability, not usage…") exists precisely because a zero that cannot distinguish
+ * "would not" from "could not" gets read as "would not" every time; `"unreadable"` is that
+ * distinction made explicit rather than silently folded into `"clear"`.
+ */
+function readAdvanceConsent(turnText) {
+  if (typeof turnText !== "string" || turnText.trim().length === 0) return "unreadable";
+  return classifyWithheldConsent(turnText) ? "withheld" : "clear";
+}
 
 /** The one turn sent when `MAX_AGENT_TURNS` is reached — a bounded, explicit, never-silent escape
  * (D-90: the developer holds the gate; this is the harness standing in for him deciding the
@@ -4690,19 +5026,74 @@ const OPTION_SELECTION_PREFIX = "Picking: ";
  * fragment half), not a parser — it does not understand embedded quotation, abbreviations or
  * rhetorical questions, and is not asked to.
  */
+/**
+ * Plan 260929-nxq (Task 1b): an anchored opener set recognising a question asked in the
+ * IMPERATIVE, with no `?` character anywhere in it — measured against the second agent turn of
+ * run `01M3P4VZCA1M0C37C8V7ZE72WG` ("I don't think this is settled enough to advance. Tell me:
+ * attention router or activity log…"), whose entire text contains no `?` at all, so the old
+ * `?`-only heuristic read it as settled. Anchored to the START of a stripped fragment (leading
+ * markdown/ordinal noise removed by {@link stripLeadingNoise}) so it can never fire mid-sentence
+ * on an incidental "tell me" buried inside a longer prose block.
+ */
+const REQUEST_FOR_INPUT_PATTERN =
+  /^(tell me|let me know|say which|say so|which (?:one )?(?:do|would|should)|pick one|decide|choose|confirm whether)\b/i;
+
+/** Strips leading whitespace, markdown emphasis/quote characters and a numbered-list ordinal
+ * (e.g. "1." or "2)") from a fragment before it is tested against
+ * {@link REQUEST_FOR_INPUT_PATTERN} — the same class of noise {@link
+ * QUESTION_FRAGMENT_SPLIT_PATTERN}/{@link TRAILING_MARKDOWN_PATTERN} strip from the OTHER end of a
+ * fragment, applied here to the front so a bolded, numbered imperative ask ("**3. Tell me…**")
+ * reads the same as a bare one. */
+function stripLeadingNoise(fragment) {
+  return fragment
+    .replace(/^[\s*_`"'‘“(]+/, "")
+    .replace(/^\d+[.)]\s*/, "")
+    .replace(/^[\s*_`"'‘“(]+/, "");
+}
+
 function extractOpenQuestions(turn) {
   const toolCallQuestions = questionsFromTurn(turn).map((prompt) => ({
     text: prompt.question,
     options: Array.isArray(prompt.options) ? prompt.options.map((option) => option.label) : [],
   }));
+
   const fragments = turn.text
-    .split(/(?<=[?.!])\s+/)
+    .split(QUESTION_FRAGMENT_SPLIT_PATTERN)
     .map((fragment) => fragment.trim())
     .filter((fragment) => fragment.length > 0);
+
   const proseQuestions = fragments
-    .filter((fragment) => fragment.endsWith("?"))
+    .filter((fragment) => fragment.replace(TRAILING_MARKDOWN_PATTERN, "").endsWith("?"))
     .map((fragment) => ({ text: fragment, options: [] }));
-  return [...toolCallQuestions, ...proseQuestions].slice(0, MAX_EXTRACTED_QUESTIONS);
+
+  // Task 1b: an imperative request for a decision is a question too — returned AFTER the prose
+  // "?" questions and before the cap, de-duplicated against fragments already returned (a
+  // fragment can be both).
+  const seenFragmentTexts = new Set(proseQuestions.map((question) => question.text));
+  const imperativeQuestions = [];
+  for (const fragment of fragments) {
+    if (seenFragmentTexts.has(fragment)) continue;
+    if (REQUEST_FOR_INPUT_PATTERN.test(stripLeadingNoise(fragment))) {
+      imperativeQuestions.push({ text: fragment, options: [] });
+      seenFragmentTexts.add(fragment);
+    }
+  }
+
+  // Task 1d: a turn whose text trips classifyWithheldConsent contributes AT MINIMUM one open
+  // question whose text is the matched withholding sentence — so questions.length is never 0 for
+  // such a turn, and driveChallengeConversation's settled branch needs no special case. Guaranteed
+  // to survive the cap below even when the turn already carries MAX_EXTRACTED_QUESTIONS other
+  // fragments — the withholding sentence is precisely the one thing the cap must never drop.
+  const withheld = classifyWithheldConsent(turn.text);
+  const withheldQuestions =
+    withheld && !seenFragmentTexts.has(withheld.sentence) ? [{ text: withheld.sentence, options: [] }] : [];
+
+  const combined = [...toolCallQuestions, ...proseQuestions, ...imperativeQuestions, ...withheldQuestions];
+  if (withheldQuestions.length > 0 && combined.length > MAX_EXTRACTED_QUESTIONS) {
+    const withoutWithheld = combined.slice(0, combined.length - 1);
+    return [...withoutWithheld.slice(0, MAX_EXTRACTED_QUESTIONS - 1), withheldQuestions[0]];
+  }
+  return combined.slice(0, MAX_EXTRACTED_QUESTIONS);
 }
 
 /**
@@ -4823,6 +5214,21 @@ async function driveChallengeConversation({
   let settled = false;
   let nextCursor = cursor;
   let finalCursor = cursor;
+  // Plan 260929-nxq (Task 1e): how many composed answer lines, across the WHOLE conversation,
+  // were exactly ANSWER_BANK_FALLBACK — counted from the composed reply string itself so
+  // composeDeveloperReply keeps its signature and every existing caller byte-identical.
+  let fallbackAnswerCount = 0;
+
+  // Plan 260929-nxq (Task 1e): the LAST captured agent turn's own consent reading — "last, not
+  // any": an agent that withheld at turn 2 and stopped withholding at turn 4 got what it needed,
+  // and that run is clean.
+  const deriveConsent = () => {
+    const lastAgentExchange = [...exchanges].reverse().find((exchange) => exchange.speaker === "agent");
+    const consentReading = readAdvanceConsent(lastAgentExchange?.text);
+    const consentWithheldSentence =
+      consentReading === "withheld" ? classifyWithheldConsent(lastAgentExchange.text).sentence : null;
+    return { consentReading, consentWithheldSentence };
+  };
 
   for (;;) {
     try {
@@ -4844,6 +5250,8 @@ async function driveChallengeConversation({
           closingTurnSent,
           cursor: finalCursor,
           nonConversation: turn.nonConversation,
+          fallbackAnswerCount,
+          ...deriveConsent(),
         };
       }
 
@@ -4876,6 +5284,8 @@ async function driveChallengeConversation({
             closingTurnSent,
             cursor: finalCursor,
             nonConversation: closingReply.nonConversation,
+            fallbackAnswerCount,
+            ...deriveConsent(),
           };
         }
         break;
@@ -4883,6 +5293,10 @@ async function driveChallengeConversation({
 
       const reply = composeDeveloperReply(questions);
       answeredQuestionCount += questions.length;
+      fallbackAnswerCount += reply
+        .split("\n")
+        .slice(1)
+        .filter((line) => line.replace(/^\d+\.\s/, "") === ANSWER_BANK_FALLBACK).length;
       const sendCursor = sidecar.eventCursor();
       await sendTurn(reply);
       exchanges.push({ speaker: "developer", text: reply, cursor: sendCursor });
@@ -4915,6 +5329,8 @@ async function driveChallengeConversation({
     closingTurnSent,
     cursor: finalCursor,
     nonConversation: null,
+    fallbackAnswerCount,
+    ...deriveConsent(),
   };
 }
 
@@ -7581,6 +7997,16 @@ await runScript(
         );
       }
 
+      // Plan 260929-nxq (Task 1g): a wholly-deflecting reply is a fact in the scrollback rather
+      // than a silence — how many of this conversation's own composed answer lines were exactly
+      // ANSWER_BANK_FALLBACK, against how many questions were answered in total.
+      step(
+        `answer-bank fallback ratio this conversation: ${conversation.fallbackAnswerCount}/` +
+          `${conversation.answeredQuestionCount} composed answer line(s) were the wholly-generic ` +
+          "fallback — a nonzero ratio is a legitimate delegation as one line among real answers, " +
+          "and a deflection when it is the entire reply",
+      );
+
       // G-05-1 (plan 05-18): a starved held read must fail here, naming itself, rather than let the
       // run limp on to a misleading per-criterion result.
       assertAllHeldRequestsAnswered(sidecar);
@@ -7626,12 +8052,34 @@ await runScript(
           "that dies later in the proposal phase still leaves this transcript for the human",
       );
 
+      // Plan 260929-nxq (Task 1f) — first gate: D-90's own gate is the developer's, never opened
+      // over an agent that has explicitly withheld its consent to advance. `consentReading` is
+      // read from the LAST captured agent turn (including the reply to CLOSING_TURN, when the
+      // conversation reached its own bound) — never from the driver's own composed reply, which
+      // cannot clear the flag by construction.
+      step(`advance-stage consent reading (challenge -> decompose): ${conversation.consentReading}`);
+      if (conversation.consentReading === "withheld") {
+        writeChallengeEvidence(evidenceState);
+        throw new Error(
+          "the agent withheld its consent to advance, and the conversation reached its own bound " +
+            `(closingTurnSent=${conversation.closingTurnSent}) still saying so: ` +
+            `${JSON.stringify(conversation.consentWithheldSentence)}. D-90's gate is the developer's ` +
+            `own — a withheld consent is never advanced over. See ${evidencePath} for the captured turns.`,
+        );
+      }
+
       step(
         "advancing the stage (Cyril's own gate, D-90) — the developer decides the challenge is " +
           "done, only now that the driver's own conversation has returned",
       );
       const advanced = runOps(opsBin, harness.appDataDir, ["advance-stage", runId]);
       assert.equal(advanced.stage, "decompose");
+      // Plan 260929-nxq (Task 1f): hoisted out of the block below so the SECOND advance-stage
+      // gate, further down, can read this reply's own consent — the only agent turn produced
+      // between the two developer-held gates. Stays `undefined` when this stage never sent its
+      // own instruction turn at all, which `readAdvanceConsent` reads as "unreadable", never as
+      // consent.
+      let instructionReply;
       if (advanced.instructionText) {
         step("sending the distillation instruction and capturing its reply (not required for the run to continue)");
         const instructionCursor = sidecar.eventCursor();
@@ -7648,7 +8096,6 @@ await runScript(
         // non-conversation message, by contrast, is a SUCCESSFUL capture (the turn ended cleanly on
         // `result` — this is the exact place the real run actually died), so it must be checked and
         // must fail the run OUTSIDE this try/catch, never swallowed by the timeout branch.
-        let instructionReply;
         try {
           instructionReply = await sidecar.waitForTurn(runId, instructionCursor, {
             timeoutMs: LIVE_TURN_CEILING_MS,
@@ -7729,6 +8176,24 @@ await runScript(
 
       const pendingAfterDecompose = runOps(opsBin, harness.appDataDir, ["list-pending", runId]);
       step(`${pendingAfterDecompose.proposals.length} proposal(s) pending after the first decompose window`);
+
+      // Plan 260929-nxq (Task 1f) — second gate: the decompose stage's own reply to the
+      // distillation instruction (`instructionReply`, hoisted above) is the only agent turn
+      // produced between the two developer-held gates, so it is what this gate reads.
+      // "unreadable" (the timeout path, which the catch above deliberately treats as non-fatal, or
+      // simply no instruction turn having been sent at all) narrates its own abstention and
+      // proceeds — it must not silently read as consent.
+      const secondGateConsentReading = readAdvanceConsent(instructionReply?.text);
+      step(`advance-stage consent reading (decompose -> criteria): ${secondGateConsentReading}`);
+      if (secondGateConsentReading === "withheld") {
+        const secondGateWithheld = classifyWithheldConsent(instructionReply.text);
+        writeChallengeEvidence(evidenceState);
+        throw new Error(
+          "the agent withheld its consent to advance from decompose into criteria: " +
+            `${JSON.stringify(secondGateWithheld?.sentence ?? null)}. D-90's gate is the developer's ` +
+            `own — a withheld consent is never advanced over. See ${evidencePath} for the captured turns.`,
+        );
+      }
 
       // ---- Task 2 (gap G-05-9): the SECOND developer-held gate (D-90) — into the stage literally
       // named for what plan 05-45 gave it: criteria. Placed here, BEFORE the accept/reject/amend
