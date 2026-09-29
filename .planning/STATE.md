@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed quick task 260929-nxq
-last_updated: "2026-09-29T09:56:45.742Z"
+stopped_at: Completed quick task 260929-p61
+last_updated: "2026-09-29T10:35:52.442Z"
 last_activity: 2026-09-29
-last_activity_desc: "Completed quick task 260929-nxq: the live UAT driver answers the agent and never advances over a withheld consent"
-state_head: 56aad643816c4c6f96baa83b56acf2e5641a6580
+last_activity_desc: "Completed quick task 260929-p61: the live challenge stage asks the developer the agent's real questions instead of composing a fallback"
+state_head: 9fe317d60b559399fe5f3130ef43d1ab9eb8003b
 progress:
   total_phases: 12
   completed_phases: 0
@@ -451,6 +451,7 @@ Recent decisions affecting current work:
 - [Phase 05]: Both D-88 stage instructions now name the staging call's own tool result (proposalId) as the parent-id source instead of proposal_list, closing G-05-10's contract-to-instruction gap. — Plans 05-48/05-49 fixed the write contract and harness; this plan retired the now-stale read-back framing in the instruction text itself, which three prior rounds (10-12) had reworded against the unfixed contract.
 - [Phase 05]: [Quick 260929-lq1]: pickPendingProposal (fresh list-pending read + pick as one operation) replaces every stale-snapshot proposal-decision target in the live UAT harness, closing the round-12 crash and a latent amend-criterion twin; pinned by a source-scanning self-test gate and a real-core regression slice. No live run performed — SHAPE-03's live draft-usefulness judgement remains open.
 - [Phase 05]: [Quick 260929-nxq]: the live driver's question extractor split on /(?<=[?.!])\s+/ and so saw 1 of 5 questions in a bolded numbered turn, and read an agent turn containing no '?' as settled — which is how run 01M3P4VZCA1M0C37C8V7ZE72WG advanced twice over an explicit "I don't think this is settled enough to advance" and produced 8 assumption rows instead of tasks. The driver now answers and refuses to advance over a withheld consent it cannot clear with its own reply; SHAPE-02 asserts a measured board-row delta (epics+tasks+criteria) across three accept paths rather than a task-subtree accept, which is strictly harder and can never pass on zero.
+- [Phase 05]: [Quick 260929-p61]: the live arm's challenge turns no longer compose answers from ANSWER_BANK — run 01M3P9QF58AAFKXH2EAZ3ZEM65 answered 6 of 6 extracted questions with the identical generic fallback, which is a deflection when it is the entire reply. The agent's questions are genuine product questions ("attention router or activity log?", "where does the board app actually live?") that no answer bank can get right, so the live arm now writes a per-turn questions sheet next to the transcript and blocks on the developer's own answers file, with no fallback: a run without his answers cannot reach a verdict. The answer bank is retained, and proven unreachable from the live arm by an argv guard plus a source scan, for the offline/--replay-check arms that must stay fully automated. This is the project's documented last-resort case for manual input — not a capability the harness lacks, but product judgement that exists nowhere except the developer's head.
 
 ### Pending Todos
 
@@ -478,7 +479,7 @@ Recent decisions affecting current work:
 - ⚠️ **[Phase 03] Session-termination finding investigated — root-cause-identified (03-20/03-21).** 03-19's ~15-16s session-termination finding was root-caused by the dedicated follow-up spike it recommended: `03-SESSION-LIFECYCLE-FINDINGS.md` records **Disposition: root-cause-identified**, H1 CONFIRMED — the watchdog's own heartbeat-staleness kill (`DEFAULT_HEARTBEAT_STALE_MS=15000`) correctly reaped an unsupervised session (`--heartbeat=off`: terminated at `elapsed_ms=7397`, `closeOrigin: watchdog-heartbeat-stale`), while a production-shaped `--heartbeat=on` run sustained the block for the full 90s window with zero termination artifacts — the product was never at fault; the prior measurement harness was. Plan 03-21 took Branch B (harness-only doc fix; no change to `watchdog.ts`'s stale-kill condition) and added a repeatable acceptance command (`uat-06-permission-block-lifecycle.mjs --heartbeat=on --answer-after=60000 --decision=deny`, `honoured=true`) proving a supervised session survives a 60+ second unanswered destructive-gate block and honours the eventual answer. **AGNT-07 is NOT Complete**: a separate, broader bypass class was found afterwards (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`) and the requirement was walked back to Gaps Found in `db18b0e`. Still genuinely open per the findings document's own "What this does not claim": reproduction inside a packaged `.app` (only the dev-mode sidecar bundle was driven), on a machine other than the one measured, and against a `claude` version other than 2.1.267 remain untested; H1a (whether 03-19's specific `FLYWHEEL_HEARTBEAT_STALE_MS=120000` override reached the watchdog) was not directly retested with a non-default value.
 - AGNT-07 open: round-six destructive-gate bypass found live and non-destructively (env -S opaque-reparse defeated by backslash-split env, zero human confirmation for a nested altpath payload). See 03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md. Needs a round-seven plan before AGNT-07 can close.
 - [Phase 03] scripts/uat/run-all.sh failed 4/6 scriptable items (UAT 3, 5, 6a, 6b) when run once as plan 03-34's own end-of-phase regression gate. This plan's diff (test-corpus + docs only) cannot plausibly cause a live-claude-session failure; judged pre-existing flakiness matching the phase's repeated 03-24/03-26/03-29/03-30/03-32 pattern, per 03-34-SUMMARY.md. Next phase verification should judge whether this needs a dedicated live-session investigation before AGNT-07 closes. See WINDOWS.md entry 11.
-- Live gate (uat-08-socratic-authoring.mjs): run 01M3P4VZCA1M0C37C8V7ZE72WG was the FIRST run in twelve rounds to reach its own pass/fail table (SHAPE-01 PASS, SHAPE-03/04 PASS, SHAPE-02 FAIL). Two instrument closures have landed since: 260929-lq1 (stale-snapshot decision targets, plus a latent amend-criterion twin) and 260929-nxq (the driver saw 1 of 5 bolded questions and read a withheld consent as settled; SHAPE-02 now asserts a measured board-row delta across three accept paths). STILL OPEN: no live run since 260929-nxq, so the gate has not yet been observed exiting 0. Re-running spends a claude.ai credential and is a deliberate developer decision. The SHAPE-01 verdict line in 05-LIVE-CHALLENGE-TRANSCRIPT.md is also still UNJUDGED — a human read, not a script.
+- Live gate (uat-08-socratic-authoring.mjs): three instrument closures landed 2026-09-29 — 260929-lq1 (stale-snapshot decision targets plus a latent amend-criterion twin), 260929-nxq (the driver saw 1 of 5 bolded questions and read a withheld consent as settled; SHAPE-02 now asserts a measured board-row delta), and 260929-p61 (the live arm no longer composes answers at all — it hands the agent's questions to the developer and fails if they are not answered). Run 01M3P4VZCA1M0C37C8V7ZE72WG reached the pass/fail table for the first time in twelve rounds; run 01M3P9QF58AAFKXH2EAZ3ZEM65 extracted 6 questions instead of 1 and read consent correctly, then died at the DISTILLATION turn on a backend message (backend_refusal, source=assistant_envelope_error_flag, classifier=invalid_request, requestId=none) — NOT the harness and NOT the product. TWO OPEN ITEMS: (1) that backend_refusal is undiagnosed and the live gate may still die there; (2) the SHAPE-01 verdict line in 05-LIVE-CHALLENGE-TRANSCRIPT.md is still UNJUDGED — a human read, not a script.
 
 ### Quick Tasks Completed
 
@@ -488,6 +489,7 @@ Recent decisions affecting current work:
 | 260920-duy | fix CR-01 — shimWillIntercept must not defer when the command text can shadow PATH resolution (shell function/alias); add the regression test | 2026-09-20 | 23c5b99 | [260920-duy-fix-cr-01-shimwillintercept-must-not-def](./quick/260920-duy-fix-cr-01-shimwillintercept-must-not-def/) |
 | 260929-lq1 | Re-read before deciding: fix stale-snapshot proposal targets in the live UAT harness | 2026-09-29 | 4f88bc8 | [260929-lq1-re-read-before-deciding-fix-stale-snapsh](./quick/260929-lq1-re-read-before-deciding-fix-stale-snapsh/) |
 | 260929-nxq | The live UAT driver must answer the agent and not advance over a withheld consent; SHAPE-02 asserts a materialised board row | 2026-09-29 | 56aad64 | [260929-nxq-the-live-uat-driver-must-answer-the-agen](./quick/260929-nxq-the-live-uat-driver-must-answer-the-agen/) |
+| 260929-p61 | The live challenge stage asks Cyril the agent's real questions instead of composing a fallback | 2026-09-29 | 9fe317d | [260929-p61-the-live-challenge-stage-asks-cyril-the-](./quick/260929-p61-the-live-challenge-stage-asks-cyril-the-/) |
 
 ### Roadmap Evolution
 
@@ -504,5 +506,5 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-09-29T07:57:41.185Z
-Stopped at: Completed quick task 260929-nxq
+Stopped at: Completed quick task 260929-p61
 Resume file: None
