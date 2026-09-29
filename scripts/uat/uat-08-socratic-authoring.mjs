@@ -34,6 +34,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import readline from "node:readline";
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
 
@@ -549,6 +550,11 @@ function renderChallengeEvidenceSheet(evidence) {
     nonConversation = null,
     credentialPath = null,
     failure = null,
+    // Quick task 260929-p61: defaults to the answer-bank provenance value — the same value every
+    // pre-existing caller (the offline arms, every self-test fixture built before this field
+    // existed) implicitly used, so an unaugmented sheet keeps reading exactly as it did before
+    // this field existed.
+    answerSource = ANSWER_SOURCE_BANK,
   } = evidence;
 
   const drafted = draftedCriteriaCount ?? 0;
@@ -681,6 +687,7 @@ ${syntheticMarkerLine}
 
 **Run:** ${runId}
 **Captured:** ${timestamp}
+**Answer source:** ${answerSource}
 
 ## Conversation
 
@@ -2611,6 +2618,136 @@ async function selfTest() {
       assert.equal(fallbackResult.fallbackAnswerCount, 1);
     });
   }
+
+  // -----------------------------------------------------------------------------------------
+  // Quick task 260929-p61 — the developer answer source: the arm guard, and the driver seam.
+  // -----------------------------------------------------------------------------------------
+
+  for (const flag of OFFLINE_ARM_FLAGS) {
+    check(
+      `[Quick 260929-p61] createDeveloperAnswerSource refuses construction when argv carries "${flag}"`,
+      () => {
+        assert.throws(
+          () =>
+            createDeveloperAnswerSource({
+              argv: ["node", "uat-08-socratic-authoring.mjs", flag],
+              isTty: false,
+              handoffDir: os.tmpdir(),
+              runId: "stub-run-arm-guard",
+            }),
+          (err) => err instanceof LiveArmRequiredError && err.flag === flag && err.message.includes(flag),
+        );
+      },
+    );
+  }
+
+  check(
+    "[Quick 260929-p61] createDeveloperAnswerSource constructs successfully against a fabricated live-shaped argv",
+    () => {
+      const source = createDeveloperAnswerSource({
+        argv: ["node", "uat-08-socratic-authoring.mjs"],
+        isTty: false,
+        handoffDir: os.tmpdir(),
+        runId: "stub-run-live-shaped-argv",
+      });
+      assert.equal(source.name, ANSWER_SOURCE_DEVELOPER);
+      assert.equal(typeof source.answerQuestions, "function");
+    },
+  );
+
+  {
+    // (c) the real driver, given a stub answerQuestions and a scripted stub sidecar, awaits it,
+    // hands it the extracted questions, records its returned string verbatim as the developer
+    // exchange, and reports the developer provenance value.
+    let devCallIndex = 0;
+    const DEV_TURNS = [
+      { text: "Where does the board app actually live?", endIndex: 4 },
+      { text: "Great, thanks — that settles it.", endIndex: 8 },
+    ];
+    const devStub = {
+      async waitForTurn() {
+        const turn = DEV_TURNS[devCallIndex];
+        devCallIndex += 1;
+        return { ...turn, chunkCount: 1, charCount: turn.text.length, endedBy: "result" };
+      },
+      eventCursor() {
+        return DEV_TURNS[Math.min(devCallIndex, DEV_TURNS.length - 1)].endIndex;
+      },
+    };
+    let receivedQuestions = null;
+    const STUB_DEVELOPER_REPLY = `${REPLY_PREAMBLE}\n1. it lives inside the desktop app itself`;
+    const devResult = await driveChallengeConversation({
+      sidecar: devStub,
+      runId: "stub-run-developer-answers",
+      sendTurn: async () => {},
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 4,
+      answerQuestions: async (questions) => {
+        receivedQuestions = questions;
+        return STUB_DEVELOPER_REPLY;
+      },
+    });
+    check(
+      "[Quick 260929-p61] driveChallengeConversation awaits an injected answerQuestions, hands it the extracted questions, records its return value verbatim as the developer exchange, and reports the developer provenance value",
+      () => {
+        assert.ok(Array.isArray(receivedQuestions) && receivedQuestions.length > 0, "expected the injected source to receive the extracted questions");
+        assert.equal(receivedQuestions[0].text, "Where does the board app actually live?");
+        const developerExchange = devResult.exchanges.find((exchange) => exchange.speaker === "developer");
+        assert.equal(developerExchange.text, STUB_DEVELOPER_REPLY, "expected the injected source's own return value recorded verbatim");
+        assert.equal(devResult.answerSource, ANSWER_SOURCE_DEVELOPER);
+      },
+    );
+  }
+
+  {
+    // (d) the real driver with no answerQuestions reports the bank provenance value and composes
+    // bank lines exactly as before this task.
+    let bankCallIndex = 0;
+    const BANK_TURNS = [
+      { text: "Who can dismiss a notification once it fires?", endIndex: 4 },
+      { text: "Good, that's clear.", endIndex: 8 },
+    ];
+    const bankStub = {
+      async waitForTurn() {
+        const turn = BANK_TURNS[bankCallIndex];
+        bankCallIndex += 1;
+        return { ...turn, chunkCount: 1, charCount: turn.text.length, endedBy: "result" };
+      },
+      eventCursor() {
+        return BANK_TURNS[Math.min(bankCallIndex, BANK_TURNS.length - 1)].endIndex;
+      },
+    };
+    const bankResult = await driveChallengeConversation({
+      sidecar: bankStub,
+      runId: "stub-run-bank-provenance",
+      sendTurn: async () => {},
+      cursor: 0,
+      turnDeadlineMs: 200,
+      maxAgentTurns: 4,
+    });
+    check(
+      "[Quick 260929-p61] driveChallengeConversation with no answerQuestions reports the answer-bank provenance value and composes bank lines exactly as before",
+      () => {
+        assert.equal(bankResult.answerSource, ANSWER_SOURCE_BANK);
+        const developerExchange = bankResult.exchanges.find((exchange) => exchange.speaker === "developer");
+        assert.equal(
+          developerExchange.text,
+          composeDeveloperReply([{ text: "Who can dismiss a notification once it fires?", options: [] }]),
+        );
+      },
+    );
+  }
+
+  check(
+    "[Quick 260929-p61] the evidence sheet renders the answer source next to the other conversation facts, defaulting to the answer-bank provenance value for a caller that never set it",
+    () => {
+      const withoutField = renderChallengeEvidenceSheet(SYNTHETIC_EVIDENCE);
+      assert.ok(withoutField.includes(`**Answer source:** ${ANSWER_SOURCE_BANK}`));
+      const withDeveloper = renderChallengeEvidenceSheet({ ...SYNTHETIC_EVIDENCE, answerSource: ANSWER_SOURCE_DEVELOPER });
+      assert.ok(withDeveloper.includes(`**Answer source:** ${ANSWER_SOURCE_DEVELOPER}`));
+    },
+  );
 
   check(
     "a timeout capturing the distillation reply does not abort the run — recorded as a partial exchange via accumulateTurn instead",
@@ -5130,6 +5267,256 @@ function composeDeveloperReply(questions) {
   return `${REPLY_PREAMBLE}\n${lines.join("\n")}`;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Quick task 260929-p61 — the developer answer source: the live arm asks the developer the
+// agent's own extracted questions instead of composing a reply from ANSWER_BANK. Structurally
+// unreachable from the three offline arms below (`--self-test`, `--board-read-check`,
+// `--replay-check`), which keep composing from the bank exactly as before this task.
+// ---------------------------------------------------------------------------------------------
+
+/** The three offline arms' own flags, in the order they appear in this file — the single list
+ * {@link assertLiveArm} refuses construction against, and the structural source-scan self-test
+ * check (quick task 260929-p61) proves describes every offline arm in the file. Frozen so no
+ * caller can mutate the list a fourth arm would need to extend. */
+const OFFLINE_ARM_FLAGS = Object.freeze(["--self-test", "--board-read-check", "--replay-check"]);
+
+/** Thrown by {@link assertLiveArm} when the supplied argv carries one of {@link
+ * OFFLINE_ARM_FLAGS} — the developer answer source may only ever be constructed from the live
+ * arm's own argv. */
+export class LiveArmRequiredError extends Error {
+  constructor(flag) {
+    super(
+      `createDeveloperAnswerSource refused construction: argv carries the offline flag "${flag}" ` +
+        "— the developer prompt may only be reached from the live arm.",
+    );
+    this.name = "LiveArmRequiredError";
+    this.flag = flag;
+  }
+}
+
+/** Scans `argv` for any {@link OFFLINE_ARM_FLAGS} member and throws {@link LiveArmRequiredError}
+ * naming the one it found. Takes `argv` as a parameter, defaulting to `process.argv` — the
+ * parameter is what lets the self-test drive every offline flag against this guard without
+ * mutating global state. Called FIRST, before anything else, by {@link
+ * createDeveloperAnswerSource}. */
+function assertLiveArm(argv = process.argv) {
+  for (const flag of OFFLINE_ARM_FLAGS) {
+    if (argv.includes(flag)) throw new LiveArmRequiredError(flag);
+  }
+}
+
+/** The two provenance values `driveChallengeConversation` reports on its own `answerSource`
+ * return field — declared once so neither the driver nor the live gates below can drift from a
+ * retyped string. */
+const ANSWER_SOURCE_BANK = "answer-bank";
+const ANSWER_SOURCE_DEVELOPER = "developer";
+
+/** The per-turn handoff deadline the no-TTY transport waits on — 30 minutes, because the
+ * developer runs this gate backgrounded and needs real time to answer by hand, not a
+ * machine-scale timeout. */
+const HANDOFF_DEADLINE_MS = 30 * 60 * 1000;
+
+/** How often the no-TTY transport polls for the matching answers file. */
+const HANDOFF_POLL_MS = 5_000;
+
+/** The fixed per-question marker a handoff sheet renders and {@link parseHandoffAnswers} parses
+ * back — `ANSWER <n>: `. */
+const HANDOFF_ANSWER_MARKER = "ANSWER";
+
+/** Filename builders for the per-turn handoff files — embedding the turn number is the mechanism
+ * that stops turn N from ever consuming turn N-1's stale answers file (T-p61-02). */
+function handoffQuestionsFileName(turnNumber) {
+  return `challenge-turn-${turnNumber}-questions.md`;
+}
+function handoffAnswersFileName(turnNumber) {
+  return `challenge-turn-${turnNumber}-answers.md`;
+}
+
+/** Thrown by {@link parseHandoffAnswers} when a completed handoff sheet is malformed — its
+ * message names the specific defect (a missing marker, a duplicate marker, an empty answer, or an
+ * out-of-range ordinal) so a developer editing the file by hand knows exactly what to fix. A
+ * malformed file keeps the no-TTY transport polling; only the deadline turns this into a thrown
+ * run failure (Task 1's own design decision 4). */
+export class HandoffParseError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "HandoffParseError";
+  }
+}
+
+/**
+ * Pure: renders the per-turn handoff sheet a developer fills in by hand when the live arm runs
+ * with no TTY. Every extracted question renders verbatim and numbered exactly as it will be
+ * answered, followed by one `ANSWER n: ` marker line per question. No filesystem or process
+ * access.
+ */
+function renderHandoffQuestionsSheet({ runId, turnNumber, questions }) {
+  const questionLines = questions.map((question, index) => `${index + 1}. ${question.text}`).join("\n");
+  const markerLines = questions
+    .map((_question, index) => `${HANDOFF_ANSWER_MARKER} ${index + 1}: `)
+    .join("\n");
+  return (
+    `# Challenge turn ${turnNumber} — developer answers needed\n\n` +
+    `**Run:** ${runId}\n\n` +
+    "The agent asked the questions below, verbatim and numbered. Fill in one `ANSWER n:` line per " +
+    "question below, save this file, and write your answers to this turn's own answers file (named " +
+    "in the harness scrollback) — the run polls for it.\n\n" +
+    `## Questions\n\n${questionLines}\n\n` +
+    `## Your answers\n\n${markerLines}\n`
+  );
+}
+
+/**
+ * Pure: parses a completed handoff sheet's `text`, returning the ordered answer strings for
+ * `questionCount` questions. Throws {@link HandoffParseError} naming the specific defect: a
+ * missing marker for some ordinal, a duplicate marker for some ordinal, an empty answer after a
+ * marker, or a marker whose ordinal exceeds `questionCount`.
+ */
+function parseHandoffAnswers(text, questionCount) {
+  const markerPattern = new RegExp(`^${HANDOFF_ANSWER_MARKER}\\s+(\\d+):\\s?(.*)$`);
+  const found = new Map();
+  for (const rawLine of text.split("\n")) {
+    const match = markerPattern.exec(rawLine.trim());
+    if (!match) continue;
+    const ordinal = Number(match[1]);
+    const value = match[2].trim();
+    if (ordinal < 1 || ordinal > questionCount) {
+      throw new HandoffParseError(
+        `handoff answers carry marker "${HANDOFF_ANSWER_MARKER} ${ordinal}:" but only ` +
+          `${questionCount} question(s) were asked`,
+      );
+    }
+    if (found.has(ordinal)) {
+      throw new HandoffParseError(`handoff answers carry a duplicate marker for question ${ordinal}`);
+    }
+    found.set(ordinal, value);
+  }
+  const answers = [];
+  for (let ordinal = 1; ordinal <= questionCount; ordinal += 1) {
+    if (!found.has(ordinal)) {
+      throw new HandoffParseError(`handoff answers are missing the marker for question ${ordinal}`);
+    }
+    const value = found.get(ordinal);
+    if (value.length === 0) {
+      throw new HandoffParseError(`handoff answers carry an empty answer for question ${ordinal}`);
+    }
+    answers.push(value);
+  }
+  return answers;
+}
+
+/**
+ * Constructs the developer answer source — the ONE construction site for this whole file is the
+ * live body, below. Refuses construction via {@link assertLiveArm} before anything else, so a
+ * caller that somehow reached this factory from an offline arm's own argv still gets refused.
+ * Every dependency is injectable so the self-test can drive this function directly, with no real
+ * TTY, no real filesystem timing and no real process argv.
+ *
+ * Returns `{ name, answerQuestions }`: `name` is {@link ANSWER_SOURCE_DEVELOPER}, and
+ * `answerQuestions(questions)` returns a `Promise<string>` shaped exactly like {@link
+ * composeDeveloperReply}'s own return value (the fixed `REPLY_PREAMBLE`, then one numbered line
+ * per question carrying the developer's own answer, verbatim) — that shape is load-bearing, since
+ * the exchange record, the evidence sheet and the fallback counter all read it.
+ *
+ * With a TTY (`isTty` truthy): prints every question first, verbatim and numbered, then prompts
+ * once per question in order, in the style of `uat-09-product-kill-criterion.mjs`'s own
+ * `askLine`. An answer that trims to empty throws, naming the ordinal.
+ *
+ * With no TTY (the developer's backgrounded shell — the PRIMARY path, not the edge case): writes
+ * this turn's own questions sheet under `handoffDir`, logs its path and the answers path the
+ * developer must create, then polls for the matching answers file every `pollMs` until
+ * `deadlineMs` elapses. A read that parses yields the answers. A read that throws a {@link
+ * HandoffParseError} is logged only when its message differs from the last logged one, and
+ * polling continues — the developer is editing this file by hand while the run waits, and a
+ * half-saved file must not kill the run. Reaching the deadline throws a named error carrying the
+ * last parse defect when one was seen, or stating that no answers file ever appeared when none
+ * was.
+ */
+function createDeveloperAnswerSource({
+  argv = process.argv,
+  isTty = process.stdin.isTTY,
+  handoffDir,
+  runId,
+  deadlineMs = HANDOFF_DEADLINE_MS,
+  pollMs = HANDOFF_POLL_MS,
+  log = () => {},
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}) {
+  assertLiveArm(argv);
+  let turnNumber = 0;
+
+  async function askOnTty(questions) {
+    questions.forEach((question, index) => {
+      console.log(`${index + 1}. ${question.text}`);
+    });
+    const answers = [];
+    for (let index = 0; index < questions.length; index += 1) {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      // eslint-disable-next-line no-await-in-loop -- one prompt per question, in order, by design.
+      const raw = await new Promise((resolve) => {
+        rl.question(`Answer ${index + 1}: `, (answer) => {
+          rl.close();
+          resolve(answer);
+        });
+      });
+      const trimmed = raw.trim();
+      if (trimmed.length === 0) {
+        throw new Error(`developer answer source: empty answer given for question ${index + 1}`);
+      }
+      answers.push(trimmed);
+    }
+    return answers;
+  }
+
+  async function askOverHandoff(questions, thisTurn) {
+    const questionsPath = path.join(handoffDir, handoffQuestionsFileName(thisTurn));
+    const answersPath = path.join(handoffDir, handoffAnswersFileName(thisTurn));
+    fs.writeFileSync(questionsPath, renderHandoffQuestionsSheet({ runId, turnNumber: thisTurn, questions }));
+    log(
+      `developer answers needed for challenge turn ${thisTurn} — questions written to ` +
+        `${questionsPath}; write your answers to ${answersPath} (one ANSWER n: line per question) ` +
+        `before the deadline`,
+    );
+
+    const deadline = Date.now() + deadlineMs;
+    let lastParseMessage = null;
+    for (;;) {
+      if (fs.existsSync(answersPath)) {
+        try {
+          const text = fs.readFileSync(answersPath, "utf8");
+          return parseHandoffAnswers(text, questions.length);
+        } catch (err) {
+          if (!(err instanceof HandoffParseError)) throw err;
+          if (err.message !== lastParseMessage) {
+            log(`developer answers file at ${answersPath} did not parse yet: ${err.message}`);
+            lastParseMessage = err.message;
+          }
+        }
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          lastParseMessage
+            ? `developer answer source: deadline reached waiting for ${answersPath} — last parse ` +
+                `defect: ${lastParseMessage}`
+            : `developer answer source: deadline reached — no answers file ever appeared at ${answersPath}`,
+        );
+      }
+      // eslint-disable-next-line no-await-in-loop -- polling is the whole point of this loop.
+      await sleep(pollMs);
+    }
+  }
+
+  async function answerQuestions(questions) {
+    turnNumber += 1;
+    const thisTurn = turnNumber;
+    const answers = isTty ? await askOnTty(questions) : await askOverHandoff(questions, thisTurn);
+    const lines = answers.map((answer, index) => `${index + 1}. ${answer}`);
+    return `${REPLY_PREAMBLE}\n${lines.join("\n")}`;
+  }
+
+  return { name: ANSWER_SOURCE_DEVELOPER, answerQuestions };
+}
+
 /**
  * Drive the challenge-stage conversation: capture a whole agent turn, answer what it actually
  * asked, and loop — bounded by `maxAgentTurns`, with an explicit, reported closing turn as the
@@ -5205,6 +5592,10 @@ async function driveChallengeConversation({
   // replay-check scenario can pass an explicit mid-flight window comfortably above its own gaps.
   toolCallIdleMs,
   maxAgentTurns = MAX_AGENT_TURNS,
+  // Quick task 260929-p61: optional. Absent (every pre-existing caller) means the answer bank,
+  // as before; supplied means the developer's own words. Reported under `answerSource` on all
+  // three of this function's return objects below, so neither caller drifts on which one fired.
+  answerQuestions,
 }) {
   const waitOpts = (label) => ({
     timeoutMs: turnDeadlineMs,
@@ -5212,6 +5603,7 @@ async function driveChallengeConversation({
     ...(toolCallIdleMs !== undefined ? { toolCallIdleMs } : {}),
     label,
   });
+  const answerSourceValue = typeof answerQuestions === "function" ? ANSWER_SOURCE_DEVELOPER : ANSWER_SOURCE_BANK;
 
   const exchanges = [];
   let agentTurns = 0;
@@ -5257,6 +5649,7 @@ async function driveChallengeConversation({
           cursor: finalCursor,
           nonConversation: turn.nonConversation,
           fallbackAnswerCount,
+          answerSource: answerSourceValue,
           ...deriveConsent(),
         };
       }
@@ -5291,13 +5684,18 @@ async function driveChallengeConversation({
             cursor: finalCursor,
             nonConversation: closingReply.nonConversation,
             fallbackAnswerCount,
+            answerSource: answerSourceValue,
             ...deriveConsent(),
           };
         }
         break;
       }
 
-      const reply = composeDeveloperReply(questions);
+      // Quick task 260929-p61: an injected answerQuestions is awaited in place of the bank's
+      // synchronous composeDeveloperReply — an await over the synchronous default changes nothing
+      // for it. Everything else in this loop (cursor discipline, closing-turn branch, withheld-
+      // consent derivation, fallback counting) is untouched.
+      const reply = answerQuestions ? await answerQuestions(questions) : composeDeveloperReply(questions);
       answeredQuestionCount += questions.length;
       fallbackAnswerCount += reply
         .split("\n")
@@ -5336,6 +5734,7 @@ async function driveChallengeConversation({
     cursor: finalCursor,
     nonConversation: null,
     fallbackAnswerCount,
+    answerSource: answerSourceValue,
     ...deriveConsent(),
   };
 }
@@ -5466,6 +5865,11 @@ export function writeChallengeEvidence(state) {
       nonConversation: state.nonConversation ?? null,
       credentialPath: state.credentialPath ?? null,
       failure: state.failure ?? null,
+      // Quick task 260929-p61: read straight off the returned conversation, the same place every
+      // other conversation-derived field on this call (noWorkPlannedReading and friends) is
+      // assigned from — `state.conversation` already carries it, since the live body assigns the
+      // driver's whole return object there verbatim.
+      answerSource: state.conversation?.answerSource ?? ANSWER_SOURCE_BANK,
     });
     fs.writeFileSync(state.evidencePath, sheet);
     step(`wrote challenge evidence sheet: ${state.evidencePath}`);
@@ -8033,6 +8437,17 @@ await runScript(
       failure: null,
     };
 
+    // Quick task 260929-p61: the ONE construction of the developer answer source for this whole
+    // live body — handed to driveChallengeConversation below so its replies are the developer's
+    // own words, never the answer bank's. `handoffDir` is the evidence directory itself, so the
+    // no-TTY transport's per-turn questions/answers sheets sit beside the transcript the
+    // developer is already watching in the scrollback.
+    const developerAnswerSource = createDeveloperAnswerSource({
+      handoffDir: path.dirname(evidencePath),
+      runId,
+      log: step,
+    });
+
     try {
       step(
         "driving the challenge conversation — capturing the agent's first turn (the WHOLE turn, " +
@@ -8054,6 +8469,8 @@ await runScript(
         // passes when deliberately measuring the degrade path.
         idleMs: LIVE_TURN_IDLE_MS,
         maxAgentTurns: MAX_AGENT_TURNS,
+        // Quick task 260929-p61: the live arm asks the developer, never composes from the bank.
+        answerQuestions: developerAnswerSource.answerQuestions,
       });
       evidenceState.conversation = conversation;
       const firstAgentExchange = conversation.exchanges.find((exchange) => exchange.speaker === "agent");
