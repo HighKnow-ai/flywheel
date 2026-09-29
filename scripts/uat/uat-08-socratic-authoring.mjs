@@ -188,6 +188,46 @@ function runOps(binPath, appDataDir, args, input) {
 }
 
 /**
+ * Plan 260929-lq1: the one sanctioned way a LIVE decision target (an `accept-proposal`,
+ * `accept-subtree`, `reject-proposal` or `amend-criterion` argument) is chosen. It exists because
+ * round 12's live run (`01M3NXWP72VACQJQNVGDK7AXJ8`) crashed inside the core's own pending guard:
+ * a proposal id read from a `list-pending` snapshot taken BEFORE a mutating `accept-subtree` call
+ * is a fact about a board state that no longer exists by the time it is used — the exact defect
+ * plan 05-46 had already fixed once, at a different call site, one round earlier. Fixing the call
+ * site and never stating the property let the defect move one call site over instead of
+ * disappearing.
+ *
+ * The `status = 'pending'` filter this function's own `list-pending` read resolves through lives
+ * in the core's own SQL (`pending_proposals_for_run`, `authoring_proposal.rs:1049-1052`), not in
+ * this harness — "freshly read" and "still genuinely pending" are therefore one fact the database
+ * establishes, not two this function has to reconcile itself. Its only job is to stop a caller
+ * from separating the read from the decision by holding an array across a mutation: it takes no
+ * caller-supplied array and hands none back, so a stale pick is not a shape this function can
+ * produce.
+ *
+ * DECISION TARGETS ONLY — never for a measurement. `draftedCriteriaCount` deliberately keeps
+ * reading the pre-cascade `list-pending` snapshot taken before any decision: it measures how many
+ * criteria the model drafted, a fact about the run that the cascade must not be allowed to erase.
+ * Routing it through this helper would silently collapse that count after every accept.
+ *
+ * Returns `{ proposal, pendingOfType, pendingTotal }` — `proposal` is the first still-pending
+ * match or `null`. Never throws on an empty result, so each caller decides whether an absence is
+ * fatal (nothing left to accept) or merely reportable (a reject/amend the cascade already
+ * resolved, per SHAPE-04's own honest-reporting branch).
+ */
+function pickPendingProposal(opsBin, appDataDir, runId, { targetType, excludeIds = [] }) {
+  const pending = runOps(opsBin, appDataDir, ["list-pending", runId]);
+  const pendingOfType = pending.proposals.filter(
+    (p) => p.targetType === targetType && !excludeIds.includes(p.id),
+  );
+  return {
+    proposal: pendingOfType.length > 0 ? pendingOfType[0] : null,
+    pendingOfType: pendingOfType.length,
+    pendingTotal: pending.proposals.length,
+  };
+}
+
+/**
  * D-87 (plan 05-18, G-05-1): build a `drainInboundCoreRequests` handler for `board_read_request`
  * events — the harness's own side of the round trip the real desktop app plays at
  * `commands::authoring::handle_inbound_board_read_request`. Pipes the RAW event, verbatim, into
@@ -7616,15 +7656,17 @@ await runScript(
           "decompose-window snapshot)",
       );
 
-      const taskProposal = pending.proposals.find((p) => p.targetType === "task");
-      const criterionProposals = pending.proposals.filter((p) => p.targetType === "criterion");
-      if (taskProposal) taskProposalId = taskProposal.id;
-      if (criterionProposals.length > 0) criterionProposalId = criterionProposals[0].id;
+      // Plan 260929-lq1: renamed from `criterionProposals` — this array's only remaining purpose
+      // is a COUNT of what the model drafted, never a pool of decision targets. Every decision
+      // target below is picked fresh via pickPendingProposal, after whatever mutation preceded it.
+      const draftedCriterionProposals = pending.proposals.filter((p) => p.targetType === "criterion");
 
       // The SHAPE-03 draft-usefulness judgement reads these two counts from the evidence sheet
       // rather than a scrollback line — how many criteria the model drafted, and how many the
-      // developer had to amend before they were usable.
-      const draftedCriteriaCount = criterionProposals.length;
+      // developer had to amend before they were usable. Plan 260929-lq1: `draftedCriteriaCount`
+      // is deliberately exempt from pickPendingProposal — it measures the model's own drafted
+      // output from the pre-cascade snapshot above, which the cascade below must never erase.
+      const draftedCriteriaCount = draftedCriterionProposals.length;
       let amendedCriteriaCount = 0;
 
       // Plan 05-46 (gap G-05-9): the reachability reading the gap asked for by name, computed over
@@ -7642,23 +7684,54 @@ await runScript(
 
       let criterion2Landed = false;
       let criterion3Decided = false;
-      if (taskProposalId) {
+      let rejectExercised = false;
+      let amendExercised = false;
+      let rejectedCriterionId = null;
+
+      // Plan 260929-lq1: taskProposalId is now picked fresh, immediately before the one mutation
+      // that consumes it — accept-subtree's own cascade (D-96's implied-parent walk plus
+      // accept_subtree's own child walk) is exactly the mutation every later pick in this block
+      // must read AFTER, per the rule this closure installs.
+      const taskTarget = pickPendingProposal(opsBin, harness.appDataDir, runId, { targetType: "task" });
+      if (taskTarget.proposal) {
+        taskProposalId = taskTarget.proposal.id;
         step(`accepting the task subtree ${taskProposalId} (D-95's ONE bulk path)`);
         const subtreeOutcome = runOps(opsBin, harness.appDataDir, ["accept-subtree", taskProposalId]);
         criterion2Landed = subtreeOutcome.acceptedCount > 0;
 
         const counts = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
         step(`board counts after accept: tasks=${counts.tasks} criteria=${counts.criteria}`);
-
-        if (criterionProposals.length > 1) {
-          rejectedTaskId = criterionProposals[1].id;
-          step(`rejecting a second criterion proposal ${rejectedTaskId} with a reason`);
-          runOps(opsBin, harness.appDataDir, ["reject-proposal", rejectedTaskId, "Too vague to verify"]);
-          criterion3Decided = true;
-        }
       }
 
-      if (criterionProposalId) {
+      // Plan 260929-lq1 (round-12 crash fix): a GENUINELY fresh read, taken AFTER accept-subtree's
+      // own cascade above — never the pre-cascade `draftedCriterionProposals` snapshot, which is
+      // exactly the stale array that crashed the round-12 run inside the core's own pending guard.
+      const rejectTarget = pickPendingProposal(opsBin, harness.appDataDir, runId, { targetType: "criterion" });
+      if (rejectTarget.proposal) {
+        rejectedCriterionId = rejectTarget.proposal.id;
+        rejectedTaskId = rejectedCriterionId;
+        step(
+          `rejecting a criterion proposal ${rejectedCriterionId} with a reason ` +
+            `(${rejectTarget.pendingOfType} criterion proposal(s) still pending after the cascade)`,
+        );
+        runOps(opsBin, harness.appDataDir, ["reject-proposal", rejectedCriterionId, "Too vague to verify"]);
+        rejectExercised = true;
+      } else {
+        step(
+          "SHAPE-04's individual reject could not be exercised this run — the subtree cascade " +
+            "decided every criterion proposal, leaving none still pending to reject",
+        );
+      }
+
+      // Plan 260929-lq1: excludes rejectedCriterionId so reject and amend can never collide on the
+      // same row — deciding an already-decided proposal a second time is the exact defect this
+      // rule closes (amend_proposal refuses a decided row for the same reason reject_proposal does).
+      const amendTarget = pickPendingProposal(opsBin, harness.appDataDir, runId, {
+        targetType: "criterion",
+        excludeIds: rejectedCriterionId ? [rejectedCriterionId] : [],
+      });
+      if (amendTarget.proposal) {
+        criterionProposalId = amendTarget.proposal.id;
         step(`amending criterion proposal ${criterionProposalId} to the developer's own text`);
         runOps(opsBin, harness.appDataDir, [
           "amend-criterion",
@@ -7666,8 +7739,18 @@ await runScript(
           "A UAT-amended criterion, the developer's own wording",
         ]);
         amendedCriteriaCount += 1;
-        criterion3Decided = true;
+        amendExercised = true;
+      } else {
+        step(
+          "SHAPE-04's individual amend could not be exercised this run — no criterion proposal " +
+            "remained pending after the reject above",
+        );
       }
+
+      // Plan 260929-lq1: a correction, not a refactor — criterion3Decided previously went true if
+      // EITHER branch ran, while buildCriteriaResults' own detail string for it claims "at least
+      // one reject and one amend were exercised". True now only when both genuinely did.
+      criterion3Decided = rejectExercised && amendExercised;
 
       step("closing this run with a summary (D-64's own guarantee)");
       runOps(opsBin, harness.appDataDir, ["close-run", runId, "UAT 8 shaped one task."]);
