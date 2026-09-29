@@ -3,7 +3,7 @@ status: testing
 phase: 05-socratic-epic-authoring
 source: [05-VERIFICATION.md, 05-40-SUMMARY.md, 05-41-SUMMARY.md, 05-42-SUMMARY.md, 05-43-SUMMARY.md]
 started: 2026-09-25T15:55:00Z
-updated: 2026-09-26T19:05:00Z
+updated: 2026-09-29T04:20:00Z
 ---
 
 ## Current Test
@@ -347,4 +347,67 @@ blocked: 0
     - "Decide and record whether criteria may be drafted against an unaccepted parent at all — if D-07's 'no canonical parent until accepted' rule is to stand, then SHAPE-03's wording needs revisiting, because the two cannot both be true"
     - "A regression that fails when a fresh-epic session cannot reach propose_criterion — today the only signal is Drafted criteria: 0, which reads as the model's choice rather than a structural block"
     - "Separately and independently: close the latent single-shot drain in uat-08-socratic-authoring.mjs, or correct the comment that promises a window it does not implement"
+  debug_session: ""
+
+- gap_id: G-05-10
+  truth: "An agent that has just staged a proposal knows its id, so `propose_criterion`'s required `parent_proposal_id` can be satisfied inside the same turn."
+  status: failed
+  reason: "Live run 01M3NNPEWEDMM0XXG5EVKGDQBD (2026-09-29, `node scripts/uat/uat-08-socratic-authoring.mjs`, exit 1) — the first live run after round 11's G-05-9 closure. The run reached all three D-88 stages, the criteria instruction was delivered verbatim, and the agent tried to comply. It could not, and said so in its own words in `05-LIVE-CHALLENGE-TRANSCRIPT.md` turn 6: \"`propose_criterion` requires `parent_proposal_id`. Everything I staged this session — 7 assumptions, 1 epic, 6 tasks — returned only `{\\\"staged\\\": true}` with no id, and `proposal_list` returns `{\\\"proposals\\\": [], \\\"truncated\\\": false}` after every one of them, at limits 100 and 500. `board_search` doesn't see them either. So the read-back path your instructions point at doesn't resolve in this session, and there's no other id source in these tools. I'm not going to invent an id.\" It then drafted ~20 criteria as prose in the chat instead. Outcome: `draftedCriteriaCount` 0, `criteriaReachabilityReading` `declined`, SHAPE-03/SHAPE-04 FAIL (`not enough proposals to exercise all three verbs`). SHAPE-01 and SHAPE-02 passed. The agent's reasoning was correct and its refusal to fabricate an id was the right call — this is a contract defect, not a model failure."
+  severity: blocker
+  test: 2
+  root_cause: |
+    Round 11 closed G-05-9 with a READ-BACK path (`proposal_list`) rather than with the fix
+    G-05-9's own `missing[0]` named — "Return the staged proposal's id in the propose_* tool
+    result". The read-back path cannot resolve inside the turn that stages the proposal, because
+    staging and id-assignment are not the same transaction and are not even the same process hop.
+    Three measurements:
+
+    1. `stageAuthoringProposal` (`packages/sidecar/src/mcp-permission-server.ts:979`, shipped at
+       `packages/sidecar/dist/mcp-permission-server.js:794`) writes the payload over the per-run
+       socket and resolves the tool call the moment the supervisor answers `{received: true}`.
+       `received` is an acknowledgement of RECEIPT, not of persistence — no row exists yet, so
+       there is no id to return, and the literal `{"staged": true}` is all six propose/amend/delete
+       verbs can say.
+    2. The row is created later, out of band, when the host applies the relayed `proposal_created`
+       event (`apply_proposal_created`, `packages/core/src/domain/authoring_proposal.rs:347`,
+       driven from `packages/desktop/src-tauri/src/sidecar.rs:1680` in the app and from the
+       `apply-proposal-created` ops call in the harness). Until that happens the `proposals` table
+       has nothing for this run.
+    3. `proposal_list` reads that same table — the `list_proposals` arm of `resolve_board_read`
+       (`packages/core/src/query/authoring.rs`). It is therefore guaranteed to return an empty page
+       for every proposal whose `proposal_created` event the host has not yet applied. In the UAT
+       harness the application is deferred to `drainProposalsUntilQuiet`, which by construction
+       runs only AFTER the agent's turn returns, so `proposal_list` is empty for the entire turn in
+       which the agent needs it. In the desktop app the reader loop applies events promptly, but
+       the tool still resolves before the round trip, so the same read is a race rather than a
+       guarantee.
+
+    Net: `propose_criterion` remains UNREACHABLE in a fresh-epic session. Round 11 changed which
+    mechanism is missing, not whether one is. The offline `--board-read-check` slice passes because
+    it applies the proposal synchronously before reading it back — it proves the dispatch works,
+    never that the id is reachable from inside a live turn, which is the property SHAPE-03 needs.
+  recurrence_class: |
+    This is the twelfth consecutive gap-closure round on Phase 5 and the third in a row whose fix
+    landed on instruction text or on a read path rather than on the write contract. Rounds 10, 11
+    and 12 each reworded a `StageInstruction` (`CRITERIA_INSTRUCTION_TEXT` /
+    `DISTILLATION_INSTRUCTION_TEXT`, `packages/core/src/domain/authoring_session.rs:316-353`) and
+    each produced a new instance of the same class: the agent is told to do something the tool
+    contract cannot support. The doc comment at `authoring_session.rs:328` records the previous
+    live run that failed this way and attributes it to the agent "reasoning itself into waiting" —
+    a prompting diagnosis for a contract defect. No further rewording of either instruction may be
+    filed as this gap's fix.
+  artifacts:
+    - path: "packages/sidecar/src/mcp-permission-server.ts"
+      issue: ":979 stageAuthoringProposal resolves every propose_*/amend_*/delete_* call with the literal {\"staged\": true} on a {received: true} receipt acknowledgement — the id does not exist yet, so it cannot be returned"
+    - path: "packages/core/src/domain/authoring_proposal.rs"
+      issue: ":347 apply_proposal_created assigns the id out of band, after the tool call has already resolved — staging and id-assignment are not one transaction"
+    - path: "packages/core/src/query/authoring.rs"
+      issue: "the list_proposals arm of resolve_board_read reads the proposals table, so proposal_list returns an empty page for anything the host has not yet applied — empty for the whole staging turn"
+    - path: "scripts/uat/uat-08-socratic-authoring.mjs"
+      issue: "drainProposalsUntilQuiet applies proposal_created events only after the agent's turn returns, which makes the in-turn emptiness of proposal_list structural rather than a race in this harness"
+  missing:
+    - "Make staging a proposal a synchronous core write that assigns the id and returns it in the propose_* tool result, so parent_proposal_id is satisfiable within the staging turn (this is G-05-9's missing[0], carried forward unclosed)"
+    - "Keep the relayed proposal_created event path working for any host that still consumes it, without letting the tool result depend on that round trip"
+    - "A regression that fails when a propose_* tool result carries no id, so a return to {\"staged\": true} cannot pass silently again"
+    - "A live-path assertion that fails when proposal_list returns empty inside the same turn as a successful propose_* call"
   debug_session: ""
