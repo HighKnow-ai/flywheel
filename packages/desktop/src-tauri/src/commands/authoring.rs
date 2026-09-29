@@ -950,27 +950,54 @@ pub fn authoring_turn_send(
 ///
 /// Plan 05-48 (D-80/D-81/D-92, gap G-05-10): holding the staging socket (`stageAuthoringProposal`)
 /// means this event's own `requestId`, when present, names a tool call still WAITING for an
-/// answer. Every `ProposalOutcome` this function reaches relays exactly one answer back over
+/// answer. Every reachable outcome relays exactly one answer back over
 /// [`crate::sidecar::SidecarHandle::relay_authoring_proposal_answer`] — the core-minted id on
-/// `Created`, an outcome-shaped `Err` string on `Ignored`/`UnknownRun`/`TerminalRun`. An event
-/// carrying NO `requestId` (the pre-05-48 fire-and-forget shape) performs the write and the
-/// `board:changed` emit exactly as before and relays nothing — full backward compatibility.
+/// `Created`, an outcome-shaped `Err` string on `Ignored`/`UnknownRun`/`TerminalRun`, a poisoned
+/// lock, or an `apply_proposal_created` error. An event carrying NO `requestId` (the pre-05-48
+/// fire-and-forget shape) performs the write and the `board:changed` emit exactly as before and
+/// relays nothing — full backward compatibility. Exactly two paths cannot relay at all (see the
+/// two comments below naming them) — reaching the sidecar requires state this function has
+/// already failed to obtain by that point.
 ///
 /// This function must never panic — no `expect`, no `unwrap`, no direct indexing: a malformed
-/// event, a poisoned lock, or an error from the applier is a silent no-op here, matching
-/// `sidecar.rs`'s own "a malformed line never crashes the reader task" discipline.
+/// event, a poisoned lock, or an error from the applier becomes a relayed string (or, for the two
+/// unreachable-to-answer paths, a silent no-op), matching `sidecar.rs`'s own "a malformed line
+/// never crashes the reader task" discipline.
 pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Value) {
     let request_id = event.get("requestId").and_then(|v| v.as_str());
     let run_id = event.get("runId").and_then(|v| v.as_str()).unwrap_or_default();
 
+    // This path cannot relay an answer: reaching the sidecar requires the AppState this call just
+    // failed to get. The ONE permitted bare return with no relay in this function.
     let Some(state) = app.try_state::<AppState>() else { return };
-    let Ok(mut conn) = state.db.lock() else { return };
+    // Same reasoning as above — no SidecarHandle means no channel to relay an answer over. The
+    // OTHER permitted bare return with no relay in this function.
+    let Some(sidecar) = state.sidecar.as_ref() else { return };
 
-    let outcome =
-        match flywheel_core::domain::authoring_proposal::apply_proposal_created(&mut conn, event) {
-            Ok(outcome) => outcome,
-            Err(_) => return,
-        };
+    let mut conn = match state.db.lock() {
+        Ok(conn) => conn,
+        Err(_) => {
+            if let Some(request_id) = request_id {
+                let _ = sidecar.relay_authoring_proposal_answer(
+                    run_id,
+                    request_id,
+                    Err("db mutex poisoned".to_string()),
+                );
+            }
+            return;
+        }
+    };
+
+    let outcome = match flywheel_core::domain::authoring_proposal::apply_proposal_created(&mut conn, event) {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            drop(conn);
+            if let Some(request_id) = request_id {
+                let _ = sidecar.relay_authoring_proposal_answer(run_id, request_id, Err(e.to_string()));
+            }
+            return;
+        }
+    };
 
     drop(conn);
 
@@ -982,7 +1009,6 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
     }
 
     let Some(request_id) = request_id else { return };
-    let Some(sidecar) = state.sidecar.as_ref() else { return };
 
     let result: Result<serde_json::Value, String> = match outcome {
         flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(proposal) => {
