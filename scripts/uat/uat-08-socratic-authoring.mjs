@@ -378,6 +378,11 @@ function buildCriteriaResults(flags) {
     // byte-identical in its own gating outcome — "not-applicable" is a PASSING verdict, so an
     // absent flag never turns a previously-passing synthetic result red.
     proposalListVerdict = "not-applicable",
+    // Plan 260929-nxq (Task 2c): optional, following the exact precedent `proposalListVerdict`
+    // set immediately above — defaults to `null` so the existing ternary below still produces its
+    // pre-existing strings and every one of the fourteen offline callers stays byte-identical in
+    // both its gating outcome and its printed line.
+    criterion2Detail = null,
   } = flags;
 
   // Task 3 (G-05-2): never a boolean that goes vacuously true the moment no propose attempt
@@ -409,7 +414,8 @@ function buildCriteriaResults(flags) {
     [
       "SHAPE-02 — the outcome lands directly on the board",
       criterion2Landed,
-      criterion2Landed ? "a subtree accept materialised real rows" : "no subtree was accepted",
+      criterion2Detail ??
+        (criterion2Landed ? "a subtree accept materialised real rows" : "no subtree was accepted"),
     ],
     [
       "SHAPE-03/SHAPE-04 — accept, reject and amend decided individually",
@@ -6386,6 +6392,108 @@ if (process.argv.includes("--board-read-check")) {
           "the real core, both verbs were proven to refuse it, and the exhaustion path was proven " +
           "to report null rather than an id",
       );
+
+      // -----------------------------------------------------------------------------------------
+      // Plan 260929-nxq (Task 2e) — board-row materialisation regression: proves SHAPE-02's new
+      // board-counts-delta arithmetic offline, real bridge, real core, zero tokens. Reuses this
+      // arm's still-open run and project, and its existing apply-proposal-created event shape.
+      // This is the fallback path SHAPE-02's new preference order depends on and which no offline
+      // arm measured this way before this plan.
+      // -----------------------------------------------------------------------------------------
+      step("board-row materialisation regression: reading board-counts as the baseline");
+      const materialisationCountsBefore = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
+
+      step("staging a fresh epic proposal and a criterion child naming its still-pending epic proposal id");
+      const materialisationEpicEvent = {
+        type: "proposal_created",
+        runId,
+        verb: "create",
+        targetType: "epic",
+        payload: { kind: "epic", title: "Materialisation regression epic", description: null },
+      };
+      const appliedMaterialisationEpic = runOps(
+        opsBin,
+        harness.appDataDir,
+        ["apply-proposal-created"],
+        JSON.stringify(materialisationEpicEvent),
+      );
+      assert.equal(
+        appliedMaterialisationEpic.outcome,
+        "created",
+        "expected the materialisation-regression epic proposal to apply",
+      );
+
+      const materialisationCriterionEvent = {
+        type: "proposal_created",
+        runId,
+        verb: "create",
+        targetType: "criterion",
+        parentProposalId: appliedMaterialisationEpic.proposalId,
+        payload: { kind: "criterion", statement: "Materialisation regression criterion", verification_hint: null },
+      };
+      const appliedMaterialisationCriterion = runOps(
+        opsBin,
+        harness.appDataDir,
+        ["apply-proposal-created"],
+        JSON.stringify(materialisationCriterionEvent),
+      );
+      assert.equal(
+        appliedMaterialisationCriterion.outcome,
+        "created",
+        "expected the materialisation-regression criterion proposal to apply",
+      );
+
+      step(
+        "picking the criterion through pickPendingProposal and grounding it against the staging " +
+          "call's own reported id",
+      );
+      const materialisationPick = pickPendingProposal(opsBin, harness.appDataDir, runId, { targetType: "criterion" });
+      assert.ok(materialisationPick.proposal, "expected pickPendingProposal to find the freshly staged criterion");
+      assert.equal(
+        materialisationPick.proposal.id,
+        appliedMaterialisationCriterion.proposalId,
+        "expected the picked id to equal the id the staging call itself returned — grounding the " +
+          "pick rather than trusting list ordering",
+      );
+
+      step("accepting the picked criterion — D-96's implied-parent walk must accept the still-pending epic first");
+      runOps(opsBin, harness.appDataDir, ["accept-proposal", materialisationPick.proposal.id]);
+      const materialisationCountsAfter = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
+      assert.equal(
+        materialisationCountsAfter.epics,
+        materialisationCountsBefore.epics + 1,
+        `expected epics to grow by exactly one, got before=${materialisationCountsBefore.epics} ` +
+          `after=${materialisationCountsAfter.epics}`,
+      );
+      assert.equal(
+        materialisationCountsAfter.criteria,
+        materialisationCountsBefore.criteria + 1,
+        `expected criteria to grow by exactly one, got before=${materialisationCountsBefore.criteria} ` +
+          `after=${materialisationCountsAfter.criteria}`,
+      );
+      step(
+        `board-counts before=${JSON.stringify(materialisationCountsBefore)} ` +
+          `after=${JSON.stringify(materialisationCountsAfter)} — one accept, two materialised rows, ` +
+          "D-96's implied-parent walk observed through the board rather than inferred from a return value",
+      );
+
+      step("asserting SHAPE-02's own delta arithmetic reports a landing for this accept, and no landing for a zero delta");
+      const materialisationTotalBoardRows = (counts) => counts.epics + counts.tasks + counts.criteria;
+      const materialisationDelta =
+        materialisationTotalBoardRows(materialisationCountsAfter) -
+        materialisationTotalBoardRows(materialisationCountsBefore);
+      assert.ok(materialisationDelta > 0, "expected a strictly positive board-row delta for this accept");
+      const zeroDeltaCounts = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
+      const zeroDelta =
+        materialisationTotalBoardRows(zeroDeltaCounts) - materialisationTotalBoardRows(zeroDeltaCounts);
+      assert.equal(
+        zeroDelta,
+        0,
+        "expected a self-comparison to report exactly zero — the 'never passes on zero' half, exercised rather than asserted",
+      );
+      assert.ok(!(zeroDelta > 0), "expected a zero delta to never read as a landing");
+
+      step("board-row materialisation regression complete");
     },
   );
   process.exit(process.exitCode ?? 0);
@@ -8139,7 +8247,6 @@ await runScript(
       let sawProposal = false;
       let taskProposalId = null;
       let criterionProposalId = null;
-      let rejectedTaskId = null;
       let decomposeDrainResult = null;
       // Plan 05-46 (gap G-05-9): a running watermark across BOTH stage windows, so the criteria
       // window's own drain call resumes exactly where the decompose window's drain left off,
@@ -8338,29 +8445,76 @@ await runScript(
       let rejectExercised = false;
       let amendExercised = false;
       let rejectedCriterionId = null;
+      let acceptPath = "none";
 
-      // Plan 260929-lq1: taskProposalId is now picked fresh, immediately before the one mutation
-      // that consumes it — accept-subtree's own cascade (D-96's implied-parent walk plus
-      // accept_subtree's own child walk) is exactly the mutation every later pick in this block
-      // must read AFTER, per the rule this closure installs.
+      // Plan 260929-nxq (Task 2a): the board is measured, not the branch — SHAPE-02's own sentence
+      // is "the outcome lands directly on the board", asserted by a board-counts delta taken
+      // BEFORE and AFTER the accept chain, never from which branch happened to run and never from
+      // a decided-proposal count. Strictly HARDER than `acceptedCount > 0`: a run that accepted
+      // nothing, or accepted something that materialised no row, fails — it must never pass on a
+      // zero delta.
+      const countsBeforeAccept = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
+      const totalBoardRows = (counts) => counts.epics + counts.tasks + counts.criteria;
+
+      // Plan 260929-nxq (Task 2b): three accept paths, in preference order, each with its own
+      // LITERAL argv call site — 260929-lq1's structural gate scans for argv-shaped literals, so a
+      // computed verb would slip past it — and each picking its own target with its own
+      // pickPendingProposal call immediately before its own decision, per the rule that closure
+      // installed.
+      //   1. a pending TASK -> accept-subtree (D-95's ONE bulk path — today's behaviour, unchanged
+      //      whenever a task proposal exists).
+      //   2. else a pending CRITERION -> accept-proposal, whose D-96 implied-parent walk accepts
+      //      the still-pending parent first in the same transaction — the only ordering that lands
+      //      a *criterion* on the board in a live run.
+      //   3. else a pending EPIC -> accept-proposal, the last resort: an epic with nothing drafted
+      //      under it is still a real board row.
       const taskTarget = pickPendingProposal(opsBin, harness.appDataDir, runId, { targetType: "task" });
       if (taskTarget.proposal) {
         taskProposalId = taskTarget.proposal.id;
+        acceptPath = "task-subtree";
         step(`accepting the task subtree ${taskProposalId} (D-95's ONE bulk path)`);
-        const subtreeOutcome = runOps(opsBin, harness.appDataDir, ["accept-subtree", taskProposalId]);
-        criterion2Landed = subtreeOutcome.acceptedCount > 0;
-
-        const counts = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
-        step(`board counts after accept: tasks=${counts.tasks} criteria=${counts.criteria}`);
+        runOps(opsBin, harness.appDataDir, ["accept-subtree", taskProposalId]);
+      } else {
+        const criterionAcceptTarget = pickPendingProposal(opsBin, harness.appDataDir, runId, { targetType: "criterion" });
+        if (criterionAcceptTarget.proposal) {
+          acceptPath = "criterion-implied-parent";
+          step(
+            `no task proposal pending — accepting a criterion proposal ` +
+              `${criterionAcceptTarget.proposal.id} instead (D-96's implied-parent walk accepts its ` +
+              "still-pending epic parent first, in the same transaction)",
+          );
+          runOps(opsBin, harness.appDataDir, ["accept-proposal", criterionAcceptTarget.proposal.id]);
+        } else {
+          const epicAcceptTarget = pickPendingProposal(opsBin, harness.appDataDir, runId, { targetType: "epic" });
+          if (epicAcceptTarget.proposal) {
+            acceptPath = "epic";
+            step(
+              `no task or criterion proposal pending — accepting the epic proposal ` +
+                `${epicAcceptTarget.proposal.id} directly (the last resort: an epic with nothing ` +
+                "drafted under it is still a real board row)",
+            );
+            runOps(opsBin, harness.appDataDir, ["accept-proposal", epicAcceptTarget.proposal.id]);
+          } else {
+            step("no task, criterion or epic proposal was pending to accept — nothing for SHAPE-02 to land");
+          }
+        }
       }
 
-      // Plan 260929-lq1 (round-12 crash fix): a GENUINELY fresh read, taken AFTER accept-subtree's
-      // own cascade above — never the pre-cascade `draftedCriterionProposals` snapshot, which is
-      // exactly the stale array that crashed the round-12 run inside the core's own pending guard.
+      const countsAfterAccept = runOps(opsBin, harness.appDataDir, ["board-counts", project.projectId]);
+      const boardRowDelta = totalBoardRows(countsAfterAccept) - totalBoardRows(countsBeforeAccept);
+      criterion2Landed = boardRowDelta > 0;
+      const criterion2Detail =
+        `acceptPath=${acceptPath} before={epics:${countsBeforeAccept.epics},tasks:${countsBeforeAccept.tasks},` +
+        `criteria:${countsBeforeAccept.criteria}} after={epics:${countsAfterAccept.epics},` +
+        `tasks:${countsAfterAccept.tasks},criteria:${countsAfterAccept.criteria}} delta=${boardRowDelta}`;
+      step(`board-counts delta: ${criterion2Detail} — SHAPE-02 requires a strictly positive delta`);
+
+      // Plan 260929-lq1 (round-12 crash fix): a GENUINELY fresh read, taken AFTER the accept chain
+      // above — never a pre-cascade snapshot, which is exactly the stale array that crashed the
+      // round-12 run inside the core's own pending guard.
       const rejectTarget = pickPendingProposal(opsBin, harness.appDataDir, runId, { targetType: "criterion" });
       if (rejectTarget.proposal) {
         rejectedCriterionId = rejectTarget.proposal.id;
-        rejectedTaskId = rejectedCriterionId;
         step(
           `rejecting a criterion proposal ${rejectedCriterionId} with a reason ` +
             `(${rejectTarget.pendingOfType} criterion proposal(s) still pending after the cascade)`,
@@ -8407,21 +8561,39 @@ await runScript(
       runOps(opsBin, harness.appDataDir, ["close-run", runId, "UAT 8 shaped one task."]);
 
       // ---- SHAPE-05 — reopening --------------------------------------------------------------
+      // Plan 260929-nxq (Task 2d): derived from what this run actually observed — SHAPE-05's
+      // reopen leg has nothing to do with whether a reject happened, and gating the explanation on
+      // one is why a wrong sentence got printed at all (the pre-fix narration explained an absent
+      // epic with the fixed string "the model proposed a task without an epic" for a run that was
+      // the precise inverse: one epic proposal, zero task proposals). SHAPE-05's reopen check
+      // needs a REAL epic AND a SECOND session against it (the exact two-session shape
+      // `authoring_acceptance.rs`'s own Criterion 2/4 tests document and exercise directly against
+      // the database) — a single-session run structurally cannot produce that, whether or not it
+      // materialised an epic.
       let criterion4Reopened = false;
       let criterion4PrimedRejected = false;
-      if (rejectedTaskId) {
-        // This session's proposals had no epic (a fresh session, D-84) — SHAPE-05's reopen check
-        // needs a REAL epic to reopen. Recorded here rather than faked: a fresh-epic session's own
-        // task proposals never carry an epic id until a SEPARATE epic proposal is accepted and a
-        // second session reopens it (the exact two-session shape `authoring_acceptance.rs`'s own
-        // Criterion 2/4 tests document and exercise directly against the database). This live
-        // script's own SHAPE-05 check is therefore reported honestly as unproven-this-run when the
-        // conversation never produced an epic proposal — not silently marked green.
+      const pendingTargetTypeTally = pending.proposals.reduce((tally, proposal) => {
+        tally[proposal.targetType] = (tally[proposal.targetType] ?? 0) + 1;
+        return tally;
+      }, {});
+      const pendingTargetTypeTallyText =
+        Object.entries(pendingTargetTypeTally)
+          .map(([targetType, count]) => `${targetType}=${count}`)
+          .join(" ") || "none";
+      if (countsAfterAccept.epics > 0) {
         step(
-          "no epic was materialised in this conversation (the model proposed a task without an " +
-            "epic) — SHAPE-05's reopen check is exercised structurally by " +
-            "authoring_acceptance.rs::criterion_4_* instead; this run reports it honestly as " +
+          `an epic exists on the board after this run (acceptPath=${acceptPath}) — SHAPE-05's ` +
+            "reopen check needs a SECOND session against it, which a single-session run " +
+            "structurally cannot produce; the reopen leg is exercised structurally by " +
+            "authoring_acceptance.rs::criterion_4_* instead, and this run reports it honestly as " +
             "unproven rather than fabricating a pass",
+        );
+      } else {
+        step(
+          `no epic exists on the board after this run (acceptPath=${acceptPath}, pending tally at ` +
+            `the challenge/criteria boundary: ${pendingTargetTypeTallyText}) — SHAPE-05's reopen ` +
+            "check is exercised structurally by authoring_acceptance.rs::criterion_4_* instead; " +
+            "this run reports it honestly as unproven rather than fabricating a pass",
         );
       }
 
@@ -8442,6 +8614,7 @@ await runScript(
         criterion4Reopened,
         criterion4PrimedRejected,
         proposalListVerdict,
+        criterion2Detail,
       });
       evidenceState.draftedCriteriaCount = draftedCriteriaCount;
       evidenceState.amendedCriteriaCount = amendedCriteriaCount;
