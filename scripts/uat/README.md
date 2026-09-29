@@ -725,6 +725,47 @@ write has still never once succeeded, so SHAPE-02, SHAPE-03 and SHAPE-04 retain 
 only; whether a real backend given the new instructions actually drafts criteria is a live-run
 observation this round does not make; and `05-REVIEW.md`'s WR-01, IN-01 and IN-02 all remain open.
 
+**Eleventh finding, the same defect class as the tenth, found again one call site over (this
+closure, task 260929-lq1):** the harness decided a proposal it had already decided.
+`accept_subtree`'s D-96 implied-parent walk decides a whole subtree — every criterion parented to
+the accepted task — in one transaction, so a `list-pending` snapshot taken before that call
+describes a board state that no longer exists by the time an author indexes into it. Plan 05-46
+fixed this exact defect once already, at a different call site, one round earlier; it fixed the
+instance and never stated the property, so the defect moved one call site over instead of
+disappearing, and reappeared as round 12's live run (`01M3NXWP72VACQJQNVGDK7AXJ8`) crashing inside
+the core's own pending guard at `reject-proposal`. Auditing every proposal-decision call site in
+the repository for this closure found a third, latent instance at `amend-criterion`, never yet
+reached only because the run crashed one step earlier — fixing the reject alone would have shipped
+that instance into the very next live run.
+
+Record the cost exactly, as the ledger's other findings do: the round-12 crash consumed a live
+run — a spent credential — and stopped it before `buildCriteriaResults` ever computed the
+SHAPE-01/02/03/04 table the round existed to produce. Record the quieter defect the same audit
+found: `criterion3Decided` went true when only one of reject and amend had actually run, while the
+detail string `buildCriteriaResults` prints for it claimed "at least one reject and one amend were
+exercised" — a run that rejected nothing and amended once would have printed that sentence and
+passed SHAPE-03/SHAPE-04.
+
+**A ninth rule, from this finding, stated as a rule rather than as a story:**
+
+> Derive every decision target from a read taken after the last mutation, never from a snapshot
+> that predates one — and make the derivation one operation, so the read cannot be separated from
+> the decision by a later edit. A fix that names the call site instead of the property will
+> reappear at the next call site.
+
+Ground it: the four mutating verbs are `accept-proposal`, `accept-subtree`, `reject-proposal` and
+`amend-criterion`; `pickPendingProposal` performs the read and the pick as one call and is the only
+sanctioned way a live decision target is chosen, with a source-scanning self-test enforcing it.
+Measurement counts (`draftedCriteriaCount`) deliberately keep reading the pre-cascade snapshot,
+because the cascade must not be allowed to erase what the model drafted; and `accept-proposal`
+alone is idempotent on an already-accepted row, which is why the one deliberate stale-target call
+site in `--board-read-check` is correct and is annotated as the audited exception rather than
+fixed.
+
+What this task did NOT resolve: no live run happened, no credential was spent, and the
+SHAPE-01/02/03/04 table still has never been computed by a completed live run — that remains a
+deliberate developer decision, not something this closure claims.
+
 ### Items 2 and 4 — the visual ones
 
 ```bash
