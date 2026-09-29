@@ -1,8 +1,8 @@
 # Phase 5 — Socratic Epic Authoring — Live Challenge Transcript
 
 
-**Run:** 01M3ENQMC3E4M2HP7014MA84PX
-**Captured:** 2026-09-26T11:01:16.256Z
+**Run:** 01M3NXWP72VACQJQNVGDK7AXJ8
+**Captured:** 2026-09-29T06:39:39.024Z
 
 ## Conversation
 
@@ -12,33 +12,37 @@
 I want to build a notifications feature so users get pinged when something on their board needs them.
 ```
 
-### 2. Agent — chunks=2 chars=2352 endedBy=result
+### 2. Agent — chunks=2 chars=2381 endedBy=result
 
 ```
-I'll get oriented in the repo and the board tooling before we shape this.
+I'll take a look at the repo first to ground this in what actually exists.
 
-Quick lay of the land before questions: the repo has **no tracked files** (only `.flywheel/project.json`, project key `UAT`), and the Flywheel board has **no existing epics or tasks** — searches for "notification" and "board" both came back empty. So this is greenfield on both sides, and there's no existing code to infer conventions from.
+I dug into what's here first, and the grounding is thin: the repo has no code at all (only `.flywheel/project.json`), and the board is empty — no epics, tasks, or issues to search against. So there's nothing yet that tells me what a "board" is in your product, what lives on it, or who its users are.
 
-That makes a few things genuinely forking rather than details I can just decide. Five questions, each with the default I'd pick if you don't care:
+That matters because "pinged when something needs them" is the whole feature, and it decomposes very differently depending on a few answers. Rather than guess on all of them, here are the ones where different answers mean genuinely different epics:
 
-1. **What counts as "needs them"?** Candidate triggers: assigned to you · @mentioned in a comment · item you own got blocked · due date approaching/overdue · review requested · status change on something you follow.
-   *Default: the first three for v1, rest later.*
+**1. Where does the board itself live?**
+Is there an existing app (another repo, a deployed service) that this notifications work plugs into, or is this greenfield and the board is being built alongside? If it exists, pointing me at it changes this from speculation to grounded design.
 
-2. **Which channels?** In-app bell is cheap; email/push/Slack each pull in a delivery provider, templates, bounce/failure handling, and unsubscribe compliance.
-   *Default: in-app only in v1, with the event model designed so channels can be added without a rewrite.*
+**2. What counts as "needs them"?**
+My default guess would be: assigned to me, @-mentioned in a comment, and an item I own moving to a state that blocks me. But due-date reminders, status changes on things I merely watch, and board-level activity are all plausible and each adds real surface. Which of these are in for v1?
 
-3. **Real-time or digest?** Per-event delivery is simpler; digests need scheduling and a batching window.
-   *Default: real-time in-app, no digest in v1.*
+**3. How does the ping reach them?**
+- In-app only (a bell with unread count) — smallest, self-contained.
+- Email too — adds delivery infrastructure, templates, bounce handling, unsubscribe.
+- Push/mobile or Slack — adds a whole integration per channel.
 
-4. **How much user control?** Global on/off, per-type toggles, per-board mute, per-item unfollow, quiet hours — each is a separate chunk of UI and data model.
-   *Default: per-type toggles plus per-item unfollow.*
+My default: in-app for v1, with the event model designed so other channels can be added later without rework.
 
-5. **Where does the board app actually live?** This repo is empty — is the existing product in another repo, or are we building the board itself from scratch too? This changes whether the epic's tasks reference existing models/auth or have to define them.
-   *No default — I need this one.*
+**4. Immediate or batched?**
+Per-event as it happens, or a digest? This drives whether you need a scheduler and quiet-hours logic at all.
 
-Also worth naming now: do you want the notification store to be the source of truth (rows written at event time, fanned out to each recipient), or computed on read from an activity log? It's the decision hardest to reverse later. *Default: write-time fan-out — it makes read state, per-user filtering, and later channels straightforward.*
+**5. How much user control in v1?**
+Nothing (everyone gets everything), a global on/off, or per-event-type preferences?
 
-Reply with answers, or just say **"defaults"** (plus an answer to #5), and I'll stage a proposed epic with tasks, acceptance criteria, and an explicit assumptions list on the board for you to review and edit — nothing gets created until you accept it.
+If you'd rather not answer five questions: say **"go with your defaults"** and I'll shape the epic as *in-app notifications, v1, three triggers (assigned / mentioned / blocked), immediate delivery, global on-off toggle, channel-agnostic event model* — and I'll stage every one of those as an explicit assumption row on the board so you can overturn any of them during review rather than in conversation now.
+
+Either way I'll stage the epic as a proposal for you to accept or edit — I won't write to the board directly.
 ```
 
 ### 3. Developer
@@ -46,101 +50,202 @@ Reply with answers, or just say **"defaults"** (plus an answer to #5), and I'll 
 ```
 Here's what I can tell you:
 1. It appears in an in-app notification tray only — no OS-level toast, no email, no push.
-2. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
+2. Anything not named above is out of scope for the first slice — cross-device sync, digest emails and per-project mute settings all wait for a later pass.
+3. No batching in the first slice — one notification per triggering event.
+4. Anything not named above is out of scope for the first slice — cross-device sync, digest emails and per-project mute settings all wait for a later pass.
 ```
 
-### 4. Agent — chunks=2 chars=4465 endedBy=result
+### 4. Agent — chunks=2 chars=3280 endedBy=result
 
 ```
-Got it — in-app tray only, and I'll make the call on the rest. Let me state the judgement calls up front, then stage everything on the board.
+Two of your four answers (2 and 4) are the same sentence, and it's doing more work than it can carry: "anything not named above is out of scope" — but the trigger list was never named. Question 2 was *what counts as "needs them,"* and that's the substance of the feature, not a detail around it.
 
-Staging the epic and the assumption rows now.
+The most natural reading is that "above" means the defaults I offered, so I'm proceeding with **assigned / @-mentioned / your item became blocked** — and staging that as the single most overturnable assumption on the board. If that's wrong, it's the one row to fix.
 
-The board is in its **challenge stage** — proposals are rejected until a developer advances it, so nothing is staged yet. That's the right order anyway: here's what I'd push back on before we commit a shape.
+Let me stage the epic.
 
-## Four challenges to the framing
+The board rejected that — this session is still in the challenge stage, and only you can advance it. Staging proposals isn't available to me yet. That's the right call here, because I don't think the framing is settled, and trying to stage would have locked in a guess.
 
-**1. A tray-only feature can't "ping" anyone — it can only greet them.**
-This is the big one. The goal says users get pinged *when* something needs them; a tray delivers *when they next open the app*. For a user who doesn't log in for three days, nothing about their experience changes — they still discover the assignment on arrival, just in a list instead of on the board. So v1 is honestly a **catch-up surface**, not an interrupt channel. That's a perfectly good first step if the pain is "I open the app and can't tell what changed since Friday." It does nothing if the pain is "things sat untouched for a week because nobody knew." Worth knowing which one you're actually solving — it doesn't change v1's build, but it changes whether v1 is a success.
+Here's what I think is actually unresolved.
 
-**2. Half of this might be a saved filter.**
-"Assigned to me" and "items I own that are blocked" are both *current state* — a `needs me` board view shows them with no event store, no fan-out, no read state, no preferences. That's a fraction of the build. What genuinely justifies the notification machinery is the **transient** events: a mention in a comment, or the fact that something *changed* since you last looked. State you can query; changes you have to record. I'd keep the build, but the epic should be explicit that recording change is the point — otherwise the first review will reasonably ask why a filter wasn't enough.
+**The trigger list is the feature, and it's still blank.** Delivery, cadence, and exclusions are all specified now. But those are the packaging. "Needs them" is the product. I can proceed on assigned / mentioned / blocked, but I'd be authoring my own guess into your board and then writing criteria that verify my guess.
 
-**3. Nothing in the framing says what happens when the cause resolves.**
-The blocked item gets unblocked, the mention gets answered, the assignment moves to someone else — is the notification still sitting there unread? Un-handled, the tray accumulates stale nags and users stop trusting the badge, which kills the feature faster than under-notifying. My position: notifications are an immutable log of *what happened* and are not retracted, but the row carries a reference to its subject so the tray can render current context ("Unblocked" / "Reassigned") alongside. The alternative — auto-dismiss on resolution — makes the badge accurate but loses history. This is a real fork and I don't think it should be silently defaulted.
+**"Needs them" is a promise, and it's a different system than "something happened."** These look similar and diverge fast:
 
-**4. "Their board" hides a fan-out question.**
-On an 8-person shared board, when an item becomes blocked, who needs to know? My read: only the item's owner and assignee, never all members — but if boards in your product have a single owner, "their board" might mean something narrower and this whole trigger collapses into one recipient.
+- An *event feed* reports facts: X was assigned, Y commented. Cheap, honest, and nobody trusts it enough to open it.
+- An *obligation tray* claims: this requires you. Valuable exactly in proportion to how rarely it's wrong.
 
-## Assumptions I'm locking in
+Your phrasing — "needs them" — is the second. But two of my three default triggers are event-shaped. An @-mention is often an FYI, not a request. If the tray promises obligation and delivers chatter, people stop opening it within a week, and the fix isn't in the code.
 
-Stated explicitly, per your instruction — each is a judgement call, not something you told me:
+**If it's an obligation tray, "read" is the wrong lifecycle.** You haven't specified how a notification goes away. Clicking it is the event-feed answer. The obligation answer is that it resolves when the obligation does — the item gets reassigned away from you, the blocker clears, someone else answers the mention. Those are different data models, and it's cheaper to pick now than to migrate later.
 
-- **Greenfield in this repo.** No tracked files, no prior board items, so tasks will define their own schema and assume authenticated users plus board/item/comment entities. *If the real product lives elsewhere, this is the one that invalidates the most work.*
-- **v1 triggers:** assigned to you · @mentioned in a comment · item you own or are assigned became blocked.
-- **Write-time fan-out.** One row per recipient per event, source of truth, not computed from an activity log.
-- **Per-event, no digest, no quiet hours.**
-- **Preferences:** per-type toggles plus per-item unfollow.
-- **You never get notified of your own actions**, and a bulk action collapses into one notification per recipient rather than one per item.
-- **Tray refreshes by polling**, not websockets — "real-time" here means "without a page reload."
-- **Notifications are immutable** (challenge 3 above), pending your call.
+**Un-triggering isn't batching, so your answer to 3 doesn't cover it.** One notification per event is clear. But: an item is assigned to you, then reassigned away 30 seconds later. Does the tray still say it needs you? With no mute and no preferences in this slice, a user with stale entries has no recourse at all. That's a correctness question sitting inside a scope answer.
 
-## Recommendation
+**And the thing I asked first, which is still open:** there's no code here and no board. No user model, no items, no assignees, no comments. Notifications are a layer *on* a board — if that board is in another repo, point me at it. If it doesn't exist yet, then this can't be the first slice of anything, and that's worth knowing before we shape an epic that assumes it.
 
-I think the framing is settled enough to advance — the open forks (#1 success definition, #3 resolution semantics) are worth your answer but don't block drafting, and I'd record them as assumption rows rather than hold the epic. **Only you can advance the stage.** Once you do, I'll stage the epic, five tasks (model + fan-out · trigger wiring · tray UI with unread badge and read state · polling refresh · preferences enforced at fan-out), acceptance criteria for each, and the assumption rows above for you to edit or reject.
+---
+
+What would settle this for me: **the trigger list**, and **whether you want an obligation tray or an event feed.** Those two are load-bearing — the rest I can shape around defaults and stage as overturnable assumption rows.
+
+Answer those and I'll recommend advancing to proposals.
 ```
 
 ### 5. Developer
 
 ```
 Here's what I can tell you:
-1. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
-2. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
+1. Only a run that needs the developer — a decision, a blocked permission, something it can't resolve on its own — raises a notification. A clean, unattended finish does not.
 ```
 
-### 6. Agent — chunks=1 chars=77 endedBy=idle
+### 6. Agent — chunks=1 chars=3097 endedBy=result
 
 ```
-Both locked in, stated below. Trying the board again in case the stage moved.
+That reframes the whole thing, and my defaults were wrong — there's no assignment or @-mention here. The subject isn't a card, it's a **run**, and the recipient is the developer who owns it. Good thing none of that got staged.
+
+It also collapses the trigger list I kept asking for. You don't have three triggers — you have one predicate:
+
+> **A run notifies when it halts awaiting a human.**
+
+A decision and a blocked permission aren't two trigger types, they're two reasons for the same state. "Something it can't resolve on its own" isn't a catch-all at the end of a list, it's the actual rule, and the first two are examples. That's worth writing into the epic as a predicate rather than an enumeration, because a new blocking reason added later then needs no notification work at all — it inherits.
+
+And it settles obligation-vs-event decisively: *a clean unattended finish does not notify.* You're not building a feed of what happened. Good.
+
+Two things are still genuinely open, and both are consequences of the reframe rather than leftovers.
+
+**What happens to a block nobody came back for?** A run blocks on a permission at 3am. By the time you open the tray, it's timed out and failed. The obligation is gone, so a strict live-obligations tray shows you nothing — and you've silently lost the work. But your own phrasing was "a clean unattended finish," and the word *clean* implies the unclean one might be worth surfacing. This is the fork:
+
+- **Live only** — tray shows runs blocked *right now*, clears on unblock by any path. Simple, and the 3am failure is invisible.
+- **Live plus misses** — a block that expired unattended leaves a trace saying this needed you and the run died. More state to model, and it's the case where the notification would actually have earned its keep.
+
+In-app-only delivery pushes hard toward the second. You've ruled out toast, email and push, which means the tray is read when someone comes back to the app — so "what needed me while I was gone" is most of its job.
+
+**Who gets pinged for a run with no one at the keyboard?** "Unattended" implies scheduled or background runs exist. If a cron run blocks on a permission at 3am, the notification goes to... its initiator, who may be a schedule rather than a person? The project owner? Everyone with access? A run owned by exactly one developer is the simple answer, but it breaks precisely in the unattended case your feature is built for.
+
+One thing I'd confirm rather than ask: a notification clears when its run stops being blocked, **however that happened** — including the developer answering directly in the run without touching the tray. With runs, that's the common path, not the edge case. It also means read/unread is the wrong lifecycle; the tray tracks live obligations, not messages.
+
+---
+
+Answer those two and I'd call the framing settled and recommend advancing to proposals. If you'd rather move now, say so and I'll recommend advancing with **live-plus-misses** and **notifies the run's initiator** as the defaults — staged as the two assumption rows most worth overturning during review.
 ```
 
 ### 7. Developer
 
 ```
-Before we move on: call `propose_assumption` once for EACH assumption you challenged in this stage, each call carrying that one assumption and the answer I gave you — one tool call per assumption, never a single call carrying a list, and never folding more than one assumption's text into a single call. These rows are a DRAFT of your own reasoning: I will accept, amend or reject each one myself, and only the ones I accept will be primed into a later session on this epic. Go ahead now.
+Here's what I can tell you:
+1. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
+2. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
+3. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
 ```
 
-### 8. Agent — chunks=2 chars=2145 endedBy=result
+### 8. Agent — chunks=1 chars=2609 endedBy=result
 
 ```
-Epic staged. Now one row per assumption I raised.
+Taking all three. Here are the calls, which I'll stage verbatim as assumption rows so you can overturn any of them in review.
 
-Staged on the board: the **In-app notification tray** epic plus **12 assumption rows**, one call each.
+**1. Missed blocks stay in the tray.** Live-plus-misses. A block that expired or failed unattended remains, marked as missed, rather than vanishing. Reasoning: you ruled out toast, email and push, so the tray is only ever read when someone comes back — which makes "what needed me while I was gone" most of its job. A tray that silently drops dead runs is worse than no tray, because you'd have learned to trust it.
 
-**The two you just delegated:**
+**2. Every run resolves to at least one human recipient.** The run's initiator when there is a human one; for scheduled or background runs with no human initiator, it falls back to the project's owners. Reasoning: "notify the initiator" is the clean rule that breaks in exactly the unattended case this feature exists for. Worth flagging one consequence — the fallback means someone who didn't start a run can see that it needs attention, which is a small widening of visibility. If runs can carry anything sensitive, that's the row to challenge first.
 
-- **Which problem v1 solves** — I retargeted the goal to match the channel you chose. A tray can't reach an absent user, so v1 is a catch-up surface: "what changed while I was away." Success is measured by users acting on the tray and unread returning to zero, not by delivery volume. Recorded with the consequence if wrong: if the real pain is absent users missing work, v1 won't fix it.
-- **Resolution semantics** — notifications are immutable and never auto-dismissed, but each row references its subject so the tray renders current context ("Unblocked", "Reassigned") next to the original event. Rejected alternative recorded: auto-dismiss keeps the badge honest but throws away history.
+**3. Confirmed: a notification clears when its run leaves the blocked state, by any path** — including you answering directly in the run and never opening the tray. The lifecycle tracks obligation state, not read/unread.
 
-The other ten rows carry the earlier calls: channel (your answer), greenfield-in-this-repo, trigger set, filter-vs-machinery, write-time fan-out, recipient scope, per-event timing, preference granularity, self-action and bulk-action suppression, and polling.
+**4. Carried forward unanswered:** there's still no codebase and no board here, and no integration point named across our exchange. I'll shape the epic behaviorally — what the system must do, not which files change — and flag it so whoever picks this up next knows the decomposition assumes a run model that I have not seen.
 
-Two things worth flagging:
+---
 
-**The greenfield row is the load-bearing one.** If the board product actually lives in another repo, the data-model and trigger-wiring tasks get rewritten against its existing models and auth. Everything else survives; that one doesn't.
+I'd now call the framing settled, and **I recommend advancing to the proposal stage.** Only you can do that.
 
-**I stopped short of staging tasks.** Staged proposals don't come back in `board_search`, so there's no proposal id to hang tasks and criteria off within this session — and more importantly, the five tasks I sketched are all downstream of assumptions you haven't triaged yet. Building criteria on rows you might reject means rework. Triage the twelve first; once the accepted set is primed into the next session on this epic, I'll stage the tasks — model + fan-out, trigger wiring, tray UI with unread badge and read state, polling refresh, preferences enforced at fan-out — with criteria against whatever survived.
+What I'd stage, so you can pre-correct before I write it:
 
-Noted in memory: your preference for a stated assumption over a blocking question, and how this board's stage gating works.
+**Epic — In-app notification tray for runs that need the developer.** Core rule as a predicate, not a list: *a run notifies when it halts awaiting a human.* A decision and a blocked permission are two reasons for one state, so a blocking reason added later inherits notification behavior with no new work.
+
+Criteria along the lines of: a halted run raises exactly one notification per block, for any blocking reason; a clean unattended finish raises none; a notification clears when its run unblocks however that happened; an unattended expiry stays as a miss; every run resolves to a recipient.
+
+Tasks roughly: the blocked-run predicate and recipient resolution, the notification lifecycle (raise / clear / mark missed), the tray UI, and per-user scoping.
+
+Say the word and I'll stage it.
+```
+
+### 9. Developer
+
+```
+Before we move on: call `propose_assumption` once for EACH assumption you challenged in this stage, each call carrying that one assumption and the answer I gave you — one tool call per assumption, never a single call carrying a list, and never folding more than one assumption's text into a single call. These rows are a DRAFT of your own reasoning: I will accept, amend or reject each one myself, and only the ones I accept will be primed into a later session on this epic. Every proposal you stage returns its own id in the tool result as `proposalId` — that id is what `parent_proposal_id` takes. Go ahead now.
+```
+
+### 10. Agent — chunks=1 chars=1828 endedBy=result
+
+```
+Nine assumption rows staged, one call each. Grouped by where each answer came from:
+
+**You confirmed these four**
+- `…HBR3S` — In-app tray only; no toast, email or push.
+- `…P9R1N` — One notification per triggering event; no batching.
+- `…966 6Z` — Cross-device sync, digest emails, per-project mute all deferred.
+- `…HBR3S`… and the load-bearing one, `…8F9M` — a run notifies only when it halts awaiting a human; a clean unattended finish does not. That row also records that my original card-board framing (assigned / @-mentioned) was wrong and what replaced it.
+
+**Settled by inference from your answers**
+- `…GWDTK` — It's an obligation tray, not an event feed. Follows from a clean finish raising nothing.
+
+**My judgement, delegated by you**
+- `…KVJ5ZG` — Missed blocks persist in the tray, marked missed, rather than vanishing.
+- `…MDKFRV` — Every run resolves to a recipient: initiator, falling back to project owners.
+- `…G0WQNJ` — A notification clears when its run unblocks by any path; read/unread is the wrong lifecycle.
+
+**Unresolved, recorded as such**
+- `…8HXAXQ2` — No integration point identified. Asked three times, never answered. Staged as open rather than quietly assumed away.
+
+Two rows I'd look at hardest before accepting. **`…MDKFRV`** widens visibility — under the fallback, a developer who didn't start a run can see it needs attention, which matters if runs carry anything sensitive. And **`…8HXAXQ2`** is the one that could invalidate others downstream; once the real run and ownership models are known, recipient resolution in particular may need revising.
+
+The framing is settled from my side. **I recommend advancing to the proposal stage**, where I'd stage the epic itself — the halts-awaiting-a-human predicate, its acceptance criteria, and the task breakdown. That's yours to advance; I can't.
+```
+
+### 11. Developer
+
+```
+Now for the acceptance criteria: call `propose_criterion` once for EACH criterion — one tool call per criterion, never a single call carrying a list, and never folding more than one criterion's text into a single call. Draft criteria for every task you staged this session, for any task that already existed on this epic, and directly on the epic proposal itself where a criterion belongs there instead — don't wait for a task to exist first if none does. Name the parent with `parent_proposal_id`, using the id the earlier staging call returned in its result. The parent does NOT need to be accepted first: accepting a criterion accepts its still-pending parent in the same transaction, so go ahead and name a pending parent directly. These rows are a DRAFT of your own reasoning: I will accept, amend or reject each one myself, and only the ones I accept will be primed into a later session on this epic. Go ahead now.
+```
+
+### 12. Agent — chunks=5 chars=2973 endedBy=result
+
+```
+I don't actually have an epic or tasks staged yet — my earlier `propose_epic` was refused by the challenge-stage gate, so the only rows on the board from this session are the nine assumptions. Criteria need a task or epic parent, so let me stage those first, then draft criteria against them.
+
+The description exceeded the 1000-character limit. Trimming it:
+
+Epic staged. Now the tasks:
+
+Now criteria — one call each, against the epic and each task:
+
+Staged: **1 epic, 5 tasks, 20 criteria**, on top of the 9 assumption rows.
+
+**Epic** `…5Z8YYK` — 3 criteria, all cross-cutting rather than task-local: a clean unattended finish raises nothing; a halt produces exactly one notification that routes to its run; and a blocking reason added *later* raises notifications with no notification-layer changes. That third one is the guard on the predicate-not-a-trigger-list decision — if it ever fails, the feature has quietly drifted back into an enumeration.
+
+**Halted-awaiting-human predicate** `…X6KYQV` — 3. One path for both blocking reasons with no per-reason branching; not-halted across every terminal state, enumerated so a state added later surfaces as unclassified instead of defaulting to halted; transitions emit once per transition, not once per poll.
+
+**Recipient resolution** `…ZASATP` — 3. Human initiator; owner fallback for scheduled runs; and zero-recipient resolution as a loud error. That last one matters because a silent no-op is indistinguishable from a working system until someone's run dies unnoticed.
+
+**Lifecycle** `…525AZZ` — 5. Idempotent raise; clears when resolved inside the run with no tray interaction; unattended timeout persists as missed; no read/unread flag in the schema; and dismissal of misses.
+
+**Tray UI** `…NA9NSV` — 4. Live and missed distinguished; entries route to their run; explicit empty state; badge that decrements when a run unblocks untouched.
+
+**Scoping** `…MXQ9A5` — 2. Server-side filtering verified against the raw API response rather than the rendered tray, and server-side authorisation on dismiss.
+
+One thing to look at that none of your answers covered: **dismissal of misses** (`…6X26MRHDZZHGDEQXGGAM`). It falls out of my live-plus-misses call — misses outlive their obligation, so without a dismiss action the tray grows without bound and the badge stops meaning anything. It's a small new user-facing surface in a slice you scoped as having none, so it's fair to reject it and instead bound misses some other way, such as ageing them out. I'd rather flag that I introduced it than let it arrive as a surprise.
+
+Two staged criteria lean directly on the owner-fallback assumption (`…MDKFRV`) — the scheduled-run recipient one and the dismiss-authorisation one. If you reject that assumption in review, revisit both.
+
+Want me to record the session summary with `report_summary`? It'd capture what the epic is now understood to be, that the integration point is still unknown, and what the next session needs to find first.
 ```
 
 ## Capture integrity
 
 | Agent turn | Chunk count | Character count | End marker | Non-conversation |
 | --- | --- | --- | --- | --- |
-| 1 | 2 | 2352 | result | — |
-| 2 | 2 | 4465 | result | — |
-| 3 | 1 | 77 | idle | — |
-| 4 | 2 | 2145 | result | — |
+| 1 | 2 | 2381 | result | — |
+| 2 | 2 | 3280 | result | — |
+| 3 | 1 | 3097 | result | — |
+| 4 | 1 | 2609 | result | — |
+| 5 | 1 | 1828 | result | — |
+| 6 | 5 | 2973 | result | — |
 
 ## Propose-tool observations
 
@@ -148,30 +253,98 @@ Noted in memory: your preference for a stated assumption over a blocking questio
 
 ## Per-criterion results
 
-- ✅ SHAPE-01 — the agent challenges before any work is planned — challenged=true noWorkPlanned=refused
-- ❌ SHAPE-02 — the outcome lands directly on the board — no subtree was accepted
-- ❌ SHAPE-03/SHAPE-04 — accept, reject and amend decided individually — not enough proposals to exercise all three verbs
-- ℹ️ SHAPE-05 — reopening primes the challenge against what the epic already contains (informational — not gating) — this single-session run has no epic to reopen; the reopen leg is proven structurally by authoring_acceptance.rs::criterion_4_* — reported here rather than gated
+(not yet available — populated once the decompose phase completes)
 
 ## Draft usefulness (SHAPE-03)
 
-- Drafted criteria: 0
+**The counts below are the harness's own stale pre-crash snapshot (`evidenceState.draftedCriteriaCount`
+is only assigned in the final write path, which this run never reached — see "Live gate outcome"
+below for the real, verified counts).**
+
+- Drafted criteria: 0 (stale — see corrected count below)
+- Criteria reachability: drafted (criteria-stage proposal drain stoppedBy: quiet)
+- proposal_list-in-staging-turn verdict: not-applicable
 - Amended criteria: 0
 - Ratio (amended/drafted): 0/0
 
 ## Run failure
 
-This run did not complete. `AssertionError`: one or more gating SHAPE criteria (SHAPE-01, SHAPE-02, SHAPE-03/SHAPE-04) did not pass this run — see the per-criterion lines above. SHAPE-05 is reported informationally and never gates this assertion. See also 05-10-PLAN.md Task 3's own human-check instructions for the two judgements only a human reading the transcript can make once this exits 0.
+This run did not complete. `Error`: uat_authoring_ops reject-proposal 01M3NY750A8VC5T3ACZJB3E72R Too vague to verify failed (status 1): could not reject the proposal: authoring_proposal "01M3NY750A8VC5T3ACZJB3E72R" is not pending (status = "accepted") — a decided proposal cannot be rejected a second time
 
-```
-at file:///Users/cymarechal/orca/workspaces/HighKnow-harness/threadfin/scripts/uat/uat-08-socratic-authoring.mjs:6534:14
-```
+## Live gate outcome (plan 05-50, Task 2)
+
+**Run id:** `01M3NXWP72VACQJQNVGDK7AXJ8`
+**Exit code:** `1` (non-zero — `node scripts/uat/uat-08-socratic-authoring.mjs` reported `❌ FAIL`)
+**Verdict: FAILED.** Reported as a failed live gate with evidence intact, per this task's own
+instruction not to report a pass produced by narrowing what was checked.
+
+### The properties this plan exists to prove — verified, from stdout captured during the run
+
+These readings are taken from the script's own `step(...)` progress lines (stdout), captured
+independently of the evidence-sheet file the crash left stale:
+
+- **`draftedCriteriaCount`: 20** — `pending.proposals.filter(p => p.targetType === "criterion")`
+  taken from the `list-pending` snapshot immediately after the criteria-stage drain ("35
+  proposal(s) pending after the criteria window" = 1 epic + 5 tasks + 20 criteria + 9
+  assumptions). Greater than zero, as required for a passing run.
+- **`criteriaReachabilityReading`: `drafted`** — printed verbatim by the script
+  ("`criteria-reachability reading: drafted`"). This is the passing reading.
+- **`assertProposalListNonEmptyInTurn` verdict: `not-applicable`** — printed verbatim
+  ("`proposal_list-in-staging-turn verdict: not-applicable`"). Per `PASSING_PROPOSAL_LIST_VERDICTS`
+  (`scripts/uat/uat-08-socratic-authoring.mjs`), `not-applicable` is a PASSING verdict, and per this
+  file's own test coverage ("a staging call with no LATER proposal_list call is equally
+  not-applicable") it specifically means: staging calls happened in the criteria turn, and the
+  agent never called `proposal_list` afterward. The agent parented all 20 criteria directly from
+  its own staging results, with no read-back call at all.
+- **Per-criterion SHAPE-01/02/03/04 pass/fail table: not computed.** `buildCriteriaResults` is
+  called only after the `reject-proposal` step that crashed; the crash occurred before that point,
+  so no final pass/fail table for the plan-level SHAPE criteria exists for this run. This is an
+  honest absence, not a suppressed failure — the crash is upstream of where those criteria are
+  evaluated.
+
+### Comparison against the recorded prior failure (run `01M3ENQMC3E4M2HP7014MA84PX`)
+
+The prior recorded failure's own turn 4 (`05-LIVE-CHALLENGE-TRANSCRIPT.md` as committed before this
+run) reads: *"I stopped short of staging tasks. Staged proposals don't come back in `board_search`,
+so there's no proposal id to hang tasks and criteria off within this session."* — the agent
+declined to fabricate a `parent_proposal_id` because no staging call returned one and no read tool
+could supply one in-turn.
+
+**That specific behaviour is absent from this run.** Turn 12 above (the criteria-drafting turn)
+stages 1 epic, 5 tasks and 20 criteria in one turn, naming a concrete parent id for every criterion
+it stages, quoted directly from the transcript:
+
+> "**Epic** `…5Z8YYK` — 3 criteria, all cross-cutting rather than task-local: ... **Halted-awaiting-human
+> predicate** `…X6KYQV` — 3. ... **Recipient resolution** `…ZASATP` — 3. ... **Lifecycle** `…525AZZ`
+> — 5. ... **Tray UI** `…NA9NSV` — 4. ... **Scoping** `…MXQ9A5` — 2."
+
+Every one of those parent ids (the epic and all five tasks) was itself staged earlier in the SAME
+turn or the same session, and none of them was looked up via `proposal_list` — the agent read each
+id directly off its own `propose_epic`/`propose_task` tool result and passed it straight to
+`propose_criterion` as `parent_proposal_id`. This is exactly the behaviour plan 05-48's return
+contract and plan 05-50's instruction rewording were meant to produce, and it is observed working
+end to end against the real backend.
+
+### Why this run is still reported as FAILED, not narrowed to a pass
+
+The crash is a pre-existing harness defect, structurally unrelated to the G-05-10 contract this
+plan closes: `criterionProposals` (the reject target list) is computed from a `list-pending`
+snapshot taken BEFORE `accept-subtree` runs; `accept-subtree`'s own D-96 implied-parent walk
+materialised the epic, one task and that task's 2 own criteria in the same transaction (visible
+above as "board counts after accept: tasks=1 criteria=2"), silently invalidating two entries in the
+already-computed `criterionProposals` array. The harness then tried to reject
+`criterionProposals[1]` — a stale index into a list that accept-subtree had already partially
+decided — and the second core-side `status = "accepted"` guard correctly refused the double
+decision. This defect could only surface once a live run produced enough tasks and criteria for the
+pending list's ordering to collide with `accept-subtree`'s own cascade — which is to say, it was
+only reachable once G-05-10's fix let the agent draft this many rows in one session at all. Per this
+task's own instruction, no harness change is made here; the defect is recorded for a future plan.
 
 ## Credential path
 
 - Authentication method: claude.ai
 - Logged in: true
-- Configuration directory: /var/folders/3x/b6p583x9491_v7qmnf087j580000gn/T/flywheel-uat-socratic-authoring-r8waG4/claude-config
+- Configuration directory: /var/folders/3x/b6p583x9491_v7qmnf087j580000gn/T/flywheel-uat-socratic-authoring-Jh2w8a/claude-config
 - No API-key environment variable was present in the spawned environment (0 removed before spawn).
 
 ## Verdicts (human — fill these in)
