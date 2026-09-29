@@ -312,18 +312,17 @@ pub struct StageInstruction {
 /// tool name and states the one-call-per-assumption rule explicitly, so the agent never has to
 /// guess either. Also states what the rows are FOR (a draft the developer decides on, primed into
 /// a later session only once accepted) — the framing D-89 says is what makes a distilled record
-/// acceptable at all. Plan 05-44 (gap G-05-9): the closing sentence, before "Go ahead now.", names
-/// `proposal_list` as the way a staged proposal's id is read back, since `parent_proposal_id`
-/// (`propose_criterion`'s required field, and any later amendment) needs that id and no earlier
-/// turn ever told the agent how to obtain it.
+/// acceptable at all. Plan 05-50 (closing gap G-05-10): the closing sentence, before "Go ahead
+/// now.", names the staging call's own tool result as the id source, since `parent_proposal_id`
+/// (`propose_criterion`'s required field, and any later amendment) needs that id and plan 05-48
+/// made every staging call return it directly — no second tool call is needed to obtain it.
 const DISTILLATION_INSTRUCTION_TEXT: &str = "Before we move on: call `propose_assumption` once for \
     EACH assumption you challenged in this stage, each call carrying that one assumption and the \
     answer I gave you — one tool call per assumption, never a single call carrying a list, and \
     never folding more than one assumption's text into a single call. These rows are a DRAFT of \
     your own reasoning: I will accept, amend or reject each one myself, and only the ones I accept \
-    will be primed into a later session on this epic. Any proposal you stage in this session can \
-    have its id read back with `proposal_list` — that id is what `parent_proposal_id` takes. Go \
-    ahead now.";
+    will be primed into a later session on this epic. Every proposal you stage returns its own id \
+    in the tool result as `proposalId` — that id is what `parent_proposal_id` takes. Go ahead now.";
 
 /// The criteria instruction's own fixed text (plan 05-45, closing gap G-05-9: entering D-88's
 /// third stage used to deliver NO instruction at all, so no turn in the product ever asked the
@@ -334,22 +333,32 @@ const DISTILLATION_INSTRUCTION_TEXT: &str = "Before we move on: call `propose_as
 /// (every task staged this session, any task that already existed on the epic, or the epic
 /// proposal itself — never conditional on a task existing, since `materialise_proposal` permits an
 /// epic-scoped criterion directly), names `parent_proposal_id` as how the parent is identified and
-/// `proposal_list` as where its id comes from, and states plainly that the parent does NOT need to
-/// be accepted first — D-96's implied-parent walk accepts a still-pending parent in the same
-/// transaction as the criterion, so the agent must not reason itself into waiting for an
-/// acceptance that will never come inside its own session (exactly what happened in live run
-/// `01M3ENQMC3E4M2HP7014MA84PX`).
+/// the earlier staging call's own tool result as where its id comes from, and states plainly that
+/// the parent does NOT need to be accepted first — D-96's implied-parent walk accepts a
+/// still-pending parent in the same transaction as the criterion, so the agent must not reason
+/// itself into waiting for an acceptance that will never come inside its own session.
+///
+/// Plan 05-50 (closing gap G-05-10) corrects this doc comment's own prior account of live run
+/// `01M3ENQMC3E4M2HP7014MA84PX`'s failure. That prior account attributed the failure to the agent
+/// "reasoning itself into waiting" for an acceptance — a prompting diagnosis. The measured cause
+/// was structural, not a reasoning lapse: no staging call returned an id and no in-turn read could
+/// supply one, so the agent had no value it could truthfully pass as `parent_proposal_id` and
+/// declined to fabricate one. That contract defect was closed in plan 05-48 (every `propose_*`
+/// call now resolves with the row's own id in the same tool call); this instruction's wording is
+/// only a consequence of that fix, not a fix on its own. An instruction rewording does NOT repair
+/// a missing capability — rounds 10 through 12 each reworded this instruction against the
+/// unfixed contract and each produced a new instance of the same live failure. Do not repeat that.
 const CRITERIA_INSTRUCTION_TEXT: &str = "Now for the acceptance criteria: call `propose_criterion` \
     once for EACH criterion — one tool call per criterion, never a single call carrying a list, \
     and never folding more than one criterion's text into a single call. Draft criteria for every \
     task you staged this session, for any task that already existed on this epic, and directly on \
     the epic proposal itself where a criterion belongs there instead — don't wait for a task to \
-    exist first if none does. Name the parent with `parent_proposal_id`; call `proposal_list` to \
-    see the id of anything you have staged and not yet decided on. The parent does NOT need to be \
-    accepted first: accepting a criterion accepts its still-pending parent in the same \
-    transaction, so go ahead and name a pending parent directly. These rows are a DRAFT of your \
-    own reasoning: I will accept, amend or reject each one myself, and only the ones I accept will \
-    be primed into a later session on this epic. Go ahead now.";
+    exist first if none does. Name the parent with `parent_proposal_id`, using the id the earlier \
+    staging call returned in its result. The parent does NOT need to be accepted first: accepting \
+    a criterion accepts its still-pending parent in the same transaction, so go ahead and name a \
+    pending parent directly. These rows are a DRAFT of your own reasoning: I will accept, amend or \
+    reject each one myself, and only the ones I accept will be primed into a later session on this \
+    epic. Go ahead now.";
 
 /// Advance `agent_run_id` to the next stage (D-88, D-90) — `challenge -> decompose -> criteria`,
 /// erroring at the last stage rather than wrapping or no-opping. Returns the new stage alongside a

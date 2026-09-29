@@ -86,8 +86,9 @@ fn a_fresh_epic_session_reaches_propose_criterion_through_the_id_list_proposals_
     assert_eq!(proposals[0]["targetType"], json!("epic"));
 
     // `propose_criterion` is now reachable: stage a criterion naming the STILL-PENDING epic
-    // proposal's id as its `parent_proposal_id`, exactly as an agent calling `propose_criterion`
-    // with the id `proposal_list` just handed it would.
+    // proposal's id as its `parent_proposal_id`. Plan 05-48 made this reachable directly from the
+    // staging call's own tool result; `list_proposals` (proved below and exercised here to pin its
+    // own reachability property) remains a second, still-valid way to obtain the same id.
     let criterion_proposal = create_proposal(
         &mut conn,
         &run.id,
@@ -120,8 +121,9 @@ fn a_fresh_epic_session_reaches_propose_criterion_through_the_id_list_proposals_
 }
 
 /// A run with nothing staged resolves `list_proposals` to an empty page with `truncated: false` —
-/// never an error. An agent calling `proposal_list` before it has proposed anything must see "you
-/// have proposed nothing yet", not a failure.
+/// never an error. An agent calling `proposal_list` (the MCP tool name `list_proposals` is
+/// dispatched through) before it has proposed anything must see "you have proposed nothing yet",
+/// not a failure.
 #[test]
 fn list_proposals_on_a_run_with_nothing_staged_is_an_empty_page_not_an_error() {
     let (mut conn, actor_id, project) = common::seeded_project();

@@ -54,9 +54,16 @@ fn advancing_out_of_challenge_returns_a_distillation_instruction_naming_propose_
             instruction.text
         );
         assert!(
-            instruction.text.contains("proposal_list"),
-            "the distillation instruction must additionally name proposal_list as the way to read \
-             a staged proposal's id back (plan 05-44 shipped it): {}",
+            instruction.text.contains("proposalId") && instruction.text.contains("parent_proposal_id"),
+            "the distillation instruction must name parent_proposal_id and name the staging call's \
+             own tool result (proposalId) as its id source (plan 05-50 closed gap G-05-10 — the \
+             agent is no longer told to call a read tool for the id): {}",
+            instruction.text
+        );
+        assert!(
+            !instruction.text.contains("proposal_list"),
+            "the distillation instruction must not direct the agent to a read tool for a parent id \
+             — every staging call already returns its own id in the same tool call: {}",
             instruction.text
         );
         assert!(
@@ -103,6 +110,18 @@ fn advancing_out_of_decompose_into_criteria_returns_a_criteria_instruction_namin
             instruction.text.to_lowercase().contains("does not need to be accepted first"),
             "the criteria instruction must state that a still-pending parent proposal does not \
              need to be accepted first (D-96's implied-parent walk): {}",
+            instruction.text
+        );
+        assert!(
+            instruction.text.contains("parent_proposal_id") && instruction.text.contains("staging call"),
+            "the criteria instruction must name parent_proposal_id and name the earlier staging \
+             call's own result as its id source (plan 05-50 closed gap G-05-10): {}",
+            instruction.text
+        );
+        assert!(
+            !instruction.text.contains("proposal_list"),
+            "the criteria instruction must not direct the agent to a read tool for a parent id — \
+             every staging call already returns its own id in the same tool call: {}",
             instruction.text
         );
         assert_ne!(
