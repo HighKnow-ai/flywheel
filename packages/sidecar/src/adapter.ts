@@ -293,6 +293,11 @@ export interface SummaryReportedEvent extends AgentEventBase {
  */
 export interface ProposalCreatedEvent extends AgentEventBase {
   type: "proposal_created";
+  /** Plan 05-48 (D-80/D-81/D-92): the correlation id this call is still WAITING for an answer
+   * on — the same held-call shape {@link BoardReadRequestEvent.requestId} already carries. The
+   * Rust core resolves it via `SidecarHandle::relay_authoring_proposal_answer` / the sidecar's own
+   * `authoring_proposal_answer` op, which reaches {@link AgentAdapter.resolveProposalStaged}. */
+  requestId: string;
   verb: "create" | "amend" | "delete";
   targetType: "epic" | "task" | "criterion" | "assumption";
   targetId?: string;
@@ -495,6 +500,11 @@ export interface AgentAdapter {
   /** D-87 (plan 05-05): answer a held `board_read` call for `runId` — the read-path sibling of
    * `resolvePermission`, reached from the sidecar's own `authoring_read_answer` op. */
   resolveBoardRead(runId: string, requestId: string, result: unknown, error?: string): void;
+
+  /** Plan 05-48 (D-80/D-81/D-92): answer a held proposal-staging call for `runId` — the
+   * staging-path sibling of {@link resolveBoardRead}, reached from the sidecar's own
+   * `authoring_proposal_answer` op. `result` carries `{proposalId}` on success. */
+  resolveProposalStaged(runId: string, requestId: string, result: unknown, error?: string): void;
 
   /** D-89 (plan 05-05): send one turn's text to a LIVE authoring session — the one way anything
    * above this adapter can say something to a running conversation. Rejects with

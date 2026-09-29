@@ -201,6 +201,12 @@ export interface SummaryReportPayload {
  * like {@link SummaryReportPayload}'s own header comment states of itself. */
 export interface AuthoringProposalPayload {
   kind: "authoring_proposal";
+  /** Plan 05-48 (D-80/D-81/D-92): the held-call correlation id — minted by `randomUUID()` inside
+   * {@link stageAuthoringProposal}, never by the model's own tool-call arguments. Names a call
+   * still WAITING for an answer, the same way {@link BoardReadRequestPayload.requestId} does; the
+   * connection is HELD in `pending` (keyed by this value) until {@link
+   * PermissionServerHandle.answerProposalStaged} settles it. */
+  requestId: string;
   verb: "create" | "amend" | "delete";
   targetType: "epic" | "task" | "criterion" | "assumption";
   targetId?: string;
@@ -296,7 +302,8 @@ function isAuthoringProposalPayload(parsed: unknown): parsed is AuthoringProposa
   return (
     parsed !== null &&
     typeof parsed === "object" &&
-    (parsed as { kind?: unknown }).kind === "authoring_proposal"
+    (parsed as { kind?: unknown }).kind === "authoring_proposal" &&
+    typeof (parsed as { requestId?: unknown }).requestId === "string"
   );
 }
 
@@ -324,6 +331,13 @@ export interface PermissionServerHandle {
    * "a requestId matching no held call is ignored with a logged notice" contract; a distinct
    * method only because the settled payload shape differs (`{result}`/`{error}` vs `{decision}`). */
   answerBoardRead(requestId: string, result: unknown, error?: string): void;
+  /** Plan 05-48 (D-80/D-81/D-92): answer a held proposal-staging call with its core-minted result
+   * (or an error string) — the staging-path sibling of {@link answerBoardRead}, sharing the SAME
+   * `pending` map and the SAME "a requestId matching no held call is ignored with a logged
+   * notice" contract; a distinct method only because the settled payload shape differs
+   * (`{result: {proposalId}}`/`{error}` — deliberately identical wire shape to `answerBoardRead`,
+   * just documented under its own name for this call's own purpose). */
+  answerProposalStaged(requestId: string, result: unknown, error?: string): void;
   /** Stop listening and remove the socket file. Safe to call more than once. */
   close(): void;
 }
@@ -346,14 +360,15 @@ export interface PermissionServerHandle {
  * answered with a receipt acknowledgement, and closed IMMEDIATELY — also never added to `pending`,
  * for the identical reason a notice is not: a summary is not a held call either.
  *
- * `onProposal` (plan 05-02, D-80/D-81) is invoked once per incoming connection whose parsed line
- * carries `kind: "authoring_proposal"` — a THIRD message kind on this SAME socket, mirroring
- * `onSummary`'s own precedent exactly. Checked BEFORE the `onNotice` branch (see
- * {@link isAuthoringProposalPayload}), answered with a receipt acknowledgement, and closed
- * IMMEDIATELY — never added to `pending`, for the identical reason a summary is not. Optional,
- * defaulting to a no-op, so every existing call site (production and test) that predates this
- * plan keeps compiling unchanged — this server's THIRD role is additive, not a breaking change to
- * its first two.
+ * `onProposal` (plan 05-02, D-80/D-81; widened plan 05-48, D-80/D-81/D-92) is invoked once per
+ * incoming connection whose parsed line carries `kind: "authoring_proposal"` — a THIRD message
+ * kind on this SAME socket, mirroring `onSummary`'s own precedent for the message-kind split, but
+ * UNLIKE `onSummary` this connection IS held in `pending` (like the routine permission-request
+ * and `board_read` paths), because the caller needs the core-minted `proposalId` back, not just a
+ * receipt. Checked BEFORE the `onNotice` branch (see {@link isAuthoringProposalPayload}), settled
+ * later by {@link PermissionServerHandle.answerProposalStaged}. Optional, defaulting to a no-op,
+ * so every existing call site (production and test) that predates plan 05-02 keeps compiling
+ * unchanged.
  *
  * `onBoardRead` (plan 05-05, D-87) is invoked once per incoming connection whose parsed line
  * carries `kind: "board_read"` — a FOURTH message kind on this SAME socket, but unlike `onNotice`/
@@ -404,14 +419,17 @@ export function startPermissionServer(
         return;
       }
 
-      // Plan 05-02 (D-80/D-81): an authoring proposal carries `kind: "authoring_proposal"`
+      // Plan 05-48 (D-80/D-81/D-92): an authoring proposal carries `kind: "authoring_proposal"`
       // EXACTLY — checked BEFORE the broader isNoticePayload check below, mirroring the summary
-      // branch immediately above. Answered with the SAME receipt-acknowledgement shape a summary
-      // gets and closed IMMEDIATELY, never added to `pending` — staging a proposal is not a held
-      // call either.
+      // branch immediately above. UNLIKE a summary, this connection IS held in `pending` (keyed by
+      // the caller's own `requestId`, mirroring the `board_read` branch immediately below) — a
+      // staging call needs the core-minted `proposalId` back, not just a receipt, so
+      // `answerProposalStaged` resolves it later exactly as `answerBoardRead` resolves its own
+      // held call.
       if (isAuthoringProposalPayload(parsed)) {
+        pending.set(parsed.requestId, socket);
+        socket.on("close", () => pending.delete(parsed.requestId));
         onProposal(parsed);
-        socket.end(JSON.stringify({ received: true }) + "\n");
         return;
       }
 
@@ -477,6 +495,15 @@ export function startPermissionServer(
       const socket = pending.get(requestId);
       if (!socket) {
         console.error(`[flywheel-permissions] no held board_read call for requestId=${requestId} — ignoring`);
+        return;
+      }
+      pending.delete(requestId);
+      socket.end(JSON.stringify(error !== undefined ? { error } : { result }) + "\n");
+    },
+    answerProposalStaged(requestId, result, error) {
+      const socket = pending.get(requestId);
+      if (!socket) {
+        console.error(`[flywheel-permissions] no held proposal staging call for requestId=${requestId} — ignoring`);
         return;
       }
       pending.delete(requestId);
@@ -776,7 +803,7 @@ export function buildProposeTaskPayload(args: {
   title?: unknown;
   description?: unknown;
   parent_proposal_id?: unknown;
-}): AuthoringProposalPayload {
+}): Omit<AuthoringProposalPayload, "requestId"> {
   const title = typeof args.title === "string" ? args.title.trim() : "";
   if (title.length === 0) {
     throw new Error("propose_task requires a non-empty title");
@@ -800,7 +827,7 @@ export function buildProposeTaskPayload(args: {
 
 /** Plan 05-05 (D-80/D-81): build the `authoring_proposal` wire payload for one `propose_epic` call
  * — mirrors {@link buildProposeTaskPayload}'s own validation posture exactly. */
-export function buildProposeEpicPayload(args: { title?: unknown; description?: unknown }): AuthoringProposalPayload {
+export function buildProposeEpicPayload(args: { title?: unknown; description?: unknown }): Omit<AuthoringProposalPayload, "requestId"> {
   const title = typeof args.title === "string" ? args.title.trim() : "";
   if (title.length === 0) {
     throw new Error("propose_epic requires a non-empty title");
@@ -824,7 +851,7 @@ export function buildProposeCriterionPayload(args: {
   statement?: unknown;
   parent_proposal_id?: unknown;
   verification_hint?: unknown;
-}): AuthoringProposalPayload {
+}): Omit<AuthoringProposalPayload, "requestId"> {
   const statement = typeof args.statement === "string" ? args.statement.trim() : "";
   if (statement.length === 0) {
     throw new Error("propose_criterion requires a non-empty statement");
@@ -854,7 +881,7 @@ export function buildProposeCriterionPayload(args: {
 export function buildProposeAssumptionPayload(args: {
   assumption?: unknown;
   answer?: unknown;
-}): AuthoringProposalPayload {
+}): Omit<AuthoringProposalPayload, "requestId"> {
   const assumption = typeof args.assumption === "string" ? args.assumption.trim() : "";
   if (assumption.length === 0) {
     throw new Error("propose_assumption requires a non-empty assumption");
@@ -919,7 +946,7 @@ export function buildAmendProposalPayload(args: {
   description?: unknown;
   statement?: unknown;
   verification_hint?: unknown;
-}): AuthoringProposalPayload {
+}): Omit<AuthoringProposalPayload, "requestId"> {
   if (!isValidUlidLength(args.target_id)) {
     throw new Error("amend_proposal requires a target_id that is exactly 26 characters");
   }
@@ -949,7 +976,7 @@ export function buildDeleteProposalPayload(args: {
   description?: unknown;
   statement?: unknown;
   verification_hint?: unknown;
-}): AuthoringProposalPayload {
+}): Omit<AuthoringProposalPayload, "requestId"> {
   if (!isValidUlidLength(args.target_id)) {
     throw new Error("delete_proposal requires a target_id that is exactly 26 characters");
   }
@@ -971,34 +998,45 @@ export function buildDeleteProposalPayload(args: {
   };
 }
 
-/** Stage one {@link AuthoringProposalPayload} over the per-run socket and resolve once the
- * supervisor has acknowledged receipt — the ONE connect/write/wait shape every
- * `propose_`/`amend_`/`delete_` tool call shares, factored out so six near-identical `Promise`
- * bodies never drift from each other. Deliberately no `setTimeout`/`setInterval` — the promise
- * settles ONLY when the socket answers, matching every other tool call in this module. */
-function stageAuthoringProposal(
+/** Stage one {@link AuthoringProposalPayload} over the per-run socket and resolve with the
+ * CORE-MINTED `proposalId` the held call answers with — the ONE connect/write/hold/wait shape
+ * every `propose_`/`amend_`/`delete_` tool call shares, factored out so six near-identical
+ * `Promise` bodies never drift from each other. Plan 05-48 (D-80/D-81/D-92, gap G-05-10): this
+ * used to resolve the instant the socket sent a bare `{received: true}` receipt; it now mints its
+ * own `requestId`, writes it onto the wire payload, and HOLDS the socket exactly like
+ * {@link requestBoardRead} does — the caller needs the row id the Rust core actually wrote, not
+ * an acknowledgement that a write was attempted. Deliberately no `setTimeout`/`setInterval` — the
+ * promise settles ONLY when the socket answers, matching every other held call in this module.
+ * Exported so the regression suite can drive it directly against a real socket. */
+export function stageAuthoringProposal(
   socketPath: string,
-  payload: AuthoringProposalPayload,
+  payload: Omit<AuthoringProposalPayload, "requestId">,
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  const requestId = randomUUID();
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath, () => {
-      socket.write(JSON.stringify(payload) + "\n");
+      socket.write(JSON.stringify({ ...payload, requestId }) + "\n");
     });
     socket.on("error", (err) => reject(err));
     const rl = createInterface({ input: socket });
     rl.once("line", (line) => {
-      let parsed: { received?: boolean };
+      let parsed: { result?: { proposalId?: unknown }; error?: string };
       try {
-        parsed = JSON.parse(line) as { received?: boolean };
+        parsed = JSON.parse(line) as { result?: { proposalId?: unknown }; error?: string };
       } catch (err) {
         reject(err);
         return;
       }
-      if (parsed.received === true) {
-        resolve({ content: [{ type: "text", text: JSON.stringify({ staged: true }) }] });
-      } else {
-        reject(new Error(`unexpected proposal acknowledgement shape: ${line}`));
+      if (parsed.error !== undefined) {
+        reject(new Error(parsed.error));
+        return;
       }
+      const proposalId = parsed.result?.proposalId;
+      if (typeof proposalId !== "string") {
+        reject(new Error(`staging answer carried no proposalId: ${line}`));
+        return;
+      }
+      resolve({ content: [{ type: "text", text: JSON.stringify({ staged: true, proposalId }) }] });
     });
   });
 }

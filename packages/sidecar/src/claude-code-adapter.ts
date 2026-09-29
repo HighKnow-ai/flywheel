@@ -604,6 +604,7 @@ export function normalizeProposalNotice(
     at,
     raw: JSON.stringify(payload),
     type: "proposal_created",
+    requestId: payload.requestId,
     verb: payload.verb,
     targetType: payload.targetType,
     targetId: payload.targetId,
@@ -1643,6 +1644,15 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const session = liveSessions.get(runId);
     if (!session) throw new UnknownRunError(runId);
     session.permissionServer.answerBoardRead(requestId, result, error);
+  }
+
+  /** Plan 05-48 (D-80/D-81/D-92): answer a held proposal-staging call for `runId` with the
+   * core-minted result (or error) — the staging-path sibling of {@link resolveBoardRead}, same
+   * "unknown runId rejects, mismatched requestId is a logged no-op" contract. */
+  resolveProposalStaged(runId: string, requestId: string, result: unknown, error?: string): void {
+    const session = liveSessions.get(runId);
+    if (!session) throw new UnknownRunError(runId);
+    session.permissionServer.answerProposalStaged(requestId, result, error);
   }
 
   /** D-89 (plan 05-05): send one turn's text to a LIVE authoring session — the one way anything

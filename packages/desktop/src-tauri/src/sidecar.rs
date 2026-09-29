@@ -453,6 +453,30 @@ impl SidecarHandle {
         self.send_request(&request.to_string())
     }
 
+    /// Plan 05-48 (D-80/D-81/D-92, gap G-05-10): answer a held proposal-staging call for
+    /// `run_id`/`request_id` with the core-minted result (or an error) — the staging-path sibling
+    /// of [`Self::relay_authoring_read_answer`], following its identical fire-and-forget shape (no
+    /// ack wait): the sidecar's own `authoring_proposal_answer` ack is not something this call's
+    /// caller needs to observe synchronously.
+    pub fn relay_authoring_proposal_answer(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        result: Result<serde_json::Value, String>,
+    ) -> anyhow::Result<()> {
+        let mut request = serde_json::json!({
+            "id": format!("proposal-staged-answer-{request_id}"),
+            "op": "authoring_proposal_answer",
+            "runId": run_id,
+            "requestId": request_id,
+        });
+        match result {
+            Ok(value) => request["result"] = value,
+            Err(message) => request["error"] = serde_json::Value::String(message),
+        }
+        self.send_request(&request.to_string())
+    }
+
     /// Record a turn WITHOUT relaying it to the child process — the developer's stated premise,
     /// which is already inside the opening prompt the session is spawned with
     /// (`authoring_run_start`'s own doc comment says why relaying it too would put the same text

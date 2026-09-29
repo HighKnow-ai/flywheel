@@ -66,6 +66,18 @@ interface AuthoringReadAnswerRequest {
   error?: string;
 }
 
+/** Plan 05-48 (D-80/D-81/D-92): the Rust core's answer to one held proposal-staging call — the
+ * staging-path sibling of {@link AuthoringReadAnswerRequest}. Carries EITHER `result` OR `error`,
+ * never both. */
+interface AuthoringProposalAnswerRequest {
+  id: string;
+  op: "authoring_proposal_answer";
+  runId: string;
+  requestId: string;
+  result?: unknown;
+  error?: string;
+}
+
 /** D-89 (plan 05-05): send one turn's text to a live authoring session. */
 interface AuthoringTurnRequest {
   id: string;
@@ -114,6 +126,7 @@ type SidecarRequest =
   | KillRequest
   | PermissionAnswerRequest
   | AuthoringReadAnswerRequest
+  | AuthoringProposalAnswerRequest
   | AuthoringTurnRequest
   | CapabilityProbeRequest
   | ShutdownRequest
@@ -271,6 +284,18 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       // Rust core's own result (or error), mirroring "permission_answer"'s own shape above.
       try {
         adapter.resolveBoardRead(request.runId, request.requestId, request.result, request.error);
+        emitAck(request.id, true);
+      } catch (err: unknown) {
+        emitAck(request.id, false, String(err));
+      }
+      return;
+    }
+    case "authoring_proposal_answer": {
+      // Plan 05-48 (D-80/D-81/D-92): the ONLY caller of resolveProposalStaged — resolves a held
+      // proposal-staging call with the Rust core's own result (or error), mirroring
+      // "authoring_read_answer"'s own shape above.
+      try {
+        adapter.resolveProposalStaged(request.runId, request.requestId, request.result, request.error);
         emitAck(request.id, true);
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));

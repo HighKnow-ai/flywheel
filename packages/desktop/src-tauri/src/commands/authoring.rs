@@ -948,10 +948,21 @@ pub fn authoring_turn_send(
 /// testable without a real spawned sidecar, and this half performs the `board:changed` emit the
 /// outcome implies.
 ///
+/// Plan 05-48 (D-80/D-81/D-92, gap G-05-10): holding the staging socket (`stageAuthoringProposal`)
+/// means this event's own `requestId`, when present, names a tool call still WAITING for an
+/// answer. Every `ProposalOutcome` this function reaches relays exactly one answer back over
+/// [`crate::sidecar::SidecarHandle::relay_authoring_proposal_answer`] — the core-minted id on
+/// `Created`, an outcome-shaped `Err` string on `Ignored`/`UnknownRun`/`TerminalRun`. An event
+/// carrying NO `requestId` (the pre-05-48 fire-and-forget shape) performs the write and the
+/// `board:changed` emit exactly as before and relays nothing — full backward compatibility.
+///
 /// This function must never panic — no `expect`, no `unwrap`, no direct indexing: a malformed
 /// event, a poisoned lock, or an error from the applier is a silent no-op here, matching
 /// `sidecar.rs`'s own "a malformed line never crashes the reader task" discipline.
 pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Value) {
+    let request_id = event.get("requestId").and_then(|v| v.as_str());
+    let run_id = event.get("runId").and_then(|v| v.as_str()).unwrap_or_default();
+
     let Some(state) = app.try_state::<AppState>() else { return };
     let Ok(mut conn) = state.db.lock() else { return };
 
@@ -963,12 +974,31 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
 
     drop(conn);
 
-    if let flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(proposal) = outcome {
+    if let flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(ref proposal) = outcome {
         let _ = app.emit(
             "board:changed",
             serde_json::json!({ "entity": "agent_run", "id": proposal.agent_run_id }),
         );
     }
+
+    let Some(request_id) = request_id else { return };
+    let Some(sidecar) = state.sidecar.as_ref() else { return };
+
+    let result: Result<serde_json::Value, String> = match outcome {
+        flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(proposal) => {
+            Ok(serde_json::json!({ "proposalId": proposal.id }))
+        }
+        flywheel_core::domain::authoring_proposal::ProposalOutcome::Ignored => {
+            Err("the proposal event was ignored: malformed or unparseable payload".to_string())
+        }
+        flywheel_core::domain::authoring_proposal::ProposalOutcome::UnknownRun => {
+            Err("no agent_runs row matches this run".to_string())
+        }
+        flywheel_core::domain::authoring_proposal::ProposalOutcome::TerminalRun => {
+            Err("this run has already reached a terminal status".to_string())
+        }
+    };
+    let _ = sidecar.relay_authoring_proposal_answer(run_id, request_id, result);
 }
 
 /// D-87 (plan 05-05; relay-shell extraction plan 05-18/G-05-1): the inbound half of the
