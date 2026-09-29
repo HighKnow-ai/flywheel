@@ -31,9 +31,11 @@
 import assert from "node:assert/strict";
 import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { pathToFileURL } from "node:url";
 
 import {
   accumulateTurn,
@@ -74,7 +76,7 @@ import {
   UNMODELLED_EVENT_CAPTURE_LIMIT,
   UNMODELLED_EVENT_LINE_LIMIT,
 } from "./lib/sidecar-harness.mjs";
-import { DEFAULT_SCENARIO, SCENARIOS, SCENARIO_ENV_VAR } from "./lib/fake-authoring-claude.mjs";
+import { DEFAULT_SCENARIO, SCENARIOS, SCENARIO_ENV_VAR, stagedToolResultText } from "./lib/fake-authoring-claude.mjs";
 
 /** The fake authoring backend's own file — resolved once so both `--replay-check` (as
  * `FLYWHEEL_CLAUDE_BIN`) and this script's own build-hint messages name the same path. Never
@@ -800,6 +802,73 @@ async function selfTest() {
         assert.ok(result.nextIndex >= 1);
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  // -----------------------------------------------------------------------------------------
+  // Task 2 (G-05-10): the fixture's own staged tool-result body must match the shape the real
+  // MCP server produces — the structural guard against the exact divergence this plan closes.
+  // -----------------------------------------------------------------------------------------
+  await check(
+    "the fixture's staged tool-result body matches the shape the real MCP server produces",
+    async () => {
+      const distPath = path.join(REPO_ROOT, "packages", "sidecar", "dist", "mcp-permission-server.js");
+      if (!fs.existsSync(distPath)) {
+        console.log(
+          `[self-test] SKIP — the fixture's staged tool-result body matches the shape the real MCP ` +
+            `server produces: ${distPath} is not built — run \`npm --prefix packages/sidecar run build\``,
+        );
+        return;
+      }
+      const { startPermissionServer, stageAuthoringProposal, buildProposeEpicPayload } = await import(
+        pathToFileURL(distPath).href
+      );
+      const REAL_PROPOSAL_ID = "01SELFTESTREALSERVERIDAA1";
+      let handle;
+      try {
+        handle = startPermissionServer(
+          () => {},
+          () => {},
+          () => {},
+          (payload) => {
+            handle.answerProposalStaged(payload.requestId, { proposalId: REAL_PROPOSAL_ID });
+          },
+        );
+        await new Promise((resolve, reject) => {
+          const deadline = Date.now() + 2000;
+          const attempt = () => {
+            const client = net.createConnection(handle.socketPath);
+            client.once("connect", () => {
+              client.end();
+              resolve();
+            });
+            client.once("error", () => {
+              if (Date.now() > deadline) {
+                reject(new Error(`timed out waiting for the permission socket to listen: ${handle.socketPath}`));
+                return;
+              }
+              setTimeout(attempt, 10);
+            });
+          };
+          attempt();
+        });
+
+        const result = await stageAuthoringProposal(
+          handle.socketPath,
+          buildProposeEpicPayload({ title: "t", description: "d" }),
+        );
+        const realBody = JSON.parse(result.content[0].text);
+        const fixtureBody = JSON.parse(stagedToolResultText(REAL_PROPOSAL_ID));
+        assert.deepEqual(
+          Object.keys(realBody).sort(),
+          Object.keys(fixtureBody).sort(),
+          "expected the fixture's own staged tool-result body to declare the SAME keys the real " +
+            "MCP server's stageAuthoringProposal resolves with",
+        );
+        assert.deepEqual(realBody, fixtureBody);
+      } finally {
+        handle?.close();
       }
     },
   );

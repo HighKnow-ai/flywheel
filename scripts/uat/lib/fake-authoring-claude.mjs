@@ -234,6 +234,24 @@ function buildContinuousWorkTurn(repetitions) {
   return blocks;
 }
 
+/**
+ * Plan 05-49 (Task 2, G-05-10 — closing the fixture/product divergence): the ONE place a scripted
+ * staging `tool_result` body is built in this file, so every fixture entry derives from the SAME
+ * shape the real `stageAuthoringProposal` (`packages/sidecar/src/mcp-permission-server.ts`) resolves
+ * with — `{staged: true, proposalId}` — rather than each scenario hand-writing its own copy that can
+ * silently drift from the product's own key name. Before this plan, three separate call sites here
+ * each hand-wrote `{staged: true, id: ...}` — the key that was NEVER what the real server produced
+ * (`proposalId`, since plan 05-48) — so the offline `--replay-check` slice validated the harness
+ * against the fixture's own invention rather than the real contract. `--self-test`'s own
+ * "the fixture's staged tool-result body matches the shape the real MCP server produces" check
+ * drives this function's own output against the real `stageAuthoringProposal` and asserts the two
+ * key sets agree, so a future product-side rename fails that check instead of quietly resuming this
+ * exact divergence.
+ */
+export function stagedToolResultText(proposalId) {
+  return JSON.stringify({ staged: true, proposalId });
+}
+
 export const SCENARIOS = {
   "truncation-repro": {
     turns: [
@@ -850,7 +868,7 @@ export const SCENARIOS = {
           type: "tool_result",
           role: "user",
           tool_use_id: "toolu_dcsa_epic",
-          text: JSON.stringify({ staged: true, id: CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID }),
+          text: stagedToolResultText(CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID),
         },
         {
           type: "tool_use",
@@ -862,16 +880,36 @@ export const SCENARIOS = {
           type: "tool_result",
           role: "user",
           tool_use_id: "toolu_dcsa_assumption",
-          text: JSON.stringify({ staged: true, id: "01FAKEASSUMPTIONPROPOSALA1" }),
+          text: stagedToolResultText("01FAKEASSUMPTIONPROPOSALA1"),
         },
         { type: "text", text: "Epic and assumption both staged for your review." },
       ],
-      // Turn 4 — the reply to the CRITERIA instruction (entering criteria): reads the epic
-      // proposal's own id back via proposal_list, then stages a criterion naming that SAME id as
-      // parent_proposal_id — the exact reachability path gap G-05-9 asked to prove. Also split
+      // Turn 4 — the reply to the CRITERIA instruction (entering criteria): plan 05-49 (G-05-10)
+      // rewrites this turn to model the FIXED contract — the agent already holds the epic
+      // proposal's own id from turn 3's own staging result (`readBackProposalId`), so it parents
+      // the criterion DIRECTLY, with no `proposal_list` round trip in between. A single
+      // `proposal_list` call still appears in this SAME turn, AFTER the criterion is staged, as a
+      // review action — its scripted result is now the ONE thing that would go empty if the
+      // in-turn apply this plan's Task 1 ships ever regressed back to an out-of-band apply, which
+      // is exactly what `assertProposalListNonEmptyInTurn` (Task 3) exists to catch. Also split
       // across multiple content blocks.
       [
-        { type: "text", text: "Before drafting criteria, let me confirm the epic proposal's own id." },
+        { type: "text", text: "I already have the epic proposal's own id from staging it — parenting directly." },
+        {
+          type: "tool_use",
+          name: "mcp__flywheel-permissions__propose_criterion",
+          id: "toolu_dcsa_criterion",
+          input: {
+            statement: "A notification tray entry appears within one second of the triggering event.",
+            parent_proposal_id: CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID,
+          },
+        },
+        {
+          type: "tool_result",
+          role: "user",
+          tool_use_id: "toolu_dcsa_criterion",
+          text: stagedToolResultText("01FAKECRITERIONROWIDXXXA1"),
+        },
         {
           type: "tool_use",
           name: "mcp__flywheel-permissions__proposal_list",
@@ -888,21 +926,6 @@ export const SCENARIOS = {
             ],
             truncated: false,
           }),
-        },
-        {
-          type: "tool_use",
-          name: "mcp__flywheel-permissions__propose_criterion",
-          id: "toolu_dcsa_criterion",
-          input: {
-            statement: "A notification tray entry appears within one second of the triggering event.",
-            parent_proposal_id: CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID,
-          },
-        },
-        {
-          type: "tool_result",
-          role: "user",
-          tool_use_id: "toolu_dcsa_criterion",
-          text: JSON.stringify({ staged: true, id: "01FAKECRITERIONROWIDXXXA1" }),
         },
         { type: "text", text: "Criterion staged against the still-pending epic proposal." },
       ],
