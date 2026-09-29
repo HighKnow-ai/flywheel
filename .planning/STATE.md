@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-48-PLAN.md
-last_updated: "2026-09-29T05:29:18.449Z"
+stopped_at: Completed 05-49-PLAN.md
+last_updated: "2026-09-29T06:17:34.090Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 05 execution started
-state_head: c7bef01423c0b1c7d7a796b827f22ae995b94cd4
+state_head: d0f395ac6e6d08abd81c5ce213782711616af7dd
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 143
-  completed_plans: 141
+  completed_plans: 142
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 2 of 50
+Plan: 3 of 50
 Status: Ready to execute
 Last activity: 2026-09-29 — Phase 05 execution started
 
@@ -198,6 +198,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05-socratic-epic-authoring P46 | 70min | 3 tasks | 2 files |
 | Phase 05 P47 | ~35min | 2 tasks | 3 files |
 | Phase 05 P48 | ~30 min | 3 tasks | 6 files |
+| Phase 05 P49 | ~80min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -445,6 +446,7 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05, Plan 46]: drainProposalsUntilQuiet is watermark-driven (a plain integer cursor), never built from repeated waitForEvent calls — waitForEvent scans already-received events first, so a second call after the first match resolves instantly on the same already-applied event and never actually re-arms a second window.
 - [Phase 05]: [Phase 05, Plan 46]: readCriteriaReachability reuses correlateProposeAttempts verbatim for its 'blocked' value — no second attempt/answer correlation mechanism, per this phase's own six-round history of that exact recurring mistake.
 - [Phase 05]: [Phase 05-48]: The proposal id stays core-minted (new_id() in create_proposal_in_tx) — a sidecar-minted alternative was rejected since it could hand back an id for a row that might never exist (terminal run, unknown run, failed validation), reintroducing the same defect class this plan closes.
+- [Phase 05]: [Phase 05]: HELD_INBOUND_REQUEST_TYPES (scripts/uat/lib/sidecar-harness.mjs) gained proposal_created as a third held kind — without it, drainInboundCoreRequests's own type filter discards a proposal_created event before createProposalStagedHandler's registration can ever see it, making Task 1's mechanism unreachable dead code. — Confirmed necessary, not speculative: this file's own pre-existing self-test ("every kind the sidecar can hold open has an answering handler") already compared the registry's length against the sidecar's real answering-op count and was already red before this fix.
 
 ### Pending Todos
 
@@ -494,6 +496,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-29T05:29:10.206Z
-Stopped at: Completed 05-48-PLAN.md
+Last session: 2026-09-29T06:17:33.951Z
+Stopped at: Completed 05-49-PLAN.md
 Resume file: None
