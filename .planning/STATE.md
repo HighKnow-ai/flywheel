@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-47-PLAN.md
-last_updated: "2026-09-29T04:56:05.883Z"
+stopped_at: Completed 05-48-PLAN.md
+last_updated: "2026-09-29T05:29:18.449Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 05 execution started
-state_head: aebce74203fb1438829af68b7e695c13be2c3bdf
+state_head: c7bef01423c0b1c7d7a796b827f22ae995b94cd4
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 143
-  completed_plans: 140
+  completed_plans: 141
   percent: 0
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 05 (Socratic Epic Authoring) — EXECUTING
-Plan: 1 of 50
-Status: Executing Phase 05
+Plan: 2 of 50
+Status: Ready to execute
 Last activity: 2026-09-29 — Phase 05 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -197,6 +197,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P45 | 55min | 3 tasks | 8 files |
 | Phase 05-socratic-epic-authoring P46 | 70min | 3 tasks | 2 files |
 | Phase 05 P47 | ~35min | 2 tasks | 3 files |
+| Phase 05 P48 | ~30 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -443,6 +444,7 @@ Recent decisions affecting current work:
 - [Phase 05]: authoring_stage.rs's own test encoded the exact G-05-9 defect a second time; inverted alongside authoring_distillation.rs's test
 - [Phase 05]: [Phase 05, Plan 46]: drainProposalsUntilQuiet is watermark-driven (a plain integer cursor), never built from repeated waitForEvent calls — waitForEvent scans already-received events first, so a second call after the first match resolves instantly on the same already-applied event and never actually re-arms a second window.
 - [Phase 05]: [Phase 05, Plan 46]: readCriteriaReachability reuses correlateProposeAttempts verbatim for its 'blocked' value — no second attempt/answer correlation mechanism, per this phase's own six-round history of that exact recurring mistake.
+- [Phase 05]: [Phase 05-48]: The proposal id stays core-minted (new_id() in create_proposal_in_tx) — a sidecar-minted alternative was rejected since it could hand back an id for a row that might never exist (terminal run, unknown run, failed validation), reintroducing the same defect class this plan closes.
 
 ### Pending Todos
 
@@ -492,6 +494,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-26T13:32:25.636Z
-Stopped at: Completed 05-47-PLAN.md
+Last session: 2026-09-29T05:29:10.206Z
+Stopped at: Completed 05-48-PLAN.md
 Resume file: None
