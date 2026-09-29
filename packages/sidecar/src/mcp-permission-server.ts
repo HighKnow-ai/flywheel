@@ -617,17 +617,19 @@ export const proposeEpicToolDefinition = {
 /** Plan 05-05 (D-07/D-81): `propose_criterion`'s own registration object. `parent_proposal_id` is
  * REQUIRED — D-07 puts criteria on tasks and epics and nowhere else, and a drafted criterion has
  * no canonical parent until its own parent proposal is accepted, so this is the schema-layer
- * rejection point for a criterion with nowhere to hang. Plan 05-44 (gap G-05-9): the description
- * now names `proposal_list` as the way to obtain that id — `required`/`minLength` are otherwise
- * UNCHANGED, D-07's schema-layer rejection point stays exactly as it was, it now simply has a
- * reachable way to be satisfied. */
+ * rejection point for a criterion with nowhere to hang. Plan 05-48 (D-80/D-81/D-92, gap G-05-10):
+ * the description now names the `proposalId` a staging call itself resolves with as the source of
+ * that id — `proposal_list` (plan 05-44's own fix) is no longer the only way to obtain it, now
+ * that every staging call answers synchronously within the same tool call.
+ * `required`/`minLength` are otherwise UNCHANGED, D-07's schema-layer rejection point stays
+ * exactly as it was, it now simply has a reachable way to be satisfied. */
 export const proposeCriterionToolDefinition = {
   name: PROPOSE_CRITERION_TOOL_NAME,
   description:
     "Stage a proposed acceptance criterion on the Flywheel board, for a task or epic you already " +
-    "proposed earlier in this session (required: parent_proposal_id — call proposal_list to see " +
-    "the ids of proposals you have staged and not yet decided on). This does NOT create a " +
-    "criterion — it drafts one for a human to review, edit and accept.",
+    "proposed earlier in this session (required: parent_proposal_id — this is the proposalId " +
+    "value the earlier propose_epic/propose_task call itself resolved with). This does NOT " +
+    "create a criterion — it drafts one for a human to review, edit and accept.",
   inputSchema: {
     type: "object",
     properties: {
@@ -769,18 +771,21 @@ export const taskListToolDefinition = {
   },
 } as const;
 
-/** Plan 05-44 (gap G-05-9): `proposal_list`'s own registration object. Lists the proposals THIS
- * session has staged and not yet decided on — no `run_id`/`project_id`/`epic_id`/`task_id`
- * property of any kind, because the run is resolved server-side from the socket this call arrives
- * on, exactly like every write tool in this file (T-05-02-01). Each row carries the id
- * `propose_criterion`'s REQUIRED `parent_proposal_id` needs. Bounded to a page — check the
+/** Plan 05-44 (gap G-05-9), reframed plan 05-48 (D-80/D-81/D-92, gap G-05-10): `proposal_list`'s
+ * own registration object. Lists the proposals THIS session has staged and not yet decided on —
+ * no `run_id`/`project_id`/`epic_id`/`task_id` property of any kind, because the run is resolved
+ * server-side from the socket this call arrives on, exactly like every write tool in this file
+ * (T-05-02-01). A review aid only, NOT where `propose_criterion`'s REQUIRED `parent_proposal_id`
+ * comes from any more — every staging call now returns its own `proposalId` synchronously, within
+ * the same tool call, so this tool is never the only source. Bounded to a page — check the
  * `truncated` field before assuming you have seen everything. */
 export const proposalListToolDefinition = {
   name: PROPOSAL_LIST_TOOL_NAME,
   description:
-    "List the proposals THIS session has staged and is not yet decided on. Each row carries the " +
-    "id propose_criterion's parent_proposal_id needs. Bounded to a page — check the `truncated` " +
-    "field in the result before assuming you have seen everything.",
+    "List the proposals THIS session has staged and is not yet decided on, for review — each " +
+    "propose_/amend_/delete_ call already returns its own proposalId directly, so this is not " +
+    "where a parent id for propose_criterion comes from. Bounded to a page — check the " +
+    "`truncated` field in the result before assuming you have seen everything.",
   inputSchema: {
     type: "object",
     properties: {
