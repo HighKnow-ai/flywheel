@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 05
 current_phase_name: Socratic Epic Authoring
 status: executing
-stopped_at: Completed 05-50-PLAN.md
-last_updated: "2026-09-29T06:48:27.315Z"
+stopped_at: Completed quick task 260929-lq1
+last_updated: "2026-09-29T07:59:52.741Z"
 last_activity: 2026-09-29
-last_activity_desc: Phase 05 execution started
-state_head: a67719ed8b98ef6931b5a3f1f044b097a4ba3bca
+last_activity_desc: Completed quick task 260929-lq1: re-read before deciding — stale-snapshot proposal targets fixed in the live UAT harness
+state_head: 4f88bc863ebceb3c44d619f16179ccb6354283d1
 progress:
   total_phases: 12
   completed_phases: 0
@@ -449,6 +449,7 @@ Recent decisions affecting current work:
 - [Phase 05]: [Phase 05-48]: The proposal id stays core-minted (new_id() in create_proposal_in_tx) — a sidecar-minted alternative was rejected since it could hand back an id for a row that might never exist (terminal run, unknown run, failed validation), reintroducing the same defect class this plan closes.
 - [Phase 05]: [Phase 05]: HELD_INBOUND_REQUEST_TYPES (scripts/uat/lib/sidecar-harness.mjs) gained proposal_created as a third held kind — without it, drainInboundCoreRequests's own type filter discards a proposal_created event before createProposalStagedHandler's registration can ever see it, making Task 1's mechanism unreachable dead code. — Confirmed necessary, not speculative: this file's own pre-existing self-test ("every kind the sidecar can hold open has an answering handler") already compared the registry's length against the sidecar's real answering-op count and was already red before this fix.
 - [Phase 05]: Both D-88 stage instructions now name the staging call's own tool result (proposalId) as the parent-id source instead of proposal_list, closing G-05-10's contract-to-instruction gap. — Plans 05-48/05-49 fixed the write contract and harness; this plan retired the now-stale read-back framing in the instruction text itself, which three prior rounds (10-12) had reworded against the unfixed contract.
+- [Phase 05]: [Quick 260929-lq1]: pickPendingProposal (fresh list-pending read + pick as one operation) replaces every stale-snapshot proposal-decision target in the live UAT harness, closing the round-12 crash and a latent amend-criterion twin; pinned by a source-scanning self-test gate and a real-core regression slice. No live run performed — SHAPE-03's live draft-usefulness judgement remains open.
 
 ### Pending Todos
 
@@ -476,7 +477,7 @@ Recent decisions affecting current work:
 - ⚠️ **[Phase 03] Session-termination finding investigated — root-cause-identified (03-20/03-21).** 03-19's ~15-16s session-termination finding was root-caused by the dedicated follow-up spike it recommended: `03-SESSION-LIFECYCLE-FINDINGS.md` records **Disposition: root-cause-identified**, H1 CONFIRMED — the watchdog's own heartbeat-staleness kill (`DEFAULT_HEARTBEAT_STALE_MS=15000`) correctly reaped an unsupervised session (`--heartbeat=off`: terminated at `elapsed_ms=7397`, `closeOrigin: watchdog-heartbeat-stale`), while a production-shaped `--heartbeat=on` run sustained the block for the full 90s window with zero termination artifacts — the product was never at fault; the prior measurement harness was. Plan 03-21 took Branch B (harness-only doc fix; no change to `watchdog.ts`'s stale-kill condition) and added a repeatable acceptance command (`uat-06-permission-block-lifecycle.mjs --heartbeat=on --answer-after=60000 --decision=deny`, `honoured=true`) proving a supervised session survives a 60+ second unanswered destructive-gate block and honours the eventual answer. **AGNT-07 is NOT Complete**: a separate, broader bypass class was found afterwards (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`) and the requirement was walked back to Gaps Found in `db18b0e`. Still genuinely open per the findings document's own "What this does not claim": reproduction inside a packaged `.app` (only the dev-mode sidecar bundle was driven), on a machine other than the one measured, and against a `claude` version other than 2.1.267 remain untested; H1a (whether 03-19's specific `FLYWHEEL_HEARTBEAT_STALE_MS=120000` override reached the watchdog) was not directly retested with a non-default value.
 - AGNT-07 open: round-six destructive-gate bypass found live and non-destructively (env -S opaque-reparse defeated by backslash-split env, zero human confirmation for a nested altpath payload). See 03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md. Needs a round-seven plan before AGNT-07 can close.
 - [Phase 03] scripts/uat/run-all.sh failed 4/6 scriptable items (UAT 3, 5, 6a, 6b) when run once as plan 03-34's own end-of-phase regression gate. This plan's diff (test-corpus + docs only) cannot plausibly cause a live-claude-session failure; judged pre-existing flakiness matching the phase's repeated 03-24/03-26/03-29/03-30/03-32 pattern, per 03-34-SUMMARY.md. Next phase verification should judge whether this needs a dedicated live-session investigation before AGNT-07 closes. See WINDOWS.md entry 11.
-- Live gate (uat-08-socratic-authoring.mjs) exits 1 on a NEW harness defect (reject-proposal targets a stale pre-accept-subtree snapshot index) — unrelated to G-05-10's contract fix, which the same run proved working. Needs its own plan; see 05-LIVE-CHALLENGE-TRANSCRIPT.md 'Live gate outcome'.
+- Live gate (uat-08-socratic-authoring.mjs) harness defect FIXED by quick task 260929-lq1 (stale pre-accept-subtree snapshot index at the reject site, plus a latent amend-criterion twin that had never fired). Both now route through pickPendingProposal and are pinned by a source-scanning self-test gate and a real-core regression slice in --board-read-check. STILL OPEN: no live run has been performed since the fix, so the gate has not yet been observed exiting 0 and the SHAPE-01/02/03/04 pass/fail table it exists to produce has still never been computed. Re-running it spends a claude.ai credential and is a deliberate developer decision. See 05-LIVE-CHALLENGE-TRANSCRIPT.md 'Live gate outcome' and quick/260929-lq1-*/260929-lq1-SUMMARY.md.
 
 ### Quick Tasks Completed
 
@@ -484,6 +485,7 @@ Recent decisions affecting current work:
 |---|-------------|------|--------|-----------|
 | 260918-nch | Automated UAT harness for phase 03's five deferred human-verification items | 2026-09-18 | 251ebef | [260918-nch-build-an-automated-uat-harness-for-phase](./quick/260918-nch-build-an-automated-uat-harness-for-phase/) |
 | 260920-duy | fix CR-01 — shimWillIntercept must not defer when the command text can shadow PATH resolution (shell function/alias); add the regression test | 2026-09-20 | 23c5b99 | [260920-duy-fix-cr-01-shimwillintercept-must-not-def](./quick/260920-duy-fix-cr-01-shimwillintercept-must-not-def/) |
+| 260929-lq1 | Re-read before deciding: fix stale-snapshot proposal targets in the live UAT harness | 2026-09-29 | 4f88bc8 | [260929-lq1-re-read-before-deciding-fix-stale-snapsh](./quick/260929-lq1-re-read-before-deciding-fix-stale-snapsh/) |
 
 ### Roadmap Evolution
 
@@ -499,6 +501,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-29T06:48:27.133Z
-Stopped at: Completed 05-50-PLAN.md
+Last session: 2026-09-29T07:57:41.185Z
+Stopped at: Completed quick task 260929-lq1
 Resume file: None
