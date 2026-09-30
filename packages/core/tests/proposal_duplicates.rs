@@ -13,7 +13,8 @@ mod common;
 
 use core::domain::agent_run::agent_actor_id;
 use core::domain::authoring_proposal::{
-    create_proposal, reject_proposal, ProposalPayload, ProposalProvenance, ProposalVerb,
+    amend_proposal, create_proposal, pending_proposals_for_run, reject_proposal, ProposalPayload,
+    ProposalProvenance, ProposalVerb,
 };
 use core::domain::epic::create_epic;
 use core::domain::issue::{create_issue, IssueParent};
@@ -480,4 +481,411 @@ fn a_title_containing_fts5_query_syntax_degrades_to_no_candidate_rather_than_an_
         candidate.is_none(),
         "adversarial punctuation should not coincidentally match the fixture's own task"
     );
+}
+
+// ============================================================================
+// Task 3: the flag is written at STAGING time, in the SAME transaction and the
+// SAME statement that creates the row.
+// ============================================================================
+
+// No body constant: the canonical task below is seeded via `create_task`, which (per
+// `domain::task::create_task`'s own signature) never accepts a description — a task's own
+// duplicate-detection surface is title-only, exactly as `DUPLICATE_BM25_THRESHOLD`'s doc comment
+// in `query::search` records as this plan's own measured finding.
+const RETRY_BUDGET_TITLE: &str = "Retry budget is hardcoded at three attempts";
+const RETRY_BUDGET_NEAR_DUP_TITLE: &str = "Retry count ignores configuration and always retries three times";
+const RETRY_BUDGET_NEAR_DUP_BODY: &str =
+    "Backoff logic never reads the configured retry budget, so it retries exactly three times no matter what the settings say.";
+
+const SLACK_PROPOSAL_TITLE: &str = "Add a Slack integration for board notifications";
+const SLACK_PROPOSAL_BODY: &str = "Notify a Slack channel whenever a task moves to done.";
+const SLACK_PROPOSAL_NEAR_DUP_TITLE: &str = "Board notifications should post to a Slack channel";
+const SLACK_PROPOSAL_NEAR_DUP_BODY: &str = "Whenever a task reaches done, notify the configured Slack channel.";
+
+/// A small, self-contained fixture for Task 3's staging-time assertions: `FILLER_TITLES.len()`
+/// filler rows (so `bm25`'s IDF term has a real corpus, exactly like the Task 2 measurement
+/// fixture) plus ONE canonical open task and ONE canonical REJECTED proposal, both using wording
+/// this file's own Task 2 measurement already proved scores well below the pinned
+/// `DUPLICATE_BM25_THRESHOLD` (`-21.0`) when restated. Returns `(conn, actor_id, project_id,
+/// run_id)`.
+fn seed_staging_fixture() -> (Connection, String, String, String) {
+    let (mut conn, actor_id, project) = seeded_project();
+    let run_id = seed_agent_run(&mut conn, &project.id, &actor_id);
+    seed_filler(&mut conn, &project.id, &actor_id, &run_id, FILLER_TITLES.len());
+
+    create_task(&mut conn, &project.id, &actor_id, RETRY_BUDGET_TITLE, None)
+        .expect("canonical create_task should succeed");
+
+    let slack_proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Task {
+            title: SLACK_PROPOSAL_TITLE.to_string(),
+            description: Some(SLACK_PROPOSAL_BODY.to_string()),
+        },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("canonical create_proposal should succeed");
+    reject_proposal(&mut conn, &slack_proposal.id, &actor_id, Some("already decided"))
+        .expect("canonical reject_proposal should succeed");
+
+    (conn, actor_id, project.id, run_id)
+}
+
+#[test]
+fn staging_flags_a_proposal_restating_an_existing_open_task() {
+    let (mut conn, actor_id, project_id, run_id) = seed_staging_fixture();
+    let _ = (actor_id, project_id);
+
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Task {
+            title: RETRY_BUDGET_NEAR_DUP_TITLE.to_string(),
+            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()),
+        },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("create_proposal should succeed");
+
+    assert!(proposal.duplicate_of.is_some(), "restating an open task must write duplicate_of");
+    let score = proposal.duplicate_score.expect("a flagged proposal must carry a duplicate_score");
+    assert!(
+        is_flagged_as_duplicate(score),
+        "the stored duplicate_score ({score}) must itself satisfy the flagging comparison"
+    );
+}
+
+#[test]
+fn staging_writes_null_duplicate_columns_when_nothing_scores_below_threshold() {
+    let (mut conn, actor_id, project_id, run_id) = seed_staging_fixture();
+    let _ = (actor_id, project_id);
+
+    // Vocabulary that shares only generic project words with the fixture's canonical rows — the
+    // same "different finding, common vocabulary" shape Task 2's UNRELATED_PAIRS uses.
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Task {
+            title: "Add a history view showing past upload tries and their timestamps".to_string(),
+            description: Some(
+                "A log so people can see when uploads happened, separate from any automatic retry mechanism."
+                    .to_string(),
+            ),
+        },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("create_proposal should succeed");
+
+    assert!(proposal.duplicate_of.is_none(), "an unrelated proposal must not write duplicate_of");
+    assert!(proposal.duplicate_score.is_none(), "an unrelated proposal must not write duplicate_score");
+}
+
+#[test]
+fn staging_against_an_entirely_empty_project_writes_null_and_raises_no_error() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let run_id = seed_agent_run(&mut conn, &project.id, &actor_id);
+
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Task {
+            title: "Anything at all restating some finding".to_string(),
+            description: Some("A body describing the same finding in different words.".to_string()),
+        },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("create_proposal against an empty project must not error");
+
+    let _ = actor_id;
+    assert!(proposal.duplicate_of.is_none(), "an empty project can never produce a duplicate_of");
+    assert!(proposal.duplicate_score.is_none(), "an empty project can never produce a duplicate_score");
+}
+
+#[test]
+fn a_flagged_proposal_is_still_pending_and_returned_by_the_pending_read() {
+    let (mut conn, actor_id, project_id, run_id) = seed_staging_fixture();
+    let _ = (actor_id, project_id);
+
+    let before_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM authoring_proposals", [], |row| row.get(0))
+        .expect("counting authoring_proposals should succeed");
+
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Task {
+            title: RETRY_BUDGET_NEAR_DUP_TITLE.to_string(),
+            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()),
+        },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("create_proposal should succeed");
+    assert!(proposal.duplicate_of.is_some(), "fixture setup: this proposal must be flagged");
+
+    let after_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM authoring_proposals", [], |row| row.get(0))
+        .expect("counting authoring_proposals should succeed");
+    assert_eq!(after_count, before_count + 1, "staging a flagged proposal must add exactly one row");
+
+    let pending = pending_proposals_for_run(&conn, &run_id, 0).expect("pending_proposals_for_run should succeed");
+    let found = pending
+        .iter()
+        .find(|p| p.id == proposal.id)
+        .unwrap_or_else(|| panic!("flagged proposal {:?} must still appear in the pending read", proposal.id));
+    assert_eq!(found.status, "pending", "a flagged proposal must never be auto-decided");
+    assert_eq!(found.duplicate_of, proposal.duplicate_of, "the pending read must surface the same flag");
+}
+
+#[test]
+fn staging_flags_against_an_already_rejected_proposal_not_only_canonical_items() {
+    let (mut conn, actor_id, project_id, run_id) = seed_staging_fixture();
+    let _ = (actor_id, project_id);
+
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Task {
+            title: SLACK_PROPOSAL_NEAR_DUP_TITLE.to_string(),
+            description: Some(SLACK_PROPOSAL_NEAR_DUP_BODY.to_string()),
+        },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("create_proposal should succeed");
+
+    assert!(
+        proposal.duplicate_of.is_some(),
+        "restating an already-rejected proposal must still be flagged (D-106)"
+    );
+    assert!(proposal.duplicate_score.is_some());
+}
+
+#[test]
+fn a_title_containing_fts5_syntax_stages_successfully_with_both_columns_null() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let run_id = seed_agent_run(&mut conn, &project.id, &actor_id);
+    let _ = actor_id;
+
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Task {
+            title: "weird: title * with (parens) - and a dash".to_string(),
+            description: None,
+        },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("staging an FTS5-syntax-heavy title must not error");
+
+    assert!(proposal.duplicate_of.is_none());
+    assert!(proposal.duplicate_score.is_none());
+}
+
+#[test]
+fn amend_proposal_rescores_the_amended_content_and_never_flags_its_own_row() {
+    let (mut conn, actor_id, project_id, run_id) = seed_staging_fixture();
+    let _ = project_id;
+
+    // Stage a proposal with unrelated content — not yet flagged.
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Task { title: "Add a tooltip for the priority icons".to_string(), description: None },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("create_proposal should succeed");
+    assert!(proposal.duplicate_of.is_none(), "fixture setup: initial content must not be flagged");
+
+    // Amend it to restate the fixture's own canonical open task — the amend must re-score and
+    // flag it now.
+    let amended = amend_proposal(
+        &mut conn,
+        &proposal.id,
+        &actor_id,
+        ProposalPayload::Task {
+            title: RETRY_BUDGET_NEAR_DUP_TITLE.to_string(),
+            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()),
+        },
+    )
+    .expect("amend_proposal should succeed");
+    assert!(
+        amended.proposal.duplicate_of.is_some(),
+        "amending to restate an open task must flag the amended row"
+    );
+
+    // Re-amend to the EXACT SAME content the row already carries. If the exclusion of the
+    // proposal's own id were broken, the row would now match ITSELF (identical text scores
+    // maximally well) — assert it never does.
+    let reamended = amend_proposal(
+        &mut conn,
+        &proposal.id,
+        &actor_id,
+        ProposalPayload::Task {
+            title: RETRY_BUDGET_NEAR_DUP_TITLE.to_string(),
+            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()),
+        },
+    )
+    .expect("re-amending to unchanged content should succeed");
+    assert_ne!(
+        reamended.proposal.duplicate_of.as_deref(),
+        Some(proposal.id.as_str()),
+        "a proposal must never be flagged as its own duplicate"
+    );
+    // The canonical open task is still the best real match and must still be found.
+    assert!(
+        reamended.proposal.duplicate_of.is_some(),
+        "excluding the proposal's own row must not suppress a genuine match against a different row"
+    );
+}
+
+/// Structural gate: `create_proposal_in_tx` must write `duplicate_of`/`duplicate_score` ONLY
+/// through its own INSERT — never through a follow-up `UPDATE`. `amend_proposal`'s own,
+/// pre-existing `UPDATE` (which legitimately re-scores on amend) is the one allowed exception,
+/// matched by name so this gate does not have to parse Rust function boundaries.
+#[test]
+fn create_proposal_in_tx_never_issues_a_follow_up_update_for_duplicate_columns() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/domain/authoring_proposal.rs"),
+    )
+    .expect("reading authoring_proposal.rs should succeed");
+
+    let offending_lines: Vec<&str> = source
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| !line.starts_with("//"))
+        .filter(|line| line.contains("UPDATE") && line.contains("duplicate_of"))
+        .collect();
+
+    // Exactly one line may set duplicate_of via UPDATE: amend_proposal's own statement (which also
+    // sets duplicate_score and payload in the same statement).
+    assert_eq!(
+        offending_lines.len(),
+        1,
+        "expected exactly one UPDATE statement naming duplicate_of (amend_proposal's own), found: {offending_lines:?}"
+    );
+    assert!(
+        offending_lines[0].contains("duplicate_score"),
+        "the one allowed UPDATE must be amend_proposal's own (sets both duplicate columns together): {:?}",
+        offending_lines[0]
+    );
+}
+
+/// Structural gate: `duplicate_candidate_for` is called from exactly two sites in this module —
+/// `create_proposal_in_tx` (staging) and `amend_proposal` (re-scoring) — never a third, driftable
+/// call site recomputing the flag somewhere else (D-107's "never on read").
+#[test]
+fn duplicate_candidate_for_is_called_from_exactly_two_sites() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/domain/authoring_proposal.rs"),
+    )
+    .expect("reading authoring_proposal.rs should succeed");
+
+    let call_count = source
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| !line.starts_with("//"))
+        .filter(|line| line.contains("duplicate_candidate_for("))
+        .count();
+
+    assert_eq!(
+        call_count, 2,
+        "expected exactly two call sites (create_proposal_in_tx + amend_proposal), found {call_count}"
+    );
+}
+
+#[test]
+fn staging_flags_a_proposal_restating_an_existing_open_epic() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let run_id = seed_agent_run(&mut conn, &project.id, &actor_id);
+    seed_filler(&mut conn, &project.id, &actor_id, &run_id, FILLER_TITLES.len());
+    create_epic(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Migrate the board to virtualization for large lists",
+        Some("Board rendering slows down past a thousand rows because every row mounts a full DOM node."),
+    )
+    .expect("canonical create_epic should succeed");
+
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Epic {
+            title: "Board list needs virtualization to handle large row counts".to_string(),
+            description: Some(
+                "Rendering slows down badly once the board has over a thousand rows since every row mounts a full DOM node."
+                    .to_string(),
+            ),
+        },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("create_proposal should succeed");
+
+    assert!(proposal.duplicate_of.is_some(), "restating an open epic must write duplicate_of");
+    assert!(proposal.duplicate_score.is_some());
+}
+
+#[test]
+fn staging_flags_a_proposal_restating_an_existing_open_issue() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let run_id = seed_agent_run(&mut conn, &project.id, &actor_id);
+    seed_filler(&mut conn, &project.id, &actor_id, &run_id, FILLER_TITLES.len());
+    create_issue(
+        &mut conn,
+        &project.id,
+        &actor_id,
+        "Flaky CI job fails intermittently on the search suite",
+        Some("The search_filter test suite fails roughly one run in twenty with a timing-dependent assertion."),
+        "bug",
+        IssueParent::None,
+    )
+    .expect("canonical create_issue should succeed");
+
+    let proposal = create_proposal(
+        &mut conn,
+        &run_id,
+        ProposalVerb::Create,
+        ProposalPayload::Issue {
+            title: "Search suite intermittently fails in CI".to_string(),
+            body: Some(
+                "About one run in twenty, the search_filter test suite fails because of a timing-dependent assertion."
+                    .to_string(),
+            ),
+            issue_kind: "bug".to_string(),
+        },
+        None,
+        None,
+        ProposalProvenance::NONE,
+    )
+    .expect("create_proposal should succeed");
+
+    assert!(proposal.duplicate_of.is_some(), "restating an open issue must write duplicate_of");
+    assert!(proposal.duplicate_score.is_some());
 }
