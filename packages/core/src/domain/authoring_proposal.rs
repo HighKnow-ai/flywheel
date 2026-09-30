@@ -403,11 +403,7 @@ fn create_proposal_in_tx(
         )
         .context("failed to count this run's staged proposals")?;
 
-    // RED (plan 06-05 Task 1): the refusal path is intentionally unreachable here — a false
-    // short-circuit, not yet the real comparison — so `proposal_limit.rs`'s refusal-expecting
-    // tests fail on their own assertions (a real run past the limit still stages), never on a
-    // compile error. The GREEN commit removes `false &&` and nothing else on this line.
-    if false && staged_count >= PROPOSAL_LIMIT_PER_RUN as i64 {
+    if staged_count >= PROPOSAL_LIMIT_PER_RUN as i64 {
         // D-111/D-112/T-06-22: refused OUT LOUD, never a silent drop — one event per refusal, so
         // the trail records what was turned away (the refused proposal's own target type and
         // title), not merely that a refusal happened. No existence check before this append: that
