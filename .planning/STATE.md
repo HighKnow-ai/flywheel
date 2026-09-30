@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: Agents File Their Own Backlog
 status: executing
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-09-30T05:14:23.685Z"
+stopped_at: Completed 06-03-PLAN.md
+last_updated: "2026-09-30T05:58:23.751Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: fd254096d089561db5b50879e0690c286ba9091c
+state_head: b4667a92e0f65fe70d615b66a1ba16240ab1f6ef
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 152
-  completed_plans: 145
+  completed_plans: 146
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 06 (Agents File Their Own Backlog) — EXECUTING
-Plan: 3 of 9
+Plan: 4 of 9
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -203,6 +203,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P50 | 35min | 2 tasks | 4 files |
 | Phase 06 P01 | 79 min | 1 tasks | 21 files |
 | Phase 06 P02 | 62min | 2 tasks | 1 files |
+| Phase 06 P03 | 10min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -461,6 +462,8 @@ Recent decisions affecting current work:
 - [Phase 06]: ProposalDto (Tauri command layer) carries no rationale field yet, so TriageLane.tsx shows a staged proposal's title but not its rationale — Wiring ProposalDto.rationale is outside plan 06-01's declared files_modified; recorded so the later 06-0x plan that adds it inherits the note instead of rediscovering the gap
 - [Phase 06]: Gate 1/Gate 2 scope follows the plan's literal pattern lists exactly (no DELETE FROM coverage, delete_criterion_in_tx omitted) — deliberate: these two gates bound promotion, not deletion, which each canonical table's own domain module already exclusively owns.
 - [Phase 06]: The create/issue corpus case surfaces a real gap (accept_proposal has no materialisation arm for Issue targets yet) rather than working around it — asserts the refusal is total, leaving 06-03 a clear handoff for when merge_proposal lands.
+- [Phase 06]: [Phase 06]: merge_proposal_in_tx is idempotent only on an already-merged proposal (mirroring accept_proposal_in_tx's own narrow 'already accepted' branch), refusing every other terminal status rather than treating any terminal status as reusable — an accepted task/epic proposal's materialised_id names a task or epic, not an issue, so a MergeOutcome could not honestly report it.
+- [Phase 06]: [Phase 06]: reject_proposals_bulk/defer_proposals_bulk peek each id's status via fetch_proposal before deciding it, rather than calling the single-row _in_tx sibling and treating its error as a skip signal — this is why a bulk defer counts an already-deferred id as skipped rather than silently re-affirmed, unlike a single-row defer_proposal call which treats the same status as an idempotent no-op.
 
 ### Pending Todos
 
@@ -516,6 +519,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T05:14:23.534Z
-Stopped at: Completed 06-02-PLAN.md
+Last session: 2026-09-30T05:58:14.911Z
+Stopped at: Completed 06-03-PLAN.md
 Resume file: None
