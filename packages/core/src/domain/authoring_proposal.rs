@@ -1487,6 +1487,99 @@ pub fn accept_subtree(
 const DEFAULT_LIMIT: i64 = 200;
 const MAX_LIMIT: i64 = 500;
 
+/// What a bulk triage verb did (D-104) — how many rows it decided versus how many it skipped
+/// because they were already terminal, mirroring [`AcceptSubtreeOutcome`]'s identical
+/// decided/skipped shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BulkDecisionOutcome {
+    pub decided: usize,
+    pub skipped: Vec<String>,
+}
+
+/// Reject every pending id in `proposal_ids`, in ONE transaction (D-104 — the first of the two
+/// bulk paths this module offers; per D-104 no bulk-accept path exists at any layer, because
+/// reject and defer are the two verbs safe to batch precisely because neither mints anything).
+///
+/// An empty slice returns a zero-count outcome without opening a transaction, writing a row or
+/// appending an event. A slice longer than [`MAX_LIMIT`] is refused, naming the ceiling, rather
+/// than silently truncated. Every other id is peeked with [`fetch_proposal`] before being decided:
+/// an already-terminal id (accepted, rejected, merged or deferred) is collected into `skipped`
+/// rather than failing the whole batch; every id actually decided goes through
+/// [`reject_proposal_in_tx`], so `decided_by`/`decided_at` are set exactly as a single-row reject
+/// would set them.
+pub fn reject_proposals_bulk(
+    conn: &mut Connection,
+    actor_id: &str,
+    proposal_ids: &[String],
+    reason: Option<&str>,
+) -> anyhow::Result<BulkDecisionOutcome> {
+    anyhow::ensure!(
+        (proposal_ids.len() as i64) <= MAX_LIMIT,
+        "cannot bulk-reject more than {MAX_LIMIT} proposals at once, got {}",
+        proposal_ids.len()
+    );
+    if proposal_ids.is_empty() {
+        return Ok(BulkDecisionOutcome { decided: 0, skipped: Vec::new() });
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let mut decided = 0usize;
+    let mut skipped = Vec::new();
+
+    for proposal_id in proposal_ids {
+        let existing = fetch_proposal(&tx, proposal_id)?;
+        if existing.status != "pending" {
+            skipped.push(proposal_id.clone());
+            continue;
+        }
+        reject_proposal_in_tx(&tx, proposal_id, actor_id, reason, &now)?;
+        decided += 1;
+    }
+
+    tx.commit().context("failed to commit reject_proposals_bulk transaction")?;
+    Ok(BulkDecisionOutcome { decided, skipped })
+}
+
+/// Defer every pending id in `proposal_ids`, in ONE transaction — behaves identically to
+/// [`reject_proposals_bulk`] (D-104), looping [`defer_proposal_in_tx`] over the bounded set
+/// instead. An already-`deferred` id is skipped exactly like any other already-terminal id here
+/// (unlike a single-row [`defer_proposal`] call, which treats an already-deferred row as
+/// idempotent rather than skipped) — a bulk call only ever counts ids it actually decided THIS
+/// call as `decided`.
+pub fn defer_proposals_bulk(
+    conn: &mut Connection,
+    actor_id: &str,
+    proposal_ids: &[String],
+) -> anyhow::Result<BulkDecisionOutcome> {
+    anyhow::ensure!(
+        (proposal_ids.len() as i64) <= MAX_LIMIT,
+        "cannot bulk-defer more than {MAX_LIMIT} proposals at once, got {}",
+        proposal_ids.len()
+    );
+    if proposal_ids.is_empty() {
+        return Ok(BulkDecisionOutcome { decided: 0, skipped: Vec::new() });
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let mut decided = 0usize;
+    let mut skipped = Vec::new();
+
+    for proposal_id in proposal_ids {
+        let existing = fetch_proposal(&tx, proposal_id)?;
+        if existing.status != "pending" {
+            skipped.push(proposal_id.clone());
+            continue;
+        }
+        defer_proposal_in_tx(&tx, actor_id, proposal_id, &now)?;
+        decided += 1;
+    }
+
+    tx.commit().context("failed to commit defer_proposals_bulk transaction")?;
+    Ok(BulkDecisionOutcome { decided, skipped })
+}
+
 /// Every pending proposal staged for `agent_run_id`, newest first — bounded per
 /// `DEFAULT_LIMIT`/`MAX_LIMIT` regardless of what the caller requests: a `limit` of `0` or less
 /// falls back to [`DEFAULT_LIMIT`], and any value is clamped to [`MAX_LIMIT`] before the query
