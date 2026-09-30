@@ -60,7 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: One Agent, One Worktree, Watched Live** - Start work on a task and watch a Claude Code session do it in a worktree the task owns (completed 2026-09-12)
 - [x] **Phase 3: Nothing Lost, Nothing Left Running** - Quit, crash or interrupt at any moment without destroying work or leaking agents (completed 2026-09-22)
 - [x] **Phase 4: `/clear` Is Free** - Discard an agent's whole context and have the next session pick up from the board alone (completed 2026-09-23)
-- [ ] **Phase 5: Socratic Epic Authoring** - Be challenged while shaping an epic and walk away with board items, not a document
+- [x] **Phase 5: Socratic Epic Authoring** - Be challenged while shaping an epic and walk away with board items, not a document (completed 2026-09-30)
 - [ ] **Phase 6: Agents File Their Own Backlog** - Agents propose what they learn into a triage lane that nothing escapes without a human
 - [ ] **Phase 7: The Board Tells The Git Truth** - Answer "where does this task actually stand in git and on the forge?" without a terminal
 - [ ] **Phase 8: Review And Merge Inside Flywheel** - Review an agent's diff against its acceptance criteria and land it in-app
@@ -939,7 +939,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. One Agent, One Worktree, Watched Live | 18/18 | Complete    | 2026-09-12 |
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
-| 5. Socratic Epic Authoring | 50/50 | In Progress|  |
+| 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
