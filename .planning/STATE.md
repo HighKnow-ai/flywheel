@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: Agents File Their Own Backlog
 status: executing
-stopped_at: Completed 06-05-PLAN.md
-last_updated: "2026-09-30T07:53:31.460Z"
+stopped_at: Completed 06-06-PLAN.md
+last_updated: "2026-09-30T08:30:03.420Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: 36b9cb268032fbeb5dfa3d852c1ce7b582df77f6
+state_head: a185cdee550f694bc079c72f6e204b1cd1b71277
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 152
-  completed_plans: 148
+  completed_plans: 149
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 06 (Agents File Their Own Backlog) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -206,6 +206,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P03 | 10min | 3 tasks | 4 files |
 | Phase 06 P04 | 60min | 3 tasks | 5 files |
 | Phase 06 P05 | 65min | 3 tasks | 12 files |
+| Phase 06 P06 | 32min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -470,6 +471,8 @@ Recent decisions affecting current work:
 - [Phase 06]: MATCH term is a bag-of-words OR of per-word to_fts5_prefix_phrase calls, not one literal phrase over the whole blob — Rule 1 bug fix: a single literal phrase over concatenated title+body can only match near-verbatim text, never a genuine paraphrase (verified empirically)
 - [Phase 06]: PROPOSAL_LIMIT_PER_RUN fixed at 10 with the refusal message text recorded verbatim; create_proposal_in_tx now returns ProposalOutcome so both Created and LimitExhausted flow through one type
 - [Phase 06]: Four pre-existing tests updated with narrowly-scoped raw-INSERT fixtures to accommodate PROPOSAL_LIMIT_PER_RUN, since their own subject was an unrelated read-side clamp property
+- [Phase 06]: Merge command surfaces ProposalUndecidable via plain .to_string() (no downcast exists anywhere in commands/authoring.rs); frontend already matches the stable Display substring
+- [Phase 06]: Closed useAuthoringQuery.ts's pre-existing invokeCommand gap (reject/amend/acceptSubtree hooks) since the plan's own zero-invokeCommand acceptance criterion required it
 
 ### Pending Todos
 
@@ -525,6 +528,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T07:53:31.313Z
-Stopped at: Completed 06-05-PLAN.md
+Last session: 2026-09-30T08:30:03.277Z
+Stopped at: Completed 06-06-PLAN.md
 Resume file: None
