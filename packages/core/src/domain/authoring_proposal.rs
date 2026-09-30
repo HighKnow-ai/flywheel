@@ -34,6 +34,15 @@
 //! already-decided set a later triage run is primed with (D-102). [`reject_proposals_bulk`] and
 //! [`defer_proposals_bulk`] are the two D-104 bulk paths — safe to batch precisely because neither
 //! mints anything; no accept-all counterpart exists at any layer.
+//!
+//! Plan 06-04 (PROP-04, D-105/D-106/D-107): `duplicate_of`/`duplicate_score` are written by
+//! [`create_proposal_in_tx`] alone, inside its own INSERT — the only place this module writes
+//! either column at CREATE time. [`amend_proposal`] is the only OTHER writer, re-scoring the
+//! amended content in the same UPDATE it already issues. Neither ever removes a row or changes any
+//! other column because of a duplicate verdict — the flag ANNOTATES a row for a human's triage
+//! pass, it never substitutes for one (D-107 rejected auto-drop/auto-reject/auto-merge outright).
+//! The threshold this flag is compared against lives as a single constant in `query::search`
+//! (`DUPLICATE_BM25_THRESHOLD`) — never a second copy of the comparison anywhere in this module.
 
 use anyhow::Context;
 use rusqlite::{named_params, params, Connection, OptionalExtension, Row, Transaction};
@@ -155,6 +164,26 @@ impl ProposalPayload {
             ProposalPayload::Criterion { statement, .. } => statement,
             ProposalPayload::Assumption { assumption, .. } => assumption,
             ProposalPayload::Issue { title, .. } => title,
+        }
+    }
+
+    /// Plan 06-04 (D-105/D-107): the `(title, body)` text pair
+    /// `query::search::duplicate_candidate_for` scores this payload against — the same
+    /// title-ish/body-ish split every variant's own fields already carry, never a re-derivation
+    /// of [`Self::label`] (which returns only ONE field, not the pair `bm25` weights
+    /// separately). `Delete`-verb payloads are placeholders carrying empty text (see
+    /// `create_proposal_in_tx`'s own comment on why `Delete` skips `validate_payload`) — an empty
+    /// title degrades to "no candidate" inside `duplicate_candidate_for` itself, so this method
+    /// needs no verb-aware branch of its own.
+    pub fn duplicate_search_text(&self) -> (&str, Option<&str>) {
+        match self {
+            ProposalPayload::Epic { title, description } => (title, description.as_deref()),
+            ProposalPayload::Task { title, description } => (title, description.as_deref()),
+            ProposalPayload::Criterion { statement, verification_hint } => {
+                (statement, verification_hint.as_deref())
+            }
+            ProposalPayload::Assumption { assumption, answer } => (assumption, Some(answer.as_str())),
+            ProposalPayload::Issue { title, body, .. } => (title, body.as_deref()),
         }
     }
 }
@@ -369,6 +398,22 @@ fn create_proposal_in_tx(
     let target_type = payload.target_type();
     let payload_json = serde_json::to_string(&payload).context("failed to serialise proposal payload")?;
 
+    // Plan 06-04 (D-107): the duplicate flag is computed and written HERE — between identity
+    // resolution above and the INSERT below — never in a follow-up UPDATE and never recomputed on
+    // read. A detector error (or an FTS5 query-syntax rejection `duplicate_candidate_for` doesn't
+    // already degrade internally) must not fail the staging call: `.ok().flatten()` mirrors this
+    // same function's own `origin_log_offset` precedent a few lines above (`count_lines(...).ok()`)
+    // — a scoring failure is not a reason to lose a real proposal.
+    let (duplicate_title, duplicate_body) = payload.duplicate_search_text();
+    let duplicate_candidate =
+        crate::query::search::duplicate_candidate_for(tx, &project_id, None, duplicate_title, duplicate_body)
+            .ok()
+            .flatten();
+    let (duplicate_of, duplicate_score): (Option<String>, Option<f64>) = match duplicate_candidate {
+        Some(candidate) => (Some(candidate.id), Some(candidate.score)),
+        None => (None, None),
+    };
+
     tx.execute(
         "INSERT INTO authoring_proposals (
             id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
@@ -376,7 +421,7 @@ fn create_proposal_in_tx(
             created_by, created_at, decided_by, decided_at, rationale, origin_log_offset,
             duplicate_of, duplicate_score
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending', NULL, NULL, ?11, ?12, NULL, \
-            NULL, ?13, ?14, NULL, NULL)",
+            NULL, ?13, ?14, ?15, ?16)",
         params![
             id,
             agent_run_id,
@@ -392,6 +437,8 @@ fn create_proposal_in_tx(
             now,
             provenance.rationale,
             provenance.origin_log_offset,
+            duplicate_of,
+            duplicate_score,
         ],
     )
     .context("failed to insert authoring_proposals row")?;
@@ -440,8 +487,8 @@ fn create_proposal_in_tx(
         decided_at: None,
         rationale: provenance.rationale,
         origin_log_offset: provenance.origin_log_offset,
-        duplicate_of: None,
-        duplicate_score: None,
+        duplicate_of,
+        duplicate_score,
     })
 }
 
@@ -1366,9 +1413,29 @@ pub fn amend_proposal(
     let new_payload_json = serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null);
     let payload_json = serde_json::to_string(&payload).context("failed to serialise amended payload")?;
 
+    // Plan 06-04 (D-107): re-score the amended content the same way staging does — `Some(proposal_id)`
+    // as the exclusion so this proposal's OWN row (which still carries its pre-amendment payload
+    // until the UPDATE below commits) never matches itself. Written in the SAME UPDATE that already
+    // exists here, never a second statement; a detector error degrades to NULL, mirroring
+    // `create_proposal_in_tx`'s identical `.ok().flatten()` precedent.
+    let (duplicate_title, duplicate_body) = payload.duplicate_search_text();
+    let duplicate_candidate = crate::query::search::duplicate_candidate_for(
+        &tx,
+        &existing.project_id,
+        Some(proposal_id),
+        duplicate_title,
+        duplicate_body,
+    )
+    .ok()
+    .flatten();
+    let (duplicate_of, duplicate_score): (Option<String>, Option<f64>) = match duplicate_candidate {
+        Some(candidate) => (Some(candidate.id), Some(candidate.score)),
+        None => (None, None),
+    };
+
     tx.execute(
-        "UPDATE authoring_proposals SET payload = ?1 WHERE id = ?2",
-        params![payload_json, proposal_id],
+        "UPDATE authoring_proposals SET payload = ?1, duplicate_of = ?2, duplicate_score = ?3 WHERE id = ?4",
+        params![payload_json, duplicate_of, duplicate_score, proposal_id],
     )
     .context("failed to amend authoring_proposal payload")?;
 
@@ -1398,6 +1465,8 @@ pub fn amend_proposal(
 
     let mut amended = existing;
     amended.payload = payload;
+    amended.duplicate_of = duplicate_of;
+    amended.duplicate_score = duplicate_score;
     Ok(AmendOutcome { original_label, proposal: amended })
 }
 
