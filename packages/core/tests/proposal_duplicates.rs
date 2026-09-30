@@ -1,0 +1,483 @@
+//! Plan 06-04 (PROP-04, D-105/D-106/D-107): measures and pins
+//! `core::query::search::DUPLICATE_BM25_THRESHOLD` against a seeded corpus (Task 2), then proves
+//! the staging write path (`create_proposal_in_tx`/`amend_proposal`) writes the duplicate verdict
+//! into `duplicate_of`/`duplicate_score` in the SAME transaction and the SAME statement that
+//! stages the row (Task 3).
+//!
+//! Every seeded row goes through the real domain writers (`create_task`, `create_epic`,
+//! `create_issue`, `create_proposal` + `reject_proposal`) — never hand-written SQL, which would
+//! bypass the FTS5 sync triggers and measure a stale index (mirrors `tests/search_filter.rs`'s own
+//! fixture discipline, `common/mod.rs`'s module doc comment).
+
+mod common;
+
+use core::domain::agent_run::agent_actor_id;
+use core::domain::authoring_proposal::{
+    create_proposal, reject_proposal, ProposalPayload, ProposalProvenance, ProposalVerb,
+};
+use core::domain::epic::create_epic;
+use core::domain::issue::{create_issue, IssueParent};
+use core::domain::task::create_task;
+use core::ids::new_id;
+use core::query::search::{
+    duplicate_candidate_for, duplicate_score_lookup, is_flagged_as_duplicate, DUPLICATE_BM25_THRESHOLD,
+};
+use rusqlite::{params, Connection};
+
+use common::seeded_project;
+
+/// Seed a RUNNING task-execution `agent_runs` row (mirrors `proposal_channel.rs`'s own
+/// `seeded_execution_run`, copied rather than imported per this repo's established
+/// self-contained-test-file precedent) so this file can stage proposals through the real
+/// `create_proposal` write path.
+fn seed_agent_run(conn: &mut Connection, project_id: &str, human_actor_id: &str) -> String {
+    let task = create_task(conn, project_id, human_actor_id, "Fixture executor task", None)
+        .expect("create_task should succeed");
+    let agent_actor = agent_actor_id(conn).expect("seeded agent actor should exist");
+    let now = "2026-01-01T00:00:00Z";
+    let trigger_id: String = conn
+        .query_row(
+            "INSERT INTO triggers (
+                id, project_id, target_task_id, target_epic_id, source, config, enabled,
+                last_fired_at, created_by, created_at
+            ) VALUES (?1, ?2, ?3, NULL, 'user_action', NULL, 1, NULL, ?4, ?5) RETURNING id",
+            params![new_id(), project_id, task.id, human_actor_id, now],
+            |row| row.get(0),
+        )
+        .expect("failed to insert fixture trigger");
+
+    let run_id = new_id();
+    conn.execute(
+        "INSERT INTO agent_runs (
+            id, worktree_id, task_id, epic_id, project_id, trigger_id, adapter, actor_id, status,
+            external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path,
+            started_at, ended_at, authoring_stage
+        ) VALUES (?1, NULL, ?2, NULL, ?3, ?4, 'claude_code', ?5, 'running', NULL, 'default', NULL, \
+            NULL, NULL, ?6, ?7, NULL, NULL)",
+        params![
+            run_id,
+            task.id,
+            project_id,
+            trigger_id,
+            agent_actor,
+            format!("/tmp/log-{run_id}.jsonl"),
+            now,
+        ],
+    )
+    .expect("failed to insert fixture agent_run");
+    run_id
+}
+
+/// Realistic filler vocabulary — seeded so `bm25`'s IDF term has a real corpus to compute
+/// against, rather than a degenerate one-document table (the score magnitude compresses toward
+/// zero on a near-empty table, per SQLite's own `bm25` IDF formula).
+const FILLER_TITLES: [&str; 20] = [
+    "Update the changelog for the next release",
+    "Refactor the settings page layout",
+    "Add pagination to the activity list view",
+    "Improve error messages on the submit form",
+    "Clean up unused imports across the crate",
+    "Write documentation for the public API",
+    "Optimize the CI build pipeline caching",
+    "Add a keyboard shortcut cheat sheet",
+    "Bump dependency versions for security patches",
+    "Rename the legacy config module",
+    "Add telemetry for the onboarding flow",
+    "Polish the empty-state illustrations",
+    "Consolidate duplicate CSS utility classes",
+    "Add a loading skeleton to the board",
+    "Fix inconsistent button spacing",
+    "Add unit tests for the ranking helper",
+    "Improve the drag handle affordance",
+    "Add a confirmation dialog before deleting",
+    "Tighten the tab order for accessibility",
+    "Add a tooltip explaining the priority icons",
+];
+
+fn seed_filler(conn: &mut Connection, project_id: &str, actor_id: &str, run_id: &str, n: usize) {
+    for i in 0..n {
+        let title = FILLER_TITLES[i % FILLER_TITLES.len()];
+        create_task(conn, project_id, actor_id, title, None).expect("filler create_task");
+        create_epic(conn, project_id, actor_id, title, None).expect("filler create_epic");
+        create_issue(conn, project_id, actor_id, title, None, "idea", IssueParent::None)
+            .expect("filler create_issue");
+        let proposal = create_proposal(
+            conn,
+            run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: title.to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("filler create_proposal");
+        reject_proposal(conn, &proposal.id, actor_id, Some("filler"))
+            .expect("filler reject_proposal");
+    }
+}
+
+/// One labelled measurement case: a canonical row seeded into `corpus`, and a query text scored
+/// against the whole project's corpus. `is_near_duplicate` says which of the two labelled sets
+/// this case belongs to — used only for reporting, never for a different code path.
+struct Case {
+    label: &'static str,
+    corpus: &'static str, // "task" | "epic" | "issue" | "proposal"
+    canonical_title: &'static str,
+    canonical_body: Option<&'static str>,
+    query_title: &'static str,
+    query_body: Option<&'static str>,
+}
+
+/// Same finding, different wording — every entry here must score BELOW the pinned threshold.
+const NEAR_DUPLICATE_PAIRS: &[Case] = &[
+    Case {
+        label: "task: retry budget ignoring configuration",
+        corpus: "task",
+        canonical_title: "Retry budget is hardcoded at three attempts",
+        canonical_body: Some("The exponential backoff loop ignores the configured retry count and always retries exactly three times regardless of settings."),
+        query_title: "Retry count ignores configuration and always retries three times",
+        query_body: Some("Backoff logic never reads the configured retry budget, so it retries exactly three times no matter what the settings say."),
+    },
+    Case {
+        label: "task: session expiry with no warning",
+        corpus: "task",
+        canonical_title: "Session token expires without a refresh warning",
+        canonical_body: Some("Users are logged out silently when the JWT expires with no banner or notice beforehand."),
+        query_title: "JWT expiry logs the user out with no warning banner",
+        query_body: Some("No banner appears before the session token expires; the user is silently signed out when the token expires."),
+    },
+    Case {
+        label: "epic: board virtualization for large lists",
+        corpus: "epic",
+        canonical_title: "Migrate the board to virtualization for large lists",
+        canonical_body: Some("Board rendering slows down past a thousand rows because every row mounts a full DOM node."),
+        query_title: "Board list needs virtualization to handle large row counts",
+        query_body: Some("Rendering slows down badly once the board has over a thousand rows since every row mounts a full DOM node."),
+    },
+    Case {
+        label: "epic: dark mode across the whole app",
+        corpus: "epic",
+        canonical_title: "Ship dark mode across the whole desktop app",
+        canonical_body: Some("Every screen should respect a user-selected dark color theme, not just the board."),
+        query_title: "Dark color theme should apply to every screen",
+        query_body: Some("Right now dark mode only affects the board; the rest of the desktop app ignores the selected dark color theme."),
+    },
+    Case {
+        label: "issue: flaky search suite in CI",
+        corpus: "issue",
+        canonical_title: "Flaky CI job fails intermittently on the search suite",
+        canonical_body: Some("The search_filter test suite fails roughly one run in twenty with a timing-dependent assertion."),
+        query_title: "Search suite intermittently fails in CI",
+        query_body: Some("About one run in twenty, the search_filter test suite fails because of a timing-dependent assertion."),
+    },
+    Case {
+        label: "issue: null assignee crashes epic roster",
+        corpus: "issue",
+        canonical_title: "Missing null check crashes the epic roster view",
+        canonical_body: Some("Opening the epic roster crashes when an epic has no assignee set."),
+        query_title: "Epic roster crashes on a null assignee",
+        query_body: Some("The epic roster view crashes whenever an epic's assignee field is not set."),
+    },
+    Case {
+        label: "proposal: rejected Slack notification restated",
+        corpus: "proposal",
+        canonical_title: "Add a Slack integration for board notifications",
+        canonical_body: Some("Notify a Slack channel whenever a task moves to done."),
+        query_title: "Board notifications should post to a Slack channel",
+        query_body: Some("Whenever a task reaches done, notify the configured Slack channel."),
+    },
+    Case {
+        label: "proposal: rejected CSV import restated",
+        corpus: "proposal",
+        canonical_title: "Support importing a CSV of tasks",
+        canonical_body: Some("Let a user bulk-import tasks from a CSV file."),
+        query_title: "Bulk task import from a CSV file",
+        query_body: Some("Allow users to import many tasks at once from an uploaded CSV file."),
+    },
+];
+
+/// Different findings that merely share common, generic project vocabulary (not the specific,
+/// distinctive nouns each canonical row's own finding turns on) — every entry here must score AT
+/// OR ABOVE the pinned threshold (i.e. NOT flagged). Deliberately avoids reusing the canonical
+/// row's rare technical terms (`retry`/`budget`/`backoff`, `JWT`/`session token`/`banner`,
+/// `virtualization`/`DOM`, `dark mode`/`theme`, `flaky`/`timing`, `null`/`assignee`,
+/// `Slack`/`notify`, `CSV`/`import`) — reusing those would score this set nearly as high as the
+/// near-duplicate set, since `bm25` rewards exactly those rare, shared, informative terms
+/// (verified empirically before committing this fixture: see `06-04-SUMMARY.md`).
+const UNRELATED_PAIRS: &[Case] = &[
+    Case {
+        label: "task: upload history view is not the retry-budget bug",
+        corpus: "task",
+        canonical_title: "Retry budget is hardcoded at three attempts",
+        canonical_body: Some("The exponential backoff loop ignores the configured retry count and always retries exactly three times regardless of settings."),
+        query_title: "Add a history view showing past upload tries and their timestamps",
+        query_body: Some("A log so people can see when uploads happened and how they went, separate from any automatic retry mechanism."),
+    },
+    Case {
+        label: "task: logout countdown page is not the silent-expiry bug",
+        corpus: "task",
+        canonical_title: "Session token expires without a refresh warning",
+        canonical_body: Some("Users are logged out silently when the JWT expires with no banner or notice beforehand."),
+        query_title: "Add a page showing how much time is left before logout",
+        query_body: Some("Show a countdown so people know when they will be signed out, configurable in settings."),
+    },
+    Case {
+        label: "epic: drag-and-drop reorder is not the virtualization epic",
+        corpus: "epic",
+        canonical_title: "Migrate the board to virtualization for large lists",
+        canonical_body: Some("Board rendering slows down past a thousand rows because every row mounts a full DOM node."),
+        query_title: "Add drag-and-drop reordering to the board rows",
+        query_body: Some("People want to reorder rows by dragging them, a feature request unrelated to rendering performance."),
+    },
+    Case {
+        label: "epic: accent color picker is not the dark-mode epic",
+        corpus: "epic",
+        canonical_title: "Ship dark mode across the whole desktop app",
+        canonical_body: Some("Every screen should respect a user-selected dark color theme, not just the board."),
+        query_title: "Add a custom accent color picker to settings",
+        query_body: Some("Let users pick their own accent color, separate from the existing light and dark toggle."),
+    },
+    Case {
+        label: "issue: slow pipeline duration is not the flaky-suite bug",
+        corpus: "issue",
+        canonical_title: "Flaky CI job fails intermittently on the search suite",
+        canonical_body: Some("The search_filter test suite fails roughly one run in twenty with a timing-dependent assertion."),
+        query_title: "The whole pipeline takes too long to finish on every push",
+        query_body: Some("Fifteen minutes per push slows down iteration, a duration complaint rather than an intermittent failure."),
+    },
+    Case {
+        label: "issue: large-roster pagination is not the null-assignee crash",
+        corpus: "issue",
+        canonical_title: "Missing null check crashes the epic roster view",
+        canonical_body: Some("Opening the epic roster crashes when an epic has no assignee set."),
+        query_title: "The roster stops paginating correctly past two hundred rows",
+        query_body: Some("A large project's roster view breaks its paging once it grows past two hundred entries."),
+    },
+    Case {
+        label: "proposal: Teams reminder is not the Slack notification proposal",
+        corpus: "proposal",
+        canonical_title: "Add a Slack integration for board notifications",
+        canonical_body: Some("Notify a Slack channel whenever a task moves to done."),
+        query_title: "Add a Microsoft Teams integration for reminders",
+        query_body: Some("Send a reminder when a task is overdue, a different chat platform and a different trigger entirely."),
+    },
+    Case {
+        label: "proposal: printable board view is not the CSV import proposal",
+        corpus: "proposal",
+        canonical_title: "Support importing a CSV of tasks",
+        canonical_body: Some("Let a user bulk-import tasks from a CSV file."),
+        query_title: "Add a printable view of the whole board",
+        query_body: Some("People want a formatted page they can print, a presentation feature with nothing to do with getting data onto the board."),
+    },
+];
+
+/// Seed one project with `FILLER_TITLES.len()` filler rows in each of the four corpora, plus the
+/// canonical row for every entry in `NEAR_DUPLICATE_PAIRS`/`UNRELATED_PAIRS` (a case's canonical
+/// row is shared between its near-duplicate and unrelated sibling, so each distinct
+/// `(corpus, canonical_title)` pair is only seeded once). Returns the open connection, actor id
+/// and project id.
+fn seed_measurement_corpus() -> (Connection, String, String) {
+    let (mut conn, actor_id, project) = seeded_project();
+    let run_id = seed_agent_run(&mut conn, &project.id, &actor_id);
+    seed_filler(&mut conn, &project.id, &actor_id, &run_id, FILLER_TITLES.len());
+
+    let mut seeded_canonical_titles: Vec<&'static str> = Vec::new();
+    for case in NEAR_DUPLICATE_PAIRS.iter().chain(UNRELATED_PAIRS.iter()) {
+        if seeded_canonical_titles.contains(&case.canonical_title) {
+            continue;
+        }
+        seeded_canonical_titles.push(case.canonical_title);
+
+        match case.corpus {
+            "task" => {
+                create_task(&mut conn, &project.id, &actor_id, case.canonical_title, None)
+                    .expect("canonical create_task");
+            }
+            "epic" => {
+                create_epic(
+                    &mut conn,
+                    &project.id,
+                    &actor_id,
+                    case.canonical_title,
+                    case.canonical_body,
+                )
+                .expect("canonical create_epic");
+            }
+            "issue" => {
+                create_issue(
+                    &mut conn,
+                    &project.id,
+                    &actor_id,
+                    case.canonical_title,
+                    case.canonical_body,
+                    "idea",
+                    IssueParent::None,
+                )
+                .expect("canonical create_issue");
+            }
+            "proposal" => {
+                let proposal = create_proposal(
+                    &mut conn,
+                    &run_id,
+                    ProposalVerb::Create,
+                    ProposalPayload::Task {
+                        title: case.canonical_title.to_string(),
+                        description: case.canonical_body.map(str::to_string),
+                    },
+                    None,
+                    None,
+                    ProposalProvenance::NONE,
+                )
+                .expect("canonical create_proposal");
+                reject_proposal(&mut conn, &proposal.id, &actor_id, Some("already decided"))
+                    .expect("canonical reject_proposal");
+            }
+            other => panic!("unknown corpus {other:?}"),
+        }
+    }
+
+    (conn, actor_id, project.id)
+}
+
+/// The raw, UNTHRESHOLDED score for one case — `None` only when the query text matched literally
+/// nothing at all in the whole project (no shared token whatsoever), which is itself a valid,
+/// non-flagged outcome for an [`UNRELATED_PAIRS`] entry, printed rather than asserted against
+/// directly since a total non-match carries no numeric score to compare.
+fn observed_score(conn: &Connection, project_id: &str, case: &Case) -> Option<f64> {
+    duplicate_score_lookup(conn, project_id, None, case.query_title, case.query_body)
+        .expect("duplicate_score_lookup should not error")
+        .map(|candidate| candidate.score)
+}
+
+/// The measurement this whole file exists to run: print every case's observed, unthresholded
+/// score (`cargo test -p core --test proposal_duplicates -- --nocapture` to see the full table),
+/// then assert the two sets actually separate — `DUPLICATE_BM25_THRESHOLD` is pinned in
+/// `query::search` from exactly this fixture's output, recorded in that constant's own doc
+/// comment (06-04-PLAN.md Task 2's own instruction: "the assertion messages must print the
+/// entry's label and its observed score" on failure).
+#[test]
+fn threshold_separates_near_duplicates_from_unrelated_pairs_across_all_four_corpora() {
+    let (conn, _actor_id, project_id) = seed_measurement_corpus();
+
+    let near: Vec<(&str, Option<f64>)> = NEAR_DUPLICATE_PAIRS
+        .iter()
+        .map(|case| (case.label, observed_score(&conn, &project_id, case)))
+        .collect();
+    let unrelated: Vec<(&str, Option<f64>)> = UNRELATED_PAIRS
+        .iter()
+        .map(|case| (case.label, observed_score(&conn, &project_id, case)))
+        .collect();
+
+    eprintln!("NEAR_DUPLICATE_PAIRS observed scores:");
+    for (label, score) in &near {
+        eprintln!("  {score:?}  {label}");
+    }
+    eprintln!("UNRELATED_PAIRS observed scores:");
+    for (label, score) in &unrelated {
+        eprintln!("  {score:?}  {label}");
+    }
+
+    for (label, score) in &near {
+        let score = score.unwrap_or_else(|| {
+            panic!("near-duplicate case {label:?} matched nothing at all — cannot be flagged")
+        });
+        assert!(
+            is_flagged_as_duplicate(score),
+            "near-duplicate case {label:?} scored {score} which is NOT below \
+             DUPLICATE_BM25_THRESHOLD ({DUPLICATE_BM25_THRESHOLD}) — the pinned threshold no \
+             longer separates this set"
+        );
+    }
+
+    for (label, score) in &unrelated {
+        // A total non-match (`None`) is trivially "not flagged" — only a `Some` score needs the
+        // threshold comparison checked.
+        if let Some(score) = score {
+            assert!(
+                !is_flagged_as_duplicate(*score),
+                "unrelated case {label:?} scored {score} which IS below \
+                 DUPLICATE_BM25_THRESHOLD ({DUPLICATE_BM25_THRESHOLD}) — a false positive"
+            );
+        }
+    }
+}
+
+/// Task 2's own required direct test: "a score exactly equal to the threshold is not flagged" —
+/// asserted against the real production comparison [`is_flagged_as_duplicate`] runs, not inferred
+/// from a fixture whose measured score happens to land near the boundary (float measurements from
+/// two different corpora/fixtures are never guaranteed to hit an exact value).
+#[test]
+fn a_score_exactly_equal_to_the_threshold_is_not_flagged() {
+    assert!(
+        !is_flagged_as_duplicate(DUPLICATE_BM25_THRESHOLD),
+        "a score exactly equal to DUPLICATE_BM25_THRESHOLD must not be flagged — the comparison \
+         must be strict less-than, never less-than-or-equal"
+    );
+}
+
+/// `duplicate_candidate_for` (the real, PUBLIC, thresholded entry point every caller outside this
+/// test file uses) agrees with the raw scores above: every near-duplicate query returns
+/// `Some`, every unrelated query returns `None`.
+#[test]
+fn duplicate_candidate_for_flags_near_duplicates_and_clears_unrelated_pairs() {
+    let (conn, _actor_id, project_id) = seed_measurement_corpus();
+
+    for case in NEAR_DUPLICATE_PAIRS {
+        let candidate = duplicate_candidate_for(&conn, &project_id, None, case.query_title, case.query_body)
+            .expect("duplicate_candidate_for should not error");
+        assert!(
+            candidate.is_some(),
+            "near-duplicate case {:?} should be flagged by duplicate_candidate_for",
+            case.label
+        );
+    }
+
+    for case in UNRELATED_PAIRS {
+        let candidate = duplicate_candidate_for(&conn, &project_id, None, case.query_title, case.query_body)
+            .expect("duplicate_candidate_for should not error");
+        assert!(
+            candidate.is_none(),
+            "unrelated case {:?} should NOT be flagged by duplicate_candidate_for, got {:?}",
+            case.label,
+            candidate
+        );
+    }
+}
+
+#[test]
+fn scoring_against_an_empty_corpus_returns_none_with_no_error() {
+    let (conn, _actor_id, project) = seeded_project();
+    let candidate = duplicate_candidate_for(
+        &conn,
+        &project.id,
+        None,
+        "Anything at all restating some finding",
+        Some("A body with more words describing the same finding."),
+    )
+    .expect("duplicate_candidate_for should not error against an empty corpus");
+    assert!(candidate.is_none(), "an empty corpus must never produce a candidate");
+}
+
+#[test]
+fn a_title_containing_fts5_query_syntax_degrades_to_no_candidate_rather_than_an_error() {
+    let (mut conn, actor_id, project) = seeded_project();
+    create_task(&mut conn, &project.id, &actor_id, "Fix crash on quit", None)
+        .expect("create_task should succeed");
+
+    // Every one of these characters is an FTS5 query-syntax operator when unescaped (`:` column
+    // filter, `*` unquoted prefix, `-` exclusion, `(`/`)` grouping) — a model-authored title could
+    // contain any of them. `to_fts5_prefix_phrase`'s per-word escaping (T-06-15) must degrade this
+    // to "no candidate found", never a query-syntax error surfaced to the staging call.
+    let candidate = duplicate_candidate_for(
+        &conn,
+        &project.id,
+        None,
+        "weird: title * with (parens) - and a dash",
+        None,
+    )
+    .expect("an FTS5-syntax-heavy title must not error, only degrade to no candidate");
+    assert!(
+        candidate.is_none(),
+        "adversarial punctuation should not coincidentally match the fixture's own task"
+    );
+}

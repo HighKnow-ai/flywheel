@@ -402,18 +402,52 @@ const DUPLICATE_LOOKUP_SQL: &str = "\
     ORDER BY score ASC, id ASC \
     LIMIT :limit";
 
-/// Score `title`/`body` against every open task, epic and issue plus every proposal (pending and
-/// decided alike) in `project_id`, returning the single best-scoring candidate strictly below
-/// [`DUPLICATE_BM25_THRESHOLD`], or `None` when nothing scores that well (including an empty
-/// corpus, an empty/whitespace-only `title`+`body`, or an FTS5 query-syntax rejection of the
-/// model-authored text — degrading to "no candidate found" exactly as [`search_items`] already
-/// does via [`is_fts5_syntax_error`], never surfacing a query-syntax error to the staging call).
+/// Build the `:fts_term` [`duplicate_score_lookup`] binds — a bag-of-words disjunction, NOT one
+/// literal phrase covering the whole text (plan 06-04 Task 2 finding, documented in
+/// `06-04-SUMMARY.md` as a Rule 1 auto-fix): [`to_fts5_prefix_phrase`] wraps its ENTIRE argument
+/// as ONE FTS5 phrase query, which requires the wrapped text to appear as an exact, contiguous
+/// token run inside the matched row — verified empirically (a real `sqlite3` session) that a
+/// genuinely reworded restatement of a multi-sentence title+body NEVER satisfies that, so calling
+/// it once over the whole combined text can only ever match a near-verbatim copy, never "the same
+/// finding, different wording" (Task 2's own `<behavior>` requirement). This function instead
+/// calls [`to_fts5_prefix_phrase`] once PER WORD — reusing the SAME escaping routine Task 1 named
+/// (`06-04-PLAN.md`: "never a second quote-doubling routine"), just once per token instead of once
+/// over the whole blob — and `OR`s the results together, the standard bag-of-words shape a `bm25`
+/// relevance ranking is built to score: a row sharing many of the same (especially rare, high-IDF)
+/// words scores far more negative than a row sharing only a few common ones, which is exactly the
+/// separation `DUPLICATE_BM25_THRESHOLD` is pinned against.
+fn duplicate_match_term(text: &str) -> String {
+    text.split_whitespace()
+        .map(to_fts5_prefix_phrase)
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+/// The one place [`DUPLICATE_BM25_THRESHOLD`]'s comparison lives, as its own named, exported
+/// predicate (rather than inlined in [`duplicate_candidate_for`]) so `tests/proposal_duplicates.rs`
+/// can assert the strict-less-than direction directly against the real comparison the production
+/// code runs — "asserted directly against the comparison rather than inferred" (Task 2's own
+/// `<behavior>` requirement) — without needing to engineer a database row whose measured score
+/// lands exactly on the boundary.
+pub fn is_flagged_as_duplicate(score: f64) -> bool {
+    score < DUPLICATE_BM25_THRESHOLD
+}
+
+/// The raw lookup [`duplicate_candidate_for`] applies [`DUPLICATE_BM25_THRESHOLD`] to — runs
+/// [`DUPLICATE_LOOKUP_SQL`] and returns the single best-scoring candidate across all four
+/// corpora, with **no threshold applied**: any row FTS5 matches at all comes back, however weak.
+/// `None` means nothing matched, for one of three reasons, all degraded identically rather than
+/// erroring: `title`+`body` was empty/whitespace-only (nothing to search for), the corpus was
+/// empty (nothing to match against), or the model-authored text was an FTS5 query-syntax
+/// rejection (degrading to "no candidate found" exactly as [`search_items`] already does via
+/// [`is_fts5_syntax_error`]).
 ///
-/// `exclude_proposal_id` is `None` when scoring a brand-new proposal at staging time (the row
-/// does not exist yet, so nothing to exclude) and `Some(proposal_id)` when `amend_proposal`
-/// re-scores an already-staged proposal against its own amended content, so it never matches
-/// itself.
-pub fn duplicate_candidate_for(
+/// Exported (not `pub(crate)`) so `tests/proposal_duplicates.rs` can measure the REAL,
+/// unthresholded score distribution [`DUPLICATE_BM25_THRESHOLD`] is pinned against, through this
+/// exact statement, rather than a second, driftable copy of it. [`duplicate_candidate_for`] is a
+/// thin wrapper over this function applying the one threshold comparison — the "one boundary"
+/// plan `06-04-PLAN.md`'s own action text requires.
+pub fn duplicate_score_lookup(
     conn: &Connection,
     project_id: &str,
     exclude_proposal_id: Option<&str>,
@@ -429,7 +463,7 @@ pub fn duplicate_candidate_for(
         return Ok(None);
     }
 
-    let fts_term = to_fts5_prefix_phrase(trimmed);
+    let fts_term = duplicate_match_term(trimmed);
     let (w0, w1) = DUPLICATE_BM25_WEIGHTS;
 
     let result = conn.query_row(
@@ -453,14 +487,36 @@ pub fn duplicate_candidate_for(
         },
     );
 
-    let candidate = match result {
-        Ok(candidate) => candidate,
-        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+    match result {
+        Ok(candidate) => Ok(Some(candidate)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(err) => {
             let err = anyhow::Error::from(err).context("failed to look up a duplicate candidate");
-            return if is_fts5_syntax_error(&err) { Ok(None) } else { Err(err) };
+            if is_fts5_syntax_error(&err) {
+                Ok(None)
+            } else {
+                Err(err)
+            }
         }
-    };
+    }
+}
 
-    Ok((candidate.score < DUPLICATE_BM25_THRESHOLD).then_some(candidate))
+/// Score `title`/`body` against every open task, epic and issue plus every proposal (pending and
+/// decided alike) in `project_id`, returning the single best-scoring candidate strictly below
+/// [`DUPLICATE_BM25_THRESHOLD`], or `None` when nothing scores that well — see
+/// [`duplicate_score_lookup`] for the full degradation contract this wraps.
+///
+/// `exclude_proposal_id` is `None` when scoring a brand-new proposal at staging time (the row
+/// does not exist yet, so nothing to exclude) and `Some(proposal_id)` when `amend_proposal`
+/// re-scores an already-staged proposal against its own amended content, so it never matches
+/// itself.
+pub fn duplicate_candidate_for(
+    conn: &Connection,
+    project_id: &str,
+    exclude_proposal_id: Option<&str>,
+    title: &str,
+    body: Option<&str>,
+) -> anyhow::Result<Option<DuplicateCandidate>> {
+    let candidate = duplicate_score_lookup(conn, project_id, exclude_proposal_id, title, body)?;
+    Ok(candidate.filter(|c| is_flagged_as_duplicate(c.score)))
 }
