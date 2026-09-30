@@ -43,6 +43,7 @@ import {
   subscribeAgentEvent,
 } from "../adapters/tauri";
 import { ProposalTray } from "../authoring/ProposalTray";
+import { useRunProposals } from "../authoring/useAuthoringQuery";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
@@ -956,6 +957,20 @@ export function SessionSurface({
 
   const feedQuery = useSessionFeed(agentRunId, initialFeedOffset);
 
+  // T-06-35 (plan 06-08): the execution-run half of the tray's mount condition, derived from the
+  // SAME run-scoped query `ProposalTray.tsx` itself reads through (`useRunProposals`) — never a
+  // run-kind flag or a second FETCH SHAPE. Disabled (`null`) whenever `authoringStage` is set: an
+  // authoring run already mounts the tray unconditionally via the OR's first clause below, so a
+  // second live subscriber to the exact query `ProposalTray.tsx`'s OWN mount is about to open
+  // would be pure churn there — a second concurrent subscriber to the same query key was
+  // reproduced live to disrupt `authoring/__tests__/proposal-keyboard.test.tsx`'s per-row `e`/`d`
+  // keyboard dispatch (an extra render cycle racing the window keydown listener's own
+  // effect-cleanup/re-add churn, `state/keyboard.ts`'s `useRegionBindings`). Enabled only for the
+  // one case that actually needs it: an ordinary task-execution run, where this is the sole reader
+  // until the condition below decides to mount the tray at all.
+  const runProposalsQuery = useRunProposals(authoringStage ? null : agentRunId);
+  const hasStagedProposals = (runProposalsQuery.data?.length ?? 0) > 0;
+
   // The permission-request card's `feed` mount (AGNT-06, plan 02-06 Task 2) — this run's pending
   // set, read from the ONE shared query the item detail panel's compact mount also reads for the
   // same `agentRunId`, so answering in either place clears both (Discretion #6).
@@ -1298,10 +1313,14 @@ export function SessionSurface({
           run (`stage` non-null) that has not yet reached a terminal status. */}
       {stage && showStop && <AuthoringComposer agentRunId={agentRunId} />}
       </div>
-      {authoringStage && (
-        // D-88: the proposal tray mounts ONLY when this run carries an authoring stage — a
-        // sibling panel beside the feed, never woven into FeedRow.tsx's per-event rendering
-        // (ProposalTray.tsx's own doc comment).
+      {(authoringStage || hasStagedProposals) && (
+        // D-88: the proposal tray mounts for every authoring run (unchanged, byte-identical
+        // branch) OR — T-06-35, plan 06-08 — for an ordinary task-execution run that has staged at
+        // least one proposal (`hasStagedProposals` above). `ProposalTray.tsx` itself is untouched
+        // and run-kind agnostic by construction: it queries by `agentRunId` alone
+        // (`useRunProposals`), so mounting it here for an execution run needs no new prop, no run
+        // kind passed in, and no second component — a sibling panel beside the feed, never woven
+        // into FeedRow.tsx's per-event rendering (ProposalTray.tsx's own doc comment).
         <div
           style={{
             width: 320,
