@@ -23,15 +23,22 @@ created: "2026-09-30"
 |----------|-------|
 | **Framework (Rust core)** | `cargo test` — one integration-test binary per concern under `packages/core/tests/` |
 | **Framework (sidecar)** | Node built-in `node --test`, invoked via `npm --prefix packages/sidecar test` (its `test` script runs `tsc` first) |
-| **Framework (frontend)** | **none exists** — no `*.test.tsx` / `vitest.config.*` / `jest.config.*` in `packages/desktop/src`. See Wave 0. |
+| **Framework (frontend)** | `vitest` 5.0.0 + `jsdom` 30.0.1 + `@testing-library/react` 16.3.3, config at `packages/desktop/vitest.config.ts`, run via `npm --prefix packages/desktop test`. 38 test files exist today, including `src/board/__tests__/triage-lane.test.tsx`. |
 | **Config file** | none dedicated — workspace members from `Cargo.toml`; sidecar `package.json` scripts |
 | **Quick run command** | `cargo test -p core --test authoring_proposal` |
-| **Full suite command** | `cargo test --workspace` then `npm --prefix packages/sidecar test` |
+| **Full suite command** | `cargo test --workspace`, then `npm --prefix packages/sidecar test`, then `npm --prefix packages/desktop test` |
 | **Estimated runtime** | quick ~15s, full ~120s (measure and correct during Wave 0) |
 
-All five commands above were re-confirmed to resolve during Phase 6 research
+The Rust and sidecar commands were re-confirmed to resolve during Phase 6 research
 (`cargo metadata --no-deps` for the workspace members, `packages/sidecar/package.json` for the
-scripts) — they are not guesses.
+scripts). The frontend commands were measured during Phase 6 planning.
+
+**Correction (recorded during planning, 2026-09-30):** `06-RESEARCH.md` § Validation Architecture
+states that no frontend test harness exists in `packages/desktop/src`. That is wrong. The harness
+does exist — `packages/desktop/vitest.config.ts`, `vitest` 5.0.0, `jsdom` 30.0.1,
+`@testing-library/react` 16.3.3, `"test": "vitest run"`, and 38 `*.test.tsx` / `*.test.ts` files
+including `src/board/__tests__/triage-lane.test.tsx`. PROP-06 therefore gets real component tests,
+not a manual walkthrough. Treat this file as authoritative over RESEARCH.md on that point.
 
 ---
 
@@ -62,7 +69,7 @@ scripts) — they are not guesses.
 | PROP-03 | No code path promotes without triage | source-scan gate | new gate reusing the existing `sources_under` helper | ❌ new gate |
 | PROP-04 | Duplicates flagged before the user sees them | unit | `duplicate_of` / `duplicate_score` populated inside `create_proposal`'s own transaction | ❌ new test |
 | PROP-05 | Volume limit surfaced, never a silent drop | integration | over-limit `propose_item` call returns a named tool error | ❌ new test |
-| PROP-06 | Triage view: accept / reject / merge / defer | Tauri-command tests + UAT bridge | `uat_authoring_ops` binary pattern, extended | ❌ no frontend harness |
+| PROP-06 | Triage view: accept / reject / merge / defer | component tests (vitest + jsdom + Testing Library) plus Tauri-command tests and the scripted UAT bridge | new `packages/desktop/src/triage/__tests__/triage-surface.test.tsx`, alongside the existing `src/board/__tests__/triage-lane.test.tsx`; `uat_authoring_ops` binary pattern extended | harness ✅ exists, the TriageSurface test file is new |
 | PROP-07 | Every proposal records its run and its rationale | unit | `rationale` round-trips; `agent_run_id` resolves into `agent_runs` | ❌ new test |
 
 ---
@@ -73,9 +80,11 @@ scripts) — they are not guesses.
       tables" (D-100 first half). No equivalent exists today.
 - [ ] Adversarial-corpus test (D-100 second half, mirroring the D-62 / AGNT-07 precedent) — drives
       every propose / amend / delete path and asserts zero canonical rows until triage.
-- [ ] Decide the frontend seam: either add a component-test harness to `packages/desktop`
-      (currently none) or validate `TriageSurface` at the Tauri-command layer plus a UAT-bridge
-      script. The plan must make this choice explicitly, not leave it implicit.
+- [x] Frontend seam decided — no harness work needed. `packages/desktop` already has vitest +
+      jsdom + Testing Library, so `TriageSurface` is covered by a real component test
+      (`src/triage/__tests__/triage-surface.test.tsx`, added by plan 06-07) rather than by a
+      manual walkthrough. The Tauri-command tests and the scripted UAT bridge remain as the
+      second and third layers, not as substitutes.
 - [ ] Extend `migration_safety.rs` with a case for the new table-rebuild migration
       (self-referential FK rebuild under `PRAGMA foreign_keys`).
 
@@ -85,10 +94,12 @@ scripts) — they are not guesses.
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| Triage view look and feel (layout, affordance of the four actions) | PROP-06 | Needs a human's visual judgement on a rendered window; no harness can assert "this reads as bold and modern" | Launch the desktop app, open the proposal queue with at least one pending proposal, and confirm accept / reject / merge / defer are each reachable and legible |
+| Triage view look and feel (visual hierarchy, whether the four actions read as distinct) | PROP-06 | Needs a human's visual judgement on a rendered window; no assertion can stand in for "this reads as bold and modern" | Launch the desktop app, open the proposal queue with at least one pending proposal, and judge the rendering |
 
-Everything else in this phase has an automated seam or a scripted UAT-bridge path. Per this
-project's standing preference, script the bridge rather than adding manual steps.
+This is the only manual item, and it is manual for *aesthetic judgement only* — the *behaviour* of
+accept / reject / merge / defer is asserted by the component test, not by the human. Everything
+else in this phase has an automated seam or a scripted UAT-bridge path. Per this project's standing
+preference, script the bridge rather than adding manual steps.
 
 ---
 
