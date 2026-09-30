@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: Agents File Their Own Backlog
 status: executing
-stopped_at: Completed 06-07-PLAN.md
-last_updated: "2026-09-30T09:13:10.798Z"
+stopped_at: Completed 06-08-PLAN.md
+last_updated: "2026-09-30T09:55:43.947Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: f55ac9ee06919368287d38d508bf186477565396
+state_head: 61f8c045325f406d8daf81f4cc7b07062a070076
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 152
-  completed_plans: 150
+  completed_plans: 151
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 06 (Agents File Their Own Backlog) — EXECUTING
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -208,6 +208,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P05 | 65min | 3 tasks | 12 files |
 | Phase 06 P06 | 32min | 3 tasks | 9 files |
 | Phase 06 P07 | 48min | 3 tasks | 6 files |
+| Phase 06 P08 | 38min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -476,6 +477,9 @@ Recent decisions affecting current work:
 - [Phase 06]: Closed useAuthoringQuery.ts's pre-existing invokeCommand gap (reject/amend/acceptSubtree hooks) since the plan's own zero-invokeCommand acceptance criterion required it
 - [Phase 06]: 06-07: bindingAllowedInLayer gained a layer-first triage-surface branch (checked before the tray's own id-first PROPOSAL_TRAY_ACTION_IDS branch) so accept/reject/amend resolve under either the tray's or the new triage surface's layer, without widening the tray's own existing rule for any other layer.
 - [Phase 06]: 06-07 (Rule 2 deviation): widened ProposalDto/AuthoringProposalDto with an optional duplicateCandidate (kind/key/title), resolved server-side via the existing resolve_duplicate_candidate_label for the two board-level triage reads only - no new Tauri command, one bounded lookup per row.
+- [Phase 06]: The execution-run live proposal tray discretion item is answered yes: SessionSurface's ProposalTray now mounts for any run (authoring or execution) with at least one staged proposal, derived from the same run-scoped query the tray itself reads.
+- [Phase 06]: TriageLane's route control writes state/uiStore.ts's triageSurfaceProjectId directly via useUiStore.getState(), not a subscribed selector, matching the plan's own single-occurrence verify gate and avoiding a needless read-subscription.
+- [Phase 06]: Two Rule-1 bug fixes during implementation: disabled the second useRunProposals subscriber for authoring runs (it raced an existing keyboard test's effect-cleanup timing), and gave useSessionFeed a real second parameter so the turn-pointer's log offset actually lands on the requested page instead of being accepted and dropped.
 
 ### Pending Todos
 
@@ -531,6 +535,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T09:12:53.706Z
-Stopped at: Completed 06-07-PLAN.md
+Last session: 2026-09-30T09:55:43.790Z
+Stopped at: Completed 06-08-PLAN.md
 Resume file: None
