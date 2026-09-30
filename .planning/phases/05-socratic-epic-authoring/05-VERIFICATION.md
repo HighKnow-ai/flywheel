@@ -5,8 +5,6 @@ status: passed
 score: 56/56 must-have truths verified
 covered_files:
   - .planning/REQUIREMENTS.md
-  - .planning/ROADMAP.md
-  - .planning/STATE.md
   - .planning/phases/05-socratic-epic-authoring/05-01-PLAN.md
   - .planning/phases/05-socratic-epic-authoring/05-01-SUMMARY.md
   - .planning/phases/05-socratic-epic-authoring/05-02-PLAN.md
@@ -137,7 +135,7 @@ covered_files:
   - scripts/uat/lib/fake-authoring-claude.mjs
   - scripts/uat/lib/sidecar-harness.mjs
   - scripts/uat/uat-08-socratic-authoring.mjs
-covered_digest: "v1:sha256:0718209bb038b40735ea4eabee5a92d9b186a5879cd508d1b4919ec8a94e769e"
+covered_digest: "v1:sha256:8500789910798e732431a70901b211fd3357e5c3ff83a39e85cb6467906402ea"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
