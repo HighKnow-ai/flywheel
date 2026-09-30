@@ -355,10 +355,17 @@ pub const DUPLICATE_CANDIDATE_LIMIT: i64 = 1;
 /// score — the comparison below is therefore strict less-than: a candidate whose score exactly
 /// equals this threshold is NOT flagged (RESEARCH.md Pitfall 7).
 ///
-/// Task 2 measures this value against a seeded corpus and pins it here with the observed ranges
-/// recorded in this doc comment; until then it carries a provisional placeholder that must not
-/// ship.
-pub const DUPLICATE_BM25_THRESHOLD: f64 = -0.0; // provisional — Task 2 measures and pins this.
+/// **Measured (plan 06-04 Task 2, 2026-09-30)** against
+/// `tests/proposal_duplicates.rs`'s `NEAR_DUPLICATE_PAIRS`/`UNRELATED_PAIRS` fixture (8 labelled
+/// pairs each, covering all four corpora, seeded alongside 20 filler rows per table so `bm25`'s
+/// IDF term has a real corpus to compute against): the 8 near-duplicate pairs scored in
+/// `[-49.38, -26.23]` (worst/least-negative: the "task" corpus's `retry budget` case — `tasks_fts`
+/// carries no `description` column at all, since `domain::task::create_task` never accepts one,
+/// so a task's near-duplicate score rides on its title alone, weaker than the title+body corpora);
+/// the 8 unrelated pairs scored in `[-16.87, -6.77]` (best/most-negative: the "epic" corpus's
+/// `drag-and-drop reorder` case). The two ranges do not overlap — every value in the pinned
+/// constant below sits strictly between them, with roughly 5 points of margin on each side.
+pub const DUPLICATE_BM25_THRESHOLD: f64 = -21.0;
 
 /// The lookup [`duplicate_candidate_for`] issues: one compile-time literal statement, four
 /// `UNION ALL` arms (task, epic, issue, proposal), each scoped to `:project_id`, matched against
