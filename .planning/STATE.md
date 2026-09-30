@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: Agents File Their Own Backlog
 status: executing
-stopped_at: Completed 06-06-PLAN.md
-last_updated: "2026-09-30T08:30:03.420Z"
+stopped_at: Completed 06-07-PLAN.md
+last_updated: "2026-09-30T09:13:10.798Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: a185cdee550f694bc079c72f6e204b1cd1b71277
+state_head: f55ac9ee06919368287d38d508bf186477565396
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 152
-  completed_plans: 149
+  completed_plans: 150
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 06 (Agents File Their Own Backlog) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -207,6 +207,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P04 | 60min | 3 tasks | 5 files |
 | Phase 06 P05 | 65min | 3 tasks | 12 files |
 | Phase 06 P06 | 32min | 3 tasks | 9 files |
+| Phase 06 P07 | 48min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -473,6 +474,8 @@ Recent decisions affecting current work:
 - [Phase 06]: Four pre-existing tests updated with narrowly-scoped raw-INSERT fixtures to accommodate PROPOSAL_LIMIT_PER_RUN, since their own subject was an unrelated read-side clamp property
 - [Phase 06]: Merge command surfaces ProposalUndecidable via plain .to_string() (no downcast exists anywhere in commands/authoring.rs); frontend already matches the stable Display substring
 - [Phase 06]: Closed useAuthoringQuery.ts's pre-existing invokeCommand gap (reject/amend/acceptSubtree hooks) since the plan's own zero-invokeCommand acceptance criterion required it
+- [Phase 06]: 06-07: bindingAllowedInLayer gained a layer-first triage-surface branch (checked before the tray's own id-first PROPOSAL_TRAY_ACTION_IDS branch) so accept/reject/amend resolve under either the tray's or the new triage surface's layer, without widening the tray's own existing rule for any other layer.
+- [Phase 06]: 06-07 (Rule 2 deviation): widened ProposalDto/AuthoringProposalDto with an optional duplicateCandidate (kind/key/title), resolved server-side via the existing resolve_duplicate_candidate_label for the two board-level triage reads only - no new Tauri command, one bounded lookup per row.
 
 ### Pending Todos
 
@@ -528,6 +531,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T08:30:03.277Z
-Stopped at: Completed 06-06-PLAN.md
+Last session: 2026-09-30T09:12:53.706Z
+Stopped at: Completed 06-07-PLAN.md
 Resume file: None
