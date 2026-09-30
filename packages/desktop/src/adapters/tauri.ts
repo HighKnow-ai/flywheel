@@ -840,6 +840,11 @@ export async function previewEpicContextPacket(
  * field-for-field (D-80/D-81). `payload` is the raw, `kind`-discriminated JSON
  * `domain::authoring_proposal::ProposalPayload` serialises to; the tray reads `title`/`kind` off
  * it directly rather than a duplicated typed shape.
+ *
+ * Plan 06-06 widens this with the agent's own stated reason (`rationale`, PROP-07), the run's
+ * session-log turn pointer (`originLogOffset`), and the duplicate verdict plan 06-04 writes at
+ * staging time (`duplicateOf`/`duplicateScore`, PROP-04) — all four `null` for every
+ * authoring-session proposal and for a proposal never flagged as a near-duplicate.
  */
 export interface AuthoringProposalDto {
   id: string;
@@ -854,6 +859,10 @@ export interface AuthoringProposalDto {
   status: string;
   createdBy: string;
   createdAt: string;
+  rationale: string | null;
+  originLogOffset: number | null;
+  duplicateOf: string | null;
+  duplicateScore: number | null;
 }
 
 /** Every pending proposal staged for `agentRunId`, bounded server-side — the proposal tray's own
@@ -871,15 +880,41 @@ export async function acceptAuthoringProposal(proposalId: string): Promise<void>
   await invokeCommand<void>("authoring_proposal_accept", { proposalId });
 }
 
+/** Reject a pending proposal with an optional reason (D-93) — a turn in the conversation the agent
+ * sees, never a silent verdict. Thin typed wrapper over `authoring_proposal_reject`. */
+export async function rejectAuthoringProposal(proposalId: string, reason?: string): Promise<void> {
+  await invokeCommand<void>("authoring_proposal_reject", { proposalId, reason });
+}
+
+/** Amend a pending proposal's payload to the developer's own text (D-94) — the row stays
+ * `pending`. Thin typed wrapper over `authoring_proposal_amend`. */
+export async function amendAuthoringProposal(
+  proposalId: string,
+  payload: Record<string, unknown>,
+): Promise<AuthoringProposalDto> {
+  return invokeCommand<AuthoringProposalDto>("authoring_proposal_amend", { proposalId, payload });
+}
+
+/** Accept a subtree — a proposed task together with its drafted criteria (D-95, the ONE bulk
+ * accept path this surface offers). Thin typed wrapper over `authoring_subtree_accept`. */
+export async function acceptAuthoringSubtree(rootProposalId: string): Promise<void> {
+  await invokeCommand<void>("authoring_subtree_accept", { rootProposalId });
+}
+
 /**
  * D-82 (plan 05-08): the board-level triage lane's own read — every pending proposal across a
  * project, bounded server-side, plus the per-status counts the lane header needs. Mirrors
  * `commands/authoring.rs`'s `ProposalWindowDto`/`ProposalStatusCountsDto` field-for-field.
+ *
+ * Plan 06-06 widens the counts to all five statuses (`merged`/`deferred` added) so a decided row
+ * is never invisible in the totals.
  */
 export interface ProposalStatusCountsDto {
   pending: number;
   accepted: number;
   rejected: number;
+  merged: number;
+  deferred: number;
 }
 
 export interface ProposalWindowDto {
@@ -900,6 +935,86 @@ export async function authoringProposalsPending(
   cursor?: ProposalCursorInput,
 ): Promise<ProposalWindowDto> {
   return invokeCommand<ProposalWindowDto>("authoring_proposals_pending", { projectId, limit, cursor });
+}
+
+/** Every DEFERRED proposal staged across `projectId`, bounded server-side (D-102) — the deferred
+ * filter's own read, [`authoringProposalsPending`]'s sibling. Thin typed wrapper over
+ * `authoring_proposals_deferred`. */
+export async function authoringProposalsDeferred(
+  projectId: string,
+  limit?: number,
+  cursor?: ProposalCursorInput,
+): Promise<ProposalWindowDto> {
+  return invokeCommand<ProposalWindowDto>("authoring_proposals_deferred", { projectId, limit, cursor });
+}
+
+/** [`mergeAuthoringProposal`]'s own return shape — mirrors `commands/authoring.rs`'s
+ * `MergeOutcomeDto` field-for-field. */
+export interface MergeOutcomeDto {
+  proposal: AuthoringProposalDto;
+  issueId: string;
+  issueKey: string;
+}
+
+/** Merge a pending task/epic/issue proposal into an existing task or epic (D-101) — attaches one
+ * child issue, never mutating the target's own row. `targetKind` is `"task"` or `"epic"`. Thin
+ * typed wrapper over `authoring_proposal_merge`. */
+export async function mergeAuthoringProposal(
+  proposalId: string,
+  targetKind: "task" | "epic",
+  targetId: string,
+): Promise<MergeOutcomeDto> {
+  return invokeCommand<MergeOutcomeDto>("authoring_proposal_merge", { proposalId, targetKind, targetId });
+}
+
+/** Defer a pending proposal (D-102) — mints nothing, stays recallable through
+ * [`authoringProposalsDeferred`]. Thin typed wrapper over `authoring_proposal_defer`. */
+export async function deferAuthoringProposal(proposalId: string): Promise<AuthoringProposalDto> {
+  return invokeCommand<AuthoringProposalDto>("authoring_proposal_defer", { proposalId });
+}
+
+/** [`rejectAuthoringProposalsBulk`]/[`deferAuthoringProposalsBulk`]'s own return shape — mirrors
+ * `commands/authoring.rs`'s `BulkDecisionDto` field-for-field. */
+export interface BulkDecisionDto {
+  decided: number;
+  skipped: string[];
+}
+
+/** Bulk-reject every pending id in `proposalIds` (D-104) — the first of the two bulk paths this
+ * surface offers; there is deliberately no bulk-accept. Thin typed wrapper over
+ * `authoring_proposals_reject_bulk`. */
+export async function rejectAuthoringProposalsBulk(
+  proposalIds: string[],
+  reason?: string,
+): Promise<BulkDecisionDto> {
+  return invokeCommand<BulkDecisionDto>("authoring_proposals_reject_bulk", { proposalIds, reason });
+}
+
+/** Bulk-defer every pending id in `proposalIds` (D-104) — [`rejectAuthoringProposalsBulk`]'s
+ * sibling. Thin typed wrapper over `authoring_proposals_defer_bulk`. */
+export async function deferAuthoringProposalsBulk(proposalIds: string[]): Promise<BulkDecisionDto> {
+  return invokeCommand<BulkDecisionDto>("authoring_proposals_defer_bulk", { proposalIds });
+}
+
+/** One throttled run's human-facing notice (plan 06-05, D-112) — mirrors
+ * `commands/authoring.rs`'s `ProposalLimitNoticeDto` field-for-field. */
+export interface ProposalLimitNoticeDto {
+  agentRunId: string;
+  taskId: string | null;
+  limit: number;
+  refusedCount: number;
+  firstRefusedAt: string;
+  lastRefusedAt: string;
+}
+
+/** Every throttled run's notice across `projectId`, bounded server-side — DERIVED, on every call,
+ * from the `proposal.limit_exhausted` events those runs' refusals appended. Thin typed wrapper
+ * over `authoring_proposal_limit_notices`. */
+export async function authoringProposalLimitNotices(
+  projectId: string,
+  limit?: number,
+): Promise<ProposalLimitNoticeDto[]> {
+  return invokeCommand<ProposalLimitNoticeDto[]>("authoring_proposal_limit_notices", { projectId, limit });
 }
 
 /** Advance an authoring run to its next stage (D-88, D-90, plan 05-03) — the one gate the whole

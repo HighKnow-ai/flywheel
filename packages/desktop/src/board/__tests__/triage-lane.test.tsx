@@ -26,6 +26,10 @@ vi.mock("../../adapters/tauri", () => ({
     invokeCommandMock("authoring_proposals_pending", { projectId, limit }),
   acceptAuthoringProposal: (proposalId: string) =>
     invokeCommandMock("authoring_proposal_accept", { proposalId }),
+  rejectAuthoringProposal: (proposalId: string, reason?: string) =>
+    invokeCommandMock("authoring_proposal_reject", { proposalId, reason }),
+  acceptAuthoringSubtree: (rootProposalId: string) =>
+    invokeCommandMock("authoring_subtree_accept", { rootProposalId }),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
 }));
 

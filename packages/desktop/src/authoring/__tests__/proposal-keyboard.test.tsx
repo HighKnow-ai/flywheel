@@ -27,6 +27,12 @@ vi.mock("../../adapters/tauri", () => ({
     invokeCommandMock("authoring_proposals_for_run", { agentRunId, limit }),
   acceptAuthoringProposal: (proposalId: string) =>
     invokeCommandMock("authoring_proposal_accept", { proposalId }),
+  rejectAuthoringProposal: (proposalId: string, reason?: string) =>
+    invokeCommandMock("authoring_proposal_reject", { proposalId, reason }),
+  amendAuthoringProposal: (proposalId: string, payload: Record<string, unknown>) =>
+    invokeCommandMock("authoring_proposal_amend", { proposalId, payload }),
+  acceptAuthoringSubtree: (rootProposalId: string) =>
+    invokeCommandMock("authoring_subtree_accept", { rootProposalId }),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeAgentEvent: () => Promise.resolve(() => {}),
   agentRunLogWindow: (agentRunId: string, offset: number, limit: number) =>
