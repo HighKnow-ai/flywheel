@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: Agents File Their Own Backlog
 status: executing
-stopped_at: Completed 06-04-PLAN.md
-last_updated: "2026-09-30T06:50:31.218Z"
+stopped_at: Completed 06-05-PLAN.md
+last_updated: "2026-09-30T07:53:31.460Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: 91f26f046a9ad5e70717006ec72ed3b48a3cdaff
+state_head: 36b9cb268032fbeb5dfa3d852c1ce7b582df77f6
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 152
-  completed_plans: 147
+  completed_plans: 148
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 06 (Agents File Their Own Backlog) — EXECUTING
-Plan: 5 of 9
+Plan: 6 of 9
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -205,6 +205,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P02 | 62min | 2 tasks | 1 files |
 | Phase 06 P03 | 10min | 3 tasks | 4 files |
 | Phase 06 P04 | 60min | 3 tasks | 5 files |
+| Phase 06 P05 | 65min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -467,6 +468,8 @@ Recent decisions affecting current work:
 - [Phase 06]: [Phase 06]: reject_proposals_bulk/defer_proposals_bulk peek each id's status via fetch_proposal before deciding it, rather than calling the single-row _in_tx sibling and treating its error as a skip signal — this is why a bulk defer counts an already-deferred id as skipped rather than silently re-affirmed, unlike a single-row defer_proposal call which treats the same status as an idempotent no-op.
 - [Phase 06]: DUPLICATE_BM25_THRESHOLD pinned at -21.0, measured against 8 near-dup/8 unrelated labelled pairs across all four corpora — Ranges [-49.38,-26.23] vs [-16.87,-6.77] do not overlap; recorded with fixture+date in the constant's doc comment
 - [Phase 06]: MATCH term is a bag-of-words OR of per-word to_fts5_prefix_phrase calls, not one literal phrase over the whole blob — Rule 1 bug fix: a single literal phrase over concatenated title+body can only match near-verbatim text, never a genuine paraphrase (verified empirically)
+- [Phase 06]: PROPOSAL_LIMIT_PER_RUN fixed at 10 with the refusal message text recorded verbatim; create_proposal_in_tx now returns ProposalOutcome so both Created and LimitExhausted flow through one type
+- [Phase 06]: Four pre-existing tests updated with narrowly-scoped raw-INSERT fixtures to accommodate PROPOSAL_LIMIT_PER_RUN, since their own subject was an unrelated read-side clamp property
 
 ### Pending Todos
 
@@ -522,6 +525,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T06:50:31.068Z
-Stopped at: Completed 06-04-PLAN.md
+Last session: 2026-09-30T07:53:31.313Z
+Stopped at: Completed 06-05-PLAN.md
 Resume file: None
