@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: Agents File Their Own Backlog
 status: executing
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-09-30T04:42:58.055Z"
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-09-30T05:14:23.685Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: ee3367034bdee9ae2493161215ce513835c09f59
+state_head: fd254096d089561db5b50879e0690c286ba9091c
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 152
-  completed_plans: 144
+  completed_plans: 145
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 06 (Agents File Their Own Backlog) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -202,6 +202,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05 P49 | ~80min | 3 tasks | 3 files |
 | Phase 05 P50 | 35min | 2 tasks | 4 files |
 | Phase 06 P01 | 79 min | 1 tasks | 21 files |
+| Phase 06 P02 | 62min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -458,6 +459,8 @@ Recent decisions affecting current work:
 - [Phase 06]: Migration 0015 bundles both CHECK-vocabulary widenings and all four new authoring_proposals columns into one table rebuild (checkpoint option-a) — One backup/restore risk window instead of two on a table that keeps decided rows forever; one place to re-create all four dropped indexes; matches 0006_recovery_statuses.sql's documented recipe
 - [Phase 06]: Tracer feedback gate for plan 06-01 approved on automated DB-level evidence; visual end-to-end proof deferred to plan 06-09's scripted UAT harness — Matches the project's standing preference for a durable, re-runnable automated harness over a one-off manual UI pass; recorded as WINDOWS.md entry #19 so the deferral stays visible
 - [Phase 06]: ProposalDto (Tauri command layer) carries no rationale field yet, so TriageLane.tsx shows a staged proposal's title but not its rationale — Wiring ProposalDto.rationale is outside plan 06-01's declared files_modified; recorded so the later 06-0x plan that adds it inherits the note instead of rediscovering the gap
+- [Phase 06]: Gate 1/Gate 2 scope follows the plan's literal pattern lists exactly (no DELETE FROM coverage, delete_criterion_in_tx omitted) — deliberate: these two gates bound promotion, not deletion, which each canonical table's own domain module already exclusively owns.
+- [Phase 06]: The create/issue corpus case surfaces a real gap (accept_proposal has no materialisation arm for Issue targets yet) rather than working around it — asserts the refusal is total, leaving 06-03 a clear handoff for when merge_proposal lands.
 
 ### Pending Todos
 
@@ -513,6 +516,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T04:42:57.904Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-09-30T05:14:23.534Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None

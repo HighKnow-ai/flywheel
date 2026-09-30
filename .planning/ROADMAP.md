@@ -711,7 +711,7 @@ prompting in a terminal, before building the full surface.
   4. A proposal that duplicates an existing item is flagged as a duplicate before the user sees it.
   5. A chatty agent hits a per-run proposal limit and the user is told the limit was hit, rather than proposals being silently dropped.
 
-**Plans**: 1/9 plans executed in 8 waves
+**Plans**: 2/9 plans executed in 8 waves
 **UI hint**: yes
 
 Plans:
@@ -722,7 +722,7 @@ Plans:
 
 **Wave 2** *(both blocked on the tracer; they share no file and run in parallel)*
 
-- [ ] 06-02-PLAN.md — No promotion without a human: the source gate, its gate-on-the-gate, the issues-no-status gate, and the adversarial corpus (PROP-02, PROP-03)
+- [x] 06-02-PLAN.md — No promotion without a human: the source gate, its gate-on-the-gate, the issues-no-status gate, and the adversarial corpus (PROP-02, PROP-03)
 - [ ] 06-03-PLAN.md — The four triage verbs in the core: `create_issue_in_tx`, merge, defer, accept-a-proposed-issue, and the two bulk paths (PROP-06, PROP-02)
 
 **Wave 3** *(blocked on 06-01 and 06-03 — shares `authoring_proposal.rs` and `db/mod.rs`)*
@@ -982,7 +982,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
-| 6. Agents File Their Own Backlog | 1/9 | In Progress|  |
+| 6. Agents File Their Own Backlog | 2/9 | In Progress|  |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
