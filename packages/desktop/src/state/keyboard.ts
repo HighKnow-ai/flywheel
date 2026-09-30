@@ -27,7 +27,11 @@ export type FocusRegion =
   | "command-palette"
   | "session-surface"
   | "permission-card"
-  | "proposal-tray";
+  | "proposal-tray"
+  // D-103 (plan 06-07): the dedicated triage surface's own region — `ProposalRow`'s `region` prop
+  // (plan 06-07 Task 1) is what lets the SAME row component act in either this region or the
+  // tray's, so the two never fork into separate row implementations.
+  | "triage-surface";
 
 /** Every board action reachable from the keyboard, the palette, or (menu.rs) the native menu.
  * `create-issue`/`open-legend`/`filter-status`/`filter-epic`/`filter-assignee`/`filter-priority`
@@ -96,7 +100,14 @@ export type ActionId =
   | "accept-proposal"
   | "reject-proposal"
   | "amend-proposal"
-  | "accept-proposal-subtree";
+  | "accept-proposal-subtree"
+  // D-101/D-102/D-104 (plan 06-07): the triage surface's own two new per-row verbs (merge, defer)
+  // and its two bulk sweeps (bulk reject, bulk defer) — D-104's ONLY two batchable verbs. No id
+  // here or anywhere else in this file means "accept many" or "accept all".
+  | "merge-proposal"
+  | "defer-proposal"
+  | "reject-selected-proposals"
+  | "defer-selected-proposals";
 
 export interface Binding {
   id: ActionId;
@@ -216,6 +227,37 @@ export const BINDINGS: Binding[] = [
   { id: "move-down", region: "proposal-tray", key: "ArrowDown", label: "Move selection down" },
   { id: "move-up", region: "proposal-tray", key: "k", label: "Move selection up" },
   { id: "move-up", region: "proposal-tray", key: "ArrowUp", label: "Move selection up" },
+
+  // ---- Triage surface (D-103, plan 06-07) — the dedicated triage view's own region. Reuses the
+  // tray's exact accept/reject/amend vocabulary (same letter, same verb, D-92/D-95's own reasoning
+  // extended here) plus two new per-row verbs (`m` merge, `z` defer, neither a free letter the tray
+  // itself claims) and two new bulk sweeps (`Shift+D` reject-selected, `Shift+Z` defer-selected) —
+  // D-104's only two batchable verbs. Deliberately NO binding anywhere in this region accepts more
+  // than one proposal: accept stays per-row (or per-subtree, via the tray's own `accept-proposal-
+  // subtree`, which this region does not bind a key to — mouse-only here, same as everywhere else).
+  { id: "accept-proposal", region: "triage-surface", key: "a", label: "Accept Proposal" },
+  { id: "reject-proposal", region: "triage-surface", key: "d", label: "Reject Proposal" },
+  { id: "amend-proposal", region: "triage-surface", key: "e", label: "Amend Proposal" },
+  { id: "merge-proposal", region: "triage-surface", key: "m", label: "Merge Proposal" },
+  { id: "defer-proposal", region: "triage-surface", key: "z", label: "Defer Proposal" },
+  { id: "move-down", region: "triage-surface", key: "j", label: "Move selection down" },
+  { id: "move-down", region: "triage-surface", key: "ArrowDown", label: "Move selection down" },
+  { id: "move-up", region: "triage-surface", key: "k", label: "Move selection up" },
+  { id: "move-up", region: "triage-surface", key: "ArrowUp", label: "Move selection up" },
+  {
+    id: "reject-selected-proposals",
+    region: "triage-surface",
+    key: "d",
+    shift: true,
+    label: "Reject Selected Proposals",
+  },
+  {
+    id: "defer-selected-proposals",
+    region: "triage-surface",
+    key: "z",
+    shift: true,
+    label: "Defer Selected Proposals",
+  },
 
   // ---- Command-palette-only (no keystroke; CommandPalette.tsx's generator source) --------
   { id: "create-issue", region: "command-palette", label: "Create Issue" },
@@ -369,7 +411,9 @@ export type UiLayer =
   | "palette"
   | "session-surface"
   | "permission-card"
-  | "proposal-tray";
+  | "proposal-tray"
+  // D-103 (plan 06-07): the triage surface's own layer — see `TRIAGE_SURFACE_ACTION_IDS` below.
+  | "triage-surface";
 
 /** The four booleans every layer decision is made from. `EscapeLadderState` below extends this
  * with only `hasSelection` — the two are the same subject read two ways (which layer to CLOSE on
@@ -422,12 +466,36 @@ const PROPOSAL_TRAY_ACTION_IDS = new Set<ActionId>([
 // board/quick-add allowance the final `return` below already grants.
 const TRAY_SELECTION_ACTION_IDS = new Set<ActionId>(["move-down", "move-up"]);
 
+// D-103/D-104 (plan 06-07): the triage surface's own complete allow-list — the four verbs it
+// shares with the tray (accept/reject/amend, reused by the SAME id so the same key means the same
+// thing in both places) plus its own two new per-row verbs (merge, defer) and its own two bulk
+// sweeps. This is checked as its OWN layer-first branch (below), never by widening
+// `PROPOSAL_TRAY_ACTION_IDS`'s existing rule — that rule stays exactly `layer === "proposal-tray"`,
+// unchanged for every id it already governed, so the tray's own keyboard tests keep asserting the
+// same behaviour they always did.
+const TRIAGE_SURFACE_ACTION_IDS = new Set<ActionId>([
+  "accept-proposal",
+  "reject-proposal",
+  "amend-proposal",
+  "merge-proposal",
+  "defer-proposal",
+  "reject-selected-proposals",
+  "defer-selected-proposals",
+]);
+
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "open-palette") return layer !== "picker" && layer !== "palette";
   // T-02-15 (STRIDE, elevation of privilege): permission-answer bindings must never fire outside
   // the card's own layer — a stray `a`/`d` on the board must never approve or deny a tool call.
   if (PERMISSION_CARD_ACTION_IDS.has(id)) return layer === "permission-card";
   if (SESSION_SURFACE_ACTION_IDS.has(id)) return layer === "session-surface";
+  // Checked BEFORE `PROPOSAL_TRAY_ACTION_IDS` below because three ids (accept/reject/amend-
+  // proposal) are members of both sets — under the triage-surface layer this branch decides them;
+  // under every other layer it is a no-op (its own condition is false) and the tray's own branch
+  // decides them exactly as it always has.
+  if (layer === "triage-surface") {
+    return TRIAGE_SURFACE_ACTION_IDS.has(id) || TRAY_SELECTION_ACTION_IDS.has(id);
+  }
   if (PROPOSAL_TRAY_ACTION_IDS.has(id)) return layer === "proposal-tray";
   if (layer === "proposal-tray") return TRAY_SELECTION_ACTION_IDS.has(id);
   return layer === "board" || layer === "quick-add";

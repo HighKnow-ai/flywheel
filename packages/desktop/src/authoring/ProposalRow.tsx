@@ -23,17 +23,27 @@
  * disabled for good, reject still live so the developer can clear it) instead of the ordinary
  * retryable-error treatment.
  *
- * Keyboard (Task 3): `a`/`d`/`e`/`Shift+A` reach this row through
- * `useRegionBindings("proposal-tray", ...)` (`state/keyboard.ts`) ONLY while `selected` is true —
- * no key listener lives in this file. `Shift+A` (accept-subtree) is gated inert here — on a
+ * Keyboard (Task 3): `a`/`d`/`e`/`Shift+A` reach this row through `state/keyboard.ts`'s
+ * `useRegionBindings`, called below with the tray's own region, ONLY while `selected` is true — no
+ * key listener lives in this file. `Shift+A` (accept-subtree) is gated inert here — on a
  * criterion row or a task with no pending children the call never reaches the backend, mirroring
  * how the destructive permission card gates `Shift+A` inert in its own row handler (T-05-07-02).
+ *
+ * Plan 06-07 Task 1 (D-103): this SAME component also acts on the dedicated triage surface — the
+ * optional `region` prop (default `"proposal-tray"`, so every existing caller is byte-identical in
+ * behaviour) is threaded through the one `useRegionBindings` call instead of a hard-coded literal.
+ * `onMerge`/`onDefer` are rendered and dispatched ONLY when supplied (`ProposalTray.tsx`/
+ * `board/TriageLane.tsx` supply neither). `onMerge` never itself calls the backend — it opens
+ * `TriageSurface.tsx`'s own target picker (D-101: no default target, no single-keystroke merge) —
+ * so it needs no synchronous-tick ref of its own, only this file's ordinary `state.undecidable`
+ * guard. `onDefer` IS a real backend call from this row's perspective, so it is guarded exactly
+ * like `accept`/`reject` above.
  */
 import { useRef, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
 import type { AuthoringProposalDto } from "../adapters/tauri";
 import { MARKS_BY_ID } from "../legend/marks";
-import { useRegionBindings } from "../state/keyboard";
+import { useRegionBindings, type FocusRegion, type UiLayer } from "../state/keyboard";
 import { useAcceptProposal, useRejectProposal } from "./useAuthoringQuery";
 import { ProposalAmendEditor } from "./ProposalAmendEditor";
 
@@ -132,11 +142,25 @@ export interface ProposalRowProps {
   pendingChildCount: number;
   acceptingSubtree: boolean;
   onAcceptSubtree: () => void;
+  /** The keyboard region this row acts within (Task 1, plan 06-07) — defaults to the tray's own
+   * region so every existing caller (`ProposalTray.tsx`, `board/TriageLane.tsx`) is byte-identical
+   * in behaviour. `TriageSurface.tsx` is the one caller that supplies `"triage-surface"`. */
+  region?: FocusRegion;
+  /** Opens the merge target picker for THIS row (Task 2, `triage/TriageSurface.tsx`) — rendered
+   * and dispatched ONLY when supplied, so the tray (which supplies neither this nor `onDefer`)
+   * renders no merge control at all. The mutation itself never runs here: only the picker's own
+   * explicit target choice ever calls `useMergeProposal` (D-101 — no default target, no
+   * single-keystroke merge). */
+  onMerge?: () => void;
+  /** Defers this row (Task 2, D-102) — rendered and dispatched ONLY when supplied. Unlike
+   * `onMerge`, this IS the backend call, so it is guarded exactly like `accept`/`reject` below. */
+  onDefer?: () => Promise<void>;
 }
 
 interface RowState {
   accepting: boolean;
   rejecting: boolean;
+  deferring: boolean;
   undecidable: boolean;
   error: string | null;
 }
@@ -150,10 +174,14 @@ export function ProposalRow({
   pendingChildCount,
   acceptingSubtree,
   onAcceptSubtree,
+  region = "proposal-tray",
+  onMerge,
+  onDefer,
 }: ProposalRowProps) {
   const [state, setState] = useState<RowState>({
     accepting: false,
     rejecting: false,
+    deferring: false,
     undecidable: false,
     error: null,
   });
@@ -171,6 +199,12 @@ export function ProposalRow({
   // `answeringRef`, `session/SessionSurface.tsx`'s `stoppingRef`, and others).
   const acceptingRef = useRef(false);
   const rejectingRef = useRef(false);
+  // `onMerge`'s own guard: merge here means "open the target picker", not "call the backend" — the
+  // actual `useMergeProposal` call lives in `TriageSurface.tsx`'s own picker, gated on its own
+  // ref (T-06-32) — so this one only needs the file's ordinary `state.undecidable` guard below, not
+  // a second synchronous-tick ref of its own. `deferringRef` mirrors `rejectingRef` exactly:
+  // `onDefer` IS a real backend call from this row's own perspective.
+  const deferringRef = useRef(false);
 
   const canAcceptSubtree = proposal.targetType === "task" && pendingChildCount > 0;
 
@@ -215,7 +249,32 @@ export function ProposalRow({
     setEditing(true);
   }
 
-  useRegionBindings("proposal-tray", "proposal-tray", {
+  // Opens the merge target picker one layer up (`TriageSurface.tsx`) — never calls
+  // `useMergeProposal` itself (D-101: no default target, no single-keystroke merge).
+  function openMerge() {
+    if (state.undecidable || !onMerge) return;
+    onMerge();
+  }
+
+  async function defer() {
+    if (deferGuard()) return;
+    deferringRef.current = true;
+    setState((prev) => ({ ...prev, deferring: true, error: null }));
+    try {
+      await onDefer?.();
+      // Mirrors `accept`'s own success path — the row unmounts once the pending query re-reads
+      // (this proposal has left the pending status), and the ref is deliberately never reset.
+    } catch {
+      deferringRef.current = false;
+      setState((prev) => ({ ...prev, deferring: false, error: "Could not defer this proposal. Try again." }));
+    }
+  }
+
+  function deferGuard(): boolean {
+    return deferringRef.current || state.undecidable || !onDefer;
+  }
+
+  useRegionBindings(region, region as UiLayer, {
     "accept-proposal": () => {
       if (selected) void accept();
     },
@@ -227,6 +286,12 @@ export function ProposalRow({
     },
     "accept-proposal-subtree": () => {
       if (selected && canAcceptSubtree) onAcceptSubtree();
+    },
+    "merge-proposal": () => {
+      if (selected) openMerge();
+    },
+    "defer-proposal": () => {
+      if (selected) void defer();
     },
   });
 
@@ -365,6 +430,42 @@ export function ProposalRow({
                 }}
               >
                 {acceptingSubtree ? "Accepting…" : `Accept task and its ${pendingChildCount} criteria`}
+              </button>
+            )}
+            {onMerge && !state.undecidable && (
+              <button
+                type="button"
+                onClick={openMerge}
+                className="type-body"
+                style={{
+                  background: "transparent",
+                  border: "1px solid var(--divider)",
+                  borderRadius: "var(--radius-chrome)",
+                  color: "var(--text-primary-rack)",
+                  padding: "var(--space-xs) var(--space-md)",
+                  cursor: "pointer",
+                }}
+              >
+                Merge
+              </button>
+            )}
+            {onDefer && !state.undecidable && (
+              <button
+                type="button"
+                disabled={state.deferring}
+                onClick={() => void defer()}
+                className="type-body"
+                style={{
+                  background: "transparent",
+                  border: "1px solid var(--divider)",
+                  borderRadius: "var(--radius-chrome)",
+                  color: "var(--text-primary-rack)",
+                  padding: "var(--space-xs) var(--space-md)",
+                  cursor: state.deferring ? "default" : "pointer",
+                  opacity: state.deferring ? 0.6 : 1,
+                }}
+              >
+                {state.deferring ? "Deferring…" : "Defer"}
               </button>
             )}
           </div>
