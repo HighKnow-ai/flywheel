@@ -68,6 +68,47 @@ fn stage_and_decide(
     proposal.id
 }
 
+/// Stage an ALREADY-DECIDED proposal directly, bypassing `create_proposal`'s own
+/// `PROPOSAL_LIMIT_PER_RUN` write-side rule (plan 06-05) — used ONLY by the two "bounded at read
+/// limit" tests below, which need more rows under one run than that limit now permits through the
+/// public API to pin `assemble_epic_context_packet`'s own READ-side bound (a property of that
+/// read's pagination, not of proposal authoring). Otherwise mirrors `stage_and_decide`'s own
+/// shape (payload + immediately-terminal status + a caller-chosen `created_at`).
+fn seed_raw_decided_proposal(
+    conn: &Connection,
+    run_id: &str,
+    project_id: &str,
+    epic_id: &str,
+    actor_id: &str,
+    payload: &ProposalPayload,
+    status: &str,
+    created_at: &str,
+) {
+    let payload_json = serde_json::to_string(payload).expect("failed to serialise proposal payload");
+    conn.execute(
+        "INSERT INTO authoring_proposals (
+            id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
+            parent_proposal_id, position, payload, status, rejection_reason, materialised_id,
+            created_by, created_at, decided_by, decided_at, rationale, origin_log_offset,
+            duplicate_of, duplicate_score
+        ) VALUES (?1, ?2, ?3, ?4, 'create', ?5, NULL, NULL, ?6, ?7, ?8, NULL, NULL, \
+            ?9, ?10, ?9, ?10, NULL, NULL, NULL, NULL)",
+        params![
+            core::ids::new_id(),
+            run_id,
+            project_id,
+            epic_id,
+            payload.target_type().as_str(),
+            core::ids::new_id(),
+            payload_json,
+            status,
+            actor_id,
+            created_at,
+        ],
+    )
+    .expect("failed to seed a raw decided proposal");
+}
+
 #[test]
 fn packet_for_epic_id_none_has_every_section_absent_and_no_epic_heading() {
     let (conn, _actor_id, project) = seeded_project();
@@ -350,12 +391,14 @@ fn rejected_proposals_read_is_bounded_at_the_context_packet_read_limit_and_keeps
 
     let total = CONTEXT_PACKET_READ_LIMIT + 10;
     for n in 1..=total {
-        stage_and_decide(
-            &mut conn,
+        seed_raw_decided_proposal(
+            &conn,
             &run.id,
-            ProposalPayload::Task { title: format!("proposal-{n:04}"), description: None },
-            "rejected",
+            &project.id,
+            &epic.id,
             &actor_id,
+            &ProposalPayload::Task { title: format!("proposal-{n:04}"), description: None },
+            "rejected",
             &format!("2026-06-{:02}T{:02}:{:02}:00Z", 1 + (n / 1440) % 28, (n / 60) % 24, n % 60),
         );
     }
@@ -389,15 +432,17 @@ fn answered_assumptions_read_is_bounded_at_the_context_packet_read_limit_and_kee
 
     let total = CONTEXT_PACKET_READ_LIMIT + 10;
     for n in 1..=total {
-        stage_and_decide(
-            &mut conn,
+        seed_raw_decided_proposal(
+            &conn,
             &run.id,
-            ProposalPayload::Assumption {
+            &project.id,
+            &epic.id,
+            &actor_id,
+            &ProposalPayload::Assumption {
                 assumption: format!("assumption-{n:04}"),
                 answer: format!("answer-{n:04}"),
             },
             "accepted",
-            &actor_id,
             &format!("2026-07-{:02}T{:02}:{:02}:00Z", 1 + (n / 1440) % 28, (n / 60) % 24, n % 60),
         );
     }

@@ -69,6 +69,43 @@ fn seed_agent_run(conn: &mut Connection, project_id: &str, human_actor_id: &str)
     run_id
 }
 
+/// A throwaway agent run with NO task/epic subject at all (plan 06-05) — used only to give one
+/// filler proposal its own `agent_run_id` so `PROPOSAL_LIMIT_PER_RUN` never trips on `seed_filler`.
+/// Unlike `seed_agent_run`, this creates NO `tasks` row: calling `seed_agent_run` once PER filler
+/// proposal would have inserted 20 extra "Fixture executor task" rows into `tasks`/`tasks_fts`,
+/// perturbing the exact bm25 IDF statistics `DUPLICATE_BM25_THRESHOLD` was measured and pinned
+/// against (found the hard way — a previous version of this fix did exactly that and flipped an
+/// unrelated-pair case into a false positive). `triggers.target_task_id`/`target_epic_id` are both
+/// nullable and the table's own CHECK only forbids both being NON-null together, so a trigger (and
+/// the `agent_runs` row it backs) with NEITHER set is a valid row, not a workaround.
+fn seed_throwaway_run(conn: &mut Connection, project_id: &str, actor_id: &str) -> String {
+    let agent_actor = agent_actor_id(conn).expect("seeded agent actor should exist");
+    let now = "2026-01-01T00:00:00Z";
+    let trigger_id: String = conn
+        .query_row(
+            "INSERT INTO triggers (
+                id, project_id, target_task_id, target_epic_id, source, config, enabled,
+                last_fired_at, created_by, created_at
+            ) VALUES (?1, ?2, NULL, NULL, 'user_action', NULL, 1, NULL, ?3, ?4) RETURNING id",
+            params![new_id(), project_id, actor_id, now],
+            |row| row.get(0),
+        )
+        .expect("failed to insert throwaway trigger");
+
+    let run_id = new_id();
+    conn.execute(
+        "INSERT INTO agent_runs (
+            id, worktree_id, task_id, epic_id, project_id, trigger_id, adapter, actor_id, status,
+            external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path,
+            started_at, ended_at, authoring_stage
+        ) VALUES (?1, NULL, NULL, NULL, ?2, ?3, 'claude_code', ?4, 'running', NULL, 'default', \
+            NULL, NULL, NULL, ?5, ?6, NULL, NULL)",
+        params![run_id, project_id, trigger_id, agent_actor, format!("/tmp/log-{run_id}.jsonl"), now],
+    )
+    .expect("failed to insert throwaway agent_run");
+    run_id
+}
+
 /// Realistic filler vocabulary — seeded so `bm25`'s IDF term has a real corpus to compute
 /// against, rather than a degenerate one-document table (the score magnitude compresses toward
 /// zero on a near-empty table, per SQLite's own `bm25` IDF formula).
@@ -95,16 +132,23 @@ const FILLER_TITLES: [&str; 20] = [
     "Add a tooltip explaining the priority icons",
 ];
 
-fn seed_filler(conn: &mut Connection, project_id: &str, actor_id: &str, run_id: &str, n: usize) {
+/// Plan 06-05 (PROP-05): `_run_id` is intentionally UNUSED for the filler proposals below — each
+/// one now stages under its own throwaway run (via `seed_agent_run`) rather than the caller's
+/// `run_id`, so `FILLER_TITLES.len()` (20) filler proposals never collide with
+/// `PROPOSAL_LIMIT_PER_RUN` (10) on any single run, least of all the run under test. The filler
+/// proposals exist only to give `bm25`'s IDF term a real corpus and are rejected immediately —
+/// which run staged them was never load-bearing for that purpose.
+fn seed_filler(conn: &mut Connection, project_id: &str, actor_id: &str, _run_id: &str, n: usize) {
     for i in 0..n {
         let title = FILLER_TITLES[i % FILLER_TITLES.len()];
         create_task(conn, project_id, actor_id, title, None).expect("filler create_task");
         create_epic(conn, project_id, actor_id, title, None).expect("filler create_epic");
         create_issue(conn, project_id, actor_id, title, None, "idea", IssueParent::None)
             .expect("filler create_issue");
+        let filler_run_id = seed_throwaway_run(conn, project_id, actor_id);
         let proposal = create_proposal(
             conn,
-            run_id,
+            &filler_run_id,
             ProposalVerb::Create,
             ProposalPayload::Task { title: title.to_string(), description: None },
             None,

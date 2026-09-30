@@ -19,9 +19,38 @@ use core::domain::authoring_proposal::{
 use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::project::Project;
 use core::domain::task::{create_task, delete_task};
+use core::ids::new_id;
 use core::query::authoring::list_pending_proposals;
 use core::query::permissions::{blocked_count_for_project, blocked_task_ids_for_project};
 use rusqlite::{params, Connection};
+
+/// Stage one `pending` `authoring_proposals` row directly, bypassing `create_proposal`'s own
+/// `PROPOSAL_LIMIT_PER_RUN` write-side rule (plan 06-05) — used ONLY by
+/// `pending_proposals_lane_clamp_holds_for_a_ten_million_request` below, which pins
+/// `list_pending_proposals`'s own READ-side clamp arithmetic (a property of that read's
+/// pagination, not of proposal authoring), and therefore needs more rows under one run than the
+/// write-side limit now permits through the public API.
+fn seed_raw_pending_proposal(conn: &Connection, run_id: &str, project_id: &str, actor_id: &str, title: &str) {
+    conn.execute(
+        "INSERT INTO authoring_proposals (
+            id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
+            parent_proposal_id, position, payload, status, rejection_reason, materialised_id,
+            created_by, created_at, decided_by, decided_at, rationale, origin_log_offset,
+            duplicate_of, duplicate_score
+        ) VALUES (?1, ?2, ?3, NULL, 'create', 'task', NULL, NULL, ?4, ?5, 'pending', NULL, NULL, \
+            ?6, ?7, NULL, NULL, NULL, NULL, NULL, NULL)",
+        params![
+            new_id(),
+            run_id,
+            project_id,
+            new_id(),
+            serde_json::json!({ "kind": "task", "title": title, "description": null }).to_string(),
+            actor_id,
+            chrono::Utc::now().to_rfc3339(),
+        ],
+    )
+    .expect("failed to seed a raw pending proposal");
+}
 
 /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `advance_stage` writes
 /// the D-88 authoring-stage runtime marker as part of its own transaction, mirroring
@@ -1198,18 +1227,9 @@ fn pending_proposals_lane_per_status_counts_match_the_rows() {
 #[test]
 fn pending_proposals_lane_clamp_holds_for_a_ten_million_request() {
     with_scratch_runtime_dir(|| {
-        let (mut conn, _human_actor_id, project, run_id) = ready_run();
+        let (conn, human_actor_id, project, run_id) = ready_run();
         for i in 0..(core::query::authoring::MAX_LIMIT + 5) {
-            create_proposal(
-                &mut conn,
-                &run_id,
-                ProposalVerb::Create,
-                ProposalPayload::Task { title: format!("clamp task {i}"), description: None },
-                None,
-                None,
-                ProposalProvenance::NONE,
-            )
-            .unwrap();
+            seed_raw_pending_proposal(&conn, &run_id, &project.id, &human_actor_id, &format!("clamp task {i}"));
         }
         let window = list_pending_proposals(&conn, &project.id, 10_000_000, None).unwrap();
         assert_eq!(

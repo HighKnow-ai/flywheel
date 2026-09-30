@@ -15,6 +15,17 @@
 //! (`common::seeded_project`, `project::create_project`, `epic::create_epic`, `task::create_task`,
 //! `authoring_session::start_authoring_run`) — never a hand-rolled `INSERT` — mirroring
 //! `authoring_measurement.rs`'s own discipline.
+//!
+//! ONE documented exception (plan 06-05, PROP-05): `list_proposals_at_the_exact_ceiling_...`
+//! below seeds `MAX_LIMIT + 1` (501) rows under a SINGLE run to pin `resolve_board_read`'s
+//! own READ-side peek-limit arithmetic — a property of `pending_proposals_for_run`'s pagination,
+//! not of proposal AUTHORING. Since plan 06-05 introduced `PROPOSAL_LIMIT_PER_RUN` (10) on the
+//! WRITE path `create_proposal` goes through, staging 501 real proposals through that path for
+//! one run is no longer possible at all — refused at the 11th. `seed_raw_pending_proposal` below
+//! bypasses that write-side rule with a direct `INSERT`, exactly as this crate's own fixture
+//! helpers already do for tables this file isn't the owner of (e.g. `proposal_channel.rs`'s own
+//! raw `agent_runs`/`triggers` inserts) — this file remains the owner of `resolve_board_read`'s
+//! read arithmetic, never of the staging cap that is a different plan's own property.
 
 mod common;
 
@@ -23,8 +34,35 @@ use core::domain::authoring_session::start_authoring_run;
 use core::domain::epic::create_epic;
 use core::domain::project;
 use core::domain::task::create_task;
+use core::ids::new_id;
 use core::query::authoring::{resolve_board_read, MAX_LIMIT};
+use rusqlite::{params, Connection};
 use serde_json::json;
+
+/// Stage one `pending` `authoring_proposals` row directly, bypassing `create_proposal`'s own
+/// `PROPOSAL_LIMIT_PER_RUN` write-side rule (plan 06-05) — used ONLY by the exact-ceiling test
+/// below, which is pinning `resolve_board_read`'s READ-side arithmetic, not proposal authoring.
+fn seed_raw_pending_proposal(conn: &Connection, run_id: &str, project_id: &str, actor_id: &str, title: &str) {
+    conn.execute(
+        "INSERT INTO authoring_proposals (
+            id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
+            parent_proposal_id, position, payload, status, rejection_reason, materialised_id,
+            created_by, created_at, decided_by, decided_at, rationale, origin_log_offset,
+            duplicate_of, duplicate_score
+        ) VALUES (?1, ?2, ?3, NULL, 'create', 'epic', NULL, NULL, ?4, ?5, 'pending', NULL, NULL, \
+            ?6, ?7, NULL, NULL, NULL, NULL, NULL, NULL)",
+        params![
+            new_id(),
+            run_id,
+            project_id,
+            new_id(),
+            serde_json::json!({ "kind": "epic", "title": title }).to_string(),
+            actor_id,
+            chrono::Utc::now().to_rfc3339(),
+        ],
+    )
+    .expect("failed to seed a raw pending proposal");
+}
 
 /// A `get_epic` event naming the SECOND project's epic id, issued against the FIRST project's
 /// run, returns an answer whose `found` is `false` and whose `epic` is null — the event's own
@@ -198,16 +236,7 @@ fn list_proposals_at_the_exact_ceiling_reports_truncated_false_per_the_documente
     let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
         .expect("start_authoring_run should succeed");
     for i in 0..(MAX_LIMIT + 1) {
-        create_proposal(
-            &mut conn,
-            &run.id,
-            ProposalVerb::Create,
-            ProposalPayload::Epic { title: format!("epic {i}"), description: None },
-            None,
-            None,
-            ProposalProvenance::NONE,
-        )
-        .expect("create_proposal should succeed");
+        seed_raw_pending_proposal(&conn, &run.id, &project.id, &actor_id, &format!("epic {i}"));
     }
 
     let event = json!({ "readKind": "list_proposals", "limit": MAX_LIMIT });
