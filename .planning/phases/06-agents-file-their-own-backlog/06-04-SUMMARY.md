@@ -200,3 +200,16 @@ None - no external service configuration required.
 ---
 *Phase: 06-agents-file-their-own-backlog*
 *Completed: 2026-09-30*
+
+## Self-Check: PASSED
+
+- FOUND: packages/core/src/db/migrations/0016_authoring_proposals_fts.sql
+- FOUND: packages/core/tests/proposal_duplicates.rs
+- FOUND: packages/core/src/db/mod.rs
+- FOUND: packages/core/src/query/search.rs
+- FOUND: packages/core/src/domain/authoring_proposal.rs
+- FOUND: 95981ff (Task 1 commit)
+- FOUND: b760722 (Task 2 RED commit)
+- FOUND: 169a880 (Task 2 GREEN commit)
+- FOUND: 0541713 (Task 3 RED commit)
+- FOUND: 76d141d (Task 3 GREEN commit)

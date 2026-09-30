@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: Agents File Their Own Backlog
 status: executing
-stopped_at: Completed 06-03-PLAN.md
-last_updated: "2026-09-30T05:58:23.751Z"
+stopped_at: Completed 06-04-PLAN.md
+last_updated: "2026-09-30T06:50:31.218Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: b4667a92e0f65fe70d615b66a1ba16240ab1f6ef
+state_head: 91f26f046a9ad5e70717006ec72ed3b48a3cdaff
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 152
-  completed_plans: 146
+  completed_plans: 147
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 06 (Agents File Their Own Backlog) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 Last activity: 2026-09-30 — Phase 06 execution started
 
@@ -204,6 +204,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P01 | 79 min | 1 tasks | 21 files |
 | Phase 06 P02 | 62min | 2 tasks | 1 files |
 | Phase 06 P03 | 10min | 3 tasks | 4 files |
+| Phase 06 P04 | 60min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -464,6 +465,8 @@ Recent decisions affecting current work:
 - [Phase 06]: The create/issue corpus case surfaces a real gap (accept_proposal has no materialisation arm for Issue targets yet) rather than working around it — asserts the refusal is total, leaving 06-03 a clear handoff for when merge_proposal lands.
 - [Phase 06]: [Phase 06]: merge_proposal_in_tx is idempotent only on an already-merged proposal (mirroring accept_proposal_in_tx's own narrow 'already accepted' branch), refusing every other terminal status rather than treating any terminal status as reusable — an accepted task/epic proposal's materialised_id names a task or epic, not an issue, so a MergeOutcome could not honestly report it.
 - [Phase 06]: [Phase 06]: reject_proposals_bulk/defer_proposals_bulk peek each id's status via fetch_proposal before deciding it, rather than calling the single-row _in_tx sibling and treating its error as a skip signal — this is why a bulk defer counts an already-deferred id as skipped rather than silently re-affirmed, unlike a single-row defer_proposal call which treats the same status as an idempotent no-op.
+- [Phase 06]: DUPLICATE_BM25_THRESHOLD pinned at -21.0, measured against 8 near-dup/8 unrelated labelled pairs across all four corpora — Ranges [-49.38,-26.23] vs [-16.87,-6.77] do not overlap; recorded with fixture+date in the constant's doc comment
+- [Phase 06]: MATCH term is a bag-of-words OR of per-word to_fts5_prefix_phrase calls, not one literal phrase over the whole blob — Rule 1 bug fix: a single literal phrase over concatenated title+body can only match near-verbatim text, never a genuine paraphrase (verified empirically)
 
 ### Pending Todos
 
@@ -519,6 +522,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T05:58:14.911Z
-Stopped at: Completed 06-03-PLAN.md
+Last session: 2026-09-30T06:50:31.068Z
+Stopped at: Completed 06-04-PLAN.md
 Resume file: None
