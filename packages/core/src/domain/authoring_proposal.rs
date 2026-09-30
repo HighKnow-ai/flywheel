@@ -23,6 +23,17 @@
 //! turn pointer resolved SERVER-SIDE from `session_log::count_lines`, never accepted as a caller
 //! argument — PROP-07 requires both fields be attributable to the run's own session log, not to
 //! whatever an agent's tool-call arguments claim).
+//!
+//! Plan 06-03 (D-101/D-102/D-104): `status` is now a five-value vocabulary — `pending`,
+//! `accepted`, `rejected`, `merged`, `deferred`. `merged` is where `domain::issue`'s own header
+//! comment's reserved `merged_into_task` outcome is actually recorded: [`merge_proposal`] attaches
+//! a child `issues` row to an existing task or epic through [`crate::domain::issue::create_issue_in_tx`],
+//! the SAME canonical writer [`materialise_proposal`]'s `create`/`Issue` arm calls for a top-level
+//! accept — two distinct call sites, never one branching on how it was triggered. `deferred` rows
+//! ([`defer_proposal`]) are recallable: a deferred proposal mints no canonical row and stays in the
+//! already-decided set a later triage run is primed with (D-102). [`reject_proposals_bulk`] and
+//! [`defer_proposals_bulk`] are the two D-104 bulk paths — safe to batch precisely because neither
+//! mints anything; no accept-all counterpart exists at any layer.
 
 use anyhow::Context;
 use rusqlite::{named_params, params, Connection, OptionalExtension, Row, Transaction};
@@ -711,6 +722,23 @@ fn materialise_proposal(
         // accept idempotent (the "already accepted" branch in `accept_proposal_in_tx` reads it
         // back unchanged).
         ("create", ProposalPayload::Assumption { .. }) => Ok(proposal.id.clone()),
+        // D-97 (plan 06-03): accepting a proposed issue mints ONE top-level `issues` row —
+        // `IssueParent::None` — through the same canonical writer `merge_proposal_in_tx` calls
+        // below. This is a SEPARATE call site from the merge path (06-RESEARCH.md Pitfall 5): the
+        // two are never conflated into one function that branches on how it was triggered.
+        ("create", ProposalPayload::Issue { title, body, issue_kind }) => {
+            let issue = crate::domain::issue::create_issue_in_tx(
+                tx,
+                &proposal.project_id,
+                &proposal.created_by,
+                title,
+                body.as_deref(),
+                issue_kind,
+                crate::domain::issue::IssueParent::None,
+                now,
+            )?;
+            Ok(issue.id)
+        }
         ("amend", ProposalPayload::Criterion { statement, verification_hint }) => {
             let target_id = require_target(proposal)?;
             ensure_target_exists(tx, proposal, ProposalTargetType::Criterion, target_id)?;
@@ -888,6 +916,309 @@ pub fn accept_proposal(
     Ok(outcome)
 }
 
+/// The at-most-one-parent-at-a-time target [`merge_proposal`] attaches a child issue to —
+/// mirrors [`crate::domain::issue::IssueParent`]'s own guarantee (`Task`/`Epic`, never both) so a
+/// caller cannot name two parents for the same merge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MergeTarget {
+    Task(String),
+    Epic(String),
+}
+
+impl MergeTarget {
+    fn target_type(&self) -> ProposalTargetType {
+        match self {
+            MergeTarget::Task(_) => ProposalTargetType::Task,
+            MergeTarget::Epic(_) => ProposalTargetType::Epic,
+        }
+    }
+
+    fn target_id(&self) -> &str {
+        match self {
+            MergeTarget::Task(id) | MergeTarget::Epic(id) => id,
+        }
+    }
+
+    fn as_issue_parent(&self) -> crate::domain::issue::IssueParent {
+        match self {
+            MergeTarget::Task(id) => crate::domain::issue::IssueParent::Task(id.clone()),
+            MergeTarget::Epic(id) => crate::domain::issue::IssueParent::Epic(id.clone()),
+        }
+    }
+}
+
+/// What [`merge_proposal`] did (D-101) — the decided [`Proposal`] plus the id of the child
+/// `issues` row it created, mirroring [`AcceptOutcome`]'s shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MergeOutcome {
+    pub proposal: Proposal,
+    pub issue_id: String,
+}
+
+/// Build the merged issue's body from the proposal's own description/body AND its `rationale`
+/// (D-101's `<behavior>`) as two discrete labelled parts — never one prose blob that loses which
+/// is which. Either part may be absent (an authoring-session proposal carries no `rationale`;
+/// a description/body is itself optional); the result is `None` only when both are absent.
+fn build_merged_issue_body(description: Option<&str>, rationale: Option<&str>) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(description) = description {
+        parts.push(format!("Description: {description}"));
+    }
+    if let Some(rationale) = rationale {
+        parts.push(format!("Rationale: {rationale}"));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    }
+}
+
+/// Merge one proposal into `target`, inside a transaction the caller already owns — mirrors
+/// [`accept_proposal_in_tx`]'s shape exactly. Reads the row FRESH (never trusts a caller-supplied
+/// copy). A proposal already `merged` is idempotent: the recorded `issue_id` is returned
+/// unchanged rather than creating a second issue. Any other non-`pending` status (`accepted`,
+/// `rejected`, `deferred`) is refused — a decided row is terminal (D-83), and a proposal already
+/// materialised through a DIFFERENT path has no `issue_id` this outcome could honestly report.
+fn merge_proposal_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    proposal_id: &str,
+    target: &MergeTarget,
+    now: &str,
+) -> anyhow::Result<MergeOutcome> {
+    let proposal = fetch_proposal(tx, proposal_id)?;
+
+    if proposal.status == "merged" {
+        let issue_id = proposal.materialised_id.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "authoring_proposal {proposal_id:?} is merged but carries no materialised_id"
+            )
+        })?;
+        return Ok(MergeOutcome { proposal, issue_id });
+    }
+    anyhow::ensure!(
+        proposal.status == "pending",
+        "authoring_proposal {proposal_id:?} is not pending (status = {:?}) — a decided proposal \
+         cannot be merged",
+        proposal.status
+    );
+
+    ensure_target_exists(tx, &proposal, target.target_type(), target.target_id())?;
+
+    let (title, description, issue_kind): (&str, Option<&str>, &str) = match &proposal.payload {
+        ProposalPayload::Task { title, description } => (title.as_str(), description.as_deref(), "idea"),
+        ProposalPayload::Epic { title, description } => (title.as_str(), description.as_deref(), "idea"),
+        ProposalPayload::Issue { title, body, issue_kind } => {
+            (title.as_str(), body.as_deref(), issue_kind.as_str())
+        }
+        other => anyhow::bail!(
+            "cannot merge a {:?} proposal — merge accepts only task, epic or issue payloads",
+            other.target_type().as_str()
+        ),
+    };
+    let body = build_merged_issue_body(description, proposal.rationale.as_deref());
+
+    let issue = crate::domain::issue::create_issue_in_tx(
+        tx,
+        &proposal.project_id,
+        actor_id,
+        title,
+        body.as_deref(),
+        issue_kind,
+        target.as_issue_parent(),
+        now,
+    )?;
+
+    tx.execute(
+        "UPDATE authoring_proposals SET status = 'merged', materialised_id = ?1, decided_by = ?2, \
+         decided_at = ?3 WHERE id = ?4",
+        params![issue.id, actor_id, now, proposal_id],
+    )
+    .context("failed to mark authoring_proposal merged")?;
+
+    let sequence = next_sequence(tx, &proposal.project_id, "local")?;
+    let event_payload = serde_json::json!({
+        "field": "authoring_proposal",
+        "before": "pending",
+        "after": "merged",
+        "targetType": target.target_type().as_str(),
+        "targetId": target.target_id(),
+        "materialisedId": issue.id,
+        "label": format!("Merged a {} proposal into {}", proposal.target_type, target.target_id()),
+    });
+    append_event(
+        tx,
+        &proposal.project_id,
+        "local",
+        sequence,
+        "authoring_proposal",
+        proposal_id,
+        None,
+        proposal.epic_id.as_deref(),
+        actor_id,
+        "proposal.merged",
+        &event_payload,
+        now,
+    )?;
+
+    let mut merged = proposal;
+    merged.status = "merged".to_string();
+    merged.materialised_id = Some(issue.id.clone());
+    merged.decided_by = Some(actor_id.to_string());
+    merged.decided_at = Some(now.to_string());
+
+    Ok(MergeOutcome { proposal: merged, issue_id: issue.id })
+}
+
+/// Merge a pending task or epic (or issue) proposal into an existing task or epic (D-101): creates
+/// one child `issues` row under `target` through the canonical writer that table already owns,
+/// setting `status = 'merged'` and `materialised_id` to the new issue's id. The target row's own
+/// columns are never touched — no `UPDATE tasks`/`epics` is issued anywhere on this path. Merging
+/// an already-merged proposal is idempotent; merging into a target that no longer exists returns
+/// [`ProposalUndecidable`]. See [`merge_proposal_in_tx`] for the full contract.
+pub fn merge_proposal(
+    conn: &mut Connection,
+    actor_id: &str,
+    proposal_id: &str,
+    target: &MergeTarget,
+) -> anyhow::Result<MergeOutcome> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let outcome = merge_proposal_in_tx(&tx, actor_id, proposal_id, target, &now)?;
+    tx.commit().context("failed to commit merge_proposal transaction")?;
+    Ok(outcome)
+}
+
+/// Defer a proposal, inside a transaction the caller already owns (D-102). Mints nothing in any
+/// canonical table — the whole point of a defer pile that never becomes backlog spam. Idempotent
+/// on an already-`deferred` row (returned unchanged, no second event); refused on any other
+/// non-`pending` status, naming the current status.
+fn defer_proposal_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    proposal_id: &str,
+    now: &str,
+) -> anyhow::Result<Proposal> {
+    let existing = fetch_proposal(tx, proposal_id)?;
+
+    if existing.status == "deferred" {
+        return Ok(existing);
+    }
+    anyhow::ensure!(
+        existing.status == "pending",
+        "authoring_proposal {proposal_id:?} is not pending (status = {:?}) — a decided proposal \
+         cannot be deferred",
+        existing.status
+    );
+
+    tx.execute(
+        "UPDATE authoring_proposals SET status = 'deferred', decided_by = ?1, decided_at = ?2 \
+         WHERE id = ?3",
+        params![actor_id, now, proposal_id],
+    )
+    .context("failed to mark authoring_proposal deferred")?;
+
+    let sequence = next_sequence(tx, &existing.project_id, "local")?;
+    let event_payload = serde_json::json!({
+        "field": "authoring_proposal",
+        "before": "pending",
+        "after": "deferred",
+        "label": format!("Deferred a {} proposal", existing.target_type),
+    });
+    append_event(
+        tx,
+        &existing.project_id,
+        "local",
+        sequence,
+        "authoring_proposal",
+        proposal_id,
+        None,
+        existing.epic_id.as_deref(),
+        actor_id,
+        "proposal.deferred",
+        &event_payload,
+        now,
+    )?;
+
+    let mut deferred = existing;
+    deferred.status = "deferred".to_string();
+    deferred.decided_by = Some(actor_id.to_string());
+    deferred.decided_at = Some(now.to_string());
+    Ok(deferred)
+}
+
+/// Defer a pending proposal (D-102): moves it out of the pending queue to `status = 'deferred'`,
+/// mints no row in any canonical table, and stays recallable — it joins the already-decided set a
+/// later triage run is primed with. Deferring an already-deferred proposal is idempotent;
+/// deferring an accepted, rejected or merged proposal is refused, naming the current status.
+pub fn defer_proposal(conn: &mut Connection, actor_id: &str, proposal_id: &str) -> anyhow::Result<Proposal> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let proposal = defer_proposal_in_tx(&tx, actor_id, proposal_id, &now)?;
+    tx.commit().context("failed to commit defer_proposal transaction")?;
+    Ok(proposal)
+}
+
+/// Reject a pending proposal, inside a transaction the caller already owns — factored out so
+/// [`reject_proposals_bulk`] can loop it over a bounded set in ONE transaction, mirroring
+/// [`accept_proposal_in_tx`]'s/[`defer_proposal_in_tx`]'s identical factoring reason. Sets
+/// `status = 'rejected'`, records the optional `reason` and the deciding actor, appends one
+/// `proposal.rejected` event. Rejecting an already-decided proposal is an error naming the
+/// existing status, never a silent overwrite of an earlier decision.
+fn reject_proposal_in_tx(
+    tx: &Transaction,
+    proposal_id: &str,
+    human_actor_id: &str,
+    reason: Option<&str>,
+    now: &str,
+) -> anyhow::Result<Proposal> {
+    let existing = fetch_proposal(tx, proposal_id)?;
+    anyhow::ensure!(
+        existing.status == "pending",
+        "authoring_proposal {proposal_id:?} is not pending (status = {:?}) — a decided proposal \
+         cannot be rejected a second time",
+        existing.status
+    );
+
+    tx.execute(
+        "UPDATE authoring_proposals SET status = 'rejected', rejection_reason = ?1, \
+         decided_by = ?2, decided_at = ?3 WHERE id = ?4",
+        params![reason, human_actor_id, now, proposal_id],
+    )
+    .context("failed to mark authoring_proposal rejected")?;
+
+    let sequence = next_sequence(tx, &existing.project_id, "local")?;
+    let event_payload = serde_json::json!({
+        "field": "authoring_proposal",
+        "before": "pending",
+        "after": "rejected",
+        "reason": reason,
+        "label": format!("Rejected a {} proposal", existing.target_type),
+    });
+    append_event(
+        tx,
+        &existing.project_id,
+        "local",
+        sequence,
+        "authoring_proposal",
+        proposal_id,
+        None,
+        existing.epic_id.as_deref(),
+        human_actor_id,
+        "proposal.rejected",
+        &event_payload,
+        now,
+    )?;
+
+    let mut rejected = existing;
+    rejected.status = "rejected".to_string();
+    rejected.rejection_reason = reason.map(str::to_string);
+    rejected.decided_by = Some(human_actor_id.to_string());
+    rejected.decided_at = Some(now.to_string());
+    Ok(rejected)
+}
+
 /// Reject a pending proposal (D-93). One transaction: sets `status = 'rejected'`, records the
 /// optional `reason` and the deciding human actor, appends one `proposal.rejected` event, and
 /// leaves the row in place forever (D-83) — never deleted, never overwritten again. Rejecting a
@@ -905,52 +1236,8 @@ pub fn reject_proposal(
 ) -> anyhow::Result<Proposal> {
     let now = chrono::Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
-
-    let existing = fetch_proposal(&tx, proposal_id)?;
-    anyhow::ensure!(
-        existing.status == "pending",
-        "authoring_proposal {proposal_id:?} is not pending (status = {:?}) — a decided proposal \
-         cannot be rejected a second time",
-        existing.status
-    );
-
-    tx.execute(
-        "UPDATE authoring_proposals SET status = 'rejected', rejection_reason = ?1, \
-         decided_by = ?2, decided_at = ?3 WHERE id = ?4",
-        params![reason, human_actor_id, now, proposal_id],
-    )
-    .context("failed to mark authoring_proposal rejected")?;
-
-    let sequence = next_sequence(&tx, &existing.project_id, "local")?;
-    let event_payload = serde_json::json!({
-        "field": "authoring_proposal",
-        "before": "pending",
-        "after": "rejected",
-        "reason": reason,
-        "label": format!("Rejected a {} proposal", existing.target_type),
-    });
-    append_event(
-        &tx,
-        &existing.project_id,
-        "local",
-        sequence,
-        "authoring_proposal",
-        proposal_id,
-        None,
-        existing.epic_id.as_deref(),
-        human_actor_id,
-        "proposal.rejected",
-        &event_payload,
-        &now,
-    )?;
-
+    let rejected = reject_proposal_in_tx(&tx, proposal_id, human_actor_id, reason, &now)?;
     tx.commit().context("failed to commit reject_proposal transaction")?;
-
-    let mut rejected = existing;
-    rejected.status = "rejected".to_string();
-    rejected.rejection_reason = reason.map(str::to_string);
-    rejected.decided_by = Some(human_actor_id.to_string());
-    rejected.decided_at = Some(now);
     Ok(rejected)
 }
 

@@ -160,10 +160,9 @@ const CANONICAL_WRITER_CALLS: [&str; 9] = [
 ];
 
 /// The only three functions permitted to reach a canonical writer from this module.
-/// `merge_proposal_in_tx` does not exist until plan 06-03 — its absence from this file makes the
-/// containment check vacuously true for that name today (no line's enclosing function can ever be
-/// named `merge_proposal_in_tx` if no such function is declared), but the assertion is written to
-/// NEVER tolerate a call from any fourth function, now or after 06-03 lands.
+/// `merge_proposal_in_tx` (plan 06-03) is now a real call site — the containment check was
+/// written, before that function existed, to never tolerate a call from any fourth function; it
+/// still enforces exactly that now that all three names are real.
 const ALLOWED_CANONICAL_WRITER_CONTAINERS: [&str; 3] =
     ["materialise_proposal", "accept_proposal_in_tx", "merge_proposal_in_tx"];
 
@@ -511,7 +510,7 @@ fn case_create_epic_via_create_proposal() {
 }
 
 fn case_create_issue_via_execution_run_task_scoped_null_epic() {
-    let label: &str = "create issue via an execution run's propose_item event (task-scoped, null epic) stages pending with no canonical row; accept is not yet a supported promotion path for issues (merge lands in plan 06-03)";
+    let label: &str = "create issue via an execution run's propose_item event (task-scoped, null epic) stages pending with no canonical row; accept mints exactly one top-level issue (plan 06-03)";
     with_scratch_app_data_dir(|| {
         let (mut conn, human_actor_id, _project_id, _task_id, run_id) = seeded_execution_run();
         let before = counts(&conn);
@@ -530,17 +529,22 @@ fn case_create_issue_via_execution_run_task_scoped_null_epic() {
         assert_eq!(proposal.target_type, "issue", "{label}");
         assert_eq!(counts(&conn), before, "{label}: staging must create no canonical row");
 
-        // No materialisation path exists yet for a create/issue proposal (that lands with plan
-        // 06-03's merge verb) — attempting accept must fail closed, leaving the row pending and
-        // every canonical count untouched, never a partial write.
-        let result = accept_proposal(&mut conn, &proposal.id, &human_actor_id);
-        assert!(result.is_err(), "{label}: accept must refuse a create/issue proposal, not silently promote it");
-        assert_eq!(counts(&conn), before, "{label}: a refused accept must leave every canonical count untouched");
+        // Plan 06-03: accepting a create/issue proposal now mints exactly one top-level `issues`
+        // row (IssueParent::None) through `create_issue_in_tx` — the materialisation gap this
+        // corpus originally surfaced (06-02-SUMMARY.md) is closed.
+        let accept_outcome =
+            accept_proposal(&mut conn, &proposal.id, &human_actor_id).expect("accept_proposal should succeed for a create/issue proposal");
+        assert!(accept_outcome.proposal.materialised_id.is_some(), "{label}");
+        assert_eq!(
+            counts(&conn),
+            Counts { issues: before.issues + 1, ..before },
+            "{label}: accept must mint exactly one top-level issue, no other canonical row"
+        );
 
         let still_pending = pending_proposals_for_run(&conn, &run_id, 0).expect("pending read should succeed");
         assert!(
-            still_pending.iter().any(|p| p.id == proposal.id && p.status == "pending"),
-            "{label}: the proposal must remain pending after the refused accept attempt"
+            still_pending.iter().all(|p| p.id != proposal.id),
+            "{label}: the accepted proposal must no longer appear in the pending set"
         );
     });
 }
