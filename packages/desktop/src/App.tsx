@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
 import { subscribeMenuAction } from "./adapters/tauri";
@@ -6,7 +6,14 @@ import { BoardView, type EmptyStateContent } from "./board/BoardView";
 import { CommandPalette } from "./board/CommandPalette";
 import { FilterBar } from "./board/FilterBar";
 import { FirstRun } from "./board/FirstRun";
-import { useBoardChangedSubscription, useBoardQuery, useCreateTask, useProjects } from "./board/useBoardQuery";
+import {
+  useBoardChangedSubscription,
+  useBoardQuery,
+  useCreateTask,
+  useEpics,
+  useProjects,
+  type EpicSummary,
+} from "./board/useBoardQuery";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
@@ -17,6 +24,7 @@ import { SettingsSurface } from "./settings/SettingsSurface";
 import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
+import { TriageSurface } from "./triage/TriageSurface";
 import "./styles/tokens.css";
 import "./styles/type.css";
 import "./styles/motion.css";
@@ -99,7 +107,23 @@ function AppShell() {
   const activeAgentRunTaskId = useUiStore((state) => state.activeAgentRunTaskId);
   const activeAgentRunAuthoringStage = useUiStore((state) => state.activeAgentRunAuthoringStage);
   const activeAgentRunEpicId = useUiStore((state) => state.activeAgentRunEpicId);
+  const activeAgentRunInitialLogOffset = useUiStore((state) => state.activeAgentRunInitialLogOffset);
   const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
+  // D-103 (plan 06-08): the dedicated triage surface, mounted once here like the session surface
+  // and Settings above — opened from `board/TriageLane.tsx`'s header route control, which sets
+  // this field directly (the same cross-tree trigger shape every other App-level surface uses).
+  const triageSurfaceProjectId = useUiStore((state) => state.triageSurfaceProjectId);
+  const setTriageSurfaceProjectId = useUiStore((state) => state.setTriageSurfaceProjectId);
+  // The triage surface's own epic roster — read the same way `BoardView.tsx` does (`useEpics`),
+  // since `AppShell` has no other source for it. Gated on `triageSurfaceProjectId` itself
+  // (`useEpics`'s own `enabled: Boolean(projectId)`), so this issues no read while the surface is
+  // closed.
+  const triageEpicsQuery = useEpics(triageSurfaceProjectId ?? undefined);
+  const triageEpics = triageEpicsQuery.data?.epics ?? [];
+  const triageEpicsById = useMemo<Record<string, EpicSummary>>(
+    () => Object.fromEntries(triageEpics.map((epic) => [epic.id, epic])),
+    [triageEpics],
+  );
   // D-27: the launch sheet, mounted once here as a peer of CommandPalette below — `null` means
   // closed. `ItemDetailPanel.tsx`'s "Start Work" affordance and the board-list `start-work`
   // action id (`w`) both open it purely by setting this task id (`board/BoardView.tsx`).
@@ -238,6 +262,20 @@ function AppShell() {
             // checked first, since Settings may be opened regardless of whatever the board
             // content area was showing underneath it (an active session, an unreachable project).
             <SettingsSurface onBack={() => setSettingsOpen(false)} />
+          ) : triageSurfaceProjectId ? (
+            // D-103: same "pushed into, popped back out of" shell as the session surface below —
+            // checked ahead of it so the route control (`board/TriageLane.tsx`'s header) always
+            // reaches the surface even though, today, it can only be set while the board itself is
+            // showing (neither Settings nor a session is open).
+            <TriageSurface
+              projectId={triageSurfaceProjectId}
+              epicsById={triageEpicsById}
+              onClose={() => setTriageSurfaceProjectId(null)}
+              onOpenSession={(agentRunId, epicId, logOffset) => {
+                setTriageSurfaceProjectId(null);
+                setActiveAgentRunId(agentRunId, null, null, epicId, logOffset);
+              }}
+            />
           ) : activeAgentRunId ? (
             // D-31: pushed into from a task, popped back out of on "← Board" — the board itself
             // (and its own state — filters, selection, scroll) is untouched underneath this.
@@ -246,6 +284,7 @@ function AppShell() {
               taskId={activeAgentRunTaskId}
               authoringStage={activeAgentRunAuthoringStage}
               epicId={activeAgentRunEpicId}
+              initialFeedOffset={activeAgentRunInitialLogOffset}
               onBack={() => setActiveAgentRunId(null)}
             />
           ) : project.status === "unreachable" ? (

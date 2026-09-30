@@ -27,6 +27,14 @@
  * No lane-wide decision (D-95, SHAPE-04): the header carries a count and a collapse control and
  * nothing else — plan 05-06's accept-all source gate scans `packages/desktop/src`, which includes
  * this file.
+ *
+ * D-103 (plan 06-08): this lane is now also the board's entry point into the dedicated project
+ * triage surface (`triage/TriageSurface.tsx`) — its header gained ONE route control beside the
+ * count and collapse control, writing the `state/uiStore.ts` field the App-level mount is gated
+ * on directly (the same cross-tree trigger `App.tsx`'s session surface and Settings mounts already
+ * use). This is deliberately NOT a lane-wide decision: it opens a view, decides nothing, and this
+ * lane keeps rendering its own per-row rows exactly as it always has — a developer who prefers
+ * deciding from the board still can. No accept-all/decision identifier was added here.
  */
 import type { CSSProperties } from "react";
 import { useRef, useState } from "react";
@@ -34,6 +42,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { ProposalRow } from "../authoring/ProposalRow";
 import { useAcceptSubtreeForProject, useProjectProposals } from "../authoring/useAuthoringQuery";
 import type { AuthoringProposalDto } from "../adapters/tauri";
+import { useUiStore } from "../state/uiStore";
 import { ROW_HEIGHT } from "./BoardRow";
 import { useCollapseStore } from "./collapseStore";
 import type { EpicSummary } from "./useBoardQuery";
@@ -124,11 +133,20 @@ export function TriageLane({ projectId, epicsById, onOpenSession }: TriageLanePr
   const headerStyle: CSSProperties = {
     display: "flex",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: "var(--space-xs)",
     height: ROW_HEIGHT,
     padding: "0 var(--space-md)",
     background: "var(--surface-secondary)",
     color: "var(--text-primary-rack)",
+  };
+
+  const headerToggleStyle: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--space-xs)",
+    flex: 1,
+    minWidth: 0,
     cursor: "pointer",
   };
 
@@ -151,21 +169,43 @@ export function TriageLane({ projectId, epicsById, onOpenSession }: TriageLanePr
 
   return (
     <div className="triage-lane" role="region" aria-label="Proposals">
-      <div
-        className="type-heading"
-        role="button"
-        tabIndex={-1}
-        aria-expanded={!collapsed}
-        onClick={() => toggleCollapsed(collapseKeyProject, COLLAPSE_KEY)}
-        style={headerStyle}
-      >
-        <span aria-hidden="true" style={{ display: "inline-flex" }}>
-          {collapsed ? <ChevronRight size={14} strokeWidth={2} /> : <ChevronDown size={14} strokeWidth={2} />}
-        </span>
-        Proposals
-        <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
-          {pendingCount}
-        </span>
+      <div className="type-heading" style={headerStyle}>
+        <div
+          role="button"
+          tabIndex={-1}
+          aria-expanded={!collapsed}
+          onClick={() => toggleCollapsed(collapseKeyProject, COLLAPSE_KEY)}
+          style={headerToggleStyle}
+        >
+          <span aria-hidden="true" style={{ display: "inline-flex" }}>
+            {collapsed ? <ChevronRight size={14} strokeWidth={2} /> : <ChevronDown size={14} strokeWidth={2} />}
+          </span>
+          Proposals
+          <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
+            {pendingCount}
+          </span>
+        </div>
+        {/* D-103's route into the dedicated triage surface — the ONLY control this header gains;
+            it opens a view and decides nothing (no accept/reject/amend/decision control lives
+            here, see this file's own header comment and plan 05-06's accept-all source gate). */}
+        <button
+          type="button"
+          className="type-label"
+          aria-label="Open the dedicated triage view"
+          onClick={(event) => {
+            event.stopPropagation();
+            useUiStore.getState().setTriageSurfaceProjectId(projectId ?? null);
+          }}
+          style={{
+            flexShrink: 0,
+            background: "transparent",
+            border: "none",
+            color: "var(--accent-text-rack)",
+            cursor: "pointer",
+          }}
+        >
+          Open triage
+        </button>
       </div>
       {!collapsed &&
         groups.map((group) => {

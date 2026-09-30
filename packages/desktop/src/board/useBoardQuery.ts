@@ -785,8 +785,15 @@ async function fetchSessionFeedPage(
  * `data.pages` is chronological ascending (oldest loaded page first, tail page last) — the exact
  * order `fetchPreviousPage` prepending to `data.pages` naturally produces, so a caller can render
  * `pages.flatMap(p => p.entries)` directly without a second reverse/sort step.
+ *
+ * `initialOffset` (D-99, plan 06-08): `null`/`undefined` (every pre-existing caller) keeps this
+ * hook's own "page in from the tail" behaviour byte-identical to before. A caller with a recorded
+ * log offset to open at (`SessionSurface.tsx`'s `initialFeedOffset`, the triage surface's
+ * turn-pointer jump) passes it here instead, and the FIRST page resolves at that numeric offset
+ * rather than `"tail"` — the same `fetchSessionFeedPage` codepath every older page already uses,
+ * never a second fetch shape.
  */
-export function useSessionFeed(agentRunId: string) {
+export function useSessionFeed(agentRunId: string, initialOffset?: number | null) {
   const queryClient = useQueryClient();
   const queryKey = sessionFeedQueryKey(agentRunId);
 
@@ -809,7 +816,7 @@ export function useSessionFeed(agentRunId: string) {
   return useInfiniteQuery({
     queryKey,
     queryFn: ({ pageParam }) => fetchSessionFeedPage(agentRunId, pageParam as SessionFeedPageParam),
-    initialPageParam: "tail" as SessionFeedPageParam,
+    initialPageParam: (initialOffset ?? "tail") as SessionFeedPageParam,
     // The feed never pages "forward" past the tail — new events arrive by the tail page itself
     // re-resolving on invalidation (see doc comment above), not by fetching a page after it.
     getNextPageParam: () => undefined,

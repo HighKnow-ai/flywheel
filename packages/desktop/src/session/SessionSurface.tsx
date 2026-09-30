@@ -515,6 +515,12 @@ export interface SessionSurfaceProps {
    * an authoring run's own distinguishing fact, carried from `App.tsx`'s `activeAgentRunAuthoringStage`
    * (`state/uiStore.ts`), since this surface never itself queries which kind of run it is showing. */
   authoringStage?: string | null;
+  /** A one-shot initial position for the feed (D-99, plan 06-08) — `null`/`undefined` (the
+   * default) preserves this surface's existing "open at the tail" behaviour byte-for-byte, for
+   * every pre-existing call site. Set only by the triage surface's turn-pointer jump
+   * (`App.tsx`'s `activeAgentRunInitialLogOffset`), which has a recorded log offset to open at
+   * rather than "whatever the tail currently is" — threaded straight into `useSessionFeed`. */
+  initialFeedOffset?: number | null;
 }
 
 /** Event kinds the feed suppresses from its own row list — each is either consumed elsewhere
@@ -853,6 +859,7 @@ export function SessionSurface({
   epicId = null,
   initialStatus = "running",
   authoringStage = null,
+  initialFeedOffset = null,
 }: SessionSurfaceProps) {
   const [status, setStatus] = useState<RunStatus>(initialStatus);
   const [stopping, setStopping] = useState(false);
@@ -947,7 +954,7 @@ export function SessionSurface({
     "advance-stage": handleAdvanceStage,
   });
 
-  const feedQuery = useSessionFeed(agentRunId);
+  const feedQuery = useSessionFeed(agentRunId, initialFeedOffset);
 
   // The permission-request card's `feed` mount (AGNT-06, plan 02-06 Task 2) — this run's pending
   // set, read from the ONE shared query the item detail panel's compact mount also reads for the
@@ -1105,13 +1112,18 @@ export function SessionSurface({
   // Follow-the-tail (02-UI-SPEC.md Performance Contract) — suppressed for as long as ANY
   // permission request is pending, and resumes the instant none is (this effect re-runs on
   // `pendingRequests.length` transitioning back to zero, which is exactly "resume once answered").
+  // Also suppressed for the whole lifetime of a surface opened at an explicit `initialFeedOffset`
+  // (D-99, plan 06-08's turn-pointer jump): a developer who just jumped to a specific turn came to
+  // read THAT point, not to be snapped straight back to the tail the instant its page loads. Every
+  // pre-existing caller passes no offset, so this is a pure addition — the effect's own behaviour
+  // for `initialFeedOffset == null` is byte-identical to before.
   useEffect(() => {
-    if (pendingRequests.length > 0) return;
+    if (pendingRequests.length > 0 || initialFeedOffset != null) return;
     // Optional call, not just optional chaining on the ref: jsdom (this project's test
     // environment) implements no `Element.prototype.scrollIntoView` at all — a real browser always
     // has it, but a test asserting this behaviour installs its own spy first.
     tailRef.current?.scrollIntoView?.({ block: "end" });
-  }, [feedRows.length, pendingRequests.length, terminalInfo]);
+  }, [feedRows.length, pendingRequests.length, terminalInfo, initialFeedOffset]);
 
   return (
     <div

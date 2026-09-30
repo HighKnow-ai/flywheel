@@ -156,6 +156,12 @@ interface UiState {
    * Discard hand-off needs the epic id to prime a fresh authoring launch for the SAME epic, and
    * the session surface has no other source for it. */
   activeAgentRunEpicId: string | null;
+  /** A one-shot initial position for the session feed (D-99, plan 06-08) — `null` for every
+   * pre-existing call site (the default, unchanged behaviour: the feed opens at its tail exactly
+   * as before). Set together with `activeAgentRunId` only by the triage surface's turn-pointer
+   * jump (`App.tsx`'s `TriageSurface` `onOpenSession`), which is the one caller that has a
+   * recorded log offset to open at rather than "whatever the tail currently is". */
+  activeAgentRunInitialLogOffset: number | null;
   /** The task id the launch sheet (D-27, plan 02-04) is currently open for, or `null` when it is
    * closed. Lives here for the same cross-tree reasoning as `activeAgentRunId`: the sheet is
    * mounted once at the `App.tsx` level (a peer of `CommandPalette`, per its own "briefing gate
@@ -177,6 +183,12 @@ interface UiState {
    * opened from the native menu bridge, the global `⌘,` binding, and the command palette, none of
    * which import the surface component itself. */
   settingsOpen: boolean;
+  /** The project the dedicated triage surface (D-103, plan 06-08) is currently open for, or
+   * `null` when it is closed. Lives here for the same cross-tree reasoning `activeAgentRunId`/
+   * `launchSheetTaskId`/`settingsOpen` document: the surface is mounted once at the `App.tsx`
+   * level, a peer of the session surface, but it is opened from `board/TriageLane.tsx`'s header
+   * (deep inside `BoardView`'s tree), which does not import the surface component itself. */
+  triageSurfaceProjectId: string | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -210,6 +222,7 @@ interface UiState {
     taskId?: string | null,
     authoringStage?: string | null,
     epicId?: string | null,
+    initialLogOffset?: number | null,
   ) => void;
   setLaunchSheetTaskId: (taskId: string | null) => void;
   /** Opens the authoring hand-off channel for `epicId` (`null` for a fresh epic) — the Discard
@@ -219,6 +232,9 @@ interface UiState {
    * call, mirroring `setLaunchSheetTaskId(null)`'s "closed" convention. */
   clearLaunchSheetAuthoringHandoff: () => void;
   setSettingsOpen: (open: boolean) => void;
+  /** Opens/closes the dedicated triage surface for `projectId` (`null` to close) — the route
+   * control's own call, mirroring `setLaunchSheetTaskId`'s "one field, one writer" shape. */
+  setTriageSurfaceProjectId: (projectId: string | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -238,9 +254,11 @@ export const useUiStore = create<UiState>((set) => ({
   activeAgentRunTaskId: null,
   activeAgentRunAuthoringStage: null,
   activeAgentRunEpicId: null,
+  activeAgentRunInitialLogOffset: null,
   launchSheetTaskId: null,
   launchSheetAuthoringHandoff: null,
   settingsOpen: false,
+  triageSurfaceProjectId: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -301,17 +319,25 @@ export const useUiStore = create<UiState>((set) => ({
   openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true, quickAddFocusPending: true }),
   setPendingDone: (pending) => set({ pendingDone: pending }),
   clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
-  setActiveAgentRunId: (agentRunId, taskId = null, authoringStage = null, epicId = null) =>
+  setActiveAgentRunId: (
+    agentRunId,
+    taskId = null,
+    authoringStage = null,
+    epicId = null,
+    initialLogOffset = null,
+  ) =>
     set({
       activeAgentRunId: agentRunId,
       activeAgentRunTaskId: taskId,
       activeAgentRunAuthoringStage: authoringStage,
       activeAgentRunEpicId: epicId,
+      activeAgentRunInitialLogOffset: initialLogOffset,
     }),
   setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
   setLaunchSheetAuthoringHandoff: (epicId) => set({ launchSheetAuthoringHandoff: { epicId } }),
   clearLaunchSheetAuthoringHandoff: () => set({ launchSheetAuthoringHandoff: null }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+  setTriageSurfaceProjectId: (projectId) => set({ triageSurfaceProjectId: projectId }),
 }));
 
 /** Resets every UI field back to its initial value — the shared reset four test suites
@@ -338,8 +364,10 @@ export function resetUiState() {
     activeAgentRunTaskId: null,
     activeAgentRunAuthoringStage: null,
     activeAgentRunEpicId: null,
+    activeAgentRunInitialLogOffset: null,
     launchSheetTaskId: null,
     launchSheetAuthoringHandoff: null,
     settingsOpen: false,
+    triageSurfaceProjectId: null,
   });
 }
