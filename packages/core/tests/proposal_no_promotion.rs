@@ -10,6 +10,22 @@
 
 use std::path::{Path, PathBuf};
 
+mod common;
+
+use core::domain::acceptance_criterion::create_criterion;
+use core::domain::agent_run::{agent_actor_id, mark_abandoned};
+use core::domain::authoring_proposal::{
+    accept_proposal, amend_proposal, apply_proposal_created, create_proposal,
+    pending_proposals_for_run, reject_proposal, ProposalOutcome, ProposalPayload,
+    ProposalProvenance, ProposalUndecidable, ProposalVerb,
+};
+use core::domain::authoring_session::{advance_stage, start_authoring_run};
+use core::domain::epic::create_epic;
+use core::domain::project::Project;
+use core::domain::task::{create_task, delete_task};
+use core::ids::new_id;
+use rusqlite::{params, Connection};
+
 // --- Shared source-scanning helpers (copied verbatim from `authoring_proposal.rs`'s own tail —
 // this repo's own precedent, `app_exit_ordering.rs`/`session_closed_call_site.rs`, is that every
 // source-gate test file carries its own copy rather than sharing a module) ---
@@ -292,4 +308,885 @@ fn the_accept_all_gate_still_passes_unmodified() {
         "authoring_proposal.rs no longer declares its own sources_under walker — per this repo's \
          own precedent, each source-gate test file must carry its own copy"
     );
+}
+
+// ===========================================================================================
+// The adversarial corpus (D-100's second half): drives every propose/amend/delete path — both
+// entry routes (`create_proposal`, an authoring session's own caller; `apply_proposal_created`,
+// the sidecar's execution-run event path) — through the REAL domain functions, and proves zero
+// canonical rows appear before an explicit human triage action decides them, for all of it.
+// ===========================================================================================
+
+/// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — mirrors
+/// `authoring_proposal.rs`'s identically-named lock (a separate static per test binary).
+static RUNTIME_DIR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_scratch_runtime_dir<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = RUNTIME_DIR_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
+    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads
+    // or mutates this var while it's set, and this helper always clears it before returning.
+    unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", dir.path()) };
+    let result = f();
+    unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
+    result
+}
+
+/// Serializes every call to [`with_scratch_app_data_dir`] in THIS binary — mirrors
+/// `proposal_channel.rs`'s identically-named lock (a separate static per test binary).
+static APP_DATA_DIR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_scratch_app_data_dir<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = APP_DATA_DIR_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempfile::tempdir().expect("failed to create scratch app-data dir");
+    // SAFETY: serialised by APP_DATA_DIR_ENV_LOCK above.
+    unsafe { std::env::set_var("FLYWHEEL_APP_DATA_DIR", dir.path()) };
+    let result = f();
+    unsafe { std::env::remove_var("FLYWHEEL_APP_DATA_DIR") };
+    result
+}
+
+/// Seed a project and an authoring run already advanced past `challenge` into `decompose` — the
+/// entry point for the `create_proposal` route (mirrors `authoring_proposal.rs`'s identically
+/// named fixture).
+fn ready_run() -> (Connection, String, Project, String) {
+    let (mut conn, human_actor_id, project) = common::seeded_project();
+    let run = start_authoring_run(&mut conn, &project.id, None, "default", &human_actor_id)
+        .expect("start_authoring_run should succeed");
+    advance_stage(&mut conn, &run.id, &human_actor_id).expect("advance_stage should succeed");
+    (conn, human_actor_id, project, run.id)
+}
+
+/// Seed a project, one task, and a RUNNING task-execution `agent_runs` row scoped to that task
+/// with NO epic — the entry point for the `apply_proposal_created` route, the ordinary shape a
+/// `propose_item` call's staging event arrives against (mirrors `proposal_channel.rs`'s
+/// identically named fixture — inserted directly via SQL rather than `start_agent_run`, which
+/// requires a real worktree/git repo this file has no need for).
+fn seeded_execution_run() -> (Connection, String, String, String, String) {
+    let (mut conn, human_actor_id, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &human_actor_id, "Investigate the flaky test", None)
+        .expect("create_task should succeed");
+    let agent_actor = agent_actor_id(&conn).expect("seeded agent actor should exist");
+
+    let now = "2026-01-01T00:00:00Z";
+    let trigger_id: String = conn
+        .query_row(
+            "INSERT INTO triggers (
+                id, project_id, target_task_id, target_epic_id, source, config, enabled,
+                last_fired_at, created_by, created_at
+            ) VALUES (?1, ?2, ?3, NULL, 'user_action', NULL, 1, NULL, ?4, ?5) RETURNING id",
+            params![new_id(), project.id, task.id, human_actor_id, now],
+            |row| row.get(0),
+        )
+        .expect("failed to insert fixture trigger");
+
+    let run_id = new_id();
+    conn.execute(
+        "INSERT INTO agent_runs (
+            id, worktree_id, task_id, epic_id, project_id, trigger_id, adapter, actor_id, status,
+            external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path,
+            started_at, ended_at, authoring_stage
+        ) VALUES (?1, NULL, ?2, NULL, ?3, ?4, 'claude_code', ?5, 'running', NULL, 'default', NULL, \
+            NULL, NULL, ?6, ?7, NULL, NULL)",
+        params![
+            run_id,
+            task.id,
+            project.id,
+            trigger_id,
+            agent_actor,
+            format!("/tmp/log-{run_id}.jsonl"),
+            now,
+        ],
+    )
+    .expect("failed to insert fixture agent_run");
+
+    (conn, human_actor_id, project.id, task.id, run_id)
+}
+
+fn task_create_event(run_id: &str, title: &str, rationale: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "proposal_created",
+        "runId": run_id,
+        "verb": "create",
+        "targetType": "task",
+        "payload": { "kind": "task", "title": title, "description": null },
+        "rationale": rationale,
+    })
+}
+
+fn issue_create_event(run_id: &str, title: &str, rationale: &str, issue_kind: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "proposal_created",
+        "runId": run_id,
+        "verb": "create",
+        "targetType": "issue",
+        "payload": { "kind": "issue", "title": title, "body": null, "issue_kind": issue_kind },
+        "rationale": rationale,
+    })
+}
+
+fn count_tasks(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0)).unwrap()
+}
+fn count_epics(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM epics", [], |row| row.get(0)).unwrap()
+}
+fn count_issues(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM issues", [], |row| row.get(0)).unwrap()
+}
+fn count_criteria(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM acceptance_criteria", [], |row| row.get(0)).unwrap()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Counts {
+    tasks: i64,
+    epics: i64,
+    issues: i64,
+    criteria: i64,
+}
+
+fn counts(conn: &Connection) -> Counts {
+    Counts {
+        tasks: count_tasks(conn),
+        epics: count_epics(conn),
+        issues: count_issues(conn),
+        criteria: count_criteria(conn),
+    }
+}
+
+// --- The 13 base cases: every verb x target-type combination named in 06-02-PLAN.md's own
+// enumeration, plus the two named edge cases (criterion parented to a still-pending task
+// proposal, and a target row deleted underneath its own proposal) ---
+
+fn case_create_task_via_create_proposal() {
+    let label: &str = "create task via create_proposal stays pending with no canonical row until accept";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+        let before = counts(&conn);
+
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Retry budget ignores the configured value".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+        assert_eq!(proposal.status, "pending", "{label}");
+        assert_eq!(proposal.materialised_id, None, "{label}");
+        assert_eq!(counts(&conn), before, "{label}: staging must create no canonical row");
+
+        let outcome = accept_proposal(&mut conn, &proposal.id, &human_actor_id).expect("accept_proposal should succeed");
+        assert!(outcome.proposal.materialised_id.is_some(), "{label}");
+        assert_eq!(counts(&conn), Counts { tasks: before.tasks + 1, ..before }, "{label}: accept must mint exactly one task");
+    });
+}
+
+fn case_create_epic_via_create_proposal() {
+    let label: &str = "create epic via create_proposal stays pending with no canonical row until accept";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+        let before = counts(&conn);
+
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Epic { title: "New epic drafted from a run's finding".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+        assert_eq!(proposal.status, "pending", "{label}");
+        assert_eq!(counts(&conn), before, "{label}: staging must create no canonical row");
+
+        let outcome = accept_proposal(&mut conn, &proposal.id, &human_actor_id).expect("accept_proposal should succeed");
+        assert!(outcome.proposal.materialised_id.is_some(), "{label}");
+        assert_eq!(counts(&conn), Counts { epics: before.epics + 1, ..before }, "{label}: accept must mint exactly one epic");
+    });
+}
+
+fn case_create_issue_via_execution_run_task_scoped_null_epic() {
+    let label: &str = "create issue via an execution run's propose_item event (task-scoped, null epic) stages pending with no canonical row; accept is not yet a supported promotion path for issues (merge lands in plan 06-03)";
+    with_scratch_app_data_dir(|| {
+        let (mut conn, human_actor_id, _project_id, _task_id, run_id) = seeded_execution_run();
+        let before = counts(&conn);
+
+        let event = issue_create_event(
+            &run_id,
+            "Docs drift from the real CLI flags",
+            "Noticed while executing an unrelated task",
+            "idea",
+        );
+        let outcome = apply_proposal_created(&mut conn, &event).expect("apply_proposal_created should succeed");
+        let ProposalOutcome::Created(proposal) = outcome else {
+            panic!("{label}: expected ProposalOutcome::Created, got {outcome:?}");
+        };
+        assert_eq!(proposal.status, "pending", "{label}");
+        assert_eq!(proposal.target_type, "issue", "{label}");
+        assert_eq!(counts(&conn), before, "{label}: staging must create no canonical row");
+
+        // No materialisation path exists yet for a create/issue proposal (that lands with plan
+        // 06-03's merge verb) — attempting accept must fail closed, leaving the row pending and
+        // every canonical count untouched, never a partial write.
+        let result = accept_proposal(&mut conn, &proposal.id, &human_actor_id);
+        assert!(result.is_err(), "{label}: accept must refuse a create/issue proposal, not silently promote it");
+        assert_eq!(counts(&conn), before, "{label}: a refused accept must leave every canonical count untouched");
+
+        let still_pending = pending_proposals_for_run(&conn, &run_id, 0).expect("pending read should succeed");
+        assert!(
+            still_pending.iter().any(|p| p.id == proposal.id && p.status == "pending"),
+            "{label}: the proposal must remain pending after the refused accept attempt"
+        );
+    });
+}
+
+fn case_create_criterion_parented_to_an_already_accepted_task() {
+    let label: &str =
+        "create criterion parented to an already-accepted task proposal stays pending with no canonical row until accept";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+
+        let task_proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Parent task, accepted first".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (task) should succeed");
+        accept_proposal(&mut conn, &task_proposal.id, &human_actor_id).expect("accept_proposal (task) should succeed");
+
+        let before = counts(&conn);
+        let criterion_proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Criterion { statement: "Retry budget is configurable".to_string(), verification_hint: None },
+            None,
+            Some(&task_proposal.id),
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (criterion) should succeed");
+        assert_eq!(criterion_proposal.status, "pending", "{label}");
+        assert_eq!(counts(&conn), before, "{label}: staging must create no canonical row");
+
+        let outcome =
+            accept_proposal(&mut conn, &criterion_proposal.id, &human_actor_id).expect("accept_proposal (criterion) should succeed");
+        assert!(outcome.proposal.materialised_id.is_some(), "{label}");
+        assert_eq!(
+            counts(&conn),
+            Counts { criteria: before.criteria + 1, ..before },
+            "{label}: accept must mint exactly one criterion, no other canonical row"
+        );
+    });
+}
+
+fn case_create_assumption_never_materialises_a_canonical_row() {
+    let label: &str =
+        "create assumption via create_proposal stays pending, and accepting it never writes any canonical table (D-89)";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+        let before = counts(&conn);
+
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Assumption {
+                assumption: "The retry budget is read from config".to_string(),
+                answer: "Confirmed by reading the code".to_string(),
+            },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (assumption) should succeed");
+        assert_eq!(proposal.status, "pending", "{label}");
+        assert_eq!(counts(&conn), before, "{label}: staging must create no canonical row");
+
+        let outcome = accept_proposal(&mut conn, &proposal.id, &human_actor_id).expect("accept_proposal (assumption) should succeed");
+        assert_eq!(
+            outcome.materialised_id, proposal.id,
+            "{label}: an accepted assumption's materialised_id self-references the proposal — no canonical row exists to point at"
+        );
+        assert_eq!(counts(&conn), before, "{label}: accepting an assumption must never write any canonical table");
+    });
+}
+
+fn case_amend_task_leaves_every_canonical_count_unchanged() {
+    let label: &str = "amend a pending task proposal via amend_proposal leaves every canonical count unchanged and the row pending";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+        let before = counts(&conn);
+
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Original title".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+        assert_eq!(counts(&conn), before, "{label}");
+
+        let amend_outcome = amend_proposal(
+            &mut conn,
+            &proposal.id,
+            &human_actor_id,
+            ProposalPayload::Task { title: "Corrected title".to_string(), description: None },
+        )
+        .expect("amend_proposal should succeed");
+        assert_eq!(amend_outcome.proposal.status, "pending", "{label}: amending must never accept");
+        assert_eq!(counts(&conn), before, "{label}: amend must never write a canonical row");
+    });
+}
+
+fn case_amend_epic_leaves_every_canonical_count_unchanged() {
+    let label: &str = "amend a pending epic proposal via amend_proposal leaves every canonical count unchanged and the row pending";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+        let before = counts(&conn);
+
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Epic { title: "Original epic title".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+        assert_eq!(counts(&conn), before, "{label}");
+
+        let amend_outcome = amend_proposal(
+            &mut conn,
+            &proposal.id,
+            &human_actor_id,
+            ProposalPayload::Epic { title: "Corrected epic title".to_string(), description: None },
+        )
+        .expect("amend_proposal should succeed");
+        assert_eq!(amend_outcome.proposal.status, "pending", "{label}: amending must never accept");
+        assert_eq!(counts(&conn), before, "{label}: amend must never write a canonical row");
+    });
+}
+
+fn case_amend_criterion_leaves_every_canonical_count_unchanged() {
+    let label: &str = "amend a pending criterion proposal via amend_proposal leaves every canonical count unchanged and the row pending";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+
+        let task_proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Parent task for amend-criterion case".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (task) should succeed");
+        accept_proposal(&mut conn, &task_proposal.id, &human_actor_id).expect("accept_proposal (task) should succeed");
+
+        let before = counts(&conn);
+        let criterion_proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Criterion { statement: "Original statement".to_string(), verification_hint: None },
+            None,
+            Some(&task_proposal.id),
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (criterion) should succeed");
+        assert_eq!(counts(&conn), before, "{label}");
+
+        let amend_outcome = amend_proposal(
+            &mut conn,
+            &criterion_proposal.id,
+            &human_actor_id,
+            ProposalPayload::Criterion { statement: "Corrected statement".to_string(), verification_hint: None },
+        )
+        .expect("amend_proposal should succeed");
+        assert_eq!(amend_outcome.proposal.status, "pending", "{label}");
+        assert_eq!(counts(&conn), before, "{label}: amend must never write a canonical row");
+    });
+}
+
+fn case_delete_task_stays_pending_until_accept() {
+    let label: &str = "delete a pre-existing task via a delete proposal stays pending with the task still present until accept";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id) = ready_run();
+        let existing_task = create_task(&mut conn, &project.id, &human_actor_id, "Existing task to delete", None)
+            .expect("create_task should succeed");
+
+        let before = counts(&conn);
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Delete,
+            ProposalPayload::Task { title: String::new(), description: None },
+            Some(&existing_task.id),
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (delete task) should succeed");
+        assert_eq!(proposal.status, "pending", "{label}");
+        assert_eq!(counts(&conn), before, "{label}: staging a delete proposal must not delete the row yet");
+
+        accept_proposal(&mut conn, &proposal.id, &human_actor_id).expect("accept_proposal should succeed");
+        assert_eq!(
+            counts(&conn),
+            Counts { tasks: before.tasks - 1, ..before },
+            "{label}: accept must delete exactly the named task"
+        );
+    });
+}
+
+fn case_delete_epic_stays_pending_until_accept() {
+    let label: &str = "delete a pre-existing epic via a delete proposal stays pending with the epic still present until accept";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id) = ready_run();
+        let existing_epic = create_epic(&mut conn, &project.id, &human_actor_id, "Existing epic to delete", None)
+            .expect("create_epic should succeed");
+
+        let before = counts(&conn);
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Delete,
+            ProposalPayload::Epic { title: String::new(), description: None },
+            Some(&existing_epic.id),
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (delete epic) should succeed");
+        assert_eq!(proposal.status, "pending", "{label}");
+        assert_eq!(counts(&conn), before, "{label}: staging a delete proposal must not delete the row yet");
+
+        accept_proposal(&mut conn, &proposal.id, &human_actor_id).expect("accept_proposal should succeed");
+        assert_eq!(
+            counts(&conn),
+            Counts { epics: before.epics - 1, ..before },
+            "{label}: accept must delete exactly the named epic"
+        );
+    });
+}
+
+fn case_delete_criterion_stays_pending_until_accept() {
+    let label: &str = "delete a pre-existing criterion via a delete proposal stays pending with the criterion still present until accept";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id) = ready_run();
+        let parent_task = create_task(&mut conn, &project.id, &human_actor_id, "Parent task for delete-criterion case", None)
+            .expect("create_task should succeed");
+        let existing_criterion = create_criterion(
+            &mut conn,
+            &project.id,
+            &human_actor_id,
+            "task",
+            &parent_task.id,
+            "Existing criterion to delete",
+            None,
+        )
+        .expect("create_criterion should succeed");
+
+        let before = counts(&conn);
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Delete,
+            ProposalPayload::Criterion { statement: String::new(), verification_hint: None },
+            Some(&existing_criterion.id),
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (delete criterion) should succeed");
+        assert_eq!(proposal.status, "pending", "{label}");
+        assert_eq!(counts(&conn), before, "{label}: staging a delete proposal must not delete the row yet");
+
+        accept_proposal(&mut conn, &proposal.id, &human_actor_id).expect("accept_proposal should succeed");
+        assert_eq!(
+            counts(&conn),
+            Counts { criteria: before.criteria - 1, ..before },
+            "{label}: accept must delete exactly the named criterion"
+        );
+    });
+}
+
+fn case_criterion_parented_to_a_still_pending_task_proposal() {
+    let label: &str = "a criterion proposal parented to a still-pending (not yet accepted) task proposal stays pending with no canonical row, and rejecting it leaves the parent pending too";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+        let before = counts(&conn);
+
+        let task_proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Not yet accepted parent".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (task) should succeed");
+        let criterion_proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Criterion {
+                statement: "Drafted before the parent is decided".to_string(),
+                verification_hint: None,
+            },
+            None,
+            Some(&task_proposal.id),
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (criterion) should succeed");
+
+        assert_eq!(counts(&conn), before, "{label}: staging both proposals must create no canonical row");
+        assert_eq!(task_proposal.status, "pending", "{label}");
+        assert_eq!(criterion_proposal.status, "pending", "{label}");
+
+        reject_proposal(&mut conn, &criterion_proposal.id, &human_actor_id, None).expect("reject_proposal should succeed");
+        assert_eq!(counts(&conn), before, "{label}: rejecting the criterion must create no canonical row");
+
+        let refreshed = pending_proposals_for_run(&conn, &run_id, 0).expect("pending read should succeed");
+        assert!(
+            refreshed.iter().any(|p| p.id == task_proposal.id),
+            "{label}: the parent task proposal must remain pending, untouched by its child's rejection"
+        );
+    });
+}
+
+fn case_amend_target_deleted_underneath_it_is_undecidable() {
+    let label: &str = "an amend proposal whose target task is deleted underneath it returns a typed ProposalUndecidable error, never a silent promotion, and leaves every canonical count untouched";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id) = ready_run();
+        let task = create_task(&mut conn, &project.id, &human_actor_id, "Will vanish before triage", None)
+            .expect("create_task should succeed");
+
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Amend,
+            ProposalPayload::Task { title: "Renamed before the target vanished".to_string(), description: None },
+            Some(&task.id),
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (amend) should succeed");
+
+        delete_task(&mut conn, &human_actor_id, &task.id).expect("delete_task should succeed");
+        let before = counts(&conn);
+
+        let err = accept_proposal(&mut conn, &proposal.id, &human_actor_id).unwrap_err();
+        let undecidable = err
+            .downcast_ref::<ProposalUndecidable>()
+            .expect("expected a typed ProposalUndecidable error");
+        assert_eq!(undecidable.target_id, task.id, "{label}");
+        assert_eq!(undecidable.target_type, "task", "{label}");
+        assert_eq!(counts(&conn), before, "{label}: a refused accept must leave every canonical count untouched");
+
+        let refreshed = pending_proposals_for_run(&conn, &run_id, 0).expect("pending read should succeed");
+        assert!(
+            refreshed.iter().any(|p| p.id == proposal.id),
+            "{label}: the proposal must remain pending after the failed accept, not corrupted into some other state"
+        );
+    });
+}
+
+// --- The three ordering cases the plain per-case loop cannot express ---
+
+fn case_ordering_child_accepted_before_parent_materialises_parent_exactly_once() {
+    let label: &str = "ordering (a): accepting a child criterion proposal before its parent task proposal materialises the parent exactly once (D-96's implied-parent accept), and a third, undecided sibling criterion proposal still has no canonical row";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+        let before = counts(&conn);
+
+        let task_proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Parent, not yet accepted".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (task) should succeed");
+
+        let child_a = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Criterion { statement: "Child A, will be accepted".to_string(), verification_hint: None },
+            None,
+            Some(&task_proposal.id),
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (criterion A) should succeed");
+        let sibling_b = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Criterion { statement: "Sibling B, stays undecided".to_string(), verification_hint: None },
+            None,
+            Some(&task_proposal.id),
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (criterion B) should succeed");
+
+        assert_eq!(counts(&conn), before, "{label}: staging three proposals must create no canonical row");
+
+        accept_proposal(&mut conn, &child_a.id, &human_actor_id).expect("accept_proposal (child A) should succeed");
+
+        assert_eq!(
+            counts(&conn),
+            Counts { tasks: before.tasks + 1, criteria: before.criteria + 1, ..before },
+            "{label}: exactly one implied-parent task and one criterion must exist, no more"
+        );
+
+        let still_pending = pending_proposals_for_run(&conn, &run_id, 0).expect("pending read should succeed");
+        assert!(
+            still_pending.iter().any(|p| p.id == sibling_b.id && p.materialised_id.is_none()),
+            "{label}: the undecided sibling must remain pending with no materialised_id"
+        );
+    });
+}
+
+fn case_ordering_two_siblings_sharing_created_at_only_the_accepted_one_materialises() {
+    let label: &str = "ordering (b): two sibling proposals staged with the same created_at timestamp — accepting one produces exactly one canonical row, belonging to the accepted id, while the other stays pending";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id) = ready_run();
+        let before = counts(&conn);
+
+        let first = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "First sibling, will be accepted".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (first) should succeed");
+        let second = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Second sibling, stays pending".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal (second) should succeed");
+
+        // Force an exact tie on created_at — the property under test is what happens when two
+        // proposals are indistinguishable by staging order, not whether the wall clock happens to
+        // tick between two sequential calls in a fast test run.
+        let tied_at = "2026-01-01T00:00:00.000Z";
+        conn.execute(
+            "UPDATE authoring_proposals SET created_at = ?1 WHERE id IN (?2, ?3)",
+            params![tied_at, first.id, second.id],
+        )
+        .expect("failed to force a tied created_at for the fixture");
+
+        assert_eq!(counts(&conn), before, "{label}: staging two proposals must create no canonical row");
+
+        accept_proposal(&mut conn, &first.id, &human_actor_id).expect("accept_proposal (first) should succeed");
+
+        assert_eq!(
+            counts(&conn),
+            Counts { tasks: before.tasks + 1, ..before },
+            "{label}: exactly one canonical row must exist"
+        );
+
+        let title: String = conn
+            .query_row("SELECT title FROM tasks WHERE project_id = ?1", params![project.id], |row| row.get(0))
+            .expect("failed to read back the materialised task");
+        assert_eq!(
+            title, "First sibling, will be accepted",
+            "{label}: the materialised row must belong to the accepted proposal, not its tied-timestamp sibling"
+        );
+
+        let still_pending = pending_proposals_for_run(&conn, &run_id, 0).expect("pending read should succeed");
+        assert!(
+            still_pending.iter().any(|p| p.id == second.id),
+            "{label}: the un-accepted sibling must remain pending"
+        );
+    });
+}
+
+fn case_ordering_reject_then_accept_is_refused_not_a_second_promotion() {
+    let label: &str = "ordering (c): a proposal rejected and then accepted in the same test — the second call is refused, and no canonical row appears";
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, _project, run_id) = ready_run();
+        let before = counts(&conn);
+
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Rejected, then an accept is attempted anyway".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+
+        reject_proposal(&mut conn, &proposal.id, &human_actor_id, Some("not worth doing"))
+            .expect("reject_proposal should succeed");
+        assert_eq!(counts(&conn), before, "{label}: rejecting must create no canonical row");
+
+        let result = accept_proposal(&mut conn, &proposal.id, &human_actor_id);
+        assert!(result.is_err(), "{label}: accepting an already-rejected proposal must be refused, not silently promoted");
+        assert_eq!(counts(&conn), before, "{label}: the refused accept must leave every canonical count untouched");
+
+        let status: String = conn
+            .query_row("SELECT status FROM authoring_proposals WHERE id = ?1", params![proposal.id], |row| row.get(0))
+            .expect("failed to read back the proposal's status");
+        assert_eq!(status, "rejected", "{label}: the proposal's status must remain rejected, never corrupted");
+    });
+}
+
+// --- The abandoned-run case (D-80's own discretion item, recorded as a test) ---
+
+fn case_abandoned_run_pending_proposal_survives_and_new_event_is_refused() {
+    let label: &str = "a pending proposal survives its run being marked abandoned untouched, and a NEW proposal_created event for the same abandoned run returns TerminalRun and stages nothing (D-80)";
+    with_scratch_app_data_dir(|| {
+        let (mut conn, human_actor_id, _project_id, _task_id, run_id) = seeded_execution_run();
+        let before = counts(&conn);
+
+        let first_event = task_create_event(
+            &run_id,
+            "Found while executing, run will be abandoned",
+            "Noticed a stale retry loop",
+        );
+        let ProposalOutcome::Created(first_proposal) =
+            apply_proposal_created(&mut conn, &first_event).expect("apply_proposal_created should succeed")
+        else {
+            panic!("{label}: expected ProposalOutcome::Created");
+        };
+        assert_eq!(counts(&conn), before, "{label}: staging must create no canonical row");
+
+        let wrote = mark_abandoned(&mut conn, &run_id, &human_actor_id, None).expect("mark_abandoned should succeed");
+        assert!(wrote, "{label}: mark_abandoned should have performed a real transition from running");
+
+        // The pending row survives untouched — same status, same payload, same rationale, still
+        // returned by the pending read.
+        let survived = pending_proposals_for_run(&conn, &run_id, 0).expect("pending read should succeed");
+        let survivor = survived
+            .iter()
+            .find(|p| p.id == first_proposal.id)
+            .unwrap_or_else(|| panic!("{label}: the pending proposal must still be returned by the pending read after abandonment"));
+        assert_eq!(survivor.status, "pending", "{label}");
+        assert_eq!(survivor.payload, first_proposal.payload, "{label}: the payload must be byte-identical after abandonment");
+        assert_eq!(survivor.rationale, first_proposal.rationale, "{label}: the rationale must be byte-identical after abandonment");
+        assert_eq!(counts(&conn), before, "{label}: mark_abandoned must never write a canonical row");
+
+        // A NEW proposal_created event for the SAME now-abandoned run must be refused before any
+        // database write, staging nothing.
+        let second_event = task_create_event(&run_id, "A second finding after the run died", "This must never be staged");
+        let outcome = apply_proposal_created(&mut conn, &second_event).expect("apply_proposal_created should not error, only refuse");
+        assert_eq!(outcome, ProposalOutcome::TerminalRun, "{label}: a new event against an abandoned run must return TerminalRun");
+
+        let count_for_run: i64 = conn
+            .query_row("SELECT COUNT(*) FROM authoring_proposals WHERE agent_run_id = ?1", params![run_id], |row| row.get(0))
+            .expect("failed to count proposals for this run");
+        assert_eq!(count_for_run, 1, "{label}: the refused second event must stage no new row");
+        assert_eq!(counts(&conn), before, "{label}: the refused second event must never write a canonical row");
+    });
+}
+
+// --- The corpus table itself ---
+
+struct CorpusCase {
+    label: &'static str,
+    run: fn(),
+}
+
+const CORPUS: &[CorpusCase] = &[
+    CorpusCase { label: "create task via create_proposal", run: case_create_task_via_create_proposal },
+    CorpusCase { label: "create epic via create_proposal", run: case_create_epic_via_create_proposal },
+    CorpusCase {
+        label: "create issue via an execution run's propose_item event, task-scoped, null epic",
+        run: case_create_issue_via_execution_run_task_scoped_null_epic,
+    },
+    CorpusCase {
+        label: "create criterion parented to an already-accepted task proposal",
+        run: case_create_criterion_parented_to_an_already_accepted_task,
+    },
+    CorpusCase {
+        label: "create assumption never materialises a canonical row",
+        run: case_create_assumption_never_materialises_a_canonical_row,
+    },
+    CorpusCase { label: "amend a pending task proposal", run: case_amend_task_leaves_every_canonical_count_unchanged },
+    CorpusCase { label: "amend a pending epic proposal", run: case_amend_epic_leaves_every_canonical_count_unchanged },
+    CorpusCase {
+        label: "amend a pending criterion proposal",
+        run: case_amend_criterion_leaves_every_canonical_count_unchanged,
+    },
+    CorpusCase { label: "delete a pre-existing task via a delete proposal", run: case_delete_task_stays_pending_until_accept },
+    CorpusCase { label: "delete a pre-existing epic via a delete proposal", run: case_delete_epic_stays_pending_until_accept },
+    CorpusCase {
+        label: "delete a pre-existing criterion via a delete proposal",
+        run: case_delete_criterion_stays_pending_until_accept,
+    },
+    CorpusCase {
+        label: "criterion proposal parented to a still-pending task proposal",
+        run: case_criterion_parented_to_a_still_pending_task_proposal,
+    },
+    CorpusCase {
+        label: "amend proposal whose target row is deleted underneath it is undecidable",
+        run: case_amend_target_deleted_underneath_it_is_undecidable,
+    },
+    CorpusCase {
+        label: "ordering (a): child criterion accepted before its parent task, third sibling untouched",
+        run: case_ordering_child_accepted_before_parent_materialises_parent_exactly_once,
+    },
+    CorpusCase {
+        label: "ordering (b): two siblings sharing the same created_at, only the accepted one materialises",
+        run: case_ordering_two_siblings_sharing_created_at_only_the_accepted_one_materialises,
+    },
+    CorpusCase {
+        label: "ordering (c): reject then accept the same proposal is refused, not a second promotion",
+        run: case_ordering_reject_then_accept_is_refused_not_a_second_promotion,
+    },
+    CorpusCase {
+        label: "abandoned-run: a pending proposal survives abandonment and a new event is refused",
+        run: case_abandoned_run_pending_proposal_survives_and_new_event_is_refused,
+    },
+];
+
+#[test]
+fn corpus_declares_at_least_14_labelled_adversarial_cases() {
+    assert!(
+        CORPUS.len() >= 14,
+        "expected at least 14 labelled corpus cases proving zero canonical rows before triage, found {}",
+        CORPUS.len()
+    );
+}
+
+#[test]
+fn every_corpus_case_proves_zero_canonical_rows_before_triage() {
+    let mut failures = Vec::new();
+    for case in CORPUS {
+        if let Err(payload) = std::panic::catch_unwind(case.run) {
+            let msg = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "<non-string panic payload>".to_string());
+            failures.push(format!("{:?}: {msg}", case.label));
+        }
+    }
+    assert!(failures.is_empty(), "one or more adversarial corpus cases failed:\n  {}", failures.join("\n  "));
 }
