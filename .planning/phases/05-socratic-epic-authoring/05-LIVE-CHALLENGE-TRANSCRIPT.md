@@ -256,7 +256,64 @@ On the substance: your redefinition of trigger 3 to current-assignee genuinely f
 
 ## Verdicts (human — fill these in)
 
-- SHAPE-01 challenge-quality verdict: UNJUDGED — reading the conversation above,
-  did the agent push back on the stated premise, or did it affirm it and start planning work?
-- SHAPE-03 draft-usefulness verdict: UNJUDGED — were the drafted criteria above useful
-  as-is, or did they need the amendment recorded above to become usable?
+- SHAPE-01 challenge-quality verdict: **PASS** (developer, 2026-09-30, run 01M3QQQM4GAYB2Y9RQMJDRWAX0).
+  The agent contradicted the developer rather than affirming him, on substance, more than once:
+
+  - **It caught a logical contradiction in the developer's own answers** (turn 4): trigger 3
+    ("a comment on a card they own") violates the stated principle ("explicitly blocked on them or
+    has named them"), because a comment is activity on a card — the exact category the developer had
+    just eliminated. It gave a concrete failure case (40 owned cards, a 15-comment thread between two
+    other people) and refused to encode it silently: "I just don't want it accepted as if it followed
+    from the principle, because it doesn't."
+  - **It rejected a constraint the developer specified.** "'No migration' as written is not passable" —
+    email delivery needs per-channel state that in-app does not, so literal zero-migration is
+    unreachable. It proposed an achievable restatement rather than accepting an unfalsifiable criterion.
+  - **It found a coupling the developer had not seen:** triggers and "no preferences UI" are not
+    independent — cutting trigger 3 is what makes "no preferences" defensible.
+  - **It questioned whether the epic should exist yet:** "If this is genuinely greenfield, then
+    notifications aren't the next thing to build and this epic has a stack of dependencies that should
+    be visible on the board before it."
+  - **It withheld consent to advance** ("I don't think this is settled yet — mainly trigger 3, and the
+    ownership definition it depends on") and advanced only once the objection was genuinely resolved,
+    naming *why* the redefinition worked (turn 6) rather than merely complying.
+  - **It refused to let "settled" mean "solved"** (turn 10): "your redefinition genuinely fixed the
+    contradiction I raised, but it doesn't remove the volume risk … recorded as accepted rather than
+    solved."
+
+  Self-honesty markers, which matter for the same judgement: it reported a duplicate assumption row it
+  had itself created and could not clean up, reported hitting the 1000-character description limit, and
+  labelled six of its own defaults `NOT YET CONFIRMED BY DEVELOPER` so they could not be primed into a
+  later session as the developer's decisions.
+
+  **Recorded criticism, not a fail:** turn 2 offered every question with a pre-written default and an
+  invitation to reply "defaults are fine". That is efficient but it makes rubber-stamping the agent's
+  own framing the path of least resistance — the mirror image of the failure this criterion tests. Worth
+  watching in future runs; it did not materialise here, because the developer answered substantively and
+  the agent then challenged those answers.
+
+  **Provenance caveat:** the developer turns in this transcript were drafted by the agent session
+  operating the harness and approved line-by-line by Cyril before being written to the handoff files
+  (`challenge-turn-{1,2}-answers.md`, committed alongside this transcript). The challenge-quality
+  judgement is unaffected — the agent pushed back on the framing it was given — but the framing it
+  demolished was not composed by Cyril unaided.
+- SHAPE-03 draft-usefulness verdict: **PASS** (developer, 2026-09-30, run 01M3QQQM4GAYB2Y9RQMJDRWAX0) —
+  **on the criteria text, explicitly NOT on the amendment ratio.**
+
+  **The 1/42 ratio is a measurement artifact and is not evidence.** Exactly one criterion was amended
+  because the harness's live arm attempts exactly one amendment (it proves SHAPE-04's amend leg, not
+  draft quality). The ratio says nothing about the other 41 criteria and must not be cited as if it did.
+
+  The verdict rests on reading the drafted criteria. They are concrete, falsifiable, and name the edge
+  cases that actually bite in this domain:
+
+  - "Mentioning @U three times in one comment creates one event, not three."
+  - "Marking read is idempotent — repeating it cannot drive the count negative."
+  - "Opening the tray does not itself mark anything read."
+  - "Re-assigning to the existing assignee is a no-op and creates no event."
+  - "After reassignment U→V, later comments notify V only" / "Events already delivered to U are not
+    retracted when the card is reassigned."
+  - "A row whose card or comment was deleted renders a clear 'no longer available' state rather than
+    erroring or dead-linking."
+
+  Each of those is a test a reviewer could fail an implementation against without further
+  interpretation, which is the bar this criterion is asking about. Judged useful as drafted.
