@@ -711,14 +711,14 @@ prompting in a terminal, before building the full surface.
   4. A proposal that duplicates an existing item is flagged as a duplicate before the user sees it.
   5. A chatty agent hits a per-run proposal limit and the user is told the limit was hit, rather than proposals being silently dropped.
 
-**Plans**: 9 plans in 8 waves
+**Plans**: 1/9 plans executed in 8 waves
 **UI hint**: yes
 
 Plans:
 
 **Wave 1 — the tracer** *(the thinnest end-to-end slice, proven before anything expands out from it; carries the one-way schema decision checkpoint and clears `06-RESEARCH.md` Pitfall 1 first, since the authoring stage-gate hook is currently wired onto every execution run and would deny `propose_item` for a reason unrelated to what the tracer tests)*
 
-- [ ] 06-01-PLAN.md — Tracer: an execution-run agent proposes through `propose_item`, the row lands pending with its rationale and turn pointer, the shipped triage lane shows it, accepting mints a real task (PROP-01, PROP-02, PROP-07)
+- [x] 06-01-PLAN.md — Tracer: an execution-run agent proposes through `propose_item`, the row lands pending with its rationale and turn pointer, the shipped triage lane shows it, accepting mints a real task (PROP-01, PROP-02, PROP-07)
 
 **Wave 2** *(both blocked on the tracer; they share no file and run in parallel)*
 
@@ -982,7 +982,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
-| 6. Agents File Their Own Backlog | 0/TBD | Not started | - |
+| 6. Agents File Their Own Backlog | 1/9 | In Progress|  |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
