@@ -13,6 +13,10 @@
 //! decision (`flywheel_core::domain::authoring_proposal::apply_proposal_created`) stays testable
 //! without a real spawned sidecar, and this half performs the IPC-adjacent `board:changed` emit
 //! the outcome implies.
+//!
+//! Plan 06-05 (PROP-05, D-111): `handle_inbound_proposal_created`'s outcome match now also
+//! handles `ProposalOutcome::LimitExhausted`, relaying a loud `Err` that names the limit and
+//! points the agent at `report_summary`'s `remains` field — never a silent drop.
 
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
@@ -1022,6 +1026,13 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
         }
         flywheel_core::domain::authoring_proposal::ProposalOutcome::TerminalRun => {
             Err("this run has already reached a terminal status".to_string())
+        }
+        flywheel_core::domain::authoring_proposal::ProposalOutcome::LimitExhausted { limit, count } => {
+            Err(format!(
+                "proposal limit reached: this run has already staged {count} of {limit} allowed \
+                 proposals — this one was NOT staged. Call report_summary and put it in the \
+                 remains field instead."
+            ))
         }
     };
     let _ = sidecar.relay_authoring_proposal_answer(run_id, request_id, result);

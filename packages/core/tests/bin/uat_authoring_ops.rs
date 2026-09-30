@@ -270,6 +270,9 @@ fn main() {
                 core::domain::authoring_proposal::ProposalOutcome::TerminalRun => {
                     print_json(serde_json::json!({ "outcome": "terminal_run" }));
                 }
+                core::domain::authoring_proposal::ProposalOutcome::LimitExhausted { limit, count } => {
+                    print_json(serde_json::json!({ "outcome": "limit_exhausted", "limit": limit, "count": count }));
+                }
             }
         }
         "answer-board-read" => {

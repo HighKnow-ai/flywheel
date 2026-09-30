@@ -43,6 +43,16 @@
 //! pass, it never substitutes for one (D-107 rejected auto-drop/auto-reject/auto-merge outright).
 //! The threshold this flag is compared against lives as a single constant in `query::search`
 //! (`DUPLICATE_BM25_THRESHOLD`) — never a second copy of the comparison anywhere in this module.
+//!
+//! Plan 06-05 (PROP-05, D-109/D-110/D-111/D-112): [`PROPOSAL_LIMIT_PER_RUN`] fixes how many
+//! proposals ONE agent run may EVER stage at 10 — a compile-time constant, never a settings key,
+//! a `projects` column or an environment override. [`create_proposal_in_tx`] counts the run's own
+//! rows with a plain `COUNT(*)` (every status, every verb — a rejected proposal still consumed a
+//! human's attention) inside the SAME transaction as the INSERT that would otherwise run: at or
+//! past the limit, no row is inserted, one `proposal.limit_exhausted` event is appended instead,
+//! and [`ProposalOutcome::LimitExhausted`] is returned. The event still commits — a refusal is
+//! never a silent rollback (T-06-22) — and `query::authoring::proposal_limit_notices` derives the
+//! human-facing notice from these events on every read, never a second stored copy.
 
 use anyhow::Context;
 use rusqlite::{named_params, params, Connection, OptionalExtension, Row, Transaction};
@@ -299,6 +309,15 @@ impl ProposalProvenance {
 /// never drift apart.
 pub const MAX_PROPOSAL_RATIONALE_LEN: usize = 1000;
 
+/// Plan 06-05 (PROP-05, D-109): the fixed ceiling on how many proposals ONE agent run may EVER
+/// stage — deliberately a compile-time constant, never a settings key, a `projects` column or an
+/// environment override, following D-69's own precedent (the verbatim-summary window was fixed at
+/// 5 rather than exposed, because a knob nobody tunes still has to be tested at every value). The
+/// 10th proposal a run stages succeeds; the 11th is refused — see
+/// [`ProposalOutcome::LimitExhausted`] and [`create_proposal_in_tx`]'s own in-transaction
+/// `COUNT(*)` check.
+pub const PROPOSAL_LIMIT_PER_RUN: usize = 10;
+
 /// Stage one proposal for `agent_run_id` (D-80/D-81/D-92). **`project_id`, `epic_id` and the
 /// acting actor are resolved from the `agent_runs` row INSIDE this transaction** — this function's
 /// own signature carries no `project_id`/`epic_id` parameter, so a caller cannot attribute a
@@ -322,7 +341,7 @@ pub fn create_proposal(
 ) -> anyhow::Result<Proposal> {
     let now = chrono::Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
-    let proposal = create_proposal_in_tx(
+    let outcome = create_proposal_in_tx(
         &tx,
         agent_run_id,
         verb,
@@ -332,8 +351,24 @@ pub fn create_proposal(
         provenance,
         &now,
     )?;
+    // Commit BEFORE inspecting the outcome (plan 06-05): a refusal already appended its own
+    // `proposal.limit_exhausted` event inside this same transaction, and that event must survive
+    // regardless of how this function reports the refusal to ITS OWN caller — never a rollback
+    // that quietly un-writes a real occurrence (T-06-22).
     tx.commit().context("failed to commit create_proposal transaction")?;
-    Ok(proposal)
+    match outcome {
+        ProposalOutcome::Created(proposal) => Ok(proposal),
+        // Plan 06-05 (D-111): reported as a real `Err`, never silently dropped and never folded
+        // into `Ignored` (which means something different — malformed input, not "over budget").
+        ProposalOutcome::LimitExhausted { limit, count } => Err(anyhow::anyhow!(
+            "run {agent_run_id:?} has already staged {count} of {limit} allowed proposals — this \
+             one was NOT staged; call report_summary and put it in the remains field instead"
+        )),
+        other => Err(anyhow::anyhow!(
+            "create_proposal_in_tx returned an unexpected outcome for a direct create_proposal \
+             call: {other:?}"
+        )),
+    }
 }
 
 fn create_proposal_in_tx(
@@ -345,14 +380,67 @@ fn create_proposal_in_tx(
     parent_proposal_id: Option<&str>,
     provenance: ProposalProvenance,
     now: &str,
-) -> anyhow::Result<Proposal> {
-    let (project_id, epic_id, actor_id): (String, Option<String>, String) = tx
+) -> anyhow::Result<ProposalOutcome> {
+    let (project_id, epic_id, actor_id, run_task_id): (String, Option<String>, String, Option<String>) = tx
         .query_row(
-            "SELECT project_id, epic_id, actor_id FROM agent_runs WHERE id = ?1",
+            "SELECT project_id, epic_id, actor_id, task_id FROM agent_runs WHERE id = ?1",
             params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
+
+    // Plan 06-05 (PROP-05, D-109/D-110): the count of every row THIS run has EVER staged —
+    // regardless of status or verb, a rejected/deferred row still consumed a human's triage
+    // attention (T-06-20) — read through `idx_authoring_proposals_run_status`'s leading column,
+    // BEFORE the tail-position/validation/duplicate-lookup work below, and inside the SAME
+    // transaction as the INSERT that would follow: a read-then-write gap here is exactly what
+    // would make the limit advisory rather than real (D-110).
+    let staged_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM authoring_proposals WHERE agent_run_id = ?1",
+            params![agent_run_id],
+            |row| row.get(0),
+        )
+        .context("failed to count this run's staged proposals")?;
+
+    // RED (plan 06-05 Task 1): the refusal path is intentionally unreachable here — a false
+    // short-circuit, not yet the real comparison — so `proposal_limit.rs`'s refusal-expecting
+    // tests fail on their own assertions (a real run past the limit still stages), never on a
+    // compile error. The GREEN commit removes `false &&` and nothing else on this line.
+    if false && staged_count >= PROPOSAL_LIMIT_PER_RUN as i64 {
+        // D-111/D-112/T-06-22: refused OUT LOUD, never a silent drop — one event per refusal, so
+        // the trail records what was turned away (the refused proposal's own target type and
+        // title), not merely that a refusal happened. No existence check before this append: that
+        // would be an unindexed read on the refusal path for no gain.
+        let sequence = next_sequence(tx, &project_id, "local")?;
+        let event_payload = serde_json::json!({
+            "field": "authoring_proposal",
+            "limit": PROPOSAL_LIMIT_PER_RUN,
+            "count": staged_count,
+            "targetType": payload.target_type().as_str(),
+            "title": payload.label(),
+            "label": format!(
+                "Refused a new {} proposal — this run already holds {staged_count} staged \
+                 proposals (limit {PROPOSAL_LIMIT_PER_RUN})",
+                payload.target_type().as_str()
+            ),
+        });
+        append_event(
+            tx,
+            &project_id,
+            "local",
+            sequence,
+            "agent_run",
+            agent_run_id,
+            run_task_id.as_deref(),
+            epic_id.as_deref(),
+            &actor_id,
+            "proposal.limit_exhausted",
+            &event_payload,
+            now,
+        )?;
+        return Ok(ProposalOutcome::LimitExhausted { limit: PROPOSAL_LIMIT_PER_RUN, count: staged_count });
+    }
 
     let tail_position: Option<String> = tx
         .query_row(
@@ -467,7 +555,7 @@ fn create_proposal_in_tx(
         now,
     )?;
 
-    Ok(Proposal {
+    Ok(ProposalOutcome::Created(Proposal {
         id,
         agent_run_id: agent_run_id.to_string(),
         project_id,
@@ -489,7 +577,7 @@ fn create_proposal_in_tx(
         origin_log_offset: provenance.origin_log_offset,
         duplicate_of,
         duplicate_score,
-    })
+    }))
 }
 
 /// What [`apply_proposal_created`] did with one inbound `proposal_created` event.
@@ -505,6 +593,12 @@ pub enum ProposalOutcome {
     TerminalRun,
     /// One row was staged, attributed to the run's own project/epic/actor.
     Created(Proposal),
+    /// Plan 06-05 (PROP-05, D-109/D-110/D-111): this run has already staged
+    /// [`PROPOSAL_LIMIT_PER_RUN`] proposals — no row was inserted, and one
+    /// `proposal.limit_exhausted` event was appended instead (still committed: a refusal is never
+    /// a silent rollback). Carries both the fixed `limit` and the run's own observed `count` so
+    /// the caller can name both in its refusal message without re-reading either.
+    LimitExhausted { limit: usize, count: i64 },
 }
 
 /// Apply one inbound `proposal_created` event (the sidecar's own wire shape, mirroring
@@ -591,7 +685,10 @@ pub fn apply_proposal_created(
     let now = chrono::Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
     let provenance = ProposalProvenance { rationale, origin_log_offset };
-    let proposal = create_proposal_in_tx(
+    // Plan 06-05: `create_proposal_in_tx` now returns `ProposalOutcome` directly — `Created` or
+    // `LimitExhausted` both forward unchanged, so this entry point never converts a refusal into
+    // `Ignored` (which means something different: malformed input, never "over budget").
+    let outcome = create_proposal_in_tx(
         &tx,
         run_id,
         verb,
@@ -604,7 +701,7 @@ pub fn apply_proposal_created(
     tx.commit()
         .context("failed to commit apply_proposal_created transaction")?;
 
-    Ok(ProposalOutcome::Created(proposal))
+    Ok(outcome)
 }
 
 /// What [`accept_proposal`] did.
