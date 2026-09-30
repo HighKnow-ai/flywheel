@@ -1,23 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 05-socratic-epic-authoring
 source: [05-VERIFICATION.md, 05-40-SUMMARY.md, 05-41-SUMMARY.md, 05-42-SUMMARY.md, 05-43-SUMMARY.md]
 started: 2026-09-25T15:55:00Z
-updated: 2026-09-29T04:20:00Z
+updated: 2026-09-30T00:26:00Z
 ---
 
 ## Current Test
 
-number: 1
-name: Live challenge quality (SHAPE-01) and draft usefulness (SHAPE-03)
-expected: |
-  Running the live arm, the agent's challenge-stage turns push back on the stated premise and ask
-  substantive clarifying questions — and those questions, with their offered options, are now
-  visible in `05-LIVE-CHALLENGE-TRANSCRIPT.md` inside the turn that asked them, because round 10
-  modelled `AskUserQuestion` at the adapter seam and rendered it into the sheet. The drafted
-  acceptance criteria are usable as-is or clearly need amendment. Both verdict lines in the
-  transcript get filled with your own words.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -31,7 +22,35 @@ why_human: |
   test uses a synthetic fixture; `readClaudeAuthStatus` is by design never invoked from any
   self-test. If the composed directory does not actually authenticate, that is a new reportable
   finding, not a failure of this verification.
-result: [pending]
+result: pass
+confirmed: |
+  Live run 01M3QQQM4GAYB2Y9RQMJDRWAX0 (2026-09-30) exited 0 — the first clean live pass this phase
+  has produced. Both verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md are now signed off PASS by the
+  developer (commit 711fd54), and no UNJUDGED line remains in that file.
+
+  SHAPE-01 PASS rests on the agent contradicting the developer on substance, not on affirming him:
+  it caught a logical contradiction in the developer's own answers (trigger 3 — "a comment on a card
+  they own" — violates the stated "explicitly blocked on them or has named them" principle, with a
+  concrete 40-card/15-comment failure case), rejected a constraint the developer specified ("'No
+  migration' as written is not passable"), found a coupling the developer had missed (triggers and
+  "no preferences UI" are not independent), questioned whether the epic should exist yet at all,
+  withheld consent to advance until the objection was genuinely resolved, and refused to let
+  "settled" mean "solved" ("recorded as accepted rather than solved").
+
+  SHAPE-03 PASS rests on reading the 42 drafted criteria, NOT on the 1/42 amendment ratio — that
+  ratio is a measurement artifact (the live arm attempts exactly one amendment, to prove SHAPE-04's
+  amend leg) and is explicitly recorded in the transcript as not-evidence.
+
+  Recorded criticism, not a fail: the agent's opening turn offered every question with a pre-written
+  default and an invitation to reply "defaults are fine", which makes rubber-stamping its own framing
+  the path of least resistance. It did not materialise here because the developer answered
+  substantively and the agent then challenged those answers.
+
+  Provenance, recorded in the transcript: the developer turns were drafted by the operating agent
+  session and approved line-by-line by Cyril before being written to challenge-turn-{1,2}-answers.md
+  (committed). The challenge-quality judgement is unaffected — the agent pushed back on the framing
+  it was given — but that framing was not composed by Cyril unaided.
+
 previously_reported_round_10: "Live run 01M3DNC0G9CYAWSD8DYEGTRP8C (2026-09-26T01:30:43Z), the first live run after gap-closure round 9. Round 9's own fixes ALL HELD and are now confirmed in production, not just offline: the run exited 1 and the evidence sheet still grew 2645 -> 10556 bytes (written 4x including a `pre-proposal, results pending` checkpoint), the scratch root was preserved (`[uat] preserved scratch root (run failed)`), the uat-08-credential-path artifact survived, no turn deadline fired (2 full agent turns completed where the previous run died at 120000ms), and the terminating failure was classified from the wire's own error flag (`source=assistant_envelope_error_flag classifier=invalid_request`) rather than from prose. But SHAPE-01 and SHAPE-03 STILL cannot be judged, for two NEW reasons. (a) The agent asked its three clarifying questions through the `AskUserQuestion` tool; the harness captures only `assistant_text`, so the questions are absent from the evidence sheet — the transcript jumps from 'three things would materially change the shape of the spec:' straight to 'You didn't pick' — and the driver answered the tool with 'The user did not answer the questions' because it has no handler, so the Socratic exchange could never develop. (b) Every propose_epic/propose_assumption call was refused with 'Flywheel could not verify the authoring stage allows this call (no authoring stage marker could be read for this run)' although the run demonstrably started in the challenge stage; nothing reached the board, `Drafted criteria: 0`, and the shaped epic exists only as prose. The questions were recovered post hoc from Claude Code's own session JSONL inside the preserved scratch root — which only existed because round 9's preserveRoot fix worked."
 previously_severity_round_10: blocker
 resolved_since: |
@@ -75,7 +94,8 @@ why_human: |
   PRESENT_BEHAVIOR_UNVERIFIED on this basis, and SHAPE-02/03/04's state in `REQUIREMENTS.md` was
   deliberately not upgraded on the strength of an unproven fix. Spending a credential to settle it
   is the developer's own call. Same live run as test 1 — one run answers both.
-result: issue
+result: pass
+prior_result: issue (severity blocker) — the 2026-09-26 run recorded verbatim below, kept as history
 reported: |
   Live run 01M3ENQMC3E4M2HP7014MA84PX (2026-09-26T10:56:17Z), the first live run after gap-closure
   round 10. Exit 1, but on entirely new ground — and round 10's own fixes are now confirmed in
@@ -116,6 +136,33 @@ reported: |
   has exactly one use, in the first wait. The code does not implement the window its own comment
   promises.
 severity: blocker
+resolution: |
+  RESOLVED by live run 01M3QQQM4GAYB2Y9RQMJDRWAX0 (2026-09-30, exit 0). Every clause of this test's
+  own `expected` is now directly observed:
+
+  - propose_* calls succeed rather than being refused — 68 rows staged (1 epic, 8 tasks, 42 criteria,
+    17 assumptions). The "no authoring stage marker could be read for this run" refusal stayed gone.
+  - `Drafted criteria` is non-zero: 42, against 0 in every prior live run.
+  - The epic, its tasks and their criteria landed on the board as structured items, not prose:
+    board-counts delta=6, before {epics:0, tasks:0, criteria:0} -> after {epics:1, tasks:1,
+    criteria:4}, via acceptPath=task-subtree.
+  - SHAPE-02 PASS and SHAPE-03/SHAPE-04 PASS, which were the two ❌ lines this issue recorded.
+
+  The recorded root cause — a single-pass proposal drain with no second window, so tasks emitted
+  after the snapshot were never collected — is closed: the run reports "decompose-stage proposal
+  drain stopped quiet after 60 pass(es)" and the same for the criteria stage, i.e. the windowed
+  drain the old comment had only promised now exists.
+
+  Three instrument closures on 2026-09-29/30 were needed to get here, each fixing a general property
+  rather than an instance: 260929-lq1 (stale-snapshot proposal-decision targets, plus a latent
+  amend-criterion twin), 260929-nxq (the question extractor saw 1 of 5 bolded questions and read a
+  withheld consent as settled; SHAPE-02 became a measured board-row delta), and 260929-p61 (the live
+  arm can no longer compose its own answers — it hands the agent's questions to the developer and
+  fails if they go unanswered).
+
+  Not claimed as resolved here: the 2026-09-29 backend_refusal / classifier=invalid_request death at
+  the distillation turn did not recur and is judged transient, not diagnosed.
+
 
 ### 3. Credential seam's general reliability (carried forward)
 expected: |
@@ -127,14 +174,33 @@ why_human: |
   committed test uses a synthetic fixture and `readClaudeAuthStatus` is by design never invoked
   from any self-test, so this gap cannot close itself. Carried forward from round 8's closure
   (gap G-05-6, plan 05-33) and unchanged by round 10.
-result: [pending]
+result: pass
+reported: "pass"
+confirmed: |
+  Developer decision, 2026-09-30: the observed live authentication successes are accepted as
+  sufficient evidence for `composeIsolatedClaudeConfigDir`. No committed test against a real
+  `~/.claude` is required to close this phase.
+
+  Live run 01M3QQQM4GAYB2Y9RQMJDRWAX0 is the fourth observed success, and the first inside a run that
+  passed end to end: "composed isolated Claude config directory ... linked 1 credential entry by
+  reference (plan 05-33, gap G-05-6)", "no API-key env var was present in the spawn environment to
+  scrub", "backend authenticated as the developer: method=claude.ai loggedIn=true". The
+  uat-08-credential-path artifact was written as designed.
+
+  Residual risk, accepted knowingly rather than closed: every committed self-test still exercises
+  `composeIsolatedClaudeConfigDir` against a synthetic fixture directory, and `readClaudeAuthStatus`
+  is by design never invoked from any self-test. So the evidence for this mechanism generalising is
+  four observed live successes, not a repeatable assertion. If the mechanism ever regresses it will
+  surface as a live-run precondition failure (`HARNESS PRECONDITION FAILED:`) rather than as a red
+  test in CI.
+
 
 ## Summary
 
 total: 3
-passed: 0
-issues: 1
-pending: 2
+passed: 3
+issues: 0
+pending: 0
 skipped: 0
 blocked: 0
 
@@ -280,7 +346,10 @@ blocked: 0
 
 - gap_id: G-05-9
   truth: "An authoring session that has proposed an epic can hang tasks and acceptance criteria off it, so the drafted criteria SHAPE-03 is about can exist at all."
-  status: failed
+  status: resolved
+  resolved_by: 05-44-PLAN.md, 05-45-PLAN.md, 05-46-PLAN.md, 05-47-PLAN.md
+  resolved_at: 2026-09-30
+  resolution_evidence: "Reconciled mechanically (all four plans carry gap_ids: [G-05-9] and all four have SUMMARYs), AND confirmed live by run 01M3QQQM4GAYB2Y9RQMJDRWAX0 (2026-09-30, exit 0): the agent staged 1 epic, 8 tasks under it and 42 criteria parented to those tasks — 68 rows total. The truth this gap denied ('can hang tasks and acceptance criteria off it, so the drafted criteria SHAPE-03 is about can exist at all') is now directly observed, where every prior run reported draftedCriteriaCount 0."
   correction: |
     CORRECTED 2026-09-26, before any closure plan was written. The `root_cause` first filed against
     this gap — a single-shot proposal drain in `uat-08-socratic-authoring.mjs` truncating a
@@ -351,7 +420,11 @@ blocked: 0
 
 - gap_id: G-05-10
   truth: "An agent that has just staged a proposal knows its id, so `propose_criterion`'s required `parent_proposal_id` can be satisfied inside the same turn."
-  status: failed
+  status: resolved
+  resolved_by: 05-48-PLAN.md, 05-49-PLAN.md, 05-50-PLAN.md (round 12) — see reconciliation_note
+  resolved_at: 2026-09-30
+  reconciliation_note: "Resolved on LIVE EVIDENCE, not by the mechanical plan-frontmatter rule. No plan in this phase declares gap_ids: [G-05-10] — round 12's plans (05-48/49/50) carry only gap_closure: true — so reconcile_gaps could not see them and left this gap failed. Recording that explicitly rather than silently resolving it, and noting the frontmatter omission as the reason the automatic rule missed a genuinely closed gap."
+  resolution_evidence: "Live run 01M3QQQM4GAYB2Y9RQMJDRWAX0 (2026-09-30, node scripts/uat/uat-08-socratic-authoring.mjs, exit 0). The agent did NOT refuse and did NOT drop to prose: it staged 68 rows — 1 epic, 8 tasks, 42 criteria, 17 assumptions — each criterion naming a parent_proposal_id taken from the staging call's own returned id, and reported 'Verified — 68 rows staged' after re-listing them itself. draftedCriteriaCount 42 (was 0), criteriaReachabilityReading 'drafted' (was 'declined'), SHAPE-03/SHAPE-04 both PASS (were both FAIL). The exact refusal this gap recorded verbatim — 'returned only {\\\"staged\\\": true} with no id ... I'm not going to invent an id' — did not recur."
   reason: "Live run 01M3NNPEWEDMM0XXG5EVKGDQBD (2026-09-29, `node scripts/uat/uat-08-socratic-authoring.mjs`, exit 1) — the first live run after round 11's G-05-9 closure. The run reached all three D-88 stages, the criteria instruction was delivered verbatim, and the agent tried to comply. It could not, and said so in its own words in `05-LIVE-CHALLENGE-TRANSCRIPT.md` turn 6: \"`propose_criterion` requires `parent_proposal_id`. Everything I staged this session — 7 assumptions, 1 epic, 6 tasks — returned only `{\\\"staged\\\": true}` with no id, and `proposal_list` returns `{\\\"proposals\\\": [], \\\"truncated\\\": false}` after every one of them, at limits 100 and 500. `board_search` doesn't see them either. So the read-back path your instructions point at doesn't resolve in this session, and there's no other id source in these tools. I'm not going to invent an id.\" It then drafted ~20 criteria as prose in the chat instead. Outcome: `draftedCriteriaCount` 0, `criteriaReachabilityReading` `declined`, SHAPE-03/SHAPE-04 FAIL (`not enough proposals to exercise all three verbs`). SHAPE-01 and SHAPE-02 passed. The agent's reasoning was correct and its refusal to fabricate an id was the right call — this is a contract defect, not a model failure."
   severity: blocker
   test: 2
