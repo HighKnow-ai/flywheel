@@ -12,7 +12,11 @@ use std::time::{Duration, SystemTime};
 
 use core::db::backup::{backup_database_file, prune_backups, restore_from_backup};
 use core::db::{apply_pragmas, migration_sources, open_and_migrate};
-use rusqlite::Connection;
+use core::domain::actor::local_human_actor_id;
+use core::domain::project::create_project;
+use core::domain::task::create_task;
+use core::ids::new_id;
+use rusqlite::{params, Connection};
 use rusqlite_migration::{Migrations, M};
 
 fn scratch_dir() -> tempfile::TempDir {
@@ -291,4 +295,165 @@ fn prune_keeps_the_retention_limit() {
             "expected the older file {name} to have been pruned"
         );
     }
+}
+
+/// Plan 06-01 (RESEARCH.md Pitfalls 2 and 3): migration `0015_proposal_triage_extension.sql`
+/// rebuilds `authoring_proposals` — preserves every existing row (including a self-referential
+/// `parent_proposal_id` link), re-creates all four indexes `DROP TABLE` drops, and accepts the
+/// two widened CHECK vocabularies (`target_type = 'issue'`, `status = 'deferred'`).
+#[test]
+fn migration_0015_rebuild_preserves_self_referential_parent_link() {
+    let dir = scratch_dir();
+    let db_path = dir.path().join("flywheel.db");
+    let backups_dir = dir.path().join("backups");
+
+    let (project_id, task_id, agent_run_id, parent_proposal_id, child_proposal_id) = {
+        let mut conn = build_n_minus_1_fixture(&db_path);
+
+        let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
+        let project = create_project(&mut conn, &actor_id, "Triage", "/repo", "TRI", "main")
+            .expect("create_project should succeed");
+        let task = create_task(&mut conn, &project.id, &actor_id, "A task an agent executes", None)
+            .expect("create_task should succeed");
+
+        let now = "2026-01-01T00:00:00Z";
+        let trigger_id: String = conn
+            .query_row(
+                "INSERT INTO triggers (
+                    id, project_id, target_task_id, target_epic_id, source, config, enabled,
+                    last_fired_at, created_by, created_at
+                ) VALUES (?1, ?2, ?3, NULL, 'user_action', NULL, 1, NULL, ?4, ?5) RETURNING id",
+                params![new_id(), project.id, task.id, actor_id, now],
+                |row| row.get(0),
+            )
+            .expect("failed to insert fixture trigger");
+
+        let run_id = new_id();
+        conn.execute(
+            "INSERT INTO agent_runs (
+                id, worktree_id, task_id, epic_id, project_id, trigger_id, adapter, actor_id,
+                status, external_session_id, permission_mode, cost_usd, tokens_in, tokens_out,
+                log_path, started_at, ended_at, authoring_stage
+            ) VALUES (?1, NULL, ?2, NULL, ?3, ?4, 'claude_code', ?5, 'running', NULL, 'default', \
+                NULL, NULL, NULL, ?6, ?7, NULL, NULL)",
+            params![run_id, task.id, project.id, trigger_id, actor_id, format!("/tmp/{run_id}.jsonl"), now],
+        )
+        .expect("failed to insert fixture agent_run");
+
+        // Pre-0015 shape: exactly the 0011/0012 column list — no rationale/origin_log_offset/
+        // duplicate_of/duplicate_score, and target_type/status still at their pre-widening
+        // vocabularies. The parent row's own target_type is 'task' — the ONLY parent type this
+        // schema's own foreign key (`authoring_proposals(id)`) requires is that the id exist, not
+        // that it be any particular target_type.
+        let parent_id = new_id();
+        conn.execute(
+            "INSERT INTO authoring_proposals (
+                id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
+                parent_proposal_id, position, payload, status, rejection_reason, materialised_id,
+                created_by, created_at, decided_by, decided_at
+            ) VALUES (?1, ?2, ?3, NULL, 'create', 'task', NULL, NULL, '80', ?4, 'pending', NULL, \
+                NULL, ?5, ?6, NULL, NULL)",
+            params![
+                parent_id,
+                run_id,
+                project.id,
+                serde_json::json!({"kind": "task", "title": "Parent finding", "description": null}).to_string(),
+                actor_id,
+                now,
+            ],
+        )
+        .expect("failed to insert the pre-0015 parent authoring_proposals row");
+
+        let child_id = new_id();
+        conn.execute(
+            "INSERT INTO authoring_proposals (
+                id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
+                parent_proposal_id, position, payload, status, rejection_reason, materialised_id,
+                created_by, created_at, decided_by, decided_at
+            ) VALUES (?1, ?2, ?3, NULL, 'create', 'criterion', NULL, ?4, '81', ?5, 'pending', NULL, \
+                NULL, ?6, ?7, NULL, NULL)",
+            params![
+                child_id,
+                run_id,
+                project.id,
+                parent_id,
+                serde_json::json!({"kind": "criterion", "statement": "Child finding", "verification_hint": null})
+                    .to_string(),
+                actor_id,
+                now,
+            ],
+        )
+        .expect("failed to insert the pre-0015 child authoring_proposals row (self-referential FK)");
+
+        (project.id, task.id, run_id, parent_id, child_id)
+    };
+    let _ = task_id;
+
+    let conn = open_and_migrate(&db_path, &backups_dir)
+        .expect("open_and_migrate should carry the pre-0015 fixture forward to N");
+
+    // Both rows survive, and the self-referential link is intact.
+    let (child_parent, child_status): (Option<String>, String) = conn
+        .query_row(
+            "SELECT parent_proposal_id, status FROM authoring_proposals WHERE id = ?1",
+            params![child_proposal_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("child row should survive the rebuild");
+    assert_eq!(child_parent.as_deref(), Some(parent_proposal_id.as_str()));
+    assert_eq!(child_status, "pending");
+
+    let parent_status: String = conn
+        .query_row(
+            "SELECT status FROM authoring_proposals WHERE id = ?1",
+            params![parent_proposal_id],
+            |row| row.get(0),
+        )
+        .expect("parent row should survive the rebuild");
+    assert_eq!(parent_status, "pending");
+
+    // All four indexes exist in sqlite_master.
+    let index_names: HashSet<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'authoring_proposals'")
+        .expect("sqlite_master query should prepare")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("sqlite_master query should run")
+        .collect::<Result<HashSet<_>, _>>()
+        .expect("sqlite_master rows should read");
+    for expected in [
+        "idx_authoring_proposals_run_status",
+        "idx_authoring_proposals_epic_status",
+        "idx_authoring_proposals_parent",
+        "idx_authoring_proposals_project_status",
+    ] {
+        assert!(index_names.contains(expected), "expected index {expected:?} to exist after the rebuild, found {index_names:?}");
+    }
+
+    // The new CHECK values are now accepted.
+    let now = "2026-01-02T00:00:00Z";
+    conn.execute(
+        "INSERT INTO authoring_proposals (
+            id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
+            parent_proposal_id, position, payload, status, rejection_reason, materialised_id,
+            created_by, created_at, decided_by, decided_at, rationale, origin_log_offset,
+            duplicate_of, duplicate_score
+        ) VALUES (?1, ?2, ?3, NULL, 'create', 'issue', NULL, NULL, '82', ?4, 'pending', NULL, \
+            NULL, ?5, ?6, NULL, NULL, ?7, 0, NULL, NULL)",
+        params![
+            new_id(),
+            agent_run_id,
+            project_id,
+            serde_json::json!({"kind": "issue", "title": "A bug", "body": null, "issue_kind": "bug"}).to_string(),
+            local_human_actor_id(&conn).unwrap(),
+            now,
+            "found while executing",
+        ],
+    )
+    .expect("an INSERT with target_type = 'issue' should now be accepted");
+
+    conn.execute(
+        "UPDATE authoring_proposals SET status = 'deferred' WHERE id = ?1",
+        params![parent_proposal_id],
+    )
+    .expect("an UPDATE setting status = 'deferred' should now be accepted");
 }

@@ -31,6 +31,7 @@ import {
 import {
   AUTHORING_READ_TOOL_NAMES,
   AUTHORING_WRITE_TOOL_NAMES,
+  EXECUTION_PROPOSE_ITEM_TOOL_NAME,
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
   startPermissionServer,
@@ -160,6 +161,22 @@ export const AUTHORING_STAGE_GATE_MATCHER = `mcp__${MCP_SERVER_NAME}__(propose|a
  * first entry stays byte-identical: the destructive-command gate must keep working unchanged for
  * any `Bash` call an authoring session's read-only posture still permits (e.g. `git log`).
  *
+ * `includeAuthoringStageGate` (plan 06-01, `06-RESEARCH.md` Pitfall 1): the whole fix for the
+ * collision between this function's own unconditional two-entry write and the NEW `propose_item`
+ * tool an ordinary execution run is now pre-approved to call. `AUTHORING_STAGE_GATE_MATCHER`
+ * matches ANY `propose_`/`amend_`/`delete_`-prefixed tool on this server by name-prefix regex, not
+ * an enumerated list — so a task-execution run calling `propose_item` would be denied by
+ * `stage-gate-hook.ts`'s fail-closed `main()` before the MCP handler is ever reached, because no
+ * `write_authoring_stage` marker file exists for a run that was never an authoring run in the
+ * first place. When this parameter is `false` the settings object holds exactly ONE `PreToolUse`
+ * entry (the `matcher: "Bash"` entry, byte-identical to before this plan); when `true` it holds
+ * that entry PLUS the existing `AUTHORING_STAGE_GATE_MATCHER` entry, also byte-identical. An
+ * execution run is deliberately never stage-gated: it has no authoring stage and no stage marker
+ * file is ever written for it (`write_authoring_stage` is called only from the Rust core's
+ * authoring-run start and stage-transition paths — this file never invokes any of them, matching
+ * D-90's own restriction that the sidecar must never reach the human-only stage-advance path).
+ * Exported so `execution-hook-settings.test.mjs` can drive both branches directly.
+ *
  * A write failure here degrades to "no hook injected for this session" (logged, never thrown) —
  * unchanged for `startSession` (the shim, D-51/D-58, is that path's load-bearing guarantee, so a
  * settings-write failure must not refuse an entire task-execution session over this
@@ -167,24 +184,27 @@ export const AUTHORING_STAGE_GATE_MATCHER = `mcp__${MCP_SERVER_NAME}__(propose|a
  * authoring run a missing stage gate means the challenge stage can be skipped entirely, directly
  * defeating SHAPE-01 — see that function's own handling of an `undefined` return from this
  * function. */
-function writeHookSettings(runtimeDir: string, runId: string): string | undefined {
+export function writeHookSettings(
+  runtimeDir: string,
+  runId: string,
+  includeAuthoringStageGate: boolean,
+): string | undefined {
   try {
     const settingsPath = permissionSettingsPath(runtimeDir, runId);
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    const settings = {
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: "Bash",
-            hooks: [{ type: "command", command: `${process.execPath} ${pretoolUseHookScriptPath()}` }],
-          },
-          {
-            matcher: AUTHORING_STAGE_GATE_MATCHER,
-            hooks: [{ type: "command", command: `${process.execPath} ${stageGateHookScriptPath()}` }],
-          },
-        ],
+    const preToolUse: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }> = [
+      {
+        matcher: "Bash",
+        hooks: [{ type: "command", command: `${process.execPath} ${pretoolUseHookScriptPath()}` }],
       },
-    };
+    ];
+    if (includeAuthoringStageGate) {
+      preToolUse.push({
+        matcher: AUTHORING_STAGE_GATE_MATCHER,
+        hooks: [{ type: "command", command: `${process.execPath} ${stageGateHookScriptPath()}` }],
+      });
+    }
+    const settings = { hooks: { PreToolUse: preToolUse } };
     fs.writeFileSync(settingsPath, JSON.stringify(settings));
     return settingsPath;
   } catch (err) {
@@ -277,6 +297,13 @@ export function buildClaudeArgv(options: {
    * through `approve_action` and sit waiting on a human — the exact friction D-46 reserves for
    * money-burning actions, not for writing a summary. */
   summaryToolName?: string;
+  /** D-98 (plan 06-01): the fully-qualified `propose_item` tool name, when supplied — pushed onto
+   * `--allowedTools` inside the SAME `permissionPromptToolName`/`mcpConfig` branch below,
+   * immediately after the `summaryToolName` push, never on its own. Staging a proposal burns no
+   * money and blocks nothing (D-46 extended to this tool exactly as it already was to
+   * `report_summary`), so an execution-run agent's `propose_item` call must never wait on a human
+   * permission answer either. */
+  proposeItemToolName?: string;
 }): string[] {
   const argv = [
     "-p",
@@ -300,6 +327,11 @@ export function buildClaudeArgv(options: {
       // D-64/D-46: pre-approve exactly the summary tool so the agent's own closing
       // report_summary call never waits on a human the way a gated tool call would.
       argv.push("--allowedTools", options.summaryToolName);
+    }
+    if (options.proposeItemToolName) {
+      // D-98: pre-approve exactly the propose_item tool for this execution run, mirroring the
+      // summaryToolName push immediately above.
+      argv.push("--allowedTools", options.proposeItemToolName);
     }
   }
   if (options.settingsPath) {
@@ -609,6 +641,7 @@ export function normalizeProposalNotice(
     targetType: payload.targetType,
     targetId: payload.targetId,
     parentProposalId: payload.parentProposalId,
+    rationale: payload.rationale,
     payload: payload.payload,
   };
 }
@@ -1200,8 +1233,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // plan 03-07 (D-55): write this run's `--settings` file BEFORE building argv, so the hook can
     // be wired into the very first invocation — a write failure degrades to "no hook injected for
     // this session" (writeHookSettings's own doc comment), never a refused spawn.
+    // Plan 06-01 (`06-RESEARCH.md` Pitfall 1): `false` — an execution run is never stage-gated,
+    // see `writeHookSettings`'s own doc comment for why.
     const settingsPath = env.FLYWHEEL_RUNTIME_DIR
-      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId)
+      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, false)
       : undefined;
 
     const mcpConfig = JSON.stringify({
@@ -1219,6 +1254,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       mcpConfig,
       settingsPath,
       summaryToolName: SUMMARY_TOOL_NAME,
+      // Plan 06-01 (D-98): pre-approve `propose_item` for this execution run only — staging a
+      // proposal burns no money and blocks nothing (D-46 extended), so it must never wait on a
+      // human permission answer.
+      proposeItemToolName: EXECUTION_PROPOSE_ITEM_TOOL_NAME,
     });
 
     // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the
@@ -1440,8 +1479,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       env.FLYWHEEL_SHIM_BIN = shimBin;
     }
 
+    // Plan 06-01 (`06-RESEARCH.md` Pitfall 1): `true` — an authoring run keeps the stage gate,
+    // byte-identical to before this plan.
     const settingsPath = env.FLYWHEEL_RUNTIME_DIR
-      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId)
+      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, true)
       : undefined;
 
     const mcpConfig = JSON.stringify({

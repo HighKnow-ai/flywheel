@@ -2,11 +2,13 @@
  * D-88 (plan 05-03): the stage-gate hook and its `writeHookSettings` wiring. Follows
  * `destructive-gate.test.mjs`'s own invocation pattern — spawn the SHIPPED compiled hook script
  * directly, feeding it the same stdin shape the backend writes, under a caller-supplied env — no
- * real `claude` binary needed for the hook's own decision logic. The settings-shape assertions
- * (task d's "exactly two `PreToolUse` entries") drive a real `ClaudeCodeAdapter.startSession`
- * against `fake-claude.mjs` (mirroring `adapter.test.mjs`'s own harness) and read the resulting
- * `<runtimeDir>/settings/<runId>.json` back off disk, since `writeHookSettings` itself is a
- * private function this module never exports.
+ * real `claude` binary needed for the hook's own decision logic. The settings-shape assertion
+ * drives a real `ClaudeCodeAdapter.startSession` against `fake-claude.mjs` (mirroring
+ * `adapter.test.mjs`'s own harness) and reads the resulting `<runtimeDir>/settings/<runId>.json`
+ * back off disk. Plan 06-01 (`06-RESEARCH.md` Pitfall 1) made `writeHookSettings` an exported
+ * function with an `includeAuthoringStageGate` parameter; `execution-hook-settings.test.mjs`
+ * unit-tests it directly for both branches, while this file keeps its own integration-level proof
+ * via a real spawn.
  *
  * G-05-8(b): what this file does and does not prove. It drives the SHIPPED compiled hook, which
  * is real; but every marker fixture below is HAND-WRITTEN by `scratchRuntimeDirWithStage` — this
@@ -189,7 +191,16 @@ test("the second matcher regex compiles and matches propose_task while not match
   assert.doesNotMatch("mcp__flywheel-permissions__get_epic", matcher);
 });
 
-test("writeHookSettings writes exactly two PreToolUse entries, the first byte-identical to the pre-existing Bash entry", async () => {
+// Plan 06-01 (`06-RESEARCH.md` Pitfall 1): before this plan, `writeHookSettings` unconditionally
+// wrote BOTH entries for every session, including an ordinary task-execution `startSession` run —
+// this test used to assert that exact bug ("exactly two PreToolUse entries") as if it were the
+// correct shape. It is corrected here to assert the fix: an execution run now gets exactly ONE
+// entry (no `AUTHORING_STAGE_GATE_MATCHER`), because `propose_item`'s shared `propose_` prefix
+// would otherwise be denied by the authoring stage gate before its own MCP handler is ever
+// reached. `execution-hook-settings.test.mjs` (plan 06-01) unit-tests `writeHookSettings` directly
+// for both the `false` and `true` branches; this integration-level test proves the SAME shape via
+// a real `startSession` spawn, mirroring this file's own established harness.
+test("an execution-run startSession writes exactly ONE PreToolUse entry, byte-identical to the pre-existing Bash entry", async () => {
   process.env.FLYWHEEL_CLAUDE_BIN = FAKE_CLAUDE;
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-stagegate-settings-"));
   const adapter = new ClaudeCodeAdapter();
@@ -206,12 +217,15 @@ test("writeHookSettings writes exactly two PreToolUse entries, the first byte-id
   const settingsPath = path.join(runtimeDir, "settings", "run-settings-shape-test.json");
   const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
   const entries = settings.hooks.PreToolUse;
-  assert.equal(entries.length, 2, "expected exactly two PreToolUse entries");
+  assert.equal(entries.length, 1, "expected exactly one PreToolUse entry for an execution run");
   assert.deepEqual(entries[0], {
     matcher: "Bash",
     hooks: [{ type: "command", command: `${process.execPath} ${path.join(__dirname, "..", "dist", "pretooluse-hook.js")}` }],
   });
-  assert.equal(entries[1].matcher, AUTHORING_STAGE_GATE_MATCHER);
+  assert.ok(
+    !entries.some((entry) => entry.matcher === AUTHORING_STAGE_GATE_MATCHER),
+    "an execution run's settings file must carry no authoring stage-gate matcher",
+  );
 
   delete process.env.FLYWHEEL_CLAUDE_BIN;
 });

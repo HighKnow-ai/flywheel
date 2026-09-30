@@ -34,7 +34,7 @@
 mod common;
 
 use core::domain::authoring_proposal::{
-    accept_proposal, create_proposal, ProposalPayload, ProposalVerb,
+    accept_proposal, create_proposal, ProposalPayload, ProposalProvenance, ProposalVerb,
 };
 use core::domain::authoring_session::start_authoring_run;
 use core::query::authoring::resolve_board_read;
@@ -67,6 +67,7 @@ fn a_fresh_epic_session_reaches_propose_criterion_through_the_id_list_proposals_
         ProposalPayload::Epic { title: "Reachability check epic".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose the epic");
 
@@ -99,6 +100,7 @@ fn a_fresh_epic_session_reaches_propose_criterion_through_the_id_list_proposals_
         },
         None,
         Some(returned_id),
+        ProposalProvenance::NONE,
     )
     .expect("propose the criterion against the still-pending epic proposal's id");
 
@@ -156,6 +158,7 @@ fn list_proposals_for_run_a_does_not_leak_run_bs_proposal() {
         ProposalPayload::Epic { title: "Run B's own epic".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose an epic under run B");
 

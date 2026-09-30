@@ -166,6 +166,31 @@ export const AUTHORING_READ_TOOL_NAMES = [
  * is schema documentation only, belt-and-suspenders with the server-side clamp). */
 export const MAX_READ_LIMIT = 500;
 
+/** Plan 06-01 (D-98): the raw tool name an ORDINARY task-execution run calls to stage a proposal
+ * onto its own project's triage lane — deliberately declared BESIDE the six authoring
+ * `propose_`/`amend_`/`delete_` names above, never added to {@link AUTHORING_WRITE_TOOL_NAMES} or
+ * {@link AUTHORING_READ_TOOL_NAMES}: this is one new tool an execution run reaches, not a seventh
+ * member of the authoring write family. It still shares the `propose_` prefix (D-98's locked
+ * choice), which is exactly why `writeHookSettings`'s `includeAuthoringStageGate` parameter
+ * (`claude-code-adapter.ts`, `06-RESEARCH.md` Pitfall 1) exists — an execution run's settings file
+ * must carry NO `AUTHORING_STAGE_GATE_MATCHER` entry, or this tool's every call would be denied by
+ * the authoring stage gate before this server's own handler is ever reached. */
+export const PROPOSE_ITEM_TOOL_NAME = "propose_item";
+
+/** The fully-qualified string `claude-code-adapter.ts`'s execution-run `startSession` pushes onto
+ * `--allowedTools` — composed exactly like every other fully-qualified tool name in this file. */
+export const EXECUTION_PROPOSE_ITEM_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${PROPOSE_ITEM_TOOL_NAME}`;
+
+/** Plan 06-01 (D-97): the three target types an execution-run's `propose_item` call may stage —
+ * mirrors `domain::authoring_proposal::ProposalTargetType`'s vocabulary, restricted to the three
+ * an execution run (rather than an epic-authoring session) ever proposes. */
+export const PROPOSE_ITEM_TARGET_TYPES = ["task", "issue", "epic"] as const;
+
+/** Plan 06-01 (D-98): the four issue kinds `propose_item`'s `kind` property accepts when
+ * `target_type` is `issue` — mirrors `domain::authoring_proposal::ISSUE_KINDS` exactly, so the two
+ * can never drift apart. */
+export const PROPOSE_ITEM_ISSUE_KINDS = ["bug", "idea", "question", "risk"] as const;
+
 export interface PermissionRequestPayload {
   requestId: string;
   toolName: string;
@@ -208,7 +233,9 @@ export interface AuthoringProposalPayload {
    * PermissionServerHandle.answerProposalStaged} settles it. */
   requestId: string;
   verb: "create" | "amend" | "delete";
-  targetType: "epic" | "task" | "criterion" | "assumption";
+  /** Widened by plan 06-01 (D-97) to add `"issue"` — the one target type an execution-run's
+   * `propose_item` call can stage that an authoring session never proposes. */
+  targetType: "epic" | "task" | "criterion" | "assumption" | "issue";
   targetId?: string;
   parentProposalId?: string;
   /** Plan 05-05 (`delete_proposal`): the agent's own stated reason for proposing a deletion.
@@ -217,6 +244,14 @@ export interface AuthoringProposalPayload {
    * deserialise) — an extra field the core's inbound applier does not yet read is harmless,
    * never a shape it must reject. */
   reason?: string;
+  /** Plan 06-01 (PROP-07, D-99): an execution-run `propose_item` call's own stated reason for
+   * this proposal — REQUIRED at that tool's own schema layer, always present on a `propose_item`
+   * call, always absent on every authoring `propose_*`/`amend_*`/`delete_*` call (none of those
+   * tool schemas declare this property). Rides the OUTER wire shape, like {@link reason} above,
+   * rather than being folded into `payload` — `payload` stays a shape the Rust core can
+   * deserialise directly into `ProposalPayload`, and the core reads this field from the event's
+   * TOP LEVEL, never out of `payload` (T-06-02). */
+  rationale?: string;
   payload: Record<string, unknown>;
 }
 
@@ -570,6 +605,36 @@ export const summaryToolDefinition = {
   },
 } as const;
 
+/** Plan 06-01 (D-98): the `propose_item` tool's own registration object — an ORDINARY
+ * task-execution run's one write surface onto its own project's triage lane, mirroring
+ * {@link proposeTaskToolDefinition}'s "no run/task/project/epic id property anywhere" discipline
+ * (T-06-01) exactly. `kind` here is the ISSUE's own bug/idea/question/risk discriminant
+ * (meaningful only when `target_type` is `issue`) — a different thing from this schema's own
+ * "which target type" selector (`target_type`), never confused because they are two separate
+ * properties. The description states plainly that this STAGES a proposal for a human to
+ * triage — it does not create a board item. */
+export const proposeItemToolDefinition = {
+  name: PROPOSE_ITEM_TOOL_NAME,
+  description:
+    "Stage a proposed task, issue or epic on the Flywheel board, from an ordinary task-execution " +
+    "run. This does NOT create a board item — it stages a proposal for a human to triage.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      target_type: { type: "string", enum: PROPOSE_ITEM_TARGET_TYPES },
+      title: { type: "string", minLength: 1, maxLength: 500 },
+      body: { type: "string" },
+      kind: {
+        type: "string",
+        enum: PROPOSE_ITEM_ISSUE_KINDS,
+        description: "Meaningful only when target_type is issue.",
+      },
+      rationale: { type: "string", minLength: 1, maxLength: 1000 },
+    },
+    required: ["target_type", "title", "rationale"],
+  },
+} as const;
+
 /** Plan 05-02 (D-80/D-81): the `propose_task` tool's own registration object — exported so the
  * test suite reads the SAME object this server registers, mirroring {@link summaryToolDefinition}'s
  * own precedent exactly. `title`/`description` only — no `run`/`task`/`project`/`epic` id
@@ -794,6 +859,65 @@ export const proposalListToolDefinition = {
     required: [],
   },
 } as const;
+
+/** Plan 06-01 (PROP-01/PROP-02/PROP-07, T-06-01): build the `authoring_proposal` wire payload for
+ * one `propose_item` tool call from an ORDINARY task-execution run, or throw for malformed input
+ * BEFORE anything reaches the socket — mirrors {@link buildProposeTaskPayload}'s own validation
+ * posture exactly. Rejects a missing/unrecognised `target_type`, an empty/whitespace-only `title`,
+ * an empty/whitespace-only `rationale`, or an `issue` target whose `kind` is absent or outside
+ * {@link PROPOSE_ITEM_ISSUE_KINDS}. No `run`/`project`/`epic` id field anywhere in the returned
+ * payload — identity is derived from the socket the call arrives on, never accepted as an
+ * argument. `rationale` rides the OUTER wire shape (this function's own return type), never
+ * folded into `payload` — matching {@link AuthoringProposalPayload.rationale}'s own doc comment. */
+export function buildProposeItemPayload(args: {
+  target_type?: unknown;
+  title?: unknown;
+  body?: unknown;
+  kind?: unknown;
+  rationale?: unknown;
+}): Omit<AuthoringProposalPayload, "requestId"> {
+  const targetType = typeof args.target_type === "string" ? args.target_type : "";
+  if (!(PROPOSE_ITEM_TARGET_TYPES as readonly string[]).includes(targetType)) {
+    throw new Error(
+      `propose_item requires target_type to be one of ${PROPOSE_ITEM_TARGET_TYPES.join(", ")}`,
+    );
+  }
+  const title = typeof args.title === "string" ? args.title.trim() : "";
+  if (title.length === 0) {
+    throw new Error("propose_item requires a non-empty title");
+  }
+  const rationale = typeof args.rationale === "string" ? args.rationale.trim() : "";
+  if (rationale.length === 0) {
+    throw new Error("propose_item requires a non-empty rationale");
+  }
+  const body = typeof args.body === "string" ? args.body : undefined;
+
+  let payload: Record<string, unknown>;
+  if (targetType === "issue") {
+    const issueKind = typeof args.kind === "string" ? args.kind : "";
+    if (!(PROPOSE_ITEM_ISSUE_KINDS as readonly string[]).includes(issueKind)) {
+      throw new Error(`propose_item requires kind to be one of ${PROPOSE_ITEM_ISSUE_KINDS.join(", ")} for an issue`);
+    }
+    // `issue_kind`, not `kind` — `ProposalPayload`'s own `#[serde(tag = "kind")]` already claims
+    // `kind` as its variant discriminant, so a variant field also named `kind` fails to compile
+    // on the Rust side (verified this session: "variant field name `kind` conflicts with internal
+    // tag"). This tool's own user/model-facing schema property STAYS named `kind` — this is the
+    // one translation point that renames it for the wire shape the Rust core actually deserialises.
+    payload = { kind: "issue", title, ...(body !== undefined ? { body } : {}), issue_kind: issueKind };
+  } else if (targetType === "task") {
+    payload = { kind: "task", title, ...(body !== undefined ? { description: body } : {}) };
+  } else {
+    payload = { kind: "epic", title, ...(body !== undefined ? { description: body } : {}) };
+  }
+
+  return {
+    kind: "authoring_proposal",
+    verb: "create",
+    targetType: targetType as "task" | "issue" | "epic",
+    rationale,
+    payload,
+  };
+}
 
 /** Plan 05-02 (D-80/D-81, T-05-02-01): build the `authoring_proposal` wire payload for one
  * `propose_task` tool call, or throw for malformed input — extracted as a pure function so this
@@ -1098,6 +1222,7 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
         },
       },
       summaryToolDefinition,
+      proposeItemToolDefinition,
       proposeTaskToolDefinition,
       proposeEpicToolDefinition,
       proposeCriterionToolDefinition,
@@ -1197,6 +1322,21 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
         // Deliberately no setTimeout/setInterval anywhere in this function — matches the approve
         // branch above: the promise settles ONLY when the socket answers.
       });
+    }
+
+    if (request.params.name === PROPOSE_ITEM_TOOL_NAME) {
+      // Plan 06-01 (D-98, T-06-01): no argument here names a run, project or epic — identity is
+      // whichever socket this connection reaches, exactly like the approve/summary/authoring
+      // branches above. buildProposeItemPayload throws (rejecting BEFORE any socket write) for
+      // malformed input.
+      const args = (request.params.arguments ?? {}) as {
+        target_type?: unknown;
+        title?: unknown;
+        body?: unknown;
+        kind?: unknown;
+        rationale?: unknown;
+      };
+      return stageAuthoringProposal(socketPath, buildProposeItemPayload(args));
     }
 
     if (request.params.name === PROPOSE_TASK_TOOL_NAME) {

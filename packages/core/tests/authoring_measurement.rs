@@ -17,7 +17,9 @@ mod common;
 use core::db::open_and_migrate;
 use core::domain::actor::local_human_actor_id;
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
-use core::domain::authoring_proposal::{accept_proposal, amend_proposal, create_proposal, ProposalPayload, ProposalVerb};
+use core::domain::authoring_proposal::{
+    accept_proposal, amend_proposal, create_proposal, ProposalPayload, ProposalProvenance, ProposalVerb,
+};
 use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::project;
 use core::domain::task::create_task;
@@ -55,6 +57,7 @@ fn accepted_task_and_criterion_proposals_are_both_counted() {
         ProposalPayload::Task { title: "task-a".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose task-a");
     let task_b = create_proposal(
@@ -64,6 +67,7 @@ fn accepted_task_and_criterion_proposals_are_both_counted() {
         ProposalPayload::Task { title: "task-b".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose task-b");
     accept_proposal(&mut conn, &task_a.id, &actor_id).expect("accept task-a");
@@ -78,6 +82,7 @@ fn accepted_task_and_criterion_proposals_are_both_counted() {
         ProposalPayload::Criterion { statement: "criterion-a".to_string(), verification_hint: None },
         None,
         Some(&task_a.id),
+        ProposalProvenance::NONE,
     )
     .expect("propose criterion-a");
     let criterion_b = create_proposal(
@@ -87,6 +92,7 @@ fn accepted_task_and_criterion_proposals_are_both_counted() {
         ProposalPayload::Criterion { statement: "criterion-b".to_string(), verification_hint: None },
         None,
         Some(&task_a.id),
+        ProposalProvenance::NONE,
     )
     .expect("propose criterion-b");
     accept_proposal(&mut conn, &criterion_a.id, &actor_id).expect("accept criterion-a");
@@ -100,6 +106,7 @@ fn accepted_task_and_criterion_proposals_are_both_counted() {
         ProposalPayload::Task { title: "task-c-never-decided".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose task-c");
 
@@ -123,6 +130,7 @@ fn an_amended_then_accepted_criterion_counts_toward_amended_before_accept_and_a_
         ProposalPayload::Task { title: "task-a".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose the task");
     accept_proposal(&mut conn, &task.id, &actor_id).expect("accept the task");
@@ -134,6 +142,7 @@ fn an_amended_then_accepted_criterion_counts_toward_amended_before_accept_and_a_
         ProposalPayload::Criterion { statement: "original wording".to_string(), verification_hint: None },
         None,
         Some(&task.id),
+        ProposalProvenance::NONE,
     )
     .expect("propose the criterion that will be amended");
     let plain_criterion = create_proposal(
@@ -143,6 +152,7 @@ fn an_amended_then_accepted_criterion_counts_toward_amended_before_accept_and_a_
         ProposalPayload::Criterion { statement: "plain wording".to_string(), verification_hint: None },
         None,
         Some(&task.id),
+        ProposalProvenance::NONE,
     )
     .expect("propose the criterion that will be accepted as-is");
 
@@ -180,6 +190,7 @@ fn a_run_with_no_accepted_proposals_reports_zeroes_and_no_elapsed_span_never_an_
         ProposalPayload::Task { title: "never decided".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose a task that is never decided");
 
@@ -215,6 +226,7 @@ fn the_elapsed_span_runs_from_the_runs_own_start_to_its_last_acceptance() {
         ProposalPayload::Task { title: "task-a".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose task-a");
     accept_proposal(&mut conn, &task_a.id, &actor_id).expect("accept task-a (the earlier acceptance)");
@@ -232,6 +244,7 @@ fn the_elapsed_span_runs_from_the_runs_own_start_to_its_last_acceptance() {
         ProposalPayload::Task { title: "task-b".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose task-b");
     accept_proposal(&mut conn, &task_b.id, &actor_id).expect("accept task-b (the LATER acceptance)");
@@ -279,6 +292,7 @@ fn the_last_acceptance_is_the_newest_even_when_the_event_count_exceeds_the_bound
             ProposalPayload::Task { title: format!("task-{i}"), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose a task");
         accept_proposal(&mut conn, &task.id, &actor_id).expect("accept the task");
@@ -332,6 +346,7 @@ fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept()
         ProposalPayload::Task { title: "task-a".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose the task");
 
@@ -342,6 +357,7 @@ fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept()
         ProposalPayload::Criterion { statement: "original wording".to_string(), verification_hint: None },
         None,
         Some(&task.id),
+        ProposalProvenance::NONE,
     )
     .expect("propose the criterion that will be amended");
     // The amendment is the EARLIEST lifecycle event this run appends — before any acceptance.
@@ -371,6 +387,7 @@ fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept()
             ProposalPayload::Task { title: format!("extra-task-{i}"), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose an extra task");
         accept_proposal(&mut conn, &extra_task.id, &actor_id).expect("accept the extra task");
@@ -398,6 +415,7 @@ fn the_proposal_read_is_stable_when_two_rows_share_a_created_at() {
         ProposalPayload::Task { title: "task-a".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose task-a");
     let task_b = create_proposal(
@@ -407,6 +425,7 @@ fn the_proposal_read_is_stable_when_two_rows_share_a_created_at() {
         ProposalPayload::Task { title: "task-b".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose task-b");
     accept_proposal(&mut conn, &task_a.id, &actor_id).expect("accept task-a");
@@ -448,6 +467,7 @@ fn the_measurement_writes_nothing_the_same_call_twice_leaves_the_database_byte_i
         ProposalPayload::Task { title: "task-a".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .expect("propose the task");
     accept_proposal(&mut conn, &task.id, &actor_id).expect("accept the task");
@@ -494,6 +514,7 @@ fn the_measurement_is_reproducible_under_a_bound_smaller_than_the_data() {
             ProposalPayload::Task { title: format!("task-{i}"), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose a task");
         accept_proposal(&mut conn, &task.id, &actor_id).expect("accept the task");

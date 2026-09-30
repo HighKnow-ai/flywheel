@@ -15,7 +15,7 @@ mod common;
 use core::domain::agent_run::{close_agent_run, AgentRunStatus};
 use core::domain::authoring_proposal::{
     accept_proposal, accept_subtree, amend_proposal, create_proposal, pending_proposals_for_run,
-    reject_proposal, ProposalPayload, ProposalVerb,
+    reject_proposal, ProposalPayload, ProposalProvenance, ProposalVerb,
 };
 use core::domain::authoring_session::{advance_stage, current_stage, start_authoring_run, AuthoringStage};
 use core::domain::session_summary::{create_summary, SummaryFields};
@@ -109,6 +109,7 @@ fn criterion_1_the_agent_challenges_before_any_work_is_planned() {
             },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("a proposal succeeds once past the challenge stage");
 
@@ -151,6 +152,7 @@ fn criterion_2_lands_directly_on_the_board_never_as_a_file() {
             ProposalPayload::Epic { title: "epic-01".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose the epic");
         let epic_outcome = accept_proposal(&mut conn, &epic_proposal.id, &actor_id)
@@ -183,6 +185,7 @@ fn criterion_2_lands_directly_on_the_board_never_as_a_file() {
                 ProposalPayload::Task { title: format!("task-{i:02}"), description: None },
                 None,
                 None,
+                ProposalProvenance::NONE,
             )
             .expect("propose a task");
             for j in 1..=2 {
@@ -196,6 +199,7 @@ fn criterion_2_lands_directly_on_the_board_never_as_a_file() {
                     },
                     None,
                     Some(&task_proposal.id),
+                    ProposalProvenance::NONE,
                 )
                 .expect("propose a criterion");
             }
@@ -246,6 +250,7 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
             ProposalPayload::Epic { title: "epic-01".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose the epic");
 
@@ -259,6 +264,7 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
                 ProposalPayload::Task { title: format!("task-{i:02}"), description: None },
                 None,
                 None,
+                ProposalProvenance::NONE,
             )
             .expect("propose a task");
             for j in 1..=2 {
@@ -272,6 +278,7 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
                     },
                     None,
                     Some(&task.id),
+                    ProposalProvenance::NONE,
                 )
                 .expect("propose a criterion");
                 criterion_proposals.push(criterion);
@@ -381,6 +388,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
             ProposalPayload::Epic { title: "epic-01".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose the epic");
         let epic_outcome = accept_proposal(&mut conn, &epic_proposal.id, &actor_id)
@@ -397,6 +405,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
             ProposalPayload::Task { title: "task-01".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose the task");
         create_proposal(
@@ -406,6 +415,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
             ProposalPayload::Criterion { statement: "criterion-01".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .expect("propose the criterion");
         accept_subtree(&mut conn, &task_proposal.id, &actor_id).expect("accept the task's own subtree");
@@ -418,6 +428,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
             ProposalPayload::Task { title: "rejected-task-01".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose the rejected task");
         reject_proposal(&mut conn, &rejected_task.id, &actor_id, Some("Out of scope"))
@@ -432,6 +443,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
             },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose the rejected assumption");
         reject_proposal(&mut conn, &rejected_assumption.id, &actor_id, None)
@@ -501,6 +513,7 @@ fn pending_proposals_come_back_in_the_same_order_across_two_reads() {
                 ProposalPayload::Task { title: format!("task-{i:02}"), description: None },
                 None,
                 None,
+                ProposalProvenance::NONE,
             )
             .expect("propose a task");
         }
@@ -535,6 +548,7 @@ fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
             ProposalPayload::Task { title: "task-a".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose task A");
         let task_b = create_proposal(
@@ -544,6 +558,7 @@ fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
             ProposalPayload::Task { title: "task-b".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose task B");
 
@@ -558,6 +573,7 @@ fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
             },
             None,
             Some(&task_a.id),
+            ProposalProvenance::NONE,
         )
         .expect("propose criterion A");
         let criterion_b = create_proposal(
@@ -570,6 +586,7 @@ fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
             },
             None,
             Some(&task_b.id),
+            ProposalProvenance::NONE,
         )
         .expect("propose criterion B");
 
@@ -609,6 +626,7 @@ fn a_task_accepted_with_zero_criteria_produces_zero_criteria_rows() {
             ProposalPayload::Task { title: "task-with-no-criteria".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose a task with no drafted criteria");
 
@@ -637,6 +655,7 @@ fn per_project_key_allocation_follows_acceptance_order_never_proposal_order() {
             ProposalPayload::Task { title: "task-early".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose task-early");
         let proposed_late = create_proposal(
@@ -646,6 +665,7 @@ fn per_project_key_allocation_follows_acceptance_order_never_proposal_order() {
             ProposalPayload::Task { title: "task-late".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("propose task-late");
 

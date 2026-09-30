@@ -14,7 +14,9 @@ mod common;
 use core::domain::agent_run::{
     apply_session_closed, mark_abandoned, run_subject, RunSubject,
 };
-use core::domain::authoring_proposal::{accept_proposal, create_proposal, ProposalPayload, ProposalVerb};
+use core::domain::authoring_proposal::{
+    accept_proposal, create_proposal, ProposalPayload, ProposalProvenance, ProposalVerb,
+};
 use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::epic::create_epic;
 use core::domain::permission_request::create_pending_request;
@@ -173,6 +175,7 @@ fn the_fallback_synthesiser_names_the_stage_reached_and_the_staged_proposal_coun
             ProposalPayload::Task { title: "Write docs".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         create_proposal(
@@ -182,6 +185,7 @@ fn the_fallback_synthesiser_names_the_stage_reached_and_the_staged_proposal_coun
             ProposalPayload::Task { title: "Ship it".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         // One decided (accepted) proposal.
@@ -238,6 +242,7 @@ fn stopping_an_authoring_run_reaches_a_terminal_status_in_one_transaction_and_le
         ProposalPayload::Task { title: "Draft".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .unwrap();
 
@@ -269,6 +274,7 @@ fn mark_abandoned_on_an_authoring_run_writes_a_fallback_summary_inside_its_own_t
         ProposalPayload::Criterion { statement: "must work".to_string(), verification_hint: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .unwrap();
 
@@ -402,6 +408,7 @@ fn board_blocked_and_recovery_summaries_are_unaffected_by_a_pending_proposal() {
         ProposalPayload::Task { title: "A pending proposal".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .unwrap();
     assert_eq!(count_pending_proposals(&conn, &run.id), 1);

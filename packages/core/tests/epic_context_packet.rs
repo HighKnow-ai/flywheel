@@ -15,7 +15,7 @@ mod common;
 
 use core::domain::acceptance_criterion::{create_criterion, revise_criterion};
 use core::domain::agent_run::start_agent_run;
-use core::domain::authoring_proposal::{create_proposal, ProposalPayload, ProposalVerb};
+use core::domain::authoring_proposal::{create_proposal, ProposalPayload, ProposalProvenance, ProposalVerb};
 use core::domain::authoring_session::start_authoring_run;
 use core::domain::epic::create_epic;
 use core::domain::project::create_project;
@@ -57,7 +57,7 @@ fn stage_and_decide(
     actor_id: &str,
     created_at: &str,
 ) -> String {
-    let proposal = create_proposal(conn, run_id, ProposalVerb::Create, payload, None, None)
+    let proposal = create_proposal(conn, run_id, ProposalVerb::Create, payload, None, None, ProposalProvenance::NONE)
         .expect("create_proposal should succeed");
     conn.execute(
         "UPDATE authoring_proposals SET status = ?1, decided_by = ?2, decided_at = ?3, created_at = ?4 \

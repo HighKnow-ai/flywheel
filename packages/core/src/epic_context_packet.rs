@@ -212,6 +212,12 @@ fn payload_label(payload: &ProposalPayload) -> String {
         ProposalPayload::Task { title, .. } => title.clone(),
         ProposalPayload::Criterion { statement, .. } => statement.clone(),
         ProposalPayload::Assumption { assumption, .. } => assumption.clone(),
+        // Plan 06-01: an execution-run `propose_item` proposal never reaches an epic's rejected
+        // set (epic-scoped rejection folding is authoring-only), but the match must stay
+        // exhaustive over every `ProposalPayload` variant regardless of which caller can produce
+        // it — the same discipline `authoring_proposal.rs`'s own `materialise_proposal` catch-all
+        // documents.
+        ProposalPayload::Issue { title, .. } => title.clone(),
     }
 }
 

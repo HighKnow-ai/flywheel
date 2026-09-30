@@ -14,6 +14,15 @@
 //! `domain::acceptance_criterion`'s own `_in_tx` siblings), matching T-05-02-03's and T-05-06-02's
 //! mitigations. `authoring_proposals` rows themselves are never deleted (D-83) — a decided row is a
 //! status transition, never a `DELETE FROM authoring_proposals`.
+//!
+//! Plan 06-01 (D-97/D-99/PROP-07): this table now serves TWO different callers — an epic-authoring
+//! session (unchanged, above) and an ordinary task-EXECUTION run's `propose_item` MCP tool call.
+//! An execution run stages exactly one row through the SAME [`create_proposal_in_tx`] write path,
+//! carrying two additional provenance fields ([`ProposalProvenance`]) an authoring caller never
+//! sets: `rationale` (the agent's own stated reason, stored verbatim) and `origin_log_offset` (a
+//! turn pointer resolved SERVER-SIDE from `session_log::count_lines`, never accepted as a caller
+//! argument — PROP-07 requires both fields be attributable to the run's own session log, not to
+//! whatever an agent's tool-call arguments claim).
 
 use anyhow::Context;
 use rusqlite::{named_params, params, Connection, OptionalExtension, Row, Transaction};
@@ -51,13 +60,16 @@ impl ProposalVerb {
 }
 
 /// The staging table's `target_type` vocabulary — matches the schema's own CHECK constraint in
-/// migration `0011_authoring_staging.sql` exactly.
+/// migration `0015_proposal_triage_extension.sql` exactly (widened from `0011_authoring_staging.sql`
+/// by D-97 to add `Issue`, the one new target type an execution-run's `propose_item` call can
+/// stage that an authoring session never proposes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProposalTargetType {
     Epic,
     Task,
     Criterion,
     Assumption,
+    Issue,
 }
 
 impl ProposalTargetType {
@@ -67,6 +79,7 @@ impl ProposalTargetType {
             ProposalTargetType::Task => "task",
             ProposalTargetType::Criterion => "criterion",
             ProposalTargetType::Assumption => "assumption",
+            ProposalTargetType::Issue => "issue",
         }
     }
 
@@ -76,6 +89,7 @@ impl ProposalTargetType {
             "task" => Ok(ProposalTargetType::Task),
             "criterion" => Ok(ProposalTargetType::Criterion),
             "assumption" => Ok(ProposalTargetType::Assumption),
+            "issue" => Ok(ProposalTargetType::Issue),
             other => Err(anyhow::anyhow!("unknown proposal target_type {other:?}")),
         }
     }
@@ -92,7 +106,22 @@ pub enum ProposalPayload {
     Task { title: String, description: Option<String> },
     Criterion { statement: String, verification_hint: Option<String> },
     Assumption { assumption: String, answer: String },
+    /// D-97/D-98 (plan 06-01): an execution-run's `propose_item` call staging an issue. The field
+    /// is named `issue_kind`, NOT `kind` — this enum's own `#[serde(tag = "kind")]` already claims
+    /// `kind` as the variant discriminant at the JSON level, and serde refuses to compile a
+    /// variant field whose serialised name collides with the internal tag (`error: variant field
+    /// name "kind" conflicts with internal tag`, verified this session). The MCP tool's own
+    /// user/model-facing schema property stays named `kind` (`propose_item`'s `inputSchema`) —
+    /// `mcp-permission-server.ts`'s `buildProposeItemPayload` renames it to `issue_kind` when it
+    /// builds this wire shape, exactly once, at that translation boundary.
+    Issue { title: String, body: Option<String>, issue_kind: String },
 }
+
+/// D-98: the four issue kinds a `propose_item` call may name when `target_type` is `issue` —
+/// mirrors the MCP tool schema's own enum (`packages/sidecar/src/mcp-permission-server.ts`'s
+/// `proposeItemToolDefinition.inputSchema.properties.kind`) exactly, so the two can never drift
+/// apart.
+pub const ISSUE_KINDS: [&str; 4] = ["bug", "idea", "question", "risk"];
 
 impl ProposalPayload {
     pub fn target_type(&self) -> ProposalTargetType {
@@ -101,18 +130,20 @@ impl ProposalPayload {
             ProposalPayload::Task { .. } => ProposalTargetType::Task,
             ProposalPayload::Criterion { .. } => ProposalTargetType::Criterion,
             ProposalPayload::Assumption { .. } => ProposalTargetType::Assumption,
+            ProposalPayload::Issue { .. } => ProposalTargetType::Issue,
         }
     }
 
     /// The one human-readable string a decision turn (D-93/D-94) or an event payload's own
-    /// `"label"` field quotes back — a title for `Epic`/`Task`, a statement for `Criterion`, the
-    /// challenged assumption itself for `Assumption`.
+    /// `"label"` field quotes back — a title for `Epic`/`Task`/`Issue`, a statement for
+    /// `Criterion`, the challenged assumption itself for `Assumption`.
     pub fn label(&self) -> &str {
         match self {
             ProposalPayload::Epic { title, .. } => title,
             ProposalPayload::Task { title, .. } => title,
             ProposalPayload::Criterion { statement, .. } => statement,
             ProposalPayload::Assumption { assumption, .. } => assumption,
+            ProposalPayload::Issue { title, .. } => title,
         }
     }
 }
@@ -138,6 +169,22 @@ pub struct Proposal {
     pub created_at: String,
     pub decided_by: Option<String>,
     pub decided_at: Option<String>,
+    /// Plan 06-01 (PROP-07, D-99): the agent's own stated reason for this proposal, stored
+    /// verbatim in its own column — never folded into `payload`. `None` for every authoring-run
+    /// proposal (an authoring session's write tools carry no rationale field at all); `Some` for
+    /// an execution-run `propose_item` call, which requires one.
+    pub rationale: Option<String>,
+    /// Plan 06-01 (PROP-07, D-99): the run's own session-log turn pointer at staging time,
+    /// resolved SERVER-SIDE from `session_log::count_lines` — never read off the event. `None`
+    /// for every authoring-run proposal (this field is execution-run-only); `Some(0)` is a real,
+    /// meaningful value (a run whose log has no lines yet), never treated as a missing pointer.
+    pub origin_log_offset: Option<i64>,
+    /// Plan 06-01 (D-107): filled by plan 06-04's duplicate-scoring pass — always `NULL` from this
+    /// plan's own write path.
+    pub duplicate_of: Option<String>,
+    /// Plan 06-01 (D-107): filled by plan 06-04's duplicate-scoring pass — always `NULL` from this
+    /// plan's own write path.
+    pub duplicate_score: Option<f64>,
 }
 
 // `pub(crate)` (plan 05-04, mirrors `query::ORDER_BY`'s own precedent in `query/mod.rs`):
@@ -146,7 +193,8 @@ pub struct Proposal {
 // shape has exactly one definition in the crate, rather than a second, driftable copy.
 pub(crate) const PROPOSAL_COLUMNS: &str = "id, agent_run_id, project_id, epic_id, verb, target_type, \
     target_id, parent_proposal_id, position, payload, status, rejection_reason, materialised_id, \
-    created_by, created_at, decided_by, decided_at";
+    created_by, created_at, decided_by, decided_at, rationale, origin_log_offset, duplicate_of, \
+    duplicate_score";
 
 pub(crate) fn row_to_proposal(row: &Row) -> rusqlite::Result<Proposal> {
     let payload_json: String = row.get(9)?;
@@ -172,8 +220,44 @@ pub(crate) fn row_to_proposal(row: &Row) -> rusqlite::Result<Proposal> {
         created_at: row.get(14)?,
         decided_by: row.get(15)?,
         decided_at: row.get(16)?,
+        rationale: row.get(17)?,
+        origin_log_offset: row.get(18)?,
+        duplicate_of: row.get(19)?,
+        duplicate_score: row.get(20)?,
     })
 }
+
+/// Plan 06-01 (PROP-07, D-99): the two provenance fields an execution-run `propose_item` call
+/// carries that an authoring session's write tools never do. Threaded through
+/// [`create_proposal`]/[`create_proposal_in_tx`] as one parameter (rather than two positional
+/// `Option` arguments) so every call site states its intent once, at the call site, instead of
+/// two easily-transposed trailing `None`s.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProposalProvenance {
+    /// The agent's own stated reason for this proposal, stored verbatim. Validated (non-empty
+    /// after trimming, within [`MAX_PROPOSAL_RATIONALE_LEN`]) wherever [`validate_payload`] already
+    /// runs — a `Some` rationale is validated exactly like the payload it accompanies.
+    pub rationale: Option<String>,
+    /// The run's own session-log turn pointer, resolved server-side. Never computed by this
+    /// struct itself — the caller (`apply_proposal_created`) resolves it via
+    /// `session_log::count_lines` BEFORE opening the write transaction, so no filesystem read
+    /// happens while the write lock is held.
+    pub origin_log_offset: Option<i64>,
+}
+
+impl ProposalProvenance {
+    /// Every existing authoring caller's value — no rationale, no turn pointer. Named (rather than
+    /// relying on `Default::default()` at each call site) so every call site reads as a deliberate
+    /// statement of "this proposal carries no execution-run provenance," not an accidental
+    /// default.
+    pub const NONE: ProposalProvenance = ProposalProvenance { rationale: None, origin_log_offset: None };
+}
+
+/// Plan 06-01 (PROP-07): the length ceiling a staged `rationale` must fit inside — mirrors
+/// [`MAX_PROPOSAL_TEXT_LEN`]'s own value (1000) and the `propose_item` MCP tool schema's own
+/// `rationale` `maxLength` (`packages/sidecar/src/mcp-permission-server.ts`), so the three can
+/// never drift apart.
+pub const MAX_PROPOSAL_RATIONALE_LEN: usize = 1000;
 
 /// Stage one proposal for `agent_run_id` (D-80/D-81/D-92). **`project_id`, `epic_id` and the
 /// acting actor are resolved from the `agent_runs` row INSIDE this transaction** — this function's
@@ -183,6 +267,10 @@ pub(crate) fn row_to_proposal(row: &Row) -> rusqlite::Result<Proposal> {
 /// `position` is allocated with [`rank_after`] against the tail sibling sharing the same
 /// `parent_proposal_id` (D-92's per-row granularity). Inserts the row with `status = 'pending'`,
 /// appends one `proposal.created` event with a human-renderable payload (D-19), commits once.
+///
+/// `provenance` ([`ProposalProvenance`]) carries the two fields ONLY an execution-run's
+/// `propose_item` call sets (plan 06-01, PROP-07) — every existing authoring caller passes
+/// [`ProposalProvenance::NONE`].
 pub fn create_proposal(
     conn: &mut Connection,
     agent_run_id: &str,
@@ -190,6 +278,7 @@ pub fn create_proposal(
     payload: ProposalPayload,
     target_id: Option<&str>,
     parent_proposal_id: Option<&str>,
+    provenance: ProposalProvenance,
 ) -> anyhow::Result<Proposal> {
     let now = chrono::Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
@@ -200,6 +289,7 @@ pub fn create_proposal(
         payload,
         target_id,
         parent_proposal_id,
+        provenance,
         &now,
     )?;
     tx.commit().context("failed to commit create_proposal transaction")?;
@@ -213,6 +303,7 @@ fn create_proposal_in_tx(
     payload: ProposalPayload,
     target_id: Option<&str>,
     parent_proposal_id: Option<&str>,
+    provenance: ProposalProvenance,
     now: &str,
 ) -> anyhow::Result<Proposal> {
     let (project_id, epic_id, actor_id): (String, Option<String>, String) = tx
@@ -249,6 +340,20 @@ fn create_proposal_in_tx(
         validate_payload(&payload)?;
     }
 
+    // Plan 06-01 (PROP-07): a `Some` rationale is validated exactly like the payload it
+    // accompanies — non-empty after trimming, within MAX_PROPOSAL_RATIONALE_LEN — BEFORE the
+    // INSERT, mirroring `validate_payload`'s own "no DB statement before every guard passes"
+    // discipline. `None` (every authoring caller) is untouched.
+    if let Some(rationale) = provenance.rationale.as_deref() {
+        let trimmed = rationale.trim();
+        anyhow::ensure!(!trimmed.is_empty(), "rationale must be non-empty after trimming");
+        anyhow::ensure!(
+            rationale.len() <= MAX_PROPOSAL_RATIONALE_LEN,
+            "rationale must be at most {MAX_PROPOSAL_RATIONALE_LEN} characters, got {} characters",
+            rationale.len()
+        );
+    }
+
     let id = new_id();
     let target_type = payload.target_type();
     let payload_json = serde_json::to_string(&payload).context("failed to serialise proposal payload")?;
@@ -257,8 +362,10 @@ fn create_proposal_in_tx(
         "INSERT INTO authoring_proposals (
             id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
             parent_proposal_id, position, payload, status, rejection_reason, materialised_id,
-            created_by, created_at, decided_by, decided_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending', NULL, NULL, ?11, ?12, NULL, NULL)",
+            created_by, created_at, decided_by, decided_at, rationale, origin_log_offset,
+            duplicate_of, duplicate_score
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending', NULL, NULL, ?11, ?12, NULL, \
+            NULL, ?13, ?14, NULL, NULL)",
         params![
             id,
             agent_run_id,
@@ -272,6 +379,8 @@ fn create_proposal_in_tx(
             payload_json,
             actor_id,
             now,
+            provenance.rationale,
+            provenance.origin_log_offset,
         ],
     )
     .context("failed to insert authoring_proposals row")?;
@@ -318,6 +427,10 @@ fn create_proposal_in_tx(
         created_at: now.to_string(),
         decided_by: None,
         decided_at: None,
+        rationale: provenance.rationale,
+        origin_log_offset: provenance.origin_log_offset,
+        duplicate_of: None,
+        duplicate_score: None,
     })
 }
 
@@ -385,6 +498,11 @@ pub fn apply_proposal_created(
 
     let target_id = event.get("targetId").and_then(|v| v.as_str());
     let parent_proposal_id = event.get("parentProposalId").and_then(|v| v.as_str());
+    // Plan 06-01 (PROP-07, T-06-02): `rationale` is read off the event's TOP LEVEL (never out of
+    // `payload`) — carried on the outer wire shape exactly like `mcp-permission-server.ts`'s
+    // `AuthoringProposalPayload.rationale` doc comment states of itself. `None` for every
+    // authoring-run event (the authoring write tools carry no such field).
+    let rationale = event.get("rationale").and_then(|v| v.as_str()).map(str::to_string);
 
     let status: Option<String> = conn
         .query_row(
@@ -403,10 +521,28 @@ pub fn apply_proposal_created(
         return Ok(ProposalOutcome::TerminalRun);
     }
 
+    // Plan 06-01 (PROP-07, T-06-02): the turn pointer is computed server-side from the run's own
+    // durable session log, BEFORE `conn.transaction()` opens — so no filesystem read happens while
+    // the write transaction holds the lock. Never read off the event: an agent's tool-call
+    // arguments carry no sequence number, offset or identity of any kind (T-05-02-01's discipline,
+    // extended here). A `count_lines` error degrades to `None` rather than failing the staging
+    // call — a turn pointer is provenance, not a correctness requirement the whole call should
+    // fail over.
+    let origin_log_offset = crate::session_log::count_lines(run_id).ok().map(|n| n as i64);
+
     let now = chrono::Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
-    let proposal =
-        create_proposal_in_tx(&tx, run_id, verb, payload, target_id, parent_proposal_id, &now)?;
+    let provenance = ProposalProvenance { rationale, origin_log_offset };
+    let proposal = create_proposal_in_tx(
+        &tx,
+        run_id,
+        verb,
+        payload,
+        target_id,
+        parent_proposal_id,
+        provenance,
+        &now,
+    )?;
     tx.commit()
         .context("failed to commit apply_proposal_created transaction")?;
 
@@ -474,6 +610,14 @@ fn target_row_exists(tx: &Transaction, target_type: ProposalTargetType, target_i
             )
             .optional()?,
         ProposalTargetType::Assumption => return Ok(true),
+        // Plan 06-01: no `amend`/`delete` path reaches an `issue` target in this plan (an
+        // execution-run's `propose_item` call only ever builds `verb: "create"`), but this match
+        // must stay exhaustive over every `ProposalTargetType` regardless of which verb combination
+        // is reachable today — `issues` is a real canonical table since `0002_board_schema.sql`,
+        // so this arm is a genuine check, not a placeholder.
+        ProposalTargetType::Issue => tx
+            .query_row("SELECT 1 FROM issues WHERE id = ?1", params![target_id], |row| row.get(0))
+            .optional()?,
     };
     Ok(exists.is_some())
 }
@@ -869,6 +1013,28 @@ fn validate_payload(payload: &ProposalPayload) -> anyhow::Result<()> {
                 answer.len() <= MAX_PROPOSAL_TEXT_LEN,
                 "answer must be at most {MAX_PROPOSAL_TEXT_LEN} characters, got {} characters",
                 answer.len()
+            );
+        }
+        // Plan 06-01 (D-97/D-98): the recorded answer to the issues-payload-shape discretion
+        // item — `title` gets the same bound every other title-carrying variant does, `body` gets
+        // the same bound every other description-carrying variant does, and `issue_kind` must be
+        // one of ISSUE_KINDS (mirroring the MCP tool schema's own `kind` enum).
+        ProposalPayload::Issue { title, body, issue_kind } => {
+            anyhow::ensure!(
+                !title.is_empty() && title.len() <= MAX_PROPOSAL_TITLE_LEN,
+                "title must be 1-{MAX_PROPOSAL_TITLE_LEN} characters, got {} characters",
+                title.len()
+            );
+            if let Some(b) = body {
+                anyhow::ensure!(
+                    b.len() <= MAX_PROPOSAL_TEXT_LEN,
+                    "body must be at most {MAX_PROPOSAL_TEXT_LEN} characters, got {} characters",
+                    b.len()
+                );
+            }
+            anyhow::ensure!(
+                ISSUE_KINDS.contains(&issue_kind.as_str()),
+                "issue_kind must be one of {ISSUE_KINDS:?}, got {issue_kind:?}"
             );
         }
     }

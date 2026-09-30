@@ -299,9 +299,16 @@ export interface ProposalCreatedEvent extends AgentEventBase {
    * `authoring_proposal_answer` op, which reaches {@link AgentAdapter.resolveProposalStaged}. */
   requestId: string;
   verb: "create" | "amend" | "delete";
-  targetType: "epic" | "task" | "criterion" | "assumption";
+  /** Widened by plan 06-01 (D-97) to add `"issue"` — the one target type an execution-run's
+   * `propose_item` call can stage that an authoring session never proposes. */
+  targetType: "epic" | "task" | "criterion" | "assumption" | "issue";
   targetId?: string;
   parentProposalId?: string;
+  /** Plan 06-01 (PROP-07, D-99): an execution-run `propose_item` call's own stated reason,
+   * carried on this event exactly like it rides `mcp-permission-server.ts`'s
+   * `AuthoringProposalPayload.rationale` on the wire — never folded into `payload`. Absent on
+   * every authoring-run proposal. */
+  rationale?: string;
   payload: Record<string, unknown>;
 }
 

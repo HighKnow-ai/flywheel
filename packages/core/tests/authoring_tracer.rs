@@ -12,7 +12,7 @@ use core::domain::actor::system_actor;
 use core::domain::agent_run::{run_subject, RunSubject};
 use core::domain::authoring_proposal::{
     accept_proposal, apply_proposal_created, create_proposal, pending_proposals_for_run,
-    ProposalOutcome, ProposalPayload, ProposalVerb,
+    ProposalOutcome, ProposalPayload, ProposalProvenance, ProposalVerb,
 };
 use core::domain::authoring_session::{advance_stage, current_stage, start_authoring_run, AuthoringStage};
 use rusqlite::params;
@@ -170,6 +170,7 @@ fn pending_proposals_for_run_clamps_to_max_limit_body() {
             ProposalPayload::Task { title: format!("task {i}"), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
     }
@@ -202,6 +203,7 @@ fn accepting_a_parentless_criterion_proposal_returns_a_typed_error_not_a_silent_
         ProposalPayload::Criterion { statement: "must work".to_string(), verification_hint: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .unwrap();
 

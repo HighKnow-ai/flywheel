@@ -13,7 +13,9 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use core::domain::authoring_proposal::{create_proposal, pending_proposals_for_run, ProposalPayload, ProposalVerb};
+use core::domain::authoring_proposal::{
+    create_proposal, pending_proposals_for_run, ProposalPayload, ProposalProvenance, ProposalVerb,
+};
 use core::domain::authoring_session::{
     advance_stage, current_stage, return_to_stage, start_authoring_run, AuthoringStage,
 };
@@ -117,6 +119,7 @@ fn return_to_challenge_from_criteria_leaves_existing_proposal_rows_byte_identica
             ProposalPayload::Task { title: "Write docs".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
 

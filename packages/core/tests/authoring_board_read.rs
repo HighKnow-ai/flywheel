@@ -18,7 +18,7 @@
 
 mod common;
 
-use core::domain::authoring_proposal::{create_proposal, ProposalPayload, ProposalVerb};
+use core::domain::authoring_proposal::{create_proposal, ProposalPayload, ProposalProvenance, ProposalVerb};
 use core::domain::authoring_session::start_authoring_run;
 use core::domain::epic::create_epic;
 use core::domain::project;
@@ -159,6 +159,7 @@ fn list_proposals_clamps_an_enormous_limit_and_flags_truncation() {
             ProposalPayload::Epic { title: format!("epic {i}"), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("create_proposal should succeed");
     }
@@ -204,6 +205,7 @@ fn list_proposals_at_the_exact_ceiling_reports_truncated_false_per_the_documente
             ProposalPayload::Epic { title: format!("epic {i}"), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .expect("create_proposal should succeed");
     }

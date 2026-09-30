@@ -14,7 +14,7 @@ use core::domain::agent_run::{
 use core::domain::authoring_proposal::{
     accept_proposal, accept_subtree, amend_proposal, apply_proposal_created, create_proposal,
     pending_proposals_for_run, reject_proposal, ProposalOutcome, ProposalPayload,
-    ProposalUndecidable, ProposalVerb,
+    ProposalProvenance, ProposalUndecidable, ProposalVerb,
 };
 use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::project::Project;
@@ -106,6 +106,7 @@ fn accepting_a_create_task_proposal_writes_one_task_row_and_one_event() {
             ProposalPayload::Task { title: "Write docs".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let before = count_tasks(&conn);
@@ -132,6 +133,7 @@ fn accepting_a_create_epic_proposal_writes_one_epic_row() {
             ProposalPayload::Epic { title: "New epic".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let outcome = accept_proposal(&mut conn, &proposal.id, &human_actor_id).unwrap();
@@ -155,6 +157,7 @@ fn accepting_a_create_criterion_proposal_whose_parent_is_already_accepted_writes
             ProposalPayload::Task { title: "A task".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let accepted_task = accept_proposal(&mut conn, &task_proposal.id, &human_actor_id).unwrap();
@@ -166,6 +169,7 @@ fn accepting_a_create_criterion_proposal_whose_parent_is_already_accepted_writes
             ProposalPayload::Criterion { statement: "Must work".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let outcome = accept_proposal(&mut conn, &criterion_proposal.id, &human_actor_id).unwrap();
@@ -193,6 +197,7 @@ fn accepting_a_create_criterion_proposal_whose_parent_is_still_pending_accepts_t
             ProposalPayload::Task { title: "A task".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let criterion_proposal = create_proposal(
@@ -202,6 +207,7 @@ fn accepting_a_create_criterion_proposal_whose_parent_is_still_pending_accepts_t
             ProposalPayload::Criterion { statement: "Must work".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .unwrap();
 
@@ -243,6 +249,7 @@ fn accepting_a_create_assumption_proposal_records_accepted_history_and_writes_no
             },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let before_tasks = count_tasks(&conn);
@@ -273,6 +280,7 @@ fn accepting_an_amend_criterion_proposal_against_an_unlocked_criterion_updates_i
             ProposalPayload::Criterion { statement: "Revised text".to_string(), verification_hint: None },
             Some(&criterion.id),
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let outcome = accept_proposal(&mut conn, &amend_row.id, &human_actor_id).unwrap();
@@ -324,6 +332,7 @@ fn accepting_an_amend_criterion_proposal_against_a_locked_criterion_appends_a_re
                 },
                 Some(&criterion.id),
                 None,
+                ProposalProvenance::NONE,
             )
             .unwrap();
 
@@ -371,6 +380,7 @@ fn accepting_a_delete_proposal_deletes_the_named_row_through_its_canonical_path(
             ProposalPayload::Task { title: String::new(), description: None },
             Some(&task.id),
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
 
@@ -392,6 +402,7 @@ fn accepting_an_already_accepted_proposal_is_a_no_op_returning_the_existing_mate
             ProposalPayload::Task { title: "Once".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let first = accept_proposal(&mut conn, &proposal.id, &human_actor_id).unwrap();
@@ -415,6 +426,7 @@ fn accepting_an_amend_whose_target_row_was_deleted_underneath_it_returns_proposa
             ProposalPayload::Task { title: "New title".to_string(), description: None },
             Some(&task.id),
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
 
@@ -459,6 +471,7 @@ fn rejecting_a_pending_proposal_sets_status_rejected_records_reason_and_actor_an
             ProposalPayload::Task { title: "Bad idea".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let rejected = reject_proposal(&mut conn, &proposal.id, &human_actor_id, Some("too vague")).unwrap();
@@ -488,6 +501,7 @@ fn rejecting_an_already_decided_proposal_is_an_error_not_a_silent_overwrite() {
             ProposalPayload::Task { title: "X".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         accept_proposal(&mut conn, &proposal.id, &human_actor_id).unwrap();
@@ -515,6 +529,7 @@ fn rejecting_a_task_proposal_leaves_its_pending_child_criterion_proposal_pending
             ProposalPayload::Task { title: "Parent".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let criterion_proposal = create_proposal(
@@ -524,6 +539,7 @@ fn rejecting_a_task_proposal_leaves_its_pending_child_criterion_proposal_pending
             ProposalPayload::Criterion { statement: "Child".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .unwrap();
         reject_proposal(&mut conn, &task_proposal.id, &human_actor_id, None).unwrap();
@@ -542,6 +558,7 @@ fn amending_a_pending_proposal_replaces_its_payload_leaves_it_pending_and_writes
             ProposalPayload::Task { title: "Original title".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let before_tasks = count_tasks(&conn);
@@ -579,6 +596,7 @@ fn accepting_after_an_amend_materialises_the_developers_text_not_the_agents_orig
             ProposalPayload::Task { title: "Agent's guess".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         amend_proposal(
@@ -607,6 +625,7 @@ fn amend_event_payload_carries_both_the_original_and_the_replacement() {
             ProposalPayload::Task { title: "Original".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         amend_proposal(
@@ -642,6 +661,7 @@ fn amend_proposal_refuses_to_change_a_proposals_target_type() {
             ProposalPayload::Task { title: "A task".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let err = amend_proposal(
@@ -674,6 +694,7 @@ fn create_proposal_refuses_a_title_over_the_amend_length_bound_and_stages_no_row
             ProposalPayload::Task { title: oversized_title, description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap_err();
         assert!(err.to_string().contains("title"), "{err}");
@@ -693,6 +714,7 @@ fn create_proposal_refuses_an_empty_statement() {
             ProposalPayload::Criterion { statement: String::new(), verification_hint: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap_err();
         assert!(err.to_string().contains("statement"), "{err}");
@@ -744,6 +766,7 @@ fn accept_subtree_refuses_a_root_that_is_not_a_task_proposal() {
             ProposalPayload::Epic { title: "Not a task".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let err = accept_subtree(&mut conn, &epic_proposal.id, &human_actor_id).unwrap_err();
@@ -762,6 +785,7 @@ fn a_subtree_accept_whose_root_has_no_children_accepts_only_the_root() {
             ProposalPayload::Task { title: "Lonely task".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let outcome = accept_subtree(&mut conn, &task_proposal.id, &human_actor_id).unwrap();
@@ -783,6 +807,7 @@ fn accepting_a_subtree_accepts_the_task_and_its_pending_criteria_in_staging_posi
             ProposalPayload::Task { title: "Task with criteria".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         create_proposal(
@@ -792,6 +817,7 @@ fn accepting_a_subtree_accepts_the_task_and_its_pending_criteria_in_staging_posi
             ProposalPayload::Criterion { statement: "First".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .unwrap();
         create_proposal(
@@ -801,6 +827,7 @@ fn accepting_a_subtree_accepts_the_task_and_its_pending_criteria_in_staging_posi
             ProposalPayload::Criterion { statement: "Second".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .unwrap();
 
@@ -829,6 +856,7 @@ fn a_subtree_accept_over_an_already_decided_subtree_returns_zero_accepted_and_ap
             ProposalPayload::Task { title: "Already handled".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         accept_proposal(&mut conn, &task_proposal.id, &human_actor_id).unwrap();
@@ -856,6 +884,7 @@ fn a_subtree_accept_skips_children_that_are_already_decided_rather_than_erroring
             ProposalPayload::Task { title: "Partially decided".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let c1 = create_proposal(
@@ -868,6 +897,7 @@ fn a_subtree_accept_skips_children_that_are_already_decided_rather_than_erroring
             },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .unwrap();
         create_proposal(
@@ -877,6 +907,7 @@ fn a_subtree_accept_skips_children_that_are_already_decided_rather_than_erroring
             ProposalPayload::Criterion { statement: "Still pending".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .unwrap();
         // Accepting c1 individually implicitly accepts the parent task too (D-96).
@@ -900,6 +931,7 @@ fn two_drafted_criteria_with_identical_statements_stage_and_materialise_as_two_d
             ProposalPayload::Task { title: "Task".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let c1 = create_proposal(
@@ -909,6 +941,7 @@ fn two_drafted_criteria_with_identical_statements_stage_and_materialise_as_two_d
             ProposalPayload::Criterion { statement: "Must be fast".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let c2 = create_proposal(
@@ -918,6 +951,7 @@ fn two_drafted_criteria_with_identical_statements_stage_and_materialise_as_two_d
             ProposalPayload::Criterion { statement: "Must be fast".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
+            ProposalProvenance::NONE,
         )
         .unwrap();
         assert_ne!(c1.id, c2.id, "two staged rows, distinct ids, even with byte-identical statements");
@@ -942,6 +976,7 @@ fn pending_proposals_listing_is_stable_across_two_consecutive_reads() {
                 ProposalPayload::Task { title: format!("task {i}"), description: None },
                 None,
                 None,
+                ProposalProvenance::NONE,
             )
             .unwrap();
         }
@@ -972,6 +1007,7 @@ fn pending_proposals_lane_includes_a_proposal_for_an_epic_that_does_not_exist_ye
             ProposalPayload::Task { title: "Draft a task for a not-yet-real epic".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         assert!(proposal.epic_id.is_none());
@@ -1011,6 +1047,7 @@ fn pending_proposals_lane_is_scoped_to_one_project() {
             ProposalPayload::Task { title: "Project A's own task".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let proposal_b = create_proposal(
@@ -1020,6 +1057,7 @@ fn pending_proposals_lane_is_scoped_to_one_project() {
             ProposalPayload::Task { title: "Project B's own task".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
 
@@ -1050,6 +1088,7 @@ fn pending_proposals_lane_ordering_is_stable_across_two_reads() {
                 ProposalPayload::Task { title: format!("lane task {i}"), description: None },
                 None,
                 None,
+                ProposalProvenance::NONE,
             )
             .unwrap();
         }
@@ -1072,6 +1111,7 @@ fn pending_proposals_lane_excludes_decided_proposals_while_pending_ones_from_the
             ProposalPayload::Task { title: "Will be accepted".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let to_reject = create_proposal(
@@ -1081,6 +1121,7 @@ fn pending_proposals_lane_excludes_decided_proposals_while_pending_ones_from_the
             ProposalPayload::Task { title: "Will be rejected".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let stays_pending = create_proposal(
@@ -1090,6 +1131,7 @@ fn pending_proposals_lane_excludes_decided_proposals_while_pending_ones_from_the
             ProposalPayload::Task { title: "Stays pending".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
 
@@ -1117,6 +1159,7 @@ fn pending_proposals_lane_per_status_counts_match_the_rows() {
                 ProposalPayload::Task { title: format!("count task {i}"), description: None },
                 None,
                 None,
+                ProposalProvenance::NONE,
             )
             .unwrap();
             pending_ids.push(p.id);
@@ -1128,6 +1171,7 @@ fn pending_proposals_lane_per_status_counts_match_the_rows() {
             ProposalPayload::Task { title: "counted accepted".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         let to_reject = create_proposal(
@@ -1137,6 +1181,7 @@ fn pending_proposals_lane_per_status_counts_match_the_rows() {
             ProposalPayload::Task { title: "counted rejected".to_string(), description: None },
             None,
             None,
+            ProposalProvenance::NONE,
         )
         .unwrap();
         accept_proposal(&mut conn, &to_accept.id, &human_actor_id).unwrap();
@@ -1162,6 +1207,7 @@ fn pending_proposals_lane_clamp_holds_for_a_ten_million_request() {
                 ProposalPayload::Task { title: format!("clamp task {i}"), description: None },
                 None,
                 None,
+                ProposalProvenance::NONE,
             )
             .unwrap();
         }
@@ -1191,6 +1237,7 @@ fn ready_run_with_one_pending_proposal(
         ProposalPayload::Task { title: "Survives the session ending".to_string(), description: None },
         None,
         None,
+        ProposalProvenance::NONE,
     )
     .unwrap();
     (conn, human_actor_id, project, run_id, proposal)
@@ -1281,6 +1328,7 @@ fn pending_proposals_never_join_the_blocked_task_ids_or_the_blocked_count() {
                 ProposalPayload::Task { title: format!("unrelated to blocked {i}"), description: None },
                 None,
                 None,
+                ProposalProvenance::NONE,
             )
             .unwrap();
         }
