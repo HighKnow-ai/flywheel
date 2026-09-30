@@ -2,6 +2,14 @@
 //! plain Node harness genuinely cannot do itself: apply a real board mutation through this crate's
 //! own domain functions against a real, scratch, `FLYWHEEL_APP_DATA_DIR`-scoped database.
 //!
+//! Plan 06-09: this bridge now covers the execution-run proposal channel as well as authoring.
+//! `propose-item` drives the IDENTICAL `apply_proposal_created` function
+//! `commands::authoring::handle_inbound_proposal_created` calls in production — the property that
+//! makes a green run of this binary evidence about the product rather than evidence about the
+//! harness. The six sibling subcommands (`merge-proposal`, `defer-proposal`, `reject-bulk`,
+//! `defer-bulk`, `list-deferred`, `limit-notices`) each call the same real domain/query function
+//! their name says, never hand-rolled SQL.
+//!
 //! Mirrors `uat_seed_ui.rs`'s own discipline exactly: writes through the real domain functions
 //! (`authoring_session::start_authoring_run`/`advance_stage`, `authoring_proposal::*`,
 //! `epic_context_packet::*`), never hand-rolled SQL, so a row this binary produces is
@@ -48,6 +56,13 @@
 //!   uat_authoring_ops measure-run <run_id>              (READ-ONLY — see below)
 //!   uat_authoring_ops recent-authoring-runs [limit]     (READ-ONLY — see below)
 //!   uat_authoring_ops measure-board-counts <project_id> (READ-ONLY — see below)
+//!   uat_authoring_ops propose-item <run_id> <target_type> <title> <rationale> [body] [kind]
+//!   uat_authoring_ops merge-proposal <proposal_id> <target_kind> <target_id>
+//!   uat_authoring_ops defer-proposal <proposal_id>
+//!   uat_authoring_ops reject-bulk <id...>
+//!   uat_authoring_ops defer-bulk <id...>
+//!   uat_authoring_ops list-deferred <project_id>
+//!   uat_authoring_ops limit-notices <project_id>
 //!
 //! `measure-run`, `recent-authoring-runs` and `measure-board-counts` are deliberately the ONLY
 //! exceptions to the `FLYWHEEL_APP_DATA_DIR`-scoped-scratch-database discipline above (plan 05-13,
@@ -66,8 +81,9 @@ use std::io::Read;
 use core::domain::actor;
 use core::domain::agent_run::{close_agent_run, AgentRunStatus};
 use core::domain::authoring_proposal::{
-    accept_proposal, accept_subtree, amend_proposal, pending_proposals_for_run, reject_proposal,
-    ProposalPayload,
+    accept_proposal, accept_subtree, amend_proposal, defer_proposal, defer_proposals_bulk,
+    merge_proposal, pending_proposals_for_run, reject_proposal, reject_proposals_bulk,
+    MergeTarget, ProposalPayload,
 };
 use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::project;
@@ -274,6 +290,191 @@ fn main() {
                     print_json(serde_json::json!({ "outcome": "limit_exhausted", "limit": limit, "count": count }));
                 }
             }
+        }
+        "propose-item" => {
+            let run_id = args.get(2).cloned().unwrap_or_default();
+            let target_type = args.get(3).cloned().unwrap_or_default();
+            let title = args.get(4).cloned().unwrap_or_default();
+            let rationale = args.get(5).cloned().unwrap_or_default();
+            let body = args.get(6).cloned();
+            let issue_kind = args.get(7).cloned();
+            if run_id.is_empty() || title.is_empty() || rationale.is_empty() {
+                fail(
+                    "usage: uat_authoring_ops propose-item <run_id> <target_type> <title> \
+                     <rationale> [body] [kind]",
+                );
+            }
+            // Mirrors `mcp-permission-server.ts::buildProposeItemPayload`'s own wire shape exactly
+            // (D-98): the JSON event this subcommand builds is byte-for-byte the same shape a real
+            // `propose_item` tool call produces on the wire, so `apply_proposal_created` (the SAME
+            // function `commands::authoring::handle_inbound_proposal_created` calls in production)
+            // cannot tell the two apart.
+            let payload = match target_type.as_str() {
+                "issue" => {
+                    let Some(issue_kind) = issue_kind.clone() else {
+                        fail("propose-item requires [kind] when target_type is issue");
+                    };
+                    let mut obj = serde_json::json!({
+                        "kind": "issue",
+                        "title": title,
+                        "issue_kind": issue_kind,
+                    });
+                    if let Some(body) = &body {
+                        obj["body"] = serde_json::Value::String(body.clone());
+                    }
+                    obj
+                }
+                "task" => {
+                    let mut obj = serde_json::json!({ "kind": "task", "title": title });
+                    if let Some(body) = &body {
+                        obj["description"] = serde_json::Value::String(body.clone());
+                    }
+                    obj
+                }
+                "epic" => {
+                    let mut obj = serde_json::json!({ "kind": "epic", "title": title });
+                    if let Some(body) = &body {
+                        obj["description"] = serde_json::Value::String(body.clone());
+                    }
+                    obj
+                }
+                other => fail(&format!(
+                    "propose-item requires target_type to be one of task, issue, epic — got {other:?}"
+                )),
+            };
+            let event = serde_json::json!({
+                "type": "proposal_created",
+                "runId": run_id,
+                "verb": "create",
+                "targetType": target_type,
+                "rationale": rationale,
+                "payload": payload,
+            });
+            let outcome = core::domain::authoring_proposal::apply_proposal_created(&mut conn, &event)
+                .unwrap_or_else(|err| fail(&format!("apply_proposal_created failed: {err:#}")));
+            match outcome {
+                core::domain::authoring_proposal::ProposalOutcome::Created(proposal) => {
+                    print_json(serde_json::json!({
+                        "outcome": "created",
+                        "proposalId": proposal.id,
+                        "duplicateOf": proposal.duplicate_of,
+                        "duplicateScore": proposal.duplicate_score,
+                    }));
+                }
+                core::domain::authoring_proposal::ProposalOutcome::Ignored => {
+                    print_json(serde_json::json!({ "outcome": "ignored" }));
+                }
+                core::domain::authoring_proposal::ProposalOutcome::UnknownRun => {
+                    print_json(serde_json::json!({ "outcome": "unknown_run" }));
+                }
+                core::domain::authoring_proposal::ProposalOutcome::TerminalRun => {
+                    print_json(serde_json::json!({ "outcome": "terminal_run" }));
+                }
+                core::domain::authoring_proposal::ProposalOutcome::LimitExhausted { limit, count } => {
+                    print_json(serde_json::json!({
+                        "outcome": "limit_exhausted",
+                        "limit": limit,
+                        "count": count,
+                    }));
+                }
+            }
+        }
+        "merge-proposal" => {
+            let proposal_id = args.get(2).cloned().unwrap_or_default();
+            let target_kind = args.get(3).cloned().unwrap_or_default();
+            let target_id = args.get(4).cloned().unwrap_or_default();
+            if proposal_id.is_empty() || target_id.is_empty() {
+                fail("usage: uat_authoring_ops merge-proposal <proposal_id> <target_kind> <target_id>");
+            }
+            let target = match target_kind.as_str() {
+                "task" => MergeTarget::Task(target_id),
+                "epic" => MergeTarget::Epic(target_id),
+                other => fail(&format!(
+                    "merge-proposal requires target_kind to be task or epic — got {other:?}"
+                )),
+            };
+            let outcome = merge_proposal(&mut conn, &human_actor_id, &proposal_id, &target)
+                .unwrap_or_else(|err| fail(&format!("could not merge the proposal: {err:#}")));
+            print_json(serde_json::json!({
+                "issueId": outcome.issue_id,
+                "status": outcome.proposal.status,
+            }));
+        }
+        "defer-proposal" => {
+            let proposal_id = args.get(2).cloned().unwrap_or_default();
+            if proposal_id.is_empty() {
+                fail("usage: uat_authoring_ops defer-proposal <proposal_id>");
+            }
+            let proposal = defer_proposal(&mut conn, &human_actor_id, &proposal_id)
+                .unwrap_or_else(|err| fail(&format!("could not defer the proposal: {err:#}")));
+            print_json(serde_json::json!({ "status": proposal.status }));
+        }
+        "reject-bulk" => {
+            let ids: Vec<String> = args[2..].to_vec();
+            if ids.is_empty() {
+                fail("usage: uat_authoring_ops reject-bulk <id...>");
+            }
+            let outcome = reject_proposals_bulk(&mut conn, &human_actor_id, &ids, None)
+                .unwrap_or_else(|err| fail(&format!("could not bulk-reject: {err:#}")));
+            print_json(serde_json::json!({
+                "decided": outcome.decided,
+                "skipped": outcome.skipped,
+            }));
+        }
+        "defer-bulk" => {
+            let ids: Vec<String> = args[2..].to_vec();
+            if ids.is_empty() {
+                fail("usage: uat_authoring_ops defer-bulk <id...>");
+            }
+            let outcome = defer_proposals_bulk(&mut conn, &human_actor_id, &ids)
+                .unwrap_or_else(|err| fail(&format!("could not bulk-defer: {err:#}")));
+            print_json(serde_json::json!({
+                "decided": outcome.decided,
+                "skipped": outcome.skipped,
+            }));
+        }
+        "list-deferred" => {
+            let project_id = args.get(2).cloned().unwrap_or_default();
+            if project_id.is_empty() {
+                fail("usage: uat_authoring_ops list-deferred <project_id>");
+            }
+            let window = core::query::authoring::list_deferred_proposals(&conn, &project_id, 200, None)
+                .unwrap_or_else(|err| fail(&format!("could not list deferred proposals: {err:#}")));
+            let rows: Vec<serde_json::Value> = window
+                .proposals
+                .into_iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "id": p.id,
+                        "verb": p.verb,
+                        "targetType": p.target_type,
+                        "parentProposalId": p.parent_proposal_id,
+                        "payload": p.payload,
+                        "rationale": p.rationale,
+                    })
+                })
+                .collect();
+            print_json(serde_json::json!({
+                "proposals": rows,
+                "counts": {
+                    "pending": window.counts.pending,
+                    "accepted": window.counts.accepted,
+                    "rejected": window.counts.rejected,
+                    "merged": window.counts.merged,
+                    "deferred": window.counts.deferred,
+                },
+            }));
+        }
+        "limit-notices" => {
+            let project_id = args.get(2).cloned().unwrap_or_default();
+            if project_id.is_empty() {
+                fail("usage: uat_authoring_ops limit-notices <project_id>");
+            }
+            let notices = core::query::authoring::proposal_limit_notices(&conn, &project_id, 200)
+                .unwrap_or_else(|err| fail(&format!("could not derive limit notices: {err:#}")));
+            print_json(serde_json::to_value(&notices).unwrap_or_else(|err| {
+                fail(&format!("could not serialise the limit notices: {err:#}"))
+            }));
         }
         "answer-board-read" => {
             let mut raw = String::new();
