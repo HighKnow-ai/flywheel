@@ -216,12 +216,15 @@ pub fn search_board_for_agent(
 
 /// Per-status proposal counts (mirrors `board_band_counts`'s own discipline: one grouped
 /// aggregate, never a per-row follow-up query) — lets the triage lane's header report scale
-/// without a second query.
+/// without a second query. Plan 06-06: widened to all five statuses (`merged`/`deferred` added)
+/// so a decided row is never invisible in the totals.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ProposalStatusCounts {
     pub pending: i64,
     pub accepted: i64,
     pub rejected: i64,
+    pub merged: i64,
+    pub deferred: i64,
 }
 
 /// [`list_pending_proposals`]'s return shape — the bounded window plus the project's per-status
@@ -247,6 +250,8 @@ fn proposal_status_counts(conn: &Connection, project_id: &str) -> anyhow::Result
             "pending" => counts.pending = count,
             "accepted" => counts.accepted = count,
             "rejected" => counts.rejected = count,
+            "merged" => counts.merged = count,
+            "deferred" => counts.deferred = count,
             _ => {}
         }
     }
@@ -322,6 +327,53 @@ pub fn list_rejected_for_epic(
         .query_map(params![epic_id, resolved_limit], row_to_proposal)?
         .collect::<Result<Vec<_>, _>>();
     rows.context("failed to list rejected proposals for epic")
+}
+
+/// Plan 06-06 (PROP-06): the deferred filter's own read — every DEFERRED proposal across the
+/// project, newest first with `id` as a stable tie-break, bounded from the first line. Mirrors
+/// [`list_pending_proposals`]'s exact signature, cursor handling and `PROPOSAL_COLUMNS`
+/// composition (the same shape, one different status value in the WHERE clause), reading through
+/// the same `idx_authoring_proposals_project_status` index so a deferred-only scan stays indexed.
+/// A deferred proposal is recallable (D-102) — this is the read that makes it so.
+pub fn list_deferred_proposals(
+    conn: &Connection,
+    project_id: &str,
+    limit: i64,
+    cursor: Option<(&str, &str)>,
+) -> anyhow::Result<ProposalWindow> {
+    let resolved_limit = resolve_limit(limit);
+
+    let sql: String = match cursor {
+        None => [
+            "SELECT ",
+            PROPOSAL_COLUMNS,
+            " FROM authoring_proposals WHERE project_id = ?1 AND status = 'deferred' \
+             ORDER BY created_at DESC, id DESC LIMIT ?2",
+        ]
+        .concat(),
+        Some(_) => [
+            "SELECT ",
+            PROPOSAL_COLUMNS,
+            " FROM authoring_proposals WHERE project_id = ?1 AND status = 'deferred' \
+             AND (created_at, id) < (?3, ?4) \
+             ORDER BY created_at DESC, id DESC LIMIT ?2",
+        ]
+        .concat(),
+    };
+
+    let mut stmt = conn.prepare(&sql)?;
+    let proposals: Vec<Proposal> = match cursor {
+        None => stmt
+            .query_map(params![project_id, resolved_limit], row_to_proposal)?
+            .collect::<Result<Vec<_>, _>>(),
+        Some((created_at, id)) => stmt
+            .query_map(params![project_id, resolved_limit, created_at, id], row_to_proposal)?
+            .collect::<Result<Vec<_>, _>>(),
+    }
+    .context("failed to list deferred proposals")?;
+
+    let counts = proposal_status_counts(conn, project_id)?;
+    Ok(ProposalWindow { proposals, counts })
 }
 
 /// One authoring run's Product Kill Criterion measurement (gap G-05-2's third item, plan 05-13):

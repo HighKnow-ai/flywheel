@@ -14,6 +14,7 @@ use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::epic::create_epic;
 use core::domain::project::Project;
 use core::domain::task::{create_task, delete_task};
+use core::query::authoring::{list_deferred_proposals, list_pending_proposals};
 use rusqlite::{params, Connection};
 
 /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — mirrors
@@ -549,5 +550,229 @@ fn an_over_max_limit_bulk_slice_is_refused_naming_the_ceiling() {
         let defer_err = defer_proposals_bulk(&mut conn, &human_actor_id, &oversized)
             .expect_err("an over-ceiling defer slice must be refused, not truncated");
         assert!(defer_err.to_string().contains("500"), "the refusal must name the ceiling, got: {defer_err}");
+    });
+}
+
+// ============================================================================================
+// list_deferred_proposals / five-status counts / provenance projection (plan 06-06)
+// ============================================================================================
+
+/// Stage an already-deferred `authoring_proposals` row directly, bypassing `create_proposal`'s
+/// own `PROPOSAL_LIMIT_PER_RUN` write-side rule (plan 06-05) and taking a caller-chosen
+/// `created_at` — used ONLY by the ordering and clamp tests below, which need more rows under one
+/// run, and deterministic ordering, than the public API permits. Mirrors
+/// `epic_context_packet.rs`'s own `seed_raw_decided_proposal` shape.
+fn seed_raw_deferred_proposal(
+    conn: &Connection,
+    run_id: &str,
+    project_id: &str,
+    actor_id: &str,
+    title: &str,
+    created_at: &str,
+) -> String {
+    let id = core::ids::new_id();
+    conn.execute(
+        "INSERT INTO authoring_proposals (
+            id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
+            parent_proposal_id, position, payload, status, rejection_reason, materialised_id,
+            created_by, created_at, decided_by, decided_at, rationale, origin_log_offset,
+            duplicate_of, duplicate_score
+        ) VALUES (?1, ?2, ?3, NULL, 'create', 'task', NULL, NULL, ?4, ?5, 'deferred', NULL, NULL, \
+            ?6, ?7, ?6, ?7, NULL, NULL, NULL, NULL)",
+        params![
+            id,
+            run_id,
+            project_id,
+            core::ids::new_id(),
+            serde_json::json!({ "kind": "task", "title": title, "description": null }).to_string(),
+            actor_id,
+            created_at,
+        ],
+    )
+    .expect("failed to seed a raw deferred proposal");
+    id
+}
+
+#[test]
+fn deferred_read_returns_only_deferred_rows_ordered_newest_first() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id) = ready_run();
+
+        // Create the still-pending/rejected rows through the real write path FIRST — `rank_after`
+        // scans the tail sibling among ALL rows sharing (run_id, parent_proposal_id) to compute a
+        // fresh position, and a raw-inserted row's non-fractional-index `position` value would
+        // corrupt that scan. Seeding the two deferred rows directly AFTER these real creates (with
+        // no further `create_proposal` call in this run) sidesteps that entirely.
+        let stays_pending = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Stays pending".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed")
+        .id;
+        let to_reject = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Gets rejected".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed")
+        .id;
+        reject_proposal(&mut conn, &to_reject, &human_actor_id, None).expect("reject_proposal should succeed");
+
+        let older_deferred = seed_raw_deferred_proposal(
+            &conn, &run_id, &project.id, &human_actor_id, "Deferred earlier", "2026-01-01T00:00:00Z",
+        );
+        let newer_deferred = seed_raw_deferred_proposal(
+            &conn, &run_id, &project.id, &human_actor_id, "Deferred later", "2026-01-02T00:00:00Z",
+        );
+
+        let window = list_deferred_proposals(&conn, &project.id, 10, None)
+            .expect("list_deferred_proposals should succeed");
+        let ids: Vec<&str> = window.proposals.iter().map(|p| p.id.as_str()).collect();
+
+        assert_eq!(
+            ids,
+            vec![newer_deferred.as_str(), older_deferred.as_str()],
+            "must return only deferred rows, newest first"
+        );
+        assert!(!ids.contains(&stays_pending.as_str()), "a pending row must never appear in the deferred filter");
+        assert!(!ids.contains(&to_reject.as_str()), "a rejected row must never appear in the deferred filter");
+    });
+}
+
+#[test]
+fn deferred_read_on_a_project_with_none_returns_an_empty_window_and_no_error() {
+    with_scratch_runtime_dir(|| {
+        let (conn, _human_actor_id, project, _run_id) = ready_run();
+        let window = list_deferred_proposals(&conn, &project.id, 10, None)
+            .expect("an empty deferred set must not be an error");
+        assert!(window.proposals.is_empty());
+    });
+}
+
+#[test]
+fn deferred_read_clamps_to_max_limit() {
+    with_scratch_runtime_dir(|| {
+        let (conn, human_actor_id, project, run_id) = ready_run();
+        for i in 0..(core::query::authoring::MAX_LIMIT + 5) {
+            seed_raw_deferred_proposal(
+                &conn,
+                &run_id,
+                &project.id,
+                &human_actor_id,
+                &format!("clamp deferred {i}"),
+                &chrono::Utc::now().to_rfc3339(),
+            );
+        }
+        let window = list_deferred_proposals(&conn, &project.id, 10_000_000, None)
+            .expect("list_deferred_proposals should succeed");
+        assert_eq!(
+            window.proposals.len() as i64,
+            core::query::authoring::MAX_LIMIT,
+            "a 10,000,000 request must never reach SQLite as-is — it is clamped to MAX_LIMIT"
+        );
+    });
+}
+
+#[test]
+fn all_five_status_counts_are_reported_including_merged_and_deferred() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, human_actor_id, project, run_id) = ready_run();
+        let target_task = create_task(&mut conn, &project.id, &human_actor_id, "Merge target", None)
+            .expect("create_task should succeed");
+
+        let to_accept = create_proposal(
+            &mut conn, &run_id, ProposalVerb::Create,
+            ProposalPayload::Task { title: "counted accepted".to_string(), description: None },
+            None, None, ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+        let to_reject = create_proposal(
+            &mut conn, &run_id, ProposalVerb::Create,
+            ProposalPayload::Task { title: "counted rejected".to_string(), description: None },
+            None, None, ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+        let to_merge = create_proposal(
+            &mut conn, &run_id, ProposalVerb::Create,
+            ProposalPayload::Task { title: "counted merged".to_string(), description: None },
+            None, None, ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+        let to_defer = create_proposal(
+            &mut conn, &run_id, ProposalVerb::Create,
+            ProposalPayload::Task { title: "counted deferred".to_string(), description: None },
+            None, None, ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+        let _stays_pending = create_proposal(
+            &mut conn, &run_id, ProposalVerb::Create,
+            ProposalPayload::Task { title: "counted pending".to_string(), description: None },
+            None, None, ProposalProvenance::NONE,
+        )
+        .expect("create_proposal should succeed");
+
+        accept_proposal(&mut conn, &to_accept.id, &human_actor_id).expect("accept_proposal should succeed");
+        reject_proposal(&mut conn, &to_reject.id, &human_actor_id, None).expect("reject_proposal should succeed");
+        merge_proposal(&mut conn, &human_actor_id, &to_merge.id, &MergeTarget::Task(target_task.id.clone()))
+            .expect("merge_proposal should succeed");
+        defer_proposal(&mut conn, &human_actor_id, &to_defer.id).expect("defer_proposal should succeed");
+
+        let window = list_pending_proposals(&conn, &project.id, 10, None).expect("list_pending_proposals should succeed");
+        assert_eq!(window.counts.pending, 1);
+        assert_eq!(window.counts.accepted, 1);
+        assert_eq!(window.counts.rejected, 1);
+        assert_eq!(window.counts.merged, 1, "a merged row must be counted, never invisible in the totals");
+        assert_eq!(window.counts.deferred, 1, "a deferred row must be counted, never invisible in the totals");
+    });
+}
+
+#[test]
+fn pending_read_projection_carries_a_staged_proposals_rationale_turn_pointer_and_duplicate_verdict_intact() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _human_actor_id, project, run_id) = ready_run();
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Staged with full provenance".to_string(), description: None },
+            None,
+            None,
+            ProposalProvenance {
+                rationale: Some("Found a real gap while executing".to_string()),
+                origin_log_offset: Some(42),
+            },
+        )
+        .expect("create_proposal should succeed");
+
+        // Duplicate scoring is plan 06-04's own write path — this test pins that the PROJECTION
+        // (`list_pending_proposals`, via `PROPOSAL_COLUMNS`/`row_to_proposal`) carries whatever is
+        // in the row, not that the detector itself runs here. A direct UPDATE is the simplest way
+        // to put a real value in both columns without re-deriving 06-04's own scoring pass.
+        conn.execute(
+            "UPDATE authoring_proposals SET duplicate_of = ?1, duplicate_score = ?2 WHERE id = ?3",
+            params!["some-other-id", -30.5_f64, proposal.id],
+        )
+        .expect("UPDATE should succeed");
+
+        let window = list_pending_proposals(&conn, &project.id, 10, None).expect("list_pending_proposals should succeed");
+        let row = window
+            .proposals
+            .iter()
+            .find(|p| p.id == proposal.id)
+            .expect("staged proposal must appear in the pending window");
+
+        assert_eq!(row.rationale.as_deref(), Some("Found a real gap while executing"));
+        assert_eq!(row.origin_log_offset, Some(42));
+        assert_eq!(row.duplicate_of.as_deref(), Some("some-other-id"));
+        assert_eq!(row.duplicate_score, Some(-30.5));
     });
 }
