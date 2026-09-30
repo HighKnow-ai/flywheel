@@ -14,9 +14,15 @@
 //! without a real spawned sidecar, and this half performs the IPC-adjacent `board:changed` emit
 //! the outcome implies.
 //!
-//! Plan 06-05 (PROP-05, D-111): `handle_inbound_proposal_created`'s outcome match now also
-//! handles `ProposalOutcome::LimitExhausted`, relaying a loud `Err` that names the limit and
-//! points the agent at `report_summary`'s `remains` field — never a silent drop.
+//! Plan 06-05 (PROP-05, D-108/D-111): `handle_inbound_proposal_created`'s `Created` arm now also
+//! resolves an optional `duplicateCandidate` (kind/key/title/score) through ONE bounded lookup
+//! (`query::authoring::resolve_duplicate_candidate_label`) and folds it into the relayed answer —
+//! present only when the staged proposal actually carries a `duplicate_of`, so a plain staging
+//! answer with no candidate is byte-identical to what it was before this plan. Its
+//! `LimitExhausted` arm relays a loud `Err` naming the limit and pointing the agent at
+//! `report_summary`'s `remains` field, never a silent drop. `authoring_proposal_limit_notices`
+//! (below) is the tray-side read for those refusals — DERIVED from the
+//! `proposal.limit_exhausted` events on every call, never a second stored copy of the notice.
 
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
@@ -595,6 +601,50 @@ pub fn authoring_proposals_pending(
     })
 }
 
+/// [`authoring_proposal_limit_notices`]'s own DTO — the camelCase mirror of
+/// `query::authoring::ProposalLimitNotice`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalLimitNoticeDto {
+    pub agent_run_id: String,
+    pub task_id: Option<String>,
+    pub limit: i64,
+    pub refused_count: i64,
+    pub first_refused_at: String,
+    pub last_refused_at: String,
+}
+
+impl From<flywheel_core::query::authoring::ProposalLimitNotice> for ProposalLimitNoticeDto {
+    fn from(notice: flywheel_core::query::authoring::ProposalLimitNotice) -> Self {
+        Self {
+            agent_run_id: notice.agent_run_id,
+            task_id: notice.task_id,
+            limit: notice.limit,
+            refused_count: notice.refused_count,
+            first_refused_at: notice.first_refused_at,
+            last_refused_at: notice.last_refused_at,
+        }
+    }
+}
+
+/// The human-facing notice for a throttled run (plan 06-05, D-112) — bounded and clamped through
+/// this module's own `resolve_limit` idiom, calling straight through to
+/// `query::authoring::proposal_limit_notices`, which DERIVES every notice from the
+/// `proposal.limit_exhausted` events on every call — never a second stored copy of the warning.
+#[tauri::command]
+pub fn authoring_proposal_limit_notices(
+    state: State<AppState>,
+    project_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<ProposalLimitNoticeDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let resolved_limit = resolve_limit(limit);
+    let notices =
+        flywheel_core::query::authoring::proposal_limit_notices(&conn, &project_id, resolved_limit)
+            .map_err(|e| e.to_string())?;
+    Ok(notices.into_iter().map(ProposalLimitNoticeDto::from).collect())
+}
+
 /// Accept a pending proposal (D-92/D-96) — the ONLY path that ever turns a staged proposal into a
 /// real board row. Resolves the local human actor SERVER-SIDE (never from the renderer, matching
 /// every other command in this workspace), calls straight through to
@@ -1003,6 +1053,33 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
         }
     };
 
+    // Plan 06-05 (D-108): resolve the duplicate candidate's own kind/key/title WHILE the
+    // connection is still locked — one bounded lookup, never a second DB round trip after the
+    // `drop(conn)` below. A lookup failure (or no `duplicate_of` at all) degrades to `None`,
+    // which omits the field entirely further down — never turns a successfully staged proposal
+    // into a reported failure.
+    let duplicate_candidate_json: Option<serde_json::Value> =
+        if let flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(ref proposal) = outcome {
+            proposal.duplicate_of.as_deref().and_then(|duplicate_id| {
+                flywheel_core::query::authoring::resolve_duplicate_candidate_label(&conn, duplicate_id)
+                    .ok()
+                    .flatten()
+                    .map(|label| {
+                        let mut candidate = serde_json::json!({
+                            "kind": label.kind,
+                            "title": label.title,
+                            "score": proposal.duplicate_score.unwrap_or_default(),
+                        });
+                        if let Some(key) = label.key {
+                            candidate["key"] = serde_json::Value::String(key);
+                        }
+                        candidate
+                    })
+            })
+        } else {
+            None
+        };
+
     drop(conn);
 
     if let flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(ref proposal) = outcome {
@@ -1016,7 +1093,11 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
 
     let result: Result<serde_json::Value, String> = match outcome {
         flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(proposal) => {
-            Ok(serde_json::json!({ "proposalId": proposal.id }))
+            let mut result = serde_json::json!({ "proposalId": proposal.id });
+            if let Some(candidate) = duplicate_candidate_json {
+                result["duplicateCandidate"] = candidate;
+            }
+            Ok(result)
         }
         flywheel_core::domain::authoring_proposal::ProposalOutcome::Ignored => {
             Err("the proposal event was ignored: malformed or unparseable payload".to_string())

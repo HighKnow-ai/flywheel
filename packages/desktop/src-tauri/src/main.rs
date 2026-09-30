@@ -171,6 +171,7 @@ fn main() {
             commands::authoring::authoring_preview_epic_packet,
             commands::authoring::authoring_proposals_for_run,
             commands::authoring::authoring_proposals_pending,
+            commands::authoring::authoring_proposal_limit_notices,
             commands::authoring::authoring_proposal_accept,
             commands::authoring::authoring_subtree_accept,
             commands::authoring::authoring_proposal_reject,

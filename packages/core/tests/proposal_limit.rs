@@ -14,6 +14,7 @@ use core::domain::authoring_proposal::{
 };
 use core::domain::task::create_task;
 use core::ids::new_id;
+use core::query::authoring::proposal_limit_notices;
 use rusqlite::{params, Connection};
 
 /// Serializes every test in this file that touches `FLYWHEEL_APP_DATA_DIR` (`session_log`'s own
@@ -332,5 +333,108 @@ fn a_refusal_still_commits_its_limit_exhausted_event() {
         assert_eq!(payload["count"], serde_json::json!(PROPOSAL_LIMIT_PER_RUN));
         assert_eq!(payload["targetType"], serde_json::json!("task"));
         assert_eq!(payload["title"], serde_json::json!("Refused finding"));
+    });
+}
+
+// -------------------------------------------------------------------------------------------
+// Task 2: the notice a human sees, re-derived from the events.
+// -------------------------------------------------------------------------------------------
+
+#[test]
+fn a_run_with_three_refusals_yields_exactly_one_notice_with_refused_count_three() {
+    with_scratch_app_data_dir(|| {
+        let (mut conn, _human_actor_id, project_id, _task_id, run_id) = seeded_execution_run();
+        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+            apply_proposal_created(&mut conn, &task_create_event(&run_id, &format!("Finding {i}"), "rationale"))
+                .unwrap();
+        }
+        for i in 0..3 {
+            apply_proposal_created(&mut conn, &task_create_event(&run_id, &format!("Refused {i}"), "rationale"))
+                .unwrap();
+        }
+
+        let notices = proposal_limit_notices(&conn, &project_id, 0).unwrap();
+        assert_eq!(notices.len(), 1, "expected exactly one notice for one throttled run");
+        let notice = &notices[0];
+        assert_eq!(notice.agent_run_id, run_id);
+        assert_eq!(notice.refused_count, 3);
+        assert_eq!(notice.limit, PROPOSAL_LIMIT_PER_RUN as i64);
+        assert!(
+            notice.first_refused_at <= notice.last_refused_at,
+            "first_refused_at must not sort after last_refused_at"
+        );
+    });
+}
+
+#[test]
+fn two_runs_in_one_project_yield_two_notices() {
+    with_scratch_app_data_dir(|| {
+        let (mut conn, human_actor_id, project_id, _task_id, run_a) = seeded_execution_run();
+        let (_task_b, run_b) = seed_second_run_same_project(&mut conn, &project_id, &human_actor_id);
+
+        for run_id in [&run_a, &run_b] {
+            for i in 0..PROPOSAL_LIMIT_PER_RUN {
+                apply_proposal_created(&mut conn, &task_create_event(run_id, &format!("Finding {i}"), "rationale"))
+                    .unwrap();
+            }
+            apply_proposal_created(&mut conn, &task_create_event(run_id, "Refused", "rationale")).unwrap();
+        }
+
+        let notices = proposal_limit_notices(&conn, &project_id, 0).unwrap();
+        assert_eq!(notices.len(), 2, "expected one notice per throttled run");
+    });
+}
+
+#[test]
+fn a_project_with_no_refusals_yields_an_empty_vector() {
+    with_scratch_app_data_dir(|| {
+        let (conn, _human_actor_id, project_id, _task_id, _run_id) = seeded_execution_run();
+        let notices = proposal_limit_notices(&conn, &project_id, 0).unwrap();
+        assert!(notices.is_empty(), "a project with no refusals must yield no notices");
+    });
+}
+
+#[test]
+fn the_notice_read_is_clamped_to_max_limit() {
+    with_scratch_app_data_dir(|| {
+        let (mut conn, human_actor_id, project_id, _task_id, run_a) = seeded_execution_run();
+        let mut run_ids = vec![run_a];
+        for _ in 0..3 {
+            let (_task_id, run_id) = seed_second_run_same_project(&mut conn, &project_id, &human_actor_id);
+            run_ids.push(run_id);
+        }
+        for run_id in &run_ids {
+            for i in 0..PROPOSAL_LIMIT_PER_RUN {
+                apply_proposal_created(&mut conn, &task_create_event(run_id, &format!("Finding {i}"), "rationale"))
+                    .unwrap();
+            }
+            apply_proposal_created(&mut conn, &task_create_event(run_id, "Refused", "rationale")).unwrap();
+        }
+
+        let notices = proposal_limit_notices(&conn, &project_id, 2).unwrap();
+        assert_eq!(notices.len(), 2, "a limit of 2 must return at most 2 rows");
+
+        let notices_over_ceiling = proposal_limit_notices(&conn, &project_id, 10_000_000).unwrap();
+        assert!(
+            notices_over_ceiling.len() <= 500,
+            "a caller-supplied limit far past MAX_LIMIT must still clamp, got {}",
+            notices_over_ceiling.len()
+        );
+    });
+}
+
+#[test]
+fn a_second_call_to_proposal_limit_notices_returns_the_same_values() {
+    with_scratch_app_data_dir(|| {
+        let (mut conn, _human_actor_id, project_id, _task_id, run_id) = seeded_execution_run();
+        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+            apply_proposal_created(&mut conn, &task_create_event(&run_id, &format!("Finding {i}"), "rationale"))
+                .unwrap();
+        }
+        apply_proposal_created(&mut conn, &task_create_event(&run_id, "Refused", "rationale")).unwrap();
+
+        let first = proposal_limit_notices(&conn, &project_id, 0).unwrap();
+        let second = proposal_limit_notices(&conn, &project_id, 0).unwrap();
+        assert_eq!(first, second, "reading the notice twice must be idempotent");
     });
 }

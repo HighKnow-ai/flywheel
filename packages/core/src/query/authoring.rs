@@ -10,6 +10,12 @@
 //! Every SQL statement below is a literal `&str`, bound through `params![]`/`named_params![]` —
 //! never assembled by `format!`/string interpolation, matching this crate's `query/` discipline
 //! everywhere else.
+//!
+//! Plan 06-05 (PROP-05, D-108/D-112): [`resolve_duplicate_candidate_label`] is the one bounded
+//! lookup that turns a `Proposal.duplicate_of` id back into a `kind`/`key`/`title` the staging
+//! answer can relay to the model. [`proposal_limit_notices`] is the human-facing read for a
+//! throttled run — DERIVED, on every call, from however many `proposal.limit_exhausted` events
+//! that run's own refusals appended (never a second stored copy of the warning).
 
 use anyhow::Context;
 use rusqlite::{named_params, params, Connection, OptionalExtension};
@@ -517,6 +523,101 @@ pub fn list_recent_authoring_runs(
 /// projected to `id`/`verb`/`targetType`/`parentProposalId`/`status`/`label` only —
 /// `project_id`/`created_by`/`agent_run_id` are the run's own internals and are never serialised
 /// onto an agent-facing page (T-05-44-02).
+/// Plan 06-05 (D-108): one candidate's own `kind`/`key`/`title`, resolved by id, across the SAME
+/// four corpora `query::search::duplicate_candidate_for` scores against — a `Proposal`'s
+/// `duplicate_of` may name a task, an epic, an issue, or another proposal, and this is the ONE
+/// place that turns "an id" back into "what kind of thing, with what title" for the relayed
+/// staging answer. `key` is `None` for a proposal candidate (a proposal has no key until it is
+/// accepted), mirroring `query::search::DuplicateCandidate`'s own field.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateCandidateLabel {
+    pub kind: String,
+    pub key: Option<String>,
+    pub title: String,
+}
+
+/// Resolve `candidate_id`'s own label with ONE bounded lookup (`LIMIT 1` over a four-arm
+/// `UNION ALL`) — never a per-corpus round trip. Returns `None` when the id no longer resolves to
+/// anything (e.g. the target row was deleted between the scoring pass and this read); the caller
+/// degrades that to omitting the candidate field entirely, never an error.
+pub fn resolve_duplicate_candidate_label(
+    conn: &Connection,
+    candidate_id: &str,
+) -> anyhow::Result<Option<DuplicateCandidateLabel>> {
+    let sql = "SELECT 'task', key, title FROM tasks WHERE id = ?1 \
+        UNION ALL \
+        SELECT 'epic', key, title FROM epics WHERE id = ?1 \
+        UNION ALL \
+        SELECT 'issue', key, title FROM issues WHERE id = ?1 \
+        UNION ALL \
+        SELECT 'proposal', NULL, COALESCE( \
+            json_extract(payload, '$.title'), \
+            json_extract(payload, '$.statement'), \
+            json_extract(payload, '$.assumption'), \
+            '(untitled proposal)' \
+        ) FROM authoring_proposals WHERE id = ?1 \
+        LIMIT 1";
+    conn.query_row(sql, params![candidate_id], |row| {
+        Ok(DuplicateCandidateLabel { kind: row.get(0)?, key: row.get(1)?, title: row.get(2)? })
+    })
+    .optional()
+    .context("failed to resolve a duplicate candidate's label")
+}
+
+/// One throttled run's human-facing notice (plan 06-05, D-112) — DERIVED from however many
+/// `proposal.limit_exhausted` events that run's refusals appended, never a second stored copy of
+/// the warning (D-74/D-75's rule, applied verbatim). `limit` and `refused_count` are both read
+/// back off the events themselves, so this struct never hand-rolls its own notion of either.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalLimitNotice {
+    pub agent_run_id: String,
+    pub task_id: Option<String>,
+    pub limit: i64,
+    pub refused_count: i64,
+    pub first_refused_at: String,
+    pub last_refused_at: String,
+}
+
+/// One notice per throttled run in `project_id`, derived on EVERY read from the
+/// `proposal.limit_exhausted` events those runs' refusals appended — D-53's "count every refusal,
+/// surface only the exhaustion" expressed as a `GROUP BY`: however many refusal events a run
+/// produced, a caller gets exactly one notice for it. Nothing writes a second copy of the warning
+/// line anywhere. Bounded through this module's own [`resolve_limit`], exactly like every other
+/// read here. Newest-last-refusal first.
+pub fn proposal_limit_notices(
+    conn: &Connection,
+    project_id: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<ProposalLimitNotice>> {
+    let resolved_limit = resolve_limit(limit);
+
+    let sql = "SELECT stream_id, MAX(task_id), \
+        MAX(CAST(json_extract(payload, '$.limit') AS INTEGER)), \
+        COUNT(*), MIN(occurred_at), MAX(occurred_at) \
+        FROM events \
+        WHERE project_id = ?1 AND event_type = 'proposal.limit_exhausted' \
+        GROUP BY stream_id \
+        ORDER BY MAX(occurred_at) DESC \
+        LIMIT ?2";
+
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt
+        .query_map(params![project_id, resolved_limit], |row| {
+            Ok(ProposalLimitNotice {
+                agent_run_id: row.get(0)?,
+                task_id: row.get(1)?,
+                limit: row.get(2)?,
+                refused_count: row.get(3)?,
+                first_refused_at: row.get(4)?,
+                last_refused_at: row.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to derive proposal limit notices")
+}
+
 pub fn resolve_board_read(
     conn: &Connection,
     run_id: &str,
