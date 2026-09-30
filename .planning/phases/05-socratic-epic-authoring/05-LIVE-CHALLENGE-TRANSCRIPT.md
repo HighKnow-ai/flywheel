@@ -1,8 +1,9 @@
 # Phase 5 — Socratic Epic Authoring — Live Challenge Transcript
 
 
-**Run:** 01M3P9QF58AAFKXH2EAZ3ZEM65
-**Captured:** 2026-09-29T10:05:01.209Z
+**Run:** 01M3QQQM4GAYB2Y9RQMJDRWAX0
+**Captured:** 2026-09-30T00:06:05.378Z
+**Answer source:** developer
 
 ## Conversation
 
@@ -12,119 +13,85 @@
 I want to build a notifications feature so users get pinged when something on their board needs them.
 ```
 
-### 2. Agent — chunks=2 chars=2007 endedBy=result
+### 2. Agent — chunks=2 chars=2385 endedBy=result
 
 ```
-I'll get oriented on the repo and the board setup first.
+I'll get oriented on the repo and the board first.
 
-Before I put anything on the board, some orientation on what I found:
+Both the repo and the board are empty — no code, no existing epics — so I've got nothing to infer the shape of this from. Before I stage anything on the board, the answers to a few questions would change the work substantially. I've put my default assumption next to each, so you can just say "defaults are fine" and I'll run with it.
 
-- **Repo is empty** — `.git` and `.flywheel/project.json` only, no source, no CLAUDE.md, one commit with no tracked files.
-- **Board is empty** — `board_search` for "notification" and "board" both return zero items.
+**1. What counts as "needs them"?** The trigger list defines the whole feature. My default set: assigned a card, mentioned in a comment (`@name`), a card they own moves column, a due date passes/approaches. Anything you'd add or cut — especially: do you want notifications for *activity on cards they merely watch*, or only things directed at them?
 
-So there's no existing code or prior epic to anchor on, and I don't want to invent a notifications architecture for a product I can't see. A few questions where different answers lead to genuinely different work:
+**2. Where does the ping land?** Default: in-app only for v1 (a bell icon with an unread count and a dropdown list), with email deliberately deferred to a follow-up epic. Email/Slack/push in v1 changes this from a UI feature into a delivery-infrastructure feature.
 
-**1. What does "needs them" mean concretely?** Which events fire? My guess at a starting set: assigned to a card, @-mentioned in a comment, card moved into a column they own, due date approaching, something they're blocking on unblocked. Which of those are in, and what's missing?
+**3. Read state and grouping.** Default: per-notification read/unread, plus "mark all read". No digesting or collapsing — if someone renames a card five times you get five notifications. Collapsing is nicer but meaningfully more work; worth it for v1?
 
-**2. Delivery channels for v1.** In-app inbox/bell only? Or email too? Push/Slack? This is the biggest scope fork — in-app only is a fraction of the work of email (templates, deliverability, unsubscribe compliance).
+**4. Who controls what they get?** Default: no preferences screen in v1 — everyone gets everything. The alternative is a settings page with per-trigger toggles, which is roughly a third of the epic on its own.
 
-**3. Real-time or digest?** Ping-per-event as it happens, or batched (hourly/daily rollup)? Mixed — real-time in-app, digest by email — is common but doubles the delivery paths.
+**5. Self-generated events.** Default: you never get notified about your own actions. Easy to get wrong, so I want it written down explicitly.
 
-**4. Preference granularity.** Global on/off, per-event-type, or per-board? And what's the default for a new user — everything on, or opt-in?
+**6. What's the existing stack?** The repo is empty here, so I don't know if there's a real app this attaches to or if this is greenfield. That drives whether tasks talk about a real-time transport (websockets/SSE) or just polling. Default if greenfield: polling on an interval, no real-time transport.
 
-**5. Read state and lifecycle.** Mark-read / mark-all-read, click-through deep link to the card, unread badge count — all assumed in? Do notifications age out or accumulate forever?
+The one I'd most like a real answer on is **#2** — in-app-only versus "users actually get emailed" is the difference between a contained feature and a much bigger one, and it's the one people most often assume is included.
 
-**6. Where does the code go?** The repo is empty. Is this greenfield (you want me to propose the stack too), or does the board app live somewhere else and this repo is just the planning surface?
-
-If you'd rather not answer all six, answer **2 and 6** — those two constrain the rest most. I can take sensible defaults on the others, stage them as explicit assumption rows on the board, and you can correct them during review rather than up front.
+Tell me the answers (or "defaults are fine") and I'll stage the epic, its tasks, and acceptance criteria on the board as proposals for you to review, with each assumption above recorded as its own row so it's clear what was decided versus guessed.
 ```
 
 ### 3. Developer
 
 ```
 Here's what I can tell you:
-1. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
-2. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
-3. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
-4. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
-5. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
+1. Someone is explicitly blocked on them or has named them. Concretely three things: a card is assigned to them, they are @-mentioned, or someone comments on a card they own. Nothing else counts.
+2. Only things directed at them. Cut watched-card activity entirely for v1 — notifying on general activity is the fastest way to train people to ignore the badge within a week.
+3. In-app only for v1: a notification tray with an unread count in the top bar. No email, no push. Build the data model so email can be layered on later without a migration.
+4. No. One row per event, newest first. Revisit collapsing only if volume actually becomes a complaint.
+5. Nobody, for v1. No preferences UI — just mark-read and mark-all-read. The trigger list is narrow and everything in it is directed at you, so there is nothing worth muting yet.
 ```
 
-### 4. Agent — chunks=2 chars=4088 endedBy=result
+### 4. Agent — chunks=2 chars=4329 endedBy=result
 
 ```
-Got it — I'll make the calls myself on 1–5. Question 6 (where the code lives) went unanswered, so I'm assuming greenfield and staging that as an explicit, flagged assumption rather than blocking on it — it changes task *size*, not task *shape*, so the breakdown holds either way.
+Good — that's decisive and the reasoning on #2 is the right call. Two things you didn't cover that I need to settle to write this coherently; I'll proceed on explicit assumptions rather than block, and record each as its own row for you to accept or overturn.
 
-Staging the judgement calls first, so they're reviewable separately from the epic:
+Let me stage the epic first.
 
-The board rejected all eight calls — it's in a **challenge stage**, and proposals are locked until you advance it. Only you can do that. So here's the challenge instead.
+The board is in its challenge stage, so it won't take proposals yet — which is just as well, because there's a contradiction in the trigger list I'd rather resolve than encode.
 
-## Three objections to the framing
+**Trigger 3 is the thing you cut, wearing a different hat.** Your stated principle is "explicitly blocked on them or has named them." Assignment and @-mention both clear that bar. "Someone comments on a card they own" does not — it's activity on a card, which is the exact category you eliminated. If I own 40 cards and two teammates have a 15-comment back-and-forth on one of them, I get 15 notifications and none of them named me. That's the watched-card firehose you rejected in #2, entering through the owner field instead of the watcher field. It will train people to ignore the badge on the same timeline.
 
-**1. "Pinged" and in-app notifications contradict each other.** A bell and an inbox only reach someone already in the app. If the problem is that people miss things because they're *elsewhere*, an inbox doesn't solve it — email or push is the feature, and the inbox is the sidecar. If the problem is in-session hunting ("I'm here, what needs me?"), the inbox is right and email is noise. These are different features with different costs. I picked in-app-only plus a channel seam, but I'm resolving a contradiction in the request rather than a genuine tradeoff, and you should know that's what I did.
+If the real intent behind trigger 3 is "don't let a question on my card go unanswered," then @-mention already covers it — the asker names the owner. The narrower versions worth considering: only the *first* comment from a given person on my card, or only comments from someone who isn't already in the thread. My recommendation is to cut trigger 3 and lean on @-mention, but it's your call — I just don't want it accepted as if it followed from the principle, because it doesn't.
 
-**2. An inbox may be the wrong shape for this.** "Something needs them" describes a *state* of the board, not a *stream of events*. A "waiting on you" filtered view is always correct, never goes stale, needs no read-state, no retention job, no preference matrix, and can't be drowned. A notification stream is a log of things that were true at some point and mostly aren't anymore. Notification inboxes are also the most reliably ignored surface in any product. If the goal is unsticking stalled work, the view is likely cheaper and better; if the goal is awareness of discrete moments you'd otherwise never see (a mention), the stream wins. Possibly you want both, but then the stream shrinks to mentions only.
+**"No migration" as written is not passable.** Email delivery needs persisted per-channel state — at minimum a delivery status per recipient per channel, since email can fail and in-app cannot. That's new storage, so *some* migration is unavoidable. I think you mean something achievable and worth writing down properly: notification *event* rows stay valid untouched, and channel state is added additively, with no backfill or rewrite of existing rows. I'd rather write that as the criterion than "no migration," which would fail review on a technicality.
 
-**3. "Needs them" is a proxy, and a weak one.** My five triggers detect *activity on things you're attached to*, which is not the same as needing you. A card assigned to you three weeks ago that just moved column doesn't need you. Bad proxies generate noise, noise gets muted, and a muted feature is a dead one. If the product has (or could have) a real turn-taking concept — blocked-on, awaiting-review, needs-approval — that is a dramatically better trigger than generic activity, and it would replace most of my list. I couldn't check, because the repo is empty.
+**Ownership is undefined, and it's load-bearing.** "A card they own" — creator, current assignee, or a separate owner field? Each breaks differently: if it's creator, someone who filed a card in March and handed it off still gets pinged in September. If it's assignee, triggers 1 and 3 collapse into each other and reassignment silently transfers the notification stream. Can a card have more than one assignee? If trigger 3 survives in any form, this needs a definition.
 
-Related, unanswerable from here: **how would we know this worked?** Without a metric like time-to-first-response on assigned cards, there's no way to distinguish a useful notification from noise later, and no principled basis for adding or cutting triggers.
+**Triggers and "no preferences UI" are coupled, not independent.** Your reason for skipping preferences is that everything in the list is directed at you. That holds for a two-trigger list. With trigger 3 in, the first complaint will be "stop pinging me for every comment on my cards" — and the only remedy is the preferences screen you deferred. Cutting trigger 3 is what makes "no preferences" defensible.
 
-## The calls I've made and am holding
+Three smaller gaps, with the defaults I'd write in:
 
-Ready to stage the moment you advance, as seven assumption rows plus an epic and seven tasks:
+- **Self-actions** (you left this open): an actor never notifies themselves — self-assign, self-mention, commenting on your own card all produce zero rows.
+- **Revocation**: unassignment, deleted comments, and deleted/archived cards emit nothing, and existing notifications are not retracted. Since the tray is the only surface, a row pointing at a deleted card is a dead end — the tray needs to degrade gracefully rather than 404.
+- **Retention and volume**: one row per event forever means an unbounded tray. Needs a page size, and a badge display cap (99+).
 
-| # | Call |
-|---|---|
-| A1 | Five triggers: assigned, @-mentioned, comment on a card you participate in, your card changes column, due within 24h. Participation derived from assignee/prior-commenter — no watch feature. |
-| A2 | In-app only; email/push/Slack out, channel seam built in. |
-| A3 | Written in the triggering transaction; 60s client poll; no websockets, no digest. |
-| A4 | Five per-event-type toggles, global across boards, all on by default, evaluated at emit time. |
-| A5 | Unread/read, mark-one, mark-all, deep-link-marks-read, 99+ badge cap, 25-per-page, 90-day hard delete. |
-| A6 | **Greenfield — unverified.** Repo has one commit and zero tracked files. |
-| A7 | Self-suppression: never notify the actor for their own action. |
+And a prerequisite: **what am I attaching this to?** This repo has zero tracked files, and the board has no other epics. "An unread count in the top bar" presumes an app shell, cards, comments, assignment, ownership, and auth all already exist. If the board app lives somewhere else, point me at it. If this is genuinely greenfield, then notifications aren't the next thing to build and this epic has a stack of dependencies that should be visible on the board before it.
 
-## Recommendation
-
-**Advance the stage.** You've delegated 1–5 and I can defend all of those; objections 1 and 3 above are real but they're carried adequately by the assumption rows, where you can overturn them during review.
-
-The one I'd genuinely rather you answer first is **objection 2** — inbox versus "waiting on you" view. That one isn't a parameter of the epic, it's a different epic, and I'd be writing seven tasks against a shape you might not want. One sentence from you settles it.
+I don't think this is settled yet — mainly trigger 3, and the ownership definition it depends on. Resolve those two and I'd say advance; the rest I can carry as assumption rows for you to overturn. Note that only you can advance the stage.
 ```
 
 ### 5. Developer
 
 ```
 Here's what I can tell you:
-1. Use your own judgement on that one, state the assumption you're making explicitly, and keep going.
+1. Current assignee. No separate owner field, and the creator does not count — once a card is handed over, the person who typed it in is irrelevant.
+2. No. One assignee, or none. A single assignee is what makes "blocked on you" unambiguous.
+3. Greenfield — the repo is empty, so assume you are building the whole thing here: schema, API and UI. Write the tasks against generic integration points (a card-assignment event, a mention parse, a comment write) rather than naming a stack.
+4. Settled by answers 1 and 2: trigger 3 is "a comment on a card whose current assignee is you". Drop the word "own" from the spec entirely. That is the whole of it — go ahead and decompose.
 ```
 
-### 6. Agent — chunks=2 chars=3008 endedBy=result
+### 6. Agent — chunks=1 chars=280 endedBy=idle
 
 ```
-Resolving objection 2 by judgement, then trying the board again.
-
-**A8 — inbox vs. "waiting on you" view:** Build the **inbox**. The deciding factor is that a view cannot ping. An unread badge is the only mechanism here that pulls attention without the user already deciding to look, and pinging is the stated goal — a filtered view only works for someone who already came looking. I keep all five triggers, including the three that are really *state* (assignment, column change, due-soon), and neutralise the staleness objection by making every notification a deep link to the live card: the stream is an index into current state, not a snapshot of a past moment. Click a three-week-old notification and you see the card as it is now. I'm also adding an "Assigned to me" filter on the inbox as the cheap seed of the view — if the view turns out to be the better surface, the path there is short.
-
-Probing whether the stage advanced:
-
-Still locked. I've reached the end of what I can settle by judgement — every open question now has a stated answer, and I'd be manufacturing objections to fill the stage rather than finding real ones.
-
-**Recommendation: advance the stage.** I'm blocked on that; only you can do it.
-
-So the advance is a single confirmed step rather than a wait, here's the complete content queued behind it — eight assumption rows (A1–A7 from before, plus A8 above) and this breakdown:
-
-**Epic:** In-app notifications so users know when a card needs them
-
-| Task | Scope | Key criteria |
-|---|---|---|
-| T1 | Notification schema + event→recipient fan-out rules | Recipient set for each of the five triggers is derived by one shared rule; actor is always excluded (A7) |
-| T2 | Emit from the five board events | Row is written in the same transaction as the triggering event; rollback of the event rolls back the notification; due-soon runs as a scheduled sweep, at-most-once per card |
-| T3 | Inbox API — list, unread count, mark read, mark all read, assigned-to-me filter | Read-time access check: a notification for a card the user can no longer see is never returned, even though the row still exists |
-| T4 | Inbox UI — bell, badge, panel, click-through | Click deep-links to the live card and marks read in one action; badge exact to 99 then "99+" |
-| T5 | Per-user preferences | Five toggles, all on for new users, evaluated at emit time so a disabled type stores nothing |
-| T6 | Delivery-channel seam | Adding a second channel requires no change to any of the five emit call sites |
-| T7 | Retention + pagination | 90-day hard delete job is idempotent and re-runnable; inbox pages 25 newest-first with stable ordering under concurrent writes |
-
-Two things I'd flag for your review pass once these land, rather than pre-deciding them again: the **access-revocation criterion on T3** is the only security-relevant item in the set and deserves a real look, and **T2's due-soon sweep** is the one task where "at-most-once" is easy to get wrong and produces daily duplicate pings if it is.
+Your redefinition does answer the objection — tying it to current assignee means the stream follows the assignment and stops the moment you hand the card off, which is a much smaller and genuinely "blocked on you" set than creator-based ownership would have been. Decomposing now.
 ```
 
 ### 7. Developer
@@ -133,40 +100,133 @@ Two things I'd flag for your review pass once these land, rather than pre-decidi
 Before we move on: call `propose_assumption` once for EACH assumption you challenged in this stage, each call carrying that one assumption and the answer I gave you — one tool call per assumption, never a single call carrying a list, and never folding more than one assumption's text into a single call. These rows are a DRAFT of your own reasoning: I will accept, amend or reject each one myself, and only the ones I accept will be primed into a later session on this epic. Every proposal you stage returns its own id in the tool result as `proposalId` — that id is what `parent_proposal_id` takes. Go ahead now.
 ```
 
-### 8. Agent — chunks=3 chars=992 endedBy=result
+### 8. Agent — chunks=1 chars=5327 endedBy=result
 
 ```
-API Error: Opus 5 (1M context)'s safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations. Claude Code can't respond to this message with Opus 5 (1M context).
+That's the second refusal on the same gate: the board is still in its challenge stage, and advancing it is something only you can do in Flywheel — I have no tool for it. So nothing is staged yet.
 
-Try rephrasing the request in a new session or change your model.
+From my side the framing **is** settled now: triggers are pinned, assignee is defined, single-assignee resolves the ambiguity, and greenfield tells me what to write against. **My recommendation is to advance the stage.** Once you do, tell me and I'll stage all of the below as proposals in one pass.
 
-Learn more: https://support.claude.com/en/articles/16049681
+Here's the decomposition, ready to go — 8 tasks. Review it here and I'll stage it as-is or with your edits.
 
-Details: `[reasoning_extraction]`
+**1. Notification event data model (channel-agnostic)**
+- Event row records recipient, actor, event type, target card, source comment (nullable), created-at.
+- Event type is an extensible value with exactly three v1 members: `card_assigned`, `comment_mention`, `comment_on_assigned_card`.
+- Delivery state lives in a per-channel delivery record, not on the event row; the in-app record holds `read_at`.
+- Adding an email channel inserts a new delivery record type only — no column on the event table changes, and no existing row is rewritten or backfilled.
+- "Unread count for user" and "latest N for user, newest first" are each a single indexed query.
 
-Request ID: req_011CfXYM51m1CJy1PfdzVbHY
+**2. Emit on card assignment**
+- Assigning a card to U creates exactly one `card_assigned` event for U.
+- Reassigning U→V creates one event for V and none for U.
+- Clearing the assignee to none creates no event.
+- Re-assigning to the existing assignee is a no-op and creates no event.
 
-All eight staged. One problem: A8's answer hit the 1000-character cap and truncated mid-sentence ("An 'Assigned to"). Fixing it:
+**3. Emit on @-mention in a comment**
+- A comment mentioning @U creates one `comment_mention` event for U.
+- Mentioning @U three times in one comment creates one event, not three.
+- Mentioning @U and @V creates one event each.
+- An unresolvable handle creates no event and does not fail the comment write.
+- Editing a comment to add a mention notifies only the newly added user; prior mentions are not re-notified.
 
-API Error: Opus 5 (1M context)'s safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations. Claude Code can't respond to this message with Opus 5 (1M context).
+**4. Emit on comment on a card assigned to you**
+- A comment on a card whose current assignee is U creates one `comment_on_assigned_card` event for U.
+- A comment on an unassigned card creates no event.
+- After reassignment U→V, later comments notify V only.
+- Events already delivered to U are not retracted when the card is reassigned.
 
-Try rephrasing the request in a new session or change your model.
+**5. Emission rules: self-suppression and cross-trigger de-duplication**
+- An actor never notifies themselves: self-assignment, self-mention, and commenting on a card assigned to themselves each produce zero events.
+- One comment that both @-mentions U and sits on a card assigned to U produces exactly one event for U, typed `comment_mention`.
+- Both rules are enforced at emission, so no consumer — tray today, email later — has to re-filter.
 
-Learn more: https://support.claude.com/en/articles/16049681
+**6. Notification tray with unread badge**
+- Badge shows when unread > 0, hidden at 0, display caps at "99+".
+- Tray lists events newest first, one row per event, paginated at 50 with load-more.
+- Each row shows actor, what happened, card title, relative time; navigates to the card, and to the comment for comment-derived events.
+- A row whose card or comment was deleted renders a clear "no longer available" state rather than erroring or dead-linking.
+- Empty state when the user has no notifications.
 
-Details: `[reasoning_extraction]`
+**7. Read state: mark-read and mark-all-read**
+- Opening a notification marks that one read and decrements the count by one.
+- Mark-all-read clears every unread event and the badge disappears.
+- Read state is per user and survives reload and new sessions.
+- Marking read is idempotent — repeating it cannot drive the count negative.
+- Opening the tray does not itself mark anything read.
 
-Request ID: req_011CfXYQ2Nq7KA8f1hpdEEbb
+**8. Unread count freshness**
+- Count updates without a full page reload, within 60s of event creation.
+- Polling hits a lightweight count-only endpoint, not a full list fetch.
+- Polling pauses while the tab is hidden and refreshes on becoming visible.
+- No websocket or SSE transport in v1.
+
+And the assumption rows I'd file alongside it — these are my calls on things you didn't specify, each one yours to overturn:
+
+1. **Self-actions notify nobody** — zero events for your own assignment, mention, or comment.
+2. **Mention wins de-dup** — a mention on a card assigned to you is one notification, not two.
+3. **"No migration" restated as achievable** — email adds channel records additively, with no backfill or rewrite of event rows. Literal zero-migration is impossible since email needs per-channel delivery state that in-app doesn't.
+4. **Revocation emits nothing and retracts nothing** — unassignment, deleted comments, deleted cards create no events and don't remove existing ones; the tray degrades gracefully instead.
+5. **No retention policy in v1** — rows are never pruned; pagination and the 99+ cap absorb the volume.
+6. **Interval polling, 60s** — no real-time transport.
+7. **Accepted volume risk** — a 15-comment thread between two other people on a card assigned to you is still 15 notifications. Narrowing this (first comment per person, or only from someone new to the thread) is the fallback if it becomes a complaint.
+8. **Comment notifications follow current assignee** — reassignment transfers the stream; already-delivered rows stay.
+
+Assumption 3 is the one I'd most like you to look at, since it changes a criterion you specified rather than filling a gap.
+```
+
+### 9. Developer
+
+```
+Now for the acceptance criteria: call `propose_criterion` once for EACH criterion — one tool call per criterion, never a single call carrying a list, and never folding more than one criterion's text into a single call. Draft criteria for every task you staged this session, for any task that already existed on this epic, and directly on the epic proposal itself where a criterion belongs there instead — don't wait for a task to exist first if none does. Name the parent with `parent_proposal_id`, using the id the earlier staging call returned in its result. The parent does NOT need to be accepted first: accepting a criterion accepts its still-pending parent in the same transaction, so go ahead and name a pending parent directly. These rows are a DRAFT of your own reasoning: I will accept, amend or reject each one myself, and only the ones I accept will be primed into a later session on this epic. Go ahead now.
+```
+
+### 10. Agent — chunks=8 chars=3553 endedBy=result
+
+```
+All 16 assumption rows are staged. Now, on criteria — let me check whether the epic gate has moved, since that's what criteria need to hang off.
+
+Gate has moved — that's a different error now. The payload was likely over the 1000-character description limit; trimming it.
+
+Epic staged. Now the 8 tasks under it.
+
+Epic and all 8 tasks staged. Now criteria, one call each — starting with the three that belong on the epic itself rather than any single task.
+
+Let me verify nothing dropped.
+
+Verified — 68 rows staged, and the listing surfaced a duplicate: my first assumption row was recorded twice (only one id came back to me). Removing the stray copy.
+
+`delete_proposal` only targets items already accepted onto the board (and doesn't cover assumption rows), so I can't remove a pending duplicate — you'll want to reject one of the two copies during review. Details below. Recording the session summary:
+
+Everything's staged and the session summary is recorded. Where things landed:
+
+**Staged for your review — 68 pending rows, nothing accepted:**
+- **1 epic** — in-app notifications for board events directed at you
+- **8 tasks** — channel-agnostic data model; one task per trigger; cross-cutting emission rules; tray + badge; read state; count freshness
+- **42 criteria** — 3 on the epic itself (trigger completeness, the "recipient is always assignee-or-mentioned" invariant, and the scope boundary), the rest distributed across the 8 tasks
+- **17 assumption rows** — 8 recording decisions you made, 6 flagged `NOT YET CONFIRMED BY DEVELOPER`, plus the trigger-3 volume risk and the reassignment-transfer rule
+
+**Two things need your attention:**
+
+1. **A duplicate assumption row.** `01M3QSTHNS7ANJFV5V5EZQJMQB` and `01M3QSTHNGN92HCA8NN32C53TK` have identical text — my first `propose_assumption` call was recorded twice, though only one id came back in the tool result. I can't clean it up myself: `delete_proposal` targets items already accepted onto the board and its type enum doesn't cover assumptions. Reject one copy at review.
+
+2. **Six assumptions you never ruled on.** These are my defaults, not your decisions, and they're labelled as such so they don't get primed into a later session as though you'd approved them. The two I'd look at first:
+   - **Self-actions notify nobody.** I raised this twice and it didn't get answered. It's the one that produces most-obviously-broken behaviour if guessed wrong.
+   - **The "no migration" restatement.** This one *amends* a constraint you specified rather than filling a gap. Email needs per-channel send/failure state that in-app doesn't, so literal zero-migration isn't reachable; I wrote the criterion as "no event-table column change, no backfill" instead. If you disagree with that reading, the data model task changes shape.
+
+Two process notes worth flagging: the epic was refused twice while the board sat in its challenge stage — advancing it is yours alone, and assumption rows went through before epics and tasks did. And the first epic attempt failed on a malformed-payload error that was almost certainly the 1000-character description limit; the staged version is trimmed to fit.
+
+On the substance: your redefinition of trigger 3 to current-assignee genuinely fixed the contradiction I raised, but it doesn't remove the volume risk — a long thread between two other people on a card assigned to you is still one notification per comment. You accepted that, and it's recorded as accepted rather than solved, with the narrowing options noted as the fallback if the badge-fatigue complaint shows up.
 ```
 
 ## Capture integrity
 
 | Agent turn | Chunk count | Character count | End marker | Non-conversation |
 | --- | --- | --- | --- | --- |
-| 1 | 2 | 2007 | result | — |
-| 2 | 2 | 4088 | result | — |
-| 3 | 2 | 3008 | result | — |
-| 4 | 3 | 992 | result | invalid_request |
+| 1 | 2 | 2385 | result | — |
+| 2 | 2 | 4329 | result | — |
+| 3 | 1 | 280 | idle | — |
+| 4 | 1 | 5327 | result | — |
+| 5 | 8 | 3553 | result | — |
 
 ## Propose-tool observations
 
@@ -174,33 +234,24 @@ Request ID: req_011CfXYQ2Nq7KA8f1hpdEEbb
 
 ## Per-criterion results
 
-(not yet available — populated once the decompose phase completes)
+- ✅ SHAPE-01 — the agent challenges before any work is planned — challenged=true noWorkPlanned=refused
+- ✅ SHAPE-02 — the outcome lands directly on the board — acceptPath=task-subtree before={epics:0,tasks:0,criteria:0} after={epics:1,tasks:1,criteria:4} delta=6
+- ✅ SHAPE-03/SHAPE-04 — accept, reject and amend decided individually — at least one reject and one amend were exercised — proposalListVerdict=not-applicable
+- ℹ️ SHAPE-05 — reopening primes the challenge against what the epic already contains (informational — not gating) — this single-session run has no epic to reopen; the reopen leg is proven structurally by authoring_acceptance.rs::criterion_4_* — reported here rather than gated
 
 ## Draft usefulness (SHAPE-03)
 
-- Drafted criteria: 0
-- Criteria reachability: not-attempted (criteria-stage proposal drain stoppedBy: n/a)
+- Drafted criteria: 42
+- Criteria reachability: drafted (criteria-stage proposal drain stoppedBy: quiet)
 - proposal_list-in-staging-turn verdict: not-applicable
-- Amended criteria: 0
-- Ratio (amended/drafted): 0/0
-
-## Run failure
-
-This run did not complete. `Error`: backend non-conversation message (backend_refusal) stopped the run at the distillation turn — source=assistant_envelope_error_flag classifier=invalid_request requestId=none. This is a backend-level message, not a model turn; the conversation did not complete and the proposal wait was never entered. See /Users/cymarechal/orca/workspaces/HighKnow-harness/threadfin/.planning/phases/05-socratic-epic-authoring/05-LIVE-CHALLENGE-TRANSCRIPT.md for the captured turns.
-
-```
-at file:///Users/cymarechal/orca/workspaces/HighKnow-harness/threadfin/scripts/uat/uat-08-socratic-authoring.mjs:8235:17
-```
-
-## Non-conversation turn
-
-This run stopped on a non-conversation backend message (`backend_refusal`), not a model turn — detected via `assistant_envelope_error_flag`, classifier/code `invalid_request`, request id `none`. The conversation did not complete. The turns captured above, before this message, are real model turns and may be judged on their own merits — but no verdict below should be read as covering a finished conversation.
+- Amended criteria: 1
+- Ratio (amended/drafted): 1/42
 
 ## Credential path
 
 - Authentication method: claude.ai
 - Logged in: true
-- Configuration directory: /var/folders/3x/b6p583x9491_v7qmnf087j580000gn/T/flywheel-uat-socratic-authoring-e28LXs/claude-config
+- Configuration directory: /var/folders/3x/b6p583x9491_v7qmnf087j580000gn/T/flywheel-uat-socratic-authoring-actaFw/claude-config
 - No API-key environment variable was present in the spawned environment (0 removed before spawn).
 
 ## Verdicts (human — fill these in)
