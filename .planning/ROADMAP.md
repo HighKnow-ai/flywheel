@@ -711,12 +711,54 @@ prompting in a terminal, before building the full surface.
   4. A proposal that duplicates an existing item is flagged as a duplicate before the user sees it.
   5. A chatty agent hits a per-run proposal limit and the user is told the limit was hit, rather than proposals being silently dropped.
 
-**Plans**: TBD
+**Plans**: 9 plans in 8 waves
 **UI hint**: yes
+
+Plans:
+
+**Wave 1 — the tracer** *(the thinnest end-to-end slice, proven before anything expands out from it; carries the one-way schema decision checkpoint and clears `06-RESEARCH.md` Pitfall 1 first, since the authoring stage-gate hook is currently wired onto every execution run and would deny `propose_item` for a reason unrelated to what the tracer tests)*
+
+- [ ] 06-01-PLAN.md — Tracer: an execution-run agent proposes through `propose_item`, the row lands pending with its rationale and turn pointer, the shipped triage lane shows it, accepting mints a real task (PROP-01, PROP-02, PROP-07)
+
+**Wave 2** *(both blocked on the tracer; they share no file and run in parallel)*
+
+- [ ] 06-02-PLAN.md — No promotion without a human: the source gate, its gate-on-the-gate, the issues-no-status gate, and the adversarial corpus (PROP-02, PROP-03)
+- [ ] 06-03-PLAN.md — The four triage verbs in the core: `create_issue_in_tx`, merge, defer, accept-a-proposed-issue, and the two bulk paths (PROP-06, PROP-02)
+
+**Wave 3** *(blocked on 06-01 and 06-03 — shares `authoring_proposal.rs` and `db/mod.rs`)*
+
+- [ ] 06-04-PLAN.md — Duplicate flagging: the decided-set FTS index, the bm25 detector, a measured threshold, and the flag written at staging time (PROP-04)
+
+**Wave 4** *(blocked on 06-04 — shares `authoring_proposal.rs`)*
+
+- [ ] 06-05-PLAN.md — The per-run volume limit inside the write transaction, the loud refusal, the re-derived notice, and the duplicate candidate returned to the agent (PROP-05, PROP-04)
+
+**Wave 5** *(blocked on 06-03 and 06-05 — shares `query/authoring.rs`, `commands/authoring.rs` and `main.rs`)*
+
+- [ ] 06-06-PLAN.md — The triage command surface: the deferred read, five-status counts, five Tauri commands, the typed wrappers and the TanStack hooks (PROP-06, PROP-07, PROP-04)
+
+**Wave 6** *(blocked on 06-06)*
+
+- [ ] 06-07-PLAN.md — `TriageSurface.tsx`: the dedicated view, its own keyboard region, the rationale and provenance, the duplicate annotation, the deferred filter, bulk reject/defer and its component tests (PROP-06, PROP-07, PROP-04, PROP-05)
+
+**Wave 7** *(blocked on 06-07)*
+
+- [ ] 06-08-PLAN.md — Routing it in: the store trigger, the App-level mount, the lane's route, and an execution run's own live proposal tray (PROP-06, PROP-07)
+
+**Wave 8** *(blocked on 06-08 — the phase's ship gate)*
+
+- [ ] 06-09-PLAN.md — The scriptable acceptance run: the UAT bridge's seven new verbs, an offline arm that costs nothing, a live arm a human runs, and a per-success-criterion report (all seven PROP ids)
 
 **Notes**: The proposed-state gate is structural, not a convention — research is explicit that
 backlog spam and auto-promotion are how trust in an agent-authored backlog collapses. Criterion 1
 should be verified by proving no promotion path exists, not just that the happy path asks first.
+Planning found two things the phase artifacts had wrong and the plans carry the corrections: the
+authoring stage-gate hook is already wired onto every execution run, so `propose_item` would be
+denied before reaching its own handler unless `writeHookSettings` is parameterized first (06-01);
+and `packages/desktop` does have a frontend test harness — `vitest` 5.0.0 with jsdom and 38 existing
+test files — contrary to `06-RESEARCH.md`'s and `06-VALIDATION.md`'s "none exists", so
+`TriageSurface` is validated at the component level (06-07) rather than deferred to a manual
+walkthrough.
 
 ### Phase 7: The Board Tells The Git Truth
 
