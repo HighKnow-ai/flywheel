@@ -1127,6 +1127,23 @@ export function buildDeleteProposalPayload(args: {
   };
 }
 
+/** Plan 06-05 (D-108): the well-formed shape of the `duplicateCandidate` object a staging answer
+ * MAY carry alongside `proposalId` — `kind`/`title`/`score` required, `key` optional (a proposal
+ * candidate has no key until it is accepted). Anything else (a non-object, a wrong-typed field, a
+ * `key` that is neither absent nor a string) is NOT well-formed and degrades to "no candidate in
+ * the answer" — never turns a successfully staged proposal into a rejected tool call. */
+function isWellFormedDuplicateCandidate(
+  value: unknown,
+): value is { kind: string; key?: string; title: string; score: number } {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.kind !== "string" || typeof v.title !== "string" || typeof v.score !== "number") {
+    return false;
+  }
+  if (v.key !== undefined && v.key !== null && typeof v.key !== "string") return false;
+  return true;
+}
+
 /** Stage one {@link AuthoringProposalPayload} over the per-run socket and resolve with the
  * CORE-MINTED `proposalId` the held call answers with — the ONE connect/write/hold/wait shape
  * every `propose_`/`amend_`/`delete_` tool call shares, factored out so six near-identical
@@ -1136,7 +1153,15 @@ export function buildDeleteProposalPayload(args: {
  * {@link requestBoardRead} does — the caller needs the row id the Rust core actually wrote, not
  * an acknowledgement that a write was attempted. Deliberately no `setTimeout`/`setInterval` — the
  * promise settles ONLY when the socket answers, matching every other held call in this module.
- * Exported so the regression suite can drive it directly against a real socket. */
+ * Exported so the regression suite can drive it directly against a real socket.
+ *
+ * Plan 06-05 (D-108): the resolved text block ALSO carries `duplicateCandidate` when the
+ * answer's `result` carries one ({@link isWellFormedDuplicateCandidate}) — omitted entirely
+ * (never sent as `null`) when absent or malformed, so an authoring `propose_*` call's answer
+ * shape stays byte-identical to what it is today. One staging function serves BOTH run kinds —
+ * the only difference is whether the core had a candidate to report, never a second execution-
+ * run-specific staging path. A refusal (an `error` string, e.g. PROP-05's proposal-limit message)
+ * needs no special handling here — it already rejects below, exactly as before. */
 export function stageAuthoringProposal(
   socketPath: string,
   payload: Omit<AuthoringProposalPayload, "requestId">,
@@ -1149,9 +1174,15 @@ export function stageAuthoringProposal(
     socket.on("error", (err) => reject(err));
     const rl = createInterface({ input: socket });
     rl.once("line", (line) => {
-      let parsed: { result?: { proposalId?: unknown }; error?: string };
+      let parsed: {
+        result?: { proposalId?: unknown; duplicateCandidate?: unknown };
+        error?: string;
+      };
       try {
-        parsed = JSON.parse(line) as { result?: { proposalId?: unknown }; error?: string };
+        parsed = JSON.parse(line) as {
+          result?: { proposalId?: unknown; duplicateCandidate?: unknown };
+          error?: string;
+        };
       } catch (err) {
         reject(err);
         return;
@@ -1165,7 +1196,15 @@ export function stageAuthoringProposal(
         reject(new Error(`staging answer carried no proposalId: ${line}`));
         return;
       }
-      resolve({ content: [{ type: "text", text: JSON.stringify({ staged: true, proposalId }) }] });
+      const responseBody: { staged: true; proposalId: string; duplicateCandidate?: unknown } = {
+        staged: true,
+        proposalId,
+      };
+      const candidate = parsed.result?.duplicateCandidate;
+      if (isWellFormedDuplicateCandidate(candidate)) {
+        responseBody.duplicateCandidate = candidate;
+      }
+      resolve({ content: [{ type: "text", text: JSON.stringify(responseBody) }] });
     });
   });
 }

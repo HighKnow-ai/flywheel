@@ -26,8 +26,11 @@ import {
   EXECUTION_PROPOSE_ITEM_TOOL_NAME,
   MCP_SERVER_NAME,
   proposeItemToolDefinition,
+  stageAuthoringProposal,
+  startPermissionServer,
 } from "../dist/mcp-permission-server.js";
 import { buildClaudeArgv } from "../dist/claude-code-adapter.js";
+import { waitForListening } from "./socket-test-helpers.mjs";
 
 test("proposeItemToolDefinition's inputSchema declares target_type/title/body/kind/rationale, required is exactly target_type, title, rationale", () => {
   assert.equal(proposeItemToolDefinition.name, "propose_item");
@@ -153,3 +156,158 @@ test("buildClaudeArgv pushes the fully-qualified propose_item name onto --allowe
     `expected ${EXECUTION_PROPOSE_ITEM_TOOL_NAME} among --allowedTools values: ${JSON.stringify(argv)}`,
   );
 });
+
+// -----------------------------------------------------------------------------------------------
+// Plan 06-05 (D-108): socket-level tests over a real `startPermissionServer` — the duplicate
+// candidate reaching the model, its degradation contract, and the limit-refusal transport.
+// -----------------------------------------------------------------------------------------------
+
+test(
+  "an answer carrying a staged id and a duplicate candidate resolves with both present in the text block",
+  { timeout: 5000 },
+  async () => {
+    const handle = startPermissionServer(
+      () => {},
+      () => {},
+      () => {},
+      (payload) => {
+        handle.answerProposalStaged(payload.requestId, {
+          proposalId: "01ITEMWITHCANDIDATEAAAAAAA",
+          duplicateCandidate: { kind: "task", key: "FLY-42", title: "Fix the flaky retry test", score: -30.5 },
+        });
+      },
+    );
+    try {
+      await waitForListening(handle.socketPath);
+      const result = await stageAuthoringProposal(
+        handle.socketPath,
+        buildProposeItemPayload({
+          target_type: "task",
+          title: "Fix the flaky retry test again",
+          rationale: "Found while executing an unrelated task",
+        }),
+      );
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.staged, true);
+      assert.equal(parsed.proposalId, "01ITEMWITHCANDIDATEAAAAAAA");
+      assert.deepEqual(parsed.duplicateCandidate, {
+        kind: "task",
+        key: "FLY-42",
+        title: "Fix the flaky retry test",
+        score: -30.5,
+      });
+    } finally {
+      handle.close();
+    }
+  },
+);
+
+test(
+  "an answer carrying only a staged id resolves with exactly the shape the authoring path produces today",
+  { timeout: 5000 },
+  async () => {
+    const handle = startPermissionServer(
+      () => {},
+      () => {},
+      () => {},
+      (payload) => {
+        handle.answerProposalStaged(payload.requestId, { proposalId: "01ITEMNOCANDIDATEAAAAAAAAA" });
+      },
+    );
+    try {
+      await waitForListening(handle.socketPath);
+      const result = await stageAuthoringProposal(
+        handle.socketPath,
+        buildProposeItemPayload({
+          target_type: "task",
+          title: "Fix the flaky retry test",
+          rationale: "Found while executing an unrelated task",
+        }),
+      );
+      const parsed = JSON.parse(result.content[0].text);
+      // Field-by-field, so a future reader can see the divergence from today's shape is purely
+      // additive: no duplicateCandidate key present at all when the answer carried none.
+      assert.deepEqual(Object.keys(parsed).sort(), ["proposalId", "staged"]);
+      assert.equal(parsed.staged, true);
+      assert.equal(parsed.proposalId, "01ITEMNOCANDIDATEAAAAAAAAA");
+    } finally {
+      handle.close();
+    }
+  },
+);
+
+test(
+  "an answer carrying a malformed candidate still resolves successfully with the staged id",
+  { timeout: 5000 },
+  async () => {
+    const handle = startPermissionServer(
+      () => {},
+      () => {},
+      () => {},
+      (payload) => {
+        handle.answerProposalStaged(payload.requestId, {
+          proposalId: "01ITEMMALFORMEDCANDIDATEAA",
+          duplicateCandidate: "not an object",
+        });
+      },
+    );
+    try {
+      await waitForListening(handle.socketPath);
+      const result = await stageAuthoringProposal(
+        handle.socketPath,
+        buildProposeItemPayload({
+          target_type: "task",
+          title: "Fix the flaky retry test",
+          rationale: "Found while executing an unrelated task",
+        }),
+      );
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.staged, true);
+      assert.equal(parsed.proposalId, "01ITEMMALFORMEDCANDIDATEAA");
+      assert.equal(parsed.duplicateCandidate, undefined, "a malformed candidate must degrade to no candidate");
+    } finally {
+      handle.close();
+    }
+  },
+);
+
+test(
+  "an answer carrying an error naming the limit rejects with that message intact",
+  { timeout: 5000 },
+  async () => {
+    const handle = startPermissionServer(
+      () => {},
+      () => {},
+      () => {},
+      (payload) => {
+        handle.answerProposalStaged(
+          payload.requestId,
+          undefined,
+          "proposal limit reached: this run has already staged 10 of 10 allowed proposals — this " +
+            "one was NOT staged. Call report_summary and put it in the remains field instead.",
+        );
+      },
+    );
+    try {
+      await waitForListening(handle.socketPath);
+      await assert.rejects(
+        () =>
+          stageAuthoringProposal(
+            handle.socketPath,
+            buildProposeItemPayload({
+              target_type: "task",
+              title: "The 11th finding",
+              rationale: "Found while executing an unrelated task",
+            }),
+          ),
+        (err) => {
+          assert.match(err.message, /proposal limit reached/);
+          assert.match(err.message, /report_summary/);
+          return true;
+        },
+      );
+    } finally {
+      handle.close();
+    }
+  },
+);
