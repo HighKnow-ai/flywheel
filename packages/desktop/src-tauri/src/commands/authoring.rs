@@ -23,6 +23,15 @@
 //! `report_summary`'s `remains` field, never a silent drop. `authoring_proposal_limit_notices`
 //! (below) is the tray-side read for those refusals — DERIVED from the
 //! `proposal.limit_exhausted` events on every call, never a second stored copy of the notice.
+//!
+//! Plan 06-06 exposes the rest of the triage-verb surface Wave 2 (plan 06-03) built:
+//! `authoring_proposal_merge` (D-101) and `authoring_proposal_defer` (D-102) each wrap their
+//! single-row domain verb exactly like `authoring_proposal_accept`/`authoring_proposal_reject`
+//! already do; `authoring_proposals_reject_bulk`/`authoring_proposals_defer_bulk` (D-104) are the
+//! ONLY two bulk commands this module offers — bulk-accept does not exist at any layer, by design;
+//! `authoring_proposals_deferred` is `authoring_proposals_pending`'s deferred-filter sibling. No
+//! command in this file accepts a `project_id` on a write path (T-06-25) — every write resolves
+//! its own scope from the proposal row or the local actor, server-side.
 
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
@@ -69,6 +78,10 @@ pub struct AuthoringRunDto {
 /// `serde_json::Value` here rather than a typed DTO: the tray only ever needs to read `title`/
 /// `targetType` out of it for this plan's one supported shape, and re-typing it on the wire would
 /// duplicate `ProposalPayload`'s own `kind` discriminant for no reader this plan has yet.
+///
+/// Plan 06-06 closes the gap 06-01-SUMMARY.md recorded: `rationale`/`originLogOffset` (PROP-07)
+/// and `duplicateOf`/`duplicateScore` (PROP-04) now reach the renderer, so the triage lane can
+/// finally show WHY a proposal was made, not just its title.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposalDto {
@@ -84,6 +97,10 @@ pub struct ProposalDto {
     pub status: String,
     pub created_by: String,
     pub created_at: String,
+    pub rationale: Option<String>,
+    pub origin_log_offset: Option<i64>,
+    pub duplicate_of: Option<String>,
+    pub duplicate_score: Option<f64>,
 }
 
 impl From<flywheel_core::domain::authoring_proposal::Proposal> for ProposalDto {
@@ -101,6 +118,10 @@ impl From<flywheel_core::domain::authoring_proposal::Proposal> for ProposalDto {
             status: proposal.status,
             created_by: proposal.created_by,
             created_at: proposal.created_at,
+            rationale: proposal.rationale,
+            origin_log_offset: proposal.origin_log_offset,
+            duplicate_of: proposal.duplicate_of,
+            duplicate_score: proposal.duplicate_score,
         }
     }
 }
@@ -546,11 +567,19 @@ pub struct ProposalStatusCountsDto {
     pub pending: i64,
     pub accepted: i64,
     pub rejected: i64,
+    pub merged: i64,
+    pub deferred: i64,
 }
 
 impl From<flywheel_core::query::authoring::ProposalStatusCounts> for ProposalStatusCountsDto {
     fn from(counts: flywheel_core::query::authoring::ProposalStatusCounts) -> Self {
-        Self { pending: counts.pending, accepted: counts.accepted, rejected: counts.rejected }
+        Self {
+            pending: counts.pending,
+            accepted: counts.accepted,
+            rejected: counts.rejected,
+            merged: counts.merged,
+            deferred: counts.deferred,
+        }
     }
 }
 
@@ -589,6 +618,34 @@ pub fn authoring_proposals_pending(
     let resolved_limit = resolve_limit(limit);
     let cursor_ref = cursor.as_ref().map(|c| (c.created_at.as_str(), c.id.as_str()));
     let window = flywheel_core::query::authoring::list_pending_proposals(
+        &conn,
+        &project_id,
+        resolved_limit,
+        cursor_ref,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(ProposalWindowDto {
+        proposals: window.proposals.into_iter().map(ProposalDto::from).collect(),
+        counts: window.counts.into(),
+    })
+}
+
+/// Plan 06-06 (D-102): the deferred filter's own read — every DEFERRED proposal across
+/// `project_id`, bounded and clamped through this module's own `resolve_limit`, exactly like
+/// [`authoring_proposals_pending`] immediately above. Calls only
+/// `query::authoring::list_deferred_proposals` — the same one-read-path discipline every other
+/// board-level proposal read in this module follows.
+#[tauri::command]
+pub fn authoring_proposals_deferred(
+    state: State<AppState>,
+    project_id: String,
+    limit: Option<i64>,
+    cursor: Option<ProposalCursorInput>,
+) -> Result<ProposalWindowDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let resolved_limit = resolve_limit(limit);
+    let cursor_ref = cursor.as_ref().map(|c| (c.created_at.as_str(), c.id.as_str()));
+    let window = flywheel_core::query::authoring::list_deferred_proposals(
         &conn,
         &project_id,
         resolved_limit,
@@ -720,6 +777,186 @@ pub fn authoring_subtree_accept(
         .ok();
 
     Ok(())
+}
+
+/// [`authoring_proposal_merge`]'s own DTO — the decided [`ProposalDto`] plus the new child issue's
+/// id and key, mirroring `domain::authoring_proposal::MergeOutcome`'s shape. `issue_key` is looked
+/// up with one follow-up single-row read (the domain outcome carries only the id) while the
+/// connection is still locked below, exactly like [`authoring_subtree_accept`]'s own
+/// `agent_run_id` follow-up read immediately above.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeOutcomeDto {
+    pub proposal: ProposalDto,
+    pub issue_id: String,
+    pub issue_key: String,
+}
+
+/// Merge a pending task/epic/issue proposal into an existing task or epic (D-101) — attaches one
+/// child `issues` row through the canonical writer that table already owns, never mutating the
+/// target's own row. `target_kind` accepts only the two literals `"task"`/`"epic"`, refusing
+/// anything else by naming both accepted values (T-06-25: this command resolves identity itself
+/// and accepts no `project_id`, matching every other command in this workspace). A merge whose
+/// target no longer exists surfaces `domain::authoring_proposal::ProposalUndecidable`'s own
+/// `Display` text through the plain `.to_string()` below — the SAME stable substring
+/// `authoring_proposal_accept`'s error already carries through this identical `map_err` pattern,
+/// which `ProposalRow.tsx`'s `isUndecidableError` already matches on; no downcast is needed at
+/// this layer; the typed error's `Display` IS the string that crosses the command boundary.
+#[tauri::command]
+pub fn authoring_proposal_merge(
+    state: State<AppState>,
+    app: AppHandle,
+    proposal_id: String,
+    target_kind: String,
+    target_id: String,
+) -> Result<MergeOutcomeDto, String> {
+    let target = match target_kind.as_str() {
+        "task" => flywheel_core::domain::authoring_proposal::MergeTarget::Task(target_id),
+        "epic" => flywheel_core::domain::authoring_proposal::MergeTarget::Epic(target_id),
+        other => {
+            return Err(format!("target_kind must be \"task\" or \"epic\", got {other:?}"));
+        }
+    };
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let outcome = flywheel_core::domain::authoring_proposal::merge_proposal(
+        &mut conn,
+        &actor_id,
+        &proposal_id,
+        &target,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let issue_key: String = conn
+        .query_row(
+            "SELECT key FROM issues WHERE id = ?1",
+            rusqlite::params![outcome.issue_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let agent_run_id = outcome.proposal.agent_run_id.clone();
+    let issue_id = outcome.issue_id.clone();
+
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "issue", "id": issue_id })).ok();
+    app.emit("board:changed", serde_json::json!({ "entity": "agent_run", "id": agent_run_id }))
+        .ok();
+
+    Ok(MergeOutcomeDto { proposal: outcome.proposal.into(), issue_id, issue_key })
+}
+
+/// Defer a pending proposal (D-102) — mints nothing in any canonical table; a deferred proposal
+/// stays recallable through [`authoring_proposals_deferred`]. Resolves the human actor
+/// server-side, exactly like every other command in this workspace.
+#[tauri::command]
+pub fn authoring_proposal_defer(
+    state: State<AppState>,
+    app: AppHandle,
+    proposal_id: String,
+) -> Result<ProposalDto, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let proposal = flywheel_core::domain::authoring_proposal::defer_proposal(
+        &mut conn,
+        &actor_id,
+        &proposal_id,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let agent_run_id = proposal.agent_run_id.clone();
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "agent_run", "id": agent_run_id }))
+        .ok();
+
+    Ok(proposal.into())
+}
+
+/// [`authoring_proposals_reject_bulk`]/[`authoring_proposals_defer_bulk`]'s own DTO — the camelCase
+/// mirror of `domain::authoring_proposal::BulkDecisionOutcome`. D-104: the only two bulk verbs this
+/// module offers — no bulk-accept counterpart exists at any layer (the Phase-5 accept-all source
+/// gate over `packages/desktop/src` re-runs as this plan's own verify step, proving it stays
+/// green).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkDecisionDto {
+    pub decided: usize,
+    pub skipped: Vec<String>,
+}
+
+/// Bulk-reject every pending id in `proposal_ids` (D-104) — the first of the two bulk paths this
+/// module offers. Resolves the human actor server-side; emits one `board:changed` when at least
+/// one row was actually decided (an empty selection or an all-skipped batch touches nothing, so it
+/// emits nothing).
+#[tauri::command]
+pub fn authoring_proposals_reject_bulk(
+    state: State<AppState>,
+    app: AppHandle,
+    proposal_ids: Vec<String>,
+    reason: Option<String>,
+) -> Result<BulkDecisionDto, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let outcome = flywheel_core::domain::authoring_proposal::reject_proposals_bulk(
+        &mut conn,
+        &actor_id,
+        &proposal_ids,
+        reason.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    drop(conn);
+
+    if outcome.decided > 0 {
+        app.emit(
+            "board:changed",
+            serde_json::json!({ "entity": "authoring_proposal", "id": "bulk_reject" }),
+        )
+        .ok();
+    }
+
+    Ok(BulkDecisionDto { decided: outcome.decided, skipped: outcome.skipped })
+}
+
+/// Bulk-defer every pending id in `proposal_ids` (D-104) — [`authoring_proposals_reject_bulk`]'s
+/// sibling, behaving identically.
+#[tauri::command]
+pub fn authoring_proposals_defer_bulk(
+    state: State<AppState>,
+    app: AppHandle,
+    proposal_ids: Vec<String>,
+) -> Result<BulkDecisionDto, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+
+    let outcome = flywheel_core::domain::authoring_proposal::defer_proposals_bulk(
+        &mut conn,
+        &actor_id,
+        &proposal_ids,
+    )
+    .map_err(|e| e.to_string())?;
+
+    drop(conn);
+
+    if outcome.decided > 0 {
+        app.emit(
+            "board:changed",
+            serde_json::json!({ "entity": "authoring_proposal", "id": "bulk_defer" }),
+        )
+        .ok();
+    }
+
+    Ok(BulkDecisionDto { decided: outcome.decided, skipped: outcome.skipped })
 }
 
 /// Reject a pending proposal (D-93) — the deciding human actor is resolved server-side, exactly
