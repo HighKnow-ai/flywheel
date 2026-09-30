@@ -845,7 +845,18 @@ export async function previewEpicContextPacket(
  * session-log turn pointer (`originLogOffset`), and the duplicate verdict plan 06-04 writes at
  * staging time (`duplicateOf`/`duplicateScore`, PROP-04) — all four `null` for every
  * authoring-session proposal and for a proposal never flagged as a near-duplicate.
+ *
+ * Plan 06-07 (deviation, Rule 2) adds `duplicateCandidate` — `duplicateOf` alone is an opaque id;
+ * `triage/TriageSurface.tsx`'s own annotation needs the candidate's kind/key/title, resolved
+ * server-side by `authoring_proposals_pending`/`authoring_proposals_deferred` only (the tray's own
+ * `authoring_proposals_for_run` has no caller that renders it yet, so it stays `null` there).
  */
+export interface DuplicateCandidateDto {
+  kind: string;
+  key: string | null;
+  title: string;
+}
+
 export interface AuthoringProposalDto {
   id: string;
   agentRunId: string;
@@ -863,6 +874,7 @@ export interface AuthoringProposalDto {
   originLogOffset: number | null;
   duplicateOf: string | null;
   duplicateScore: number | null;
+  duplicateCandidate: DuplicateCandidateDto | null;
 }
 
 /** Every pending proposal staged for `agentRunId`, bounded server-side — the proposal tray's own

@@ -82,6 +82,13 @@ pub struct AuthoringRunDto {
 /// Plan 06-06 closes the gap 06-01-SUMMARY.md recorded: `rationale`/`originLogOffset` (PROP-07)
 /// and `duplicateOf`/`duplicateScore` (PROP-04) now reach the renderer, so the triage lane can
 /// finally show WHY a proposal was made, not just its title.
+///
+/// Plan 06-07 (deviation, Rule 2): `duplicateOf` alone is an opaque id — `TriageSurface.tsx`'s own
+/// acceptance criteria require naming the candidate's kind/key/title, which nothing on the wire
+/// carried yet. `duplicate_candidate` closes that gap by resolving it (see
+/// `proposal_dto_with_duplicate_label` below), reusing `query::authoring::
+/// resolve_duplicate_candidate_label` exactly as `handle_inbound_proposal_created` already does
+/// for a freshly staged proposal — never a second lookup routine.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposalDto {
@@ -101,6 +108,7 @@ pub struct ProposalDto {
     pub origin_log_offset: Option<i64>,
     pub duplicate_of: Option<String>,
     pub duplicate_score: Option<f64>,
+    pub duplicate_candidate: Option<DuplicateCandidateDto>,
 }
 
 impl From<flywheel_core::domain::authoring_proposal::Proposal> for ProposalDto {
@@ -122,8 +130,49 @@ impl From<flywheel_core::domain::authoring_proposal::Proposal> for ProposalDto {
             origin_log_offset: proposal.origin_log_offset,
             duplicate_of: proposal.duplicate_of,
             duplicate_score: proposal.duplicate_score,
+            duplicate_candidate: None,
         }
     }
+}
+
+/// One resolved duplicate candidate (plan 06-07, PROP-04) — the camelCase mirror of
+/// `query::authoring::DuplicateCandidateLabel`. `key` is `None` for a candidate that is itself
+/// still a pending/decided proposal (no key until accepted, D-96) — same field, same reason as
+/// `query::search::DuplicateCandidate`'s own.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateCandidateDto {
+    pub kind: String,
+    pub key: Option<String>,
+    pub title: String,
+}
+
+impl From<flywheel_core::query::authoring::DuplicateCandidateLabel> for DuplicateCandidateDto {
+    fn from(label: flywheel_core::query::authoring::DuplicateCandidateLabel) -> Self {
+        Self { kind: label.kind, key: label.key, title: label.title }
+    }
+}
+
+/// [`ProposalDto`] via the plain [`From`] impl above, PLUS one bounded `duplicate_candidate`
+/// lookup when the row carries a `duplicate_of` — the two board-level triage reads
+/// ([`authoring_proposals_pending`]/[`authoring_proposals_deferred`]) call this instead of the bare
+/// `From` conversion; the tray's own [`authoring_proposals_for_run`] has no caller that renders the
+/// candidate yet, so it keeps the cheaper plain conversion. A lookup failure, or no `duplicate_of`
+/// at all, degrades to `None` — never turns a successful read into an error (mirrors
+/// `handle_inbound_proposal_created`'s own degrade-to-`None` rule for the identical lookup).
+fn proposal_dto_with_duplicate_label(
+    conn: &rusqlite::Connection,
+    proposal: flywheel_core::domain::authoring_proposal::Proposal,
+) -> ProposalDto {
+    let duplicate_of = proposal.duplicate_of.clone();
+    let mut dto = ProposalDto::from(proposal);
+    dto.duplicate_candidate = duplicate_of.and_then(|candidate_id| {
+        flywheel_core::query::authoring::resolve_duplicate_candidate_label(conn, &candidate_id)
+            .ok()
+            .flatten()
+            .map(DuplicateCandidateDto::from)
+    });
+    dto
 }
 
 /// The run currently `running`/`blocked` for `epic_id`, if any (plan 05-10) — the ONE place "is
@@ -625,7 +674,11 @@ pub fn authoring_proposals_pending(
     )
     .map_err(|e| e.to_string())?;
     Ok(ProposalWindowDto {
-        proposals: window.proposals.into_iter().map(ProposalDto::from).collect(),
+        proposals: window
+            .proposals
+            .into_iter()
+            .map(|p| proposal_dto_with_duplicate_label(&conn, p))
+            .collect(),
         counts: window.counts.into(),
     })
 }
@@ -653,7 +706,11 @@ pub fn authoring_proposals_deferred(
     )
     .map_err(|e| e.to_string())?;
     Ok(ProposalWindowDto {
-        proposals: window.proposals.into_iter().map(ProposalDto::from).collect(),
+        proposals: window
+            .proposals
+            .into_iter()
+            .map(|p| proposal_dto_with_duplicate_label(&conn, p))
+            .collect(),
         counts: window.counts.into(),
     })
 }
