@@ -1206,6 +1206,17 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       const event = normalizeSummaryNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
       session.nextSeq += 1;
       session.onEvent(event);
+    }, (payload: AuthoringProposalPayload) => {
+      // Plan 06-09 (Rule 1 bug fix): an execution run's `propose_item` call held this connection
+      // in `startPermissionServer`'s own `pending` map with NO callback ever wired here to emit
+      // the outbound `proposal_created` notice — `onProposal` defaulted to a no-op, so a live
+      // execution-run proposal would connect, write its payload and then wait forever, because
+      // nothing ever called `resolveProposalStaged`/`answerProposalStaged` for it. Mirrors
+      // `startAuthoringSession`'s own identical wiring (below) exactly: `runId` filled from THIS
+      // closure, never from the payload (T-05-02-01/T-06-01).
+      const event = normalizeProposalNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
+      session.nextSeq += 1;
+      session.onEvent(event);
     });
 
     const bin = resolveClaudeBin();
