@@ -421,7 +421,14 @@ async function main(): Promise<void> {
     // environment denies EVERY command, harmless ones included — the misconfigured-session case
     // is exactly where this refusal layer is the only one left standing.
     if (!shimShadowDirectoryProven()) {
-      failClosed("the shim's shadow directory could not be proven installed and leading PATH");
+      // D-104: the reason names BOTH halves of the proof, because an operator hitting this needs to
+      // know which one failed — a broken shim install, or a shell whose own init dropped the shim
+      // directory from position 0 when the backend built its shell snapshot. The latter is the
+      // residual friction the trust-boundary document records as OPEN for round ten.
+      failClosed(
+        "the shim's shadow directory could not be proven installed and leading PATH for both this " +
+          "process and the shell that will run the command",
+      );
     }
 
     // Step 2 (D-61, corrected by WR-01/plan 03-30): each D-61 field is read through the tri-state
