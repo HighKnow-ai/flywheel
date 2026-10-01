@@ -318,6 +318,27 @@ pub fn register_project(
         },
     )?;
 
+    // Layer 3 (phase 12, plan 12-02): install the git-native pre-push gate. Never propagated as
+    // a registration failure (no `?`, no early return) — a repository Flywheel cannot gate is
+    // still a repository Flywheel can manage; the degradation is recorded in
+    // docs/destructive-gate-trust-boundary.md's refusal residual rows, never silently absorbed.
+    match crate::git_hooks::install_pre_push_hook(&canonical, &project_id) {
+        Ok(crate::git_hooks::PrePushInstall::Installed { .. }) => {}
+        Ok(crate::git_hooks::PrePushInstall::RefusedPreexistingHooksPath { existing }) => {
+            eprintln!(
+                "flywheel core: pre-push gate not installed for {canonical_str}: core.hooksPath is already set to {existing:?}"
+            );
+        }
+        Ok(crate::git_hooks::PrePushInstall::RefusedPreexistingPrePush { path }) => {
+            eprintln!(
+                "flywheel core: pre-push gate not installed for {canonical_str}: a pre-existing pre-push hook already exists at {path:?}"
+            );
+        }
+        Err(e) => {
+            eprintln!("flywheel core: pre-push gate not installed for {canonical_str}: {e}");
+        }
+    }
+
     get_project(conn, &project_id)
 }
 

@@ -13,6 +13,7 @@ pub mod domain;
 pub mod drift;
 pub mod epic_context_packet;
 pub mod git;
+pub mod git_hooks;
 pub mod git_retry;
 pub mod ids;
 pub mod marker;
