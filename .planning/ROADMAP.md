@@ -1031,9 +1031,9 @@ diagnosis, still correct) and `docs/destructive-gate-trust-boundary.md` — the 
 `### Why round ten was reverted` section, and the P1 statement. Captured evidence of the real snapshot
 shape is kept at `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.sh`.
 
-**Requirements**: TBD (re-verifies AGNT-07; the install point is BOARD-10's register-project path)
+**Requirements**: AGNT-07, BOARD-10 (the install point is BOARD-10's register-project path, and — from gap-closure plan 12-06 — every other path that can change a project's `repo_path`)
 **Depends on:** Phase 11
-**Plans:** 5/5 plans executed
+**Plans:** 5/6 plans executed (12-06 is gap closure for 12-VERIFICATION truth 11 / CR-01)
 
 Plans:
 **Wave 1**
@@ -1049,6 +1049,10 @@ Plans:
 
 - [x] 12-04-PLAN.md — A `--gate-push` shim entry point so a detected destructive push becomes a real permission request, and an allow answer genuinely lets the push through
 - [x] 12-05-PLAN.md — `scripts/uat/uat-11-env-file-ordering.mjs`: the one credential-spending run, measuring P1 restoration, `git --version` staying ordinary, and the socket discriminator — with a non-credential self-test arm
+
+**Wave 4** *(gap closure — 12-VERIFICATION truth 11 / 12-REVIEW CR-01)*
+
+- [ ] 12-06-PLAN.md — GAP CLOSURE: `relocate_project` installs the Layer 3 pre-push gate at the new path through a helper shared with `register_project`, with refusal/error/idempotency arms, a source invariant that fails when a third `repo_path` mutation path skips it, and the trust-boundary document corrected to name relocation
 
 ---
 *Roadmap created: 2026-09-08*
