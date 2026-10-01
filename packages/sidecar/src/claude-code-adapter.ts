@@ -116,6 +116,14 @@ export function stageGateHookScriptPath(): string {
   return fileURLToPath(new URL("./stage-gate-hook.js", import.meta.url));
 }
 
+/** The compiled standalone `SessionStart` hook script's absolute path (phase 12, plan 12-03) —
+ * resolved relative to THIS compiled module's own location, the same sibling-file idiom
+ * [`pretoolUseHookScriptPath`]/[`stageGateHookScriptPath`] already use. RED-phase stub: the
+ * `SessionStart` entry it will be wired into `writeHookSettings` is added in the GREEN commit. */
+export function sessionStartHookScriptPath(): string {
+  return fileURLToPath(new URL("./sessionstart-hook.js", import.meta.url));
+}
+
 /** Where a per-run `--settings` JSON injecting the `PreToolUse` hook is written (plan 03-07):
  * `<runtimeDir>/settings/<runId>.json`, alongside `runtime_protocol.rs`'s own per-run file
  * conventions (`runs/<runId>.json`, `shim/<runId>/`). */
