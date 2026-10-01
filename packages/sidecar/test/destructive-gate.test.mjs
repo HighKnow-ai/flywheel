@@ -3091,13 +3091,20 @@ test(
 
     // The "Named residuals" table: every row between that heading and the next "## " heading,
     // excluding the header row itself and the "---" separator row markdown tables require.
-    const residualsHeadingIndex = content.indexOf("## Named residuals");
+    // Anchored to "\n## Named residuals" (a genuine heading at the start of a line), not a bare
+    // substring match — the document's own Layer 3 prose quotes the heading inline (`(see "##
+    // Named residuals" and ...)`) ahead of the real heading, and a bare `indexOf` latched onto
+    // that quote, sliced a few lines of prose as "the section", and found zero table rows in it
+    // (phase 12 plan 12-03, Task 2's own suite-wide benign-arm run — a pre-existing structural-gate
+    // bug, not a change to the table's own content, which `destructive-gate-trust-boundary.md` is
+    // byte-identical in this commit).
+    const residualsHeadingIndex = content.indexOf("\n## Named residuals");
     assert.ok(
       residualsHeadingIndex !== -1,
       'docs/destructive-gate-trust-boundary.md no longer has a "## Named residuals" section — the ' +
         "knowingly-open cases this closure records have been dropped",
     );
-    const afterHeading = content.slice(residualsHeadingIndex + "## Named residuals".length);
+    const afterHeading = content.slice(residualsHeadingIndex + "\n## Named residuals".length);
     const nextHeadingIndex = afterHeading.indexOf("\n## ");
     const residualsSection = nextHeadingIndex === -1 ? afterHeading : afterHeading.slice(0, nextHeadingIndex);
     const residualRows = residualsSection
