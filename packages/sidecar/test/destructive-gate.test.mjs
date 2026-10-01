@@ -29,6 +29,25 @@
  * `WIRED_DECISION`). This makes the hook a REFUSAL layer, not a QUESTION layer, for the narrow
  * class of commands only it (not the D-51 shim) can see — a residual gap named here and in the
  * SUMMARY, never silently claimed as "always asks."
+ *
+ * **RUNNING THIS FILE AT ZERO CREDENTIAL COST.** Four tests below drive a REAL `claude` turn and
+ * spend real money (the three `measureMarkerOutcome` measurements and the shipped-hook end-to-end
+ * test). Every other test — the whole corpus, the unprovable matrix, and the D-104 round-ten
+ * executing-shell proof — needs only the compiled shim binary and the compiled hook. To run just
+ * those, point the real-binary probe at a path that does not exist, which makes the four live tests
+ * skip VISIBLY by name rather than silently:
+ *
+ * ```
+ * cd packages/sidecar
+ * FLYWHEEL_REAL_CLAUDE_BIN=/nonexistent/claude FLYWHEEL_RUNTIME_DIR="$(mktemp -d)" \
+ *   node --test test/destructive-gate.test.mjs
+ * ```
+ *
+ * That command is the durable, re-runnable form of D-104's own verification (uat-06b) — the live
+ * UAT 6b arm it replaces costs credentials AND needs a deleted remote fixture recreated first, and
+ * UAT 6a cannot substitute for either because it passes vacuously (it closes on
+ * `watchdog-heartbeat-stale` before the gate is ever reached; see `## Round ten` in
+ * `docs/destructive-gate-trust-boundary.md`).
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
