@@ -486,6 +486,148 @@ fn relocating_to_a_fresh_clone_installs_the_pre_push_gate_at_the_new_path() {
     });
 }
 
+// --- Phase 12, plan 12-06, Task 2: the refusal, error and idempotency arms of relocation -------
+
+#[test]
+fn a_refusal_never_fails_relocation() {
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let runtime = tempfile::tempdir().expect("runtime dir");
+    let fixture = create_repo_with_remote(scratch.path(), &[]);
+
+    with_scratch_envs(scratch.path(), runtime.path(), || {
+        let db_dir = tempfile::tempdir().expect("db dir");
+        let db_path = db_dir.path().join("flywheel.db");
+        let backups_dir = db_dir.path().join("backups");
+        std::mem::forget(db_dir);
+        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
+
+        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Refusal Fixture", "GHP14")
+            .expect("register_project should succeed");
+
+        run_git_ok(&fixture.work_path, &["add", ".flywheel/project.json"]);
+        run_git_ok(&fixture.work_path, &["commit", "-m", "track the flywheel marker"]);
+
+        let clone_path = scratch.path().join("refusal-clone");
+        run_git_ok(scratch.path(), &["clone", fixture.work_path.to_str().unwrap(), clone_path.to_str().unwrap()]);
+
+        // A foreign core.hooksPath, carrying no marker-bearing pre-push -- trips install's Step 1
+        // refusal (`RefusedPreexistingHooksPath`) when relocate_project re-installs.
+        let foreign_hooks_dir = scratch.path().join("foreign-relocation-hooks");
+        std::fs::create_dir_all(&foreign_hooks_dir).expect("failed to create foreign hooks dir");
+        run_git_ok(&clone_path, &["config", "core.hooksPath", foreign_hooks_dir.to_str().unwrap()]);
+
+        let relocated = relocate_project(&mut conn, &actor_id, &project.id, &clone_path)
+            .expect("relocate_project must succeed even when the pre-push install refuses");
+
+        let expected_path = clone_path.canonicalize().expect("canonicalize should succeed");
+        assert_eq!(relocated.repo_path, expected_path.to_str().unwrap());
+        assert_eq!(relocated.status, "active");
+
+        let readback = run_git_ok(&clone_path, &["config", "--get", "core.hooksPath"]);
+        assert_eq!(
+            String::from_utf8_lossy(&readback.stdout).trim(),
+            foreign_hooks_dir.to_string_lossy(),
+            "the developer's own core.hooksPath must be byte-identical after the refused relocation install"
+        );
+    });
+}
+
+#[test]
+fn an_install_error_never_fails_relocation() {
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let runtime = tempfile::tempdir().expect("runtime dir");
+    let fixture = create_repo_with_remote(scratch.path(), &[]);
+
+    with_scratch_envs(scratch.path(), runtime.path(), || {
+        let db_dir = tempfile::tempdir().expect("db dir");
+        let db_path = db_dir.path().join("flywheel.db");
+        let backups_dir = db_dir.path().join("backups");
+        std::mem::forget(db_dir);
+        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
+
+        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Error Fixture", "GHP15")
+            .expect("register_project should succeed");
+
+        // A plain, non-git directory carrying a matching marker -- install_pre_push_hook's `Err`
+        // arm, reached through default_hooks_pre_push's failed `git rev-parse`. This is the exact
+        // shape project_reconciliation.rs's own relocation test already exercises (its scratch
+        // repos are plain directories), so this is also what keeps that test honest.
+        let non_git_dir = scratch.path().join("relocate-error-target");
+        std::fs::create_dir_all(&non_git_dir).expect("failed to create the non-git relocation target");
+        core::marker::write_marker(
+            &non_git_dir,
+            &core::marker::ProjectMarker { project_id: project.id.clone(), project_key: project.key_prefix.clone() },
+        )
+        .expect("write_marker should succeed");
+
+        let relocated = relocate_project(&mut conn, &actor_id, &project.id, &non_git_dir)
+            .expect("relocate_project must succeed even when the pre-push install errors");
+
+        let expected_path = non_git_dir.canonicalize().expect("canonicalize should succeed");
+        assert_eq!(relocated.repo_path, expected_path.to_str().unwrap());
+    });
+}
+
+#[test]
+fn relocating_twice_to_the_same_clone_is_idempotent() {
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let runtime = tempfile::tempdir().expect("runtime dir");
+    let fixture = create_repo_with_remote(scratch.path(), &[]);
+
+    with_scratch_envs(scratch.path(), runtime.path(), || {
+        let db_dir = tempfile::tempdir().expect("db dir");
+        let db_path = db_dir.path().join("flywheel.db");
+        let backups_dir = db_dir.path().join("backups");
+        std::mem::forget(db_dir);
+        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
+
+        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Idempotency Fixture", "GHP16")
+            .expect("register_project should succeed");
+
+        run_git_ok(&fixture.work_path, &["add", ".flywheel/project.json"]);
+        run_git_ok(&fixture.work_path, &["commit", "-m", "track the flywheel marker"]);
+
+        let clone_path = scratch.path().join("idempotent-clone");
+        run_git_ok(scratch.path(), &["clone", fixture.work_path.to_str().unwrap(), clone_path.to_str().unwrap()]);
+
+        relocate_project(&mut conn, &actor_id, &project.id, &clone_path)
+            .expect("the first relocate_project call should succeed");
+
+        let hooks_dir = hooks_dir_for_repo(&project.id).expect("hooks_dir_for_repo");
+        let hooks_path_before = run_git_ok(&clone_path, &["config", "--get", "core.hooksPath"]);
+        let hooks_path_before = String::from_utf8_lossy(&hooks_path_before.stdout).trim().to_string();
+        let script_before =
+            std::fs::read(hooks_dir.join("pre-push")).expect("pre-push script should exist after the first relocation");
+
+        relocate_project(&mut conn, &actor_id, &project.id, &clone_path)
+            .expect("the second relocate_project call should succeed");
+
+        let hooks_path_after = run_git_ok(&clone_path, &["config", "--get", "core.hooksPath"]);
+        let hooks_path_after = String::from_utf8_lossy(&hooks_path_after.stdout).trim().to_string();
+        let script_after =
+            std::fs::read(hooks_dir.join("pre-push")).expect("pre-push script should exist after the second relocation");
+
+        assert_eq!(hooks_path_before, hooks_path_after, "core.hooksPath must be unchanged across the second relocation");
+        assert_eq!(
+            script_before, script_after,
+            "the installed pre-push script's bytes must be unchanged across the second relocation"
+        );
+
+        let entries: Vec<_> = std::fs::read_dir(&hooks_dir)
+            .expect("hooks dir should be readable")
+            .map(|e| e.expect("dir entry should be readable").file_name())
+            .collect();
+        assert_eq!(
+            entries,
+            vec![std::ffi::OsString::from("pre-push")],
+            "the project's hooks directory must hold exactly one entry named pre-push, got: {entries:?}"
+        );
+    });
+}
+
 // --- Task 2: the install's failure modes -----------------------------------------------------
 
 #[test]
