@@ -12,7 +12,7 @@
 
 use core::destructive::DestructiveCategory;
 use core::domain::actor::local_human_actor_id;
-use core::domain::project::register_project;
+use core::domain::project::{register_project, relocate_project};
 use core::git_hooks::{
     hooks_dir_for_repo, install_pre_push_hook, interception_layers_for, pre_push_hook_script,
     uninstall_pre_push_hook, PrePushInstall, PRE_PUSH_MARKER,
@@ -421,6 +421,67 @@ fn install_fails_loudly_when_the_hook_file_is_removed_before_verification() {
         assert!(
             rendered.contains("pre-push gate install verification failed"),
             "expected the verification-failure prefix, got: {rendered}"
+        );
+    });
+}
+
+// --- Phase 12, plan 12-06, Task 1: relocate_project keeps Layer 3 installed -------------------
+
+#[test]
+fn relocating_to_a_fresh_clone_installs_the_pre_push_gate_at_the_new_path() {
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let runtime = tempfile::tempdir().expect("runtime dir");
+    let fixture = create_repo_with_remote(scratch.path(), &[]);
+
+    with_scratch_envs(scratch.path(), runtime.path(), || {
+        let db_dir = tempfile::tempdir().expect("db dir");
+        let db_path = db_dir.path().join("flywheel.db");
+        let backups_dir = db_dir.path().join("backups");
+        std::mem::forget(db_dir);
+        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
+
+        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Relocate Fixture", "GHP13")
+            .expect("register_project should succeed");
+
+        // The marker register_project wrote is tracked content (D-15) — commit it so it travels
+        // with a fresh clone, exactly the scenario a developer hits after re-cloning.
+        run_git_ok(&fixture.work_path, &["add", ".flywheel/project.json"]);
+        run_git_ok(&fixture.work_path, &["commit", "-m", "track the flywheel marker"]);
+
+        let clone_path = scratch.path().join("relocate-clone");
+        run_git_ok(
+            scratch.path(),
+            &["clone", fixture.work_path.to_str().unwrap(), clone_path.to_str().unwrap()],
+        );
+
+        // Precondition the gap turns on: a fresh clone's .git/config has no core.hooksPath at
+        // all, because git hooks are never part of tracked history.
+        let before = run_git(&clone_path, &["config", "--get", "core.hooksPath"]);
+        assert!(
+            !before.status.success(),
+            "expected the clone's core.hooksPath to be unset before relocation, got: {}",
+            String::from_utf8_lossy(&before.stdout)
+        );
+
+        let relocated = relocate_project(&mut conn, &actor_id, &project.id, &clone_path)
+            .expect("relocate_project should succeed");
+        assert_eq!(relocated.id, project.id);
+
+        let expected_hooks_dir = hooks_dir_for_repo(&project.id).expect("hooks_dir_for_repo");
+        let after = run_git_ok(&clone_path, &["config", "--get", "core.hooksPath"]);
+        assert_eq!(
+            String::from_utf8_lossy(&after.stdout).trim(),
+            expected_hooks_dir.to_string_lossy(),
+            "expected the clone's core.hooksPath to point at the project's hooks directory after relocation"
+        );
+
+        let hook_contents = std::fs::read_to_string(expected_hooks_dir.join("pre-push")).unwrap_or_else(|e| {
+            panic!("expected a pre-push script installed at {expected_hooks_dir:?}: {e}")
+        });
+        assert!(
+            hook_contents.contains(PRE_PUSH_MARKER),
+            "expected the installed pre-push script to carry {PRE_PUSH_MARKER}, got: {hook_contents}"
         );
     });
 }
