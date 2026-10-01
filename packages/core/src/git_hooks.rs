@@ -276,15 +276,26 @@ pub fn install_pre_push_hook(repo_path: &Path, project_id: &str) -> anyhow::Resu
     fs::write(&hook_path, &script)
         .with_context(|| format!("failed to write pre-push hook script to {hook_path:?}"))?;
 
+    // The chmod step below reads the file back immediately after writing it — the same "is the
+    // file we just wrote still there and trustworthy" question `verify_install` asks at the end
+    // of this function, just asked a few microseconds earlier. A file that vanishes here (e.g. a
+    // concurrent delete racing the install, per T-12-07's DoS-of-the-control threat) is the same
+    // failure class `verify_install`'s own loud `Err` exists to report — so it carries the same
+    // "pre-push gate install verification failed" prefix, not a differently-worded message that
+    // would let a caller distinguish "disappeared before chmod" from "disappeared before the
+    // final check" when both mean the same thing: the layer is not installed, loudly.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = fs::metadata(&hook_path)
-            .with_context(|| format!("failed to read metadata for {hook_path:?}"))?
+            .with_context(|| {
+                format!("pre-push gate install verification failed: could not read metadata for {hook_path:?}")
+            })?
             .permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(&hook_path, perms)
-            .with_context(|| format!("failed to make {hook_path:?} executable"))?;
+        fs::set_permissions(&hook_path, perms).with_context(|| {
+            format!("pre-push gate install verification failed: could not make {hook_path:?} executable")
+        })?;
     }
 
     // Step 5: write the config.
