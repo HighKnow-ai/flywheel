@@ -1030,13 +1030,17 @@ diagnosis, still correct) and `docs/destructive-gate-trust-boundary.md` — the 
 `### Why round ten was reverted` section, and the P1 statement. Captured evidence of the real snapshot
 shape is kept at `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.sh`.
 
-**Requirements**: TBD
+**Requirements**: TBD (re-verifies AGNT-07; the install point is BOARD-10's register-project path)
 **Depends on:** Phase 11
-**Plans:** 0 plans
+**Plans:** 5 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 12 to break down)
+- [ ] 12-01-PLAN.md — Amend the trust boundary first (new git-native layer, corrected P1 status, four named residuals) and pin `packages/shim/src/main.rs`'s string-literal set so the classifier cannot be widened again
+- [ ] 12-02-PLAN.md — TRACER: a `pre-push` hook installed via `core.hooksPath` refuses a real branch-deletion and force-push with no shim on `PATH`, while ordinary pushes, `git status` and `git --version` stay untouched
+- [ ] 12-03-PLAN.md — A `SessionStart` hook writing `CLAUDE_ENV_FILE` as the general PATH-ownership fix, with both documented caveats in the code and no gate decision path changed
+- [ ] 12-04-PLAN.md — A `--gate-push` shim entry point so a detected destructive push becomes a real permission request, and an allow answer genuinely lets the push through
+- [ ] 12-05-PLAN.md — `scripts/uat/uat-11-env-file-ordering.mjs`: the one credential-spending run, measuring P1 restoration, `git --version` staying ordinary, and the socket discriminator — with a non-credential self-test arm
 
 ---
 *Roadmap created: 2026-09-08*
