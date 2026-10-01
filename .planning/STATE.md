@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 12
-current_phase_name: destructive-gate-trust-boundary-redesign
+current_phase_name: Destructive-gate trust boundary redesign
 status: executing
-stopped_at: Completed 06-09-PLAN.md
-last_updated: "2026-10-01T07:17:28.047Z"
-last_activity: 2026-09-30
-last_activity_desc: Phase 06 execution started
-state_head: 72905e432a3a64db3bd2f27e8de14609f3136fa2
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-10-01T07:55:30.794Z"
+last_activity: 2026-10-01
+last_activity_desc: Phase 12 execution started
+state_head: 985515c32b5f3dee9342ca0052d0a4a43a5c5afc
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 157
-  completed_plans: 152
+  completed_plans: 153
   percent: 0
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-23)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 06 — Agents File Their Own Backlog
+**Current focus:** Phase 12 — Destructive-gate trust boundary redesign
 
 ## Current Position
 
-Phase: 12 (destructive-gate-trust-boundary-redesign) — READY TO EXECUTE
-Plan: 9 of 9
+Phase: 12 (Destructive-gate trust boundary redesign) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-09-30 — Phase 06 execution started
+Last activity: 2026-10-01 — Phase 12 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -210,6 +210,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P07 | 48min | 3 tasks | 6 files |
 | Phase 06 P08 | 38min | 3 tasks | 6 files |
 | Phase 06 P09 | 90min | 3 tasks | 5 files |
+| Phase 12 P01 | 16min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -483,6 +484,8 @@ Recent decisions affecting current work:
 - [Phase 06]: Two Rule-1 bug fixes during implementation: disabled the second useRunProposals subscriber for authoring runs (it raced an existing keyboard test's effect-cleanup timing), and gave useSessionFeed a real second parameter so the turn-pointer's log offset actually lands on the requested page instead of being accepted and dropped.
 - [Phase 06]: ClaudeCodeAdapter.startSession never wired startPermissionServer's onProposal callback, so an execution run's propose_item call could hang forever — fixed to mirror startAuthoringSession's wiring — Found while building plan 06-09's live arm; neither proposal_channel.rs nor propose-item-wire.test.mjs could have caught it since both bypass startSession's real production wiring
 - [Phase 06]: 06-09's offline UAT arm stages 7 generic filler proposals before the near-duplicate pair, and restates both title and body (not title alone) — bm25's IDF collapses toward zero in a tiny corpus and its score sums only over matching terms, so a short title-only restatement under-scores the pinned -21.0 duplicate threshold even against a realistic corpus — measured empirically while building the harness
+- [Phase 12]: P1 corrected (phase 12): no longer load-bearing for force-push/branch-deletion/history-rewrite once Layer 3 (git pre-push hook) lands; still the only premise for hard-reset/force-clean/recursive-delete/default-branch-push. — Layer 3 intercepts inside the real git process after PATH resolution, independent of the shell snapshot premise rounds five through ten fought over.
+- [Phase 12]: ACCEPT the core.hooksPath override/rewrite as a named residual rather than widening packages/shim/src/main.rs's raw-text classifier. — Rounds five through nine already show enumerate-and-hope token-list widening fails; the new string-literal baseline pin fences this off structurally.
 
 ### Pending Todos
 
@@ -539,6 +542,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-01T03:56:44.145Z
-Stopped at: Completed 06-09-PLAN.md
+Last session: 2026-10-01T07:55:30.663Z
+Stopped at: Completed 12-01-PLAN.md
 Resume file: None

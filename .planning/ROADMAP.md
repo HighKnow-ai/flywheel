@@ -1033,12 +1033,12 @@ shape is kept at `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.
 
 **Requirements**: TBD (re-verifies AGNT-07; the install point is BOARD-10's register-project path)
 **Depends on:** Phase 11
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — Amend the trust boundary first (new git-native layer, corrected P1 status, four named residuals) and pin `packages/shim/src/main.rs`'s string-literal set so the classifier cannot be widened again
+- [x] 12-01-PLAN.md — Amend the trust boundary first (new git-native layer, corrected P1 status, four named residuals) and pin `packages/shim/src/main.rs`'s string-literal set so the classifier cannot be widened again
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
