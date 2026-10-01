@@ -1,6 +1,12 @@
 //! Phase 12, plan 12-02, Tasks 1-2: Layer 3 — git's own `pre-push` hook, end to end against a
 //! real throwaway local bare remote (D-63), plus every way the install can decline.
 //!
+//! Phase 12, plan 12-04, Task 2: the ask branch added to `pre_push_hook_script` — all four
+//! outcomes (allow, deny, nothing-to-ask, and the benign push that raises no request at all)
+//! measured against a real push and a real mock permission socket, mirroring
+//! `destructive_classifier.rs`'s own socket-mock helpers (copied here, not shared, per this
+//! file's own self-contained precedent).
+//!
 //! D-63 — THE ONLY REMOTE THIS FILE MAY EVER TOUCH IS THE LOCAL BARE REPOSITORY EACH FIXTURE
 //! CREATES INSIDE ITS OWN SCRATCH DIRECTORY. Never a network remote, never a named upstream.
 
@@ -11,6 +17,8 @@ use core::git_hooks::{
     hooks_dir_for_repo, install_pre_push_hook, interception_layers_for, pre_push_hook_script,
     uninstall_pre_push_hook, PrePushInstall, PRE_PUSH_MARKER,
 };
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -148,6 +156,55 @@ fn run_git_hostile(repo: &Path, args: &[&str]) -> Output {
         .args(args)
         .output()
         .unwrap_or_else(|e| panic!("failed to spawn {real_git:?} {args:?} with a hostile env: {e}"))
+}
+
+/// Mirrors [`run_git_hostile`] but sets (rather than removes) `FLYWHEEL_PERMISSION_SOCKET` —
+/// Task 2's own socket arms set this to a mock server's bound path, still with the hostile `PATH`
+/// so every socket arm continues to prove the gate does not depend on PATH at all.
+fn run_git_hostile_with_socket(repo: &Path, args: &[&str], socket_path: &Path) -> Output {
+    let real_git = core::shim::resolve_real_git().expect("resolve_real_git should succeed in this environment");
+    Command::new(&real_git)
+        .current_dir(repo)
+        .env("PATH", HOSTILE_PATH)
+        .env("FLYWHEEL_PERMISSION_SOCKET", socket_path)
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn {real_git:?} {args:?} with a hostile env: {e}"))
+}
+
+/// A short, unique socket path — deliberately NOT under `std::env::temp_dir()`, whose per-user
+/// macOS path (`/var/folders/.../T/`) plus any descriptive label routinely exceeds
+/// `sockaddr_un`'s ~104-byte `SUN_LEN` limit. Mirrors `destructive_classifier.rs`'s own
+/// `scratch_socket_path`, copied rather than shared per this file's self-contained precedent.
+fn scratch_socket_path(_label: &str) -> PathBuf {
+    static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    PathBuf::from("/tmp").join(format!("fw-ghp-{}-{n}.sock", std::process::id()))
+}
+
+/// Spawn a background thread that accepts exactly ONE connection on `socket_path`, reads its one
+/// request line, asserts it parses as JSON, and writes back `decision` immediately. Returns the
+/// parsed request so the caller can assert on its shape after joining the thread. Mirrors
+/// `destructive_classifier.rs`'s own `spawn_mock_permission_server`, copied rather than shared.
+fn spawn_mock_permission_server(
+    socket_path: PathBuf,
+    decision: &'static str,
+) -> std::thread::JoinHandle<serde_json::Value> {
+    let listener = UnixListener::bind(&socket_path).expect("failed to bind the mock permission socket");
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("failed to accept the shim's connection");
+        let mut reader = BufReader::new(stream.try_clone().expect("failed to clone the socket"));
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("failed to read the shim's request line");
+        let parsed: serde_json::Value =
+            serde_json::from_str(line.trim()).expect("the shim's request must be valid JSON");
+        assert_eq!(parsed["toolName"], "Bash", "the shim always names the tool Bash");
+
+        let mut stream = stream;
+        let response = format!("{{\"decision\":\"{decision}\"}}\n");
+        stream.write_all(response.as_bytes()).expect("failed to write the mock decision");
+        parsed
+    })
 }
 
 // --- Task 1: the end-to-end slice ------------------------------------------------------------
@@ -592,6 +649,198 @@ fn a_pre_push_sample_file_alone_does_not_trigger_the_refusal() {
             other => panic!("expected Installed (a .sample file must never trigger the refusal), got {other:?}"),
         }
     });
+}
+
+// --- Task 2 (plan 12-04): the ask branch's four outcomes, measured against a real push and a ---
+// --- real mock permission socket -------------------------------------------------------------
+
+#[test]
+fn branch_deletion_push_with_an_allow_answer_completes_and_the_request_names_it_truthfully() {
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let runtime = tempfile::tempdir().expect("runtime dir");
+    const DOOMED_BRANCH: &str = "doomed-branch-allow";
+    let fixture = create_repo_with_remote(scratch.path(), &[DOOMED_BRANCH]);
+    register(scratch.path(), runtime.path(), &fixture.work_path, "GHP9");
+
+    let before = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
+    assert!(before.is_some(), "expected the extra branch to exist on the remote before the allowed push");
+
+    let socket_path = scratch_socket_path("allow");
+    let server = spawn_mock_permission_server(socket_path.clone(), "allow");
+
+    let output = run_git_hostile_with_socket(
+        &fixture.work_path,
+        &["push", "origin", "--delete", DOOMED_BRANCH],
+        &socket_path,
+    );
+    assert!(
+        output.status.success(),
+        "expected an allow answer to let the branch-deletion push complete. stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The gate is a question, not a disguised block: the deletion must have genuinely happened.
+    let after = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
+    assert!(
+        after.is_none(),
+        "an allowed branch-deletion push must actually have deleted the remote ref -- before={before:?} after={after:?}"
+    );
+
+    let parsed = server.join().expect("the mock server thread should not panic");
+    assert_eq!(parsed["toolName"], "Bash", "the shim always names the tool Bash, got: {parsed}");
+    assert_eq!(
+        parsed["input"]["destructiveCategory"],
+        DestructiveCategory::BranchDeletion.as_str(),
+        "expected the request's destructiveCategory to name branch-deletion, got: {parsed}"
+    );
+    let command = parsed["input"]["command"]
+        .as_str()
+        .unwrap_or_else(|| panic!("expected input.command to be a string, got: {parsed}"));
+    assert!(command.contains("origin"), "expected the request's command to name the remote, got: {command:?}");
+    assert!(
+        command.contains(DOOMED_BRANCH),
+        "expected the request's command to name the ref being deleted, got: {command:?}"
+    );
+
+    let _ = std::fs::remove_file(&socket_path);
+}
+
+#[test]
+fn branch_deletion_push_with_a_deny_answer_is_refused_and_the_remote_ref_survives() {
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let runtime = tempfile::tempdir().expect("runtime dir");
+    const DOOMED_BRANCH: &str = "doomed-branch-deny";
+    let fixture = create_repo_with_remote(scratch.path(), &[DOOMED_BRANCH]);
+    register(scratch.path(), runtime.path(), &fixture.work_path, "GHP10");
+
+    let before = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
+    assert!(before.is_some(), "expected the extra branch to exist on the remote before the denied push");
+
+    let socket_path = scratch_socket_path("deny");
+    let server = spawn_mock_permission_server(socket_path.clone(), "deny");
+
+    let output = run_git_hostile_with_socket(
+        &fixture.work_path,
+        &["push", "origin", "--delete", DOOMED_BRANCH],
+        &socket_path,
+    );
+    assert!(
+        !output.status.success(),
+        "expected a deny answer to refuse the branch-deletion push, but it exited 0. stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("declined"),
+        "expected the shim's declined text on stderr, got: {stderr}"
+    );
+
+    let after = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
+    assert_eq!(
+        before, after,
+        "the remote ref must still resolve unchanged after the denied deletion -- before={before:?} after={after:?}"
+    );
+
+    server.join().expect("the mock server thread should not panic");
+    let _ = std::fs::remove_file(&socket_path);
+}
+
+#[test]
+fn branch_deletion_push_with_no_socket_is_still_refused() {
+    // Re-asserts plan 12-02's own fail-closed (D-60) arm, because Task 1 touched the branch that
+    // reaches it -- with a socket variable absent (run_git_hostile removes it) and no server
+    // bound, the ask branch's own `[ -n "$FLYWHEEL_PERMISSION_SOCKET" ]` guard never opens.
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let runtime = tempfile::tempdir().expect("runtime dir");
+    const DOOMED_BRANCH: &str = "doomed-branch-no-socket";
+    let fixture = create_repo_with_remote(scratch.path(), &[DOOMED_BRANCH]);
+    register(scratch.path(), runtime.path(), &fixture.work_path, "GHP11");
+
+    let before = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
+    assert!(before.is_some(), "expected the extra branch to exist on the remote before the refused push");
+
+    let output = run_git_hostile(&fixture.work_path, &["push", "origin", "--delete", DOOMED_BRANCH]);
+    assert!(
+        !output.status.success(),
+        "expected the push to be refused with no supervisor available, but it exited 0. stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no supervisor is available to ask"),
+        "expected the D-60 fail-closed refusal text, got: {stderr}"
+    );
+
+    let after = remote_ref(&fixture.remote_path, DOOMED_BRANCH);
+    assert_eq!(
+        before, after,
+        "the remote ref must still resolve unchanged after the fail-closed refusal -- before={before:?} after={after:?}"
+    );
+}
+
+#[test]
+fn an_ordinary_push_raises_no_permission_request_at_all() {
+    // The benign arm: a harmless fast-forward push must never become a permission request. Binds
+    // a listener and sets it non-blocking rather than spawning an accepting thread -- nothing may
+    // ever connect, so there is nothing for a thread to accept.
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let runtime = tempfile::tempdir().expect("runtime dir");
+    let fixture = create_repo_with_remote(scratch.path(), &[]);
+    register(scratch.path(), runtime.path(), &fixture.work_path, "GHP12");
+
+    let before = remote_ref(&fixture.remote_path, "main").expect("main should exist on the remote");
+
+    std::fs::write(fixture.work_path.join("ordinary.txt"), "an ordinary commit\n")
+        .expect("failed to write the ordinary commit's file");
+    run_git_ok(&fixture.work_path, &["add", "ordinary.txt"]);
+    run_git_ok(&fixture.work_path, &["commit", "-m", "an ordinary commit"]);
+
+    let socket_path = scratch_socket_path("benign");
+    let listener = UnixListener::bind(&socket_path).expect("failed to bind the mock permission socket");
+    listener.set_nonblocking(true).expect("failed to set the listener non-blocking");
+
+    let output = run_git_hostile_with_socket(&fixture.work_path, &["push", "origin", "main"], &socket_path);
+    assert!(
+        output.status.success(),
+        "expected an ordinary fast-forward push to succeed. stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let after = remote_ref(&fixture.remote_path, "main").expect("main should still exist on the remote");
+    assert_ne!(before, after, "the remote's main ref should have advanced to the new object name");
+
+    match listener.accept() {
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+        other => panic!(
+            "expected a non-blocking accept on the permission socket to return WouldBlock -- an \
+             ordinary push must never connect to it at all, got: {other:?}"
+        ),
+    }
+
+    let _ = std::fs::remove_file(&socket_path);
+}
+
+#[test]
+fn a_stale_baked_shim_path_still_renders_the_fallback_refusal_branch() {
+    // Pure rendering check, no process spawn: a stale/non-existent baked shim binary path must
+    // never make the rendered script SKIP the ask branch's refusal fallback -- the `[ -x
+    // "$FLYWHEEL_SHIM_BIN" ]` check that would observe the staleness happens at the script's own
+    // runtime, never at render time, so the fallback text must always be present in the output
+    // regardless of what path was baked in.
+    let script = pre_push_hook_script(
+        Path::new("/usr/bin/git"),
+        Path::new("/nonexistent/flywheel-shim-bin/git"),
+        Path::new("/tmp/flywheel-worktrees"),
+    );
+    assert!(
+        script.contains("no supervisor is available to ask"),
+        "expected the rendered script to retain its D-60 fail-closed fallback refusal text even \
+         with a stale baked shim path, got: {script}"
+    );
 }
 
 // --- Coverage-mapping smoke check (full coverage lives in destructive_gate_layer_coverage.rs) -
