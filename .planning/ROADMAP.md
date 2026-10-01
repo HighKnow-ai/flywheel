@@ -990,6 +990,54 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 
+### Phase 12: Destructive-gate trust boundary redesign
+
+**Goal:** Close the destructive-command gate's trust hole at a layer that does not depend on `PATH`
+precedence the developer's login shell can reorder. The gate currently has an OPEN, unmitigated hole:
+in a `bypassPermissions` session a destructive command can reach a remote with no human asked,
+whenever the developer's shell init displaces Flywheel's shim from `PATH[0]`. Measured live on
+2026-10-01 — `git push origin --delete uat-doomed-branch` deleted a real remote branch.
+
+**Why this is a phase and not another hardening round.** The premise the whole gate rests on, written
+down as P1 in `docs/destructive-gate-trust-boundary.md` — "the shim's shadow directory is position 0
+of the `PATH` used by the process that performs the command" — is **not achievable by any mechanism
+Flywheel currently controls**. Claude Code runs every agent `Bash` command in a shell that first
+sources a snapshot it builds by executing the developer's own login/interactive shell, and that
+shell's init (mise + zinit on the machine measured) rewrites `PATH` from scratch. Rounds five through
+nine hardened the raw-text classifier in `packages/shim/src/main.rs`; round ten (commits `9569ed5`,
+`7c1af3e`) tried to prove P1 from inside the hook and was reverted in `5644238` after a live run
+measured it refusing `git --version`. Both approaches are exhausted. What remains is a design
+decision, which is why it belongs here.
+
+**The fork to decide, with evidence, before any code:**
+1. **Own the command shell's environment.** Make `PATH` a value Flywheel sets rather than inherits.
+   The named candidate is the per-run `env` block in the `--settings` file Flywheel already writes —
+   *if* Claude Code applies it after the snapshot is sourced. That is the one unanswered question in
+   the whole investigation and it is answerable only by a live credential-spending run; bundle it with
+   the next live UAT pass. If it holds, P1 becomes true by construction and no hook-side proof is
+   needed at all.
+2. **Stop depending on `PATH` precedence.** Intercept where the login shell cannot reorder anything —
+   a hook decision that classifies without needing the shim to win a name lookup, or interception
+   below the shell entirely. This removes the premise rather than proving it.
+
+**Acceptance must include** a check that fails if the gate ever again reaches a decision it cannot
+justify, and a check that fails if ordinary agent commands (`git --version`, `git status`, `npm test`)
+become permission requests — round ten passed every offline test it had and still bricked the product,
+so one-sided verification is not sufficient here.
+
+**Sources (read both before planning):** `.planning/debug/uat-06b-bash-gate-regression.md` (the
+diagnosis, still correct) and `docs/destructive-gate-trust-boundary.md` — the Round Ten banner, the
+`### Why round ten was reverted` section, and the P1 statement. Captured evidence of the real snapshot
+shape is kept at `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.sh`.
+
+**Requirements**: TBD
+**Depends on:** Phase 11
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 12 to break down)
+
 ---
 *Roadmap created: 2026-09-08*
 *Granularity: fine · Structure: vertical MVP · 11 phases + 1 inserted (10.1) · 93/93 v1 requirements mapped*

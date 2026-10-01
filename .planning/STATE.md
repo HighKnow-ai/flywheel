@@ -527,6 +527,7 @@ Recent decisions affecting current work:
 ### Roadmap Evolution
 
 - Phase 10.1 inserted after Phase 10: Visual polish: brand assets (app icon, logo.svg, the HighKnow-vs-Flywheel mark decision) and the three UI-SPEC motions the direction round never confirmed. Surfaced by phase 01 UAT; filed on the board as THRE-1068 through THRE-1074.
+- Phase 12 added: Destructive-gate trust boundary redesign. Added 2026-10-01 after round ten of gate hardening was reverted (`5644238`). The gate's premise P1 — the shim's shadow directory leads the `PATH` of the process that runs the command — is not achievable by any mechanism Flywheel controls, because Claude Code builds each command shell's snapshot by executing the developer's login shell. Rounds 5-9 hardened the text classifier, round ten tried to prove P1 inside the hook and bricked ordinary commands; the remaining fork (own the command shell's environment via the `--settings` `env` block, or intercept below `PATH` precedence entirely) is a design decision rather than a debugging step. The hole is OPEN and unmitigated in the meantime.
 
 ## Deferred Items
 
