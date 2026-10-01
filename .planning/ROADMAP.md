@@ -1033,7 +1033,7 @@ shape is kept at `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.
 
 **Requirements**: TBD (re-verifies AGNT-07; the install point is BOARD-10's register-project path)
 **Depends on:** Phase 11
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -1047,7 +1047,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 12-04-PLAN.md — A `--gate-push` shim entry point so a detected destructive push becomes a real permission request, and an allow answer genuinely lets the push through
+- [x] 12-04-PLAN.md — A `--gate-push` shim entry point so a detected destructive push becomes a real permission request, and an allow answer genuinely lets the push through
 - [ ] 12-05-PLAN.md — `scripts/uat/uat-11-env-file-ordering.mjs`: the one credential-spending run, measuring P1 restoration, `git --version` staying ordinary, and the socket discriminator — with a non-credential self-test arm
 
 ---
