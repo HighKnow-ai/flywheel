@@ -76,17 +76,19 @@ not a manual walkthrough. Treat this file as authoritative over RESEARCH.md on t
 
 ## Wave 0 Requirements
 
-- [ ] Source-gate test in `packages/core/tests/` — "no agent-reachable INSERT into canonical
-      tables" (D-100 first half). No equivalent exists today.
-- [ ] Adversarial-corpus test (D-100 second half, mirroring the D-62 / AGNT-07 precedent) — drives
-      every propose / amend / delete path and asserts zero canonical rows until triage.
+- [x] Source-gate test in `packages/core/tests/` — "no agent-reachable INSERT into canonical
+      tables" (D-100 first half). Closed by plan 06-02.
+- [x] Adversarial-corpus test (D-100 second half, mirroring the D-62 / AGNT-07 precedent) — drives
+      every propose / amend / delete path and asserts zero canonical rows until triage. Closed by
+      plan 06-02.
 - [x] Frontend seam decided — no harness work needed. `packages/desktop` already has vitest +
       jsdom + Testing Library, so `TriageSurface` is covered by a real component test
       (`src/triage/__tests__/triage-surface.test.tsx`, added by plan 06-07) rather than by a
       manual walkthrough. The Tauri-command tests and the scripted UAT bridge remain as the
-      second and third layers, not as substitutes.
-- [ ] Extend `migration_safety.rs` with a case for the new table-rebuild migration
-      (self-referential FK rebuild under `PRAGMA foreign_keys`).
+      second and third layers, not as substitutes. Closed by plan 06-07.
+- [x] Extend `migration_safety.rs` with a case for the new table-rebuild migration
+      (self-referential FK rebuild under `PRAGMA foreign_keys`). Closed by plan 06-01
+      (`migration_0015_rebuild_preserves_self_referential_parent_link`).
 
 ---
 
@@ -102,6 +104,20 @@ else in this phase has an automated seam or a scripted UAT-bridge path. Per this
 preference, script the bridge rather than adding manual steps.
 
 ---
+
+## Phase 6 Ship Gate Result (plan 06-09)
+
+The "one scripted UAT-bridge run that exercises `propose_item` from a real execution-run session"
+the Sampling Rate section above calls for is `scripts/uat/uat-10-agent-backlog.mjs`, joined to
+`scripts/uat/run-all.sh` by plan 06-09. Its **offline arm** (`--offline`, zero tokens, registered
+in `run-all.sh`) ran green: `PASS — UAT 10 — phase-6 agent backlog loop (offline, zero tokens)`,
+covering a near-duplicate flag (PROP-04), the volume limit and its notice (PROP-05), and all four
+triage verbs — accept/reject/merge/defer (PROP-02, PROP-06, PROP-07) — through the real domain
+functions. Criterion 1's live-only half (a real model's own decision to call `propose_item`) is
+reported `not-measured` by the offline arm, by design — it is reachable only through the **live
+arm** (`--live`, costs real tokens, listed as a MANUAL row in `run-all.sh` for a human to run
+deliberately, never wired into an autonomous path). See `06-09-SUMMARY.md` for the full
+per-criterion report and this plan's own findings.
 
 ## Validation Sign-Off
 
