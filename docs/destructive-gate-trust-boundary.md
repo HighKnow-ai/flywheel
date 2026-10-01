@@ -11,6 +11,16 @@ fail against instead of a list to extend. A newly found bypass shape must be che
 claims below; if none of them covers it, this document was wrong and must be corrected before the
 corpus gains one more row.
 
+**As of phase 12, the gate is a SET of interception layers, not a single chain.** An **interception
+layer** — not "the shim" — is the primary unit this document reasons about from here on. The PATH
+shim (Layers 0-2 below) is one variant of an interception layer: the variant whose premise depends
+on winning a `PATH` name lookup, which "## Round ten" below records as unachievable by any mechanism
+Flywheel currently controls. The consequence: coverage is now a question of which layers cover which
+`DestructiveCategory` variant, not whether one chain holds end to end from Layer 0 through Layer 2.
+`packages/core/tests/destructive_gate_layer_coverage.rs` (landing in plan 12-02) is the test that
+keeps that mapping total — it goes red the instant a new `DestructiveCategory` variant is added
+without a layer naming it covered.
+
 ## Layer 0 — the supervisor's install
 
 **Implementing file:** `packages/core/src/shim.rs`
@@ -121,6 +131,41 @@ alias resolved before any `PATH` search ever happens; a `PATH` cleared, replaced
 before the search reaches this shim's directory; and any program that is not literally one of the
 two shadowed names (`git`/`git.exe`, `rm`/`rm.exe`) — `destructive::classify` is deliberately never
 consulted for anything else, per D-59's own decision not to widen the classifier's dispatch.
+
+## Layer 3 — git's own pre-push hook
+
+**Implementing file:** `packages/core/src/git_hooks.rs`
+
+### Trusted to prove
+
+Installed once per registered project — never per worktree — by writing `core.hooksPath` to an
+absolute directory under Flywheel's runtime directory, a git-config entry every linked worktree of
+the repository reads by default (this codebase does not enable `extensions.worktreeConfig`). This
+layer fires inside the real, already-resolved `git` process, after every `PATH` search for that
+invocation has already happened, so no shell init and no `PATH` reorder — nothing in the failure
+class "## Round ten" below describes — can prevent it reaching a decision. It reads git's own stdin
+protocol for a `pre-push` hook, one line per ref being pushed
+(`<local-ref> SP <local-object-name> SP <remote-ref> SP <remote-object-name> LF`), never command
+text, so none of the text-obfuscation shapes rounds five through nine fought (launcher wrapping,
+`env -S`, brace expansion, quoting) survive to reach it at all. A branch deletion is the all-zeroes
+local object name; a force-push or history rewrite is a new local object name that is not a
+descendant of the remote object name (`git merge-base --is-ancestor <remote-object-name>
+<local-object-name>`). It resolves the real `git` binary and the installed hook script through
+absolute paths baked in at install time, never through a `PATH` search — the one interception point
+in this whole stack a shell's `PATH` reordering cannot touch at all, because it never performs a
+`PATH` search a second time once `git` itself is already running.
+
+### Explicitly cannot see
+
+Anything that is not a push — `rm -rf`, `git reset --hard`, `git clean -fdx` remain Layer 2's alone.
+A push run with `core.hooksPath` deliberately overridden on the command line (`git -c
+core.hooksPath=… push`) or rewritten via `git config core.hooksPath`/`GIT_CONFIG_*`. A push issued
+from outside Flywheel's worktree root, where this layer deliberately exits 0 so the developer's own
+terminal is never gated. And `default-branch-push`: recognising it needs the project's current
+default branch, and the only install-time-stable way to bake that in goes stale the moment the
+branch is renamed — silent exposure, not friction, which is why this layer does not claim it at all;
+`default-branch-push` remains Layer 2's alone (see "## Named residuals" and "## The layer-to-corpus
+map" below).
 
 ## Round five — the counterexample that made Layer 1's claim false
 
@@ -375,6 +420,10 @@ concrete trigger that should reopen it.
 | **OPEN (round ten, D-104) — the residual friction P1 now charges: a developer whose own shell init drops Flywheel's shim directory from position 0 when the snapshot is built.** With Part 1 in place the snapshot is built from a shim-prefixed environment, and the eight UAT snapshots measured on the diagnosing machine all preserved the prefix at position 0 under `mise` + `zinit`. But a shell-init stack that hard-replaces `PATH` would make every agent `Bash` command deny. | Nothing loses a bypass here — Layer 1 refuses, by name, with the reason text naming an unprovable environment. The cost is friction, not exposure: a loud, nameable precondition failure instead of a silently disabled gate. | Reopens if: a developer reports every `Bash` command being refused with the unprovable-environment reason. The fix at that point is Part 1's cleaner replacement (own `PATH` outright via `--settings` env), not loosening P1 |
 | A shadow definition installed by an EARLIER `Bash` tool call in the same session | Layer 1 loses it, by construction: each hook invocation is a fresh OS process holding no cache and no memory of any previous tool call, so it classifies one command's text in isolation and can never see a function or alias a prior call left behind in a shell profile or a sourced file | An observed two-call shadow in which the FIRST call's own text was itself deferrable — today every single-call shadow shape the corpus covers denies on its own text, so a deferrable first call is the signal that this residual has become reachable |
 | **DECLINED (round nine, plan 03-37) — the co-location narrowing that would have closed WR-A's false positive.** A rule that charges a quote-removed-form adjacency only when the gated program name (`git`/`rm`) ALSO sits inside the SAME quoted region as the wrapper token would defer the prose false-positive case (`git commit -m "the command -p form"` names `git` OUTSIDE the quoted message) while still keeping the nested shapes denied (`sh -c 'env -S "-P /tmp git push --force"'` carries `git push --force` INSIDE the same quoted span as `env`). This is branch (a)'s narrower, co-location-scoped cousin — not rejected for the same unsoundness branch (a) itself carries (see `## Round nine` above), but declined here because it was not implemented: pricing the false positive (branch (b)) was judged simpler and lower-risk for this round, and this residual keeps the option open rather than discarding it. | Layer 1's C6 scan accepts the friction rather than losing the case: the co-location rule is not implemented, so this row names an available narrowing, not an unseen bypass. | Reopens if: measured evidence that this friction fires on ordinary development traffic often enough to be worse than the bypass risk of a locality rule — at which point the co-location rule is the named candidate, and it must be argued against the nested shapes' own corpus rows (`round_nine_quote_removed_form_is_load_bearing`, `packages/shim/tests/classify_invocation.rs`) before it lands. |
+| **OPEN (phase 12, plan 12-01) — a deliberate `core.hooksPath` override or rewrite** (`git -c core.hooksPath=…`, `git config core.hooksPath`, `GIT_CONFIG_*`). | Layer 3 loses it: the real `git` process resolves hooks through whatever `core.hooksPath` names at invocation time, and a deliberate override on the command line or a config rewrite points it elsewhere before this layer's script ever runs. Layer 1 defers because the command text carries no shadow construct and `git` itself is the classified-`Safe` program token — the same shape as this table's own `sudo`/`PATH=` rows above. **The ruling this phase makes, stated here rather than left implicit: ACCEPT as a named residual — do NOT add a companion raw-text check for these tokens to `packages/shim/src/main.rs`.** Adding a token check to the raw-text classifier is exactly rounds five through nine; `packages/core/tests/destructive_gate_no_new_launcher_tokens.rs` (plan 12-01 Task 2) fences it off structurally, not merely by convention. | Measured evidence that an agent names one of these flags without being told to — at which point the narrow check becomes arguable and this document is amended first, per "The rule for round six" below. |
+| **OPEN (phase 12, plan 12-01) — `default-branch-push remains Layer-2-only`.** | Layer 3 does not claim it: recognising a push as targeting the project's current default branch needs that branch name, and the only install-time-stable way to bake it into the installed hook script goes stale the moment the branch is renamed — silent exposure, not friction, exactly what this document's own discipline refuses to accept as covered. Layer 2 (the shim's runtime classifier) remains the sole layer trusted to catch it, under the SAME P1 dependency every other Layer-2-only category already carries (see "## Round ten" below). | A measured unapproved push to a default branch, or a hook-time default-branch resolution that does not depend on install-time state. |
+| **OPEN (phase 12, plan 12-01) — a `SessionStart` hook that is written into the settings file but never fires.** | No layer loses visibility it previously had — the threat is Denial-of-Service of the CONTROL, not a bypass of an existing proof: the shim's P1 premise LOOKS restored (a `CLAUDE_ENV_FILE` mechanism is configured) and is not, because the hook silently failed to register or run. Mitigated by construction: the hook changes no gate DECISION path at all — its failure degrades to today's existing behaviour (P1 unproven, Layer 1 refuses per "## Round ten" below), never to a permissive one — and by plan 12-05's live measurement, which is the one arm that can observe whether it actually fired. | The live run (`scripts/uat/uat-11-*.mjs`) reporting the marker file absent, or a future Claude Code release changing `CLAUDE_ENV_FILE`'s scoping or ordering. |
+| **OPEN (phase 12, plan 12-01) — a repository where the `pre-push` install is REFUSED.** | Layer 3 is absent for that repository entirely: when `core.hooksPath` is already set to a non-Flywheel value, or the repository already carries a non-sample executable `pre-push` script, the install refuses rather than displacing the developer's own hooks — a deliberate choice, this document's own "cannot see" discipline applied to the installer itself. The gate degrades to exactly today's PATH-shim-only behaviour for that repository, loudly and observably logged at registration time, never silently. | A real repository hitting the refusal in practice, at which point chaining to the pre-existing hook (running Flywheel's script, then the developer's own) is the named upgrade path. |
 
 ## The layer-to-corpus map
 
@@ -389,6 +438,7 @@ mapped to the layer each group's own `why` field names as the one trusted to cat
 | Group 2b (round seven additions, plan 03-32) — `env -S "-P /tmp git push --force"` (backslash-split-immune) and `sh -c 'env -S "-P /tmp git push --force"'` (nested, unobfuscated) | Layer 1 | C5's presence-anywhere scan (`raw_text_names_opaque_env_reparse`) sees the `env`-plus-opaque-flag construct wherever it sits in the text, raw or quote-removed, and layer 1's D-61 AND-gate denies because the text also names `git`; BSD `env -P`'s own altpath search bypasses the shim's shadow directory entirely, so layer 2 provides no backstop and layer 1's scan is the only line |
 | Group 3 — shadow shapes wrapped in a launcher (function-call, `function`-keyword, `alias`, `hash`, `eval`, `source`, and the `rm()` counterpart) | Layer 1 | D-61's raw-text scan sees the shadow keyword inside the quoted `sh -c '…'` payload the token-level scan cannot see into (`textCanShadowPathResolution`), the raw text also names a gated program (`namesGatedProgram`), and that AND denies the safe verdict before the command can ever reach layer 2 |
 | Group 4 — the non-trigger/harmless controls (`source .venv/bin/activate && pytest`, `eval "$(direnv hook bash)"`, `npm test`, `cargo build`, `git status`, `command -v git`) | No layer needs to catch them | Each is genuinely safe, or (for `git status`) is a harmless bare `git` invocation deferred straight through to layer 2's own `classify`, which reports `Safe` and executes with no permission round trip at all — these rows are the falsifiability companions of the whole table: if any of them starts denying, the rule has become general command-refusal, not a destructive-action gate |
+| **Added phase 12** — Group 1 and Group 2a's own `defer` rows (all shaped `git push --force`, i.e. a force-push) | Layer 3 — for three of the four remote-reaching `DestructiveCategory` variants, without depending on P1 at all | These rows' own `why` field already says "in a proven environment", and "## Round ten" below records that nothing checked P1 for the right process until round ten — and round ten was reverted, so nothing has restored it since. Layer 3 removes the P1 dependency entirely for `force-push`, `branch-deletion` and `history-rewrite`: it reads git's own `pre-push` stdin protocol inside the real `git` process, after every `PATH` search has already happened, so these rows' own safety no longer rests on an unproven premise. `default-branch-push` — the fourth remote-reaching category — is NOT covered by Layer 3 (see "## Named residuals" above) and still depends on P1 exactly as before |
 
 ## What was deliberately not done
 
@@ -847,12 +897,31 @@ would see every agent `Bash` command refused") firing immediately and universall
    `PATH` of a shell the backend constructs from the developer's login shell. Any eleventh round that
    starts by hardening the text classifier in `packages/shim/src/main.rs` is repeating rounds five
    through nine; any round that starts by proving P1 from inside the hook is repeating round ten.
-3. The real fork is therefore upstream of this document: either Flywheel gains a mechanism that makes
-   the command shell's `PATH` a value it owns (the `--settings` `env` block is the candidate, and
-   whether it is applied after the snapshot is sourced is STILL the one unanswered question, STILL
-   answerable only by a live run), or the gate stops depending on `PATH` precedence at all and
-   intercepts at a layer the login shell cannot reorder. Choosing between those is a design decision,
-   not a debugging step, and it is why this was routed to planning rather than to an eleventh round.
+   **As of phase 12, P1 is no longer load-bearing for the remote-reaching destructive categories** —
+   "## Layer 3 — git's own pre-push hook" (above) covers `force-push`, `branch-deletion` and
+   `history-rewrite` without depending on P1 at all. P1 remains the only premise for `hard-reset`,
+   `force-clean`, `recursive-delete`, and — Layer 3 does not claim it either, see its own "Explicitly
+   cannot see" and "## Named residuals" below — `default-branch-push`.
+3. The real fork named above was resolved in phase 12, two ways at once rather than by choosing one.
+   **Branch one** — "Flywheel gains a mechanism that makes the command shell's `PATH` a value it
+   owns" — is REFUTED for the literal form this document considered: a plain `env` block in the
+   `--settings` file does NOT survive the shell snapshot, because the snapshot's own trailing
+   `export PATH=` statement is sourced AFTER process-environment setup and wins
+   (`12-RESEARCH.md`). Its documented replacement is `CLAUDE_ENV_FILE`, written from a
+   `SessionStart` hook and, per Claude Code's own docs, re-sourced before every subsequent `Bash`
+   call for the session — pursued as a measured spike in plans 12-03 and 12-05, and still
+   `[CITED: code.claude.com/docs/en/hooks]`, not `[VERIFIED]` on this machine's installed binary.
+   Two caveats are named here rather than smoothed over: an open GitHub issue
+   (`anthropics/claude-code#27987`) shows the file written but never sourced for subsequent Bash
+   calls on some builds — a Windows report, unconfirmed on macOS; and Anthropic's own Settings guide
+   and Hooks guide describe this variable's role in contradictory terms
+   (`anthropics/claude-code#19357`, closed "not planned", no maintainer resolution). **Branch two** —
+   "the gate stops depending on `PATH` precedence at all and intercepts at a layer the login shell
+   cannot reorder" — is TAKEN for the remote-reaching categories: Layer 3, above, is exactly that
+   layer, installed once per registered project via `core.hooksPath` and reached through git's own
+   hook configuration rather than a `PATH` search. Neither branch closes P1 outright on its own; they
+   are why this document now reasons about a SET of interception layers (opening frame, above) rather
+   than a single chain resting on one premise.
 4. `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.sh` is KEPT even though the tests
    that consumed it are reverted. It is a real captured snapshot showing the trailing
    `export PATH='<login shell's PATH>'` shape, and it is the evidence any future round starts from.
