@@ -479,6 +479,52 @@ fn a_refusal_never_fails_registration() {
 }
 
 #[test]
+fn a_refusal_never_fails_registration_over_a_preexisting_pre_push() {
+    // The companion to `a_refusal_never_fails_registration` above — that test covers the
+    // pre-existing-`core.hooksPath` refusal arm, this one covers the pre-existing-`pre-push`
+    // refusal arm. The plan's acceptance criterion is "with EITHER refusal condition in place",
+    // so both arms need their own registration proof, not just one.
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let runtime = tempfile::tempdir().expect("runtime dir");
+    let fixture = create_repo_with_remote(scratch.path(), &[]);
+
+    let default_hooks_dir = {
+        let output = run_git_ok(&fixture.work_path, &["rev-parse", "--git-path", "hooks"]);
+        let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let p = Path::new(&raw);
+        if p.is_absolute() { p.to_path_buf() } else { fixture.work_path.join(p) }
+    };
+    std::fs::create_dir_all(&default_hooks_dir).expect("failed to create default hooks dir");
+    let developer_hook_path = default_hooks_dir.join("pre-push");
+    std::fs::write(&developer_hook_path, "#!/bin/sh\nexit 0\n").expect("failed to write developer hook");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&developer_hook_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&developer_hook_path, perms).unwrap();
+    }
+
+    with_scratch_envs(scratch.path(), runtime.path(), || {
+        let db_dir = tempfile::tempdir().expect("db dir");
+        let db_path = db_dir.path().join("flywheel.db");
+        let backups_dir = db_dir.path().join("backups");
+        std::mem::forget(db_dir);
+        let mut conn = core::db::open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate");
+        let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
+
+        let project = register_project(&mut conn, &actor_id, &fixture.work_path, "Refused Project 2", "GHP8")
+            .expect("register_project must succeed even when the pre-push install refuses over a pre-existing pre-push");
+
+        assert!(!project.id.is_empty(), "expected a fully populated project id");
+        assert_eq!(project.key_prefix, "GHP8");
+        assert_eq!(project.name, "Refused Project 2");
+        assert!(!project.repo_path.is_empty(), "expected a fully populated repo_path");
+        assert_eq!(project.status, "active");
+    });
+}
+
+#[test]
 fn uninstall_unsets_core_hooks_path_it_wrote_and_is_a_no_op_for_a_foreign_value() {
     let scratch = tempfile::tempdir().expect("scratch dir");
     let runtime = tempfile::tempdir().expect("runtime dir");
