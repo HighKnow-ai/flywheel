@@ -10,6 +10,7 @@
  */
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -143,6 +144,94 @@ function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
   const entryName = process.platform === "win32" ? "git.exe" : "git";
   const candidate = path.join(firstSegment, entryName);
   return fs.existsSync(candidate) ? candidate : undefined;
+}
+
+/**
+ * The ALLOW-list of entries linked, BY REFERENCE, from the developer's own Claude Code
+ * configuration directory into the per-run isolated one {@link isolatedClaudeConfigDir} composes.
+ * Anything not named here is denied BY CONSTRUCTION — the composition loop only ever iterates this
+ * list, so a behavioural entry (user memory, settings, skills, agents, hooks, plugins) never
+ * becomes linkable by omission from some separate deny-list.
+ *
+ * Deliberately the SAME single entry, by the same name, as the harness-side
+ * `CREDENTIAL_LINK_ALLOWLIST` in `scripts/uat/lib/sidecar-harness.mjs` — the UAT family measured
+ * (plan 05-33, G-05-6) that a scratch config directory holding ONLY a symbolic link named
+ * `.credentials.json` reports `claude auth status` as logged in via claude.ai. Two copies of one
+ * list rather than a shared module because the harness is `.mjs` under `scripts/` and must keep
+ * driving its own isolation independently of the product's; the measurement that grounds both is
+ * recorded in that file.
+ */
+export const CREDENTIAL_LINK_ALLOWLIST = [".credentials.json"] as const;
+
+/**
+ * D-104 Part 1 (uat-06b): compose this run's OWN `CLAUDE_CONFIG_DIR` under the per-run runtime
+ * directory, presenting the developer's credential by reference and nothing else, and return its
+ * path — or `undefined` when it could not be composed.
+ *
+ * **Why the spawn path needs this at all, and why it is a SAFETY change rather than hygiene.**
+ * Claude Code's Bash tool runs every agent command in a shell that first sources a shell snapshot
+ * from `<CLAUDE_CONFIG_DIR>/shell-snapshots/`. With no `CLAUDE_CONFIG_DIR` set — the shipped
+ * behaviour until this change — that pool is the developer's personal `~/.claude`, so the snapshot
+ * the agent's shell sources is one built by an ordinary personal session whose `PATH` contains no
+ * Flywheel shim directory at all. That made the destructive gate's Layer 2 (D-58's shim socket)
+ * unreachable for agent-issued Bash commands BY DEFAULT, not occasionally (measured: uat-06b
+ * session evidence, 2026-10-01 13:10). A per-run config directory starts that pool EMPTY, so the
+ * snapshot in force must be one built from THIS run's own shim-prefixed environment.
+ *
+ * **Credential availability and env scrubbing are separate switches from this one** (the lesson
+ * G-05-6 already paid for). This function only ever ADDS a symbolic link to the credential entry
+ * the developer's own `claude login` wrote; it reads no credential bytes, writes none, and touches
+ * no environment variable other than `CLAUDE_CONFIG_DIR` itself. D-39's credential modes
+ * (`packages/core/src/credentials.rs`) remain the only thing that decides what else reaches the
+ * spawn environment.
+ *
+ * **An explicit upstream `CLAUDE_CONFIG_DIR` always wins** — the caller checks that before calling
+ * this. The UAT harness composes its own isolated directory and asserts over it
+ * (`assertClaudeConfigIsolated`); silently replacing it here would point the assertions at one
+ * directory and the live session at another.
+ *
+ * Failure degrades to `undefined`, logged, never a refused spawn — identical in shape to
+ * {@link writeHookSettings}'s own degradation. The consequence of degrading is NOT a silent
+ * weakening: with no per-run config dir the snapshot pool is the personal one, and
+ * `pretooluse-hook.ts`'s `shimLeadsCommandShellPath` then refuses every Bash command by name
+ * instead of deferring on an unproven premise.
+ *
+ * `sourceConfigDir` defaults to the developer's own `~/.claude`. The parameter exists for exactly
+ * the reason the harness's own equivalent has one: so `credentials.test.mjs` drives this REAL
+ * function against a synthetic source directory it built itself — never against the developer's.
+ * Exported for that test alone.
+ */
+export function isolatedClaudeConfigDir(
+  runtimeDir: string,
+  runId: string,
+  sourceConfigDir: string = path.join(os.homedir(), ".claude"),
+): string | undefined {
+  try {
+    const configDir = path.join(runtimeDir, "claude-config", runId);
+    fs.mkdirSync(configDir, { recursive: true });
+    const sourceDir = sourceConfigDir;
+    for (const entry of CREDENTIAL_LINK_ALLOWLIST) {
+      const sourcePath = path.join(sourceDir, entry);
+      if (!fs.existsSync(sourcePath)) continue;
+      const targetPath = path.join(configDir, entry);
+      // `lstatSync`, never `existsSync`: the latter FOLLOWS a link and reports false for a broken
+      // one, which would make the `symlinkSync` below throw a raw EEXIST instead of composing
+      // idempotently (the same reasoning as the harness's own `fsEntryExists`).
+      try {
+        fs.lstatSync(targetPath);
+        continue;
+      } catch {
+        // Nothing there yet — link it.
+      }
+      fs.symlinkSync(sourcePath, targetPath);
+    }
+    return configDir;
+  } catch (err) {
+    console.error(
+      `flywheel sidecar: failed to compose an isolated CLAUDE_CONFIG_DIR for ${runId}: ${String(err)}`,
+    );
+    return undefined;
+  }
 }
 
 /** D-88 (plan 05-03): the second `PreToolUse` matcher — every write-capable tool on the
@@ -1241,6 +1330,15 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       env.FLYWHEEL_SHIM_BIN = shimBin;
     }
 
+    // D-104 Part 1 (uat-06b): give this session its own `CLAUDE_CONFIG_DIR` so the shell-snapshot
+    // pool its Bash tool draws from starts EMPTY — see `isolatedClaudeConfigDir`'s doc comment for
+    // why this is a destructive-gate safety property and not configuration hygiene. An explicit
+    // upstream value (the UAT harness composes and asserts over its own) always wins.
+    if (!env.CLAUDE_CONFIG_DIR && env.FLYWHEEL_RUNTIME_DIR) {
+      const configDir = isolatedClaudeConfigDir(env.FLYWHEEL_RUNTIME_DIR, options.runId);
+      if (configDir) env.CLAUDE_CONFIG_DIR = configDir;
+    }
+
     // plan 03-07 (D-55): write this run's `--settings` file BEFORE building argv, so the hook can
     // be wired into the very first invocation — a write failure degrades to "no hook injected for
     // this session" (writeHookSettings's own doc comment), never a refused spawn.
@@ -1488,6 +1586,14 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const shimBin = shimBinFromEnv(env);
     if (shimBin) {
       env.FLYWHEEL_SHIM_BIN = shimBin;
+    }
+
+    // D-104 Part 1 (uat-06b): identical to `startSession`'s own wiring above — an authoring run's
+    // Bash calls go through the same `PreToolUse` destructive gate (`writeHookSettings` writes the
+    // SAME `matcher: "Bash"` entry for both), so it needs the same per-run snapshot pool.
+    if (!env.CLAUDE_CONFIG_DIR && env.FLYWHEEL_RUNTIME_DIR) {
+      const configDir = isolatedClaudeConfigDir(env.FLYWHEEL_RUNTIME_DIR, options.runId);
+      if (configDir) env.CLAUDE_CONFIG_DIR = configDir;
     }
 
     // Plan 06-01 (`06-RESEARCH.md` Pitfall 1): `true` — an authoring run keeps the stage gate,
