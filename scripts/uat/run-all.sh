@@ -92,6 +92,8 @@ run_item "UAT 9 — Product Kill Criterion, in-app vs terminal-paced (05-17-PLAN
   node scripts/uat/uat-09-product-kill-criterion.mjs
 run_item "UAT 10 — phase-6 agent backlog loop, offline (all PROP ids, zero tokens)" \
   node scripts/uat/uat-10-agent-backlog.mjs --offline
+run_item "UAT 11 — env-file-ordering verdict functions, self-test only (zero tokens; live run is MANUAL below)" \
+  node scripts/uat/uat-11-env-file-ordering.mjs --selftest
 
 printf '\n\n┌─ UAT results (Phases 3 and 5) ────────────────────────────────────────────\n'
 FAILED=0
@@ -112,6 +114,8 @@ printf '│ 👁  MANUAL UAT 4 — destructive card renders correctly\n'
 printf '│          ↳ bash scripts/uat/uat-ui-setup.sh destructive\n'
 printf '│ 👁  MANUAL UAT 10-live — phase-6 agent backlog loop, live (spends tokens)\n'
 printf '│          ↳ node scripts/uat/uat-10-agent-backlog.mjs --live\n'
+printf '│ 👁  MANUAL UAT 11-live — CLAUDE_ENV_FILE ordering, PATH shadow restoration, ask-branch (spends tokens)\n'
+printf '│          ↳ node scripts/uat/uat-11-env-file-ordering.mjs\n'
 printf '└────────────────────────────────────────────────────────────────────────────\n'
 
 exit "$FAILED"
