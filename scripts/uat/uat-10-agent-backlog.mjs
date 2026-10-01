@@ -62,7 +62,6 @@ import {
   assertClaudeConfigIsolated,
   createPermissionAnswerHandler,
   drainInboundCoreRequests,
-  HEARTBEAT_TICK_MS,
   probeClaudeAvailable,
   REPO_ROOT,
   resolveHarnessBinary,
@@ -667,10 +666,8 @@ async function liveBody(harness) {
   if (opsBin === undefined) {
     throw new Error("uat_authoring_ops is not built — run `cargo build -p core --bin uat_authoring_ops`");
   }
-  const uatSessionEnvBin = resolveHarnessBinary("uat_session_env");
-  if (uatSessionEnvBin === undefined) {
-    throw new Error("uat_session_env is not built — run `cargo build -p core --bin uat_session_env`");
-  }
+  // No `uat_session_env` build guard here: `harness.sessionEnv` below throws with the same
+  // `cargo build -p core --bin uat_session_env` hint, and it owns the binary now (D-105).
   const mcp = await loadMcpPermissionServer();
 
   const { projectId, runId, seedTaskId } = await setupProjectAndSeedTask(opsBin, harness);
@@ -679,13 +676,8 @@ async function liveBody(harness) {
   assertClaudeConfigIsolated(env);
   step(`isolation asserted: CLAUDE_CONFIG_DIR=${env.CLAUDE_CONFIG_DIR}`);
 
-  const heartbeatEnv = { ...process.env, FLYWHEEL_APP_DATA_DIR: harness.appDataDir };
-  spawnSync(uatSessionEnvBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-  const heartbeatInterval = setInterval(() => {
-    spawnSync(uatSessionEnvBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-  }, HEARTBEAT_TICK_MS);
-  harness.onCleanup(() => clearInterval(heartbeatInterval));
-  step("heartbeat: touching on the production cadence via `uat_session_env --touch-heartbeat`");
+  // The production-cadence heartbeat writer is `sessionEnv`'s default as of D-105, not a block
+  // repeated here.
 
   const workPath = path.join(harness.root, "work");
   initScratchRepo(workPath);

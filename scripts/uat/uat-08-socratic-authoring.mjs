@@ -58,7 +58,6 @@ import {
   drainInboundCoreRequests,
   HARNESS_PRECONDITION_PREFIX,
   Harness,
-  HEARTBEAT_TICK_MS,
   HELD_INBOUND_REQUEST_TYPES,
   LIVE_TOOL_CALL_IDLE_MS,
   LIVE_TURN_IDLE_MS,
@@ -7215,10 +7214,8 @@ async function runReplayCheckScenario(scenarioName) {
           "uat_authoring_ops is not built — run `cargo build -p core --bin uat_authoring_ops`",
         );
       }
-      const sessionEnvBin = resolveHarnessBinary("uat_session_env");
-      if (sessionEnvBin === undefined) {
-        throw new Error("uat_session_env is not built — run `cargo build -p core --bin uat_session_env`");
-      }
+      // No `uat_session_env` build guard here: `harness.sessionEnv` below throws with the same
+      // `cargo build -p core --bin uat_session_env` hint, and it owns the binary now (D-105).
 
       step("creating a scratch repository (no remote needed)");
       const repoDir = path.join(harness.root, "repo");
@@ -7239,17 +7236,9 @@ async function runReplayCheckScenario(scenarioName) {
 
       const env = harness.sessionEnv(runId, "main");
 
-      // The fake backend is spawned under the SAME watchdog wrapper a real session uses — it must
-      // be supervised on the production heartbeat cadence exactly like the live arm, or the
-      // watchdog correctly kills it as an unsupervised orphan (see `startSidecar`'s own
-      // STALE-WINDOW HAZARD doc comment).
-      const heartbeatEnv = { ...process.env, FLYWHEEL_APP_DATA_DIR: harness.appDataDir };
-      spawnSync(sessionEnvBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-      const heartbeatInterval = setInterval(() => {
-        spawnSync(sessionEnvBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-      }, HEARTBEAT_TICK_MS);
-      harness.onCleanup(() => clearInterval(heartbeatInterval));
-      step("touching the heartbeat on the production cadence — the fake backend is supervised exactly like a real one");
+      // The fake backend is spawned under the SAME watchdog wrapper a real session uses, so it must
+      // be supervised on the production heartbeat cadence exactly like the live arm — which
+      // `sessionEnv` above now does by default (D-105), rather than each item hand-rolling it.
 
       step(`starting the real sidecar with FLYWHEEL_CLAUDE_BIN pointed at the fake backend (scenario=${scenarioName})`);
       const sidecar = await harness.startSidecar({
@@ -8578,17 +8567,8 @@ await runScript(
     const credentialPath = { ...credentialSummary, scrubbedCount: removedApiKeyVars.length };
     harness.writeArtifact("uat-08-credential-path", credentialPath);
 
-    const opsHarnessBin = resolveHarnessBinary("uat_session_env");
-    if (opsHarnessBin === undefined) {
-      throw new Error("uat_session_env is not built — run `cargo build -p core --bin uat_session_env`");
-    }
-    const heartbeatEnv = { ...process.env, FLYWHEEL_APP_DATA_DIR: harness.appDataDir };
-    spawnSync(opsHarnessBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-    const heartbeatInterval = setInterval(() => {
-      spawnSync(opsHarnessBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-    }, HEARTBEAT_TICK_MS);
-    harness.onCleanup(() => clearInterval(heartbeatInterval));
-    step("touching the heartbeat on the production cadence (05-SPIKE-FINDINGS.md's own verdict)");
+    // The production-cadence heartbeat 05-SPIKE-FINDINGS.md's own verdict requires is now
+    // `sessionEnv`'s default (D-105) rather than a block repeated in each item.
 
     step("starting the real sidecar and completing its readiness handshake");
     const sidecar = await harness.startSidecar();

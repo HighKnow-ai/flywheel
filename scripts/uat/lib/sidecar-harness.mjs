@@ -360,6 +360,15 @@ export function assertBackendAuthenticated({ env, configDir, readAuthStatus = re
  * keeps its own fallback literals: this file has no dependency on the Rust crate. */
 export const HEARTBEAT_TICK_MS = 2_000;
 
+/** The watchdog's own staleness window as THIS process can see it: the caller-supplied override
+ * when set, else the same 15000ms literal `watchdog.ts::DEFAULT_HEARTBEAT_STALE_MS` and
+ * `runtime_protocol::HEARTBEAT_STALE_MS` both carry. Read as a function rather than frozen into a
+ * constant because a caller may set the override after this module is imported. */
+export function heartbeatStaleMs() {
+  const raw = Number(process.env.FLYWHEEL_HEARTBEAT_STALE_MS);
+  return Number.isInteger(raw) && raw > 0 ? raw : 15_000;
+}
+
 /** Crockford base32, matching `flywheel_core::ids`'s own alphabet — a run id that fails
  * `is_ulid` is rejected by the product before it reaches any interesting code path, so the
  * harness must mint ids of the real shape rather than convenient strings. */
@@ -383,6 +392,14 @@ export function resolveHarnessBinary(name) {
     if (fs.existsSync(candidate)) return candidate;
   }
   return undefined;
+}
+
+/** The backend binary's own version string, or a readable failure note. Recorded in every session
+ * timeline artifact because "which binary was this measured against" was the single most load-bearing
+ * field when the uat-06b session had to reconstruct a run it could not afford to repeat. */
+export function claudeVersionString(bin = process.env.FLYWHEEL_REAL_CLAUDE_BIN ?? "claude") {
+  const result = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: 5_000 });
+  return result.status === 0 ? result.stdout.trim() : `unavailable (status ${result.status})`;
 }
 
 /** Probe whether the real backend binary is available, mirroring
@@ -540,6 +557,11 @@ export class Harness {
     // lands under `this.root` and nowhere near the developer's own Flywheel data.
     this.appDataDir = path.join(this.root, "appdata");
     fs.mkdirSync(this.appDataDir, { recursive: true });
+    /** Every {@link SidecarClient} `startSidecar` handed out, so the session timeline artifact can
+     * collect their event streams without each item having to pass its client back in. */
+    this.clients = [];
+    /** Set by `sessionEnv` — the supervision condition this run's session is spawned under. */
+    this.supervision = undefined;
   }
 
   onCleanup(fn) {
@@ -622,8 +644,37 @@ export class Harness {
    * Resolve a real session's spawn environment via the `uat_session_env` binary, which builds it
    * from the production functions. Throws with a build hint rather than a cryptic ENOENT when the
    * binary has not been compiled.
+   *
+   * ALSO SUPERVISES THE SESSION, by default (D-105, the uat-03 session). This is the one seam every
+   * live-session UAT item already routes through, so it is where the stale-window contract is
+   * ENFORCED rather than merely documented:
+   *
+   *   - `heartbeat: "sustain"` (the DEFAULT) touches the heartbeat file once immediately and then on
+   *     the production cadence ({@link HEARTBEAT_TICK_MS}) until teardown, exactly as the production
+   *     supervisor does. A session resolved through here therefore outlives the watchdog's staleness
+   *     window by construction, and an item cannot forget to ask for that.
+   *   - `heartbeat: "off"` deliberately reproduces the UNSUPERVISED condition, for the two items
+   *     whose whole subject is the watchdog firing (`uat-01-supervisor-kill.sh` and
+   *     `uat-06-permission-block-lifecycle.mjs --heartbeat=off`). Opting out is a declaration, and it
+   *     arms {@link SidecarClient#assertNoEvent}'s budget check — see
+   *     {@link Harness#watchdogBudgetRemainingMs}.
+   *
+   * WHY THE DEFAULT IS "sustain" AND NOT "off". It was `off`, implicitly, by leaving the writer to
+   * each caller — and `startSidecar`'s own STALE-WINDOW HAZARD doc comment states the requirement in
+   * prose. Five of the seven callers copy-pasted the same six-line writer; two did not, and both
+   * then asserted properties their own sessions could not live long enough to exhibit. uat-03's
+   * `assertNoEvent(session_closed, 8_000)` lost that race to a SIGKILL at spawn+16.046s (measured:
+   * `permission-block-lifecycle-off-2026-10-01T04-02-59-058Z-permission-block-timeline.json`,
+   * `closeOrigin: "watchdog-heartbeat-stale"`, `heartbeat_age_ms: null`, `since_start_ms: 16014`),
+   * and uat-05 shares the condition. A contract that every caller must remember is not a contract;
+   * the safe case is now what you get for free and the hazardous case is what you must ask for.
+   *
+   * Registers a durable timeline artifact for this run as a teardown step, so EVERY live session
+   * leaves behind its own event stream, run descriptor, kill record and lifecycle JSONL whether the
+   * item passes or fails. uat-03 wrote no artifact at all before this, which is precisely why its
+   * one token-spending failure had to be diagnosed from a sibling item's file.
    */
-  sessionEnv(runId, defaultBranch = "main") {
+  sessionEnv(runId, defaultBranch = "main", { heartbeat = "sustain" } = {}) {
     const bin = resolveHarnessBinary("uat_session_env");
     if (bin === undefined) {
       throw new Error(
@@ -638,7 +689,87 @@ export class Harness {
     if (result.status !== 0) {
       throw new Error(`uat_session_env failed (status ${result.status}): ${result.stderr ?? ""}`);
     }
-    return JSON.parse(result.stdout);
+    const env = JSON.parse(result.stdout);
+    this.#superviseSession({ bin, runId, env, heartbeat });
+    return env;
+  }
+
+  /**
+   * Start (or decline to start) this run's heartbeat writer, record the supervision condition so
+   * {@link Harness#watchdogBudgetRemainingMs} can do arithmetic on it, and register the run's
+   * durable timeline artifact. Called only by {@link Harness#sessionEnv}.
+   */
+  #superviseSession({ bin, runId, env, heartbeat }) {
+    if (heartbeat !== "sustain" && heartbeat !== "off") {
+      throw new Error(`sessionEnv: heartbeat must be "sustain" or "off", got ${JSON.stringify(heartbeat)}`);
+    }
+    const heartbeatEnv = { ...process.env, FLYWHEEL_APP_DATA_DIR: this.appDataDir };
+    if (heartbeat === "sustain") {
+      // Touched once BEFORE the session starts, so the watchdog never reads a cold start as
+      // staleness — the same precaution `supervisor.mjs` takes.
+      spawnSync(bin, ["--touch-heartbeat"], { env: heartbeatEnv });
+      const interval = setInterval(() => {
+        spawnSync(bin, ["--touch-heartbeat"], { env: heartbeatEnv });
+      }, HEARTBEAT_TICK_MS);
+      this.onCleanup(() => clearInterval(interval));
+    }
+    this.supervision = {
+      runId,
+      heartbeat,
+      startedAt: Date.now(),
+      staleMs: heartbeatStaleMs(),
+      runtimeDir: env.FLYWHEEL_RUNTIME_DIR,
+    };
+    step(
+      heartbeat === "sustain"
+        ? `supervision: heartbeat sustained on the production cadence (${HEARTBEAT_TICK_MS}ms) — the session outlives the ${this.supervision.staleMs}ms stale window`
+        : `supervision: heartbeat OFF by request — the watchdog will reap this session ~${this.supervision.staleMs}ms after spawn`,
+    );
+    this.onCleanup(() => this.#writeSessionTimeline());
+  }
+
+  /**
+   * How much time this session has left before the watchdog reaps it as an unsupervised orphan, or
+   * `null` when the heartbeat is sustained and the budget is therefore unbounded.
+   *
+   * The deadline is measured from session start because a session whose heartbeat file was never
+   * written has no last-touch to measure from — `watchdog.ts` falls back to time-since-start, which
+   * the measured artifact confirms (`heartbeat_age_ms: null`, `since_start_ms: 16014`).
+   */
+  watchdogBudgetRemainingMs() {
+    if (this.supervision === undefined || this.supervision.heartbeat === "sustain") return null;
+    return this.supervision.startedAt + this.supervision.staleMs - Date.now();
+  }
+
+  /** The run's durable evidence, written on teardown whether the item passed or failed. Best-effort
+   * by construction: it runs inside the teardown stack, where a throw must never mask the assertion
+   * that brought us here. */
+  #writeSessionTimeline() {
+    if (this.supervision === undefined) return;
+    const { runId, runtimeDir, heartbeat, startedAt, staleMs } = this.supervision;
+    const snapshot =
+      runtimeDir === undefined
+        ? { runDescriptor: null, killRecord: null, lifecycle: [] }
+        : this.snapshotRuntimeDir(runtimeDir, runId);
+    const closed = this.clients
+      .flatMap((client) => client.events)
+      .find((event) => event.type === "session_closed");
+    const filePath = this.writeArtifact("session-timeline", {
+      runId,
+      heartbeat,
+      staleMs,
+      startedAt: new Date(startedAt).toISOString(),
+      // The two numbers that make a watchdog reap diagnosable without re-deriving them by hand.
+      closeOrigin: closed?.closeOrigin ?? null,
+      closedAfterStartMs:
+        snapshot.killRecord === null ? null : Date.parse(snapshot.killRecord.killed_at) - startedAt,
+      events: this.clients.flatMap((client) => client.events),
+      runDescriptor: snapshot.runDescriptor,
+      killRecord: snapshot.killRecord,
+      lifecycle: snapshot.lifecycle,
+      claudeVersion: claudeVersionString(),
+    });
+    process.stdout.write(`[uat] session timeline: ${filePath}\n`);
   }
 
   /**
@@ -751,20 +882,26 @@ export class Harness {
    * Spawn the real sidecar and complete its readiness handshake — the same `ping` request
    * `spawn_sidecar` sends before it is allowed to return. Returns a {@link SidecarClient}.
    *
-   * STALE-WINDOW HAZARD (plan 03-21, disposition `root-cause-identified`/H1 CONFIRMED): any
-   * caller measuring a spawned session that outlives `watchdog.ts`'s own heartbeat-staleness
-   * window (`DEFAULT_HEARTBEAT_STALE_MS` = 15000ms, or a caller-supplied
-   * `FLYWHEEL_HEARTBEAT_STALE_MS` override) MUST run a heartbeat writer on the production cadence
-   * (`HEARTBEAT_TICK_MS`, above — see `uat-06-permission-block-lifecycle.mjs`'s `--heartbeat=on`
-   * path for the exact pattern: `uat_session_env --touch-heartbeat` touched once before spawn,
-   * then on an interval) or the watchdog will correctly, and by design, SIGKILL the whole session
-   * group as an unsupervised orphan (D-47/D-48, PROC-04) — this is the watchdog doing its job
-   * against a caller that never touched the heartbeat file, not a product defect. Two live
-   * measurements (03-20) confirmed this directly: the identical scenario terminated at ~15-16s
-   * under `--heartbeat=off` with `closeOrigin: "watchdog-heartbeat-stale"`, and sustained a full
-   * 90s observation window with zero termination artifacts under `--heartbeat=on`. This function
-   * itself never touches the heartbeat file — that is the caller's responsibility, by design,
-   * because only the caller knows how long its own measurement window needs to last.
+   * STALE-WINDOW HAZARD (plan 03-21, disposition `root-cause-identified`/H1 CONFIRMED): a spawned
+   * session that outlives `watchdog.ts`'s own heartbeat-staleness window
+   * (`DEFAULT_HEARTBEAT_STALE_MS` = 15000ms, or a caller-supplied `FLYWHEEL_HEARTBEAT_STALE_MS`
+   * override) is SIGKILLed as an whole-process-group unsupervised orphan (D-47/D-48, PROC-04) unless
+   * something touches the heartbeat file on the production cadence — the watchdog doing its job
+   * against an unsupervised caller, not a product defect. Two live measurements (03-20) confirmed it
+   * directly: the identical scenario terminated at ~15-16s with `closeOrigin:
+   * "watchdog-heartbeat-stale"` unsupervised, and sustained a full 90s observation window with zero
+   * termination artifacts supervised.
+   *
+   * CORRECTED (D-105, the uat-03 session — this paragraph previously said the opposite). This used to
+   * read "that is the caller's responsibility, by design, because only the caller knows how long its
+   * own measurement window needs to last", and that delegation is what broke: a requirement stated in
+   * a doc comment is not a requirement. Five of seven callers copy-pasted the same writer and two did
+   * not, so uat-03 and uat-05 both asserted properties their sessions were SIGKILLed before they
+   * could exhibit. {@link Harness#sessionEnv} now runs the writer ITSELF by default and the hazardous
+   * condition must be asked for explicitly (`{ heartbeat: "off" }`) — so this function no longer has
+   * a contract for a caller to miss. The premise that "only the caller knows how long its window
+   * needs to be" was also simply false for the two items that got it wrong: neither knew, because
+   * neither had measured how long a model turn takes before its window even opens.
    */
   async startSidecar({ env = {} } = {}) {
     if (!fs.existsSync(SIDECAR_ENTRY)) {
@@ -780,7 +917,8 @@ export class Harness {
     // event this run's SidecarClient sees, resolved through THIS harness's own artifactDir() — the
     // only permitted destination (T-05-37-02) — never a path this method resolves itself.
     const sink = createUnmodelledEventSink({ artifactDir: this.artifactDir(), label: this.label });
-    const client = new SidecarClient(child, sink);
+    const client = new SidecarClient(child, sink, this);
+    this.clients.push(client);
     this.onCleanup(() => client.dispose());
     this.onCleanup(() => {
       const captured = sink.summary();
@@ -1202,11 +1340,17 @@ export class TurnDeadlineError extends Error {
  * existing stderr line, never instead of it. A client constructed with no sink (every call site in
  * this repository other than `Harness.startSidecar`, including every test that constructs a bare
  * `SidecarClient` directly) behaves exactly as it did before this field existed.
+ *
+ * `harness` (D-105, the uat-03 session): equally OPTIONAL, and read for exactly one purpose — so
+ * {@link SidecarClient#assertNoEvent} can ask how much time the session has before the watchdog
+ * reaps it, instead of sleeping through a window that cannot fit. A client constructed without it
+ * skips that check and behaves as it did before.
  */
 export class SidecarClient {
-  constructor(child, sink) {
+  constructor(child, sink, harness) {
     this.child = child;
     this.sink = sink;
+    this.harness = harness;
     this.pending = new Map();
     this.events = [];
     this.eventWaiters = [];
@@ -1554,9 +1698,45 @@ export class SidecarClient {
 
   /** Assert that no event matching `predicate` arrives within `windowMs` — the shape "the session
    * stays blocked" needs, which a positive wait can never express. */
+  /**
+   * Assert that nothing matching `predicate` appears for `windowMs`.
+   *
+   * REFUSES TO RACE THE WATCHDOG (D-105, the uat-03 session). Before sleeping, this checks that
+   * `windowMs` actually FITS inside the time the session has left before the watchdog reaps it
+   * ({@link Harness#watchdogBudgetRemainingMs}, finite only for a session that opted out of the
+   * heartbeat). A window that does not fit is an INSTRUMENT defect, and it is reported as one here
+   * rather than being slept through — because sleeping through it yields the wrong verdict in BOTH
+   * directions: on a slow turn the item fails and blames the product (which is how uat-03 came to
+   * report "the session must not close while a destructive permission request is unanswered" for
+   * what was actually a `watchdog-heartbeat-stale` SIGKILL at spawn+16.046s), and on a fast turn it
+   * PASSES while the property was never guaranteed — a green row that could not have gone red for
+   * the right reason, the same vacuity class as UAT 6a.
+   *
+   * The arithmetic is deterministic, so this fires on every run of a mis-specified item rather than
+   * on the unlucky ones. That is the whole point: the race is removed, not usually won.
+   */
   async assertNoEvent(predicate, windowMs, description) {
     const alreadySeen = this.events.find(predicate);
     assert.equal(alreadySeen, undefined, `${description} (already seen before the window opened)`);
+    const budgetMs = this.harness?.watchdogBudgetRemainingMs() ?? null;
+    if (budgetMs !== null && windowMs > budgetMs) {
+      const { staleMs, startedAt } = this.harness.supervision;
+      assert.fail(
+        `INSTRUMENT DEFECT — this item cannot sustain its own assertion, so it was not attempted.\n\n` +
+          `  asserting: ${description}\n` +
+          `  window requested: ${windowMs}ms\n` +
+          `  watchdog budget remaining: ${budgetMs}ms ` +
+          `(${staleMs}ms stale window, session started ${Date.now() - startedAt}ms ago)\n\n` +
+          `This session opted out of the heartbeat (sessionEnv's \`{ heartbeat: "off" }\`), so the ` +
+          `watchdog will SIGKILL its whole process group as an unsupervised orphan ` +
+          `${staleMs}ms after it started — inside the window above. Whatever this assertion ` +
+          `observed would have been the watchdog doing its job, not the behaviour under test.\n\n` +
+          `Fix the ENVIRONMENT, never the assertion: drop the \`{ heartbeat: "off" }\` opt-out so ` +
+          `the harness sustains the heartbeat on the production cadence, or open this window ` +
+          `earlier in the session. Do not shorten it to fit — a window chosen to fit the budget ` +
+          `rather than the property is the vacuity this check exists to prevent.`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, windowMs));
     const appeared = this.events.find(predicate);
     assert.equal(appeared, undefined, `${description} — saw ${JSON.stringify(appeared)}`);

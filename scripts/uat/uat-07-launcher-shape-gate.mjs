@@ -41,14 +41,11 @@
  * Costs real tokens: it drives a real model turn against the real installed backend.
  */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 
 import {
   drainIncidentalPermissionRequests,
-  HEARTBEAT_TICK_MS,
   newRunId,
   probeClaudeAvailable,
-  resolveHarnessBinary,
   runScript,
   skip,
   step,
@@ -110,24 +107,12 @@ await runScript(
     const env = harness.sessionEnv(runId, defaultBranch);
     step(`spawn env resolved; shim dir leads PATH: ${env.PATH.split(":")[0]}`);
 
-    // A production-shaped heartbeat writer (03-20/03-21's own established pattern for a run that
-    // must survive past the watchdog's stale window): this script's two-command, sequential prompt
-    // plus incidental-request draining genuinely takes longer than item 3's single-command turn, so
-    // it needs the same production-cadence heartbeat uat-06's `--heartbeat=on` mode uses — measured
-    // live this run: without it, `watchdog-heartbeat-stale` kills the session mid-turn (Rule 3 —
-    // blocking issue, see the SUMMARY's Deviations section).
-    const harnessBin = resolveHarnessBinary("uat_session_env");
-    if (harnessBin === undefined) {
-      throw new Error("uat_session_env is not built — run `cargo build -p core --bin uat_session_env`");
-    }
-    const heartbeatEnv = { ...process.env, FLYWHEEL_APP_DATA_DIR: harness.appDataDir };
-    // Touch once BEFORE the session starts, so the watchdog never reads a cold start as staleness.
-    spawnSync(harnessBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-    const heartbeatInterval = setInterval(() => {
-      spawnSync(harnessBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-    }, HEARTBEAT_TICK_MS);
-    harness.onCleanup(() => clearInterval(heartbeatInterval));
-    step("touching the heartbeat on the production cadence via `uat_session_env --touch-heartbeat`");
+    // The production-cadence heartbeat this script needs — "measured live this run: without it,
+    // `watchdog-heartbeat-stale` kills the session mid-turn" (Rule 3 blocking issue, see the
+    // SUMMARY's Deviations section) — is now `sessionEnv`'s default and no longer hand-rolled here.
+    // That measurement is why this item passed while uat-03 and uat-05, which never got the same
+    // treatment, were SIGKILLed mid-assertion; D-105 moved the writer to the one seam all seven
+    // live-session items share so the knowledge is applied once instead of per script.
 
     step("starting the real sidecar and completing its readiness handshake");
     const sidecar = await harness.startSidecar();

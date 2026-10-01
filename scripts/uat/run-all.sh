@@ -30,21 +30,49 @@ fi
 declare -a NAMES=()
 declare -a RESULTS=()
 declare -a NOTES=()
+declare -a LOGS=()
+
+# Every item's FULL output is retained on disk, beside the items' own JSON artifacts (D-105). It used
+# to live only in this process's stdout, so a failing token-spending item left nothing behind once
+# the terminal scrolled — which is half of why the uat-03 failure had to be diagnosed from a sibling
+# item's artifact.
+LOG_DIR="${FLYWHEEL_UAT_ARTIFACT_DIR:-${TMPDIR:-/tmp}/flywheel-uat-artifacts}"
+mkdir -p "$LOG_DIR"
+RUN_STAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+printf '▸ Per-item output logs: %s/run-all-%s-*.log\n' "$LOG_DIR" "$RUN_STAMP"
 
 run_item() {
   local label="$1"; shift
   printf '\n▸ %s\n' "$label"
-  local output
+  local slug log output status
+  slug="$(printf '%s' "$label" | tr -c 'a-zA-Z0-9' '-' | tr -s '-' | cut -c1-40)"
+  log="${LOG_DIR}/run-all-${RUN_STAMP}-${slug}.log"
   output="$("$@" 2>&1)"
-  local status=$?
+  status=$?
+  printf '%s\n' "$output" >"$log"
   printf '%s\n' "$output" | sed 's/^/  /'
   NAMES+=("$label")
+  LOGS+=("$log")
   case "$status" in
     0) RESULTS+=("PASS"); NOTES+=("") ;;
     3) RESULTS+=("SKIP"); NOTES+=("$(printf '%s' "$output" | awk -F': ' '/SKIP/{print $NF; exit}')") ;;
-    *) RESULTS+=("FAIL"); NOTES+=("$(printf '%s' "$output" | awk '/^(AssertionError|ASSERTION|PROPERTY)/{print substr($0,1,70); exit}')") ;;
+    # NOT truncated. This used to be `substr($0,1,70)`, which reduced a real failure to
+    # "AssertionError [ERR_ASSERTION]: the session must not close while a des" — cutting off
+    # mid-word, and with it every word that would have said WHICH property failed. A note that
+    # overflows the table box is strictly better than one that loses the finding. `INSTRUMENT` is
+    # matched too, so `assertNoEvent`'s budget refusal surfaces here as itself rather than as a
+    # generic assertion failure.
+    *) RESULTS+=("FAIL"); NOTES+=("$(printf '%s' "$output" | awk '/^(AssertionError|ASSERTION|PROPERTY|INSTRUMENT)/{print; exit}')") ;;
   esac
 }
+
+# FIRST, and deliberately: the two zero-token harness gates. If the harness has stopped supervising
+# its own sessions, every credential-spending item below is racing the watchdog and its verdict means
+# nothing — so this is checked before a single token is spent, not after (D-105).
+run_item "GATE — harness supervises its own sessions (zero tokens)" \
+  node scripts/uat/harness-supervision-gate.mjs --mode=supervised
+run_item "GATE — the heartbeat opt-out is still reaped on time (zero tokens)" \
+  node scripts/uat/harness-supervision-gate.mjs --mode=unsupervised
 
 run_item "UAT 1 — supervisor kill -9 leaves no surviving agent process" \
   bash scripts/uat/uat-01-supervisor-kill.sh
@@ -75,6 +103,8 @@ for i in "${!NAMES[@]}"; do
   esac
   printf '│ %s %-6s %s\n' "$icon" "${RESULTS[$i]}" "${NAMES[$i]}"
   [ -n "${NOTES[$i]}" ] && printf '│          ↳ %s\n' "${NOTES[$i]}"
+  # The full output of a FAILING item, named right where someone reads the failure.
+  [ "${RESULTS[$i]}" = "FAIL" ] && printf '│          ↳ full output: %s\n' "${LOGS[$i]}"
 done
 printf '│ 👁  MANUAL UAT 2 — orphan recovery modal blocks the board\n'
 printf '│          ↳ bash scripts/uat/uat-ui-setup.sh orphan\n'

@@ -6,11 +6,19 @@
  * personal `~/.claude` so an inherited hook, plugin or MCP server registration cannot be the
  * explanation.
  *
- * Two modes, run separately (`--heartbeat=off` reproduces the unsupervised condition
- * `uat-03-destructive-gate.mjs` runs under; `--heartbeat=on` adds a production-shaped heartbeat
- * writer on the real cadence), so a self-terminating session is attributed to a supervised or an
+ * Two modes, run separately, so a self-terminating session is attributed to a supervised or an
  * unsupervised condition rather than asserted of both. Both outcomes below are legitimate — this
  * script does not presuppose which one a run will show.
+ *
+ * `--heartbeat=on` is the production-shaped condition and is now simply the harness default;
+ * `--heartbeat=off` is an explicit opt-out (`sessionEnv`'s `{ heartbeat: "off" }`) reproducing the
+ * UNSUPERVISED condition, which is this arm's whole subject.
+ *
+ * CORRECTED (D-105, the uat-03 session): the `off` arm no longer "reproduces the condition
+ * `uat-03-destructive-gate.mjs` runs under" — that sentence stood here and was true, and it is the
+ * sentence that let the uat-03 session diagnose its own failure for free from this item's artifact.
+ * It is now false in the best way: uat-03 is supervised by default, so nothing but these two
+ * deliberate opt-outs (this arm and `uat-01-supervisor-kill.sh`) runs unsupervised any more.
  *
  * Does NOT touch `packages/core/src/destructive.rs`, `packages/shim/src/main.rs`, or
  * `packages/sidecar/src/pretooluse-hook.ts`. Does NOT modify `uat-03-destructive-gate.mjs`, which
@@ -28,11 +36,9 @@ import fs from "node:fs";
 import {
   assertClaudeConfigIsolated,
   drainIncidentalPermissionRequests,
-  HEARTBEAT_TICK_MS,
   newRunId,
   PERSONAL_CLAUDE_CONFIG_DIR,
   probeClaudeAvailable,
-  resolveHarnessBinary,
   runScript,
   skip,
   step,
@@ -135,7 +141,16 @@ await runScript(
     step(`remote ${DOOMED_BRANCH} is at ${refBefore.slice(0, 12)}`);
 
     const runId = newRunId();
-    const env = { ...harness.sessionEnv(runId, defaultBranch), ...harness.cleanClaudeConfigEnv() };
+    // The `--heartbeat` flag IS the supervision condition, and it is now expressed as one — the
+    // harness runs the production-cadence writer itself for `sustain` (D-105). `off` is a DELIBERATE
+    // opt-out, because this arm's whole subject is the watchdog firing; it also arms
+    // `assertNoEvent`'s budget check, so this arm can never silently assert past the stale window.
+    const env = {
+      ...harness.sessionEnv(runId, defaultBranch, {
+        heartbeat: heartbeatMode === "on" ? "sustain" : "off",
+      }),
+      ...harness.cleanClaudeConfigEnv(),
+    };
 
     // ---- Isolation is ASSERTED, not described (T-03-20-05) -------------------------------------
     // `cleanClaudeConfigEnv()` already asserted this against its own resolved value; re-asserted
@@ -144,28 +159,6 @@ await runScript(
     // when `CLAUDE_CONFIG_DIR` is missing, or equals/starts with the personal `~/.claude` dir.
     assertClaudeConfigIsolated(env);
     step(`isolation asserted: CLAUDE_CONFIG_DIR=${env.CLAUDE_CONFIG_DIR}, no value points at ${PERSONAL_CLAUDE_CONFIG_DIR}`);
-
-    // ---- Heartbeat mode -------------------------------------------------------------------------
-    if (heartbeatMode === "on") {
-      const harnessBin = resolveHarnessBinary("uat_session_env");
-      if (harnessBin === undefined) {
-        throw new Error("uat_session_env is not built — run `cargo build -p core --bin uat_session_env`");
-      }
-      const heartbeatEnv = { ...process.env, FLYWHEEL_APP_DATA_DIR: harness.appDataDir };
-      // Touch once BEFORE the session starts, so the watchdog never reads a cold start as
-      // staleness (mirrors `supervisor.mjs`'s own identical precaution).
-      spawnSync(harnessBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-      const heartbeatInterval = setInterval(() => {
-        spawnSync(harnessBin, ["--touch-heartbeat"], { env: heartbeatEnv });
-      }, HEARTBEAT_TICK_MS);
-      harness.onCleanup(() => clearInterval(heartbeatInterval));
-      step("heartbeat=on: touching the heartbeat on the production cadence via `uat_session_env --touch-heartbeat`");
-    } else {
-      step(
-        "heartbeat=off: deliberately reproducing the unsupervised condition " +
-          "uat-03-destructive-gate.mjs runs under — nothing touches the heartbeat file",
-      );
-    }
 
     step("starting the real sidecar and completing its readiness handshake");
     const sidecar = await harness.startSidecar();

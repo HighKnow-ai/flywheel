@@ -22,6 +22,50 @@ bash scripts/uat/run-all.sh          # add --no-build to skip the prerequisite b
 | 6 — Session-lifecycle clean-room measurement (SC5/AGNT-07 gap closure, plan 03-20) | `uat-06-permission-block-lifecycle.mjs` | See `03-SESSION-LIFECYCLE-FINDINGS.md` |
 | 7 — Launcher-wrapped destructive command, measured live (AGNT-07, D-62 item 2) | `uat-07-launcher-shape-gate.mjs` | **PASS** — properties A, B and C all held |
 | 8 — Socratic epic authoring, driven live (Phase 5 roadmap criteria SHAPE-01…SHAPE-05) | `uat-08-socratic-authoring.mjs` | **Offline arm PASS** (`--self-test`) — the live arm is a deliberate human-run measurement, not something this table can claim green on its own |
+| GATE — the harness supervises its own sessions (D-105) | `harness-supervision-gate.mjs --mode=supervised` | **PASS** — zero tokens |
+| GATE — the heartbeat opt-out is still reaped on time (D-105) | `harness-supervision-gate.mjs --mode=unsupervised` | **PASS** — zero tokens |
+
+### Supervision — why every live item outlives the watchdog, and why that is not each item's job
+
+A spawned session whose heartbeat file goes untouched for `HEARTBEAT_STALE_MS` (15000ms) has its
+whole process group SIGKILLed by `watchdog.ts` as an unsupervised orphan. That is the watchdog
+working (D-47/D-48, PROC-04), and it is a trap for any item that wants to *observe* a session for
+longer than that.
+
+`Harness.sessionEnv` therefore runs the production-cadence heartbeat writer **itself, by default**.
+An item that genuinely needs the unsupervised condition asks for it — `sessionEnv(runId, branch,
+{ heartbeat: "off" })` — and only two do: `uat-01-supervisor-kill.sh` and `uat-06
+--heartbeat=off`, both of whose whole subject is the watchdog firing.
+
+This used to be each caller's responsibility, stated in `startSidecar`'s doc comment. It did not
+hold. Five of the seven `sessionEnv` callers copy-pasted the same six-line writer and two did not,
+so `uat-03` and `uat-05` each asserted a property their own session was killed before it could
+exhibit — uat-03 reporting *"the session must not close while a destructive permission request is
+unanswered"* for a `watchdog-heartbeat-stale` SIGKILL that landed 7.084s into its own 8000ms window
+(measured: `closeOrigin: "watchdog-heartbeat-stale"`, `since_start_ms: 16014` in
+`permission-block-lifecycle-off-2026-10-01T04-02-59-058Z-permission-block-timeline.json`). A
+requirement that every caller must remember is not a requirement.
+
+Two mechanisms keep it true, and `harness-supervision-gate.mjs` asserts both for zero tokens
+against the `lib/long-lived-backend.mjs` stub (`run-all.sh` runs it *before* any item that spends
+credentials, because a harness that has stopped supervising makes every verdict below it
+meaningless):
+
+- **The default is the safe one.** Opting into the hazard is explicit and visible.
+- **`assertNoEvent` refuses to race.** Before sleeping, it checks that the window actually fits the
+  session's remaining watchdog budget, and reports an `INSTRUMENT DEFECT` naming itself if it does
+  not. This matters in *both* directions: without it, a mis-specified item fails and blames the
+  product on a slow turn, and **passes** on a fast one — a green row that could not have gone red
+  for the right reason, the same vacuity class as UAT 6a. The check is arithmetic, so it fires on
+  every run rather than the unlucky ones.
+
+Never shorten an assertion window to fit the budget. A window chosen to fit the budget rather than
+the property is exactly the vacuity this gate exists to prevent; fix the environment instead.
+
+Every session resolved through `sessionEnv` also leaves a `*-session-timeline.json` artifact —
+event stream, run descriptor, kill record, lifecycle JSONL, `closeOrigin`, `closedAfterStartMs` and
+`claude --version` — on pass **and** on fail. `uat-03` wrote no artifact at all before this, which
+is why its one token-spending failure had to be diagnosed from a sibling item's file.
 
 ### Item 1 — supervisor kill
 
