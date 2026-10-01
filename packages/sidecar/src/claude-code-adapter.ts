@@ -165,9 +165,11 @@ export const AUTHORING_STAGE_GATE_MATCHER = `mcp__${MCP_SERVER_NAME}__(propose|a
 /** Write `<runtimeDir>/settings/<runId>.json` — the exact `PreToolUse`/`matcher: "Bash"` shape
  * RESEARCH.md confirmed working live against the real `claude` binary this session (§ "The hook
  * mechanism verified working this session"), EXTENDED (plan 05-03, D-88) with a SECOND
- * `PreToolUse` entry gating the authoring MCP server's write tools — and return its path. The
- * first entry stays byte-identical: the destructive-command gate must keep working unchanged for
- * any `Bash` call an authoring session's read-only posture still permits (e.g. `git log`).
+ * `PreToolUse` entry gating the authoring MCP server's write tools, and EXTENDED AGAIN (phase 12,
+ * plan 12-03) with a `SessionStart` entry (`sessionStartHookScriptPath()`, no `matcher` field) —
+ * and return its path. The `PreToolUse` array stays byte-identical across both extensions: the
+ * destructive-command gate must keep working unchanged for any `Bash` call an authoring session's
+ * read-only posture still permits (e.g. `git log`).
  *
  * `includeAuthoringStageGate` (plan 06-01, `06-RESEARCH.md` Pitfall 1): the whole fix for the
  * collision between this function's own unconditional two-entry write and the NEW `propose_item`
@@ -212,11 +214,25 @@ export function writeHookSettings(
         hooks: [{ type: "command", command: `${process.execPath} ${stageGateHookScriptPath()}` }],
       });
     }
-    const settings = { hooks: { PreToolUse: preToolUse } };
+    const settings = {
+      hooks: {
+        PreToolUse: preToolUse,
+        // Phase 12 plan 12-03: writes the shim's shadow directory onto CLAUDE_ENV_FILE
+        // (sessionstart-hook.ts's own module doc). No `matcher` field — SessionStart is not
+        // tool-scoped. The PreToolUse array above is unchanged by this addition.
+        SessionStart: [
+          {
+            hooks: [
+              { type: "command", command: `${process.execPath} ${sessionStartHookScriptPath()}` },
+            ],
+          },
+        ],
+      },
+    };
     fs.writeFileSync(settingsPath, JSON.stringify(settings));
     return settingsPath;
   } catch (err) {
-    console.error(`flywheel sidecar: failed to write PreToolUse hook settings for ${runId}: ${String(err)}`);
+    console.error(`flywheel sidecar: failed to write hook settings for ${runId}: ${String(err)}`);
     return undefined;
   }
 }
