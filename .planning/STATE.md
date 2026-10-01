@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 06
 current_phase_name: Agents File Their Own Backlog
-status: executing
-stopped_at: Completed 06-08-PLAN.md
-last_updated: "2026-09-30T09:55:43.947Z"
+status: verifying
+stopped_at: Completed 06-09-PLAN.md
+last_updated: "2026-10-01T03:56:44.294Z"
 last_activity: 2026-09-30
 last_activity_desc: Phase 06 execution started
-state_head: 61f8c045325f406d8daf81f4cc7b07062a070076
+state_head: b86d6f9861521848788096fe4c99c87c8b54bf54
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 152
-  completed_plans: 151
+  completed_plans: 152
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 
 Phase: 06 (Agents File Their Own Backlog) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-30 — Phase 06 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -209,6 +209,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P06 | 32min | 3 tasks | 9 files |
 | Phase 06 P07 | 48min | 3 tasks | 6 files |
 | Phase 06 P08 | 38min | 3 tasks | 6 files |
+| Phase 06 P09 | 90min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -480,6 +481,8 @@ Recent decisions affecting current work:
 - [Phase 06]: The execution-run live proposal tray discretion item is answered yes: SessionSurface's ProposalTray now mounts for any run (authoring or execution) with at least one staged proposal, derived from the same run-scoped query the tray itself reads.
 - [Phase 06]: TriageLane's route control writes state/uiStore.ts's triageSurfaceProjectId directly via useUiStore.getState(), not a subscribed selector, matching the plan's own single-occurrence verify gate and avoiding a needless read-subscription.
 - [Phase 06]: Two Rule-1 bug fixes during implementation: disabled the second useRunProposals subscriber for authoring runs (it raced an existing keyboard test's effect-cleanup timing), and gave useSessionFeed a real second parameter so the turn-pointer's log offset actually lands on the requested page instead of being accepted and dropped.
+- [Phase 06]: ClaudeCodeAdapter.startSession never wired startPermissionServer's onProposal callback, so an execution run's propose_item call could hang forever — fixed to mirror startAuthoringSession's wiring — Found while building plan 06-09's live arm; neither proposal_channel.rs nor propose-item-wire.test.mjs could have caught it since both bypass startSession's real production wiring
+- [Phase 06]: 06-09's offline UAT arm stages 7 generic filler proposals before the near-duplicate pair, and restates both title and body (not title alone) — bm25's IDF collapses toward zero in a tiny corpus and its score sums only over matching terms, so a short title-only restatement under-scores the pinned -21.0 duplicate threshold even against a realistic corpus — measured empirically while building the harness
 
 ### Pending Todos
 
@@ -535,6 +538,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-30T09:55:43.790Z
-Stopped at: Completed 06-08-PLAN.md
+Last session: 2026-10-01T03:56:44.145Z
+Stopped at: Completed 06-09-PLAN.md
 Resume file: None

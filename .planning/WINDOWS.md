@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 14
+open_count: 12
 waived_count: 0
-fixed_count: 7
+fixed_count: 9
 total_count: 21
-last_updated: 2026-09-30T09:51:52.239Z
+last_updated: 2026-10-01T03:52:43.862Z
 ---
 
 # Broken Windows Ledger
@@ -33,9 +33,9 @@ last_updated: 2026-09-30T09:51:52.239Z
 | 16 | 05 | unrun-verify | scripts/uat/uat-08-socratic-authoring.mjs |  | Plan 05-10 Task 3's own <human-check>: the live acceptance run against the real claude backend (challenge quality, criteria-amendment ratio, the wall-clock comparison against the terminal arm from 05-SPIKE-FINDINGS.md's Product Kill Criterion) was not executed by this autonomous run — it costs real tokens against a real credentialed backend, which this session declined to spend without explicit human instruction. The script's --self-test mode (offline, no claude binary) was run and passes; the live half awaits a human running it deliberately, alongside WINDOWS.md entries #13/#14. | open |  | 2026-09-23T18:48:53.911Z |  |
 | 17 | 05 | unrun-verify | .planning/phases/05-socratic-epic-authoring/05-13-PLAN.md |  | Task 3's <human-check> Product Kill Criterion re-staging (in-app arm timed against the terminal arm) not run this session — spends real API credits, two timed sittings; protocol written in 05-SPIKE-FINDINGS.md for a later deliberate run. | open |  | 2026-09-24T00:22:55.549Z |  |
 | 18 | 05 | deviation | scripts/uat/uat-08-socratic-authoring.mjs |  | 05-20 Task 2 (tdd=true): the feat(05-20) commit shipping waitForTurn/accumulateTurn (05610c6) preceded the test(05-20) commit pinning its edge cases (091af4d) — canonical RED-before-GREEN order inverted because Task 1's tracer commit already shipped the correct primitive; RED was verified by construction (temporary mutation + revert) rather than a natural pre-implementation failure. Documented in 05-20-SUMMARY.md TDD Gate Compliance. | open |  | 2026-09-24T07:58:27.699Z |  |
-| 19 | 06 | unrun-verify | .planning/phases/06-agents-file-their-own-backlog/06-01-PLAN.md |  | Tracer's human-check (triage lane shows staged proposal, rationale legible, accept mints a task) not run manually — approved on automated DB-level evidence; end-to-end visual proof deferred to plan 06-09's scripted UAT harness (scripts/uat/uat-10-agent-backlog.mjs). | open |  | 2026-09-30T04:35:52.712Z |  |
+| 19 | 06 | unrun-verify | .planning/phases/06-agents-file-their-own-backlog/06-01-PLAN.md |  | Tracer's human-check (triage lane shows staged proposal, rationale legible, accept mints a task) not run manually — approved on automated DB-level evidence; end-to-end visual proof deferred to plan 06-09's scripted UAT harness (scripts/uat/uat-10-agent-backlog.mjs). | fixed |  | 2026-09-30T04:35:52.712Z | 2026-10-01T03:52:43.720Z |
 | 20 | 06 | unrun-verify | packages/desktop/src/triage/TriageSurface.tsx |  | 06-07 Task 3's human-check (launch the app, open the triage surface, confirm the four verbs are reachable/legible) could not be run: TriageSurface is not yet mounted from any route/entry point in the running app. Needs a later plan (06-08/06-09) to add the entry point. | fixed |  | 2026-09-30T09:11:59.387Z | 2026-09-30T09:51:34.232Z |
-| 21 | 06 | unrun-verify | packages/desktop/src/triage/TriageSurface.tsx |  | 06-08 wires TriageSurface into the running app (board route control, App-level mount, turn-pointer jump) and closes entry #20's specific blocker (no mount point existed). The routing itself is proven at the component level (triage-routing.test.tsx, 7/7). The remaining live visual check from 06-07 Task 3's own human-check (launch the packaged app, open the triage surface via the board, confirm the four verbs are reachable/legible) still has not been run against a real running app — deferred to 06-09's scripted UAT harness (scripts/uat/uat-10-agent-backlog.mjs), which now has a real route to exercise. | open |  | 2026-09-30T09:51:52.239Z |  |
+| 21 | 06 | unrun-verify | packages/desktop/src/triage/TriageSurface.tsx |  | 06-08 wires TriageSurface into the running app (board route control, App-level mount, turn-pointer jump) and closes entry #20's specific blocker (no mount point existed). The routing itself is proven at the component level (triage-routing.test.tsx, 7/7). The remaining live visual check from 06-07 Task 3's own human-check (launch the packaged app, open the triage surface via the board, confirm the four verbs are reachable/legible) still has not been run against a real running app — deferred to 06-09's scripted UAT harness (scripts/uat/uat-10-agent-backlog.mjs), which now has a real route to exercise. | fixed |  | 2026-09-30T09:51:52.239Z | 2026-10-01T03:52:43.862Z |
 
 ````json
 [
@@ -262,10 +262,10 @@ last_updated: 2026-09-30T09:51:52.239Z
     "file": ".planning/phases/06-agents-file-their-own-backlog/06-01-PLAN.md",
     "line": null,
     "description": "Tracer's human-check (triage lane shows staged proposal, rationale legible, accept mints a task) not run manually — approved on automated DB-level evidence; end-to-end visual proof deferred to plan 06-09's scripted UAT harness (scripts/uat/uat-10-agent-backlog.mjs).",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-30T04:35:52.712Z",
-    "resolved_at": null
+    "resolved_at": "2026-10-01T03:52:43.720Z"
   },
   {
     "id": 20,
@@ -286,10 +286,10 @@ last_updated: 2026-09-30T09:51:52.239Z
     "file": "packages/desktop/src/triage/TriageSurface.tsx",
     "line": null,
     "description": "06-08 wires TriageSurface into the running app (board route control, App-level mount, turn-pointer jump) and closes entry #20's specific blocker (no mount point existed). The routing itself is proven at the component level (triage-routing.test.tsx, 7/7). The remaining live visual check from 06-07 Task 3's own human-check (launch the packaged app, open the triage surface via the board, confirm the four verbs are reachable/legible) still has not been run against a real running app — deferred to 06-09's scripted UAT harness (scripts/uat/uat-10-agent-backlog.mjs), which now has a real route to exercise.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-30T09:51:52.239Z",
-    "resolved_at": null
+    "resolved_at": "2026-10-01T03:52:43.862Z"
   }
 ]
 ````

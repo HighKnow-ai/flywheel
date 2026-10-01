@@ -711,7 +711,7 @@ prompting in a terminal, before building the full surface.
   4. A proposal that duplicates an existing item is flagged as a duplicate before the user sees it.
   5. A chatty agent hits a per-run proposal limit and the user is told the limit was hit, rather than proposals being silently dropped.
 
-**Plans**: 8/9 plans executed in 8 waves
+**Plans**: 9/9 plans executed in 8 waves
 **UI hint**: yes
 
 Plans:
@@ -747,7 +747,7 @@ Plans:
 
 **Wave 8** *(blocked on 06-08 — the phase's ship gate)*
 
-- [ ] 06-09-PLAN.md — The scriptable acceptance run: the UAT bridge's seven new verbs, an offline arm that costs nothing, a live arm a human runs, and a per-success-criterion report (all seven PROP ids)
+- [x] 06-09-PLAN.md — The scriptable acceptance run: the UAT bridge's seven new verbs, an offline arm that costs nothing, a live arm a human runs, and a per-success-criterion report (all seven PROP ids)
 
 **Notes**: The proposed-state gate is structural, not a convention — research is explicit that
 backlog spam and auto-promotion are how trust in an agent-authored backlog collapses. Criterion 1
@@ -982,7 +982,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 3. Nothing Lost, Nothing Left Running | 38/38 | Complete    | 2026-09-22 |
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
-| 6. Agents File Their Own Backlog | 8/9 | In Progress|  |
+| 6. Agents File Their Own Backlog | 9/9 | In Progress|  |
 | 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |

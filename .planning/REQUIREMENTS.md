@@ -98,13 +98,13 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Agent-Authored Backlog
 
-- [ ] **PROP-01**: A running agent can propose new tasks, issues and epics through a board tool interface exposed to it
-- [ ] **PROP-02**: Agent-proposed items enter a distinct proposed state and never appear as accepted work until a human triages them
-- [ ] **PROP-03**: No code path promotes a proposed item to active work except explicit human triage
-- [ ] **PROP-04**: Proposals are checked against existing items for duplicates before being surfaced
-- [ ] **PROP-05**: Proposal volume per agent run is rate-limited, and hitting the limit is surfaced rather than silently dropped
-- [ ] **PROP-06**: User can triage the proposal queue — accept, reject, merge into an existing item, or defer — in a dedicated view
-- [ ] **PROP-07**: Every proposal records which agent run produced it and what prompted it
+- [x] **PROP-01**: A running agent can propose new tasks, issues and epics through a board tool interface exposed to it
+- [x] **PROP-02**: Agent-proposed items enter a distinct proposed state and never appear as accepted work until a human triages them
+- [x] **PROP-03**: No code path promotes a proposed item to active work except explicit human triage
+- [x] **PROP-04**: Proposals are checked against existing items for duplicates before being surfaced
+- [x] **PROP-05**: Proposal volume per agent run is rate-limited, and hitting the limit is surfaced rather than silently dropped
+- [x] **PROP-06**: User can triage the proposal queue — accept, reject, merge into an existing item, or defer — in a dedicated view
+- [x] **PROP-07**: Every proposal records which agent run produced it and what prompted it
 
 ### Planner & Parallel Fan-Out
 
@@ -284,13 +284,13 @@ Which phases cover which requirements. Populated during roadmap creation.
 | SHAPE-03 | Phase 5 | Complete — closed round 13: the harness's stale-snapshot `reject-proposal` defect fixed (`260929-lq1`); live run `01M3QQQM4GAYB2Y9RQMJDRWAX0` exited 0 with all gating SHAPE criteria green; developer verdict signed PASS 2026-09-30; credential seam accepted on four observed live successes (`05-UAT.md` test 3) |
 | SHAPE-04 | Phase 5 | Complete |
 | SHAPE-05 | Phase 5 | Complete |
-| PROP-01 | Phase 6 | Pending |
-| PROP-02 | Phase 6 | Pending |
-| PROP-03 | Phase 6 | Pending |
-| PROP-04 | Phase 6 | Pending |
-| PROP-05 | Phase 6 | Pending |
-| PROP-06 | Phase 6 | Pending |
-| PROP-07 | Phase 6 | Pending |
+| PROP-01 | Phase 6 | Complete |
+| PROP-02 | Phase 6 | Complete |
+| PROP-03 | Phase 6 | Complete |
+| PROP-04 | Phase 6 | Complete |
+| PROP-05 | Phase 6 | Complete |
+| PROP-06 | Phase 6 | Complete |
+| PROP-07 | Phase 6 | Complete |
 | PLAN-01 | Phase 9 | Pending |
 | PLAN-02 | Phase 9 | Pending |
 | PLAN-03 | Phase 9 | Pending |
