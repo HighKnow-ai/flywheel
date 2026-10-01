@@ -159,7 +159,7 @@ Each task was committed atomically, with Task 1's TDD gate as two separate commi
 
 **2. [Rule 1 - Bug] Stray NUL bytes written into a test file by my own editing tool call**
 - **Found during:** staging the Task 2 commit — `git diff --stat` reported the file as binary (`Bin X -> Y bytes`, `0 insertions(+), 0 deletions(-)`)
-- **Issue:** An `Edit` tool call containing the literal six-character JS escape sequence ` ` (intended as source text, to be interpreted by Node at runtime as a no-match sentinel) was instead written to disk as two literal NUL bytes, corrupting the file into binary.
+- **Issue:** An `Edit` tool call containing the literal six-character JS escape sequence `\u0000` (intended as source text, to be interpreted by Node at runtime as a no-match sentinel) was instead written to disk as two literal NUL bytes, corrupting the file into binary.
 - **Fix:** Replaced the sentinel-default trick with a plain guard needing no embedded sentinel at all (`!process.env.PATH || !lines[0].includes(process.env.PATH)`).
 - **Files modified:** `packages/sidecar/test/sessionstart-hook.test.mjs`
 - **Verification:** `file` reports clean UTF-8 text; a byte-level scan confirms zero NUL bytes in the committed blob; all 8 tests in the file still pass after rebuild
