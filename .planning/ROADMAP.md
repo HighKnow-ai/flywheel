@@ -1033,7 +1033,7 @@ shape is kept at `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.
 
 **Requirements**: TBD (re-verifies AGNT-07; the install point is BOARD-10's register-project path)
 **Depends on:** Phase 11
-**Plans:** 2/5 plans executed
+**Plans:** 3/5 plans executed
 
 Plans:
 **Wave 1**
@@ -1043,7 +1043,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 12-02-PLAN.md — TRACER: a `pre-push` hook installed via `core.hooksPath` refuses a real branch-deletion and force-push with no shim on `PATH`, while ordinary pushes, `git status` and `git --version` stay untouched
-- [ ] 12-03-PLAN.md — A `SessionStart` hook writing `CLAUDE_ENV_FILE` as the general PATH-ownership fix, with both documented caveats in the code and no gate decision path changed
+- [x] 12-03-PLAN.md — A `SessionStart` hook writing `CLAUDE_ENV_FILE` as the general PATH-ownership fix, with both documented caveats in the code and no gate decision path changed
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

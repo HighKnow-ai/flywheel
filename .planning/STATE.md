@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 12
 current_phase_name: Destructive-gate trust boundary redesign
 status: executing
-stopped_at: Completed 12-02-PLAN.md
-last_updated: "2026-10-01T08:59:28.454Z"
+stopped_at: Completed 12-03-PLAN.md
+last_updated: "2026-10-01T09:16:33.462Z"
 last_activity: 2026-10-01
 last_activity_desc: Phase 12 execution started
-state_head: e696f6b8dd38a2e158bdbaa474188bb5abdad5af
+state_head: 54111a75357da6a7eb72fd60c6708f6beb710eba
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 157
-  completed_plans: 154
+  completed_plans: 155
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 ## Current Position
 
 Phase: 12 (Destructive-gate trust boundary redesign) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-10-01 — Phase 12 execution started
 
@@ -212,6 +212,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06 P09 | 90min | 3 tasks | 5 files |
 | Phase 12 P01 | 16min | 2 tasks | 3 files |
 | Phase 12 P02 | 27 min | 3 tasks | 5 files |
+| Phase 12 P03 | 7min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -488,6 +489,7 @@ Recent decisions affecting current work:
 - [Phase 12]: P1 corrected (phase 12): no longer load-bearing for force-push/branch-deletion/history-rewrite once Layer 3 (git pre-push hook) lands; still the only premise for hard-reset/force-clean/recursive-delete/default-branch-push. — Layer 3 intercepts inside the real git process after PATH resolution, independent of the shell snapshot premise rounds five through ten fought over.
 - [Phase 12]: ACCEPT the core.hooksPath override/rewrite as a named residual rather than widening packages/shim/src/main.rs's raw-text classifier. — Rounds five through nine already show enumerate-and-hope token-list widening fails; the new string-literal baseline pin fences this off structurally.
 - [Phase 12]: Layer 3 (git pre-push hook, core.hooksPath) closes the round-ten PATH-reorder bypass offline; gave the install's chmod-step a race-free error contract matching verify_install's own prefix.
+- [Phase 12]: [Phase 12 plan 12-03]: SessionStart hook's failure mode is a silent no-op, deliberately NOT pretooluse-hook.ts's fail-closed deny -- it makes no permission decision, so a throw could abort session startup over a best-effort PATH restoration. — The two hooks have no permission decision in common to be consistent about; documented in the module doc comment so a future reader does not "fix" this into fail-closed by analogy.
 
 ### Pending Todos
 
@@ -544,6 +546,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-01T08:59:16.879Z
-Stopped at: Completed 12-02-PLAN.md
+Last session: 2026-10-01T09:16:27.426Z
+Stopped at: Completed 12-03-PLAN.md
 Resume file: None
