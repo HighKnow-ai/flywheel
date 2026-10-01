@@ -1,13 +1,13 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 12
-current_phase_name: destructive-gate-trust-boundary-redesign
+current_phase_name: Destructive-gate trust boundary redesign
 status: executing
-stopped_at: Completed 12-05-PLAN.md
-last_updated: "2026-10-01T10:49:39.860Z"
+stopped_at: Completed 12-06-PLAN.md
+last_updated: "2026-10-01T11:23:57.083Z"
 last_activity: 2026-10-01
 last_activity_desc: Phase 12 execution started
-state_head: 83e8b65d60880b9cc76eb8cdb891a9fb43cb3e12
+state_head: 3c30e616d13936ded653c48fcc57b41098177991
 progress:
   total_phases: 13
   completed_phases: 0
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-09-23)
 
 ## Current Position
 
-Phase: 12 (destructive-gate-trust-boundary-redesign) — READY TO EXECUTE
-Plan: 5 of 5
+Phase: 12 (Destructive-gate trust boundary redesign) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
 Last activity: 2026-10-01 — Phase 12 execution started
 
@@ -215,6 +215,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 12 P03 | 7min | 2 tasks | 4 files |
 | Phase 12 P04 | 31 min | 2 tasks | 4 files |
 | Phase 12 P05 | 12 min | 2 tasks | 3 files |
+| Phase 12 P06 | 35 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -495,6 +496,7 @@ Recent decisions affecting current work:
 - [Phase 12]: [Phase 12]: run_gate_push (packages/shim/src/main.rs) reuses the existing request_permission/print_denied functions unchanged rather than building a second socket/request path -- the pre-push hook's ask branch is a thin CLI wrapper over the same permission round trip the PreToolUse path already uses.
 - [Phase 12]: [Phase 12]: The pre-push hook's ask branch continues to the next stdin line on allow rather than exiting, so a multi-ref push raises a separate permission question per destructive ref instead of stopping after the first allow.
 - [Phase 12]: The CLAUDE_ENV_FILE ordering claim is promoted from [CITED] to [VERIFIED] (2026-10-01, claude 2.1.285, bypassPermissions, macOS) via scripts/uat/uat-11-env-file-ordering.mjs's live run: P1 restored, git --version stayed ordinary, FLYWHEEL_PERMISSION_SOCKET reached the command shell. The SessionStart residual row is narrowed to its two remaining open caveats (Windows sourcing bug, docs self-contradiction).
+- [Phase 12]: Shared install_layer3_pre_push_gate helper renders the Layer 3 install outcome for both register_project and relocate_project, closing the relocation Layer 3 gap (12-VERIFICATION truth 11, 12-REVIEW CR-01).
 
 ### Pending Todos
 
@@ -551,6 +553,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-01T10:11:53.101Z
-Stopped at: Completed 12-05-PLAN.md
+Last session: 2026-10-01T11:23:56.949Z
+Stopped at: Completed 12-06-PLAN.md
 Resume file: None

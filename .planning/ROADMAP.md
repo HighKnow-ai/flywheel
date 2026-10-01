@@ -1033,7 +1033,7 @@ shape is kept at `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.
 
 **Requirements**: AGNT-07, BOARD-10 (the install point is BOARD-10's register-project path, and — from gap-closure plan 12-06 — every other path that can change a project's `repo_path`)
 **Depends on:** Phase 11
-**Plans:** 5/6 plans executed (12-06 is gap closure for 12-VERIFICATION truth 11 / CR-01)
+**Plans:** 6/6 plans executed (12-06 is gap closure for 12-VERIFICATION truth 11 / CR-01)
 
 Plans:
 **Wave 1**
@@ -1052,7 +1052,7 @@ Plans:
 
 **Wave 4** *(gap closure — 12-VERIFICATION truth 11 / 12-REVIEW CR-01)*
 
-- [ ] 12-06-PLAN.md — GAP CLOSURE: `relocate_project` installs the Layer 3 pre-push gate at the new path through a helper shared with `register_project`, with refusal/error/idempotency arms, a source invariant that fails when a third `repo_path` mutation path skips it, and the trust-boundary document corrected to name relocation
+- [x] 12-06-PLAN.md — GAP CLOSURE: `relocate_project` installs the Layer 3 pre-push gate at the new path through a helper shared with `register_project`, with refusal/error/idempotency arms, a source invariant that fails when a third `repo_path` mutation path skips it, and the trust-boundary document corrected to name relocation
 
 ---
 *Roadmap created: 2026-09-08*
