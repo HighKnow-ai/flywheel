@@ -132,3 +132,10 @@ None - no external service configuration required.
 ---
 *Phase: 12-destructive-gate-trust-boundary-redesign*
 *Completed: 2026-10-01*
+
+## Self-Check: PASSED
+
+All created files confirmed present on disk: `docs/destructive-gate-trust-boundary.md`,
+`packages/core/tests/destructive_gate_no_new_launcher_tokens.rs`,
+`packages/core/tests/fixtures/shim-main-string-literals.baseline.txt`. All three task/metadata
+commits confirmed in `git log`: `63dcdb0`, `7c9509d`, `985515c`.
