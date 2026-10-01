@@ -43,8 +43,14 @@ starting condition, not a standing guarantee, and it never re-checks itself.
 ### Trusted to prove
 
 Before the backend's own tool-call loop executes a `Bash` command, this hook proves: that the
-shim's shadow directory leads `PATH` right now, via two synchronous `stat` calls
-(`shimWillIntercept`/`shimShadowDirectoryProven`) — never a wait, never a socket, never a poll; the
+shim's shadow directory leads the `PATH` of **the shell that will actually run the command** — two
+synchronous `stat` calls for this hook's OWN process plus a synchronous read of every shell snapshot
+in this session's `CLAUDE_CONFIG_DIR` for the command's shell
+(`shimWillIntercept`/`shimShadowDirectoryProven`, both routed through
+`shimLeadsCommandShellPath`) — never a wait, never a socket, never a poll. **This claim was false as
+written until round ten** (see "## Round ten" below): it said "leads `PATH` right now" and the two
+`stat` calls read `process.env.PATH` of the HOOK process, which is not the `PATH` the command runs
+under. Also proved: the
 command's classified category, its program token, and whether that token invokes the program by
 bare name (via the shim's own `--classify-invocation` mode, classified only, D-63); and, for a
 `safe` verdict specifically, two additional text facts. The first of those two — corrected after
@@ -81,6 +87,15 @@ Sharpened by round five (below): this layer cannot see a gated keyword whose let
 reassembles through an expansion whose result the text does not determine — parameter expansion,
 command substitution, arithmetic expansion and pathname expansion all produce words the scanner has
 no way to compute — and for such text it reports "cannot prove", never "absent".
+
+Sharpened by round ten (below): this layer cannot see **which** shell snapshot the backend's Bash
+tool will source, nor a `PATH` the backend rewrites after this hook has exited. It therefore requires
+EVERY snapshot present in this session's `CLAUDE_CONFIG_DIR` to lead with the shim directory, and
+refuses when the snapshot set is missing, empty, unreadable, or carries no `export PATH` statement —
+an empty set is a refusal, never a vacuous pass. It also cannot see the snapshot's own *semantics*:
+it reads the trailing `export PATH='…'` statement as text and never evaluates snapshot content, so a
+snapshot that computed its `PATH` through a construct the final literal does not reflect is outside
+this proof (and fails it, which is the safe direction).
 
 ## Layer 2 — the shim's runtime interception
 
@@ -356,6 +371,8 @@ concrete trigger that should reopen it.
 | **OPEN — a gated program name assembled by brace expansion, where the resulting first word is a syntactically valid invocation** (CR-01, `03-REVIEW.md`; named here by plan 03-33). `{git,} push --force` is the measured case: its raw text already contains the contiguous, word-bounded literal `git` inside `{git,}`, so `text_names_gated_program` already trips on it today — this exact row is not open. A construction whose literal does NOT survive as a contiguous substring (the `{gi,}t`/`{r,}m` shape CR-01 measured) would be open for `namesGatedProgram`, but plan 03-33's C3 brace-adjacency trigger now catches it via `textCanShadowPathResolution` instead, so the safe-verdict's D-61 AND-gate still denies. | Layer that loses it: Layer 1's `namesGatedProgram`, whose word-bounded literal match has no model of brace expansion at all. Layer 2 still backstops it, because brace expansion does not pre-empt the `PATH` search the way a function, alias or `PATH=` override does — measured, `--classify-command 'rm m -rf /tmp/x'` still reports `recursive-delete`. | Reopens if: any brace construction both assembles a gated program name AND defeats the `PATH` search, or any evidence that Layer 2's argv classifier stops flagging the forwarded argv |
 | **CLOSED (round seven, plan 03-32) — `env -S STRING`'s own opaque-reparse detection, backslash-split and nested** (found 2026-09-21, plan 03-31; widened 2026-09-22, plan 03-32): `main.rs`'s `resolve_segment_program_index` recognises the wrapper token `env` (to force `ProgramResolution::Unresolvable`/deny on `-S`'s unparseable re-split, or any other unrecognised `env` flag such as BSD's `-P` altpath) by exact string equality over `tokenize_shell_words(trimmed)` — the RAW, un-normalized segment text, walked exactly once, at a single fixed position (a segment's own leading token). The defect has two halves: a backslash-split `env` (`e\nv`) was never recognised as the literal token `env` (round six); and even an UNSPLIT `env` nested inside a launcher's opaque quoted payload (`sh -c 'env -S "…"'`) was never SEEN at all, because `tokenize_shell_words` returns the whole single-quoted payload as one opaque token and the wrapper-token walk only ever inspected a segment's own leading position (round seven — no obfuscation required). Closed by plan 03-32's `raw_text_names_opaque_env_reparse` (C5): a presence-anywhere scan over both the raw and quote-removed text, folded into the SAME `text_can_shadow` disjunct the safe verdict's D-61 AND-gate already reads, plus a second, quote-removed resolution pass inside the segment loop that reaches the same fail-closed `Unresolvable` arm as the raw pass. **Superseded by C6 (plan 03-35, round eight):** C5's exact-token-equality recognition of the wrapper token `env` was itself defeated by brace expansion (`{env,}`) and a path prefix (`/usr/bin/env`) — C6 promotes the SAME presence-anywhere scan from token equality to word-boundary containment, a strict superset, so every claim this row makes still holds. | Closed: C5 folds both halves into Layer 1's existing D-61 AND-gate; superseded, not re-derived, by C6 | Reopens if: an `env` invocation carries a PATH-defeating flag that `text_can_shadow_path_resolution` does not independently re-check, AND its surrounding text names neither `git` nor `rm` — since C5 is folded into the safe verdict's own D-61 AND-gate, it structurally cannot deny a text that names no gated program, so such a text defers by design; finding one that should not is the trigger to reopen this row |
 | **OPEN (round eight, plan 03-35) — a wrapper NAME assembled across separate brace groups, or by any mechanism outside C1's quote/backslash removal, C3's named characters, and C6's word-boundary containment** — e.g. `{e,}{n,}v` (two separate brace groups, each individually letter-adjacent so C3 catches THIS one, but named here as the general shape C6 does not claim to cover): C6's own soundness class is explicit that it is not a claim about a wrapper name assembled this way. | Layer 1's C6 scan loses it: C6 recognises a wrapper token by word-boundary containment of a CONTIGUOUS `env`/`command` substring in one token; a name split across multiple brace groups, each contributing a fragment, may never appear contiguously in any single form C1/C2's quote-removal union produces. | Reopens if: a wrapper-token spelling assembled by a mechanism outside all three (C1, C3, C6) is found to defeat the `PATH` search with zero human confirmation — at that point this document, not the corpus, is what must change first, per "The rule for round six" below. |
+| **CLOSED (round ten, D-104) — the executing shell's `PATH` differing from the hook process's `PATH`.** This table had NO row for it before 2026-10-01, which is why nine rounds of hardening never looked at it: Layer 0's "cannot see" already named "`PATH` mutated by the agent's own shell after spawn" and delegated the standing check to Layer 1, Layer 2's "cannot see" already named "a `PATH` cleared, replaced, or reordered before the search reaches this shim's directory" — and Layer 1, the delegate, was checking the wrong process's `PATH`. The hole was in this document's own spec, not in the corpus. | Was lost by Layer 1, which believed it was proving P1; Layer 2 cannot help because it only exists for an invocation that actually resolves through the shadow directory, which is precisely what fails here. Closed by `shimLeadsCommandShellPath` (Part 2) plus the per-run `CLAUDE_CONFIG_DIR` that makes P1 true (Part 1). | Reopens if: the backend stops writing a trailing `export PATH` statement into its shell snapshots, moves the snapshot directory out of `CLAUDE_CONFIG_DIR`, or gains a second mechanism for setting the command shell's `PATH` that a snapshot does not reflect. The first two degrade to "no snapshots found", which denies loudly; the third would be silent and is the one to watch. Also reopens the moment a live credential-spending run is being spent anyway — see the `--settings`-env alternative in "## Round ten", which would let Part 2 be deleted rather than maintained |
+| **OPEN (round ten, D-104) — the residual friction P1 now charges: a developer whose own shell init drops Flywheel's shim directory from position 0 when the snapshot is built.** With Part 1 in place the snapshot is built from a shim-prefixed environment, and the eight UAT snapshots measured on the diagnosing machine all preserved the prefix at position 0 under `mise` + `zinit`. But a shell-init stack that hard-replaces `PATH` would make every agent `Bash` command deny. | Nothing loses a bypass here — Layer 1 refuses, by name, with the reason text naming an unprovable environment. The cost is friction, not exposure: a loud, nameable precondition failure instead of a silently disabled gate. | Reopens if: a developer reports every `Bash` command being refused with the unprovable-environment reason. The fix at that point is Part 1's cleaner replacement (own `PATH` outright via `--settings` env), not loosening P1 |
 | A shadow definition installed by an EARLIER `Bash` tool call in the same session | Layer 1 loses it, by construction: each hook invocation is a fresh OS process holding no cache and no memory of any previous tool call, so it classifies one command's text in isolation and can never see a function or alias a prior call left behind in a shell profile or a sourced file | An observed two-call shadow in which the FIRST call's own text was itself deferrable — today every single-call shadow shape the corpus covers denies on its own text, so a deferrable first call is the signal that this residual has become reachable |
 | **DECLINED (round nine, plan 03-37) — the co-location narrowing that would have closed WR-A's false positive.** A rule that charges a quote-removed-form adjacency only when the gated program name (`git`/`rm`) ALSO sits inside the SAME quoted region as the wrapper token would defer the prose false-positive case (`git commit -m "the command -p form"` names `git` OUTSIDE the quoted message) while still keeping the nested shapes denied (`sh -c 'env -S "-P /tmp git push --force"'` carries `git push --force` INSIDE the same quoted span as `env`). This is branch (a)'s narrower, co-location-scoped cousin — not rejected for the same unsoundness branch (a) itself carries (see `## Round nine` above), but declined here because it was not implemented: pricing the false positive (branch (b)) was judged simpler and lower-risk for this round, and this residual keeps the option open rather than discarding it. | Layer 1's C6 scan accepts the friction rather than losing the case: the co-location rule is not implemented, so this row names an available narrowing, not an unseen bypass. | Reopens if: measured evidence that this friction fires on ordinary development traffic often enough to be worse than the bypass risk of a locality rule — at which point the co-location rule is the named candidate, and it must be argued against the nested shapes' own corpus rows (`round_nine_quote_removed_form_is_load_bearing`, `packages/shim/tests/classify_invocation.rs`) before it lands. |
 
@@ -366,8 +383,8 @@ mapped to the layer each group's own `why` field names as the one trusted to cat
 
 | Corpus group | Layer trusted to catch it | Why (from the corpus's own rows) |
 |---|---|---|
-| Group 1 — the eight launcher shapes (`sh -c`, `bash -c`, `nice`, `nohup`, `timeout`, `xargs`, `sudo`, `setsid`) | Layer 2 | The launcher itself is the `Safe` program token and the text carries no shadow construct, so layer 1 defers; in a proven environment the inner bare `git` still reaches layer 2's own shadow entry and permission socket |
-| Group 2a — `env`/`command` (the non-safe branch unwraps these to the real program) | Layer 2 | `invokedBareName` stays `true` after unwrapping, and `shimWillIntercept(git)` is `true` in a proven environment, so layer 1 defers to layer 2's socket |
+| Group 1 — the eight launcher shapes (`sh -c`, `bash -c`, `nice`, `nohup`, `timeout`, `xargs`, `sudo`, `setsid`) | Layer 2 | The launcher itself is the `Safe` program token and the text carries no shadow construct, so layer 1 defers; in a proven environment the inner bare `git` still reaches layer 2's own shadow entry and permission socket. **"Proven environment" means P1 (see "## Round ten"), and until round ten nothing checked P1 for the right process — every row in this group was passing on luck.** `shimLeadsCommandShellPath` is now what makes the premise true rather than assumed, and the round-ten test in `destructive-gate.test.mjs` asserts that every row in this group DENIES when P1 fails |
+| Group 2a — `env`/`command` (the non-safe branch unwraps these to the real program) | Layer 2 | `invokedBareName` stays `true` after unwrapping, and `shimWillIntercept(git)` is `true` in a proven environment, so layer 1 defers to layer 2's socket. **Same round-ten correction as Group 1: "in a proven environment" is P1, and these rows deny when P1 cannot be proved for the command's own shell.** Derived from the corpus rather than hand-listed — the round-ten test covers every row whose `expect` is `defer`, so a future deferring row inherits the coverage the moment it is written |
 | Group 2b — `builtin`, `PATH=`, `env -i`, `env -u PATH`, `env -S`, `command -p` | Layer 1 | Each construct defeats a real `PATH` search outright (a builtin lookup never searches `PATH`; a cleared/replaced/hardcoded `PATH` can never contain the shadow directory), so `invokedBareName` is forced `false` and layer 1 denies directly — the command never reaches layer 2 at all |
 | Group 2b (round seven additions, plan 03-32) — `env -S "-P /tmp git push --force"` (backslash-split-immune) and `sh -c 'env -S "-P /tmp git push --force"'` (nested, unobfuscated) | Layer 1 | C5's presence-anywhere scan (`raw_text_names_opaque_env_reparse`) sees the `env`-plus-opaque-flag construct wherever it sits in the text, raw or quote-removed, and layer 1's D-61 AND-gate denies because the text also names `git`; BSD `env -P`'s own altpath search bypasses the shim's shadow directory entirely, so layer 2 provides no backstop and layer 1's scan is the only line |
 | Group 3 — shadow shapes wrapped in a launcher (function-call, `function`-keyword, `alias`, `hash`, `eval`, `source`, and the `rm()` counterpart) | Layer 1 | D-61's raw-text scan sees the shadow keyword inside the quoted `sh -c '…'` payload the token-level scan cannot see into (`textCanShadowPathResolution`), the raw text also names a gated program (`namesGatedProgram`), and that AND denies the safe verdict before the command can ever reach layer 2 |
@@ -684,6 +701,105 @@ argument — the ADJACENCY, not the words themselves, is what charges, so separa
 from the flag word defers. Before (denies): `git commit -m "the command -p form"`. After (defers):
 `git commit -m "the command parser form"` — describing the same feature without a dash-flag word
 sitting immediately after "command" no longer trips the walk.
+
+## Round ten — the environment proof was about the wrong environment
+
+Found 2026-10-01 by UAT item 6b (`scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=on`),
+diagnosed in `.planning/debug/resolved/uat-06b-bash-gate-regression.md`, closed by D-104. This round
+is different in kind from rounds five through nine and the difference is the point.
+
+**What happened.** A live `bypassPermissions` session ran `git push origin --delete uat-doomed-branch`
+and the remote branch was really deleted. No permission request was ever raised for it. Layer 1 was
+consulted normally and returned the empty defer decision in 53 ms
+(`hook_success PreToolUse:Bash, stdout "{}", exitCode 0`), because `invokedBareName` was `true` and
+`shimWillIntercept("git")` was `true`. Layer 2 was never reached. Both layers were off at once, and
+the harness reported `SAFETY VIOLATED`, not merely a missing prompt.
+
+**Why.** Claude Code's Bash tool does not run the agent's command in the process Flywheel spawned. It
+runs it in a shell that first sources a SHELL SNAPSHOT —
+`<CLAUDE_CONFIG_DIR>/shell-snapshots/snapshot-<shell>-<ts>-<rand>.sh`, built by executing the
+developer's own login+interactive shell, whose final statement is a single
+`export PATH='<whatever that login shell computed>'`. Layer 1's environment proof read
+`process.env.PATH` of the HOOK process. Those are two different `PATH`s, and when they disagree about
+position 0 the deferral is unsafe. Two independent facts, both measured at zero cost, establish it:
+
+- Twelve of Claude Code's OWN `git -c core.askPass= …` housekeeping invocations reached the shim and
+  were gated in the 450 ms surrounding the failing call, while the agent's own Bash-tool command was
+  not. The only difference between those two populations is which process performed the `PATH` search.
+- A live Claude Code Bash shell on the diagnosing machine had the `pkill` guard function — a function
+  that exists ONLY inside a shell snapshot — defined, and its `$PATH` was byte-identical (`cmp`) to
+  the exported `PATH` of the second-newest snapshot on disk, not the newest. Which snapshot is in
+  force is therefore not knowable from the hook, so a newest-wins rule would be unsound.
+
+A severity escalation came with it: `CLAUDE_CONFIG_DIR` appeared nowhere in `packages/` at all, only
+under `scripts/uat/`. In the shipped product the agent's session used the developer's personal
+`~/.claude`, and every snapshot an ordinary personal session writes exports a `PATH` with no Flywheel
+shim directory in it anywhere. Layer 2 was therefore unreachable for agent-issued `Bash` commands **by
+default, not occasionally**.
+
+**The premise, written down as a premise so round eleven cannot inherit it silently.** Layer 1 trades
+its own refusal for Layer 2's human question. That trade is safe if and only if:
+
+> **P1.** The shim's shadow directory is position 0 of the `PATH` used by the process that performs the
+> name resolution for the agent's command — which is the command's own shell, never this hook.
+
+Every `LAUNCHER_CORPUS` Group 1 and Group 2a row's `why` field already said "in a proven environment".
+P1 is what "proven" was always supposed to mean. Until this round nothing in the system checked P1 for
+the right process, so every one of those rows was passing on luck: `uat-07-launcher-shape-gate.mjs`
+passed on a run whose snapshot happened to carry a shim directory, and `uat-03`/`uat-05` were exposed
+identically.
+
+**The loop diagnosis — why nine rounds could not have caught this.** Rounds five through nine are all
+C1–C6 refinements of the raw-text scanner in `packages/shim/src/main.rs`, and every one of them
+inherited the same scope fence: fix the text classifier, leave the layering alone. The classifier's
+entire job is to decide *when* Layer 1 may defer to Layer 2. It has no way to check *whether*
+deferring is safe, because that depends on P1, which is not a property of the command text at all. A
+tenth classifier round would have been the tenth iteration of one defect class. The structural fix is
+the one this round made: make the environment proof be about the environment the command actually
+runs in, or stop deferring.
+
+**What closed it (D-104), both halves — detection alone would have bricked every `Bash` command and
+restoration alone would still have been silent when it failed:**
+
+- **Part 1, restore P1.** `claude-code-adapter.ts` composes a per-run `CLAUDE_CONFIG_DIR` under the
+  runtime directory on both spawn paths, presenting the developer's credential by reference (one
+  symlink, nothing else) so the snapshot pool starts EMPTY and the snapshot in force must be one built
+  from this run's own shim-prefixed environment. An explicit upstream value always wins, so the UAT
+  harness keeps asserting over its own composed directory. Config-dir isolation is kept a SEPARATE
+  switch from credential availability and from API-key scrubbing — asserted in
+  `packages/sidecar/test/credentials.test.mjs`, which is the G-05-6 lesson applied here rather than
+  re-learned.
+- **Part 2, prove P1 or refuse.** `shimLeadsCommandShellPath` requires every shell snapshot present in
+  this session's config directory to lead with the shim directory. Both existing call sites route
+  through it, so the eight launcher shapes are covered by the same change as the bare shape.
+
+**The coupling this buys, named rather than hidden.** Part 2 depends on two Claude Code INTERNALS: the
+`<configDir>/shell-snapshots` location and the trailing-`export PATH` convention. Both were read out of
+the installed `claude 2.1.274` binary's own strings, not from documentation, so a backend change can
+turn this proof into "no snapshots found" — which denies, loudly, in the safe direction. The cleaner
+replacement is recorded and deliberately not taken this round: **if** a per-run `env` block in the
+`--settings` file Flywheel already writes is applied by Claude Code AFTER the snapshot is sourced, then
+`PATH` becomes a value Flywheel fully owns and `shimLeadsCommandShellPath` can be deleted outright.
+That cannot be established from source, tests, the binary's readable strings, or any artifact on disk —
+it needs one live credential-spending run, which was explicitly not authorised when this round landed.
+**Trigger to revisit:** the next occasion a live backend run is being spent anyway.
+
+**What this round did NOT prove.** No live run validates the fix end to end. UAT 6b's own remote
+fixture (`uat-doomed-branch`) was deleted by the very failure that found the defect, and re-running
+that arm costs credentials. The claim proved is the hook's DECISION under real captured snapshot
+content, by two new tests in `packages/sidecar/test/destructive-gate.test.mjs` covering every deferring
+corpus row (all eight Group 1 shapes among them, checked rather than asserted) plus the positive arm
+that keeps the deferral working. Both mutants at the fix site — always-true, and any-one-matches
+instead of all — are killed by exactly those two tests and by nothing else, which is itself the
+measurement that P1 was previously unchecked.
+
+**A harness defect found alongside it, recorded because a green row that cannot fail is an instrument
+problem.** UAT 6a (`--heartbeat=off`) PASSED in the same suite pass that 6b failed, and cannot be cited
+as evidence the gate works: its artifact shows `elapsedMs: 7088` with
+`closeOrigin: watchdog-heartbeat-stale`, i.e. the watchdog killed the session as an unsupervised orphan
+before the gate's refusal was ever exercised. 6a was passing VACUOUSLY. That is the same class as the
+`proposeAttempted`/`event.name` instrument defect already recorded in the uat-08 session, and it is a
+defect in its own right, separate from D-104.
 
 ## The rule for round six
 

@@ -3257,6 +3257,13 @@ test(
       // Round nine (plan 03-37/03-38): pinned alongside round five's own headings so the
       // C6 friction correction cannot rot out of the document silently.
       "## Round nine — the C6 friction claim was narrower than C6's own behaviour",
+      // Round ten (D-104, uat-06b): pinned for the same reason, and for one more. Rounds five
+      // through nine were all refinements of the same raw-text scanner; round ten is the round
+      // that corrected the LAYERING instead, and it is the only section that writes P1 — the
+      // premise every deferring corpus row rests on — down as a premise. If this heading or the
+      // P1 anchor below rots out, round eleven inherits the premise silently, which is exactly
+      // how this defect survived nine rounds of hardening.
+      "## Round ten — the environment proof was about the wrong environment",
     ];
     for (const heading of roundFiveHeadings) {
       assert.ok(
@@ -3274,6 +3281,11 @@ test(
       "C4 — the bare-name fact",
       "C5 — an opaque `env` re-parse",
       "C6 — a PATH-defeating wrapper token",
+      // D-104 (round ten): the deferral premise itself, named so it is findable. Not a clause of
+      // the C1-C6 text-scanner contract — it is the condition that makes deferring to Layer 2
+      // safe at all, and it is about the environment, not the command text.
+      "**P1.** The shim's shadow directory is position 0 of the `PATH` used by the process that performs the",
+      "shimLeadsCommandShellPath",
     ];
     for (const anchor of cContractAnchors) {
       assert.ok(
