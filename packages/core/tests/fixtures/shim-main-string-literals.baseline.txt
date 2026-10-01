@@ -12,6 +12,7 @@
 --
 --classify-command
 --classify-invocation
+--gate-push
 --ignore-environment
 --split-string
 --unset
@@ -52,6 +53,9 @@ failed to connect to the permission socket at {socket_path:?}: {err}
 failed to read the permission socket's answer: {err}
 failed to send the permission request: {err}
 failed to spawn real git at {real_git:?}: {e}
+flywheel-shim: --gate-push received an unrecognised category name: {category_name:?}
+flywheel-shim: --gate-push requires a category name as its first argument
+flywheel-shim: --gate-push requires at least one token describing the git command being gated
 flywheel-shim: failed to spawn real rm at {real_rm:?}: {err}
 flywheel-shim: refusing to run — invoked as {:?}, which this build does not dispatch to any known target
 flywheel-shim: {message}

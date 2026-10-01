@@ -165,6 +165,9 @@ fn main() -> ExitCode {
     if args.get(1).and_then(|a| a.to_str()) == Some("--classify-invocation") {
         return run_classify_invocation(args.get(2));
     }
+    if args.get(1).and_then(|a| a.to_str()) == Some("--gate-push") {
+        return run_gate_push(&args[2..]);
+    }
 
     let invoked_stem = args
         .first()
@@ -353,6 +356,48 @@ fn destructive_gate(program: &str, string_args: &[String], default_branch: Optio
         PermissionOutcome::Error(message) => {
             eprintln!("flywheel-shim: {message}");
             Some(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// `--gate-push <category-name> <token>...` (plan 12-04 Task 1): checked BEFORE the `argv[0]`-stem
+/// dispatch, alongside the two `--classify-*` modes above — git's own `pre-push` hook (`packages/
+/// core/src/git_hooks.rs`) invokes the shim binary under its own filename, so the stem `match`
+/// would otherwise reach the "refusing to run — invoked as …" arm and never see this flag.
+///
+/// Reuses the EXISTING `request_permission`/`print_denied` unchanged — this mode contains no
+/// socket connection, request construction, or JSON serialization of its own, and never resolves
+/// `FLYWHEEL_REAL_GIT`, never resolves `FLYWHEEL_REAL_RM`, and never execs anything. Its whole job
+/// is to turn a category name plus a handful of tokens describing a git push into exactly the same
+/// permission round trip `destructive_gate` already performs for an intercepted `git`/`rm`
+/// invocation (D-55/D-58's fresh-connection, no-deadline contract lives there, not here).
+fn run_gate_push(args: &[OsString]) -> ExitCode {
+    let Some(category_name) = args.first().and_then(|a| a.to_str()) else {
+        eprintln!("flywheel-shim: --gate-push requires a category name as its first argument");
+        return ExitCode::FAILURE;
+    };
+    let Some(category) = DestructiveCategory::from_str_name(category_name) else {
+        eprintln!("flywheel-shim: --gate-push received an unrecognised category name: {category_name:?}");
+        return ExitCode::FAILURE;
+    };
+
+    let tokens = os_args_to_strings(&args[1..]);
+    if tokens.is_empty() {
+        eprintln!(
+            "flywheel-shim: --gate-push requires at least one token describing the git command being gated"
+        );
+        return ExitCode::FAILURE;
+    }
+
+    match request_permission("git", &tokens, category) {
+        PermissionOutcome::Allow => ExitCode::SUCCESS,
+        PermissionOutcome::Deny => {
+            print_denied(category);
+            ExitCode::FAILURE
+        }
+        PermissionOutcome::Error(message) => {
+            eprintln!("flywheel-shim: {message}");
+            ExitCode::FAILURE
         }
     }
 }

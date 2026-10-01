@@ -44,9 +44,10 @@ fn shell_quote(path: &Path) -> String {
 /// Render the `pre-push` hook script text — a pure function, no I/O, so the rendered text is
 /// unit-testable without installing anything. Bakes three absolute paths in as single-quoted
 /// shell assignments: the real git binary (every ancestry check below runs through this, never a
-/// `PATH` search), the shim binary (unused by this plan's refusal path — plan 12-04 wires the
-/// human-in-the-loop branch through it), and Flywheel's own worktree root (the territory check
-/// below). POSIX `sh` only — no bashisms, no dependency beyond `sh` and the baked git binary.
+/// `PATH` search), the shim binary (plan 12-04: invoked with `--gate-push` to raise a real
+/// permission request when a supervisor is available to ask), and Flywheel's own worktree root
+/// (the territory check below). POSIX `sh` only — no bashisms, no dependency beyond `sh` and the
+/// baked git binary.
 pub fn pre_push_hook_script(real_git: &Path, shim_bin: &Path, worktree_root: &Path) -> String {
     format!(
         r#"#!/bin/sh
@@ -73,7 +74,22 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   case "$local_sha" in
     *[!0]*) ;;
     *)
-      echo "flywheel: push refused (category: branch-deletion) -- $local_ref -> $remote_ref: no supervisor is available to ask (plan 12-04 adds the human-in-the-loop branch here)" >&2
+      # Ask (plan 12-04, primary path): a supervisor is available on the permission socket the
+      # shim reads, and the baked shim binary is executable -- raise a real question on the
+      # session's existing socket rather than refusing outright. A zero exit means the human
+      # allowed it: continue to the next stdin line, because a later ref in the same push may
+      # still be destructive and must get its own question. A non-zero exit aborts the whole push
+      # immediately.
+      if [ -n "$FLYWHEEL_PERMISSION_SOCKET" ] && [ -x "$FLYWHEEL_SHIM_BIN" ]; then
+        if "$FLYWHEEL_SHIM_BIN" --gate-push branch-deletion push "$1" "$remote_ref" --delete; then
+          continue
+        else
+          exit 1
+        fi
+      fi
+      # Nothing to ask (D-60 fail-closed fallback): no socket variable, or no executable shim
+      # binary baked in -- refuse outright exactly as plan 12-02 shipped.
+      echo "flywheel: push refused (category: branch-deletion) -- $local_ref -> $remote_ref: no supervisor is available to ask" >&2
       exit 1
       ;;
   esac
@@ -86,7 +102,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       # rewrite, this one ancestry check is the same git-level signal for both.
       if [ -x "$FLYWHEEL_REAL_GIT" ]; then
         if ! "$FLYWHEEL_REAL_GIT" merge-base --is-ancestor "$remote_sha" "$local_sha"; then
-          echo "flywheel: push refused (category: force-push) -- $local_ref -> $remote_ref: no supervisor is available to ask (plan 12-04 adds the human-in-the-loop branch here)" >&2
+          # Ask (plan 12-04, primary path): see the branch-deletion arm above for the full
+          # reasoning -- identical discipline, applied to the force-push category.
+          if [ -n "$FLYWHEEL_PERMISSION_SOCKET" ] && [ -x "$FLYWHEEL_SHIM_BIN" ]; then
+            if "$FLYWHEEL_SHIM_BIN" --gate-push force-push push "$1" "$remote_ref" --force; then
+              continue
+            else
+              exit 1
+            fi
+          fi
+          # Nothing to ask (D-60 fail-closed fallback): unchanged from plan 12-02.
+          echo "flywheel: push refused (category: force-push) -- $local_ref -> $remote_ref: no supervisor is available to ask" >&2
           exit 1
         fi
       else
