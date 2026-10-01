@@ -636,56 +636,6 @@ function makeShimDir(entries) {
   return dir;
 }
 
-// --- D-104 (uat-06b): the executing shell's PATH, not the hook process's. Every "proven
-// environment" below now has to prove the property for the shell that will actually RUN the
-// command, which means every one of them needs a real shell snapshot. See
-// `fixtures/real-shell-snapshot-mise-zinit.sh` for where that snapshot came from and what the
-// uat-06b investigation measured about it. ---
-
-/** REAL shell-snapshot content captured from a live `claude 2.1.274` session on the machine where
- * uat-06b was diagnosed — deliberately NOT a hand-written ideal snapshot. Read once; each helper
- * below rewrites ONLY its final `export PATH='…'` line. The file's own header records its
- * provenance and the single sanitising edit applied to it. */
-const REAL_SNAPSHOT = fs.readFileSync(
-  path.join(__dirname, "fixtures", "real-shell-snapshot-mise-zinit.sh"),
-  "utf8",
-);
-
-/** The fixture's own trailing statement, unmodified — the MEASURED FAILING SHAPE: a snapshot whose
- * exported PATH leads with mise's shim directory, because the developer's shell init recomputed PATH
- * while the snapshot was being built. Asserted to be present so a future re-sanitising of the
- * fixture that accidentally drops the statement turns into a named failure here rather than a
- * silently vacuous pass. */
-const SNAPSHOT_EXPORT_PATH_PATTERN = /^export PATH=.*$/m;
-assert.ok(
-  SNAPSHOT_EXPORT_PATH_PATTERN.test(REAL_SNAPSHOT),
-  "the real snapshot fixture must carry an `export PATH=` statement — it is the property under test",
-);
-
-/** Write one real shell snapshot into a fresh scratch `CLAUDE_CONFIG_DIR`, with the fixture's
- * trailing `export PATH='…'` statement rewritten to `exportedPath` and NOTHING else changed, and
- * return that config directory. Single-quote escaping uses zsh's own `'\''` form, exactly as the
- * backend's snapshot writer emits it, so the hook's unquoting is exercised against the real
- * convention rather than a simplified one. */
-function makeClaudeConfigDir(exportedPath) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-claude-config-"));
-  const snapshotDir = path.join(dir, "shell-snapshots");
-  fs.mkdirSync(snapshotDir, { recursive: true });
-  const quoted = `export PATH='${exportedPath.split("'").join("'\\''")}'`;
-  const contents = REAL_SNAPSHOT.replace(SNAPSHOT_EXPORT_PATH_PATTERN, () => quoted);
-  // Mirror the backend's own file-naming convention (`snapshot-<shell>-<ts>-<rand>.sh`) so the
-  // hook's `.sh` filter is exercised against a realistic name.
-  fs.writeFileSync(path.join(snapshotDir, `snapshot-zsh-${Date.now()}-tstfix.sh`), contents);
-  return dir;
-}
-
-/** The config directory a CORRECTLY-shaped session has: one real snapshot whose exported PATH leads
- * with `shimDir`, exactly as the eight UAT snapshots measured on the diagnosing machine did when the
- * session was spawned with a shim-prefixed PATH. */
-function claudeConfigDirLeadingWith(shimDir) {
-  return makeClaudeConfigDir(`${shimDir}${path.delimiter}${process.env.PATH ?? ""}`);
-}
-
 /** Run the SHIPPED compiled hook script directly (never re-implemented), feeding it the same
  * `tool_input.command` payload shape the backend writes to its stdin, under a caller-supplied env.
  * Returns the exit status and the parsed JSON decision object (or `undefined` if stdout did not
@@ -792,7 +742,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
 
     // B5: falsifiability companion — an ordinary harmless command must still defer, or the change
@@ -860,7 +809,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
 
     const rows = [
@@ -922,7 +870,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
     const { status, decision } = runHook("git push origin --delete x", env);
     assert.equal(status, 0, "a provably-intercepted bare command must exit 0 (no opinion)");
@@ -971,7 +918,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
     const { status, decision } = runHook("rm -rf /tmp/flywheel-03-19-missing-shadow-victim", env);
     assert.equal(status, 2);
@@ -988,7 +934,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
     // The shim cannot see this invocation — no `/`-free token ever resolves through a PATH-shadowed
     // directory — so the hook must refuse it itself, even though the shim directory is well-formed.
@@ -1007,7 +952,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
     const { status, decision } = runHook("git status", env);
     assert.equal(status, 0);
@@ -1031,7 +975,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
 
     const rows = [
@@ -1111,7 +1054,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
 
     const rows = [
@@ -1230,7 +1172,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(stubDir, "git"),
       PATH: `${stubDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(stubDir),
     };
     const runStub = (payload) => runHook("git status", { ...baseEnv, FLYWHEEL_STUB_PAYLOAD: payload });
 
@@ -1951,7 +1892,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
 
     const seenKnownFailures = new Set();
@@ -2238,7 +2178,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
 
     let deferCount = 0;
@@ -2478,7 +2417,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
 
     const variants = proseFrictionVariants();
@@ -2526,7 +2464,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
 
     // Round eight (Task 2(d)): the corpus must not silently shrink — it had no total row-count
@@ -2700,7 +2637,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(provenDir, "git"),
       PATH: `${provenDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(provenDir),
     };
     const provenResults = commands.map((command) => runHook(command, provenEnv));
     assert.ok(
@@ -2708,193 +2644,6 @@ test(
       "the same corpus in the proven environment must produce at least one no-opinion decision — " +
         "otherwise a broken harness could pass the unprovable matrix above vacuously",
     );
-  },
-);
-
-// --- D-104 (uat-06b), round ten: the EXECUTING SHELL's PATH. The matrix above breaks the hook
-// process's own environment three ways. This closure breaks something the matrix above structurally
-// cannot see — it leaves the hook process's environment PERFECT (shim binary set, shim directory
-// literally first on PATH, witness entry present, so every pre-D-104 condition passes) and breaks
-// only the PATH of the shell that will actually run the command. That is the exact uat-06b failure:
-// a live `git push origin --delete uat-doomed-branch` reached a real remote in a bypassPermissions
-// session while the hook, consulted normally, returned the empty defer decision in 53ms.
-//
-// Rounds five through nine were all refinements of the raw-text classifier in
-// `packages/shim/src/main.rs`. None of them could have caught this, because the classifier's whole
-// job is to decide WHEN Layer 1 may defer to Layer 2, and the premise that makes deferring safe —
-// the shim leads the executing shell's PATH — was checked by nothing at all. This test is the
-// premise. ---
-
-/** Every corpus row whose expected decision is `defer` — i.e. every row that only passes because
- * Layer 1 trades its own refusal for the shim's human question. Derived from the corpus rather than
- * hand-listed, so a future `defer` row is covered the instant it is written (the same discipline
- * `obfuscationVariants` already applies). These are the rows the uat-06b finding showed were passing
- * on luck: their own `why` fields each say "in a proven environment", and nothing proved it. */
-const DEFERRING_CORPUS_ROWS = LAUNCHER_CORPUS.filter((row) => row.expect === "defer");
-
-test(
-  "D-104 round ten: the hook denies every corpus row when the executing shell's PATH does not lead with the shim directory, even though the hook process's own PATH does — the uat-06b bypass, closed",
-  { skip: SHIM_SKIP_REASON },
-  () => {
-    // The coverage claim, checked rather than asserted: all eight Group 1 launcher shapes and the
-    // deferring Group 2 wrapper rows must be inside the set this test exercises. A corpus edit that
-    // silently moved them out would otherwise shrink this test's reach without failing it.
-    const group1 = LAUNCHER_CORPUS.filter((row) => row.group === 1);
-    assert.equal(group1.length, 8, `Group 1 must hold the eight launcher shapes, holds ${group1.length}`);
-    for (const row of group1) {
-      assert.equal(row.expect, "defer", `Group 1 row must expect defer: ${row.command}`);
-      assert.ok(
-        DEFERRING_CORPUS_ROWS.includes(row),
-        `Group 1 row must be covered by this test: ${row.command}`,
-      );
-    }
-    assert.ok(
-      DEFERRING_CORPUS_ROWS.length >= group1.length + 2,
-      "the deferring set must also cover the Group 2 wrapper rows that defer (env/command), not only " +
-        `Group 1 — it holds ${DEFERRING_CORPUS_ROWS.length} rows`,
-    );
-
-    const shimDir = makeShimDir(["git", "rm"]);
-    const hookProcessPath = `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`;
-
-    // The environment under test. EVERY pre-D-104 condition passes: FLYWHEEL_SHIM_BIN is set, its
-    // directory is literally PATH's first segment, and that directory holds both witness entries.
-    // The ONLY broken thing is the snapshot the command's shell will source — left exactly as the
-    // real captured fixture wrote it, leading with mise's shim directory instead of Flywheel's.
-    const unprovenShellEnv = {
-      ...process.env,
-      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
-      PATH: hookProcessPath,
-      CLAUDE_CONFIG_DIR: makeClaudeConfigDir(exportedPathFromFixture()),
-    };
-
-    // Falsifiability companion, FIRST: the identical environment with only the snapshot's trailing
-    // export rewritten to lead with the shim directory must still defer for at least one row. Without
-    // this, every assertion below would also pass if the hook had simply started denying everything.
-    const provenShellEnv = { ...unprovenShellEnv, CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir) };
-    const provenDecisions = DEFERRING_CORPUS_ROWS.map((row) => ({
-      row,
-      ...runHook(row.command, provenShellEnv),
-    }));
-    const stillDeferring = provenDecisions.filter(
-      (d) => d.status === 0 && d.decision !== undefined && Object.keys(d.decision).length === 0,
-    );
-    assert.deepEqual(
-      provenDecisions.filter((d) => d.status !== 0).map((d) => d.row.command),
-      [],
-      "every deferring corpus row must STILL defer once the snapshot's own exported PATH leads with the " +
-        "shim directory — if this fails, D-104 has not narrowed the deferral, it has destroyed it",
-    );
-    assert.equal(
-      stillDeferring.length,
-      DEFERRING_CORPUS_ROWS.length,
-      "the proven-shell arm must produce a no-opinion decision for every deferring row",
-    );
-
-    // The property itself: the same rows, the same perfect hook-process environment, a snapshot whose
-    // exported PATH leads with something else — all deny.
-    const escapes = [];
-    for (const row of DEFERRING_CORPUS_ROWS) {
-      const { status, decision } = runHook(row.command, unprovenShellEnv);
-      if (status !== 2 || decision?.hookSpecificOutput?.permissionDecision !== "deny") {
-        escapes.push({ command: row.command, group: row.group, status, decision });
-      }
-    }
-    assert.deepEqual(
-      escapes,
-      [],
-      "a command shell whose PATH does not lead with the shim directory is an UNPROVEN environment: " +
-        "every row must deny, because Layer 2 can never be reached to ask. An escape here is the " +
-        "uat-06b bypass reopened — a destructive command with no gate at either layer",
-    );
-
-    // And D-60's rule, one level out: an unprovable executing shell denies EVERY command, harmless
-    // ones included, not merely the destructive rows. Without this, a future change that only
-    // tightened the non-safe branch would pass everything above.
-    for (const command of HARMLESS_CONTROLS) {
-      const { status, decision } = runHook(command, unprovenShellEnv);
-      assert.equal(status, 2, `an unprovable executing shell must deny even "${command}"`);
-      assert.equal(decision?.hookSpecificOutput?.permissionDecision, "deny");
-    }
-  },
-);
-
-/** The fixture's own trailing exported PATH, verbatim — the measured failing value (mise's shim
- * directory at position 0). Read out of the fixture rather than retyped, so the test and the
- * captured evidence can never drift. */
-function exportedPathFromFixture() {
-  const match = /^export PATH='(.*)'$/m.exec(REAL_SNAPSHOT);
-  assert.ok(match, "the real snapshot fixture must carry a single-quoted trailing export PATH statement");
-  const value = match[1].split("'\\''").join("'");
-  assert.ok(
-    value.split(path.delimiter)[0].includes("mise"),
-    `the fixture's exported PATH must still lead with mise's shim directory — the measured failing shape — got ${value.split(path.delimiter)[0]}`,
-  );
-  return value;
-}
-
-test(
-  "D-104 round ten: the hook denies when the executing shell's PATH cannot be read at all — a missing, empty, or PATH-less snapshot set is a refusal, never a vacuous pass",
-  { skip: SHIM_SKIP_REASON },
-  () => {
-    const shimDir = makeShimDir(["git", "rm"]);
-    const baseEnv = {
-      ...process.env,
-      FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
-      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-    };
-
-    // (a) The config directory exists but has no shell-snapshots directory at all.
-    const noSnapshotDir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-claude-config-none-"));
-
-    // (b) The shell-snapshots directory exists and is empty. This is the case a conjunction over an
-    // empty set would make VACUOUSLY TRUE, which is precisely the trap this whole round is about.
-    const emptySnapshotDir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-claude-config-empty-"));
-    fs.mkdirSync(path.join(emptySnapshotDir, "shell-snapshots"), { recursive: true });
-
-    // (c) A real snapshot is present but carries no `export PATH` statement — the backend changed
-    // its convention, or the file was truncated mid-write. The hook cannot know what PATH the shell
-    // will run under, so it refuses.
-    const noExportDir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-claude-config-noexport-"));
-    fs.mkdirSync(path.join(noExportDir, "shell-snapshots"), { recursive: true });
-    fs.writeFileSync(
-      path.join(noExportDir, "shell-snapshots", "snapshot-zsh-1-tstfix.sh"),
-      REAL_SNAPSHOT.replace(SNAPSHOT_EXPORT_PATH_PATTERN, () => "# export PATH statement removed"),
-    );
-
-    // (d) TWO snapshots, one good and one bad. Which one the shell sourced is not knowable from the
-    // hook — measured: a live session's Bash shell was running the second-newest snapshot on disk,
-    // not the newest — so a newest-wins or any-one-matches rule would be unsound. ALL must lead.
-    const mixedDir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-claude-config-mixed-"));
-    const mixedSnapshots = path.join(mixedDir, "shell-snapshots");
-    fs.mkdirSync(mixedSnapshots, { recursive: true });
-    const quote = (value) => `export PATH='${value.split("'").join("'\\''")}'`;
-    fs.writeFileSync(
-      path.join(mixedSnapshots, "snapshot-zsh-1-good.sh"),
-      REAL_SNAPSHOT.replace(SNAPSHOT_EXPORT_PATH_PATTERN, () =>
-        quote(`${shimDir}${path.delimiter}${process.env.PATH ?? ""}`),
-      ),
-    );
-    fs.writeFileSync(path.join(mixedSnapshots, "snapshot-zsh-2-bad.sh"), REAL_SNAPSHOT);
-
-    const UNREADABLE_SHELLS = [
-      { name: "no shell-snapshots directory", configDir: noSnapshotDir },
-      { name: "empty shell-snapshots directory", configDir: emptySnapshotDir },
-      { name: "snapshot carrying no export PATH statement", configDir: noExportDir },
-      { name: "two snapshots, only one of which leads with the shim directory", configDir: mixedDir },
-    ];
-
-    for (const { name, configDir } of UNREADABLE_SHELLS) {
-      for (const command of ["git push origin --delete x", 'sh -c "git push --force"', "git status"]) {
-        const { status, decision } = runHook(command, { ...baseEnv, CLAUDE_CONFIG_DIR: configDir });
-        assert.equal(status, 2, `expected deny under "${name}" for: ${command}`);
-        assert.equal(
-          decision?.hookSpecificOutput?.permissionDecision,
-          "deny",
-          `expected permissionDecision "deny" under "${name}" for: ${command}`,
-        );
-      }
-    }
   },
 );
 
@@ -2907,7 +2656,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(shimDir, "git"),
       PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(shimDir),
     };
     const unprovenEnv = { ...process.env, PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}` };
     delete unprovenEnv.FLYWHEEL_SHIM_BIN;
@@ -2952,7 +2700,6 @@ test(
       ...process.env,
       FLYWHEEL_SHIM_BIN: path.join(provenDir, "git"),
       PATH: `${provenDir}${path.delimiter}${process.env.PATH ?? ""}`,
-      CLAUDE_CONFIG_DIR: claudeConfigDirLeadingWith(provenDir),
     };
     // The SAME "witness entry missing" construction as condition 3 above — a separate real copy
     // of the shim, installed under `rm` in a directory that never got a `git` entry.
@@ -3304,7 +3051,14 @@ test(
       // the C1-C6 text-scanner contract — it is the condition that makes deferring to Layer 2
       // safe at all, and it is about the environment, not the command text.
       "**P1.** The shim's shadow directory is position 0 of the `PATH` used by the process that performs the",
-      "shimLeadsCommandShellPath",
+      // Round ten's own code was REVERTED on 2026-10-01 after the first properly-supervised live
+      // run measured it refusing `git --version` (see "### Why round ten was reverted"). The gate
+      // used to pin the function name `shimLeadsCommandShellPath`; that function no longer exists,
+      // so pinning it would be pinning a lie. What must stay findable instead is that P1 is still
+      // OPEN — the failure mode this whole document exists to prevent is a future round quietly
+      // re-reading round ten as shipped behaviour and building on a premise nothing establishes.
+      "**ROUND TEN WAS REVERTED ON 2026-10-01. P1 IS STILL UNPROVEN AND THE HOLE BELOW IS STILL OPEN.**",
+      "### Why round ten was reverted",
     ];
     for (const anchor of cContractAnchors) {
       assert.ok(

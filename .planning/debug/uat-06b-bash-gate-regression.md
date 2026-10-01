@@ -1,5 +1,5 @@
 ---
-status: awaiting_human_verify
+status: reverted_routed_to_planning
 trigger: "UAT 6b: destructive Bash call no longer gated under heartbeat=on — regression from Phase 6's --allowedTools addition in claude-code-adapter.ts"
 created: 2026-10-01T00:00:00.000Z
 updated: 2026-10-01T14:40:00.000Z
@@ -661,3 +661,47 @@ commits:
   - 9569ed5: "fix(destructive-gate): prove the shim leads the EXECUTING shell's PATH, not the hook's (Parts 1+2, landed together)"
   - fb6c9bd: "docs(destructive-gate): correct Layer 1's false claim and write down P1 as a premise (Part 3)"
   - 7c1af3e: "fix(destructive-gate): name both halves of the proof in the safe branch's refusal reason"
+
+## Live-Run Outcome — THE FIX WAS REVERTED (2026-10-01)
+
+The first `run-all.sh` pass after this fix landed — and the first in which every item was properly
+supervised, so the first capable of measuring the gate at all — showed the fix was a net regression.
+It stopped the destructive command, and it also refused or queued a permission request for every
+ordinary `Bash` command, `git --version` included.
+
+| Item | Before | After | Recorded |
+|---|---|---|---|
+| UAT 3 | FAIL (watchdog reap) | FAIL | `PROPERTY B NOT MET — no permission_request was ever raised` |
+| UAT 5 | FAIL (watchdog reap) | FAIL | 300s timeout, event stream almost all `permission_request`, plus `rate_limit` |
+| UAT 6a | PASS (vacuous) | FAIL | `resolvedBy ... =["permission-rule"]` |
+| UAT 6b | FAIL (`SAFETY VIOLATED`) | FAIL | same `["permission-rule"]` — safety held, human-in-the-loop did not |
+| UAT 7 | PASS | FAIL | 120s timeout on the harmless probe `git --version` |
+
+No item went green; two that previously passed went red. UAT 8 was killed mid-run to stop spending
+credentials on a known answer.
+
+**The falsified claim is Part 1's, specifically.** Part 1 asserted that composing a per-run
+`CLAUDE_CONFIG_DIR` makes P1 true because the snapshot pool starts empty. It does not: the backend
+builds a FRESH snapshot by executing the developer's own login shell, whose init (mise + zinit here)
+rewrites `PATH` from scratch. An empty pool is irrelevant when the snapshot created into it comes from
+the login shell regardless. Part 2 then correctly failed to prove P1 and correctly refused — on
+everything. The residual this fix shipped as OPEN fired immediately and universally, not rarely.
+
+**Reverted:** `9569ed5` and `7c1af3e`. **Kept:** the trust-boundary document's corrections (with a new
+"### Why round ten was reverted" section and a banner stating P1 is still unproven), the P1 premise
+statement, and `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.sh` as captured evidence.
+The structural gate in `destructive-gate.test.mjs` now pins the reverted state rather than the deleted
+function name, so a future round cannot read round ten as shipped behaviour.
+
+**Why this is not round eleven.** Rounds five through nine hardened the text classifier; round ten
+tried to prove P1 from inside the hook. Both are now exhausted. P1 is not achievable by any mechanism
+Flywheel currently controls, because Flywheel does not own the `PATH` of a shell the backend builds
+from the developer's login shell. The remaining fork is a design decision — either Flywheel gains
+ownership of the command shell's environment (the `--settings` `env` block is the candidate, and
+whether it applies after the snapshot is sourced is still the one unanswered question, still answerable
+only by a live run), or the gate stops depending on `PATH` precedence and intercepts at a layer the
+login shell cannot reorder. That belongs in a planning phase, not another debug cycle.
+
+**Open and unmitigated:** the destructive-gate hole this session diagnosed is REAL and is now OPEN
+again. A destructive command can reach a remote in a `bypassPermissions` session without a human being
+asked, whenever the developer's shell init displaces the shim from `PATH[0]`.

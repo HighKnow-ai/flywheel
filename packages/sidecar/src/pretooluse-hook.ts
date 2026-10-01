@@ -56,21 +56,9 @@
  * not an allow. This function proves the SAME kind of environment fact, `shimShadowDirectoryProven`
  * above, for the SAFE arm (D-59) — two call sites, one underlying check.
  *
- * **The environment proof is about the EXECUTING shell, corrected by D-104 (uat-06b).** Until that
- * round, `shimWillIntercept`/`shimShadowDirectoryProven` proved their environment fact against
- * `process.env.PATH` — THIS process's `PATH`. The agent's command does not run in this process:
- * Claude Code's Bash tool runs it in a shell that first sources a shell snapshot whose final
- * statement re-exports a `PATH` frozen from the developer's own login shell. When a third-party
- * shell-init stack reordered that `PATH`, Layer 1 declined to refuse because it believed Layer 2
- * would ask, Layer 2 was never reached, and a real `git push origin --delete` reached a real remote
- * in a `bypassPermissions` session. This is the same asymmetric-trust shape D-59/D-60 and WR-01
- * each closed, one level further out: the ENVIRONMENT PROOF ITSELF was about the wrong environment.
- * `shimLeadsCommandShellPath` (below) is the corrected proof, and both existing call sites route
- * through it because `shimShadowDirectoryProven` is a wrapper over `shimWillIntercept`.
- *
- * This hook still never waits: the environment proof costs two synchronous `stat` calls plus a
- * synchronous read of this session's own shell snapshots in a correctly configured session
- * (`shimWillIntercept`'s own doc comment) — no socket, no poll, no sleep, in either arm.
+ * This hook still never waits: the environment proof costs two synchronous `stat` calls in a
+ * correctly configured session (`shimWillIntercept`'s own doc comment) — no socket, no poll, no
+ * sleep, in either arm.
  *
  * **This script NEVER waits.** It reads its own stdin (already fully written by the backend
  * before invoking this hook — not a wait on a human decision), shells out to the shim binary's
@@ -103,8 +91,7 @@
  * `docs/destructive-gate-trust-boundary.md`** (D-62 item 3) — this file's own half of the proof.
  */
 import { spawnSync } from "node:child_process";
-import { accessSync, constants as fsConstants, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { accessSync, constants as fsConstants, statSync } from "node:fs";
 import { delimiter as pathDelimiter, dirname, join, resolve as resolvePath } from "node:path";
 
 /** The exact kebab-case category names `destructive::DestructiveCategory::as_str()` mints
@@ -158,16 +145,11 @@ function printDecision(decision: Record<string, unknown>): void {
  *   exactly that directory onto `PATH` (D-51), so anything else means this is not the environment
  *   this hook was designed for;
  * - that directory contains an executable file named exactly `program` — the shadow entry
- *   `install_for_run` writes;
- * - and (D-104, uat-06b) that same directory ALSO leads the `PATH` of the shell that will actually
- *   run the command, proved by {@link shimLeadsCommandShellPath}. The three conditions above are
- *   all about THIS process; without the fourth, this function proved the property for the wrong
- *   process and the gate could be bypassed silently — see this module's own doc comment.
+ *   `install_for_run` writes.
  *
- * This function itself never waits: `accessSync`/`statSync` are synchronous filesystem stat calls
- * and {@link shimLeadsCommandShellPath} adds only synchronous `readdir`/`readFile` calls — not a
- * socket read and not a poll loop — so this hook still never waits on anything (see this module's
- * own doc comment).
+ * This function itself never waits: `accessSync`/`statSync` are synchronous filesystem stat calls,
+ * not a socket read and not a poll loop — this hook still never waits on anything (see this
+ * module's own doc comment).
  */
 function shimWillIntercept(program: string): boolean {
   const shimBin = process.env.FLYWHEEL_SHIM_BIN;
@@ -180,132 +162,15 @@ function shimWillIntercept(program: string): boolean {
 
   // `FLYWHEEL_SHIM_BIN`'s own directory must be that exact first PATH segment — not merely
   // "some directory on PATH" — mirroring `shim_env_for_run`'s PATH-prefix construction exactly.
-  const shimDirectory = resolvePath(dirname(shimBin));
-  if (shimDirectory !== resolvePath(firstSegment)) return false;
+  if (resolvePath(dirname(shimBin)) !== resolvePath(firstSegment)) return false;
 
   const candidate = join(firstSegment, program);
   try {
     accessSync(candidate, fsConstants.X_OK);
-    if (!statSync(candidate).isFile()) return false;
+    return statSync(candidate).isFile();
   } catch {
     return false;
   }
-
-  // D-104 (uat-06b): the two checks above are about THIS process's `PATH`. The agent's command
-  // does not run in this process — it runs in a shell whose `PATH` is a frozen copy. Prove the
-  // property for THAT shell too, or refuse. See `shimLeadsCommandShellPath` below.
-  return shimLeadsCommandShellPath(shimDirectory);
-}
-
-/** The Claude Code configuration directory in force for the session this hook was invoked from —
- * `CLAUDE_CONFIG_DIR` when the spawn set one (`claude-code-adapter.ts` always does, per-run,
- * D-104 Part 1), falling back to the documented default. Named here so the one coupling to the
- * backend's config-dir convention lives in a single function. */
-function claudeConfigDirectory(): string {
-  const configured = process.env.CLAUDE_CONFIG_DIR;
-  return configured && configured.length > 0 ? configured : join(homedir(), ".claude");
-}
-
-/**
- * The value of the LAST `export PATH=<value>` statement in a shell-snapshot file, unquoted — or
- * `undefined` when the file carries no such statement at all.
- *
- * LAST, never first: the statement a sourced snapshot leaves in force is the final one, and a
- * snapshot is a dump of the developer's whole shell (function bodies included), so an earlier
- * occurrence inside some function's body must never be mistaken for the effective value. Measured
- * on this machine's own eighteen real snapshots: every one carries exactly ONE `export PATH=`
- * statement and it is the file's final line — but "exactly one" is a property of today's snapshot
- * writer, not a contract, so this reads the last rather than assuming the only.
- *
- * Unquoting handles the single-quoted form the snapshot writer actually emits (including zsh's
- * `'\''` escape for an embedded quote) and the double-quoted form; anything else is returned
- * verbatim, which — for a value containing an unexpanded `$PATH` — simply fails the caller's
- * leading-segment comparison and therefore denies. There is deliberately no shell evaluation here:
- * this hook never runs snapshot content.
- */
-function exportedPathFromSnapshot(contents: string): string | undefined {
-  let last: string | undefined;
-  for (const line of contents.split("\n")) {
-    const match = /^export PATH=(.*)$/.exec(line);
-    if (match) last = match[1];
-  }
-  if (last === undefined) return undefined;
-  const raw = last.trim();
-  if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) {
-    return raw.slice(1, -1).split("'\\''").join("'");
-  }
-  if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) {
-    return raw.slice(1, -1);
-  }
-  return raw;
-}
-
-/**
- * D-104 (uat-06b): PROVES — never assumes — that `shimDirectory` leads the `PATH` of the shell that
- * will actually RUN the command, not merely the `PATH` of this hook process.
- *
- * This is the premise the whole deferral rested on and nothing checked. Claude Code's Bash tool
- * does not run the agent's command in the process Flywheel spawned: it runs it in a shell that
- * first sources a SHELL SNAPSHOT — `<configDir>/shell-snapshots/snapshot-<shell>-<ts>-<rand>.sh`,
- * built by executing the developer's own login+interactive shell and ending in a single
- * `export PATH='…'` statement holding whatever `PATH` that shell computed. Measured live at zero
- * cost (uat-06b session evidence, 2026-10-01 12:45/12:50): the snapshot's exported `PATH` IS what
- * the Bash tool's shell runs under; a third-party shell-init stack (`mise` + `zinit` here) can
- * reorder it so Flywheel's per-run shim directory is no longer position 0; and the snapshot in
- * force is NOT necessarily the newest one on disk, so a newest-wins heuristic would be unsound.
- * Hence the requirement below: EVERY snapshot present must lead with the shim directory.
- *
- * Returns `false` — deny — when the snapshot directory cannot be read, holds no snapshot at all,
- * or holds one whose exported `PATH` this function cannot prove leads with `shimDirectory`. An
- * unprovable executing environment is a precondition failure with a name, which is the whole point:
- * before this function the same condition silently disabled BOTH layers of the destructive gate and
- * a real `git push origin --delete` reached a real remote in a `bypassPermissions` session.
- *
- * **Named coupling, not a hidden one.** This function depends on two Claude Code INTERNALS: the
- * `<configDir>/shell-snapshots` location, and the trailing-`export PATH` convention. Both were
- * read out of the installed binary (`claude 2.1.274`) rather than documented by Anthropic, so a
- * backend change can silently turn this proof into "no snapshots found" — which denies, the safe
- * direction, loudly. The cleaner replacement, left deliberately unmeasured: if a per-run `env`
- * block in the `--settings` file Flywheel already writes is applied by Claude Code AFTER the
- * snapshot is sourced, it would make `PATH` a value Flywheel fully owns and this entire function
- * could be deleted. Establishing that needs a live credential-spending run and was explicitly not
- * authorised in this round.
- *
- * Still never waits: `readdirSync`/`readFileSync` are synchronous filesystem reads, no socket, no
- * poll, no sleep (this module's own doc comment).
- */
-function shimLeadsCommandShellPath(shimDirectory: string): boolean {
-  const snapshotDirectory = join(claudeConfigDirectory(), "shell-snapshots");
-
-  let snapshots: string[];
-  try {
-    snapshots = readdirSync(snapshotDirectory).filter((name) => name.endsWith(".sh"));
-  } catch {
-    return false;
-  }
-  // An EMPTY snapshot set is not a vacuous pass. The hook cannot prove what a shell it never sees
-  // will run under, so it refuses — the fail-closed posture D-60 already applies to the shim's own
-  // shadow directory, applied one level out to the shell that performs the PATH search.
-  if (snapshots.length === 0) return false;
-
-  for (const name of snapshots) {
-    let contents: string;
-    try {
-      contents = readFileSync(join(snapshotDirectory, name), "utf8");
-    } catch {
-      return false;
-    }
-    const exported = exportedPathFromSnapshot(contents);
-    if (!exported) return false;
-    const firstSegment = exported.split(pathDelimiter)[0];
-    if (!firstSegment) return false;
-    try {
-      if (resolvePath(firstSegment) !== shimDirectory) return false;
-    } catch {
-      return false;
-    }
-  }
-  return true;
 }
 
 /** The shadow witness entry name the safe branch's environment proof stats — mirrors
@@ -421,14 +286,7 @@ async function main(): Promise<void> {
     // environment denies EVERY command, harmless ones included — the misconfigured-session case
     // is exactly where this refusal layer is the only one left standing.
     if (!shimShadowDirectoryProven()) {
-      // D-104: the reason names BOTH halves of the proof, because an operator hitting this needs to
-      // know which one failed — a broken shim install, or a shell whose own init dropped the shim
-      // directory from position 0 when the backend built its shell snapshot. The latter is the
-      // residual friction the trust-boundary document records as OPEN for round ten.
-      failClosed(
-        "the shim's shadow directory could not be proven installed and leading PATH for both this " +
-          "process and the shell that will run the command",
-      );
+      failClosed("the shim's shadow directory could not be proven installed and leading PATH");
     }
 
     // Step 2 (D-61, corrected by WR-01/plan 03-30): each D-61 field is read through the tri-state

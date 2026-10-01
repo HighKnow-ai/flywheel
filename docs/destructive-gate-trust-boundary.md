@@ -704,8 +704,17 @@ sitting immediately after "command" no longer trips the walk.
 
 ## Round ten — the environment proof was about the wrong environment
 
+> **ROUND TEN WAS REVERTED ON 2026-10-01. P1 IS STILL UNPROVEN AND THE HOLE BELOW IS STILL OPEN.**
+> Read the rest of this section as the record of an attempt that failed in the field, not as a
+> description of shipped behaviour. The code it describes — `shimLeadsCommandShellPath` and the
+> per-run `CLAUDE_CONFIG_DIR` composition — no longer exists; commits `9569ed5` and `7c1af3e` were
+> reverted. What the live run measured, and why the revert was the right call, is in
+> "### Why round ten was reverted" at the end of this section. The diagnosis that found the hole is
+> at `.planning/debug/uat-06b-bash-gate-regression.md`, and it remains correct: the hole is real, it
+> is in this document's own spec, and nothing currently closes it.
+
 Found 2026-10-01 by UAT item 6b (`scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=on`),
-diagnosed in `.planning/debug/resolved/uat-06b-bash-gate-regression.md`, closed by D-104. This round
+diagnosed in `.planning/debug/uat-06b-bash-gate-regression.md`, attempted by D-104. This round
 is different in kind from rounds five through nine and the difference is the point.
 
 **What happened.** A live `bypassPermissions` session ran `git push origin --delete uat-doomed-branch`
@@ -800,6 +809,57 @@ as evidence the gate works: its artifact shows `elapsedMs: 7088` with
 before the gate's refusal was ever exercised. 6a was passing VACUOUSLY. That is the same class as the
 `proposeAttempted`/`event.name` instrument defect already recorded in the uat-08 session, and it is a
 defect in its own right, separate from D-104.
+
+### Why round ten was reverted
+
+The live `run-all.sh` pass of 2026-10-01 06:00Z — the first one run after D-104 landed, and the first
+in which every item was properly supervised — measured what the offline tests could not. D-104 did
+stop the destructive command from reaching the remote. It also refused or queued a permission request
+for **every ordinary `Bash` command**, which is not a usable product:
+
+| Item | Before D-104 | After D-104 | What the run recorded |
+|---|---|---|---|
+| UAT 3 | FAIL (watchdog reap, unrelated) | **FAIL** | `PROPERTY B NOT MET — no permission_request was ever raised`; the hook refused outright instead of deferring, so no human was ever asked |
+| UAT 5 | FAIL (watchdog reap, unrelated) | **FAIL** | 300s timeout with the event stream consisting almost entirely of `permission_request`, plus a `rate_limit` |
+| UAT 6a | PASS (vacuously — see above) | **FAIL** | `resolvedBy (tool_result non_execution_kind values)=["permission-rule"]` |
+| UAT 6b | FAIL (`SAFETY VIOLATED`) | **FAIL** | same `["permission-rule"]`: safety held, the human-in-the-loop half did not |
+| UAT 7 | PASS | **FAIL** | 120s timeout waiting for the `tool_result` of the harmless probe `git --version` |
+
+So the trade D-104 made was not "a small amount of accepted friction" as the D-60 precedent assumed.
+It was total: `git --version` became a permission request. Two items that previously passed (6a
+vacuously, 7 genuinely) went red, and no item went green. A safety property that is bought by refusing
+every command is not a gate; it is an off switch.
+
+**The specific prediction that failed was Part 1's.** Part 1 claimed that composing a per-run
+`CLAUDE_CONFIG_DIR` makes P1 true, because the snapshot pool starts empty and so the snapshot in force
+"must be one built from this run's own shim-prefixed environment". The live run falsifies that: the
+backend builds a FRESH snapshot by executing the developer's own login/interactive shell, and that
+shell's init (mise + zinit on the machine measured) rewrites `PATH` from scratch. An empty pool does
+not help, because the snapshot that gets created into it is built from the login shell either way.
+Part 2 then correctly observed that it could not prove P1, and correctly refused — on everything.
+This is the residual D-104 shipped with as OPEN ("a developer whose shell init hard-replaces `PATH`
+would see every agent `Bash` command refused") firing immediately and universally rather than rarely.
+
+**What is kept from round ten, because it cost a live run to learn and is worth more than the code:**
+
+1. The hole is real and this document's own spec is where it was missing. That correction stands.
+2. **P1 is not achievable by any mechanism Flywheel currently controls.** Flywheel cannot own the
+   `PATH` of a shell the backend constructs from the developer's login shell. Any eleventh round that
+   starts by hardening the text classifier in `packages/shim/src/main.rs` is repeating rounds five
+   through nine; any round that starts by proving P1 from inside the hook is repeating round ten.
+3. The real fork is therefore upstream of this document: either Flywheel gains a mechanism that makes
+   the command shell's `PATH` a value it owns (the `--settings` `env` block is the candidate, and
+   whether it is applied after the snapshot is sourced is STILL the one unanswered question, STILL
+   answerable only by a live run), or the gate stops depending on `PATH` precedence at all and
+   intercepts at a layer the login shell cannot reorder. Choosing between those is a design decision,
+   not a debugging step, and it is why this was routed to planning rather than to an eleventh round.
+4. `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.sh` is KEPT even though the tests
+   that consumed it are reverted. It is a real captured snapshot showing the trailing
+   `export PATH='<login shell's PATH>'` shape, and it is the evidence any future round starts from.
+
+**Reverted in full:** `9569ed5` (Part 1 + Part 2 + their tests) and `7c1af3e` (the refusal-reason
+wording that depended on Part 2). NOT reverted: this document's corrections, the P1 premise statement,
+and the snapshot fixture.
 
 ## The rule for round six
 
