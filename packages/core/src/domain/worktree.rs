@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::branch::task_branch_name;
 use crate::domain::epic::ensure_epic_integration_branch;
@@ -552,4 +552,125 @@ pub fn forget_worktree_record(conn: &mut Connection, task_id: &str, actor_id: &s
 
     tx.commit().context("failed to commit forget_worktree_record transaction")?;
     Ok(())
+}
+
+/// D-130: which of the two "open this worktree" actions a template/argv is being resolved for —
+/// editor or terminal. `Serialize`/`Deserialize` so it crosses the Tauri IPC boundary as a plain
+/// lowercase string (`"editor"` / `"terminal"`), matching `adapters/tauri.ts`'s
+/// `WorktreeOpenSurface`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenSurface {
+    Editor,
+    Terminal,
+}
+
+impl OpenSurface {
+    fn settings_key(self) -> &'static str {
+        match self {
+            OpenSurface::Editor => "open_in_editor_command",
+            OpenSurface::Terminal => "open_in_terminal_command",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            OpenSurface::Editor => "editor",
+            OpenSurface::Terminal => "terminal",
+        }
+    }
+
+    fn default_template(self) -> &'static str {
+        match self {
+            OpenSurface::Editor => DEFAULT_EDITOR_TEMPLATE,
+            OpenSurface::Terminal => DEFAULT_TERMINAL_TEMPLATE,
+        }
+    }
+}
+
+/// The literal substitution token inside a stored open-command template (D-130) — replaced with
+/// the worktree's own absolute path inside whichever argv element contains it, never splitting
+/// that element into two.
+pub const WORKTREE_PATH_TOKEN: &str = "{worktree_path}";
+
+/// D-130's default "Open in editor" template — `code` confirmed on this machine's `PATH`
+/// (07-RESEARCH.md). The template is editable from Settings, so a wrong default on a machine
+/// without VS Code on `PATH` is a settings change, not a defect.
+pub const DEFAULT_EDITOR_TEMPLATE: &str = "code {worktree_path}";
+
+/// D-130's default "Open in terminal" template — `open -a Terminal` is the macOS system
+/// terminal, and v1 is macOS-only (phase 11 is the macOS build).
+pub const DEFAULT_TERMINAL_TEMPLATE: &str = "open -a Terminal {worktree_path}";
+
+/// `surface`'s stored open-command template, or its own default ([`DEFAULT_EDITOR_TEMPLATE`] /
+/// [`DEFAULT_TERMINAL_TEMPLATE`]) when no `settings` row exists yet — exact structural sibling of
+/// `domain::settings::global_credential_mode`'s read-with-default idiom. These two actions are
+/// global, not per-project, exactly like the credential mode's global half.
+pub fn open_command_template(conn: &Connection, surface: OpenSurface) -> anyhow::Result<String> {
+    Ok(crate::domain::settings::read_setting(conn, surface.settings_key())?
+        .unwrap_or_else(|| surface.default_template().to_string()))
+}
+
+/// Set `surface`'s stored open-command template (D-130). Rejects an empty or whitespace-only
+/// template — naming the surface — rather than storing a value that could never spawn anything.
+/// Exact structural sibling of `domain::settings::set_global_credential_mode`'s
+/// write-plus-audit-row shape: `updated_by`/`updated_at` on the `settings` row are this write's
+/// own audit record, and no `events` row is appended — a global setting has no natural project
+/// stream to attribute one to (`domain::settings`'s own doc comment).
+pub fn set_open_command_template(
+    conn: &mut Connection,
+    actor_id: &str,
+    surface: OpenSurface,
+    template: &str,
+) -> anyhow::Result<()> {
+    if template.trim().is_empty() {
+        anyhow::bail!(
+            "open-command template for the {} surface must not be empty",
+            surface.label()
+        );
+    }
+
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    crate::domain::settings::upsert_setting(&tx, surface.settings_key(), template, actor_id, &now)?;
+    tx.commit()
+        .context("failed to commit set_open_command_template transaction")?;
+    Ok(())
+}
+
+/// Resolve `task_id`'s worktree-open argv for `surface` (D-130, T-07-04-01). The template is
+/// split on runs of ASCII whitespace into argv elements — the one splitting site this module
+/// uses — which collapses whitespace runs and yields no empty elements. The worktree path is
+/// substituted INSIDE whichever element contains [`WORKTREE_PATH_TOKEN`], never splitting that
+/// element; when no element contains the token, the path is pushed as one additional final
+/// element, so a template with no token (`code` alone) still works.
+///
+/// The returned vector is handed to `Command::new(argv[0]).args(&argv[1..])` and is never joined
+/// back into a command line — no character inside the worktree path or inside the user's own
+/// template can therefore be interpreted as a command separator by anything spawning it (the
+/// whole mitigation for T-07-04-01).
+///
+/// Errors naming `task_id` when no `worktrees` row exists for it — never returns an argv
+/// carrying an empty path.
+pub fn resolve_open_argv(conn: &Connection, task_id: &str, surface: OpenSurface) -> anyhow::Result<Vec<String>> {
+    let worktree = worktree_for_task(conn, task_id)?
+        .ok_or_else(|| anyhow::anyhow!("no worktree exists for task {task_id:?}"))?;
+
+    let template = open_command_template(conn, surface)?;
+
+    let mut argv: Vec<String> = Vec::new();
+    let mut token_found = false;
+    for element in template.split_whitespace() {
+        if element.contains(WORKTREE_PATH_TOKEN) {
+            token_found = true;
+            argv.push(element.replace(WORKTREE_PATH_TOKEN, &worktree.path));
+        } else {
+            argv.push(element.to_string());
+        }
+    }
+    if !token_found {
+        argv.push(worktree.path.clone());
+    }
+
+    Ok(argv)
 }
