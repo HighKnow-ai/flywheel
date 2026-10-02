@@ -190,6 +190,64 @@ pub fn diff_stat_and_names(repo_path: &Path, base_ref: &str) -> anyhow::Result<D
     Ok(DiffStat { stat, changed_paths })
 }
 
+/// Ahead/behind counts between `branch` and `target_ref` (D-116, LINK-02, Phase 7 plan 07-01).
+/// Returns `Ok(None)` when `target_ref` does not resolve locally — a withheld figure, never a
+/// fabricated zero, so the caller can tell "level" (`Some((0, 0))`) from "cannot measure" (`None`).
+/// Otherwise runs `git rev-list --left-right --count <target_ref>...<branch>`: `--left-right`
+/// splits the symmetric difference by side (left = `target_ref`-only commits = `behind`, right =
+/// `branch`-only commits = `ahead`), and `--count` means this function parses two
+/// whitespace-separated integers from a known-shape stdout line, mirroring
+/// [`git_status_porcelain`]'s one-call, no-further-parsing convention.
+pub fn ahead_behind(
+    repo_path: &Path,
+    target_ref: &str,
+    branch: &str,
+) -> anyhow::Result<Option<(u32, u32)>> {
+    if !rev_parse_verify(repo_path, target_ref)? {
+        return Ok(None);
+    }
+    let range = format!("{target_ref}...{branch}");
+    let output = git_at(repo_path, &["rev-list", "--left-right", "--count", &range])?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut parts = text.split_whitespace();
+    let behind: u32 = parts.next().unwrap_or("0").parse().unwrap_or(0);
+    let ahead: u32 = parts.next().unwrap_or("0").parse().unwrap_or(0);
+    Ok(Some((ahead, behind)))
+}
+
+/// Fetch `origin` in `repo_path` (D-116), skipping without fetching when the repository has no
+/// remote configured at all — `git remote`'s stdout is empty in that case, which is not an error.
+/// Returns `Ok(true)` when a fetch actually ran, `Ok(false)` when it was skipped.
+pub fn fetch_origin(repo_path: &Path) -> anyhow::Result<bool> {
+    let remotes = git_at(repo_path, &["remote"])?;
+    if String::from_utf8_lossy(&remotes.stdout).trim().is_empty() {
+        return Ok(false);
+    }
+    git_at(repo_path, &["fetch", "--quiet", "origin"])?;
+    Ok(true)
+}
+
+/// The RFC3339 modification time of `FETCH_HEAD` in `repo_path` (D-116), or `Ok(None)` when the
+/// repository has never fetched. Resolves the path via `git rev-parse --git-path FETCH_HEAD`
+/// rather than hand-deriving `.git`'s location, so a linked worktree's shared git dir resolves
+/// correctly too; the result may be relative (joined onto `repo_path`) or absolute (an absolute
+/// `rel` makes `Path::join` replace `repo_path` outright), both handled by the same join.
+pub fn last_fetch_at(repo_path: &Path) -> anyhow::Result<Option<String>> {
+    let output = git_at(repo_path, &["rev-parse", "--git-path", "FETCH_HEAD"])?;
+    let rel = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let path = repo_path.join(rel);
+    match std::fs::metadata(&path) {
+        Ok(meta) => {
+            let modified =
+                meta.modified().context("FETCH_HEAD metadata carries no modified time")?;
+            let datetime: chrono::DateTime<chrono::Utc> = modified.into();
+            Ok(Some(datetime.to_rfc3339()))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).context("failed to read FETCH_HEAD metadata"),
+    }
+}
+
 /// Remove a worktree (WORK-03, D-41/D-42/D-43). Takes exactly two path parameters and no boolean,
 /// option or flag of any kind — there is no parameter a caller could set to skip the dirty-tree
 /// guard (D-43's "no escape hatch"). That guard itself lives one layer up, in

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::Serialize;
 
 use crate::branch::task_branch_name;
 use crate::domain::epic::ensure_epic_integration_branch;
@@ -201,7 +202,7 @@ pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> 
 /// path byte) is kept rather than dropped — its raw text becomes `path` and its `code` reads
 /// `"??"`, so a malformed/truncated porcelain line still surfaces as SOMETHING dirty rather than
 /// silently vanishing from the count (D-42/D-43's "never silently drop a would-be-lost change").
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PorcelainEntry {
     pub code: String,
     pub path: String,
