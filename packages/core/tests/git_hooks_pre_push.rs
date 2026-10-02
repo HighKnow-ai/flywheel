@@ -15,7 +15,7 @@ use core::domain::actor::local_human_actor_id;
 use core::domain::project::{register_project, relocate_project};
 use core::git_hooks::{
     hooks_dir_for_repo, install_pre_push_hook, interception_layers_for, pre_push_hook_script,
-    uninstall_pre_push_hook, PrePushInstall, PRE_PUSH_MARKER,
+    uninstall_commit_msg_hook, uninstall_pre_push_hook, PrePushInstall, PRE_PUSH_MARKER,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
@@ -616,14 +616,19 @@ fn relocating_twice_to_the_same_clone_is_idempotent() {
             "the installed pre-push script's bytes must be unchanged across the second relocation"
         );
 
-        let entries: Vec<_> = std::fs::read_dir(&hooks_dir)
+        let mut entries: Vec<_> = std::fs::read_dir(&hooks_dir)
             .expect("hooks dir should be readable")
             .map(|e| e.expect("dir entry should be readable").file_name())
             .collect();
+        entries.sort();
         assert_eq!(
             entries,
-            vec![std::ffi::OsString::from("pre-push")],
-            "the project's hooks directory must hold exactly one entry named pre-push, got: {entries:?}"
+            vec![std::ffi::OsString::from("commit-msg"), std::ffi::OsString::from("pre-push")],
+            // phase 7, plan 07-02: register_project/relocate_project now install the commit-msg
+            // trailer hook immediately beside the pre-push gate (install_commit_msg_trailer_hook
+            // is called right after install_layer3_pre_push_gate at both call sites), so the
+            // project's hooks directory holds both entries, not pre-push alone.
+            "the project's hooks directory must hold exactly pre-push and commit-msg, got: {entries:?}"
         );
     });
 }
@@ -798,11 +803,27 @@ fn uninstall_unsets_core_hooks_path_it_wrote_and_is_a_no_op_for_a_foreign_value(
     let before = run_git_ok(&fixture.work_path, &["config", "--get", "core.hooksPath"]);
     assert!(!String::from_utf8_lossy(&before.stdout).trim().is_empty(), "expected core.hooksPath to be set after registration");
 
+    // phase 7, plan 07-02: register_project now installs the commit-msg trailer hook beside
+    // pre-push in the same directory, and each uninstall function removes only its own hook file
+    // — core.hooksPath is unset only once NEITHER marked hook remains. Removing pre-push alone
+    // must therefore leave core.hooksPath set (commit-msg still lives there).
     let result = uninstall_pre_push_hook(&fixture.work_path);
     assert!(result.is_ok(), "uninstall_pre_push_hook should succeed: {result:?}");
 
+    let mid = run_git_ok(&fixture.work_path, &["config", "--get", "core.hooksPath"]);
+    assert!(
+        !String::from_utf8_lossy(&mid.stdout).trim().is_empty(),
+        "expected core.hooksPath to remain set after removing pre-push alone — the commit-msg hook still lives there"
+    );
+
+    let result = uninstall_commit_msg_hook(&fixture.work_path);
+    assert!(result.is_ok(), "uninstall_commit_msg_hook should succeed: {result:?}");
+
     let after = run_git(&fixture.work_path, &["config", "--get", "core.hooksPath"]);
-    assert!(!after.status.success(), "expected core.hooksPath to read back unset after uninstall");
+    assert!(
+        !after.status.success(),
+        "expected core.hooksPath to read back unset once both marked hooks are uninstalled"
+    );
 
     // No-op arm: a foreign core.hooksPath (pointing at a directory with no PRE_PUSH_MARKER
     // script) must never be unset by this function.
