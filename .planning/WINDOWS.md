@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 13
+open_count: 14
 waived_count: 0
 fixed_count: 9
-total_count: 22
-last_updated: 2026-10-02T08:26:01.312Z
+total_count: 23
+last_updated: 2026-10-02T08:57:28.851Z
 ---
 
 # Broken Windows Ledger
@@ -37,6 +37,7 @@ last_updated: 2026-10-02T08:26:01.312Z
 | 20 | 06 | unrun-verify | packages/desktop/src/triage/TriageSurface.tsx |  | 06-07 Task 3's human-check (launch the app, open the triage surface, confirm the four verbs are reachable/legible) could not be run: TriageSurface is not yet mounted from any route/entry point in the running app. Needs a later plan (06-08/06-09) to add the entry point. | fixed |  | 2026-09-30T09:11:59.387Z | 2026-09-30T09:51:34.232Z |
 | 21 | 06 | unrun-verify | packages/desktop/src/triage/TriageSurface.tsx |  | 06-08 wires TriageSurface into the running app (board route control, App-level mount, turn-pointer jump) and closes entry #20's specific blocker (no mount point existed). The routing itself is proven at the component level (triage-routing.test.tsx, 7/7). The remaining live visual check from 06-07 Task 3's own human-check (launch the packaged app, open the triage surface via the board, confirm the four verbs are reachable/legible) still has not been run against a real running app — deferred to 06-09's scripted UAT harness (scripts/uat/uat-10-agent-backlog.mjs), which now has a real route to exercise. | fixed |  | 2026-09-30T09:51:52.239Z | 2026-10-01T03:52:43.862Z |
 | 22 | 07 | deviation | packages/core/src/domain/project.rs |  | 07-02 Task 2 acceptance criterion expected grep -c 'install_layer3_pre_push_gate' == 3, but the baseline file (unchanged by this plan) already carried 6 occurrences (4 doc-comment mentions predating phase 7, plus the definition and 2 call sites) before any edit in this plan — the real invariant (exactly 2 call sites, in register_project/relocate_project, neither moved nor removed) was verified directly instead. | open |  | 2026-10-02T08:26:01.312Z |  |
+| 23 | 07 | deviation | packages/core/Cargo.toml |  | 07-03-PLAN.md Task 3's acceptance criterion expects grep -c '^[[bin]]' == 5 after adding forge_probe, but the crate already carried 5 [[bin]] entries before this plan (not 4, per stale 07-RESEARCH.md context); the real post-plan count is 6, verified correct by diff inspection instead. | open |  | 2026-10-02T08:57:28.851Z |  |
 
 ````json
 [
@@ -302,6 +303,18 @@ last_updated: 2026-10-02T08:26:01.312Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-02T08:26:01.312Z",
+    "resolved_at": null
+  },
+  {
+    "id": 23,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "packages/core/Cargo.toml",
+    "line": null,
+    "description": "07-03-PLAN.md Task 3's acceptance criterion expects grep -c '^[[bin]]' == 5 after adding forge_probe, but the crate already carried 5 [[bin]] entries before this plan (not 4, per stale 07-RESEARCH.md context); the real post-plan count is 6, verified correct by diff inspection instead.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-02T08:57:28.851Z",
     "resolved_at": null
   }
 ]
