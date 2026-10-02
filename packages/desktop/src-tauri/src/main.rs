@@ -3,6 +3,7 @@
 
 mod commands;
 mod menu;
+mod scheduler;
 mod sidecar;
 mod state;
 
@@ -92,6 +93,22 @@ fn main() {
                 db: Mutex::new(conn),
                 sidecar: Some(sidecar_handle),
                 pending_orphans: Mutex::new(pending_orphans),
+                focused_task: Mutex::new(None),
+            });
+
+            // D-113/D-114/D-116 (Phase 7 plan 07-01): start the git-truth scheduler AFTER
+            // AppState is managed above, so every tick it fires can reach it via
+            // `app.try_state::<AppState>()`. Spawned rather than awaited directly here — the
+            // board's git facts are display-freshness furniture, not a startup precondition, so
+            // this must not hold up the first paint the way the migration/reconciliation/sidecar
+            // steps above correctly do. A start failure still crashes loudly (LINK-10: a board
+            // that silently never refreshes is the exact failure this phase exists to remove),
+            // just inside the spawned task rather than blocking `.setup()`.
+            let scheduler_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                scheduler::start_git_truth_scheduler(scheduler_handle)
+                    .await
+                    .expect("failed to start the git-truth scheduler");
             });
 
             Ok(())
@@ -184,6 +201,8 @@ fn main() {
             commands::authoring::authoring_stage_advance,
             commands::authoring::authoring_stage_return,
             commands::authoring::authoring_turn_send,
+            commands::git_truth::git_facts,
+            commands::git_truth::git_truth_focus_task,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

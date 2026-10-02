@@ -28,6 +28,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # the underlying package (and `cargo metadata`'s workspace member) is still named `core`.
 flywheel_core = { path = "../../core", package = "core" }
 tauri-plugin-dialog = "2.7.3"
+# D-113: the Rust core's periodic git-truth tick needs a tokio runtime and `app.emit`, which
+# `packages/core` (sync, no `AppHandle`) does not have — so the desktop crate, which already owns
+# the tokio runtime, starts the scheduler. This adds no new package to the dependency tree:
+# `tokio-cron-scheduler` 0.15.1 is already resolved in Cargo.lock via `packages/core`.
+tokio-cron-scheduler = "0.15"
 
 # [profile.release] lives at the workspace root (Cargo.toml) — Cargo ignores
 # per-member profile tables and warns when they're set here.

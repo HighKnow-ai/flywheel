@@ -23,6 +23,12 @@ pub struct AppState {
     /// session (rather than left over from a previous one) is covered by `RunEvent::Exit` and the
     /// per-session watchdog (plan 03-02), never by this field.
     pub pending_orphans: Mutex<Vec<flywheel_core::domain::agent_run::LiveOrphan>>,
+    /// D-114's "open detail panel" half of the git-truth hot tier (Phase 7 plan 07-01,
+    /// `scheduler.rs`): the renderer declares which task's item panel is currently open via
+    /// `git_truth_focus_task`, and `None` means no panel is open. This is display-freshness
+    /// input only — never a source of truth about anything else, and never read by any mutation
+    /// path in this codebase.
+    pub focused_task: Mutex<Option<String>>,
 }
 
 /// Native menu handles for the five forwarded custom items — `main.rs`'s

@@ -975,6 +975,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tempfile",
  "tokio",
+ "tokio-cron-scheduler",
 ]
 
 [[package]]
