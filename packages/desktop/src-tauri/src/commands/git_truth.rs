@@ -18,6 +18,9 @@ pub struct CommitRowDto {
     pub short_sha: String,
     pub subject: String,
     pub committed_at: String,
+    /// LINK-10/D-129: carried straight through from `CommitRow::made_outside_flywheel` — agent-run
+    /// coverage, never trailer presence.
+    pub made_outside_flywheel: bool,
 }
 
 impl From<flywheel_core::git_facts::CommitRow> for CommitRowDto {
@@ -27,6 +30,7 @@ impl From<flywheel_core::git_facts::CommitRow> for CommitRowDto {
             short_sha: row.short_sha,
             subject: row.subject,
             committed_at: row.committed_at,
+            made_outside_flywheel: row.made_outside_flywheel,
         }
     }
 }

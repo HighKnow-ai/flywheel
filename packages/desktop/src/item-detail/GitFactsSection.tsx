@@ -54,6 +54,23 @@ function formatFetchAge(lastFetchAt: string | null): string {
   return `as of ${minutes}m ago`;
 }
 
+/**
+ * LINK-10/D-115's per-row marker: text content with an accessible name (never colour alone), no
+ * dismissal or acknowledgement affordance beside it — D-115 rejected both, and the marker plus
+ * the activity-trail entry `record_outside_commits` appends is the whole signal.
+ */
+function OutsideFlywheelMarker() {
+  return (
+    <span
+      className="type-label"
+      style={{ flexShrink: 0, color: "var(--text-muted-rack)" }}
+      aria-label="Made outside Flywheel"
+    >
+      Outside Flywheel
+    </span>
+  );
+}
+
 function CommitRow({ commit }: { commit: CommitRowDto }) {
   return (
     <li style={{ display: "flex", gap: "var(--space-sm)", minWidth: 0, alignItems: "baseline" }}>
@@ -66,6 +83,7 @@ function CommitRow({ commit }: { commit: CommitRowDto }) {
       >
         {commit.subject}
       </span>
+      {commit.madeOutsideFlywheel && <OutsideFlywheelMarker />}
       <span className="type-label" style={{ flexShrink: 0, color: "var(--text-muted-rack)" }}>
         {formatRelativeTime(commit.committedAt)}
       </span>

@@ -19,6 +19,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use flywheel_core::domain::actor::system_actor;
 use flywheel_core::git_facts::{
     fetch_origin_for_project, git_facts_for_task, tracked_worktrees, GitFacts, COLD_TICK_SECS,
     FETCH_INTERVAL_SECS, HOT_TICK_SECS,
@@ -84,7 +85,7 @@ fn run_hot_tick(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let Ok(conn) = state.db.lock() else {
+    let Ok(mut conn) = state.db.lock() else {
         eprintln!("git-truth hot tick: AppState.db lock was poisoned, skipping this tick");
         return;
     };
@@ -102,10 +103,35 @@ fn run_hot_tick(app: &AppHandle) {
         }
     }
 
+    // LINK-10/D-115: the system actor, resolved once per tick in Rust (never passed in from the
+    // renderer — T-01-04). Feeds the one outside-commit-detection call site below.
+    let outside_commit_actor_id = match system_actor(&conn) {
+        Ok(actor) => Some(actor.id),
+        Err(err) => {
+            eprintln!("git-truth hot tick: failed to resolve the system actor: {err:#}");
+            None
+        }
+    };
+
     let mut any_changed = false;
     for task_id in &task_ids {
         if read_and_record_change(&conn, task_id) {
             any_changed = true;
+        }
+        // LINK-10/D-115: notice a hand-typed commit on this task's branch. Follows
+        // `sidecar.rs`'s `handle_inbound_git_lock_exhausted` idiom exactly — a failure is an
+        // `eprintln!` value, never a panic, never an early return that abandons the remaining
+        // worktrees in this tick. A non-zero count folds into the existing digest
+        // change-detector below — not a second emit channel, a second reason the one shared
+        // board-invalidation emit fires.
+        if let Some(actor_id) = &outside_commit_actor_id {
+            match flywheel_core::git_facts::record_outside_commits(&mut conn, task_id, actor_id) {
+                Ok(count) if count > 0 => any_changed = true,
+                Ok(_) => {}
+                Err(err) => eprintln!(
+                    "git-truth hot tick: failed to notice outside commits for task {task_id}: {err:#}"
+                ),
+            }
         }
     }
     drop(conn);
@@ -120,7 +146,7 @@ fn run_cold_tick(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let Ok(conn) = state.db.lock() else {
+    let Ok(mut conn) = state.db.lock() else {
         eprintln!("git-truth cold tick: AppState.db lock was poisoned, skipping this tick");
         return;
     };
@@ -133,10 +159,30 @@ fn run_cold_tick(app: &AppHandle) {
         }
     };
 
+    // LINK-10/D-115: the system actor, resolved once per tick in Rust (never passed in from the
+    // renderer — T-01-04). Feeds the one outside-commit-detection call site below.
+    let outside_commit_actor_id = match system_actor(&conn) {
+        Ok(actor) => Some(actor.id),
+        Err(err) => {
+            eprintln!("git-truth cold tick: failed to resolve the system actor: {err:#}");
+            None
+        }
+    };
+
     let mut any_changed = false;
     for task_id in &task_ids {
         if read_and_record_change(&conn, task_id) {
             any_changed = true;
+        }
+        // LINK-10/D-115: see the matching comment in `run_hot_tick` — identical discipline.
+        if let Some(actor_id) = &outside_commit_actor_id {
+            match flywheel_core::git_facts::record_outside_commits(&mut conn, task_id, actor_id) {
+                Ok(count) if count > 0 => any_changed = true,
+                Ok(_) => {}
+                Err(err) => eprintln!(
+                    "git-truth cold tick: failed to notice outside commits for task {task_id}: {err:#}"
+                ),
+            }
         }
     }
     drop(conn);

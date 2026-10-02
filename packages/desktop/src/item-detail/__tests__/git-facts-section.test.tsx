@@ -120,8 +120,8 @@ describe("GitFactsSection", () => {
     gitFactsMock.mockResolvedValue(
       baseFacts({
         commits: [
-          { sha: "a".repeat(40), shortSha: "aaaaaaa", subject: "add feature", committedAt: new Date().toISOString() },
-          { sha: "b".repeat(40), shortSha: "bbbbbbb", subject: "fix bug", committedAt: new Date().toISOString() },
+          { sha: "a".repeat(40), shortSha: "aaaaaaa", subject: "add feature", committedAt: new Date().toISOString(), madeOutsideFlywheel: false },
+          { sha: "b".repeat(40), shortSha: "bbbbbbb", subject: "fix bug", committedAt: new Date().toISOString(), madeOutsideFlywheel: false },
         ],
         commitsTruncated: 7,
       }),
@@ -132,6 +132,104 @@ describe("GitFactsSection", () => {
     expect(screen.getByText("fix bug")).toBeInTheDocument();
     expect(screen.getByText("aaaaaaa")).toBeInTheDocument();
     expect(screen.getByText("+7 earlier commits")).toBeInTheDocument();
+  });
+
+  it("renders a visible marker naming 'made outside Flywheel' on a row whose madeOutsideFlywheel is true", async () => {
+    gitFactsMock.mockResolvedValue(
+      baseFacts({
+        commits: [
+          {
+            sha: "c".repeat(40),
+            shortSha: "ccccccc",
+            subject: "hand-typed fix",
+            committedAt: new Date().toISOString(),
+            madeOutsideFlywheel: true,
+          },
+        ],
+      }),
+    );
+    renderSection();
+
+    expect(await screen.findByText("hand-typed fix")).toBeInTheDocument();
+    expect(screen.getByLabelText(/made outside flywheel/i)).toBeInTheDocument();
+  });
+
+  it("renders no marker on a row whose madeOutsideFlywheel is false", async () => {
+    gitFactsMock.mockResolvedValue(
+      baseFacts({
+        commits: [
+          {
+            sha: "d".repeat(40),
+            shortSha: "ddddddd",
+            subject: "agent commit",
+            committedAt: new Date().toISOString(),
+            madeOutsideFlywheel: false,
+          },
+        ],
+      }),
+    );
+    renderSection();
+
+    expect(await screen.findByText("agent commit")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/made outside flywheel/i)).not.toBeInTheDocument();
+  });
+
+  it("renders a marker on every row and no summary banner when every row is marked", async () => {
+    gitFactsMock.mockResolvedValue(
+      baseFacts({
+        commits: [
+          { sha: "e".repeat(40), shortSha: "eeeeeee", subject: "first", committedAt: new Date().toISOString(), madeOutsideFlywheel: true },
+          { sha: "f".repeat(40), shortSha: "fffffff", subject: "second", committedAt: new Date().toISOString(), madeOutsideFlywheel: true },
+        ],
+      }),
+    );
+    renderSection();
+
+    await screen.findByText("first");
+    expect(screen.getAllByLabelText(/made outside flywheel/i)).toHaveLength(2);
+    expect(screen.queryByText(/outside flywheel \(\d+\)/i)).not.toBeInTheDocument();
+  });
+
+  it("a marked row still renders its short sha, subject and timestamp exactly as an unmarked row does", async () => {
+    const committedAt = new Date().toISOString();
+    gitFactsMock.mockResolvedValue(
+      baseFacts({
+        commits: [
+          {
+            sha: "a".repeat(40),
+            shortSha: "aaaaaaa",
+            subject: "marked commit",
+            committedAt,
+            madeOutsideFlywheel: true,
+          },
+        ],
+      }),
+    );
+    renderSection();
+
+    expect(await screen.findByText("aaaaaaa")).toBeInTheDocument();
+    expect(screen.getByText("marked commit")).toBeInTheDocument();
+    expect(screen.getByText(/just now|m ago|h ago|d ago/i)).toBeInTheDocument();
+  });
+
+  it("renders no dismissal or acknowledgement affordance anywhere in the section", async () => {
+    gitFactsMock.mockResolvedValue(
+      baseFacts({
+        commits: [
+          {
+            sha: "a".repeat(40),
+            shortSha: "aaaaaaa",
+            subject: "hand-typed",
+            committedAt: new Date().toISOString(),
+            madeOutsideFlywheel: true,
+          },
+        ],
+      }),
+    );
+    renderSection();
+
+    await screen.findByText("hand-typed");
+    expect(screen.queryByRole("button", { name: /dismiss|acknowledge/i })).not.toBeInTheDocument();
   });
 
   it("renders no change rows for an empty uncommitted list", async () => {

@@ -420,6 +420,8 @@ export interface CommitRowDto {
   shortSha: string;
   subject: string;
   committedAt: string;
+  /** LINK-10/D-129: agent-run coverage, never commit-trailer presence. */
+  madeOutsideFlywheel: boolean;
 }
 
 /**
