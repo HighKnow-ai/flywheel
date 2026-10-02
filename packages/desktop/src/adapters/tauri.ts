@@ -1168,3 +1168,89 @@ export async function authoringStageReturn(agentRunId: string, stage: string): P
 export async function sendAuthoringTurn(agentRunId: string, text: string): Promise<void> {
   return invokeCommand<void>("authoring_turn_send", { agentRunId, text });
 }
+
+/**
+ * One normalised pull/merge request (Phase 7 plan 07-08, LINK-05/LINK-06) — mirrors
+ * `commands/forge.rs`'s `ForgeRequestDto` field-for-field. `state`/`ci` are the exact Rust variant
+ * names `forge::ForgeState`/`forge::CiResult` serialize as — one source for these words.
+ */
+export interface ForgeRequestDto {
+  state: "None" | "Open" | "ChangesRequested" | "Merged" | "ClosedUnmerged";
+  ci: "None" | "Pending" | "Passed" | "Failed";
+  number: number;
+  title: string;
+  url: string;
+  ciUrl: string | null;
+  isDraft: boolean;
+  targetBranch: string;
+}
+
+/**
+ * `forgeRequestForTask`'s whole result (Phase 7 plan 07-08) — mirrors `commands/forge.rs`'s
+ * `ForgeReadDto` field-for-field, a tagged union on `outcome`. `cliFailed`/`malformedJson` never
+ * carry the CLI's raw stderr — the error category only (T-07-08-01).
+ */
+export type ForgeReadDto =
+  | { outcome: "noWorktree" }
+  | { outcome: "noForgeConfigured" }
+  | { outcome: "noRequest" }
+  | { outcome: "request"; request: ForgeRequestDto; unmetCriteria: number }
+  | { outcome: "cliNotInstalled"; cli: string }
+  | { outcome: "cliNotAuthenticated"; cli: string }
+  | { outcome: "cliFailed"; cli: string }
+  | { outcome: "malformedJson"; cli: string };
+
+/**
+ * `taskId`'s live forge request (Phase 7 plan 07-08, LINK-05/LINK-06, D-75) — derived fresh on
+ * every call, never a cached verdict. Read-only (it shells out to the user's own
+ * already-authenticated `gh`/`glab` CLI, but mutates nothing in Flywheel's own database). Thin
+ * typed wrapper over `forge_request_for_task`.
+ */
+export async function forgeRequestForTask(taskId: string): Promise<ForgeReadDto> {
+  return invokeCommand<ForgeReadDto>("forge_request_for_task", { taskId });
+}
+
+/**
+ * The board's bounded, log-only CI-failure/unmet-criteria rollup for one project (Phase 7 plan
+ * 07-08, D-124/D-123) — mirrors `commands/forge.rs`'s `ForgeFlagDto` field-for-field. Read-only.
+ * Thin typed wrapper over `board_forge_flags`.
+ */
+export interface ForgeFlagDto {
+  taskId: string;
+  ciFailed: boolean;
+  unmetCriteria: number;
+}
+
+export async function boardForgeFlags(projectId: string): Promise<ForgeFlagDto[]> {
+  return invokeCommand<ForgeFlagDto[]>("board_forge_flags", { projectId });
+}
+
+/**
+ * The fixed forge vocabulary (D-119) — `null` clears a project's override back to detection. Thin
+ * typed wrapper over `settings_set_project_forge`.
+ */
+export type ProjectForge = "github" | "gitlab" | "local";
+
+export async function settingsSetProjectForge(
+  projectId: string,
+  forge: ProjectForge | null,
+): Promise<void> {
+  await invokeCommand<void>("settings_set_project_forge", { projectId, forge });
+}
+
+/**
+ * One registered project's forge override (Phase 7 plan 07-08, D-119) — mirrors
+ * `commands/forge.rs`'s `ProjectForgeOverrideDto` field-for-field. `forge` is `null` when the
+ * project has no override ("use detection") — the Settings surface's own read half of
+ * `settingsSetProjectForge` above, so the per-project select can show the CURRENT value rather
+ * than always resetting to "Detected". Thin typed wrapper over `project_forge_overrides`.
+ */
+export interface ProjectForgeOverrideDto {
+  projectId: string;
+  projectName: string;
+  forge: ProjectForge | null;
+}
+
+export async function projectForgeOverrides(): Promise<ProjectForgeOverrideDto[]> {
+  return invokeCommand<ProjectForgeOverrideDto[]>("project_forge_overrides");
+}

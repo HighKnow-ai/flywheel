@@ -62,6 +62,13 @@
  * already the "agent, non-blocking" informational role everywhere else in this product (the
  * authoring-stage indicator, the proposal tray's own target-type label) — never the blocked role
  * two pills above already carry, and no new token was added.
+ *
+ * Phase 7 plan 07-08 Task 2 adds a fourth signal, the CI-failure pill (D-124): trailing the
+ * Blocked/Needs Decision pair when present, or trailing the status glyph alone otherwise — built
+ * exactly like those two, the SAME no-`field-*`-class truncation exemption, and `BoardView`'s own
+ * `useForgeFlags(projectId)` read, never a per-row query of its own (mirrors `blocked`/
+ * `needsDecision` above). D-124/D-122 are explicit: a red build raises this pill and changes
+ * nothing about the row's status display — this file contains no status-writing call of any kind.
  */
 import type { CSSProperties, ComponentType, MouseEvent } from "react";
 import * as icons from "lucide-react";
@@ -122,6 +129,12 @@ export interface BoardRowProps {
    * read, never a per-row query of its own. Renders the Needs Decision pill trailing the Blocked
    * pill (or the status glyph alone); absent (not a visible zero) when `false`. */
   needsDecision?: boolean;
+  /** True when this task's most recent CI-bearing forge observation recorded a failure (D-124,
+   * phase 07 plan 07-08) — `BoardView`'s `useForgeFlags(projectId)` read, never a per-row query of
+   * its own (mirrors `blocked`/`needsDecision` above). Renders a CI-failure pill trailing the
+   * Blocked/Needs Decision pair (or the status glyph alone); absent (not a visible zero) when
+   * `false`. Never changes the status column — D-122's forward-only rule owns that. */
+  ciFailed?: boolean;
   /** How many pending authoring proposals target this epic (D-82, plan 05-08 Task 3) — computed
    * client-side by `BoardView` from the same project-scoped proposal window `TriageLane.tsx`
    * reads, never a per-row query of its own (mirrors `blocked`/`needsDecision` above). Ignored for
@@ -144,6 +157,9 @@ export interface BoardRowProps {
    * content (worktree summary first, runs section otherwise); the panel exposes no target-section
    * mechanism yet, so this opens the panel plainly — see this plan's SUMMARY.md for the named gap. */
   onOpenRecovery?: () => void;
+  /** Activating the CI-failure pill — opens the item detail panel for this task (D-124, phase 07
+   * plan 07-08), the same destination the Blocked/Needs Decision pills already use. */
+  onOpenCiFailed?: () => void;
 }
 
 export function BoardRow({
@@ -156,6 +172,7 @@ export function BoardRow({
   setSize,
   blocked = false,
   needsDecision = false,
+  ciFailed = false,
   pendingProposalCount = 0,
   onSelect,
   onOpenDetail,
@@ -165,10 +182,12 @@ export function BoardRow({
   onOpenAssigneePicker,
   onOpenBlocked,
   onOpenRecovery,
+  onOpenCiFailed,
 }: BoardRowProps) {
   const statusMark = MARKS_BY_ID[statusMarkId(item.status)];
   const blockedMark = MARKS_BY_ID["blocked-indicator"];
   const recoveryMark = MARKS_BY_ID["recovery-needed"];
+  const ciFailedMark = MARKS_BY_ID["ci-failed"];
   const priorityMark = MARKS_BY_ID[priorityMarkId(item.priority)];
   const epicMark = MARKS_BY_ID["epic-pill-none"];
   // Defence in depth (G-01-2, T-01-17-02): once `epicsById` is the project's full roster
@@ -203,7 +222,7 @@ export function BoardRow({
   // priority and the criteria checked/total count — virtualization must not silently break
   // linear screen-reader navigation. "Blocked" appends when set (D-37) — never colour alone.
   // "Needs Decision" appends after it when set (D-46) — same discipline, never colour alone.
-  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}${blocked ? ", Blocked" : ""}${needsDecision ? ", Needs Decision" : ""}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked`;
+  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}${blocked ? ", Blocked" : ""}${needsDecision ? ", Needs Decision" : ""}${ciFailed ? ", CI failed" : ""}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked`;
 
   function handleRowClick() {
     onSelect?.();
@@ -217,6 +236,11 @@ export function BoardRow({
   function handleRecoveryPillClick(event: MouseEvent<HTMLSpanElement>) {
     event.stopPropagation();
     onOpenRecovery?.();
+  }
+
+  function handleCiFailedPillClick(event: MouseEvent<HTMLSpanElement>) {
+    event.stopPropagation();
+    onOpenCiFailed?.();
   }
 
   function handleStatusGlyphClick(event: MouseEvent<HTMLSpanElement>) {
@@ -335,6 +359,34 @@ export function BoardRow({
         >
           <Icon name={recoveryMark?.glyph ?? "TriangleAlert"} size={12} />
           {recoveryMark?.label ?? "Needs Decision"}
+        </span>
+      )}
+      {ciFailed && (
+        // No `field-*` class (see the module doc comment above) — the same truncation-exemption
+        // mechanism the two pills above already use, extended to a fourth signal (D-124). Trails
+        // the Blocked/Needs Decision pair when present, or the status glyph alone otherwise. Never
+        // a status-column change — D-122's forward-only rule owns that column (see the module
+        // header comment's own structural grep gate).
+        <span
+          role="button"
+          aria-label={`${ciFailedMark?.label ?? "CI failed"}. Press to view.`}
+          title={ciFailedMark?.meaning}
+          onClick={handleCiFailedPillClick}
+          className="type-micro"
+          style={{
+            display: "inline-flex",
+            flexShrink: 0,
+            alignItems: "center",
+            gap: 2,
+            color: "var(--destructive-strip)",
+            border: "1px solid var(--destructive-strip)",
+            borderRadius: "var(--radius-chrome)",
+            padding: "1px var(--space-xs)",
+            cursor: "pointer",
+          }}
+        >
+          <Icon name={ciFailedMark?.glyph ?? "CircleX"} size={12} />
+          {ciFailedMark?.label ?? "CI failed"}
         </span>
       )}
       <span

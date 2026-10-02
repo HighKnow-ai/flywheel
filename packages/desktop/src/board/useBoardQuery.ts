@@ -10,7 +10,9 @@ import {
   agentRunsForTask,
   authoringRunForEpic,
   blockedSummary,
+  boardForgeFlags,
   boardRecoverySummary,
+  forgeRequestForTask,
   gitFacts,
   gitIdentifierResolve,
   invokeCommand,
@@ -994,6 +996,90 @@ export function useGitFacts(taskId: string | undefined) {
     queryKey,
     queryFn: () => gitFacts(taskId as string),
     enabled: Boolean(taskId),
+  });
+}
+
+/** `useForgeRequest`'s query key, keyed by `taskId` (Phase 7 plan 07-08, LINK-05/LINK-06). */
+export function forgeRequestQueryKey(taskId: string) {
+  return ["forge-request", taskId] as const;
+}
+
+/**
+ * `taskId`'s live forge request (Phase 7 plan 07-08, D-75's "derive at read time, never cache a
+ * verdict" discipline) — structural sibling of [`useGitFacts`]/[`useWorktreeSummary`]: its own
+ * query key, a single `subscribeBoardChanged` effect that invalidates it, `enabled:
+ * Boolean(taskId)`. Unlike those two, this also carries `staleTime: 0` — the scheduler's own
+ * forge-poll tick (plan 07-07) already pushes `board:changed` on a transition, but the panel's own
+ * read must never answer from a cache that could disagree with the forge the instant it is open,
+ * so a value here is never served stale even between two pushes.
+ */
+export function useForgeRequest(taskId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = taskId ? forgeRequestQueryKey(taskId) : (["forge-request", "none"] as const);
+
+  useEffect(() => {
+    if (!taskId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: forgeRequestQueryKey(taskId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [taskId, queryClient]);
+
+  return useQuery({
+    queryKey,
+    queryFn: () => forgeRequestForTask(taskId as string),
+    enabled: Boolean(taskId),
+    staleTime: 0,
+  });
+}
+
+/** `useForgeFlags`'s query key, keyed by `projectId` (Phase 7 plan 07-08, D-124/D-123) — exact
+ * structural sibling of [`blockedSummaryQueryKey`]/[`recoverySummaryQueryKey`]. */
+export function forgeFlagsQueryKey(projectId: string | undefined) {
+  return ["forge-flags", projectId] as const;
+}
+
+/**
+ * Every distinct task in `projectId` carrying an outstanding forge flag (D-124's board-row
+ * CI-failure pill, D-123's unmet-criteria rollup) — feeds `BoardRow.tsx`'s CI-failure pill. Exact
+ * structural sibling of [`useBlockedSummary`]/[`useRecoverySummary`]: project-scoped, invalidated
+ * on `subscribeBoardChanged` (the forge-poll tick's own emit, plan 07-07), never polled —
+ * `useBoardQuery.ts` carries no `refetchInterval` anywhere. `undefined` disables the query
+ * entirely (no project selected yet).
+ */
+export function useForgeFlags(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: forgeFlagsQueryKey(projectId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [projectId, queryClient]);
+
+  return useQuery({
+    queryKey: forgeFlagsQueryKey(projectId),
+    queryFn: () => boardForgeFlags(projectId as string),
+    enabled: Boolean(projectId),
   });
 }
 

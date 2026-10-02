@@ -70,6 +70,7 @@ import {
   useCreateIssue,
   useDeleteItem,
   useEpics,
+  useForgeFlags,
   useRecoverySummary,
   useReorderItem,
   useSetAssignee,
@@ -330,6 +331,14 @@ export function BoardView({
   const recoveryTaskIds = useMemo(
     () => new Set(recoverySummaryQuery.data?.recoveryTaskIds ?? []),
     [recoverySummaryQuery.data],
+  );
+
+  // D-124's board-row CI-failure pill (phase 07 plan 07-08) — one project-scoped read, mirroring
+  // `blockedSummaryQuery`/`recoverySummaryQuery` above exactly, never a per-row query.
+  const forgeFlagsQuery = useForgeFlags(projectId);
+  const ciFailedTaskIds = useMemo(
+    () => new Set(forgeFlagsQuery.data?.filter((flag) => flag.ciFailed).map((flag) => flag.taskId) ?? []),
+    [forgeFlagsQuery.data],
   );
 
   // D-82's epic-row pending-proposal count (plan 05-08 Task 3) — derived client-side from the
@@ -842,6 +851,7 @@ export function BoardView({
                   setSize={counts[BAND_COUNT_KEY[row.item.status as BandStatus]]}
                   blocked={blockedTaskIds.has(row.item.id)}
                   needsDecision={recoveryTaskIds.has(row.item.id)}
+                  ciFailed={ciFailedTaskIds.has(row.item.id)}
                   pendingProposalCount={pendingProposalCountByEpicId[row.item.id] ?? 0}
                   onSelect={() => setSelectedId(row.item.id)}
                   onOpenDetail={() => {
@@ -877,6 +887,13 @@ export function BoardView({
                     // the item detail panel (D-46, plan 03-11). No target-section mechanism exists
                     // on the panel yet to scroll straight to WorktreeSummary/RunsSection, so this
                     // opens the panel plainly; see this plan's SUMMARY.md for the named gap.
+                    setSelectedId(row.item.id);
+                    setDetailItemId(row.item.id);
+                  }}
+                  onOpenCiFailed={() => {
+                    // Same destination as the other two pills — opens the item detail panel,
+                    // which renders ForgeSection's own CI result and link out (D-124, phase 07
+                    // plan 07-08).
                     setSelectedId(row.item.id);
                     setDetailItemId(row.item.id);
                   }}

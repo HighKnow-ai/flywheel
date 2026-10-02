@@ -362,6 +362,14 @@ export const MARKS: Mark[] = [
       "A previous session left something on this task for you to decide (D-46). Deliberately the same glyph as worktree-missing above — this row pill is a rollup of that same underlying fact, not a copy-paste slip, mirroring run-blocked/blocked-indicator's own shared-glyph precedent.",
   },
   {
+    id: "ci-failed",
+    channel: "agent",
+    glyph: "CircleX",
+    label: "CI failed",
+    meaning:
+      "A red build on this task's branch (D-124) — visible on the row so a backlog being drained by agents doesn't need every task opened to spot one. Never changes the status column (D-122's forward-only rule).",
+  },
+  {
     id: "destructive-gate",
     channel: "agent",
     glyph: "OctagonAlert",
