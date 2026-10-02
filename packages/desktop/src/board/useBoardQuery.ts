@@ -12,6 +12,7 @@ import {
   blockedSummary,
   boardRecoverySummary,
   gitFacts,
+  gitIdentifierResolve,
   invokeCommand,
   latestAgentRunIdForTask,
   pendingOrphans,
@@ -993,6 +994,40 @@ export function useGitFacts(taskId: string | undefined) {
     queryKey,
     queryFn: () => gitFacts(taskId as string),
     enabled: Boolean(taskId),
+  });
+}
+
+/** A cheap client-side pre-check mirroring `flywheel_core::git_identity::classify`'s two accepted
+ * shapes (D-127/D-128, Phase 7 plan 07-05) — never the source of truth for validation (the core's
+ * own `classify` is, called again server-side before any git invocation, T-07-05-01). This exists
+ * only to avoid spending an IPC call on every keystroke of an ordinary text search (T-07-05-05). */
+function looksLikeGitIdentifier(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("flywheel/")) return true;
+  return trimmed.length >= 7 && trimmed.length <= 64 && /^[0-9a-fA-F]+$/.test(trimmed);
+}
+
+/** `useGitIdentifier`'s query key, keyed by the trimmed input (D-127/D-128, Phase 7 plan 07-05). */
+export function gitIdentifierQueryKey(raw: string) {
+  return ["git-identifier", raw] as const;
+}
+
+/**
+ * Resolve a pasted commit hash or `flywheel/` branch name to its board item (D-127/D-128,
+ * LINK-04) — a one-shot read-time question, never a live view: `enabled` only when the trimmed
+ * input could plausibly classify, so ordinary text search in the command palette spends no IPC
+ * call per keystroke, and `staleTime: 0` so a resolution can never be served from a cache that
+ * could disagree with git (D-128). Subscribes to nothing — `subscribeBoardChanged` would only
+ * ever refresh a question the user has already stopped asking.
+ */
+export function useGitIdentifier(raw: string) {
+  const trimmed = raw.trim();
+  return useQuery({
+    queryKey: gitIdentifierQueryKey(trimmed),
+    queryFn: () => gitIdentifierResolve(trimmed),
+    enabled: looksLikeGitIdentifier(raw),
+    staleTime: 0,
   });
 }
 

@@ -46,6 +46,7 @@ import {
   useActors,
   useBoardQuery,
   useCreateIssue,
+  useGitIdentifier as useIdentityLookup,
   useProjects,
   useReorderItem,
   useSetAssignee,
@@ -148,6 +149,11 @@ export function CommandPalette() {
   const actorsQuery = useActors();
   const actors = actorsQuery.data ?? [];
   const selectedItem = items.find((item) => item.id === selectedItemId);
+
+  // D-127/D-128 (Phase 7 plan 07-05): the git identifier round trip. `enabled` inside the hook
+  // stays false for ordinary text, so typing a search term spends no IPC call (T-07-05-05) — read
+  // once per render, never a second time.
+  const identityQuery = useIdentityLookup(query);
 
   // The SAME registration flow ⌘⇧O and the rail's `+` button use (`RegisterProjectFlow.tsx`) —
   // never a re-derived copy. `isError`/`error` are surfaced below (CR-02) — this command runs
@@ -266,6 +272,59 @@ export function CommandPalette() {
         break;
     }
   }
+
+  // The one runtime-generated section D-127 adds (mirrors the "Go to Project" loop's own
+  // generated-every-render shape): at most one entry, computed from the identity query's current
+  // outcome. A resolved outcome activates straight to the item; an ambiguous outcome renders a
+  // single non-activatable entry naming the count; a not-found outcome renders nothing — never a
+  // second static list and never a second palette input (D-127 rejects both).
+  const identityEntries = useMemo<Command[]>(() => {
+    const outcome = identityQuery.data;
+    if (!outcome) return [];
+    if (outcome.outcome === "resolved") {
+      const { resolution } = outcome;
+      const shaPart = resolution.matchedSha
+        ? ` (${resolution.matchedSha.slice(0, 7)}${resolution.runId ? `, ${resolution.runId}` : ""})`
+        : "";
+      return [
+        {
+          id: `git-identifier:${resolution.itemId}`,
+          label: `${resolution.itemKey} ${resolution.itemTitle}${shaPart}`,
+          group: "Git",
+          run: () => {
+            setCurrentProjectId(resolution.projectId);
+            setSelectedItemId(resolution.itemId);
+            setDetailItemId(resolution.itemId);
+            close();
+          },
+        },
+      ];
+    }
+    if (outcome.outcome === "ambiguousPrefix") {
+      return [
+        {
+          id: "git-identifier:ambiguous-prefix",
+          label: `Ambiguous — ${outcome.matches} commits share this prefix`,
+          group: "Git",
+          disabled: true,
+          run: () => {},
+        },
+      ];
+    }
+    if (outcome.outcome === "ambiguousAcrossRepositories") {
+      return [
+        {
+          id: "git-identifier:ambiguous-repositories",
+          label: `Ambiguous — found in ${outcome.repositories} repositories`,
+          group: "Git",
+          disabled: true,
+          run: () => {},
+        },
+      ];
+    }
+    return [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identityQuery.data, setCurrentProjectId, setSelectedItemId, setDetailItemId]);
 
   const commands = useMemo<Command[]>(() => {
     const out: Command[] = [];
@@ -463,10 +522,16 @@ export function CommandPalette() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, items, selectedItemId, selectedItem, effectiveProjectId]);
 
-  const filtered = useMemo(
-    () => commands.filter((command) => fuzzyMatches(query, command.label)),
-    [commands, query],
-  );
+  const filtered = useMemo(() => {
+    // The identity entry never passes `fuzzyMatches` against the raw hash/branch the user typed
+    // (its label carries the resolved item's key and title, not the pasted string) — it is
+    // positioned ahead of the fuzzy-filtered list by position, not by a sort comparator.
+    const result = commands.filter((command) => fuzzyMatches(query, command.label));
+    for (let i = identityEntries.length - 1; i >= 0; i -= 1) {
+      result.unshift(identityEntries[i]);
+    }
+    return result;
+  }, [commands, query, identityEntries]);
 
   useEffect(() => {
     setActiveIndex(0);

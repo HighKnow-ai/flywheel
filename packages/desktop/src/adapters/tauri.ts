@@ -495,6 +495,39 @@ export async function setOpenCommandTemplate(
 }
 
 /**
+ * A resolved git identifier's board item (Phase 7 plan 07-05, LINK-04/D-128) — mirrors
+ * `commands/git_identity.rs`'s `GitIdentityResolutionDto` field-for-field.
+ */
+export interface GitIdentityResolutionDto {
+  projectId: string;
+  itemKind: string;
+  itemId: string;
+  itemKey: string;
+  itemTitle: string;
+  matchedSha: string | null;
+  runId: string | null;
+}
+
+/**
+ * Every shape `git_identifier_resolve` can return (Phase 7 plan 07-05) — mirrors
+ * `commands/git_identity.rs`'s `GitIdentityOutcomeDto`, internally tagged on `outcome` so a
+ * caller narrows on one field rather than guessing which payload fields are present.
+ */
+export type GitIdentityOutcomeDto =
+  | { outcome: "resolved"; resolution: GitIdentityResolutionDto }
+  | { outcome: "notFound" }
+  | { outcome: "ambiguousPrefix"; matches: number }
+  | { outcome: "ambiguousAcrossRepositories"; repositories: number };
+
+/**
+ * Resolve a pasted commit hash or `flywheel/` branch name to its board item (D-127/D-128,
+ * LINK-04). Read-only. Thin typed wrapper over `git_identifier_resolve`.
+ */
+export async function gitIdentifierResolve(raw: string): Promise<GitIdentityOutcomeDto> {
+  return invokeCommand<GitIdentityOutcomeDto>("git_identifier_resolve", { raw });
+}
+
+/**
  * Subscribe to `agent:event`, the Rust core's live push of one normalised agent event at a time
  * (D-32) — the session surface invalidates its windowed read on this, never trusting a streamed
  * event as already-persisted (mirrors `subscribeBoardChanged`'s own D-04 discipline).
