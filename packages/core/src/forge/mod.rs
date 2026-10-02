@@ -24,6 +24,7 @@ use serde::Serialize;
 
 pub mod github;
 pub mod gitlab;
+pub mod transitions;
 
 /// Which forge (if any) a project talks to (D-119) — `Forge::Local` means no forge is configured
 /// and nothing is ever shelled out to for that project.
