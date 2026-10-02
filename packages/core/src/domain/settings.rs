@@ -193,3 +193,75 @@ fn human_mode_name(mode: &str) -> &'static str {
         _ => "Local Claude Code Credentials",
     }
 }
+
+/// `project_id`'s stored `projects.forge` override (D-119), or `None` when the project has no
+/// override — `forge::forge_for_project` falls back to `forge::detect_forge_from_origin` in that
+/// case. Exact structural sibling of [`project_credential_mode`].
+pub fn project_forge(conn: &Connection, project_id: &str) -> anyhow::Result<Option<String>> {
+    conn.query_row("SELECT forge FROM projects WHERE id = ?1", params![project_id], |row| {
+        row.get(0)
+    })
+    .with_context(|| format!("project {project_id:?} not found"))
+}
+
+/// Set (or clear) `project_id`'s forge override (D-119). An out-of-vocabulary value is rejected
+/// by `projects.forge`'s own CHECK constraint (migration `0017_forge_setting.sql`), not by this
+/// function — mirroring [`set_project_credential_mode`]'s own "the schema is the authority"
+/// discipline. Appends one project-scoped `events` row carrying a human-readable label, exact
+/// structural sibling of [`set_project_credential_mode`].
+pub fn set_project_forge(
+    conn: &mut Connection,
+    actor_id: &str,
+    project_id: &str,
+    forge: Option<&str>,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+
+    let project_name: String = tx
+        .query_row("SELECT name FROM projects WHERE id = ?1", params![project_id], |row| {
+            row.get(0)
+        })
+        .with_context(|| format!("project {project_id:?} not found"))?;
+
+    tx.execute("UPDATE projects SET forge = ?1 WHERE id = ?2", params![forge, project_id])
+        .context("failed to update the project's forge override")?;
+
+    let (event_type, label) = match forge {
+        Some(f) => ("project.forge_set", format!("Set forge to {}", human_forge_name(f))),
+        None => ("project.forge_cleared", format!("Cleared forge override for {project_name}")),
+    };
+    let payload = serde_json::json!({
+        "field": "forge",
+        "before": null,
+        "after": forge,
+        "label": label,
+    });
+    let sequence = next_sequence(&tx, project_id, "local")?;
+    append_event(
+        &tx,
+        project_id,
+        "local",
+        sequence,
+        "project",
+        project_id,
+        None,
+        None,
+        actor_id,
+        event_type,
+        &payload,
+        &now,
+    )?;
+
+    tx.commit().context("failed to commit set_project_forge transaction")?;
+    Ok(())
+}
+
+fn human_forge_name(forge: &str) -> &'static str {
+    match forge {
+        "github" => "GitHub",
+        "gitlab" => "GitLab",
+        "local" => "Local-only (no forge)",
+        _ => "an unrecognised forge",
+    }
+}

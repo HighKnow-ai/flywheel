@@ -12,6 +12,7 @@ pub mod destructive;
 pub mod domain;
 pub mod drift;
 pub mod epic_context_packet;
+pub mod forge;
 pub mod git;
 pub mod git_facts;
 pub mod git_hooks;
