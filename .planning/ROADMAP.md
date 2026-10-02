@@ -775,7 +775,7 @@ walkthrough.
   4. User commits by hand from his own terminal on a task's branch and Flywheel detects it and reflects it on the board item, never silently overwriting it.
   5. Flywheel works against a GitHub project and a GitLab project and degrades cleanly to local-only git when no forge is configured; from any task the user opens its worktree in his own editor or terminal in one action.
 
-**Plans**: 5/9 plans executed in 7 waves (tracer-first; the serial tail is forced by three chokepoint files every plan touches — `adapters/tauri.ts`, `src-tauri/src/main.rs` and `capabilities/default.json`)
+**Plans**: 6/9 plans executed in 7 waves (tracer-first; the serial tail is forced by three chokepoint files every plan touches — `adapters/tauri.ts`, `src-tauri/src/main.rs` and `capabilities/default.json`)
 **UI hint**: yes
 
 Plans:
@@ -796,7 +796,7 @@ Plans:
 
 **Wave 4** *(blocked on 07-05 — shares `adapters/tauri.ts`)*
 
-- [ ] 07-06-PLAN.md — Work done outside Flywheel: agent-run coverage, a per-commit marker, and one activity-trail entry that overwrites nothing (LINK-10)
+- [x] 07-06-PLAN.md — Work done outside Flywheel: agent-run coverage, a per-commit marker, and one activity-trail entry that overwrites nothing (LINK-10)
 
 **Wave 5** *(blocked on 07-03 for the forge model and on 07-06 for the scheduler)*
 
@@ -1024,7 +1024,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
-| 7. The Board Tells The Git Truth | 5/9 | In Progress|  |
+| 7. The Board Tells The Git Truth | 6/9 | In Progress|  |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |

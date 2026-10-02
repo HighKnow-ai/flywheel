@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: The Board Tells The Git Truth
 status: executing
-stopped_at: Completed 07-05-PLAN.md
-last_updated: "2026-10-02T09:54:18.006Z"
+stopped_at: Completed 07-06-PLAN.md
+last_updated: "2026-10-02T10:35:57.923Z"
 last_activity: 2026-10-02
 last_activity_desc: Phase 07 execution started
-state_head: 59dbeda935f7b81cd8f8bd2f44fa865631fa5be7
+state_head: b66a23f6b6570ec7ec33fe178e7dcdfcd5e7556c
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 167
-  completed_plans: 163
+  completed_plans: 164
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 07 (The Board Tells The Git Truth) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-10-02 — Phase 07 execution started
 
@@ -223,6 +223,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 07 P03 | 28min | 3 tasks | 18 files |
 | Phase 07 P04 | 24min | 3 tasks | 11 files |
 | Phase 07 P05 | 32 | 3 tasks | 11 files |
+| Phase 07 P06 | 38min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -511,6 +512,8 @@ Recent decisions affecting current work:
 - [Phase 07]: ForgeState::None/CiResult::None exist in the forge model for completeness but are never constructed by either normalize() -- "no request" is Option::None at the dispatch layer, not Some(ForgeRequest{state: ForgeState::None}). — gh pr list --state all returns an empty JSON array with exit 0 for a branch with no PR, so the no-request path never depends on interpreting a non-zero exit as absence.
 - [Phase 07]: 07-04: worktree-open command templates (D-130) are global settings keyed off domain::worktree.rs, with resolve_open_argv splitting on whitespace and substituting the path inside one argv element — never a shell.
 - [Phase 07]: D-127/D-128 round-trip resolver: classify() gates git, resolve_identifier() reads fresh every time, no sha index anywhere
+- [Phase 07]: LINK-10 outside-commit coverage compared as chrono instants, not raw strings, so committer-timezone offset never disagrees with agent_runs' UTC timestamps — git's %cI preserves the commit's own timezone offset while agent_runs stores UTC RFC3339; a lexicographic compare would silently misjudge boundary cases
+- [Phase 07]: scheduler.rs calls record_outside_commits via its fully-qualified path at exactly two call sites, no wrapper fn, no use import — keeps the plan's literal grep -c == 2 acceptance criterion asserting the real invariant: wired into exactly the two tick tiers
 
 ### Pending Todos
 
@@ -569,6 +572,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-02T09:54:17.831Z
-Stopped at: Completed 07-05-PLAN.md
+Last session: 2026-10-02T10:35:38.233Z
+Stopped at: Completed 07-06-PLAN.md
 Resume file: None
