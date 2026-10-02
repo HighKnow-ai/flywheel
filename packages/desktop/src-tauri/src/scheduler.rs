@@ -1,6 +1,7 @@
 //! D-113/D-114/D-116's git-truth tick: the first job `tokio-cron-scheduler` has ever actually run
-//! in this workspace. Three registrations of the same primitive — a hot tier, a cold tier, and a
-//! slower fetch — never one job with internal partitioning (07-CONTEXT.md's own discretion call).
+//! in this workspace. Four registrations of the same primitive — a hot tier, a cold tier, a
+//! slower fetch, and phase 7 plan 07-07's slower-still forge poll — never one job with internal
+//! partitioning (07-CONTEXT.md's own discretion call).
 //!
 //! Each job locks `AppState.db`, calls the matching sync `flywheel_core::git_facts` function,
 //! DROPS the lock, then emits the shared board-invalidation event (see [`emit_board_changed`])
@@ -21,8 +22,8 @@ use std::time::Duration;
 
 use flywheel_core::domain::actor::system_actor;
 use flywheel_core::git_facts::{
-    fetch_origin_for_project, git_facts_for_task, tracked_worktrees, GitFacts, COLD_TICK_SECS,
-    FETCH_INTERVAL_SECS, HOT_TICK_SECS,
+    fetch_origin_for_project, git_facts_for_task, tracked_worktrees, GitFacts, TrackedWorktree,
+    COLD_TICK_SECS, FETCH_INTERVAL_SECS, FORGE_POLL_SECS, HOT_TICK_SECS,
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tokio_cron_scheduler::{Job, JobScheduler};
@@ -227,8 +228,88 @@ fn run_fetch_tick(app: &AppHandle) {
     }
 }
 
-/// Build, register and start the three D-113/D-114/D-116 jobs against `app`'s already-managed
-/// `AppState` — called once, after `app.manage(AppState { .. })`, from `main.rs`'s `.setup()`.
+/// Phase 7 plan 07-07's forge-poll job: the slowest of the four, decoupled from the three
+/// git-facts ticks above — a forge read crosses the network and hits a real API rate limit a
+/// local git read never does (`FORGE_POLL_SECS`'s own doc comment, `07-RESEARCH.md`'s named
+/// anti-pattern). For every tracked worktree, reads the forge state for its branch and hands the
+/// observation to the edge detector with the system actor resolved here in Rust — never passed in
+/// from the renderer (T-01-04), following the exact resolve-once-per-tick shape
+/// `run_hot_tick`/`run_cold_tick` already use for the same reason.
+///
+/// A forge read that errors (CLI missing, unauthenticated, network failure) is **skipped, not
+/// applied** — the loop moves on to the next worktree without calling the edge detector at all,
+/// so an unreachable forge can never be mistaken for a closed request. Every other failure follows
+/// `sidecar.rs`'s `handle_inbound_git_lock_exhausted` idiom: a logged value, never a panic, never
+/// an early return that abandons the remaining worktrees in this poll.
+fn run_forge_tick(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let Ok(mut conn) = state.db.lock() else {
+        eprintln!("git-truth forge tick: AppState.db lock was poisoned, skipping this tick");
+        return;
+    };
+
+    let worktrees: Vec<TrackedWorktree> = match tracked_worktrees(&conn, false) {
+        Ok(rows) => rows,
+        Err(err) => {
+            eprintln!("git-truth forge tick: failed to read tracked worktrees: {err:#}");
+            Vec::new()
+        }
+    };
+
+    let Ok(actor) = system_actor(&conn) else {
+        eprintln!("git-truth forge tick: failed to resolve the system actor, skipping this tick");
+        drop(conn);
+        return;
+    };
+    let actor_id = actor.id;
+
+    let mut any_changed = false;
+    for worktree in &worktrees {
+        let observed = match flywheel_core::forge::request_for_branch(
+            &conn,
+            &worktree.project_id,
+            &worktree.branch,
+        ) {
+            Ok(observed) => observed,
+            Err(err) => {
+                eprintln!(
+                    "git-truth forge tick: forge read failed for task {} ({err}), skipping \
+                     this worktree without applying an observation",
+                    worktree.task_id
+                );
+                continue;
+            }
+        };
+
+        match flywheel_core::forge::transitions::apply_forge_observation(
+            &mut conn,
+            &worktree.task_id,
+            observed.as_ref(),
+            &actor_id,
+        ) {
+            Ok(outcome) => {
+                if outcome.status_changed_to.is_some() || outcome.events_appended > 0 {
+                    any_changed = true;
+                }
+            }
+            Err(err) => eprintln!(
+                "git-truth forge tick: failed to apply forge observation for task {}: {err:#}",
+                worktree.task_id
+            ),
+        }
+    }
+    drop(conn);
+
+    if any_changed {
+        emit_board_changed(app);
+    }
+}
+
+/// Build, register and start the four D-113/D-114/D-116/phase-07-07 jobs against `app`'s
+/// already-managed `AppState` — called once, after `app.manage(AppState { .. })`, from
+/// `main.rs`'s `.setup()`.
 pub async fn start_git_truth_scheduler(app: AppHandle) -> anyhow::Result<()> {
     let sched = JobScheduler::new().await?;
 
@@ -254,6 +335,14 @@ pub async fn start_git_truth_scheduler(app: AppHandle) -> anyhow::Result<()> {
             Box::pin(async move { run_fetch_tick(&app) })
         })?;
     sched.add(fetch_job).await?;
+
+    let forge_app = app.clone();
+    let forge_job =
+        Job::new_repeated_async(Duration::from_secs(FORGE_POLL_SECS), move |_uuid, _lock| {
+            let app = forge_app.clone();
+            Box::pin(async move { run_forge_tick(&app) })
+        })?;
+    sched.add(forge_job).await?;
 
     sched.start().await?;
 

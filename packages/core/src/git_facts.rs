@@ -35,6 +35,11 @@ pub const COLD_TICK_SECS: u64 = 60;
 /// working session.
 pub const FETCH_INTERVAL_SECS: u64 = 300;
 
+/// Phase 7 plan 07-07's forge-poll cadence — deliberately the slowest of the four scheduler jobs.
+/// A forge read crosses the network and hits a real API rate limit a local git read never does,
+/// so it never rides the hot git tick (the anti-pattern `07-RESEARCH.md` names explicitly).
+pub const FORGE_POLL_SECS: u64 = 120;
+
 /// The commit-list window rendered on an item (Claude's Discretion, 07-CONTEXT.md): a plain
 /// "+N earlier commits" count line tells the whole truth and is less code than paging a list the
 /// user can read in full in git.
@@ -124,12 +129,15 @@ pub struct GitFacts {
 }
 
 /// A task tracked by a scheduler tick (Task 2, D-113/D-114) — just enough to call
-/// [`git_facts_for_task`] and know which project to fetch for.
+/// [`git_facts_for_task`] and know which project to fetch for. `branch` is carried here too
+/// (phase 7 plan 07-07's forge-poll job, Task 3) so a caller reading the forge for this task's
+/// branch never needs a second `worktrees` lookup.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackedWorktree {
     pub task_id: String,
     pub project_id: String,
     pub worktree_path: String,
+    pub branch: String,
 }
 
 /// A task's full git truth (LINK-02, LINK-09), or `Ok(None)` when the task has no `worktrees` row
@@ -244,7 +252,7 @@ pub fn git_facts_for_task(conn: &Connection, task_id: &str) -> anyhow::Result<Op
 /// panel" half is supplied by the caller (`AppState.focused_task`, Task 2).
 pub fn tracked_worktrees(conn: &Connection, hot_only: bool) -> anyhow::Result<Vec<TrackedWorktree>> {
     let sql = if hot_only {
-        "SELECT w.task_id, w.project_id, w.path \
+        "SELECT w.task_id, w.project_id, w.path, w.branch \
          FROM worktrees w \
          WHERE w.status = 'active' \
          AND EXISTS ( \
@@ -252,7 +260,7 @@ pub fn tracked_worktrees(conn: &Connection, hot_only: bool) -> anyhow::Result<Ve
              WHERE ar.task_id = w.task_id AND ar.status IN ('running', 'blocked') \
          )"
     } else {
-        "SELECT task_id, project_id, path FROM worktrees WHERE status = 'active'"
+        "SELECT task_id, project_id, path, branch FROM worktrees WHERE status = 'active'"
     };
     let mut stmt = conn.prepare(sql)?;
     let rows = stmt
@@ -261,6 +269,7 @@ pub fn tracked_worktrees(conn: &Connection, hot_only: bool) -> anyhow::Result<Ve
                 task_id: row.get(0)?,
                 project_id: row.get(1)?,
                 worktree_path: row.get(2)?,
+                branch: row.get(3)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
