@@ -49,9 +49,9 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **LINK-03**: Commits produced by an agent carry the task identifier in a commit-message trailer, so `git log` alone reveals which board item produced any change
 - [x] **LINK-04**: User can navigate from a branch name or a commit hash back to the originating board item
 - [ ] **LINK-05**: A task's pull or merge request is linked to its board item, and the request's state (open, changes requested, merged, closed) is reflected on the item
-- [ ] **LINK-06**: Continuous-integration status for a task's branch is visible on its board item
+- [x] **LINK-06**: Continuous-integration status for a task's branch is visible on its board item
 - [x] **LINK-07**: Board status transitions follow git and forge state — opening a pull request moves the task to In Review, merging it moves the task to Done
-- [ ] **LINK-08**: Flywheel works against GitHub and GitLab, and degrades cleanly to local-only git when no forge is configured
+- [x] **LINK-08**: Flywheel works against GitHub and GitLab, and degrades cleanly to local-only git when no forge is configured
 - [x] **LINK-09**: User can see uncommitted changes in a task's worktree from the board without leaving the application
 - [x] **LINK-10**: Work performed outside Flywheel on a task's branch — a manual commit from a terminal — is detected and reflected on the board item, never silently overwritten
 - [x] **LINK-11**: User can open a task's worktree in their own editor or terminal in one action
@@ -250,9 +250,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | LINK-03 | Phase 7 | Complete |
 | LINK-04 | Phase 7 | Complete |
 | LINK-05 | Phase 7 | Pending |
-| LINK-06 | Phase 7 | Pending |
+| LINK-06 | Phase 7 | Complete |
 | LINK-07 | Phase 7 | Complete |
-| LINK-08 | Phase 7 | Pending |
+| LINK-08 | Phase 7 | Complete |
 | LINK-09 | Phase 7 | Complete |
 | LINK-10 | Phase 7 | Complete |
 | LINK-11 | Phase 7 | Complete |

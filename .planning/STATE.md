@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: The Board Tells The Git Truth
 status: executing
-stopped_at: Completed 07-07-PLAN.md
-last_updated: "2026-10-02T11:33:44.559Z"
+stopped_at: Completed 07-08-PLAN.md
+last_updated: "2026-10-02T13:00:50.754Z"
 last_activity: 2026-10-02
 last_activity_desc: Phase 07 execution started
-state_head: 374dd255b6e3f03cc14f60f74d287e21e9e6bf19
+state_head: 2597c5de22121512347b9479129fb9ee0009a7e9
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 167
-  completed_plans: 165
+  completed_plans: 166
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 07 (The Board Tells The Git Truth) — EXECUTING
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Ready to execute
 Last activity: 2026-10-02 — Phase 07 execution started
 
@@ -225,6 +225,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 07 P05 | 32 | 3 tasks | 11 files |
 | Phase 07 P06 | 38min | 2 tasks | 7 files |
 | Phase 07 P07 | 50min | 3 tasks | 8 files |
+| Phase 07 P08 | 86min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -516,6 +517,8 @@ Recent decisions affecting current work:
 - [Phase 07]: LINK-10 outside-commit coverage compared as chrono instants, not raw strings, so committer-timezone offset never disagrees with agent_runs' UTC timestamps — git's %cI preserves the commit's own timezone offset while agent_runs stores UTC RFC3339; a lexicographic compare would silently misjudge boundary cases
 - [Phase 07]: scheduler.rs calls record_outside_commits via its fully-qualified path at exactly two call sites, no wrapper fn, no use import — keeps the plan's literal grep -c == 2 acceptance criterion asserting the real invariant: wired into exactly the two tick tiers
 - [Phase 07]: Forge edge detector: terminal-state guard once Merged is observed means forward-only also means never un-merging a task — D-121/D-122 require forward-only transitions; once baseline.state == Merged the whole comparison block is skipped for any later observation, including an absent one
+- [Phase 07]: forge_request_for_task checks Forge::Local via forge_for_project before dispatching, so NoForgeConfigured and NoRequest are distinguishable DTO outcomes — request_for_branch's own Ok(None) collapses both cases; D-120's absence path needs them distinguishable even though both currently render identically
+- [Phase 07]: project_forge_overrides added as a read-half command beyond the plan's declared 3 commands — settings_set_project_forge was write-only; the Settings per-project forge select cannot show its current value without a corresponding read
 
 ### Pending Todos
 
@@ -574,6 +577,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-02T11:33:44.398Z
-Stopped at: Completed 07-07-PLAN.md
+Last session: 2026-10-02T13:00:44.565Z
+Stopped at: Completed 07-08-PLAN.md
 Resume file: None
