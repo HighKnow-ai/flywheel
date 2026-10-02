@@ -79,11 +79,29 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
   deliberately two-sided — a check that fails if the gate decides something it cannot justify, AND a
   check that fails if ordinary commands become permission requests.
 
+- ✓ **Agents file their own backlog, and nothing they propose becomes real work without the user**
+  — Phase 6. A running agent surfaces what it learns mid-session through a `propose_item` board
+  tool, and the row lands in a distinct proposed state carrying its own rationale and a pointer to
+  the turn that produced it. The no-promotion guarantee is **structural, not conventional**: a
+  source gate walks every `.rs`/`.tsx` file under `packages/core/src`, `packages/desktop/src-tauri/src`
+  and `packages/desktop/src` and fails if any module outside the four canonical-writer domain modules
+  issues a direct write against `epics`/`tasks`/`issues`/`acceptance_criteria`, bounding the staging
+  module to exactly three call sites (accept/merge/materialise). A 17-case adversarial corpus proves
+  zero canonical rows exist before an explicit human triage action, across every verb x target-type
+  combination and both entry routes. Triage is a dedicated view (`TriageSurface.tsx`) with all four
+  verbs plus two bulk paths, run provenance, a jump-to-turn control, and a duplicate annotation that
+  is link-only and never auto-drops or auto-merges. Duplicates are flagged inside the staging INSERT
+  itself (external-content FTS5 index, measured bm25 threshold of -21.0), never recomputed on read.
+  A chatty agent is stopped at a fixed 10 proposals per run with a loud refusal naming the limit, and
+  the throttled run gets a notice re-derived from its own event log rather than stored twice. 5/5
+  roadmap success criteria and all 7 requirement IDs verified. The live-agent half of criterion 1 was
+  measured, not inferred: `scripts/uat/uat-10-agent-backlog.mjs --live` drove a real `claude`
+  execution-run session that chose to call `propose_item` on its own.
+
 ### Active
 
 - [ ] Board-native work model: epics, tasks and issues are the primary artifact, replacing `.planning/` files as the store of record for phase structure
 - [ ] Socratic epic authoring: the agent challenges the user while an epic is being shaped, in the manner of GSD's discuss/research/plan phases, and writes the resulting structure as board items
-- [ ] Agent-authored backlog: agents propose new tasks, issues and epics from what they learn while working; the user triages them
 - [ ] Multi-project fleet supervision: one view answering "what is every agent, everywhere, doing — and what needs me?"
 - [ ] Git worktree multiplexing with fixed topology: task worktree → epic integration branch → main
 - [ ] Planner-sized fan-out: the planner decides parallel width and wave grouping from declared file-sets, with a runtime file-overlap guard as a safety net
@@ -120,6 +138,20 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
   present, and registration still succeeds in that case. All of this is correct and deliberate, and all
   of it is recorded in the trust-boundary document's Named Residuals table — but none of it is visible
   in the product. The board should be able to tell the user that a project's gate is not installed.
+
+- [ ] `is_fts5_syntax_error` can never match — **emerged in Phase 6** (`06-REVIEW.md` WR-01).
+  `query/search.rs`'s FTS5 syntax-error degradation helper tests `err.to_string()` for `"fts5"`,
+  but every call site wraps the error with `.context(...)` first, and `anyhow::Error`'s `Display`
+  prints only the top-level context message. The check is therefore always false, so the documented
+  "always degrades to an empty result rather than a parse error" contract is not implemented as
+  written. Masked today because both duplicate-detection call sites discard the error via `.ok()`
+  regardless — a latent bug, not a live one, but the contract is a lie until it is fixed.
+- [ ] `TriageSurface` is outside the keyboard layer model — **emerged in Phase 6**
+  (`06-REVIEW.md` WR-02). The dedicated triage view is not registered in `state/keyboard.ts`'s
+  `LayerState`/`topLayer`, so Escape does not close it and global bindings can still reach around a
+  full-screen replacement view. `SessionSurface` and `SettingsSurface` share the same gap, which
+  makes this a general fix to the layer model rather than a per-surface patch. No triage-safety
+  consequence — nothing reachable this way can promote or bulk-accept — but a real UX regression risk.
 
 ### Out of Scope
 
@@ -208,9 +240,6 @@ This document evolves at phase transitions and milestone boundaries.
 4. Audit Out of Scope — reasons still valid?
 5. Update Context with current state
 
----
-*Last updated: 2026-10-02 after Phase 12*
-
 > Note: Phases 2, 3 and 5 completed without a full PROJECT.md evolution pass, so their
 > requirement and decision outcomes are not yet reflected above — except for the two Active
 > requirements Phase 5 actually closed (`epic_roster`'s unbounded read, by plan 05-04; and what
@@ -218,3 +247,6 @@ This document evolves at phase transitions and milestone boundaries.
 > Phase 12 transition because leaving them listed was actively misleading. Worth a catch-up read
 > of `02-VERIFICATION.md`, `03-VERIFICATION.md` and `05-VERIFICATION.md` before the next
 > milestone review.
+
+---
+*Last updated: 2026-10-02 after Phase 6*
