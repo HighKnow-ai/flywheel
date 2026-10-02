@@ -19,6 +19,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::branch::epic_integration_branch_name;
+use crate::domain::event::{append_event, next_sequence};
 use crate::domain::worktree::PorcelainEntry;
 use crate::git;
 
@@ -47,6 +48,63 @@ pub struct CommitRow {
     pub short_sha: String,
     pub subject: String,
     pub committed_at: String,
+    /// LINK-10/D-129: whether no recorded `agent_runs` window for this task covers
+    /// `committed_at`. This is computed from agent-run coverage — **never** from commit-trailer
+    /// presence or absence. Plan 07-02's `commit-msg` hook stamps `Flywheel-Task`/`Flywheel-Run`
+    /// trailers onto *every* commit on a `flywheel/`-namespaced branch, agent-made or hand-typed
+    /// alike, so a trailer check would detect nothing here (D-129, forced by D-126).
+    pub made_outside_flywheel: bool,
+}
+
+/// D-129's coverage predicate, read once per task (not once per commit): every `agent_runs`
+/// window for `task_id`. A literal `&str` — no `format!`, no runtime SQL assembly — matching this
+/// crate's `T-01-01`/`T-01-23` discipline.
+pub const AGENT_RUN_COVERAGE_SQL: &str =
+    "SELECT started_at, ended_at FROM agent_runs WHERE task_id = ?1";
+
+/// D-115's event type: a commit on a task's branch that landed outside any recorded `agent_runs`
+/// window. Its payload carries a `label`, so `domain::event::render_description` renders it in
+/// the activity trail verbatim — no change to `ActivityTrail.tsx` is needed.
+pub const EVENT_OUTSIDE_COMMIT: &str = "task.outside_commit_detected";
+
+/// Read every `agent_runs` window for `task_id` once (D-129's coverage predicate), as
+/// `(started_at, ended_at)` RFC3339-string pairs.
+fn agent_run_windows(conn: &Connection, task_id: &str) -> anyhow::Result<Vec<(String, Option<String>)>> {
+    let mut stmt = conn.prepare(AGENT_RUN_COVERAGE_SQL)?;
+    let rows = stmt
+        .query_map(params![task_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("failed to read agent run windows")?;
+    Ok(rows)
+}
+
+/// Whether `committed_at` falls inside any of `windows` — inclusive on both ends (a commit
+/// timestamped exactly at a run's `started_at` or `ended_at` is covered, since git's committer
+/// timestamps have one-second resolution and an exclusive bound would falsely accuse a genuine
+/// agent commit on an exact-second collision). A `None` `ended_at` is a still-live run — its
+/// right edge is open, extending to "now" (any commit at or after `started_at` is covered).
+/// Timestamps are parsed as RFC3339 instants (not compared as raw strings) so a commit's own
+/// timezone offset (`git log --format=%cI`) compares correctly against a `agent_runs` row's UTC
+/// timestamp regardless of offset.
+fn is_covered_by_agent_run(committed_at: &str, windows: &[(String, Option<String>)]) -> bool {
+    let Ok(committed) = chrono::DateTime::parse_from_rfc3339(committed_at) else {
+        return false;
+    };
+    windows.iter().any(|(started_at, ended_at)| {
+        let Ok(started) = chrono::DateTime::parse_from_rfc3339(started_at) else {
+            return false;
+        };
+        if committed < started {
+            return false;
+        }
+        match ended_at {
+            None => true,
+            Some(ended_at) => match chrono::DateTime::parse_from_rfc3339(ended_at) {
+                Ok(ended) => committed <= ended,
+                Err(_) => false,
+            },
+        }
+    })
 }
 
 /// A task's full git truth as of the moment this was read (LINK-02, LINK-09): branch, commit
@@ -146,9 +204,16 @@ pub fn git_facts_for_task(conn: &Connection, task_id: &str) -> anyhow::Result<Op
                 short_sha: fields.next()?.to_string(),
                 subject: fields.next()?.to_string(),
                 committed_at: fields.next()?.to_string(),
+                made_outside_flywheel: false,
             })
         })
         .collect();
+
+    let run_windows = agent_run_windows(conn, task_id)?;
+    for commit in &mut commits {
+        commit.made_outside_flywheel = !is_covered_by_agent_run(&commit.committed_at, &run_windows);
+    }
+
     let commits_truncated = commits.len().saturating_sub(COMMIT_WINDOW);
     commits.truncate(COMMIT_WINDOW);
 
@@ -212,4 +277,82 @@ pub fn fetch_origin_for_project(conn: &Connection, project_id: &str) -> anyhow::
         })
         .with_context(|| format!("project {project_id:?} not found"))?;
     git::fetch_origin(Path::new(&repo_path))
+}
+
+/// D-115: for each commit in `task_id`'s rendered commit window (the exact `COMMIT_WINDOW`-capped
+/// list [`git_facts_for_task`] already reads — no extra git invocation, no unbounded history
+/// walk) not covered by any recorded `agent_runs` window (D-129), appends exactly one `events`
+/// row the first time it is noticed. Idempotency is a query, not a stored flag (D-75): before
+/// appending, this checks for an existing `events` row with [`EVENT_OUTSIDE_COMMIT`], this
+/// `task_id`, and this sha extracted from the stored payload — the append-only log is itself the
+/// record of what has already been noticed. Returns the number of rows it appended; `Ok(0)` for a
+/// task with no worktree.
+///
+/// Writes nothing but `events` rows: this function issues no `UPDATE tasks`, no `UPDATE epics`
+/// and calls no status writer (`set_task_status` or otherwise) — D-115's two rejected
+/// alternatives (a persistent board-card indicator, an acknowledgement requirement) are not
+/// reachable from here, because there is no second write path for them to attach to.
+pub fn record_outside_commits(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<usize> {
+    let Some(facts) = git_facts_for_task(conn, task_id)? else {
+        return Ok(0);
+    };
+
+    let (project_id, epic_id): (String, Option<String>) = conn
+        .query_row(
+            "SELECT project_id, epic_id FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    let mut appended = 0usize;
+    for commit in facts.commits.iter().filter(|c| c.made_outside_flywheel) {
+        let tx = conn.transaction()?;
+
+        let already_noticed: Option<i64> = tx
+            .query_row(
+                "SELECT 1 FROM events WHERE task_id = ?1 AND event_type = ?2 \
+                 AND json_extract(payload, '$.sha') = ?3 LIMIT 1",
+                params![task_id, EVENT_OUTSIDE_COMMIT, commit.sha],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("failed to check for an existing outside-commit event")?;
+
+        if already_noticed.is_some() {
+            tx.commit().context("failed to commit no-op record_outside_commits transaction")?;
+            continue;
+        }
+
+        let sequence = next_sequence(&tx, &project_id, "local")?;
+        let payload = serde_json::json!({
+            "sha": commit.sha,
+            "short_sha": commit.short_sha,
+            "branch": facts.branch,
+            "committed_at": commit.committed_at,
+            "label": format!(
+                "Commit {} on {} was made outside Flywheel",
+                commit.short_sha, facts.branch
+            ),
+        });
+        append_event(
+            &tx,
+            &project_id,
+            "local",
+            sequence,
+            "task",
+            task_id,
+            Some(task_id),
+            epic_id.as_deref(),
+            actor_id,
+            EVENT_OUTSIDE_COMMIT,
+            &payload,
+            &commit.committed_at,
+        )?;
+
+        tx.commit().context("failed to commit record_outside_commits transaction")?;
+        appended += 1;
+    }
+
+    Ok(appended)
 }
