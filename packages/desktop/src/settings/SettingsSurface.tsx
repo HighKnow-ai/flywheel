@@ -10,7 +10,7 @@
  * and the command palette — never an inline settings-adjacent affordance on the board or the
  * launch sheet.
  *
- * Three sections, top to bottom:
+ * Four sections, top to bottom:
  * 1. **Credential path** — a global two-value segmented control (`Local Claude Code Credentials`
  *    default / `API Key`), the write-only Keychain-backed key field (only revealed while the
  *    global mode is `api_key`), and the non-blocking backend-unavailable notice.
@@ -18,7 +18,12 @@
  *    `useProjects`), each carrying the same segmented control plus a third `Use global default`
  *    option. Absent entirely at zero registered projects (E7 zero-one-many) — an override table
  *    with no rows would be noise, and the global control alone is the honest surface.
- * 3. **Permission rules** (D-38) — `PermissionRulesTable.tsx`, mounted by plan 02-10 Task 2.
+ * 3. **Worktree open commands** (D-130, LINK-11, plan 07-04 Task 3) — the two command templates
+ *    `item-detail/WorktreeSummary.tsx`'s "Open in editor"/"Open in terminal" actions run,
+ *    pre-filled with their current (stored-or-default) value and saved on blur/Enter, following
+ *    this file's own "every field commits on interaction" discipline. A rejected save (an empty
+ *    or whitespace-only template) surfaces the core's own rejection text rather than storing it.
+ * 4. **Permission rules** (D-38) — `PermissionRulesTable.tsx`, mounted by plan 02-10 Task 2.
  *
  * `T-02-40`'s mitigation lives here structurally: the API key input is always `type="password"`,
  * there is no unmask affordance anywhere in this file (Task 1's own structural `<verify>` grep
@@ -30,9 +35,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   backendCapabilityProbe,
   getSettings,
+  openCommandTemplate,
   setCredentialMode,
+  setOpenCommandTemplate,
   storeApiKey,
   type SettingsDto,
+  type WorktreeOpenSurface,
 } from "../adapters/tauri";
 import { useProjects } from "../board/useBoardQuery";
 import { PermissionRulesTable } from "./PermissionRulesTable";
@@ -252,6 +260,89 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
   );
 }
 
+/** `item-detail/WorktreeSummary.tsx`'s open-command template helper text — stated once here
+ * rather than per-field, since both fields carry the identical mechanism. */
+const OPEN_COMMAND_HELP_TEXT =
+  "Split into arguments and run directly — {worktree_path} is substituted, no shell is involved.";
+
+function openCommandTemplateQueryKey(surface: WorktreeOpenSurface) {
+  return ["open-command-template", surface] as const;
+}
+
+/**
+ * One of the two D-130 worktree-open command template fields (editor/terminal). Reads the
+ * current (stored-or-default) value on mount via `openCommandTemplate`, commits an edit on
+ * blur/Enter — mirroring `ApiKeyField`'s own commit-on-interaction convention above — and renders
+ * the core's own rejection text (`set_open_command_template`'s empty/whitespace-only refusal)
+ * inline rather than storing it.
+ */
+function OpenCommandTemplateField({ surface, label }: { surface: WorktreeOpenSurface; label: string }) {
+  const queryClient = useQueryClient();
+  const queryKey = openCommandTemplateQueryKey(surface);
+  const templateQuery = useQuery({ queryKey, queryFn: () => openCommandTemplate(surface) });
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: (value: string) => setOpenCommandTemplate(surface, value),
+    onSuccess: () => {
+      setDraft(null);
+      queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  function commit() {
+    if (saveMutation.isPending || draft === null) return;
+    saveMutation.mutate(draft);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.currentTarget.blur();
+    }
+  }
+
+  // E7 loading: render nothing while the read is in flight — this is a near-instant local read,
+  // not worth a dedicated skeleton (and `SectionSkeleton`'s shared `data-testid` would otherwise
+  // collide with the Credential Path section's own skeleton above).
+  if (templateQuery.isPending) return null;
+
+  const value = draft ?? templateQuery.data ?? "";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxWidth: 420 }}>
+      <label className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        {label}
+      </label>
+      <input
+        type="text"
+        aria-label={label}
+        value={value}
+        disabled={saveMutation.isPending}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={handleKeyDown}
+        className="type-body"
+        style={{
+          background: "var(--surface-dominant)",
+          border: "1px solid var(--divider)",
+          borderRadius: "var(--radius-chrome)",
+          color: "inherit",
+          padding: "var(--space-xs) var(--space-sm)",
+          fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+        }}
+      />
+      <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        {OPEN_COMMAND_HELP_TEXT}
+      </p>
+      {saveMutation.isError && (
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+          {saveMutation.error instanceof Error ? saveMutation.error.message : "Could not save this template."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export interface SettingsSurfaceProps {
   onBack: () => void;
 }
@@ -391,6 +482,14 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
             </div>
           </section>
         )}
+
+        <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
+          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+            Worktree Open Commands
+          </span>
+          <OpenCommandTemplateField surface="editor" label="Open in editor" />
+          <OpenCommandTemplateField surface="terminal" label="Open in terminal" />
+        </section>
 
         <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
           <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>

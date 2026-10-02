@@ -26,14 +26,23 @@
  * defensive rendering stays because a null here is exactly the kind of schema regression T-02-37
  * says must surface, not silently render blank.
  *
- * No "open in editor/terminal" affordance is rendered — that is `LINK-11`, Phase 7, out of scope
- * here (this file's own structural `<verify>` gate greps for it).
+ * **Open in editor / Open in terminal** (D-130, LINK-11, plan 07-04 Task 3) — two more
+ * text-style tertiary actions in the same row as Remove Worktree, each running a
+ * user-configurable command template resolved in the Rust core (`domain::worktree::
+ * resolve_open_argv`) with this task's worktree path substituted. The renderer never sees a
+ * program name, argument or path — it supplies only the task id and one of the two
+ * `WorktreeOpenSurface` values. Closes the gate this file's header comment used to reserve for
+ * Phase 7.
  *
  * **Remove Worktree** (WORK-03, D-41, plan 03-01 Task 1) — a text-style tertiary action appended
- * after the branch/path row, opening `WorktreeRemovalDialog`. Rendered only on the path where
- * `query.data` resolved to a real summary AND the row's status is not `missing` — see
- * `MissingWorktreeBanner` below, which this component renders instead of the branch/path row (and
- * therefore instead of this action too) whenever the worktree is missing from disk.
+ * after the branch/path row, opening `WorktreeRemovalDialog`. All three tertiary actions share
+ * ONE `BannerState`-shaped in-flight/error state object for the open-in-editor/open-in-terminal
+ * pair (Remove Worktree opens a dialog instead and has no in-flight state of its own) — the same
+ * rationale `MissingWorktreeBanner` below states explicitly: pressing either button disables both
+ * and a failure message has one home. Rendered only on the path where `query.data` resolved to a
+ * real summary AND the row's status is not `missing` — see `MissingWorktreeBanner` below, which
+ * this component renders instead of the branch/path row (and therefore instead of these actions
+ * too) whenever the worktree is missing from disk.
  *
  * **Missing-worktree decision banner** (WORK-06, D-45, plan 03-09 Task 2; gated on status alone
  * since plan 03-18 Task 2) — inserted into the early-return ladder below, between the
@@ -51,10 +60,28 @@
 import { useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { useWorktreeSummary } from "../board/useBoardQuery";
-import { worktreeForgetRecord, worktreeRecreate, type WorktreeSummaryDto } from "../adapters/tauri";
+import {
+  worktreeForgetRecord,
+  worktreeOpen,
+  worktreeRecreate,
+  type WorktreeOpenSurface,
+  type WorktreeSummaryDto,
+} from "../adapters/tauri";
 import { WorktreeRemovalDialog } from "./WorktreeRemovalDialog";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+
+/** The shared text-style tertiary-action button treatment — Remove Worktree's own existing
+ * inline style, factored out so the two new D-130 actions (Open in editor / Open in terminal)
+ * render identically rather than duplicating the object literal three times. */
+const tertiaryActionButtonStyle = {
+  background: "transparent",
+  border: "none",
+  color: "var(--text-muted-rack)",
+  textDecoration: "underline",
+  padding: 0,
+  cursor: "pointer",
+} as const;
 
 /** One banner action's own in-flight/error state (mirrors `session/PermissionRequestCard.tsx`'s
  * `RowState` idiom) — ONE shared object for the whole banner, not one per button, so pressing
@@ -225,6 +252,31 @@ export function WorktreeSummary({ taskId }: WorktreeSummaryProps) {
   const query = useWorktreeSummary(taskId);
   const [removalDialogOpen, setRemovalDialogOpen] = useState(false);
 
+  // D-130's shared in-flight/error state for the Open in editor / Open in terminal pair — ONE
+  // object for both actions, mirroring `MissingWorktreeBanner`'s own `BannerState` rationale:
+  // pressing either button disables both and a failure message has one home.
+  const [openState, setOpenState] = useState<BannerState>({ acting: false, error: null });
+  // Synchronous guard against a second click landing before React's `disabled` attribute has
+  // flushed — same reasoning as `MissingWorktreeBanner`'s own `actingRef`.
+  const openActingRef = useRef(false);
+
+  async function openWorktree(surface: WorktreeOpenSurface) {
+    if (openActingRef.current) return;
+    openActingRef.current = true;
+    setOpenState({ acting: true, error: null });
+    try {
+      await worktreeOpen(taskId, surface);
+      openActingRef.current = false;
+      setOpenState({ acting: false, error: null });
+    } catch (err) {
+      openActingRef.current = false;
+      setOpenState({
+        acting: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // E6 `loading`: render nothing while the read is in flight — a transitional placeholder would
   // make the section's eventual appearance stop meaning "work has started" (State Inventory).
   if (query.isPending) return null;
@@ -317,22 +369,50 @@ export function WorktreeSummary({ taskId }: WorktreeSummaryProps) {
         </span>
       )}
 
-      <button
-        type="button"
-        onClick={() => setRemovalDialogOpen(true)}
-        className="type-label"
+      <div
         style={{
+          display: "flex",
+          alignItems: "center",
           alignSelf: "flex-start",
-          background: "transparent",
-          border: "none",
-          color: "var(--text-muted-rack)",
-          textDecoration: "underline",
-          padding: 0,
-          cursor: "pointer",
+          gap: "var(--space-md)",
+          flexWrap: "wrap",
         }}
       >
-        Remove Worktree
-      </button>
+        <button
+          type="button"
+          onClick={() => setRemovalDialogOpen(true)}
+          className="type-label"
+          style={tertiaryActionButtonStyle}
+        >
+          Remove Worktree
+        </button>
+
+        <button
+          type="button"
+          disabled={openState.acting}
+          onClick={() => void openWorktree("editor")}
+          className="type-label"
+          style={{ ...tertiaryActionButtonStyle, opacity: openState.acting ? 0.6 : 1 }}
+        >
+          Open in editor
+        </button>
+
+        <button
+          type="button"
+          disabled={openState.acting}
+          onClick={() => void openWorktree("terminal")}
+          className="type-label"
+          style={{ ...tertiaryActionButtonStyle, opacity: openState.acting ? 0.6 : 1 }}
+        >
+          Open in terminal
+        </button>
+      </div>
+
+      {openState.error && (
+        <span role="alert" className="type-label" style={{ color: "var(--destructive-text-rack)" }}>
+          {openState.error}
+        </span>
+      )}
 
       {removalDialogOpen && (
         <WorktreeRemovalDialog taskId={taskId} onClose={() => setRemovalDialogOpen(false)} />

@@ -32,6 +32,8 @@ const clearApiKeyMock = vi.fn();
 const backendCapabilityProbeMock = vi.fn();
 const listPermissionRulesMock = vi.fn();
 const revokePermissionRuleMock = vi.fn();
+const openCommandTemplateMock = vi.fn();
+const setOpenCommandTemplateMock = vi.fn();
 
 // Every named export the code under test actually calls is re-implemented here, delegating
 // through named mocks — `permission-card.test.tsx`/`worktree-summary.test.tsx` establish the same
@@ -49,6 +51,9 @@ vi.mock("../../adapters/tauri", () => ({
   backendCapabilityProbe: () => backendCapabilityProbeMock(),
   listPermissionRules: (projectId: string) => listPermissionRulesMock(projectId),
   revokePermissionRule: (ruleId: string) => revokePermissionRuleMock(ruleId),
+  openCommandTemplate: (surface: string) => openCommandTemplateMock(surface),
+  setOpenCommandTemplate: (surface: string, template: string) =>
+    setOpenCommandTemplateMock(surface, template),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
 }));
 
@@ -111,6 +116,8 @@ beforeEach(() => {
   backendCapabilityProbeMock.mockReset();
   listPermissionRulesMock.mockReset();
   revokePermissionRuleMock.mockReset();
+  openCommandTemplateMock.mockReset();
+  setOpenCommandTemplateMock.mockReset();
 
   mockProjects([]);
   getSettingsMock.mockResolvedValue(settingsFixture());
@@ -118,6 +125,8 @@ beforeEach(() => {
   storeApiKeyMock.mockResolvedValue(undefined);
   backendCapabilityProbeMock.mockResolvedValue(backendFixture(true));
   listPermissionRulesMock.mockResolvedValue([]);
+  openCommandTemplateMock.mockResolvedValue("code {worktree_path}");
+  setOpenCommandTemplateMock.mockResolvedValue(undefined);
 });
 
 // `useUiStore` is a module-level singleton — the Task 3 describe block below is the only one in

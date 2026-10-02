@@ -1,10 +1,13 @@
 /**
- * Behavior under test (02-08-PLAN.md Task 1, 02-UI-SPEC.md "Worktree summary", E6): a task with
- * no worktree renders nothing at all; a task with a worktree renders its branch and absolute path
- * in the Mono role; a long path renders with left-truncation styling while the full string stays
- * in the DOM; the copy affordance copies the full, untruncated path; a null branch renders an
- * inline notice for the missing field while the path still renders; no editor/terminal affordance
- * is ever rendered.
+ * Behavior under test (02-08-PLAN.md Task 1, 02-UI-SPEC.md "Worktree summary", E6; D-130/LINK-11,
+ * plan 07-04 Task 3): a task with no worktree renders nothing at all; a task with a worktree
+ * renders its branch and absolute path in the Mono role; a long path renders with
+ * left-truncation styling while the full string stays in the DOM; the copy affordance copies the
+ * full, untruncated path; a null branch renders an inline notice for the missing field while the
+ * path still renders; an active worktree renders "Open in editor"/"Open in terminal" buttons that
+ * call `worktreeOpen` with the matching surface, share one disabling/error state with each other,
+ * and never render a reveal-in-Finder affordance (D-130 rejected that one — its absence assertion
+ * is kept exactly as it was).
  *
  * The "missing" describe block below (plan 03-09 Task 2, WORK-06/D-45, 03-UI-SPEC.md
  * "Missing-worktree decision banner") also closes broken window #6
@@ -20,11 +23,13 @@ import type { WorktreeSummaryDto } from "../../adapters/tauri";
 const worktreeSummaryMock = vi.fn();
 const worktreeRecreateMock = vi.fn();
 const worktreeForgetRecordMock = vi.fn();
+const worktreeOpenMock = vi.fn();
 
 vi.mock("../../adapters/tauri", () => ({
   worktreeSummary: (taskId: string) => worktreeSummaryMock(taskId),
   worktreeRecreate: (taskId: string) => worktreeRecreateMock(taskId),
   worktreeForgetRecord: (taskId: string) => worktreeForgetRecordMock(taskId),
+  worktreeOpen: (taskId: string, surface: string) => worktreeOpenMock(taskId, surface),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
 }));
 
@@ -40,6 +45,10 @@ function renderSummary(taskId = "task-1") {
 const LONG_PATH = "/Users/cyril/Flywheel/threadfin-project/FLY-42-add-worktree-summary";
 
 describe("WorktreeSummary", () => {
+  beforeEach(() => {
+    worktreeOpenMock.mockReset();
+  });
+
   it("renders nothing at all for a task with no worktree", async () => {
     worktreeSummaryMock.mockResolvedValue(null);
     const { container } = renderSummary();
@@ -116,15 +125,87 @@ describe("WorktreeSummary", () => {
     expect(screen.getByText("flywheel/fly-42")).toBeInTheDocument();
   });
 
-  it("renders no editor or terminal affordance", async () => {
+  it("renders Open in editor and Open in terminal buttons for an active worktree, but never a reveal-in-Finder affordance", async () => {
     const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42", status: "active" };
     worktreeSummaryMock.mockResolvedValue(summary);
     renderSummary();
 
     await screen.findByText("flywheel/fly-42");
+    expect(screen.getByRole("button", { name: /open in editor/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open in terminal/i })).toBeInTheDocument();
+    // D-130 explicitly rejected reveal-in-Finder — this absence assertion is kept unchanged.
+    expect(screen.queryByRole("button", { name: /reveal in finder/i })).not.toBeInTheDocument();
+  });
+
+  it("neither Open in editor nor Open in terminal renders for a missing worktree — the existing early return makes them unreachable", async () => {
+    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42", status: "missing" };
+    worktreeSummaryMock.mockResolvedValue(summary);
+    renderSummary();
+
+    await screen.findByText("This worktree is missing from disk.");
     expect(screen.queryByRole("button", { name: /open in editor/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open in terminal/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /reveal in finder/i })).not.toBeInTheDocument();
+  });
+
+  it("Open in editor calls worktreeOpen with the editor surface", async () => {
+    worktreeOpenMock.mockResolvedValue(undefined);
+    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42", status: "active" };
+    worktreeSummaryMock.mockResolvedValue(summary);
+    renderSummary("task-editor");
+
+    const editorButton = await screen.findByRole("button", { name: /open in editor/i });
+    editorButton.click();
+
+    await waitFor(() => expect(worktreeOpenMock).toHaveBeenCalledWith("task-editor", "editor"));
+  });
+
+  it("Open in terminal calls worktreeOpen with the terminal surface", async () => {
+    worktreeOpenMock.mockResolvedValue(undefined);
+    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42", status: "active" };
+    worktreeSummaryMock.mockResolvedValue(summary);
+    renderSummary("task-terminal");
+
+    const terminalButton = await screen.findByRole("button", { name: /open in terminal/i });
+    terminalButton.click();
+
+    await waitFor(() => expect(worktreeOpenMock).toHaveBeenCalledWith("task-terminal", "terminal"));
+  });
+
+  it("pressing either Open button while one is in flight disables both and issues no second call", async () => {
+    let resolveOpen: () => void = () => {};
+    worktreeOpenMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveOpen = resolve;
+      }),
+    );
+    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42", status: "active" };
+    worktreeSummaryMock.mockResolvedValue(summary);
+    renderSummary();
+
+    const editorButton = await screen.findByRole("button", { name: /open in editor/i });
+    const terminalButton = screen.getByRole("button", { name: /open in terminal/i });
+    editorButton.click();
+    terminalButton.click();
+
+    await waitFor(() => expect(editorButton).toBeDisabled());
+    expect(terminalButton).toBeDisabled();
+    expect(worktreeOpenMock).toHaveBeenCalledTimes(1);
+    resolveOpen();
+  });
+
+  it("a rejected Open in editor call renders one failure message naming the program from the error text", async () => {
+    worktreeOpenMock.mockRejectedValue(new Error('couldn\'t find "code" — check the command template in Settings'));
+    const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42", status: "active" };
+    worktreeSummaryMock.mockResolvedValue(summary);
+    renderSummary();
+
+    const editorButton = await screen.findByRole("button", { name: /open in editor/i });
+    editorButton.click();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("code");
+    // Only one failure message renders — the shared slot, not one per button.
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 });
 

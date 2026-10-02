@@ -457,6 +457,44 @@ export async function gitTruthFocusTask(taskId: string | null): Promise<void> {
 }
 
 /**
+ * Which of the two "open this worktree" actions a call targets (D-130, LINK-11) — mirrors
+ * `domain::worktree::OpenSurface`'s serde representation (`#[serde(rename_all = "lowercase")]`)
+ * field-for-field.
+ */
+export type WorktreeOpenSurface = "editor" | "terminal";
+
+/**
+ * Open `taskId`'s worktree in the user's own editor or terminal (D-130, LINK-11), running the
+ * command template stored for `surface` with the worktree path substituted. The backend resolves
+ * the full argv and spawns it directly with no shell interpreter — this call carries no program
+ * name, argument or path, only the task id and the surface. Thin typed wrapper over
+ * `worktree_open`.
+ */
+export async function worktreeOpen(taskId: string, surface: WorktreeOpenSurface): Promise<void> {
+  await invokeCommand<void>("worktree_open", { taskId, surface });
+}
+
+/**
+ * `surface`'s stored open-command template, or its own default when unset (D-130) — the Settings
+ * surface's pre-filled field value. Read-only. Thin typed wrapper over `open_command_template`.
+ */
+export async function openCommandTemplate(surface: WorktreeOpenSurface): Promise<string> {
+  return invokeCommand<string>("open_command_template", { surface });
+}
+
+/**
+ * Set `surface`'s stored open-command template (D-130). Rejects (rejects the returned promise)
+ * on an empty or whitespace-only template, naming the surface — the core's own rejection text,
+ * not a client-side validation. Thin typed wrapper over `set_open_command_template`.
+ */
+export async function setOpenCommandTemplate(
+  surface: WorktreeOpenSurface,
+  template: string,
+): Promise<void> {
+  await invokeCommand<void>("set_open_command_template", { surface, template });
+}
+
+/**
  * Subscribe to `agent:event`, the Rust core's live push of one normalised agent event at a time
  * (D-32) — the session surface invalidates its windowed read on this, never trusting a streamed
  * event as already-persisted (mirrors `subscribeBoardChanged`'s own D-04 discipline).
