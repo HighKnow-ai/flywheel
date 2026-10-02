@@ -26,6 +26,7 @@ pub mod agent_runs;
 pub mod authoring;
 pub mod events;
 pub mod filter;
+pub mod forge;
 pub mod permissions;
 pub mod recovery;
 pub mod search;

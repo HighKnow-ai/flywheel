@@ -411,14 +411,45 @@ pub fn delete_task_in_tx(tx: &Transaction, actor_id: &str, task_id: &str, now: &
 /// a no-op: `Ok` is returned, `updated_at` is left untouched, and no event is appended. An
 /// invalid status is rejected by the schema CHECK constraint in migration `0002_board_schema.sql`
 /// (BOARD-04, T-01-15) — this function performs no application-layer allow-list of its own.
+///
+/// Opens its own transaction and delegates the whole body to [`set_task_status_in_tx`],
+/// committing once. Signature and observable behaviour are unchanged by that extraction.
 pub fn set_task_status(
     conn: &mut Connection,
     actor_id: &str,
     task_id: &str,
     new_status: &str,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    set_task_status_in_tx(&tx, actor_id, task_id, new_status)?;
+    tx.commit().context("failed to commit set_task_status transaction")?;
+    Ok(())
+}
+
+/// The statement body [`set_task_status`] issues, factored out so a caller already holding a
+/// transaction — `forge::transitions::apply_forge_observation` (phase 7 plan 07-07) — can compose
+/// a status change with its own writes atomically, inside one transaction, instead of nesting a
+/// second `conn.transaction()`. This is the crate's established `*_in_tx` idiom, the same reason
+/// `domain::authoring_proposal::accept_proposal_in_tx`/`merge_proposal_in_tx` and
+/// `domain::agent_run::interrupt_agent_run_in_tx` exist.
+///
+/// A redundant transition (new value equals the current value) is a no-op: `Ok` is returned,
+/// `updated_at` is left untouched, and no event is appended — the same guarantee
+/// `set_task_status` has always made. On a real transition: `UPDATE tasks SET status = ?1,
+/// updated_at = ?2 WHERE id = ?3`, then one `task.status_changed` event carrying its
+/// `field`/`before`/`after`/`label` payload. Does not commit — the caller's transaction owns
+/// that.
+///
+/// **No caller anywhere may issue a raw `UPDATE tasks SET status`.** The schema CHECK constraint
+/// in migration `0002_board_schema.sql` is the sole authority on the status vocabulary, and this
+/// function is the only path to it.
+pub fn set_task_status_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    task_id: &str,
+    new_status: &str,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
 
     let (project_id, epic_id, current_status): (String, Option<String>, String) = tx
         .query_row(
@@ -429,7 +460,6 @@ pub fn set_task_status(
         .with_context(|| format!("task {task_id:?} not found"))?;
 
     if current_status == new_status {
-        tx.commit().context("failed to commit no-op set_task_status transaction")?;
         return Ok(());
     }
 
@@ -439,7 +469,7 @@ pub fn set_task_status(
     )
     .context("failed to set task status")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "status",
         "before": current_status,
@@ -447,7 +477,7 @@ pub fn set_task_status(
         "label": format!("Changed status from {current_status} to {new_status}"),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -461,7 +491,6 @@ pub fn set_task_status(
         &now,
     )?;
 
-    tx.commit().context("failed to commit set_task_status transaction")?;
     Ok(())
 }
 
