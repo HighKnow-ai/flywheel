@@ -16,6 +16,7 @@ pub mod forge;
 pub mod git;
 pub mod git_facts;
 pub mod git_hooks;
+pub mod git_identity;
 pub mod git_retry;
 pub mod ids;
 pub mod marker;
