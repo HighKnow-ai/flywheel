@@ -203,6 +203,9 @@ fn main() {
             commands::authoring::authoring_turn_send,
             commands::git_truth::git_facts,
             commands::git_truth::git_truth_focus_task,
+            commands::worktree_open::worktree_open,
+            commands::worktree_open::open_command_template,
+            commands::worktree_open::set_open_command_template,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
