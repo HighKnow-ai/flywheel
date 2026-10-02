@@ -775,13 +775,53 @@ walkthrough.
   4. User commits by hand from his own terminal on a task's branch and Flywheel detects it and reflects it on the board item, never silently overwriting it.
   5. Flywheel works against a GitHub project and a GitLab project and degrades cleanly to local-only git when no forge is configured; from any task the user opens its worktree in his own editor or terminal in one action.
 
-**Plans**: TBD
+**Plans**: 9 plans in 7 waves (tracer-first; the serial tail is forced by three chokepoint files every plan touches — `adapters/tauri.ts`, `src-tauri/src/main.rs` and `capabilities/default.json`)
 **UI hint**: yes
+
+Plans:
+
+**Wave 1 — the tracer** *(the thinnest end-to-end slice: a real git read, through a Tauri command, to a section on the item, refreshed by the first scheduler job this codebase has ever started)*
+
+- [ ] 07-01-PLAN.md — Tracer: branch, commits, ahead/behind with its fetch age, and uncommitted changes on the item, kept fresh by one tiered tick (LINK-02, LINK-09)
+
+**Wave 2** *(three independent expansions off the tracer — no file overlap between them)*
+
+- [ ] 07-02-PLAN.md — `git log` names the task: two commit trailers written by a `commit-msg` hook beside the Phase 12 pre-push gate (LINK-03)
+- [ ] 07-03-PLAN.md — The forge seam: two CLI adapters, one normalised model named as the CONV-06 seam, and clean degradation to local-only (LINK-05, LINK-06, LINK-08)
+- [ ] 07-04-PLAN.md — Open the worktree in your own editor or terminal, from a template that never reaches a shell (LINK-11)
+
+**Wave 3** *(blocked on 07-02 for the trailer-key constants and on 07-04 for the renderer seam)*
+
+- [ ] 07-05-PLAN.md — The round trip closes: a pasted hash or branch name resolves to its item through the existing command palette, storing nothing (LINK-04)
+
+**Wave 4** *(blocked on 07-05 — shares `adapters/tauri.ts`)*
+
+- [ ] 07-06-PLAN.md — Work done outside Flywheel: agent-run coverage, a per-commit marker, and one activity-trail entry that overwrites nothing (LINK-10)
+
+**Wave 5** *(blocked on 07-03 for the forge model and on 07-06 for the scheduler)*
+
+- [ ] 07-07-PLAN.md — The column follows the forge, forward only and on the edge, then hands itself back (LINK-07)
+
+**Wave 6** *(blocked on 07-07)*
+
+- [ ] 07-08-PLAN.md — Request state and CI on the item, the red-build row flag, and nothing at all where no forge is configured (LINK-05, LINK-06, LINK-08)
+
+**Wave 7** *(blocked on 07-08 — the phase's one outward action)*
+
+- [ ] 07-09-PLAN.md — The board item becomes the pull request: previewed, then opened, with the In Review move left to the one edge detector (LINK-05)
 
 **Notes**: LINK-10 matters more than it looks: the moment the board and the working tree disagree
 about a branch, the user stops trusting the board and goes back to the terminal — which is
 exactly the v1 failure condition. Depends on Phase 4 rather than Phase 6, so it can be planned in
 parallel with the Phase 5-6 moat work if capacity allows.
+
+Planning resolved all three of `07-RESEARCH.md`'s open questions without a migration beyond the
+single `projects.forge` column: the restart-safe forge baseline is derived from the append-only
+`events` log rather than a new column (D-75/D-128's discipline, and durable across a restart for
+free), the fetch age is read from git's own `FETCH_HEAD` mtime, the trailers are written with
+`git interpret-trailers --if-exists doNothing`, and `gh`/`glab` not-installed versus
+not-authenticated are two typed error variants so D-120's deliberate absence can never swallow a
+broken CLI.
 
 ### Phase 8: Review And Merge Inside Flywheel
 
