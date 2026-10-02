@@ -1,0 +1,146 @@
+//! LINK-08: a project with no forge remote degrades to local-only and spawns NOTHING at all —
+//! proven by sabotage (a marker-file-writing `gh`/`glab` stub prepended to `PATH`), never by
+//! reading the source — plus the stored `projects.forge` override forcing either direction
+//! regardless of the repository's real origin host (D-119).
+
+mod common;
+
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
+
+use core::domain::settings::set_project_forge;
+use core::forge::{forge_for_project, request_for_branch, Forge};
+
+fn run_git(repo: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .status()
+        .unwrap_or_else(|e| panic!("failed to spawn git -C {repo:?} {args:?}: {e}"));
+    assert!(status.success(), "git -C {repo:?} {args:?} failed");
+}
+
+/// Serializes every call to [`with_sabotaged_forge_clis`] in this binary — `PATH` is
+/// process-global mutable state and `cargo test` runs `#[test]` fns concurrently by default
+/// (mirrors `commit_msg_hook.rs`'s own `ENV_LOCK`; each `tests/*.rs` file compiles to its own
+/// binary, so this static cannot race with that one).
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// A handle onto the sabotaged-stub scratch directory. [`SabotageDir::invoked`] reports whether
+/// the named CLI's stub actually ran, by checking the marker FILE it writes before exiting
+/// non-zero — never by inspecting stdout/stderr, which this test's own caller does not observe.
+struct SabotageDir {
+    dir: tempfile::TempDir,
+}
+
+impl SabotageDir {
+    fn invoked(&self, cli: &str) -> bool {
+        self.dir.path().join(format!("{cli}.invoked")).exists()
+    }
+}
+
+/// Write executable `gh`/`glab` shell stubs that each touch their own marker file and exit
+/// non-zero, prepend their directory to `PATH` for the duration of `f`, serialized against every
+/// other caller in this binary, then restore the original `PATH` before returning. Proves
+/// absence (or presence) of a spawn by sabotage — reading the marker file after `f` returns.
+fn with_sabotaged_forge_clis<T>(f: impl FnOnce(&SabotageDir) -> T) -> T {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    let dir = tempfile::tempdir().expect("failed to create scratch stub dir");
+    for cli in ["gh", "glab"] {
+        let script_path = dir.path().join(cli);
+        let marker_path = dir.path().join(format!("{cli}.invoked"));
+        let script = format!("#!/bin/sh\ntouch '{}'\nexit 7\n", marker_path.display());
+        std::fs::write(&script_path, script).expect("failed to write stub script");
+        let mut perms = std::fs::metadata(&script_path).expect("stub metadata").permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script_path, perms).expect("failed to chmod stub");
+    }
+
+    let original_path = std::env::var_os("PATH");
+    let sabotaged = match &original_path {
+        Some(p) => format!("{}:{}", dir.path().display(), p.to_string_lossy()),
+        None => dir.path().display().to_string(),
+    };
+    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
+    // mutates PATH while it's set, and this helper always restores it before returning.
+    unsafe {
+        std::env::set_var("PATH", &sabotaged);
+    }
+
+    let sabotage = SabotageDir { dir };
+    let result = f(&sabotage);
+
+    unsafe {
+        match &original_path {
+            Some(p) => std::env::set_var("PATH", p),
+            None => std::env::remove_var("PATH"),
+        }
+    }
+    result
+}
+
+#[test]
+fn no_origin_remote_resolves_to_local_forge() {
+    let (conn, _actor_id, project, _repo_dir) = common::seeded_git_project();
+    let forge = forge_for_project(&conn, &project.id).expect("forge_for_project should succeed");
+    assert_eq!(forge, Forge::Local);
+}
+
+#[test]
+fn no_origin_remote_spawns_no_forge_process_at_all() {
+    let (conn, _actor_id, project, _repo_dir) = common::seeded_git_project();
+    with_sabotaged_forge_clis(|sabotage| {
+        let result = request_for_branch(&conn, &project.id, "main")
+            .expect("request_for_branch should succeed with no forge configured");
+        assert!(result.is_none());
+        assert!(!sabotage.invoked("gh"), "gh must never be invoked for a local-only project");
+        assert!(!sabotage.invoked("glab"), "glab must never be invoked for a local-only project");
+    });
+}
+
+#[test]
+fn stored_local_override_forces_local_even_with_github_origin() {
+    let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
+    run_git(repo_dir.path(), &["remote", "add", "origin", "git@github.com:acme/widget.git"]);
+    set_project_forge(&mut conn, &actor_id, &project.id, Some("local"))
+        .expect("set_project_forge should succeed");
+
+    let forge = forge_for_project(&conn, &project.id).expect("forge_for_project should succeed");
+    assert_eq!(forge, Forge::Local);
+
+    with_sabotaged_forge_clis(|sabotage| {
+        let result = request_for_branch(&conn, &project.id, "main")
+            .expect("request_for_branch should succeed under a forced local override");
+        assert!(result.is_none());
+        assert!(!sabotage.invoked("gh"), "the stored 'local' override must suppress gh entirely");
+        assert!(
+            !sabotage.invoked("glab"),
+            "the stored 'local' override must suppress glab entirely"
+        );
+    });
+}
+
+#[test]
+fn stored_github_override_forces_github_path_even_for_self_hosted_host() {
+    let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
+    run_git(
+        repo_dir.path(),
+        &["remote", "add", "origin", "https://git.acme-corp.example/widget/widget.git"],
+    );
+    set_project_forge(&mut conn, &actor_id, &project.id, Some("github"))
+        .expect("set_project_forge should succeed");
+
+    let forge = forge_for_project(&conn, &project.id).expect("forge_for_project should succeed");
+    assert_eq!(forge, Forge::GitHub, "a 'github' override must win over a self-hosted origin host");
+
+    with_sabotaged_forge_clis(|sabotage| {
+        // The sabotaged `gh` stub exits non-zero, so this is an `Err` — the point of this test is
+        // that `gh` was invoked AT ALL, which the stored override forces despite the self-hosted
+        // origin host `detect_forge_from_origin` alone would never have matched to GitHub.
+        let _ = request_for_branch(&conn, &project.id, "main");
+        assert!(sabotage.invoked("gh"), "the stored 'github' override must dispatch to gh");
+        assert!(!sabotage.invoked("glab"), "the 'github' override must never invoke glab");
+    });
+}
