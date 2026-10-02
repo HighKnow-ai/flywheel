@@ -201,6 +201,7 @@ fn main() {
             commands::authoring::authoring_stage_advance,
             commands::authoring::authoring_stage_return,
             commands::authoring::authoring_turn_send,
+            commands::git_identity::git_identifier_resolve,
             commands::git_truth::git_facts,
             commands::git_truth::git_truth_focus_task,
             commands::worktree_open::worktree_open,
