@@ -11,6 +11,7 @@ pub mod board;
 pub mod criterion;
 pub mod epic;
 pub mod events;
+pub mod forge;
 pub mod git_identity;
 pub mod git_truth;
 pub mod issue;

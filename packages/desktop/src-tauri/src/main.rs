@@ -207,6 +207,10 @@ fn main() {
             commands::worktree_open::worktree_open,
             commands::worktree_open::open_command_template,
             commands::worktree_open::set_open_command_template,
+            commands::forge::forge_request_for_task,
+            commands::forge::board_forge_flags,
+            commands::forge::settings_set_project_forge,
+            commands::forge::project_forge_overrides,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
