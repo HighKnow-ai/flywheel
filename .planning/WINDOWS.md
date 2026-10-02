@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 15
+open_count: 16
 waived_count: 0
 fixed_count: 9
-total_count: 24
-last_updated: 2026-10-02T09:18:29.852Z
+total_count: 25
+last_updated: 2026-10-02T11:33:21.016Z
 ---
 
 # Broken Windows Ledger
@@ -39,6 +39,7 @@ last_updated: 2026-10-02T09:18:29.852Z
 | 22 | 07 | deviation | packages/core/src/domain/project.rs |  | 07-02 Task 2 acceptance criterion expected grep -c 'install_layer3_pre_push_gate' == 3, but the baseline file (unchanged by this plan) already carried 6 occurrences (4 doc-comment mentions predating phase 7, plus the definition and 2 call sites) before any edit in this plan — the real invariant (exactly 2 call sites, in register_project/relocate_project, neither moved nor removed) was verified directly instead. | open |  | 2026-10-02T08:26:01.312Z |  |
 | 23 | 07 | deviation | packages/core/Cargo.toml |  | 07-03-PLAN.md Task 3's acceptance criterion expects grep -c '^[[bin]]' == 5 after adding forge_probe, but the crate already carried 5 [[bin]] entries before this plan (not 4, per stale 07-RESEARCH.md context); the real post-plan count is 6, verified correct by diff inspection instead. | open |  | 2026-10-02T08:57:28.851Z |  |
 | 24 | 07 | deviation | packages/desktop/src-tauri/capabilities/default.json |  | 07-04-PLAN.md Task 2's acceptance criterion expects grep -c 'shell:allow-execute' == 1, but the baseline file (unchanged by this plan at that location) already carried 2 occurrences (the description prose mentioning the grant, plus the permissions array's identifier) before any edit in this plan, confirmed via git show HEAD; the real invariant (the shell:allow-execute permission object itself, still scoped to only the sidecar binary) was verified directly instead. | open |  | 2026-10-02T09:18:29.852Z |  |
+| 25 | 07 | deviation | packages/desktop/src-tauri/src/scheduler.rs |  | 07-07 Task 3: literal acceptance criterion grep -c 'board:changed' == 2 could not be satisfied without duplicating the event-name literal; the forge job emits through the existing shared emit_board_changed helper (count stays 1), which is the correct architecture per the module's own header comment. | open |  | 2026-10-02T11:33:21.016Z |  |
 
 ````json
 [
@@ -328,6 +329,18 @@ last_updated: 2026-10-02T09:18:29.852Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-02T09:18:29.852Z",
+    "resolved_at": null
+  },
+  {
+    "id": 25,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "packages/desktop/src-tauri/src/scheduler.rs",
+    "line": null,
+    "description": "07-07 Task 3: literal acceptance criterion grep -c 'board:changed' == 2 could not be satisfied without duplicating the event-name literal; the forge job emits through the existing shared emit_board_changed helper (count stays 1), which is the correct architecture per the module's own header comment.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-02T11:33:21.016Z",
     "resolved_at": null
   }
 ]
