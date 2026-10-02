@@ -775,7 +775,7 @@ walkthrough.
   4. User commits by hand from his own terminal on a task's branch and Flywheel detects it and reflects it on the board item, never silently overwriting it.
   5. Flywheel works against a GitHub project and a GitLab project and degrades cleanly to local-only git when no forge is configured; from any task the user opens its worktree in his own editor or terminal in one action.
 
-**Plans**: 1/9 plans executed in 7 waves (tracer-first; the serial tail is forced by three chokepoint files every plan touches — `adapters/tauri.ts`, `src-tauri/src/main.rs` and `capabilities/default.json`)
+**Plans**: 2/9 plans executed in 7 waves (tracer-first; the serial tail is forced by three chokepoint files every plan touches — `adapters/tauri.ts`, `src-tauri/src/main.rs` and `capabilities/default.json`)
 **UI hint**: yes
 
 Plans:
@@ -786,7 +786,7 @@ Plans:
 
 **Wave 2** *(three independent expansions off the tracer — no file overlap between them)*
 
-- [ ] 07-02-PLAN.md — `git log` names the task: two commit trailers written by a `commit-msg` hook beside the Phase 12 pre-push gate (LINK-03)
+- [x] 07-02-PLAN.md — `git log` names the task: two commit trailers written by a `commit-msg` hook beside the Phase 12 pre-push gate (LINK-03)
 - [ ] 07-03-PLAN.md — The forge seam: two CLI adapters, one normalised model named as the CONV-06 seam, and clean degradation to local-only (LINK-05, LINK-06, LINK-08)
 - [ ] 07-04-PLAN.md — Open the worktree in your own editor or terminal, from a template that never reaches a shell (LINK-11)
 
@@ -1024,7 +1024,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
-| 7. The Board Tells The Git Truth | 1/9 | In Progress|  |
+| 7. The Board Tells The Git Truth | 2/9 | In Progress|  |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |

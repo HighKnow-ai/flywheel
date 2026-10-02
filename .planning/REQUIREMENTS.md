@@ -46,7 +46,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 - [x] **LINK-01**: Every task is bound to exactly one branch whose name derives from the task identifier, so the branch is recognisable from the command line without Flywheel
 - [x] **LINK-02**: Every board item shows its branch, its commits, and its current ahead/behind position relative to its integration target
-- [ ] **LINK-03**: Commits produced by an agent carry the task identifier in a commit-message trailer, so `git log` alone reveals which board item produced any change
+- [x] **LINK-03**: Commits produced by an agent carry the task identifier in a commit-message trailer, so `git log` alone reveals which board item produced any change
 - [ ] **LINK-04**: User can navigate from a branch name or a commit hash back to the originating board item
 - [ ] **LINK-05**: A task's pull or merge request is linked to its board item, and the request's state (open, changes requested, merged, closed) is reflected on the item
 - [ ] **LINK-06**: Continuous-integration status for a task's branch is visible on its board item
@@ -247,7 +247,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | WORK-08 | Phase 2 | Complete |
 | LINK-01 | Phase 2 | Complete |
 | LINK-02 | Phase 7 | Complete |
-| LINK-03 | Phase 7 | Pending |
+| LINK-03 | Phase 7 | Complete |
 | LINK-04 | Phase 7 | Pending |
 | LINK-05 | Phase 7 | Pending |
 | LINK-06 | Phase 7 | Pending |

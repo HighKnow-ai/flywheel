@@ -31,12 +31,12 @@
     {
       "number": "6",
       "name": "Agents File Their Own Backlog",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "7",
       "name": "The Board Tells The Git Truth",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "8",
@@ -62,12 +62,17 @@
       "number": "11",
       "name": "Ship It",
       "status": "pending"
+    },
+    {
+      "number": "12",
+      "name": "Destructive-gate trust boundary redesign",
+      "status": "complete"
     }
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step (plan phase 6)",
-    "reason": "Phase 6 of 13 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 07 of 13 · 0% · executing"
   },
-  "updated_at": "2026-10-02T04:08:02.165Z"
+  "updated_at": "2026-10-02T08:27:21.474Z"
 }
