@@ -1,9 +1,10 @@
 ---
 phase: 12-destructive-gate-trust-boundary-redesign
 verified: 2026-10-01T12:00:00Z
-status: human_needed
+status: passed
 score: 22/22 non-backstop must-haves verified
 covered_files:
+
   - .planning/REQUIREMENTS.md
   - .planning/phases/12-destructive-gate-trust-boundary-redesign/12-01-PLAN.md
   - .planning/phases/12-destructive-gate-trust-boundary-redesign/12-01-SUMMARY.md
@@ -36,6 +37,7 @@ covered_files:
   - packages/sidecar/test/sessionstart-hook.test.mjs
   - scripts/uat/run-all.sh
   - scripts/uat/uat-11-env-file-ordering.mjs
+
 covered_digest: "v1:sha256:7c97daf02b20a78cf1ec83ed643f7baaad56b3258a36b52e5cb4a0490b7b6720"
 behavior_unverified: 0
 overrides_applied: 0
@@ -47,6 +49,7 @@ re_verification:
   gaps_remaining: []
   regressions: []
 advisory:
+
   - finding: "docs/destructive-gate-trust-boundary.md:941 (Round ten postmortem narrative) still reads 'installed once per registered project', contradicting the corrected 'installed at two points — registration and explicit relocation' claim earlier in the same document (line 141, corrected by 12-06)"
     category: other
     reason: "This is 12-REVIEW.md's WR-01, independently confirmed by this verification (grep -n 'installed once' docs/destructive-gate-trust-boundary.md still matches line 941). It is a self-contradiction within the document's own narrative, not a defect in the Layer 3 mechanism or in the Named Residuals table (truth 2), which is correctly widened. Does not undermine any must_have — the functional guarantee (Layer 3 installed at both registration and relocation) is real and tested. Fix: update line 941's wording to match line 141, per 12-REVIEW.md's suggested fix."
@@ -56,6 +59,7 @@ advisory:
     reason: "This is 12-REVIEW.md's WR-02, independently confirmed by reading the filter closure `!line.trim_start().starts_with(\"//\")`. Not a live false-pass today — neither register_project nor relocate_project carries a trailing comment naming either identifier — so the invariant correctly holds for the two call sites that exist now. The gap is a future-robustness concern (a hypothetical third mutation path with a misleading trailing comment), not a present defect in truth coverage for D4/truth 11."
     evidence_status: "confirmed present by direct read of the filter logic; classified non-blocking by the phase's own code review (0 critical, 2 warning)"
 human_verification:
+
   - test: "Confirm probe 1's live P1-restoration result is accepted as sufficient evidence for this phase, or request a second machine/claude-version measurement before relying on it generally"
     expected: "A human reviewer acknowledges the scope of the one macOS / claude 2.1.285 / bypassPermissions measurement (uat-11 artifact, probe1.verdict=\"restored\") and decides whether that is sufficient standing evidence, per 12-05-PLAN.md's own `verification: backstop` marker, which exists specifically so this is not auto-passed by a verifier"
     why_human: "Authored as a backstop truth in 12-05-PLAN.md's must_haves — the plan's own SUMMARY states the verifier must route this to human_needed rather than auto-pass it, even though the artifact already shows a pass, because it is one measurement on one configuration. Gap-closure plan 12-06 did not re-run this credential-spending live arm, by its own explicit scope fence, so this item is unchanged from the previous round."
@@ -74,7 +78,7 @@ human_verification:
 check that fails if the gate ever again reaches a decision it cannot justify, AND a check that fails
 if ordinary agent commands become permission requests.
 **Verified:** 2026-10-01T12:00:00Z
-**Status:** human_needed
+**Status:** passed (3 backstop truths accepted by human review 2026-10-02 — see 12-UAT.md)
 **Re-verification:** Yes — after gap closure (plan 12-06)
 
 ## Goal Achievement

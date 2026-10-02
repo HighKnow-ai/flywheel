@@ -1,44 +1,44 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 12
-current_phase_name: Destructive-gate trust boundary redesign
-status: executing
-stopped_at: Completed 12-06-PLAN.md
-last_updated: "2026-10-01T11:23:57.083Z"
-last_activity: 2026-10-01
-last_activity_desc: Phase 12 execution started
-state_head: 3c30e616d13936ded653c48fcc57b41098177991
+current_phase: 6
+current_phase_name: Agents File Their Own Backlog
+status: planning
+stopped_at: Phase 12 complete, ready to plan Phase 6
+last_updated: "2026-10-02T04:08:02.132Z"
+last_activity: 2026-10-02
+last_activity_desc: Phase 12 complete, transitioned to Phase 6
+state_head: 3bdeed6b68522d8bcb8c2af1a1f84f8ad61a7523
 progress:
   total_phases: 13
-  completed_phases: 0
+  completed_phases: 6
   total_plans: 158
-  completed_plans: 157
-  percent: 0
+  completed_plans: 158
+  percent: 46
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-23)
+See: .planning/PROJECT.md (updated 2026-10-02)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 12 — Destructive-gate trust boundary redesign
+**Current focus:** Phase 6 — Agents File Their Own Backlog
 
 ## Current Position
 
-Phase: 12 (Destructive-gate trust boundary redesign) — EXECUTING
-Plan: 2 of 6
-Status: Ready to execute
-Last activity: 2026-10-01 — Phase 12 execution started
+Phase: 6 — Agents File Their Own Backlog
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-02 — Phase 12 complete, transitioned to Phase 6
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████░░░░░░] 46% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 143
+- Total plans completed: 149
 - Average duration: —
 - Total execution time: —
 
@@ -51,6 +51,7 @@ Progress: [░░░░░░░░░░] 0%
 | 03 | 38 | - | - |
 | 04 | 16 | - | - |
 | 05 | 50 | - | - |
+| 12 | 6 | - | - |
 
 **Recent Trend:**
 
@@ -524,7 +525,9 @@ Recent decisions affecting current work:
 - ✅ **[Phase 03] RESOLVED by 03-19 (G-03-3).** The destructive gate previously refused rather than asked for every command an agent ran through Bash. `pretooluse-hook.ts` now defers to the shim's own permission socket whenever it can prove the shim will intercept the command (`shimWillIntercept`), denying outright only for the class the shim structurally cannot see. Live-measured this session: a bare `git push --delete` now raises a real `permission_request` carrying `destructiveCategory: branch-deletion`, which never happened before. See the NEW finding immediately below — the full sustained-block-then-deny flow surfaced a SEPARATE, unresolved issue during this same measurement.
 - ⚠️ **[Phase 01] Process defect, will recur every phase needing human verification.** The verifier's `human_needed` branch writes `{phase}-UAT.md`, but `UAT.md` is also declared in `covered_files` and hashed into `covered_digest` — so a verification that asks for human testing invalidates its own fingerprint and reads `stale` forever after. `/gsd-verify-work` then routes to itself, which cannot clear it. Broken this round by regenerating verification with `status: passed` after UAT passed; the durable fix is to stop fingerprinting verify-step *outputs* as verification *inputs*.
 - ⚠️ **[Phase 03] Session-termination finding investigated — root-cause-identified (03-20/03-21).** 03-19's ~15-16s session-termination finding was root-caused by the dedicated follow-up spike it recommended: `03-SESSION-LIFECYCLE-FINDINGS.md` records **Disposition: root-cause-identified**, H1 CONFIRMED — the watchdog's own heartbeat-staleness kill (`DEFAULT_HEARTBEAT_STALE_MS=15000`) correctly reaped an unsupervised session (`--heartbeat=off`: terminated at `elapsed_ms=7397`, `closeOrigin: watchdog-heartbeat-stale`), while a production-shaped `--heartbeat=on` run sustained the block for the full 90s window with zero termination artifacts — the product was never at fault; the prior measurement harness was. Plan 03-21 took Branch B (harness-only doc fix; no change to `watchdog.ts`'s stale-kill condition) and added a repeatable acceptance command (`uat-06-permission-block-lifecycle.mjs --heartbeat=on --answer-after=60000 --decision=deny`, `honoured=true`) proving a supervised session survives a 60+ second unanswered destructive-gate block and honours the eventual answer. **AGNT-07 is NOT Complete**: a separate, broader bypass class was found afterwards (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`) and the requirement was walked back to Gaps Found in `db18b0e`. Still genuinely open per the findings document's own "What this does not claim": reproduction inside a packaged `.app` (only the dev-mode sidecar bundle was driven), on a machine other than the one measured, and against a `claude` version other than 2.1.267 remain untested; H1a (whether 03-19's specific `FLYWHEEL_HEARTBEAT_STALE_MS=120000` override reached the watchdog) was not directly retested with a non-default value.
-- AGNT-07 open: round-six destructive-gate bypass found live and non-destructively (env -S opaque-reparse defeated by backslash-split env, zero human confirmation for a nested altpath payload). See 03-ROUND-SIX-ENV-OPAQUE-REPARSE-BYPASS.md. Needs a round-seven plan before AGNT-07 can close.
+- ✅ **RESOLVED by Phase 12 — AGNT-07's `PATH`-reorder bypass class is closed at a different layer.** The round-six/round-ten bypasses were all variations on one theme: the raw-text classifier in `packages/shim/src/main.rs` can always be out-argued, because it only ever runs if the shim wins a `PATH` name lookup it cannot guarantee winning. Phase 12 stopped trying to win that lookup. Layer 3 (git's own `pre-push` hook, installed via `core.hooksPath`) refuses branch deletion, force-push and history rewrite from inside the real `git` process, after `PATH` resolution, with the shim absent from `PATH` entirely — and `packages/shim/src/main.rs` is now fenced by a committed string-literal baseline test so the classifier cannot be quietly widened for an eleventh round. 22/22 non-backstop truths verified; three live-session truths accepted by human review 2026-10-02.
+- ⚠️ **[Phase 12] Four destructive categories are still Layer-2-only.** `hard-reset`, `force-clean`, `recursive-delete` and `default-branch-push` have no git-native interception layer, so they still rest on P1 — the premise Phase 12 proved Flywheel cannot guarantee by default. The `SessionStart`/`CLAUDE_ENV_FILE` hook restores P1 by construction and measured `restored` live, but on one macOS machine against `claude 2.1.285` in `bypassPermissions`, with two upstream caveats still open (`anthropics/claude-code#27987` sourcing bug on some builds; `anthropics/claude-code#19357` contradictory official docs, closed "not planned"). Either a second interception layer or a second independent measurement is owed before these four can be called closed.
+- ⚠️ **[Phase 12] Layer 3 can be silently removed and the product does not say so.** A competing `core.hooksPath`, a rewritten `pre-push` hook, or a pre-existing non-Flywheel hook (which makes install *refuse*, while registration still succeeds) all leave a project ungated. Every case is deliberate and documented in the trust-boundary document's Named Residuals table, but none of it is visible in the UI — the board should be able to tell the user a project's gate is not installed.
 - [Phase 03] scripts/uat/run-all.sh failed 4/6 scriptable items (UAT 3, 5, 6a, 6b) when run once as plan 03-34's own end-of-phase regression gate. This plan's diff (test-corpus + docs only) cannot plausibly cause a live-claude-session failure; judged pre-existing flakiness matching the phase's repeated 03-24/03-26/03-29/03-30/03-32 pattern, per 03-34-SUMMARY.md. Next phase verification should judge whether this needs a dedicated live-session investigation before AGNT-07 closes. See WINDOWS.md entry 11.
 - Live gate (uat-08-socratic-authoring.mjs) now PASSES: run 01M3QQQM4GAYB2Y9RQMJDRWAX0 exited 0 on 2026-09-30 — the first clean live pass the phase has produced. SHAPE-01 challenged=true noWorkPlanned=refused; SHAPE-02 board-counts delta=6 (before epics:0/tasks:0/criteria:0, after epics:1/tasks:1/criteria:4) via acceptPath=task-subtree; SHAPE-03/04 reject and amend each exercised individually; SHAPE-05 informational (needs a second session, proven structurally by authoring_acceptance.rs::criterion_4_*). The answer-bank fallback ratio was 0/9 — nine real developer answers, zero generic fallbacks, against 6/6 generic the run before. Enabled by three instrument closures (260929-lq1 stale-snapshot decision targets; 260929-nxq the question extractor and withheld-consent classifier plus SHAPE-02's board-row delta; 260929-p61 the developer-answer handoff that made the answer bank unreachable from the live arm). The 2026-09-29 backend_refusal/invalid_request death at the distillation turn did NOT recur and is judged transient. REMAINING: the SHAPE-01 challenge-quality and SHAPE-03 draft-usefulness verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md are still UNJUDGED — a human read of the conversation, which no script can certify.
 
@@ -553,6 +556,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-01T11:23:56.949Z
-Stopped at: Completed 12-06-PLAN.md
+Last session: 2026-10-02T04:10:59.222Z
+Stopped at: Phase 12 complete, ready to plan Phase 6
 Resume file: None

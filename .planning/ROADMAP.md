@@ -68,6 +68,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 10: Fleet Supervision Across Every Project** - Answer "what is every agent everywhere doing, and what needs me?" in one glance
 - [ ] **Phase 10.1: Visual polish: brand assets and confirmed motion** (INSERTED) - A bolder, more modern direction; Flywheel wears its own mark and moves the way its contract says it moves
 - [ ] **Phase 11: Ship It** - Install Flywheel like any Mac app; another developer builds it from source
+- [x] **Phase 12: Destructive-gate trust boundary redesign** - Close the destructive-command gate's trust hole at a layer the developer's login shell cannot reorder (completed 2026-10-02)
 
 ## Phase Details
 
@@ -989,6 +990,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
+| 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
 
 ### Phase 12: Destructive-gate trust boundary redesign
 
@@ -1033,7 +1035,7 @@ shape is kept at `packages/sidecar/test/fixtures/real-shell-snapshot-mise-zinit.
 
 **Requirements**: AGNT-07, BOARD-10 (the install point is BOARD-10's register-project path, and — from gap-closure plan 12-06 — every other path that can change a project's `repo_path`)
 **Depends on:** Phase 11
-**Plans:** 6/6 plans executed (12-06 is gap closure for 12-VERIFICATION truth 11 / CR-01)
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**

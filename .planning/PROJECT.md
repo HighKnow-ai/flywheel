@@ -59,6 +59,26 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
   unchanged across sessions. **This is the phase that makes the core-value corollary true rather than
   merely intended** — it took a gap-closure round (plans 04-15/04-16) to get there.
 
+- ✓ **The destructive-command gate no longer rests on a premise Flywheel cannot keep** — Phase 12. The
+  gate's load-bearing premise P1 ("Flywheel's shim directory is position 0 of the `PATH` of the process
+  that runs the command") was found unachievable: Claude Code runs every agent `Bash` command in a shell
+  that first sources a snapshot built from the developer's own login shell, and that init rewrites `PATH`
+  from scratch. Rather than harden the classifier an eleventh time, the phase moved interception to a
+  layer the login shell cannot reorder — Layer 3, git's own `pre-push` hook installed via
+  `core.hooksPath`. A real `git push origin --delete`, a real force-push and a history rewrite are now
+  refused before any ref reaches the remote **with the shim absent from `PATH` entirely**, while ordinary
+  fast-forward pushes, `git status` and `git --version` stay untouched, and a push from the developer's
+  own terminal outside Flywheel's worktree root is never gated. A detected destructive push becomes a
+  real permission request whose allow actually completes the push and whose deny leaves the remote ref
+  unchanged; with no permission socket it still fails closed. The layer is installed at **every** path
+  that can change a project's `repo_path` (registration and explicit relocation), enforced by a source
+  invariant that fails if a third mutation path ever skips it. 22/22 non-backstop truths verified; the
+  three live-session truths were routed to a human by design and accepted on 2026-10-02.
+  **The lesson is methodological:** round ten passed every offline test it had and still bricked the
+  product by turning `git --version` into a permission request, so this phase's acceptance clause was
+  deliberately two-sided — a check that fails if the gate decides something it cannot justify, AND a
+  check that fails if ordinary commands become permission requests.
+
 ### Active
 
 - [ ] Board-native work model: epics, tasks and issues are the primary artifact, replacing `.planning/` files as the store of record for phase structure
@@ -75,24 +95,31 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
   `cursor_resume.rs`). **The generic trigger abstraction is NOT built** — no scheduler crate is
   vendored and no trigger type is stubbed, so schedule-as-trigger-source is still a retrofit rather
   than the drop-in the architecture constraint requires. Close this before the automations milestone.
-- [ ] Cap the epic roster before an agent can create epics — **emerged in Phase 1.** `epic_roster`
-  deliberately returns every epic in a project, exempt from the `DEFAULT_LIMIT`/`MAX_LIMIT` cap
-  (`01-SECURITY.md` AR-01-04). It is safe only because one human creates epics one at a time; it
-  becomes an unbounded response the moment an agent or a bulk import gets that path. Recorded here
-  rather than left as an accepted-risk row, because the trigger is a scheduled later phase.
 - [ ] Bound the context packet before task histories get long — **emerged in Phase 4.**
   `context_packet.rs`'s `SUMMARIES_SQL` reads every summary and decision for a task with no cap
   (`04-VERIFICATION.md`, Anti-Patterns). Reconstitution is deterministic but has no tested scale
   ceiling, so a long-lived task's packet grows without bound — which would degrade the exact
   mechanism Phase 4 just validated. Not a correctness bug today; it is the scale ceiling that makes
   `/clear` stop being free.
-- [ ] Decide what `mark_abandoned` owes the board — **emerged in Phase 4.** Natural close and
-  Stop/Discard now write a summary in the same transaction as the terminal status, but
-  `mark_abandoned` (the launch reconciler's verb for runs whose app died) is a third terminal path
-  that opens its own transaction and writes no summary. Phase 4 deliberately left it alone and said
-  so. The open question is genuine rather than an oversight: a reconciler marking a process nobody
-  watched die may have no session worth summarizing at all. Answer it in a phase that can reason
-  about reconciliation, not as a gap-closure edit.
+
+- [ ] Four destructive categories are still Layer-2-only — **emerged in Phase 12.** Layer 3 removed the
+  `PATH`-precedence dependence for the three remote-reaching categories it covers, but `hard-reset`,
+  `force-clean`, `recursive-delete` and `default-branch-push` are still guarded only by the shim, and
+  therefore still rest on the P1 premise this phase proved unachievable *by default*. `CLAUDE_ENV_FILE`
+  (the `SessionStart` hook from plan 12-03) is the general PATH-ownership fix that restores P1 by
+  construction, and plan 12-05's live run promoted it from `[CITED]` to `[VERIFIED]` — but scoped to one
+  measurement: one macOS machine, `claude 2.1.285`, `bypassPermissions`. Two caveats stay open and are
+  recorded as the mechanism's reopen triggers: an upstream report that the file is written but never
+  sourced on some builds (`anthropics/claude-code#27987`, Windows, unconfirmed on macOS), and Anthropic's
+  own Settings and Hooks guides describing `CLAUDE_ENV_FILE`'s role in contradictory terms
+  (`anthropics/claude-code#19357`, closed "not planned"). These four categories want either a second
+  non-`PATH` interception layer or a second independent measurement before they can be called closed.
+- [ ] Name the `core.hooksPath` override as an accepted risk the user can see — **emerged in Phase 12.**
+  A developer (or a tool) that sets a competing `core.hooksPath`, or rewrites the generated `pre-push`
+  hook, silently removes Layer 3; install also *refuses* outright when a non-Flywheel hook is already
+  present, and registration still succeeds in that case. All of this is correct and deliberate, and all
+  of it is recorded in the trust-boundary document's Named Residuals table — but none of it is visible
+  in the product. The board should be able to tell the user that a project's gate is not installed.
 
 ### Out of Scope
 
@@ -158,6 +185,9 @@ explicitly left to the competitive and architecture research to argue.
 | Multi-actor identity, append-only event log, generic trigger abstraction in v1 schema | The three retrofits that would otherwise be structural rewrites when teams, relay sync, and automations arrive | ◐ 2 of 3 landed (Phase 1). Identity and event log ship and are test-proved; the trigger abstraction was not built and remains a genuine retrofit risk |
 | Open desktop / paid cloud | Adoption via OSS desktop; monetise the collaboration layer that only makes sense hosted | — Pending |
 | Name: Flywheel, not Harness | Harness.io is a large incumbent in the identical category; Flywheel's only namesake is in an unrelated industry, and it names the thesis | — Pending |
+| Move destructive-command interception to a layer the login shell cannot reorder | The gate's P1 premise (Flywheel's shim wins `PATH[0]`) is not achievable by any mechanism Flywheel controls — Claude Code sources a snapshot of the developer's own login shell, which rewrites `PATH` from scratch. Ten rounds of hardening the raw-text classifier could not fix a premise; a design change could | ✓ Validated (Phase 12) — Layer 3, git's own `pre-push` hook installed via `core.hooksPath`, refuses branch deletion, force-push and history rewrite with the shim absent from `PATH` entirely. P1 is now documented as unachievable rather than load-bearing, and the shim's classifier is fenced by a string-literal baseline test so it cannot be quietly widened again |
+| Accept the `core.hooksPath` override as a named residual rather than adding another raw-text check | Adding a companion check to the shim would have widened exactly the classifier this phase was fencing off, to defend against a developer deliberately disabling their own gate | ✓ Shipped as an ACCEPT ruling (Phase 12), structurally fenced — the baseline-pin test fails if the classifier grows, so the residual cannot be silently traded for scope creep. Still owed: surfacing it in the product, not only in the document |
+| Two-sided acceptance for any gate change | Round ten passed every offline test it had and still bricked the product by turning `git --version` into a permission request. One-sided verification is not sufficient where a false positive is as damaging as a false negative | ✓ Validated (Phase 12) — the phase's acceptance clause required both a check that fails if the gate decides something it cannot justify and a check that fails if ordinary commands become permission requests; the live run asserted `git --version` stays ordinary as a hard assert, never a recordable outcome |
 | Build-vs-integrate for the PM core is deliberately open | Highest-leverage architectural fork; deferred to research rather than decided on instinct | ✓ Resolved by Phase 1 — **build**. The PM core is a Rust/`rusqlite` board owning its own schema, migrations and event log. Decided by shipping it, not by a separate research round; the integrate option is now closed without having been separately argued |
 
 ## Evolution
@@ -179,9 +209,12 @@ This document evolves at phase transitions and milestone boundaries.
 5. Update Context with current state
 
 ---
-*Last updated: 2026-09-23 after Phase 4*
+*Last updated: 2026-10-02 after Phase 12*
 
-> Note: this file was last evolved after Phase 1; Phases 2 and 3 completed without a
-> PROJECT.md evolution pass, so their requirement and decision outcomes are not yet
-> reflected above. Worth a catch-up read of `02-VERIFICATION.md` and `03-VERIFICATION.md`
-> before the next milestone review.
+> Note: Phases 2, 3 and 5 completed without a full PROJECT.md evolution pass, so their
+> requirement and decision outcomes are not yet reflected above — except for the two Active
+> requirements Phase 5 actually closed (`epic_roster`'s unbounded read, by plan 05-04; and what
+> `mark_abandoned` owes the board, by plan 05-09), which were removed from Active during the
+> Phase 12 transition because leaving them listed was actively misleading. Worth a catch-up read
+> of `02-VERIFICATION.md`, `03-VERIFICATION.md` and `05-VERIFICATION.md` before the next
+> milestone review.
