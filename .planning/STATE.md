@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: The Board Tells The Git Truth
 status: executing
-stopped_at: Phase 7 context gathered
-last_updated: "2026-10-02T07:20:51.639Z"
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-10-02T07:47:31.239Z"
 last_activity: 2026-10-02
-last_activity_desc: Phase 06 complete, transitioned to Phase 7
-state_head: 274ac71de1cb5f3c99a9463743001257c72de0e3
+last_activity_desc: Phase 07 execution started
+state_head: 3f54a2d585bc9c00705c0075bc52afd13e9d110e
 progress:
   total_phases: 13
-  completed_phases: 2
+  completed_phases: 0
   total_plans: 167
-  completed_plans: 158
-  percent: 15
+  completed_plans: 159
+  percent: 0
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-02)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 7 — The Board Tells The Git Truth
+**Current focus:** Phase 07 — The Board Tells The Git Truth
 
 ## Current Position
 
-Phase: 07 (The Board Tells The Git Truth) — READY TO EXECUTE
-Plan: Not started
+Phase: 07 (The Board Tells The Git Truth) — EXECUTING
+Plan: 2 of 9
 Status: Ready to execute
-Last activity: 2026-10-02 — Phase 06 complete, transitioned to Phase 7
+Last activity: 2026-10-02 — Phase 07 execution started
 
-Progress: [██░░░░░░░░] 15% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
+Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
 
 ## Performance Metrics
 
@@ -218,6 +218,7 @@ Progress: [██░░░░░░░░] 15% — 6 of 13 phases complete (158/
 | Phase 12 P04 | 31 min | 2 tasks | 4 files |
 | Phase 12 P05 | 12 min | 2 tasks | 3 files |
 | Phase 12 P06 | 35 min | 3 tasks | 4 files |
+| Phase 07 P01 | 35min | 3 tasks | 25 files |
 
 ## Accumulated Context
 
@@ -499,6 +500,8 @@ Recent decisions affecting current work:
 - [Phase 12]: [Phase 12]: The pre-push hook's ask branch continues to the next stdin line on allow rather than exiting, so a multi-ref push raises a separate permission question per destructive ref instead of stopping after the first allow.
 - [Phase 12]: The CLAUDE_ENV_FILE ordering claim is promoted from [CITED] to [VERIFIED] (2026-10-01, claude 2.1.285, bypassPermissions, macOS) via scripts/uat/uat-11-env-file-ordering.mjs's live run: P1 restored, git --version stayed ordinary, FLYWHEEL_PERMISSION_SOCKET reached the command shell. The SessionStart residual row is narrowed to its two remaining open caveats (Windows sourcing bug, docs self-contradiction).
 - [Phase 12]: Shared install_layer3_pre_push_gate helper renders the Layer 3 install outcome for both register_project and relocate_project, closing the relocation Layer 3 gap (12-VERIFICATION truth 11, 12-REVIEW CR-01).
+- [Phase 07]: start_git_truth_scheduler is async, driven from one tauri::async_runtime::spawn block (not a sync fn that internally block_on's) — tokio-cron-scheduler's API is async; nesting block_on inside an already-spawned task risks a panic under a multi-thread runtime
+- [Phase 07]: PorcelainEntry now derives Serialize so GitFacts (which embeds it) can derive Serialize, matching drift.rs's shape — the Tauri boundary still projects through a DTO (GitFactsDto reuses the existing PorcelainEntryDto), so the DTO-at-the-boundary convention is unchanged
 
 ### Pending Todos
 
@@ -557,6 +560,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-02T06:04:56.149Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-the-board-tells-the-git-truth/07-CONTEXT.md
+Last session: 2026-10-02T07:47:31.085Z
+Stopped at: Completed 07-01-PLAN.md
+Resume file: None

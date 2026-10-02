@@ -45,14 +45,14 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 ### Git & Forge Linkage
 
 - [x] **LINK-01**: Every task is bound to exactly one branch whose name derives from the task identifier, so the branch is recognisable from the command line without Flywheel
-- [ ] **LINK-02**: Every board item shows its branch, its commits, and its current ahead/behind position relative to its integration target
+- [x] **LINK-02**: Every board item shows its branch, its commits, and its current ahead/behind position relative to its integration target
 - [ ] **LINK-03**: Commits produced by an agent carry the task identifier in a commit-message trailer, so `git log` alone reveals which board item produced any change
 - [ ] **LINK-04**: User can navigate from a branch name or a commit hash back to the originating board item
 - [ ] **LINK-05**: A task's pull or merge request is linked to its board item, and the request's state (open, changes requested, merged, closed) is reflected on the item
 - [ ] **LINK-06**: Continuous-integration status for a task's branch is visible on its board item
 - [ ] **LINK-07**: Board status transitions follow git and forge state — opening a pull request moves the task to In Review, merging it moves the task to Done
 - [ ] **LINK-08**: Flywheel works against GitHub and GitLab, and degrades cleanly to local-only git when no forge is configured
-- [ ] **LINK-09**: User can see uncommitted changes in a task's worktree from the board without leaving the application
+- [x] **LINK-09**: User can see uncommitted changes in a task's worktree from the board without leaving the application
 - [ ] **LINK-10**: Work performed outside Flywheel on a task's branch — a manual commit from a terminal — is detected and reflected on the board item, never silently overwritten
 - [ ] **LINK-11**: User can open a task's worktree in their own editor or terminal in one action
 
@@ -246,14 +246,14 @@ Which phases cover which requirements. Populated during roadmap creation.
 | WORK-07 | Phase 10 | Pending |
 | WORK-08 | Phase 2 | Complete |
 | LINK-01 | Phase 2 | Complete |
-| LINK-02 | Phase 7 | Pending |
+| LINK-02 | Phase 7 | Complete |
 | LINK-03 | Phase 7 | Pending |
 | LINK-04 | Phase 7 | Pending |
 | LINK-05 | Phase 7 | Pending |
 | LINK-06 | Phase 7 | Pending |
 | LINK-07 | Phase 7 | Pending |
 | LINK-08 | Phase 7 | Pending |
-| LINK-09 | Phase 7 | Pending |
+| LINK-09 | Phase 7 | Complete |
 | LINK-10 | Phase 7 | Pending |
 | LINK-11 | Phase 7 | Pending |
 | PROC-01 | Phase 2 | Complete |

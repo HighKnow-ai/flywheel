@@ -775,14 +775,14 @@ walkthrough.
   4. User commits by hand from his own terminal on a task's branch and Flywheel detects it and reflects it on the board item, never silently overwriting it.
   5. Flywheel works against a GitHub project and a GitLab project and degrades cleanly to local-only git when no forge is configured; from any task the user opens its worktree in his own editor or terminal in one action.
 
-**Plans**: 9 plans in 7 waves (tracer-first; the serial tail is forced by three chokepoint files every plan touches — `adapters/tauri.ts`, `src-tauri/src/main.rs` and `capabilities/default.json`)
+**Plans**: 1/9 plans executed in 7 waves (tracer-first; the serial tail is forced by three chokepoint files every plan touches — `adapters/tauri.ts`, `src-tauri/src/main.rs` and `capabilities/default.json`)
 **UI hint**: yes
 
 Plans:
 
 **Wave 1 — the tracer** *(the thinnest end-to-end slice: a real git read, through a Tauri command, to a section on the item, refreshed by the first scheduler job this codebase has ever started)*
 
-- [ ] 07-01-PLAN.md — Tracer: branch, commits, ahead/behind with its fetch age, and uncommitted changes on the item, kept fresh by one tiered tick (LINK-02, LINK-09)
+- [x] 07-01-PLAN.md — Tracer: branch, commits, ahead/behind with its fetch age, and uncommitted changes on the item, kept fresh by one tiered tick (LINK-02, LINK-09)
 
 **Wave 2** *(three independent expansions off the tracer — no file overlap between them)*
 
@@ -1024,7 +1024,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
-| 7. The Board Tells The Git Truth | 0/TBD | Not started | - |
+| 7. The Board Tells The Git Truth | 1/9 | In Progress|  |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
