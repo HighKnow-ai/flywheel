@@ -9,7 +9,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use core::domain::settings::set_project_forge;
-use core::forge::{forge_for_project, request_for_branch, Forge};
+use core::forge::{forge_for_project, request_for_branch, Forge, ForgeError};
 
 fn run_git(repo: &Path, args: &[&str]) {
     let status = std::process::Command::new("git")
@@ -81,6 +81,31 @@ fn with_sabotaged_forge_clis<T>(f: impl FnOnce(&SabotageDir) -> T) -> T {
     result
 }
 
+/// Set `PATH` to an empty scratch directory (no `gh`/`glab` anywhere on it) for the duration of
+/// `f`, serialized against every other caller in this binary via the same [`ENV_LOCK`], then
+/// restore the original `PATH`. Unlike [`with_sabotaged_forge_clis`] (proves a CLI was or was not
+/// invoked), this proves what happens when the CLI genuinely cannot be found —
+/// `ForgeError::CliNotInstalled`, the typed variant RESEARCH.md open question 3 names, which the
+/// sabotage helper above can never exercise since its stub IS present on `PATH`.
+fn with_empty_path<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempfile::tempdir().expect("failed to create empty scratch PATH dir");
+    let original_path = std::env::var_os("PATH");
+    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
+    // mutates PATH while it's set, and this helper always restores it before returning.
+    unsafe {
+        std::env::set_var("PATH", dir.path());
+    }
+    let result = f();
+    unsafe {
+        match &original_path {
+            Some(p) => std::env::set_var("PATH", p),
+            None => std::env::remove_var("PATH"),
+        }
+    }
+    result
+}
+
 #[test]
 fn no_origin_remote_resolves_to_local_forge() {
     let (conn, _actor_id, project, _repo_dir) = common::seeded_git_project();
@@ -142,5 +167,39 @@ fn stored_github_override_forces_github_path_even_for_self_hosted_host() {
         let _ = request_for_branch(&conn, &project.id, "main");
         assert!(sabotage.invoked("gh"), "the stored 'github' override must dispatch to gh");
         assert!(!sabotage.invoked("glab"), "the 'github' override must never invoke glab");
+    });
+}
+
+#[test]
+fn forced_github_override_with_gh_absent_from_path_yields_cli_not_installed() {
+    let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
+    run_git(repo_dir.path(), &["remote", "add", "origin", "git@github.com:acme/widget.git"]);
+    set_project_forge(&mut conn, &actor_id, &project.id, Some("github"))
+        .expect("set_project_forge should succeed");
+
+    with_empty_path(|| {
+        let err = request_for_branch(&conn, &project.id, "main")
+            .expect_err("gh absent from PATH must be a typed error, never a silent success");
+        assert!(
+            matches!(err, ForgeError::CliNotInstalled { cli: "gh" }),
+            "expected CliNotInstalled, got {err:?}"
+        );
+    });
+}
+
+#[test]
+fn forced_gitlab_override_with_glab_absent_from_path_yields_cli_not_installed() {
+    let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
+    run_git(repo_dir.path(), &["remote", "add", "origin", "git@gitlab.com:acme/widget.git"]);
+    set_project_forge(&mut conn, &actor_id, &project.id, Some("gitlab"))
+        .expect("set_project_forge should succeed");
+
+    with_empty_path(|| {
+        let err = request_for_branch(&conn, &project.id, "main")
+            .expect_err("glab absent from PATH must be a typed error, never a silent success");
+        assert!(
+            matches!(err, ForgeError::CliNotInstalled { cli: "glab" }),
+            "expected CliNotInstalled, got {err:?}"
+        );
     });
 }
