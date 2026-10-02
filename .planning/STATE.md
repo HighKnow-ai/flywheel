@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: The Board Tells The Git Truth
 status: executing
-stopped_at: Completed 07-04-PLAN.md
-last_updated: "2026-10-02T09:24:40.401Z"
+stopped_at: Completed 07-05-PLAN.md
+last_updated: "2026-10-02T09:54:18.006Z"
 last_activity: 2026-10-02
 last_activity_desc: Phase 07 execution started
-state_head: 6f392aada172c7d891f5cc29f5e89cce4b257587
+state_head: 59dbeda935f7b81cd8f8bd2f44fa865631fa5be7
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 167
-  completed_plans: 162
+  completed_plans: 163
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 07 (The Board Tells The Git Truth) — EXECUTING
-Plan: 5 of 9
+Plan: 6 of 9
 Status: Ready to execute
 Last activity: 2026-10-02 — Phase 07 execution started
 
@@ -222,6 +222,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 07 P02 | 37min | 2 tasks | 4 files |
 | Phase 07 P03 | 28min | 3 tasks | 18 files |
 | Phase 07 P04 | 24min | 3 tasks | 11 files |
+| Phase 07 P05 | 32 | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -509,6 +510,7 @@ Recent decisions affecting current work:
 - [Phase 07]: uninstall_pre_push_hook/uninstall_commit_msg_hook now each remove only their own hook file and unset core.hooksPath only when neither marked hook remains — Required for correct coexistence once both hooks install from the same call site; the prior pre-push-only uninstall never deleted its file at all
 - [Phase 07]: ForgeState::None/CiResult::None exist in the forge model for completeness but are never constructed by either normalize() -- "no request" is Option::None at the dispatch layer, not Some(ForgeRequest{state: ForgeState::None}). — gh pr list --state all returns an empty JSON array with exit 0 for a branch with no PR, so the no-request path never depends on interpreting a non-zero exit as absence.
 - [Phase 07]: 07-04: worktree-open command templates (D-130) are global settings keyed off domain::worktree.rs, with resolve_open_argv splitting on whitespace and substituting the path inside one argv element — never a shell.
+- [Phase 07]: D-127/D-128 round-trip resolver: classify() gates git, resolve_identifier() reads fresh every time, no sha index anywhere
 
 ### Pending Todos
 
@@ -567,6 +569,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-02T09:24:40.244Z
-Stopped at: Completed 07-04-PLAN.md
+Last session: 2026-10-02T09:54:17.831Z
+Stopped at: Completed 07-05-PLAN.md
 Resume file: None
