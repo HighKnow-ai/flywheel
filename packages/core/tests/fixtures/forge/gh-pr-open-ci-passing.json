@@ -1,0 +1,36 @@
+[
+  {
+    "number": 42,
+    "state": "OPEN",
+    "url": "https://github.com/acme/widget/pull/42",
+    "title": "Add retry logic to the worker pool",
+    "isDraft": false,
+    "reviewDecision": "",
+    "mergedAt": null,
+    "closedAt": null,
+    "baseRefName": "main",
+    "createdAt": "2026-09-20T10:15:00Z",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-20T10:20:00Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/acme/widget/actions/runs/111/job/222",
+        "name": "build",
+        "startedAt": "2026-09-20T10:18:00Z",
+        "status": "COMPLETED",
+        "workflowName": "CI"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-20T10:21:00Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/acme/widget/actions/runs/111/job/223",
+        "name": "test",
+        "startedAt": "2026-09-20T10:18:00Z",
+        "status": "COMPLETED",
+        "workflowName": "CI"
+      }
+    ]
+  }
+]

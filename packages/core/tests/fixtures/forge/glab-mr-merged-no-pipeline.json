@@ -1,0 +1,15 @@
+{
+  "id": 77701234,
+  "iid": 1899,
+  "state": "merged",
+  "title": "Upgrade the migration runner to rusqlite_migration 2.6",
+  "web_url": "https://gitlab.com/acme/widget/-/merge_requests/1899",
+  "source_branch": "flywheel/fly-150-migration-runner",
+  "target_branch": "main",
+  "created_at": "2026-06-02T09:30:00.000Z",
+  "merged_at": "2026-06-03T16:45:00.000Z",
+  "closed_at": "2026-06-03T16:45:00.000Z",
+  "detailed_merge_status": "merged",
+  "merge_when_pipeline_succeeds": false,
+  "head_pipeline": null
+}
