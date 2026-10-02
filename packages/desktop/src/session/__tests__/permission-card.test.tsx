@@ -46,6 +46,10 @@ vi.mock("../../adapters/tauri", () => ({
   // delegated through the same one mock for the same reason every other adapter function here is.
   agentRunsForTask: (taskId: string) => invokeCommandMock("agent_runs_for_task", { taskId }),
   worktreeSummary: (taskId: string) => invokeCommandMock("worktree_summary", { taskId }),
+  // `GitFactsSection` (Phase 7 plan 07-01) is the panel's other new section, mounted the same
+  // way as `WorktreeSummary` — mocked here for the same reason `worktreeSummary` is.
+  gitFacts: () => Promise.resolve(null),
+  gitTruthFocusTask: () => Promise.resolve(),
   subscribeBoardChanged: (handler: () => void) => {
     capturedBoardChangedHandler = handler;
     return Promise.resolve(() => {

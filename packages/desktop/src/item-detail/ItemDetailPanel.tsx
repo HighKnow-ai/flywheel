@@ -31,6 +31,7 @@ import { StatusPicker } from "../board/pickers/StatusPicker";
 import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
 import { ActivityTrail } from "./ActivityTrail";
+import { GitFactsSection } from "./GitFactsSection";
 import { RunsSection } from "./RunsSection";
 import { WorktreeSummary } from "./WorktreeSummary";
 
@@ -272,6 +273,8 @@ export function ItemDetailPanel({
           )}
 
           {isTask && <WorktreeSummary taskId={item.id} />}
+
+          {isTask && <GitFactsSection taskId={item.id} />}
 
           {isTask && <RunsSection taskId={item.id} onOpenRun={onOpenRun ?? (() => {})} />}
 

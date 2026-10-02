@@ -11,6 +11,7 @@ import {
   authoringRunForEpic,
   blockedSummary,
   boardRecoverySummary,
+  gitFacts,
   invokeCommand,
   latestAgentRunIdForTask,
   pendingOrphans,
@@ -952,6 +953,45 @@ export function useWorktreeSummary(taskId: string | undefined) {
   return useQuery({
     queryKey,
     queryFn: () => worktreeSummary(taskId as string),
+    enabled: Boolean(taskId),
+  });
+}
+
+/** `useGitFacts`' query key, keyed by `taskId` (Phase 7 plan 07-01, LINK-02/LINK-09). */
+export function gitFactsQueryKey(taskId: string) {
+  return ["git-facts", taskId] as const;
+}
+
+/**
+ * A task's full git truth (LINK-02, LINK-09) — exact structural sibling of [`useWorktreeSummary`]:
+ * its own query key, a single `subscribeBoardChanged` effect that invalidates it, and `enabled:
+ * Boolean(taskId)`. `null` for a task with no worktree yet. Invalidated on `subscribeBoardChanged`
+ * — the scheduler's `board:changed` emit (D-113) is this query's only refresh path; there is no
+ * polling interval and no second push channel here.
+ */
+export function useGitFacts(taskId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = taskId ? gitFactsQueryKey(taskId) : (["git-facts", "none"] as const);
+
+  useEffect(() => {
+    if (!taskId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: gitFactsQueryKey(taskId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [taskId, queryClient]);
+
+  return useQuery({
+    queryKey,
+    queryFn: () => gitFacts(taskId as string),
     enabled: Boolean(taskId),
   });
 }

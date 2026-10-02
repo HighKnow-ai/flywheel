@@ -38,7 +38,10 @@ const PORCELAIN_UNTRACKED_CODE = "??";
  * `C`opied, a merge-conflict code, …) — never a blank cell, never the raw two-letter code. */
 const PORCELAIN_FALLBACK_WORD = "Changed";
 
-function porcelainStatusWord(code: string): string {
+/** Exported so `GitFactsSection.tsx` (Phase 7 plan 07-01, LINK-09) reuses this exact mapping for
+ * the uncommitted-changes view rather than writing a second one (D-42's presentation, applied to
+ * a second surface). */
+export function porcelainStatusWord(code: string): string {
   if (code === PORCELAIN_UNTRACKED_CODE) return "Untracked";
   return PORCELAIN_STATUS_WORDS[code.charAt(0)] ?? PORCELAIN_FALLBACK_WORD;
 }

@@ -46,6 +46,10 @@ vi.mock("../../adapters/tauri", () => ({
     });
   },
   openFolderDialog: () => openFolderDialogMock(),
+  // `ItemDetailPanel`'s `GitFactsSection` (Phase 7 plan 07-01) calls these two directly, not
+  // through `invokeCommand` — mocked here for the same reason `openFolderDialog` is.
+  gitFacts: () => Promise.resolve(null),
+  gitTruthFocusTask: () => Promise.resolve(),
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };

@@ -35,6 +35,10 @@ vi.mock("../../adapters/tauri", () => ({
   // sections call directly, following the same "delegate every named export the code under test
   // actually calls" discipline `session/__tests__/permission-card.test.tsx` established.
   worktreeSummary: (taskId: string) => worktreeSummaryMock(taskId),
+  // `GitFactsSection` (Phase 7 plan 07-01) is the panel's other new section, mounted the same
+  // way as `WorktreeSummary` — mocked here for the same reason `worktreeSummary` is.
+  gitFacts: () => Promise.resolve(null),
+  gitTruthFocusTask: () => Promise.resolve(),
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeAgentEvent: () => Promise.resolve(() => {}),

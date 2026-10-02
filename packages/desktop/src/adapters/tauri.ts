@@ -412,6 +412,51 @@ export async function worktreeRemove(taskId: string): Promise<void> {
 }
 
 /**
+ * One row of a task's commit window (Phase 7 plan 07-01, LINK-02) — mirrors
+ * `commands/git_truth.rs`'s `CommitRowDto` field-for-field.
+ */
+export interface CommitRowDto {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  committedAt: string;
+}
+
+/**
+ * A task's full git truth (Phase 7 plan 07-01, LINK-02/LINK-09) — mirrors
+ * `commands/git_truth.rs`'s `GitFactsDto` field-for-field. `null` for a task with no worktree
+ * yet. `ahead`/`behind` are both `null` together when the comparison target does not resolve
+ * locally (D-116) — never a fabricated `0`.
+ */
+export interface GitFactsDto {
+  branch: string;
+  worktreePath: string;
+  targetRef: string;
+  ahead: number | null;
+  behind: number | null;
+  lastFetchAt: string | null;
+  commits: CommitRowDto[];
+  commitsTruncated: number;
+  uncommitted: PorcelainEntryDto[];
+}
+
+/**
+ * `taskId`'s full git truth, or `null` when the task has no worktree yet. Read-only. Thin typed
+ * wrapper over `git_facts`.
+ */
+export async function gitFacts(taskId: string): Promise<GitFactsDto | null> {
+  return invokeCommand<GitFactsDto | null>("git_facts", { taskId });
+}
+
+/**
+ * Declares which task's item detail panel is currently open (D-114's hot-tier "open panel"
+ * half) — `null` means no panel is open. Thin typed wrapper over `git_truth_focus_task`.
+ */
+export async function gitTruthFocusTask(taskId: string | null): Promise<void> {
+  await invokeCommand<void>("git_truth_focus_task", { taskId });
+}
+
+/**
  * Subscribe to `agent:event`, the Rust core's live push of one normalised agent event at a time
  * (D-32) — the session surface invalidates its windowed read on this, never trusting a streamed
  * event as already-persisted (mirrors `subscribeBoardChanged`'s own D-04 discipline).
