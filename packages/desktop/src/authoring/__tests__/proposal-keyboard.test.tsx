@@ -84,6 +84,15 @@ describe("the proposal tray's keyboard region", () => {
 
     renderWithClient(<SessionSurface agentRunId="run-1" onBack={() => {}} authoringStage="challenge" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument());
+    // The row's accept/reject/amend verbs are gated on `selected`, and `ProposalTray` sets
+    // `selectedId` in an effect that commits a render AFTER the row (and its Accept button) first
+    // appear. Waiting only on the button therefore leaves a window in which a key press lands while
+    // `selectedId` is still null and every verb is gated off — a race this test lost reliably once
+    // the suite grew enough to slow the effect flush. Wait for selection itself, which is what the
+    // test name actually claims. Selection is rendered as the row's focus-ring outline.
+    await waitFor(() =>
+      expect(screen.getByRole("group", { name: /^Proposed task:/ }).style.outline).not.toBe("none"),
+    );
 
     fireEvent.keyDown(window, { key: "a" });
     await waitFor(() =>
