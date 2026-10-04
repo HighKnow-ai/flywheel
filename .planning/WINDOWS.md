@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 16
+open_count: 18
 waived_count: 0
 fixed_count: 9
-total_count: 25
-last_updated: 2026-10-02T11:33:21.016Z
+total_count: 27
+last_updated: 2026-10-04T11:15:20.021Z
 ---
 
 # Broken Windows Ledger
@@ -40,6 +40,8 @@ last_updated: 2026-10-02T11:33:21.016Z
 | 23 | 07 | deviation | packages/core/Cargo.toml |  | 07-03-PLAN.md Task 3's acceptance criterion expects grep -c '^[[bin]]' == 5 after adding forge_probe, but the crate already carried 5 [[bin]] entries before this plan (not 4, per stale 07-RESEARCH.md context); the real post-plan count is 6, verified correct by diff inspection instead. | open |  | 2026-10-02T08:57:28.851Z |  |
 | 24 | 07 | deviation | packages/desktop/src-tauri/capabilities/default.json |  | 07-04-PLAN.md Task 2's acceptance criterion expects grep -c 'shell:allow-execute' == 1, but the baseline file (unchanged by this plan at that location) already carried 2 occurrences (the description prose mentioning the grant, plus the permissions array's identifier) before any edit in this plan, confirmed via git show HEAD; the real invariant (the shell:allow-execute permission object itself, still scoped to only the sidecar binary) was verified directly instead. | open |  | 2026-10-02T09:18:29.852Z |  |
 | 25 | 07 | deviation | packages/desktop/src-tauri/src/scheduler.rs |  | 07-07 Task 3: literal acceptance criterion grep -c 'board:changed' == 2 could not be satisfied without duplicating the event-name literal; the forge job emits through the existing shared emit_board_changed helper (count stays 1), which is the correct architecture per the module's own header comment. | open |  | 2026-10-02T11:33:21.016Z |  |
+| 26 | 07 | deviation | packages/desktop/src-tauri/src/commands/forge.rs |  | forge_open_request takes app: AppHandle in addition to state/task_id (plan text named only state/task_id) — needed to emit board:changed, matching every other mutating command in this codebase (agent_run_stop, criterion_revise); AppHandle is Tauri-injected, never renderer-supplied, so the real invariant (no title/body/branch/target from the renderer) still holds. | open |  | 2026-10-04T11:15:19.850Z |  |
+| 27 | 07 | unrun-verify | packages/core/src/forge/github.rs |  | create_request's live arm (an actual gh pr create / glab mr create against a real authenticated forge) was never exercised — only hermetic argv/stdin construction and tempfile-write tests ran. No disposable forge repo was available in this environment; mirrors 07-03's forge_probe precedent of deferring the live check to a human-invoked command rather than running it during automated verification. | open |  | 2026-10-04T11:15:20.021Z |  |
 
 ````json
 [
@@ -341,6 +343,30 @@ last_updated: 2026-10-02T11:33:21.016Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-02T11:33:21.016Z",
+    "resolved_at": null
+  },
+  {
+    "id": 26,
+    "kind": "deviation",
+    "phase": "07",
+    "file": "packages/desktop/src-tauri/src/commands/forge.rs",
+    "line": null,
+    "description": "forge_open_request takes app: AppHandle in addition to state/task_id (plan text named only state/task_id) — needed to emit board:changed, matching every other mutating command in this codebase (agent_run_stop, criterion_revise); AppHandle is Tauri-injected, never renderer-supplied, so the real invariant (no title/body/branch/target from the renderer) still holds.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-04T11:15:19.850Z",
+    "resolved_at": null
+  },
+  {
+    "id": 27,
+    "kind": "unrun-verify",
+    "phase": "07",
+    "file": "packages/core/src/forge/github.rs",
+    "line": null,
+    "description": "create_request's live arm (an actual gh pr create / glab mr create against a real authenticated forge) was never exercised — only hermetic argv/stdin construction and tempfile-write tests ran. No disposable forge repo was available in this environment; mirrors 07-03's forge_probe precedent of deferring the live check to a human-invoked command rather than running it during automated verification.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-04T11:15:20.021Z",
     "resolved_at": null
   }
 ]
