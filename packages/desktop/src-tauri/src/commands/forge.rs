@@ -26,7 +26,7 @@
 
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::state::AppState;
 
@@ -140,6 +140,104 @@ pub fn forge_request_for_task(
         Err(flywheel_core::forge::ForgeError::MalformedJson { cli, detail }) => {
             eprintln!("forge CLI {cli} returned JSON this module could not read for task {task_id}: {detail}");
             Ok(ForgeReadDto::MalformedJson { cli: cli.to_string() })
+        }
+    }
+}
+
+/// One request draft, projected for the renderer (D-118, phase 07 plan 07-09) — mirrors
+/// `flywheel_core::forge::request_body::RequestDraft` field-for-field.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestDraftDto {
+    pub title: String,
+    pub body: String,
+    pub head_branch: String,
+    pub target_branch: String,
+}
+
+impl From<flywheel_core::forge::request_body::RequestDraft> for RequestDraftDto {
+    fn from(draft: flywheel_core::forge::request_body::RequestDraft) -> Self {
+        Self {
+            title: draft.title,
+            body: draft.body,
+            head_branch: draft.head_branch,
+            target_branch: draft.target_branch,
+        }
+    }
+}
+
+/// Read-only preview of the draft [`forge_open_request`] would send (D-118's "show them the body
+/// first" requirement) — locks the connection and returns
+/// `flywheel_core::forge::request_body::assemble_request_draft`'s own result, calling nothing
+/// else and writing nothing. Pure by construction: its signature takes no title, no body, no
+/// branch — a caller cannot influence what this returns beyond choosing which task to preview.
+#[tauri::command]
+pub fn forge_request_draft(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<RequestDraftDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let draft = flywheel_core::forge::request_body::assemble_request_draft(&conn, &task_id)
+        .map_err(|e| e.to_string())?;
+    Ok(RequestDraftDto::from(draft))
+}
+
+/// Open a pull/merge request for `task_id` (D-118) — the ONE action in this product that
+/// publishes board content to a possibly public forge, and the one Tauri command this plan adds
+/// alongside the read-only preview above. **Accepts no title and no body from the renderer**: it
+/// re-assembles the draft itself with the SAME `assemble_request_draft` function
+/// [`forge_request_draft`] just showed the user, so the published text is the previewed text by
+/// construction (T-07-09-01), never by trust. Writes no status of its own — the move to In
+/// Review is plan 07-07's poll observing the new request through the one edge detector (D-121);
+/// this command's only side effect beyond the forge call itself is the board-refresh event
+/// emitted below, which lets the section and the board refresh through the existing invalidation
+/// path.
+/// `ForgeError` maps onto the same four categories [`forge_request_for_task`] already uses,
+/// packed into the `Err(String)` this command's signature is fixed to as `"<category>:<cli>"` —
+/// never the CLI's raw stderr, which stays in the `eprintln!` below (T-07-09-08, mirroring this
+/// module's own header comment).
+#[tauri::command]
+pub fn forge_open_request(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+) -> Result<ForgeRequestDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+
+    let draft = flywheel_core::forge::request_body::assemble_request_draft(&conn, &task_id)
+        .map_err(|e| e.to_string())?;
+
+    let project_id: String = conn
+        .query_row("SELECT project_id FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    let result = flywheel_core::forge::create_request(&conn, &project_id, &draft);
+    drop(conn);
+
+    match result {
+        Ok(request) => {
+            app.emit(
+                "board:changed",
+                serde_json::json!({ "entity": "task", "id": task_id }),
+            )
+            .ok();
+            Ok(ForgeRequestDto::from(&request))
+        }
+        Err(flywheel_core::forge::ForgeError::CliNotInstalled { cli }) => {
+            Err(format!("cliNotInstalled:{cli}"))
+        }
+        Err(flywheel_core::forge::ForgeError::CliNotAuthenticated { cli }) => {
+            Err(format!("cliNotAuthenticated:{cli}"))
+        }
+        Err(flywheel_core::forge::ForgeError::CliFailed { cli, stderr: cli_err_text }) => {
+            eprintln!("forge CLI {cli} failed opening a request for task {task_id}: {cli_err_text}");
+            Err(format!("cliFailed:{cli}"))
+        }
+        Err(flywheel_core::forge::ForgeError::MalformedJson { cli, detail }) => {
+            eprintln!(
+                "forge CLI {cli} returned JSON this module could not read opening a request for task {task_id}: {detail}"
+            );
+            Err(format!("malformedJson:{cli}"))
         }
     }
 }

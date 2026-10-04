@@ -211,6 +211,8 @@ fn main() {
             commands::forge::board_forge_flags,
             commands::forge::settings_set_project_forge,
             commands::forge::project_forge_overrides,
+            commands::forge::forge_request_draft,
+            commands::forge::forge_open_request,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

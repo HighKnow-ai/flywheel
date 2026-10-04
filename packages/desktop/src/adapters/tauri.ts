@@ -1254,3 +1254,36 @@ export interface ProjectForgeOverrideDto {
 export async function projectForgeOverrides(): Promise<ProjectForgeOverrideDto[]> {
   return invokeCommand<ProjectForgeOverrideDto[]>("project_forge_overrides");
 }
+
+/**
+ * The request draft a human previews before Flywheel opens a request on the forge (Phase 7 plan
+ * 07-09, D-118) — mirrors `commands/forge.rs`'s `RequestDraftDto` field-for-field.
+ */
+export interface RequestDraftDto {
+  title: string;
+  body: string;
+  headBranch: string;
+  targetBranch: string;
+}
+
+/**
+ * `taskId`'s deterministic request draft (Phase 7 plan 07-09, D-118) — read-only, the exact text
+ * `forgeOpenRequest` will publish if confirmed. Thin typed wrapper over `forge_request_draft`.
+ */
+export async function forgeRequestDraft(taskId: string): Promise<RequestDraftDto> {
+  return invokeCommand<RequestDraftDto>("forge_request_draft", { taskId });
+}
+
+/**
+ * Open a pull/merge request for `taskId` (Phase 7 plan 07-09, D-118) — the one irreversible
+ * outward action this plan adds. Takes a task id alone: there is no title, body, branch or
+ * target parameter for a caller to supply, which is what makes the published text equal the
+ * previewed text by construction (T-07-09-01) rather than by trust. Thin typed wrapper over
+ * `forge_open_request`. On failure the rejection's message is one of `"cliNotInstalled:<cli>"`,
+ * `"cliNotAuthenticated:<cli>"`, `"cliFailed:<cli>"` or `"malformedJson:<cli>"` — the same four
+ * categories `forgeRequestForTask` surfaces as `outcome`, packed into the `Err(String)` this
+ * command's signature is fixed to. Never the CLI's raw stderr (T-07-09-08).
+ */
+export async function forgeOpenRequest(taskId: string): Promise<ForgeRequestDto> {
+  return invokeCommand<ForgeRequestDto>("forge_open_request", { taskId });
+}
