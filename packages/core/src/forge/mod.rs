@@ -184,3 +184,29 @@ pub fn request_for_branch(
         Forge::GitLab => gitlab::request_for_branch(&repo_path, branch),
     }
 }
+
+/// [`request_for_branch`]'s dispatch sibling (D-117, D-118): resolves `project_id`'s effective
+/// forge, returns a no-forge-configured error for `Forge::Local` **without spawning any process
+/// at all**, and otherwise delegates to the matching adapter's own `create_request`. This is one
+/// of exactly two call sites of either adapter's `create_request` in the whole workspace — the
+/// other is the one Tauri command that calls this function — so an agent, a scheduler job or any
+/// MCP tool reaching `create_request` would have to add a THIRD (D-118 rejected the agent path
+/// explicitly; `forge_degrade.rs`'s and `supervisor_cwd.rs`'s own `<verify>` gates are what this
+/// crate already uses to assert an absence like this one, extended here to this function).
+pub fn create_request(
+    conn: &Connection,
+    project_id: &str,
+    draft: &request_body::RequestDraft,
+) -> Result<ForgeRequest, ForgeError> {
+    let (forge, repo_path) = resolve_forge_and_repo_path(conn, project_id)
+        .map_err(|e| ForgeError::CliFailed { cli: "flywheel", stderr: e.to_string() })?;
+
+    match forge {
+        Forge::Local => Err(ForgeError::CliFailed {
+            cli: "flywheel",
+            stderr: format!("project {project_id:?} has no forge configured — cannot open a request"),
+        }),
+        Forge::GitHub => github::create_request(&repo_path, draft),
+        Forge::GitLab => gitlab::create_request(&repo_path, draft),
+    }
+}

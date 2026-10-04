@@ -20,11 +20,13 @@
 //! Every field is read defensively off a `serde_json::Value`, never a typed `Deserialize`
 //! struct — identical discipline to `github.rs`.
 
+use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output};
 
 use serde_json::Value;
 
+use crate::forge::request_body::RequestDraft;
 use crate::forge::{CiResult, ForgeError, ForgeRequest, ForgeState};
 
 /// The ONE `glab` process construction site in this file. Both [`run_glab`] and the auth-status
@@ -169,4 +171,88 @@ pub fn normalize(list_raw: &[u8], view_raw: &[u8]) -> Result<Option<ForgeRequest
             .unwrap_or("")
             .to_string(),
     }))
+}
+
+/// Build the `glab mr create` argument vector for `draft` given the path the description was
+/// already written to — pure, no I/O, so a test can assert the exact argv [`create_request`]
+/// builds without spawning `glab`. The body itself is never an element of this vector
+/// (T-07-09-01/T-07-09-02): only the path it was written to is. `--yes` so the call never blocks
+/// on an interactive prompt inside this background-capable process. `pub` (rather than
+/// crate-private) solely so `tests/forge_normalize.rs`, an external integration-test binary, can
+/// assert on it hermetically without spawning `glab`.
+pub fn create_request_args(draft: &RequestDraft, description_path: &str) -> Vec<String> {
+    vec![
+        "mr".to_string(),
+        "create".to_string(),
+        "--source-branch".to_string(),
+        draft.head_branch.clone(),
+        "--target-branch".to_string(),
+        draft.target_branch.clone(),
+        "--title".to_string(),
+        draft.title.clone(),
+        "--description-file".to_string(),
+        description_path.to_string(),
+        "--yes".to_string(),
+    ]
+}
+
+/// Write `body` to a fresh owner-only (unix `0o600`) temporary file and return it — factored out
+/// of [`create_request`] so `tests/forge_normalize.rs`, an external integration-test binary, can
+/// assert the body survives this exact write byte-for-byte without spawning `glab` at all.
+/// `pub` for that reason alone.
+pub fn write_description_tempfile(body: &str) -> Result<tempfile::NamedTempFile, ForgeError> {
+    let mut tmp = tempfile::NamedTempFile::new().map_err(|e| ForgeError::CliFailed {
+        cli: "glab",
+        stderr: format!("failed to create a temporary file for the description: {e}"),
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = tmp.as_file().set_permissions(std::fs::Permissions::from_mode(0o600)) {
+            return Err(ForgeError::CliFailed {
+                cli: "glab",
+                stderr: format!("failed to restrict the description temp file's permissions: {e}"),
+            });
+        }
+    }
+
+    tmp.write_all(body.as_bytes()).map_err(|e| ForgeError::CliFailed {
+        cli: "glab",
+        stderr: format!("failed to write the description to a temp file: {e}"),
+    })?;
+
+    Ok(tmp)
+}
+
+/// Open a merge request on GitLab (D-118) by writing `draft.body` to an owner-only temporary
+/// file and passing its path — `glab mr create` has no stdin-reading form, unlike `gh pr
+/// create`'s `--body-file -` (the same reasoning `credentials.rs` records against passing a
+/// secret where a process listing would disclose it, applied here to the body instead). The
+/// temporary file is removed before this function returns, on every path — success or error —
+/// because its binding's scope ends (via an explicit `drop`) before the result is evaluated.
+/// Pushes no branch and runs no `git` of any kind: a branch the forge does not have yet is
+/// `glab`'s own error, surfaced below as [`ForgeError::CliFailed`]. Reads the created request
+/// back through this adapter's own [`request_for_branch`] so the returned [`ForgeRequest`]
+/// carries the forge's own view of state, number and CI rather than being assumed.
+pub fn create_request(repo_path: &Path, draft: &RequestDraft) -> Result<ForgeRequest, ForgeError> {
+    let tmp = write_description_tempfile(&draft.body)?;
+    let path = tmp.path().to_string_lossy().into_owned();
+
+    let args = create_request_args(draft, &path);
+    let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
+    let create_result = run_glab(repo_path, &args_ref);
+
+    // Remove the temp file now, before this function returns down either path below.
+    drop(tmp);
+
+    create_result?;
+
+    request_for_branch(repo_path, &draft.head_branch)?.ok_or_else(|| ForgeError::CliFailed {
+        cli: "glab",
+        stderr: format!(
+            "glab mr create reported success but no request was found for branch {:?} afterward",
+            draft.head_branch
+        ),
+    })
 }

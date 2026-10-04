@@ -13,6 +13,7 @@
 
 use std::fs;
 
+use core::forge::request_body::RequestDraft;
 use core::forge::{github, gitlab, CiResult, ForgeState};
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -202,4 +203,98 @@ fn gitlab_two_requests_select_newest_deterministically() {
         .expect("expected a request");
     assert_eq!(first.title, "newer");
     assert_eq!(first, second, "two consecutive calls must select the same element");
+}
+
+// ---------------------------------------------------------------------------------------------
+// create_request argv/stdin (T-07-09-01, T-07-09-02) — 07-09-PLAN.md Task 2. No subprocess, no
+// network: `create_request_args` is a pure function, and `write_description_tempfile` is a real
+// file write with no `glab` spawn, so this suite stays hermetic.
+// ---------------------------------------------------------------------------------------------
+
+/// A body deliberately shaped to break a naive implementation: newlines (would truncate a
+/// single-line argv value), a line starting with a hyphen (would be misread as a flag by a
+/// careless shell-out), and backticks (would trigger shell expansion if ever interpolated into a
+/// command string instead of handed over as raw bytes).
+const TRICKY_BODY: &str = "first line\n- looks like a flag\nsecond line with `backticks` inside\n";
+
+fn sample_draft() -> RequestDraft {
+    RequestDraft {
+        title: "Wire the thing up".to_string(),
+        body: TRICKY_BODY.to_string(),
+        head_branch: "flywheel/fly-1-wire-the-thing-up".to_string(),
+        target_branch: "main".to_string(),
+    }
+}
+
+#[test]
+fn github_create_request_args_carries_head_base_title_and_never_the_body() {
+    let draft = sample_draft();
+    let args = github::create_request_args(&draft);
+
+    assert_eq!(
+        args,
+        vec![
+            "pr".to_string(),
+            "create".to_string(),
+            "--head".to_string(),
+            draft.head_branch.clone(),
+            "--base".to_string(),
+            draft.target_branch.clone(),
+            "--title".to_string(),
+            draft.title.clone(),
+            "--body-file".to_string(),
+            "-".to_string(),
+        ]
+    );
+    for arg in &args {
+        assert!(
+            !arg.contains("backticks") && !arg.contains('\n'),
+            "the body must never appear in the argv, found a trace in {arg:?}"
+        );
+    }
+}
+
+#[test]
+fn gitlab_create_request_args_carries_source_target_title_description_path_and_never_the_body() {
+    let draft = sample_draft();
+    let description_path = "/tmp/some-description-file.txt";
+    let args = gitlab::create_request_args(&draft, description_path);
+
+    assert_eq!(
+        args,
+        vec![
+            "mr".to_string(),
+            "create".to_string(),
+            "--source-branch".to_string(),
+            draft.head_branch.clone(),
+            "--target-branch".to_string(),
+            draft.target_branch.clone(),
+            "--title".to_string(),
+            draft.title.clone(),
+            "--description-file".to_string(),
+            description_path.to_string(),
+            "--yes".to_string(),
+        ]
+    );
+    for arg in &args {
+        assert!(
+            !arg.contains("backticks") && !arg.contains('\n'),
+            "the body must never appear in the argv, found a trace in {arg:?}"
+        );
+    }
+}
+
+#[test]
+fn gitlab_description_tempfile_preserves_a_tricky_body_byte_for_byte() {
+    let tmp = gitlab::write_description_tempfile(TRICKY_BODY)
+        .expect("write_description_tempfile should succeed");
+    let on_disk = fs::read_to_string(tmp.path()).expect("failed to read the temp file back");
+    assert_eq!(on_disk, TRICKY_BODY, "the body must survive the write byte-for-byte");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(tmp.path()).expect("failed to stat temp file").permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "the description temp file must be owner-only");
+    }
 }
