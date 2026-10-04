@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: The Board Tells The Git Truth
-status: executing
-stopped_at: Completed 07-08-PLAN.md
-last_updated: "2026-10-02T13:00:50.754Z"
+status: verifying
+stopped_at: Completed 07-09-PLAN.md (last plan of Phase 7)
+last_updated: "2026-10-04T11:17:07.901Z"
 last_activity: 2026-10-02
 last_activity_desc: Phase 07 execution started
-state_head: 2597c5de22121512347b9479129fb9ee0009a7e9
+state_head: b71cbbd7f8497078b11d0bfe9240298d2e2cdb7a
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 167
-  completed_plans: 166
+  completed_plans: 167
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 
 Phase: 07 (The Board Tells The Git Truth) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-02 — Phase 07 execution started
 
 Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
@@ -226,6 +226,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 07 P06 | 38min | 2 tasks | 7 files |
 | Phase 07 P07 | 50min | 3 tasks | 8 files |
 | Phase 07 P08 | 86min | 3 tasks | 18 files |
+| Phase 07 P09 | 55min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -519,6 +520,9 @@ Recent decisions affecting current work:
 - [Phase 07]: Forge edge detector: terminal-state guard once Merged is observed means forward-only also means never un-merging a task — D-121/D-122 require forward-only transitions; once baseline.state == Merged the whole comparison block is skipped for any later observation, including an absent one
 - [Phase 07]: forge_request_for_task checks Forge::Local via forge_for_project before dispatching, so NoForgeConfigured and NoRequest are distinguishable DTO outcomes — request_for_branch's own Ok(None) collapses both cases; D-120's absence path needs them distinguishable even though both currently render identically
 - [Phase 07]: project_forge_overrides added as a read-half command beyond the plan's declared 3 commands — settings_set_project_forge was write-only; the Settings per-project forge select cannot show its current value without a corresponding read
+- [Phase 07]: Preview and send share one assembly function (assemble_request_draft) by construction, so the previewed request body is structurally the published one
+- [Phase 07]: Body transported off argv per-forge: gh pr create reads stdin; glab mr create reads an owner-only (0o600) temp file removed before returning
+- [Phase 07]: forge_open_request packs ForgeError into Err(String) as a stable "<category>:<cli>" string rather than its raw Display, keeping CliFailed's stderr off the IPC boundary
 
 ### Pending Todos
 
@@ -577,6 +581,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-02T13:00:44.565Z
-Stopped at: Completed 07-08-PLAN.md
+Last session: 2026-10-04T11:17:07.756Z
+Stopped at: Completed 07-09-PLAN.md (last plan of Phase 7)
 Resume file: None
