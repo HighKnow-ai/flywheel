@@ -46,7 +46,7 @@ fn a_ci_failure_observation_raises_the_ci_failed_flag() {
         .expect("create_task should succeed");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 1)), &actor_id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 1)), &actor_id, None,
     )
     .expect("observation should apply");
 
@@ -64,7 +64,7 @@ fn a_later_state_changed_observation_recording_a_non_failing_ci_clears_the_flag(
         .expect("create_task should succeed");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 1)), &actor_id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 1)), &actor_id, None,
     )
     .expect("first observation should apply");
     // A second observation recording Open/ChangesRequested against an already-Open baseline
@@ -76,7 +76,7 @@ fn a_later_state_changed_observation_recording_a_non_failing_ci_clears_the_flag(
         &mut conn,
         &task.id,
         Some(&request(ForgeState::ChangesRequested, CiResult::Passed, 1)),
-        &actor_id,
+        &actor_id, None,
     )
     .expect("second observation should apply");
 
@@ -95,7 +95,7 @@ fn a_merge_with_unmet_criteria_raises_the_unmet_criteria_flag_with_its_payload_c
         .expect("create_criterion should succeed");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 7)), &actor_id,
+        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 7)), &actor_id, None,
     )
     .expect("merge observation should apply");
 
@@ -113,7 +113,7 @@ fn a_merge_with_all_criteria_checked_raises_no_unmet_criteria_flag() {
         .expect("create_task should succeed");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 8)), &actor_id,
+        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 8)), &actor_id, None,
     )
     .expect("merge observation should apply");
 
@@ -128,7 +128,7 @@ fn the_result_is_bounded_by_the_requested_limit() {
         let task = create_task(&mut conn, &project.id, &actor_id, &format!("Red build {i}"), None)
             .expect("create_task should succeed");
         apply_forge_observation(
-            &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, i)), &actor_id,
+            &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, i)), &actor_id, None,
         )
         .expect("observation should apply");
     }
@@ -165,7 +165,7 @@ fn a_task_with_only_a_non_failing_observation_and_no_unmet_criteria_raises_no_fl
         .expect("create_task should succeed");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Passed, 9)), &actor_id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Passed, 9)), &actor_id, None,
     )
     .expect("observation should apply");
 

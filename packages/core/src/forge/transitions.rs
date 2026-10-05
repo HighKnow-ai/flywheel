@@ -7,7 +7,14 @@
 //! observed CHANGE against a baseline read from the append-only `events` log, and never
 //! re-asserts a level. That is what makes it structurally incapable of overwriting a manual move
 //! in a loop: once a poll has moved a task to the in-review band, a human moving it back
-//! afterwards stands until the forge state itself changes again, not merely re-observes.
+//! afterwards stands until the forge state itself changes again, not merely re-observes. Across a
+//! window where the caller released its lock between reading a status and writing one (phase 07
+//! plan 07-11's lock-release restructure), edge-triggering alone is not enough — a merge observed
+//! before the release can still land after a manual move inside the window. `expected_status`
+//! (quick task 261005-mn5) closes that gap: a caller with a window passes the status it captured
+//! before releasing the lock, and the status write is refused unless the task is still there when
+//! the write actually runs. That precondition, not edge-triggering by itself, is what makes the
+//! "incapable of overwriting a manual move" claim hold across a lock-release window too.
 //!
 //! Second, it implements **only the two transitions LINK-07 names, and only forward** (D-122):
 //! an opened (or reopened-with-changes-requested) request moves a task into the in-review band,
@@ -40,6 +47,12 @@ pub const EVENT_FORGE_CI_FAILED: &str = "forge.ci_failed";
 /// A merge carried a task to Done while it still had unmet acceptance criteria (D-123) — names
 /// the count; touches no criterion row.
 pub const EVENT_DONE_WITH_UNMET_CRITERIA: &str = "task.done_with_unmet_criteria";
+/// A status write that would otherwise have fired was refused because `expected_status`
+/// (quick task 261005-mn5) no longer matched the task's current status — the trace a human reads
+/// in the activity trail explaining why the card did not move the way the forge observed it
+/// should. Deliberately outside `query::forge::LATEST_FORGE_EVENT_SQL`'s closed list, so it can
+/// never pollute the restart-safe baseline.
+pub const EVENT_FORGE_STATUS_WRITE_SKIPPED: &str = "forge.status_write_skipped";
 
 /// What one call to [`apply_forge_observation`] did. `events_appended` counts only the events
 /// this function itself writes directly (a state-change event, a done-with-unmet-criteria event,
@@ -96,24 +109,39 @@ fn state_changed_label(after: ForgeState, number: Option<i64>) -> String {
 /// identically to a request whose state is "no request" for comparison purposes, EXCEPT that a
 /// baseline already at the merged state is terminal (see module header): nothing, including an
 /// absent request, ever moves a merged task again.
+///
+/// `expected_status` is the compare-and-swap precondition on the status write (quick task
+/// 261005-mn5, D1). `None` is the honest option only for a caller that held its connection
+/// continuously from the read that produced `observed` through this write and therefore has no
+/// lock-release window — the pre-change behaviour, reproduced exactly. `Some(s)` refuses the
+/// status write unless the task is still at `s`, for a caller (the scheduler's forge tick) that
+/// read the status, released its lock, polled a network call, then re-acquired to write — the
+/// status it captured before releasing may no longer be true by the time this function runs.
 pub fn apply_forge_observation(
     conn: &mut Connection,
     task_id: &str,
     observed: Option<&ForgeRequest>,
     actor_id: &str,
+    expected_status: Option<&str>,
 ) -> anyhow::Result<TransitionOutcome> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
     let baseline = latest_forge_baseline(&tx, task_id)?;
 
-    let (project_id, epic_id): (String, Option<String>) = tx
+    let (project_id, epic_id, current_status): (String, Option<String>, String) = tx
         .query_row(
-            "SELECT project_id, epic_id FROM tasks WHERE id = ?1",
+            "SELECT project_id, epic_id, status FROM tasks WHERE id = ?1",
             params![task_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .with_context(|| format!("task {task_id:?} not found"))?;
+
+    // The compare-and-swap: a status write is permitted when the caller held no window (`None`),
+    // or when the status it captured before releasing its lock still matches what is in the
+    // database now.
+    let status_write_permitted =
+        expected_status.map(|expected| expected == current_status).unwrap_or(true);
 
     let (observed_state, observed_ci, number, url, ci_url) = match observed {
         Some(request) => (
@@ -159,45 +187,84 @@ pub fn apply_forge_observation(
         )?;
         events_appended += 1;
 
-        if baseline.state == ForgeState::None
+        let intended_status = if baseline.state == ForgeState::None
             && matches!(observed_state, ForgeState::Open | ForgeState::ChangesRequested)
         {
-            crate::domain::task::set_task_status_in_tx(&tx, actor_id, task_id, "in_review")?;
-            status_changed_to = Some("in_review".to_string());
+            Some("in_review")
         } else if observed_state == ForgeState::Merged {
-            crate::domain::task::set_task_status_in_tx(&tx, actor_id, task_id, "done")?;
-            status_changed_to = Some("done".to_string());
+            Some("done")
+        } else {
+            None
+        };
 
-            let unmet_count: i64 = tx
-                .query_row(
-                    "SELECT COUNT(*) FROM acceptance_criteria \
-                     WHERE parent_type = 'task' AND parent_id = ?1 \
-                     AND checked = 0 AND superseded_at IS NULL",
-                    params![task_id],
-                    |row| row.get(0),
-                )
-                .context("failed to count unmet acceptance criteria")?;
+        if let Some(intended_status) = intended_status {
+            if status_write_permitted {
+                crate::domain::task::set_task_status_in_tx(&tx, actor_id, task_id, intended_status)?;
+                status_changed_to = Some(intended_status.to_string());
 
-            if unmet_count > 0 {
-                let unmet_payload = serde_json::json!({
-                    "unmet_count": unmet_count,
-                    "label": format!(
-                        "Merged with {unmet_count} unresolved acceptance criteria"
-                    ),
+                if intended_status == "done" {
+                    let unmet_count: i64 = tx
+                        .query_row(
+                            "SELECT COUNT(*) FROM acceptance_criteria \
+                             WHERE parent_type = 'task' AND parent_id = ?1 \
+                             AND checked = 0 AND superseded_at IS NULL",
+                            params![task_id],
+                            |row| row.get(0),
+                        )
+                        .context("failed to count unmet acceptance criteria")?;
+
+                    if unmet_count > 0 {
+                        let unmet_payload = serde_json::json!({
+                            "unmet_count": unmet_count,
+                            "label": format!(
+                                "Merged with {unmet_count} unresolved acceptance criteria"
+                            ),
+                        });
+                        let unmet_sequence = next_sequence(&tx, &project_id, "local")?;
+                        append_event(
+                            &tx,
+                            &project_id,
+                            "local",
+                            unmet_sequence,
+                            "task",
+                            task_id,
+                            Some(task_id),
+                            epic_id.as_deref(),
+                            actor_id,
+                            EVENT_DONE_WITH_UNMET_CRITERIA,
+                            &unmet_payload,
+                            &now,
+                        )?;
+                        events_appended += 1;
+                    }
+                }
+            } else {
+                // Someone moved the card after the status this observation captured — the
+                // status write is refused, but the state-change event above still fired, so the
+                // baseline advances and no later tick retries this overwrite (D4).
+                let skip_label = format!(
+                    "Forge observed a change but did not move the card to {intended_status:?} — \
+                     its status changed to {current_status:?} after this observation was taken"
+                );
+                let skip_payload = serde_json::json!({
+                    "expected_status": expected_status,
+                    "actual_status": current_status,
+                    "intended_status": intended_status,
+                    "label": skip_label,
                 });
-                let unmet_sequence = next_sequence(&tx, &project_id, "local")?;
+                let skip_sequence = next_sequence(&tx, &project_id, "local")?;
                 append_event(
                     &tx,
                     &project_id,
                     "local",
-                    unmet_sequence,
+                    skip_sequence,
                     "task",
                     task_id,
                     Some(task_id),
                     epic_id.as_deref(),
                     actor_id,
-                    EVENT_DONE_WITH_UNMET_CRITERIA,
-                    &unmet_payload,
+                    EVENT_FORGE_STATUS_WRITE_SKIPPED,
+                    &skip_payload,
                     &now,
                 )?;
                 events_appended += 1;

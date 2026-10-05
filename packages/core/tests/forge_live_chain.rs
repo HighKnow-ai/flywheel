@@ -413,7 +413,7 @@ fn assert_open_to_merged_chain(
     let observed1 = request_for_branch_at(forge, repo_path, &draft.head_branch)
         .expect("request_for_branch_at should succeed")
         .expect("a request must be found immediately after opening one");
-    let outcome1 = apply_forge_observation(conn, task_id, Some(&observed1), system_actor_id)
+    let outcome1 = apply_forge_observation(conn, task_id, Some(&observed1), system_actor_id, None)
         .expect("apply_forge_observation should succeed");
     assert_eq!(outcome1.status_changed_to, Some("in_review".to_string()));
     assert_eq!(count_events_of_type(conn, task_id, EVENT_FORGE_STATE_CHANGED), 1);
@@ -425,7 +425,7 @@ fn assert_open_to_merged_chain(
     let observed2 = request_for_branch_at(forge, repo_path, &draft.head_branch)
         .expect("request_for_branch_at should succeed")
         .expect("a request must still be found after merging");
-    let outcome2 = apply_forge_observation(conn, task_id, Some(&observed2), system_actor_id)
+    let outcome2 = apply_forge_observation(conn, task_id, Some(&observed2), system_actor_id, None)
         .expect("apply_forge_observation should succeed");
     assert_eq!(outcome2.status_changed_to, Some("done".to_string()));
     assert_eq!(count_events_of_type(conn, task_id, EVENT_FORGE_STATE_CHANGED), 2);
@@ -439,7 +439,7 @@ fn assert_open_to_merged_chain(
     let observed3 = request_for_branch_at(forge, repo_path, &draft.head_branch)
         .expect("request_for_branch_at should succeed")
         .expect("a request must still be found on the third, unchanged poll");
-    let outcome3 = apply_forge_observation(conn, task_id, Some(&observed3), system_actor_id)
+    let outcome3 = apply_forge_observation(conn, task_id, Some(&observed3), system_actor_id, None)
         .expect("apply_forge_observation should succeed");
     assert_eq!(outcome3.status_changed_to, None);
     assert_eq!(outcome3.events_appended, 0);
@@ -473,7 +473,7 @@ fn github_branch_with_no_request_yields_no_request_and_no_transition() {
                 .expect("request_for_branch_at should succeed");
             assert!(observed.is_none(), "a branch the fake reports no request for must yield None");
 
-            let outcome = apply_forge_observation(&mut conn, &task_id, observed.as_ref(), &system.id)
+            let outcome = apply_forge_observation(&mut conn, &task_id, observed.as_ref(), &system.id, None)
                 .expect("apply_forge_observation should succeed");
             assert_eq!(outcome.status_changed_to, None);
             assert_eq!(outcome.events_appended, 0);
@@ -584,7 +584,7 @@ fn gitlab_branch_with_no_request_yields_no_request_and_never_calls_view() {
                 "mr view must never be invoked when there is no iid to view"
             );
 
-            let outcome = apply_forge_observation(&mut conn, &task_id, observed.as_ref(), &system.id)
+            let outcome = apply_forge_observation(&mut conn, &task_id, observed.as_ref(), &system.id, None)
                 .expect("apply_forge_observation should succeed");
             assert_eq!(outcome.status_changed_to, None);
             assert_eq!(outcome.events_appended, 0);

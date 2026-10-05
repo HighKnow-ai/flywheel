@@ -226,7 +226,7 @@ fn open_against_a_none_baseline_moves_to_in_review_and_appends_one_event() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 1)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 1)), &system.id, None,
     )
     .expect("apply_forge_observation should succeed");
 
@@ -247,12 +247,12 @@ fn open_against_an_open_baseline_writes_nothing_at_all() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 1)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 1)), &system.id, None,
     )
     .expect("first observation should succeed");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 1)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 1)), &system.id, None,
     )
     .expect("repeat observation should succeed");
 
@@ -269,12 +269,12 @@ fn merged_against_an_open_baseline_moves_to_done_and_appends_one_event() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 2)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 2)), &system.id, None,
     )
     .expect("open observation should succeed");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 2)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 2)), &system.id, None,
     )
     .expect("merge observation should succeed");
 
@@ -294,7 +294,7 @@ fn merged_against_a_none_baseline_still_reaches_done() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 3)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 3)), &system.id, None,
     )
     .expect("merge observation should succeed");
 
@@ -313,7 +313,7 @@ fn a_manual_move_back_survives_a_subsequent_identical_observation() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 4)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 4)), &system.id, None,
     )
     .expect("open observation should succeed");
 
@@ -323,7 +323,7 @@ fn a_manual_move_back_survives_a_subsequent_identical_observation() {
 
     // The SAME observation (Open, unchanged) is polled again — the level is never re-asserted.
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 4)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 4)), &system.id, None,
     )
     .expect("repeat observation should succeed");
 
@@ -342,12 +342,12 @@ fn changes_requested_against_an_open_baseline_appends_an_event_and_leaves_status
     let system = system_actor(&conn).expect("system actor should exist");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 5)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 5)), &system.id, None,
     )
     .expect("open observation should succeed");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::ChangesRequested, CiResult::None, 5)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::ChangesRequested, CiResult::None, 5)), &system.id, None,
     )
     .expect("changes-requested observation should succeed");
 
@@ -367,12 +367,12 @@ fn closed_unmerged_appends_an_event_and_leaves_status_untouched() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 6)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 6)), &system.id, None,
     )
     .expect("open observation should succeed");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::ClosedUnmerged, CiResult::None, 6)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::ClosedUnmerged, CiResult::None, 6)), &system.id, None,
     )
     .expect("closed-unmerged observation should succeed");
 
@@ -392,12 +392,12 @@ fn ci_failed_against_a_non_failed_baseline_appends_an_event_and_calls_no_status_
     let system = system_actor(&conn).expect("system actor should exist");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Pending, 7)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Pending, 7)), &system.id, None,
     )
     .expect("open observation should succeed");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 7)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 7)), &system.id, None,
     )
     .expect("ci-failed observation should succeed");
 
@@ -418,12 +418,12 @@ fn ci_failed_against_an_already_failed_baseline_appends_no_second_event() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 8)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 8)), &system.id, None,
     )
     .expect("first ci-failed observation should succeed");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 8)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::Failed, 8)), &system.id, None,
     )
     .expect("repeat ci-failed observation should succeed");
 
@@ -443,7 +443,7 @@ fn merged_with_unmet_criteria_names_the_count_and_touches_no_criterion_row() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 9)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 9)), &system.id, None,
     )
     .expect("merge observation should succeed");
 
@@ -469,7 +469,7 @@ fn merged_with_all_criteria_checked_appends_no_unmet_criteria_event() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     let outcome = apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 10)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 10)), &system.id, None,
     )
     .expect("merge observation should succeed");
 
@@ -496,7 +496,7 @@ fn restart_between_the_open_and_merged_observations_still_produces_both_transiti
             .expect("create_task should succeed");
         let system = system_actor(&conn).expect("system actor should exist");
         apply_forge_observation(
-            &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 11)), &system.id,
+            &mut conn, &task.id, Some(&request(ForgeState::Open, CiResult::None, 11)), &system.id, None,
         )
         .expect("open observation should succeed");
         task.id
@@ -512,7 +512,7 @@ fn restart_between_the_open_and_merged_observations_still_produces_both_transiti
 
     let system = system_actor(&conn).expect("system actor should exist");
     let outcome = apply_forge_observation(
-        &mut conn, &task_id, Some(&request(ForgeState::Merged, CiResult::Passed, 11)), &system.id,
+        &mut conn, &task_id, Some(&request(ForgeState::Merged, CiResult::Passed, 11)), &system.id, None,
     )
     .expect("merge observation should succeed");
 
@@ -531,7 +531,7 @@ fn every_event_this_function_writes_carries_the_system_actor() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Failed, 12)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Failed, 12)), &system.id, None,
     )
     .expect("merge observation should succeed");
 
@@ -556,12 +556,12 @@ fn none_against_a_merged_baseline_writes_nothing_and_moves_nothing() {
     let system = system_actor(&conn).expect("system actor should exist");
 
     apply_forge_observation(
-        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 13)), &system.id,
+        &mut conn, &task.id, Some(&request(ForgeState::Merged, CiResult::Passed, 13)), &system.id, None,
     )
     .expect("merge observation should succeed");
 
     let outcome =
-        apply_forge_observation(&mut conn, &task.id, None, &system.id)
+        apply_forge_observation(&mut conn, &task.id, None, &system.id, None)
             .expect("absent observation should succeed");
 
     assert_eq!(outcome.status_changed_to, None);
@@ -593,7 +593,7 @@ fn applying_an_observation_for_a_deleted_task_writes_nothing_and_errors() {
         &mut conn,
         &task.id,
         Some(&request(ForgeState::Open, CiResult::None, 1)),
-        &system.id,
+        &system.id, None,
     );
 
     assert!(

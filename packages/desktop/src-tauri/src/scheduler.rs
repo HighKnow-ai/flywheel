@@ -49,6 +49,11 @@ struct ForgePollTarget {
     forge: Forge,
     repo_path: std::path::PathBuf,
     branch: String,
+    /// The task's status as of this read (quick task 261005-mn5) — carried through
+    /// [`ForgePollResult`] so [`apply_forge_results`] can pass it as the compare-and-swap
+    /// precondition on the write, surviving the lock-release window between this read and that
+    /// write.
+    status_at_poll: String,
 }
 
 /// One forge poll's outcome, carrying only what [`apply_forge_results`] needs to re-acquire the
@@ -56,6 +61,9 @@ struct ForgePollTarget {
 struct ForgePollResult {
     task_id: String,
     observed: Option<ForgeRequest>,
+    /// Copied from the matching [`ForgePollTarget`] (quick task 261005-mn5) — the status as of
+    /// phase one's read, whose survival across the lock-release window is the whole point.
+    status_at_poll: String,
 }
 
 /// One active project's fetch target — just enough for [`fetch_origin_for_targets`] to call
@@ -313,7 +321,12 @@ fn run_fetch_tick(app: &AppHandle) {
 /// Phase 07 plan 07-11 restructures this tick into three named phases — [`forge_tick_targets`]
 /// (read, under the lock), [`poll_forge_targets`] (the network phase, no connection at all) and
 /// [`apply_forge_results`] (write, under a briefly re-acquired lock) — so the forge CLI never runs
-/// while `AppState.db` is held.
+/// while `AppState.db` is held. Quick task 261005-mn5: that restructure opened a lock-release
+/// window a manual status change can land inside, between phase one's read and phase three's
+/// write. What makes the write phase safe against that is each target's status captured in phase
+/// one (`ForgePollTarget::status_at_poll`) surviving unchanged through phase two into phase
+/// three's call to `apply_forge_observation`, which refuses the status write unless the task is
+/// still at that captured status when the write actually runs.
 
 /// Phase one of the forge tick: every tracked worktree's forge poll target, read under the lock.
 /// Resolves each distinct `project_id` exactly once through
@@ -351,12 +364,33 @@ fn forge_tick_targets(conn: &rusqlite::Connection) -> Vec<ForgePollTarget> {
             }
         };
         if let Some((forge, repo_path)) = resolution {
-            targets.push(ForgePollTarget {
-                task_id: worktree.task_id,
-                forge,
-                repo_path,
-                branch: worktree.branch,
-            });
+            // Quick task 261005-mn5: read the task's status now, while still under the lock —
+            // this is the value that must survive the lock-release window below unchanged for
+            // the write phase's compare-and-swap to mean anything. A failed read is logged and
+            // this worktree is omitted, following this function's own established idiom above.
+            let status_at_poll: Option<String> = conn
+                .query_row(
+                    "SELECT status FROM tasks WHERE id = ?1",
+                    [&worktree.task_id],
+                    |row| row.get(0),
+                )
+                .map_err(|err| {
+                    eprintln!(
+                        "git-truth forge tick: failed to read status for task {} ({err}), \
+                         skipping this worktree",
+                        worktree.task_id
+                    );
+                })
+                .ok();
+            if let Some(status_at_poll) = status_at_poll {
+                targets.push(ForgePollTarget {
+                    task_id: worktree.task_id,
+                    forge,
+                    repo_path,
+                    branch: worktree.branch,
+                    status_at_poll,
+                });
+            }
         }
     }
     targets
@@ -384,7 +418,11 @@ fn poll_forge_targets(targets: &[ForgePollTarget]) -> Vec<ForgePollResult> {
                 continue;
             }
         };
-        results.push(ForgePollResult { task_id: target.task_id.clone(), observed });
+        results.push(ForgePollResult {
+            task_id: target.task_id.clone(),
+            observed,
+            status_at_poll: target.status_at_poll.clone(),
+        });
     }
     results
 }
@@ -404,6 +442,7 @@ fn apply_forge_results(
             &result.task_id,
             result.observed.as_ref(),
             actor_id,
+            Some(&result.status_at_poll),
         ) {
             Ok(outcome) => {
                 if outcome.status_changed_to.is_some() || outcome.events_appended > 0 {
@@ -589,6 +628,16 @@ mod forge_tick_tests {
         }
     }
 
+    /// Count events of a given type in `task_id`'s activity trail — mirroring
+    /// `tests/status_transitions.rs`'s own `count_events_of_type` helper.
+    fn count_events_of_type(conn: &rusqlite::Connection, task_id: &str, event_type: &str) -> usize {
+        flywheel_core::query::events::activity_trail(conn, "task", task_id, 200, 0)
+            .expect("trail read should succeed")
+            .into_iter()
+            .filter(|e| e.event_type == event_type)
+            .count()
+    }
+
     /// Seed the restart-safe forge baseline at `Open` by appending one synthetic
     /// `forge.state_changed` event directly — copying `tests/status_transitions.rs`'s
     /// `append_forge_event` fixture body inline, since that helper lives in a different crate
@@ -644,16 +693,26 @@ mod forge_tick_tests {
         flywheel_core::domain::task::set_task_status(&mut conn, &human_actor_id, &task_id, "in_progress")
             .expect("the manual move should succeed");
 
+        // Baseline taken right before the tick's own write phase, so the two fixture-driven
+        // status changes above (to in_review, then to in_progress) are not mistaken for
+        // something the tick itself appended.
+        let status_changed_before_tick = count_events_of_type(&conn, &task_id, "task.status_changed");
+
         // 4. Phase two's result, as it would have come back from a slow `gh`/`glab` call: a
-        //    merged observation for the one target resolved above.
-        let results =
-            vec![ForgePollResult { task_id: targets[0].task_id.clone(), observed: Some(merged_request()) }];
+        //    merged observation for the one target resolved above, carrying the status
+        //    `forge_tick_targets` actually captured — never hardcoded, so a scheduler that
+        //    failed to capture the status still fails this test.
+        let results = vec![ForgePollResult {
+            task_id: targets[0].task_id.clone(),
+            observed: Some(merged_request()),
+            status_at_poll: targets[0].status_at_poll.clone(),
+        }];
 
         // 5. Phase three: apply under the re-acquired lock.
         apply_forge_results(&mut conn, &results, &system_actor_id);
 
-        // 6. The regression: today's unfixed code has no way to know the status it read in phase
-        //    one is stale, so it overwrites the manual move with `done`. `status` is kept on the
+        // 6. The fix: the captured status (`in_review`) no longer matches what is in the
+        //    database (`in_progress`), so the status write is refused. `status` is kept on the
         //    assertion's left so a failure's `left:` line names what was actually written.
         let status: String = conn
             .query_row("SELECT status FROM tasks WHERE id = ?1", [&task_id], |row| row.get(0))
@@ -662,6 +721,104 @@ mod forge_tick_tests {
             status, "in_progress",
             "a manual move landing inside the forge tick's lock-release window must survive a \
              stale merged observation — the forge must not overwrite a column a human just moved"
+        );
+
+        // The refusal's trace: exactly one `forge.status_write_skipped` event, and zero
+        // `task.status_changed` events appended by this tick (the status writer never ran).
+        assert_eq!(
+            count_events_of_type(&conn, &task_id, "forge.status_write_skipped"),
+            1,
+            "a refused status write must leave exactly one trace in the activity trail"
+        );
+        assert_eq!(
+            count_events_of_type(&conn, &task_id, "task.status_changed") - status_changed_before_tick,
+            0,
+            "a refused status write must never append a task.status_changed event"
+        );
+
+        // D4: the baseline still advances to Merged on the refusal, so the next tick never
+        // retries the overwrite 120 seconds later.
+        let baseline = flywheel_core::query::forge::latest_forge_baseline(&conn, &task_id)
+            .expect("baseline read should succeed");
+        assert_eq!(
+            baseline.state,
+            flywheel_core::forge::ForgeState::Merged,
+            "the baseline must advance to Merged even on a refused write, so the next tick \
+             re-observes no edge and never retries the overwrite"
+        );
+    }
+
+    #[test]
+    fn forge_tick_targets_captures_each_tasks_status_as_of_the_read() {
+        let (mut conn, task_id, human_actor_id, _system_actor_id) = seeded_tick_fixture();
+        flywheel_core::domain::task::set_task_status(&mut conn, &human_actor_id, &task_id, "in_review")
+            .expect("moving to in_review should succeed");
+
+        let targets = forge_tick_targets(&conn);
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].status_at_poll, "in_review");
+    }
+
+    #[test]
+    fn poll_forge_targets_threads_the_captured_status_into_each_result() {
+        let (conn, task_id, _human_actor_id, _system_actor_id) = seeded_tick_fixture();
+
+        let targets = forge_tick_targets(&conn);
+        assert_eq!(targets.len(), 1);
+
+        // `projects.forge = 'local'` (set by the fixture) exercises this with no subprocess at
+        // all (D8) — `request_for_branch_at` answers `Ok(None)` for `Forge::Local` directly.
+        let results = poll_forge_targets(&targets);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].task_id, task_id);
+        assert_eq!(results[0].status_at_poll, targets[0].status_at_poll);
+        assert!(results[0].observed.is_none(), "Forge::Local must observe no request");
+    }
+
+    #[test]
+    fn a_merged_observation_still_carries_an_unmoved_task_to_done() {
+        let (mut conn, task_id, human_actor_id, system_actor_id) = seeded_tick_fixture();
+
+        flywheel_core::domain::task::set_task_status(&mut conn, &human_actor_id, &task_id, "in_review")
+            .expect("moving to in_review should succeed");
+        let project_id: String = conn
+            .query_row("SELECT project_id FROM tasks WHERE id = ?1", [&task_id], |row| row.get(0))
+            .expect("project_id read should succeed");
+        seed_open_baseline(&mut conn, &project_id, &human_actor_id, &task_id);
+
+        let targets = forge_tick_targets(&conn);
+        assert_eq!(targets.len(), 1);
+
+        // Baseline taken right before the tick's own write phase, so the fixture's own move to
+        // in_review is not mistaken for something the tick itself appended.
+        let status_changed_before_tick = count_events_of_type(&conn, &task_id, "task.status_changed");
+
+        // NO manual move in between — the guard is a precondition, not a blanket refusal.
+        let results = vec![ForgePollResult {
+            task_id: targets[0].task_id.clone(),
+            observed: Some(merged_request()),
+            status_at_poll: targets[0].status_at_poll.clone(),
+        }];
+
+        apply_forge_results(&mut conn, &results, &system_actor_id);
+
+        let status: String = conn
+            .query_row("SELECT status FROM tasks WHERE id = ?1", [&task_id], |row| row.get(0))
+            .expect("status read should succeed");
+        assert_eq!(status, "done", "an unmoved task's merge observation must still carry it to done");
+
+        assert_eq!(
+            count_events_of_type(&conn, &task_id, "task.status_changed") - status_changed_before_tick,
+            1,
+            "the status writer must have fired exactly once"
+        );
+        assert_eq!(
+            count_events_of_type(&conn, &task_id, "forge.status_write_skipped"),
+            0,
+            "an unmoved task's merge must never be refused — this is what stops the fix from \
+             passing the regression test by refusing every write"
         );
     }
 }
