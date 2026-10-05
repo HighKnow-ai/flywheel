@@ -15,6 +15,12 @@
 //! GitHub/GitLab authentication variable unset (see this file's own `<verify>` gate in
 //! 07-12-PLAN.md), so it runs identically whether or not the developer has ever authenticated
 //! either CLI.
+//!
+//! Both the GitHub and GitLab arms drive [`assert_open_to_merged_chain`] — ONE shared assertion
+//! sequence, called once per forge — deliberately, not by accident of code reuse: the two
+//! adapters are independent by design (`forge/github.rs`'s and `forge/gitlab.rs`'s own header
+//! comments both say so), and a harness that proved one arm and silently trusted the other would
+//! reproduce exactly the cross-adapter assumption those headers forbid.
 
 mod common;
 
@@ -26,9 +32,9 @@ use core::domain::actor::system_actor;
 use core::domain::settings::set_project_forge;
 use core::domain::task::create_task;
 use core::domain::worktree::ensure_worktree;
-use core::forge::request_body::assemble_request_draft;
+use core::forge::request_body::{assemble_request_draft, RequestDraft};
 use core::forge::transitions::{apply_forge_observation, EVENT_FORGE_STATE_CHANGED};
-use core::forge::{create_request_at, forge_and_repo_path, request_for_branch_at, Forge, ForgeState};
+use core::forge::{create_request_at, forge_and_repo_path, request_for_branch_at, CiResult, Forge, ForgeState};
 use core::query::events::activity_trail;
 use rusqlite::Connection;
 
@@ -86,11 +92,17 @@ struct FakeForge {
 impl FakeForge {
     fn new() -> Self {
         let dir = tempfile::tempdir().expect("failed to create fake-forge scratch dir");
-        let gh_path = dir.path().join("gh");
-        std::fs::write(&gh_path, gh_stub_script(dir.path())).expect("failed to write gh stub");
-        let mut perms = std::fs::metadata(&gh_path).expect("gh stub metadata").permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&gh_path, perms).expect("failed to chmod gh stub");
+        for (name, script) in
+            [("gh", gh_stub_script(dir.path())), ("glab", glab_stub_script(dir.path()))]
+        {
+            let path = dir.path().join(name);
+            std::fs::write(&path, script).unwrap_or_else(|e| panic!("failed to write {name} stub: {e}"));
+            let mut perms =
+                std::fs::metadata(&path).unwrap_or_else(|e| panic!("{name} stub metadata: {e}")).permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&path, perms)
+                .unwrap_or_else(|e| panic!("failed to chmod {name} stub: {e}"));
+        }
         Self { dir }
     }
 
@@ -135,11 +147,9 @@ impl FakeForge {
 
     /// Whether any accumulated argument, read as one line, exactly equals `token` — used to
     /// assert a whole subcommand word (e.g. `"view"`) was or was not ever passed, without a
-    /// substring match that could accidentally match inside an unrelated value. Unused by
-    /// GitHub's own chain (it has one subprocess, not two) — kept here because plan 07-12's
-    /// Task 2 (the GitLab arm, which has a `list`/`view` pair to distinguish) is this same
-    /// `FakeForge` helper's very next caller.
-    #[allow(dead_code)]
+    /// substring match that could accidentally match inside an unrelated value. GitHub's own
+    /// chain never calls this (it has one subprocess, not two); the GitLab arm uses it to prove
+    /// the two-subprocess read (`mr list` then `mr view`) and the no-`iid`-means-no-view case.
     fn argv_has_token(&self, token: &str) -> bool {
         self.argv_lines().iter().any(|line| line == token)
     }
@@ -204,10 +214,83 @@ exit 1
     template.replace("__DIR__", &dir.display().to_string())
 }
 
-/// Write the fake forge's `gh` stub into a fresh scratch directory and prepend it to `PATH` for
-/// the duration of `f`, serialised against every other caller in this binary via [`ENV_LOCK`],
-/// restoring the original `PATH` before returning — the same shape `forge_degrade.rs`'s own
-/// `with_sabotaged_forge_clis` uses, extended here from a marker-only stub to a functional one.
+/// Generate the `glab` stub's shell source — same `.replace` discipline as [`gh_stub_script`].
+/// GitLab needs two subprocesses where GitHub needs one (`gitlab.rs`'s own header comment):
+/// `mr list` carries `state`/`iid`, `mr view <iid>` carries `head_pipeline`. The `mr create`
+/// branch reads the `--description-file` argument's VALUE by scanning the argument vector for
+/// it, never by assuming a fixed position, because `create_request_args` may be reordered by a
+/// future change (07-12-PLAN.md Task 2's own instruction).
+fn glab_stub_script(dir: &Path) -> String {
+    let template = r##"#!/bin/sh
+for a in "$@"; do printf '%s\n' "$a" >> "__DIR__/argv.txt"; done
+touch "__DIR__/invoked.marker"
+
+cmd1="$1"
+cmd2="$2"
+
+if [ "$cmd1" = "auth" ] && [ "$cmd2" = "status" ]; then
+  exit 0
+fi
+
+if [ "$cmd1" = "mr" ] && [ "$cmd2" = "create" ]; then
+  desc_path=""
+  prev=""
+  for a in "$@"; do
+    if [ "$prev" = "--description-file" ]; then
+      desc_path="$a"
+    fi
+    prev="$a"
+  done
+  if [ -n "$desc_path" ]; then
+    cp "$desc_path" "__DIR__/body.txt"
+  fi
+  echo "opened" > "__DIR__/state"
+  exit 0
+fi
+
+if [ "$cmd1" = "mr" ] && [ "$cmd2" = "list" ]; then
+  state=$(cat "__DIR__/state" 2>/dev/null || echo "NONE")
+  entries=$(cat "__DIR__/entries" 2>/dev/null || echo "1")
+
+  if [ "$state" = "NONE" ]; then
+    echo "[]"
+    exit 0
+  fi
+
+  if [ "$entries" = "2" ]; then
+    printf '[{"iid":77,"created_at":"2026-01-01T00:00:00Z","title":"Fake MR","web_url":"https://example.invalid/mr/77","state":"%s"},{"iid":78,"created_at":"2026-01-02T00:00:00Z","title":"Fake MR newer","web_url":"https://example.invalid/mr/78","state":"%s"}]\n' "$state" "$state"
+  else
+    printf '[{"iid":77,"created_at":"2026-01-01T00:00:00Z","title":"Fake MR","web_url":"https://example.invalid/mr/77","state":"%s"}]\n' "$state"
+  fi
+  exit 0
+fi
+
+if [ "$cmd1" = "mr" ] && [ "$cmd2" = "view" ]; then
+  state=$(cat "__DIR__/state" 2>/dev/null || echo "NONE")
+  ci=$(cat "__DIR__/ci" 2>/dev/null || echo "none")
+  iid="$3"
+
+  if [ "$ci" = "none" ]; then
+    pipeline="null"
+  else
+    pipeline='{"status":"success","web_url":"https://example.invalid/pipeline/1"}'
+  fi
+
+  printf '{"iid":%s,"title":"Fake MR","web_url":"https://example.invalid/mr/%s","state":"%s","target_branch":"main","head_pipeline":%s}\n' "$iid" "$iid" "$state" "$pipeline"
+  exit 0
+fi
+
+echo "unexpected glab invocation: $*" >&2
+exit 1
+"##;
+    template.replace("__DIR__", &dir.display().to_string())
+}
+
+/// Write the fake forge's `gh` and `glab` stubs into a fresh scratch directory and prepend it to
+/// `PATH` for the duration of `f`, serialised against every other caller in this binary via
+/// [`ENV_LOCK`], restoring the original `PATH` before returning — the same shape
+/// `forge_degrade.rs`'s own `with_sabotaged_forge_clis` uses, extended here from a marker-only
+/// stub to a functional one.
 fn with_fake_forge_clis<T>(f: impl FnOnce(&FakeForge) -> T) -> T {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
@@ -235,22 +318,22 @@ fn with_fake_forge_clis<T>(f: impl FnOnce(&FakeForge) -> T) -> T {
     result
 }
 
-/// Seed one project pinned to GitHub, one task with a worktree and one acceptance criterion
-/// (left unchecked, so the merged poll's done-with-unmet-criteria path is exercised too),
-/// resolve the forge/repo-path pair and assemble the request draft exactly as the production
-/// callers do. Returns everything a chain test needs; the repo dir and worktree-root scratch
-/// dir are kept alive by the caller for the test's duration.
-fn seed_github_task() -> (
+/// Seed one project pinned to `forge_name` (`"github"` or `"gitlab"`), one task with a worktree
+/// and one acceptance criterion (left unchecked, so the merged poll's done-with-unmet-criteria
+/// path is exercised too), resolve the forge/repo-path pair and assemble the request draft
+/// exactly as the production callers do. Returns everything a chain test needs; the repo dir
+/// and worktree-root scratch dir are kept alive by the caller for the test's duration.
+fn seed_task_for(forge_name: &str, expected: Forge) -> (
     Connection,
     String,
     String,
     Forge,
     std::path::PathBuf,
-    core::forge::request_body::RequestDraft,
+    RequestDraft,
     tempfile::TempDir,
 ) {
     let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
-    set_project_forge(&mut conn, &actor_id, &project.id, Some("github"))
+    set_project_forge(&mut conn, &actor_id, &project.id, Some(forge_name))
         .expect("set_project_forge should succeed");
     let task = create_task(&mut conn, &project.id, &actor_id, "Wire the live chain", None)
         .expect("create_task should succeed");
@@ -260,11 +343,108 @@ fn seed_github_task() -> (
 
     let (forge, repo_path) =
         forge_and_repo_path(&conn, &project.id).expect("forge_and_repo_path should succeed");
-    assert_eq!(forge, Forge::GitHub, "the stored override must resolve to GitHub");
+    assert_eq!(forge, expected, "the stored override must resolve to the forge it names");
 
     let draft = assemble_request_draft(&conn, &task.id).expect("assemble_request_draft should succeed");
 
     (conn, actor_id, task.id, forge, repo_path, draft, repo_dir)
+}
+
+fn seed_github_task() -> (
+    Connection,
+    String,
+    String,
+    Forge,
+    std::path::PathBuf,
+    RequestDraft,
+    tempfile::TempDir,
+) {
+    seed_task_for("github", Forge::GitHub)
+}
+
+fn seed_gitlab_task() -> (
+    Connection,
+    String,
+    String,
+    Forge,
+    std::path::PathBuf,
+    RequestDraft,
+    tempfile::TempDir,
+) {
+    seed_task_for("gitlab", Forge::GitLab)
+}
+
+/// The ONE shared assertion sequence both the GitHub and GitLab arms call — see this file's own
+/// header comment for why that sharing is deliberate. Opens `draft` through the real
+/// [`create_request_at`] path, proves the body transport, then walks the same
+/// open → in_review → merged → done → unchanged three-poll sequence
+/// [`status_transitions.rs`]'s hermetic suite already proves against synthetic values — this
+/// time through a real child process end to end. `merged_state_value` is the literal state
+/// string that forge's own fake must report once "merged" ( `"MERGED"` for GitHub, `"merged"`
+/// for GitLab) — the two adapters' vocabularies differ by design (see `github.rs`'s and
+/// `gitlab.rs`'s own mapping tables), so this is the one parameter that must vary per call.
+fn assert_open_to_merged_chain(
+    conn: &mut Connection,
+    task_id: &str,
+    system_actor_id: &str,
+    forge: Forge,
+    repo_path: &Path,
+    draft: &RequestDraft,
+    fake: &FakeForge,
+    merged_state_value: &str,
+) {
+    // Open the request through the real production path.
+    let opened = create_request_at(forge, repo_path, draft)
+        .expect("create_request_at should succeed against the fake CLI");
+
+    assert!(
+        fake.invoked(),
+        "the fake must have been invoked before any result is trusted — a failed path \
+         substitution must fail loudly, never silently reach a real forge CLI"
+    );
+    assert_eq!(fake.body(), draft.body, "the child must receive draft.body byte-for-byte");
+    assert!(
+        !fake.argv_lines().iter().any(|line| line.contains(&draft.body)),
+        "the body must never appear anywhere in the recorded argument vector"
+    );
+    assert_eq!(opened.state, ForgeState::Open);
+
+    // First poll: moves the task to in_review.
+    let observed1 = request_for_branch_at(forge, repo_path, &draft.head_branch)
+        .expect("request_for_branch_at should succeed")
+        .expect("a request must be found immediately after opening one");
+    let outcome1 = apply_forge_observation(conn, task_id, Some(&observed1), system_actor_id)
+        .expect("apply_forge_observation should succeed");
+    assert_eq!(outcome1.status_changed_to, Some("in_review".to_string()));
+    assert_eq!(count_events_of_type(conn, task_id, EVENT_FORGE_STATE_CHANGED), 1);
+    assert_eq!(task_status(conn, task_id), "in_review");
+
+    // The forge side merges; the fake's state file is flipped directly — no synthetic value
+    // handed to the detector, but a real poll of the (now-merged) fake afterward.
+    fake.set_state(merged_state_value);
+    let observed2 = request_for_branch_at(forge, repo_path, &draft.head_branch)
+        .expect("request_for_branch_at should succeed")
+        .expect("a request must still be found after merging");
+    let outcome2 = apply_forge_observation(conn, task_id, Some(&observed2), system_actor_id)
+        .expect("apply_forge_observation should succeed");
+    assert_eq!(outcome2.status_changed_to, Some("done".to_string()));
+    assert_eq!(count_events_of_type(conn, task_id, EVENT_FORGE_STATE_CHANGED), 2);
+    assert_eq!(task_status(conn, task_id), "done");
+    // The seeded criterion was left unchecked — the merge must have surfaced that as an event,
+    // never silently closed it (D-123: the detector never touches a criterion row).
+    assert_eq!(count_events_of_type(conn, task_id, "task.done_with_unmet_criteria"), 1);
+
+    // Third poll: the fake is unchanged — nothing is written at all.
+    let before = count_events_of_type(conn, task_id, EVENT_FORGE_STATE_CHANGED);
+    let observed3 = request_for_branch_at(forge, repo_path, &draft.head_branch)
+        .expect("request_for_branch_at should succeed")
+        .expect("a request must still be found on the third, unchanged poll");
+    let outcome3 = apply_forge_observation(conn, task_id, Some(&observed3), system_actor_id)
+        .expect("apply_forge_observation should succeed");
+    assert_eq!(outcome3.status_changed_to, None);
+    assert_eq!(outcome3.events_appended, 0);
+    assert_eq!(count_events_of_type(conn, task_id, EVENT_FORGE_STATE_CHANGED), before);
+    assert_eq!(task_status(conn, task_id), "done");
 }
 
 #[test]
@@ -274,61 +454,9 @@ fn github_open_to_in_review_to_done_chain_runs_through_a_real_child_process() {
         let system = system_actor(&conn).expect("system actor should exist");
 
         with_fake_forge_clis(|fake| {
-            // Open the request through the real production path.
-            let opened = create_request_at(forge, &repo_path, &draft)
-                .expect("create_request_at should succeed against the fake gh");
-
-            assert!(
-                fake.invoked(),
-                "the fake must have been invoked before any result is trusted — a failed path \
-                 substitution must fail loudly, never silently reach a real gh"
+            assert_open_to_merged_chain(
+                &mut conn, &task_id, &system.id, forge, &repo_path, &draft, fake, "MERGED",
             );
-            assert_eq!(fake.body(), draft.body, "the child must receive draft.body byte-for-byte");
-            assert!(
-                !fake.argv_lines().iter().any(|line| line.contains(&draft.body)),
-                "the body must never appear anywhere in the recorded argument vector"
-            );
-            assert_eq!(opened.state, ForgeState::Open);
-
-            // First poll: moves the task to in_review.
-            let observed1 = request_for_branch_at(forge, &repo_path, &draft.head_branch)
-                .expect("request_for_branch_at should succeed")
-                .expect("a request must be found immediately after opening one");
-            let outcome1 = apply_forge_observation(&mut conn, &task_id, Some(&observed1), &system.id)
-                .expect("apply_forge_observation should succeed");
-            assert_eq!(outcome1.status_changed_to, Some("in_review".to_string()));
-            assert_eq!(count_events_of_type(&conn, &task_id, EVENT_FORGE_STATE_CHANGED), 1);
-            assert_eq!(task_status(&conn, &task_id), "in_review");
-
-            // The forge side merges; the fake's state file is flipped directly — no synthetic
-            // value handed to the detector, but a real poll of the (now-merged) fake afterward.
-            fake.set_state("MERGED");
-            let observed2 = request_for_branch_at(forge, &repo_path, &draft.head_branch)
-                .expect("request_for_branch_at should succeed")
-                .expect("a request must still be found after merging");
-            let outcome2 = apply_forge_observation(&mut conn, &task_id, Some(&observed2), &system.id)
-                .expect("apply_forge_observation should succeed");
-            assert_eq!(outcome2.status_changed_to, Some("done".to_string()));
-            assert_eq!(count_events_of_type(&conn, &task_id, EVENT_FORGE_STATE_CHANGED), 2);
-            assert_eq!(task_status(&conn, &task_id), "done");
-            // The seeded criterion was left unchecked — the merge must have surfaced that as an
-            // event, never silently closed it (D-123: the detector never touches a criterion row).
-            assert_eq!(
-                count_events_of_type(&conn, &task_id, "task.done_with_unmet_criteria"),
-                1
-            );
-
-            // Third poll: the fake is unchanged — nothing is written at all.
-            let before = count_events_of_type(&conn, &task_id, EVENT_FORGE_STATE_CHANGED);
-            let observed3 = request_for_branch_at(forge, &repo_path, &draft.head_branch)
-                .expect("request_for_branch_at should succeed")
-                .expect("a request must still be found on the third, unchanged poll");
-            let outcome3 = apply_forge_observation(&mut conn, &task_id, Some(&observed3), &system.id)
-                .expect("apply_forge_observation should succeed");
-            assert_eq!(outcome3.status_changed_to, None);
-            assert_eq!(outcome3.events_appended, 0);
-            assert_eq!(count_events_of_type(&conn, &task_id, EVENT_FORGE_STATE_CHANGED), before);
-            assert_eq!(task_status(&conn, &task_id), "done");
         });
     });
 }
@@ -365,7 +493,7 @@ fn github_request_with_no_ci_run_normalises_to_no_ci_result() {
             let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
                 .expect("request_for_branch_at should succeed")
                 .expect("a request must be found");
-            assert_eq!(observed.ci, core::forge::CiResult::None);
+            assert_eq!(observed.ci, CiResult::None);
         });
     });
 }
@@ -384,6 +512,117 @@ fn github_two_requests_select_the_newest_by_created_timestamp_through_the_live_p
             assert_eq!(
                 observed.number, 4243,
                 "the entry with the lexicographically-newest createdAt must be selected"
+            );
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------------------------
+// The GitLab arm — same assertion sequence via assert_open_to_merged_chain, plus the
+// GitLab-specific two-subprocess (`mr list` then `mr view`) assertions neither forge shares.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn gitlab_open_to_in_review_to_done_chain_runs_through_a_real_child_process() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, _actor_id, task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
+        let system = system_actor(&conn).expect("system actor should exist");
+
+        with_fake_forge_clis(|fake| {
+            assert_open_to_merged_chain(
+                &mut conn, &task_id, &system.id, forge, &repo_path, &draft, fake, "merged",
+            );
+            // GitLab-specific: the two-subprocess read is exercised — both `mr list` and
+            // `mr view` must have been invoked for a branch that has a request.
+            assert!(fake.argv_has_token("list"), "mr list must have been invoked");
+            assert!(fake.argv_has_token("view"), "mr view must have been invoked for the found iid");
+        });
+    });
+}
+
+#[test]
+fn gitlab_description_reaches_the_cli_as_a_file_not_as_an_argv_value() {
+    with_scratch_worktree_root(|| {
+        let (_conn, _actor_id, _task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
+
+        with_fake_forge_clis(|fake| {
+            let opened = create_request_at(forge, &repo_path, &draft)
+                .expect("create_request_at should succeed against the fake glab");
+            assert_eq!(opened.state, ForgeState::Open);
+            assert_eq!(
+                fake.body(),
+                draft.body,
+                "the description file's contents must be byte-identical to draft.body"
+            );
+            assert!(
+                !fake.argv_lines().iter().any(|line| line.contains(&draft.body)),
+                "the body must never appear anywhere in the recorded argument vector — only its \
+                 file's path does"
+            );
+            assert!(
+                fake.argv_has_token("--description-file"),
+                "the create call must pass --description-file"
+            );
+        });
+    });
+}
+
+#[test]
+fn gitlab_branch_with_no_request_yields_no_request_and_never_calls_view() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, _actor_id, task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
+        let system = system_actor(&conn).expect("system actor should exist");
+
+        with_fake_forge_clis(|fake| {
+            fake.set_state("NONE");
+            let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
+                .expect("request_for_branch_at should succeed");
+            assert!(observed.is_none(), "a branch the fake reports no request for must yield None");
+            assert!(fake.argv_has_token("list"), "mr list must still have been invoked");
+            assert!(
+                !fake.argv_has_token("view"),
+                "mr view must never be invoked when there is no iid to view"
+            );
+
+            let outcome = apply_forge_observation(&mut conn, &task_id, observed.as_ref(), &system.id)
+                .expect("apply_forge_observation should succeed");
+            assert_eq!(outcome.status_changed_to, None);
+            assert_eq!(outcome.events_appended, 0);
+            assert_eq!(task_status(&conn, &task_id), "backlog");
+        });
+    });
+}
+
+#[test]
+fn gitlab_request_with_no_head_pipeline_normalises_to_no_ci_result() {
+    with_scratch_worktree_root(|| {
+        let (_conn, _actor_id, _task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
+
+        with_fake_forge_clis(|fake| {
+            fake.set_state("opened");
+            fake.set_ci("none");
+            let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
+                .expect("request_for_branch_at should succeed")
+                .expect("a request must be found");
+            assert_eq!(observed.ci, CiResult::None);
+        });
+    });
+}
+
+#[test]
+fn gitlab_two_requests_select_the_newest_by_created_timestamp_through_the_live_path() {
+    with_scratch_worktree_root(|| {
+        let (_conn, _actor_id, _task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
+
+        with_fake_forge_clis(|fake| {
+            fake.set_state("opened");
+            fake.set_entries(2);
+            let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
+                .expect("request_for_branch_at should succeed")
+                .expect("a request must be found");
+            assert_eq!(
+                observed.number, 78,
+                "the entry with the lexicographically-newest created_at must be selected"
             );
         });
     });
