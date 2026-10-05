@@ -12,9 +12,18 @@
 //! could disclose it). `gh` and `glab` own their own authentication; no secret crosses argv, and
 //! no HTTP client exists anywhere in this workspace.
 //!
-//! Third, nothing here caches a verdict. [`request_for_branch`] is derived fresh on every call —
-//! following `drift.rs`'s own D-75 "derive at read time" discipline — so a cached forge state can
-//! never disagree with the forge itself.
+//! Third, nothing here caches a verdict. [`request_for_branch_at`] is derived fresh on every call
+//! — following `drift.rs`'s own D-75 "derive at read time" discipline — so a cached forge state
+//! can never disagree with the forge itself.
+//!
+//! Fourth (phase 07 plan 07-11, closing verification Gap 1 / code review CR-01): resolution and
+//! dispatch are separate functions, deliberately. [`forge_and_repo_path`] takes a `&Connection`
+//! and spawns nothing; [`request_for_branch_at`] and [`create_request_at`] spawn a subprocess and
+//! take no `Connection` at all. A database lock must never be alive while a forge CLI runs — the
+//! app has exactly one `AppState.db` mutex guarding every Tauri command, and a function that took
+//! both a connection and ran a subprocess was the only way a caller COULD hold that lock across an
+//! unbounded-latency network call. With no such function left, a caller must resolve under the
+//! lock, release it, and dispatch lock-free — the shape is unrepresentable, not just avoided.
 
 use std::path::PathBuf;
 
@@ -135,8 +144,11 @@ pub fn detect_forge_from_origin(repo_path: &std::path::Path) -> Forge {
 }
 
 /// `project_id`'s stored forge override and repo path in one read, so [`forge_for_project`] and
-/// [`request_for_branch`] never issue two separate queries for data that lives in the same row.
-fn resolve_forge_and_repo_path(
+/// every dispatch caller never issue two separate queries for data that lives in the same row.
+/// Takes a connection and spawns nothing — the resolution half of the resolution/dispatch split
+/// the module header's fourth rule states; callers resolve here, release the lock, then dispatch
+/// through [`request_for_branch_at`] or [`create_request_at`], neither of which takes a connection.
+pub fn forge_and_repo_path(
     conn: &Connection,
     project_id: &str,
 ) -> anyhow::Result<(Forge, PathBuf)> {
@@ -164,49 +176,52 @@ fn resolve_forge_and_repo_path(
 /// `project_id`'s effective forge: the stored `projects.forge` override when non-NULL (D-119),
 /// else detected fresh from the project's origin remote.
 pub fn forge_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Forge> {
-    resolve_forge_and_repo_path(conn, project_id).map(|(forge, _repo_path)| forge)
+    forge_and_repo_path(conn, project_id).map(|(forge, _repo_path)| forge)
 }
 
-/// The one dispatch point (D-117): `Forge::Local` returns `Ok(None)` **without spawning any
-/// process at all**, `Forge::GitHub` delegates to [`github::request_for_branch`], `Forge::GitLab`
-/// to [`gitlab::request_for_branch`].
-pub fn request_for_branch(
-    conn: &Connection,
-    project_id: &str,
+/// The one dispatch point (D-117) for reading a forge's request state — and, as of plan 07-11,
+/// connection-free: it takes an already-resolved `forge`/`repo_path` pair (see
+/// [`forge_and_repo_path`]) rather than a database connection, so a caller resolves under the
+/// lock, releases it, and calls this function with no lock held at all. `Forge::Local` returns
+/// `Ok(None)` **without spawning any process at all**, `Forge::GitHub` delegates to
+/// [`github::request_for_branch`], `Forge::GitLab` to [`gitlab::request_for_branch`]. This is the
+/// ONE dispatch point in the workspace: `tests/bin/forge_probe.rs` calls through here too, rather
+/// than carrying its own copy of this match.
+pub fn request_for_branch_at(
+    forge: Forge,
+    repo_path: &std::path::Path,
     branch: &str,
 ) -> Result<Option<ForgeRequest>, ForgeError> {
-    let (forge, repo_path) = resolve_forge_and_repo_path(conn, project_id)
-        .map_err(|e| ForgeError::CliFailed { cli: "flywheel", stderr: e.to_string() })?;
-
     match forge {
         Forge::Local => Ok(None),
-        Forge::GitHub => github::request_for_branch(&repo_path, branch),
-        Forge::GitLab => gitlab::request_for_branch(&repo_path, branch),
+        Forge::GitHub => github::request_for_branch(repo_path, branch),
+        Forge::GitLab => gitlab::request_for_branch(repo_path, branch),
     }
 }
 
-/// [`request_for_branch`]'s dispatch sibling (D-117, D-118): resolves `project_id`'s effective
-/// forge, returns a no-forge-configured error for `Forge::Local` **without spawning any process
-/// at all**, and otherwise delegates to the matching adapter's own `create_request`. This is one
-/// of exactly two call sites of either adapter's `create_request` in the whole workspace — the
-/// other is the one Tauri command that calls this function — so an agent, a scheduler job or any
-/// MCP tool reaching `create_request` would have to add a THIRD (D-118 rejected the agent path
-/// explicitly; `forge_degrade.rs`'s and `supervisor_cwd.rs`'s own `<verify>` gates are what this
-/// crate already uses to assert an absence like this one, extended here to this function).
-pub fn create_request(
-    conn: &Connection,
-    project_id: &str,
+/// [`request_for_branch_at`]'s dispatch sibling (D-117, D-118) for opening a request — also
+/// connection-free as of plan 07-11: takes an already-resolved `forge`/`repo_path` pair, never a
+/// `Connection`, so this can be called with no lock held. Returns a no-forge-configured error for
+/// `Forge::Local` **without spawning any process at all**, and otherwise delegates to the matching
+/// adapter's own `create_request`. This is one of exactly two call sites of either adapter's
+/// `create_request` in the whole workspace — the other is the one Tauri command that calls this
+/// function — so an agent, a scheduler job or any MCP tool reaching `create_request` would have to
+/// add a THIRD (D-118 rejected the agent path explicitly; `forge_degrade.rs`'s and
+/// `supervisor_cwd.rs`'s own `<verify>` gates are what this crate already uses to assert an
+/// absence like this one, extended here to this function).
+pub fn create_request_at(
+    forge: Forge,
+    repo_path: &std::path::Path,
     draft: &request_body::RequestDraft,
 ) -> Result<ForgeRequest, ForgeError> {
-    let (forge, repo_path) = resolve_forge_and_repo_path(conn, project_id)
-        .map_err(|e| ForgeError::CliFailed { cli: "flywheel", stderr: e.to_string() })?;
-
     match forge {
         Forge::Local => Err(ForgeError::CliFailed {
             cli: "flywheel",
-            stderr: format!("project {project_id:?} has no forge configured — cannot open a request"),
+            stderr: format!(
+                "project at {repo_path:?} has no forge configured — cannot open a request"
+            ),
         }),
-        Forge::GitHub => github::create_request(&repo_path, draft),
-        Forge::GitLab => gitlab::create_request(&repo_path, draft),
+        Forge::GitHub => github::create_request(repo_path, draft),
+        Forge::GitLab => gitlab::create_request(repo_path, draft),
     }
 }

@@ -24,18 +24,16 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use core::forge::{detect_forge_from_origin, github, gitlab, Forge, ForgeRequest};
+use core::forge::{detect_forge_from_origin, request_for_branch_at, Forge, ForgeRequest};
 
 /// One single-pair probe's outcome, shared by the original two-argument mode and each pair of
 /// `--both` — the SAME detection + dispatch this file has always run, factored out so `--both`
-/// runs it twice rather than duplicating it.
+/// runs it twice rather than duplicating it. Dispatches through `core::forge::request_for_branch_at`
+/// — the one shared dispatch seam (phase 07 plan 07-11) — rather than carrying its own copy of the
+/// forge match, so the workspace has exactly one such match rather than two.
 fn probe(repo_path: &std::path::Path, branch: &str) -> (Forge, Result<Option<ForgeRequest>, core::forge::ForgeError>) {
     let forge = detect_forge_from_origin(repo_path);
-    let result = match forge {
-        Forge::Local => Ok(None),
-        Forge::GitHub => github::request_for_branch(repo_path, branch),
-        Forge::GitLab => gitlab::request_for_branch(repo_path, branch),
-    };
+    let result = request_for_branch_at(forge, repo_path, branch);
     (forge, result)
 }
 

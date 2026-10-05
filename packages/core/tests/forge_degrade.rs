@@ -9,7 +9,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use core::domain::settings::set_project_forge;
-use core::forge::{forge_for_project, request_for_branch, Forge, ForgeError};
+use core::forge::{forge_and_repo_path, forge_for_project, request_for_branch_at, Forge, ForgeError};
 
 fn run_git(repo: &Path, args: &[&str]) {
     let status = std::process::Command::new("git")
@@ -117,8 +117,11 @@ fn no_origin_remote_resolves_to_local_forge() {
 fn no_origin_remote_spawns_no_forge_process_at_all() {
     let (conn, _actor_id, project, _repo_dir) = common::seeded_git_project();
     with_sabotaged_forge_clis(|sabotage| {
-        let result = request_for_branch(&conn, &project.id, "main")
-            .expect("request_for_branch should succeed with no forge configured");
+        let (forge, repo_path) = forge_and_repo_path(&conn, &project.id)
+            .expect("forge_and_repo_path should succeed with no forge configured");
+        assert_eq!(forge, Forge::Local, "no origin remote must resolve to local");
+        let result = request_for_branch_at(forge, &repo_path, "main")
+            .expect("request_for_branch_at should succeed with no forge configured");
         assert!(result.is_none());
         assert!(!sabotage.invoked("gh"), "gh must never be invoked for a local-only project");
         assert!(!sabotage.invoked("glab"), "glab must never be invoked for a local-only project");
@@ -136,8 +139,11 @@ fn stored_local_override_forces_local_even_with_github_origin() {
     assert_eq!(forge, Forge::Local);
 
     with_sabotaged_forge_clis(|sabotage| {
-        let result = request_for_branch(&conn, &project.id, "main")
-            .expect("request_for_branch should succeed under a forced local override");
+        let (forge, repo_path) = forge_and_repo_path(&conn, &project.id)
+            .expect("forge_and_repo_path should succeed under a forced local override");
+        assert_eq!(forge, Forge::Local, "the stored 'local' override must resolve to local");
+        let result = request_for_branch_at(forge, &repo_path, "main")
+            .expect("request_for_branch_at should succeed under a forced local override");
         assert!(result.is_none());
         assert!(!sabotage.invoked("gh"), "the stored 'local' override must suppress gh entirely");
         assert!(
@@ -161,10 +167,12 @@ fn stored_github_override_forces_github_path_even_for_self_hosted_host() {
     assert_eq!(forge, Forge::GitHub, "a 'github' override must win over a self-hosted origin host");
 
     with_sabotaged_forge_clis(|sabotage| {
+        let (forge, repo_path) = forge_and_repo_path(&conn, &project.id)
+            .expect("forge_and_repo_path should succeed for a github override");
         // The sabotaged `gh` stub exits non-zero, so this is an `Err` — the point of this test is
         // that `gh` was invoked AT ALL, which the stored override forces despite the self-hosted
         // origin host `detect_forge_from_origin` alone would never have matched to GitHub.
-        let _ = request_for_branch(&conn, &project.id, "main");
+        let _ = request_for_branch_at(forge, &repo_path, "main");
         assert!(sabotage.invoked("gh"), "the stored 'github' override must dispatch to gh");
         assert!(!sabotage.invoked("glab"), "the 'github' override must never invoke glab");
     });
@@ -177,8 +185,10 @@ fn forced_github_override_with_gh_absent_from_path_yields_cli_not_installed() {
     set_project_forge(&mut conn, &actor_id, &project.id, Some("github"))
         .expect("set_project_forge should succeed");
 
+    let (forge, repo_path) =
+        forge_and_repo_path(&conn, &project.id).expect("forge_and_repo_path should succeed");
     with_empty_path(|| {
-        let err = request_for_branch(&conn, &project.id, "main")
+        let err = request_for_branch_at(forge, &repo_path, "main")
             .expect_err("gh absent from PATH must be a typed error, never a silent success");
         assert!(
             matches!(err, ForgeError::CliNotInstalled { cli: "gh" }),
@@ -194,8 +204,10 @@ fn forced_gitlab_override_with_glab_absent_from_path_yields_cli_not_installed() 
     set_project_forge(&mut conn, &actor_id, &project.id, Some("gitlab"))
         .expect("set_project_forge should succeed");
 
+    let (forge, repo_path) =
+        forge_and_repo_path(&conn, &project.id).expect("forge_and_repo_path should succeed");
     with_empty_path(|| {
-        let err = request_for_branch(&conn, &project.id, "main")
+        let err = request_for_branch_at(forge, &repo_path, "main")
             .expect_err("glab absent from PATH must be a typed error, never a silent success");
         assert!(
             matches!(err, ForgeError::CliNotInstalled { cli: "glab" }),
