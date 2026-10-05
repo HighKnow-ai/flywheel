@@ -507,3 +507,161 @@ pub async fn start_git_truth_scheduler(app: AppHandle) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod forge_tick_tests {
+    use super::*;
+
+    /// A fresh migrated database with one project (forge forced to `local` so
+    /// `forge_and_repo_path` takes its stored-override arm and never shells out to `git` for
+    /// detection, D8), one task, and one active `worktrees` row — the shape
+    /// `forge_tick_targets`/`poll_forge_targets` need to resolve a target with no subprocess at
+    /// all. Copies `commands::agent_run::tests::seeded_conn_with_task`'s fixture shape
+    /// (`tempfile::tempdir()` + `std::mem::forget`, `open_and_migrate`,
+    /// `local_human_actor_id`, `create_project`, `create_task`) and
+    /// `commands::agent_run::tests::seeded_conn_with_running_run`'s `INSERT INTO worktrees`
+    /// column list verbatim.
+    fn seeded_tick_fixture() -> (rusqlite::Connection, String, String, String) {
+        let dir = tempfile::tempdir().expect("failed to create scratch dir");
+        let db_path = dir.path().join("flywheel.db");
+        let backups_dir = dir.path().join("backups");
+        std::mem::forget(dir);
+
+        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
+            .expect("open_and_migrate should succeed");
+        let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .expect("seeded human actor should exist");
+        let project = flywheel_core::domain::project::create_project(
+            &mut conn,
+            &human_actor_id,
+            "Test Project",
+            "/tmp/does-not-need-to-exist-for-this-test",
+            "FLY",
+            "main",
+        )
+        .expect("create_project should succeed");
+        let task = flywheel_core::domain::task::create_task(
+            &mut conn,
+            &project.id,
+            &human_actor_id,
+            "Test task",
+            None,
+        )
+        .expect("create_task should succeed");
+        let system_actor_id = flywheel_core::domain::actor::system_actor(&conn)
+            .expect("seeded system actor should exist")
+            .id;
+
+        conn.execute(
+            "UPDATE projects SET forge = 'local' WHERE id = ?1",
+            rusqlite::params![project.id],
+        )
+        .expect("failed to force the project's forge to local");
+
+        let now = "2026-01-01T00:00:00.000Z";
+        let worktree_id = flywheel_core::ids::new_id();
+        conn.execute(
+            "INSERT INTO worktrees (
+                id, task_id, project_id, path, branch, base_branch, status, created_by, created_at
+            ) VALUES (
+                ?1, ?2, ?3, '/tmp/does-not-need-to-exist-for-this-test', 'flywheel/test-task',
+                'main', 'active', ?4, ?5
+            )",
+            rusqlite::params![worktree_id, task.id, project.id, human_actor_id, now],
+        )
+        .expect("failed to insert fixture worktree row");
+
+        (conn, task.id, human_actor_id, system_actor_id)
+    }
+
+    /// A synthetic observed merge — no subprocess, no network — mirroring
+    /// `tests/status_transitions.rs`'s own `request` helper's synthetic-value discipline.
+    fn merged_request() -> ForgeRequest {
+        ForgeRequest {
+            state: flywheel_core::forge::ForgeState::Merged,
+            ci: flywheel_core::forge::CiResult::None,
+            number: 42,
+            title: "Test PR".to_string(),
+            url: "https://example.invalid/pr/42".to_string(),
+            ci_url: None,
+            is_draft: false,
+            target_branch: "main".to_string(),
+        }
+    }
+
+    /// Seed the restart-safe forge baseline at `Open` by appending one synthetic
+    /// `forge.state_changed` event directly — copying `tests/status_transitions.rs`'s
+    /// `append_forge_event` fixture body inline, since that helper lives in a different crate
+    /// and cannot be imported here.
+    fn seed_open_baseline(conn: &mut rusqlite::Connection, project_id: &str, actor_id: &str, task_id: &str) {
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.transaction().expect("transaction should open");
+        let sequence = flywheel_core::domain::event::next_sequence(&tx, project_id, "local")
+            .expect("sequence should allocate");
+        let payload = serde_json::json!({
+            "state": "Open",
+            "ci": "None",
+            "label": "synthetic forge event",
+        });
+        flywheel_core::domain::event::append_event(
+            &tx,
+            project_id,
+            "local",
+            sequence,
+            "task",
+            task_id,
+            Some(task_id),
+            None,
+            actor_id,
+            flywheel_core::forge::transitions::EVENT_FORGE_STATE_CHANGED,
+            &payload,
+            &now,
+        )
+        .expect("append_event should succeed");
+        tx.commit().expect("commit should succeed");
+    }
+
+    #[test]
+    fn a_manual_move_during_the_poll_window_is_not_overwritten_by_a_merged_observation() {
+        let (mut conn, task_id, human_actor_id, system_actor_id) = seeded_tick_fixture();
+
+        // 1. The task starts in review, with an Open baseline — the state the tick would have
+        //    captured on phase one's read.
+        flywheel_core::domain::task::set_task_status(&mut conn, &human_actor_id, &task_id, "in_review")
+            .expect("moving to in_review should succeed");
+        let project_id: String = conn
+            .query_row("SELECT project_id FROM tasks WHERE id = ?1", [&task_id], |row| row.get(0))
+            .expect("project_id read should succeed");
+        seed_open_baseline(&mut conn, &project_id, &human_actor_id, &task_id);
+
+        // 2. Phase one of the tick: resolve targets under the (conceptual) lock.
+        let targets = forge_tick_targets(&conn);
+        assert_eq!(targets.len(), 1, "exactly one active worktree should resolve to one target");
+        assert_eq!(targets[0].task_id, task_id);
+
+        // 3. The lock-release window: the user drags the card back to `in_progress` by hand
+        //    while the (simulated) network poll is in flight.
+        flywheel_core::domain::task::set_task_status(&mut conn, &human_actor_id, &task_id, "in_progress")
+            .expect("the manual move should succeed");
+
+        // 4. Phase two's result, as it would have come back from a slow `gh`/`glab` call: a
+        //    merged observation for the one target resolved above.
+        let results =
+            vec![ForgePollResult { task_id: targets[0].task_id.clone(), observed: Some(merged_request()) }];
+
+        // 5. Phase three: apply under the re-acquired lock.
+        apply_forge_results(&mut conn, &results, &system_actor_id);
+
+        // 6. The regression: today's unfixed code has no way to know the status it read in phase
+        //    one is stale, so it overwrites the manual move with `done`. `status` is kept on the
+        //    assertion's left so a failure's `left:` line names what was actually written.
+        let status: String = conn
+            .query_row("SELECT status FROM tasks WHERE id = ?1", [&task_id], |row| row.get(0))
+            .expect("status read should succeed");
+        assert_eq!(
+            status, "in_progress",
+            "a manual move landing inside the forge tick's lock-release window must survive a \
+             stale merged observation — the forge must not overwrite a column a human just moved"
+        );
+    }
+}
