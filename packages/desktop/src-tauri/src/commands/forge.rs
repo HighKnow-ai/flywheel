@@ -93,7 +93,13 @@ pub enum ForgeReadDto {
 /// outcomes above. Shells out to the user's own already-authenticated `gh`/`glab` CLI on every
 /// call — no cached verdict, never returns a credential or raw CLI stderr. For a task in a
 /// `Forge::Local` project this resolves to `NoForgeConfigured` without spawning any process at
-/// all (checked via `forge_for_project` before `request_for_branch` is ever called).
+/// all.
+///
+/// Phase 07 plan 07-11: the mutex is released before the CLI runs, so a slow forge call cannot
+/// block any other command. Resolves the worktree and the project's forge/repo path under the
+/// lock, releases it with an explicit `drop`, dispatches lock-free through the connection-free
+/// read seam in `flywheel_core::forge`, then — only for the request case — briefly re-acquires
+/// the lock to read the unmet-criteria count.
 #[tauri::command]
 pub fn forge_request_for_task(
     state: State<AppState>,
@@ -114,17 +120,23 @@ pub fn forge_request_for_task(
         return Ok(ForgeReadDto::NoWorktree);
     };
 
-    let forge = flywheel_core::forge::forge_for_project(&conn, &project_id).map_err(|e| e.to_string())?;
+    let (forge, repo_path) =
+        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| e.to_string())?;
     if matches!(forge, flywheel_core::forge::Forge::Local) {
+        // Correct to return from inside the lock here: Forge::Local spawns no process at all, so
+        // nothing is held across anything.
         return Ok(ForgeReadDto::NoForgeConfigured);
     }
+    drop(conn);
 
-    match flywheel_core::forge::request_for_branch(&conn, &project_id, &branch) {
+    match flywheel_core::forge::request_for_branch_at(forge, &repo_path, &branch) {
         Ok(None) => Ok(ForgeReadDto::NoRequest),
         Ok(Some(request)) => {
+            let conn = state.db.lock().map_err(|e| e.to_string())?;
             let unmet_criteria =
                 flywheel_core::query::forge::latest_unmet_criteria_count(&conn, &task_id)
                     .map_err(|e| e.to_string())?;
+            drop(conn);
             Ok(ForgeReadDto::Request { request: ForgeRequestDto::from(&request), unmet_criteria })
         }
         Err(flywheel_core::forge::ForgeError::CliNotInstalled { cli }) => {
@@ -196,6 +208,11 @@ pub fn forge_request_draft(
 /// packed into the `Err(String)` this command's signature is fixed to as `"<category>:<cli>"` —
 /// never the CLI's raw stderr, which stays in the `eprintln!` below (T-07-09-08, mirroring this
 /// module's own header comment).
+///
+/// Phase 07 plan 07-11: the mutex is released before the CLI runs, so a slow forge call cannot
+/// block any other command. Assembles the draft and resolves the forge/repo path under the lock,
+/// releases it, then dispatches lock-free through the connection-free open seam in
+/// `flywheel_core::forge`.
 #[tauri::command]
 pub fn forge_open_request(
     state: State<AppState>,
@@ -211,8 +228,11 @@ pub fn forge_open_request(
         .query_row("SELECT project_id FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
         .map_err(|e| e.to_string())?;
 
-    let result = flywheel_core::forge::create_request(&conn, &project_id, &draft);
+    let (forge, repo_path) =
+        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| e.to_string())?;
     drop(conn);
+
+    let result = flywheel_core::forge::create_request_at(forge, &repo_path, &draft);
 
     match result {
         Ok(request) => {
