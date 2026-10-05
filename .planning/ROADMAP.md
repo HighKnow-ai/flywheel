@@ -62,7 +62,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: `/clear` Is Free** - Discard an agent's whole context and have the next session pick up from the board alone (completed 2026-09-23)
 - [x] **Phase 5: Socratic Epic Authoring** - Be challenged while shaping an epic and walk away with board items, not a document (completed 2026-09-30)
 - [x] **Phase 6: Agents File Their Own Backlog** - Agents propose what they learn into a triage lane that nothing escapes without a human (completed 2026-10-02)
-- [ ] **Phase 7: The Board Tells The Git Truth** - Answer "where does this task actually stand in git and on the forge?" without a terminal
+- [x] **Phase 7: The Board Tells The Git Truth** - Answer "where does this task actually stand in git and on the forge?" without a terminal (completed 2026-10-05)
 - [ ] **Phase 8: Review And Merge Inside Flywheel** - Review an agent's diff against its acceptance criteria and land it in-app
 - [ ] **Phase 9: Planned Fan-Out That Does Not Collide** - Turn one epic into several agents at once, bounded by real file-set disjointness
 - [ ] **Phase 10: Fleet Supervision Across Every Project** - Answer "what is every agent everywhere doing, and what needs me?" in one glance
@@ -1036,7 +1036,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 4. `/clear` Is Free | 16/16 | Complete    | 2026-09-23 |
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
-| 7. The Board Tells The Git Truth | 12/12 | In Progress|  |
+| 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
