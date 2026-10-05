@@ -277,17 +277,6 @@ pub fn tracked_worktrees(conn: &Connection, hot_only: bool) -> anyhow::Result<Ve
     Ok(rows)
 }
 
-/// Fetch `origin` for `project_id`'s repository (D-116) — delegates to [`git::fetch_origin`]'s
-/// own "no remote configured" skip.
-pub fn fetch_origin_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<bool> {
-    let repo_path: String = conn
-        .query_row("SELECT repo_path FROM projects WHERE id = ?1", params![project_id], |row| {
-            row.get(0)
-        })
-        .with_context(|| format!("project {project_id:?} not found"))?;
-    git::fetch_origin(Path::new(&repo_path))
-}
-
 /// D-115: for each commit in `task_id`'s rendered commit window (the exact `COMMIT_WINDOW`-capped
 /// list [`git_facts_for_task`] already reads — no extra git invocation, no unbounded history
 /// walk) not covered by any recorded `agent_runs` window (D-129), appends exactly one `events`

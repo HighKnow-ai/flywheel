@@ -572,3 +572,37 @@ fn none_against_a_merged_baseline_writes_nothing_and_moves_nothing() {
         .expect("status read should succeed");
     assert_eq!(status, "done");
 }
+
+#[test]
+fn applying_an_observation_for_a_deleted_task_writes_nothing_and_errors() {
+    // The window plan 07-11 opens: a forge poll reads its work list under the lock, drops it,
+    // polls the forge lock-free, then re-acquires the lock only to apply. If the task was deleted
+    // (or re-staged away) in that window, the observation gathered before the window opened must
+    // never write against a task that no longer exists — apply_forge_observation reads its baseline
+    // and the task row inside the SAME transaction that would write the transition, so a missing
+    // task row is an error, not a silent no-op write.
+    let (mut conn, actor_id, project) = seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Deleted mid-window", None)
+        .expect("create_task should succeed");
+    let system = system_actor(&conn).expect("system actor should exist");
+
+    conn.execute("DELETE FROM tasks WHERE id = ?1", [&task.id])
+        .expect("deleting the task row should succeed");
+
+    let result = apply_forge_observation(
+        &mut conn,
+        &task.id,
+        Some(&request(ForgeState::Open, CiResult::None, 1)),
+        &system.id,
+    );
+
+    assert!(
+        result.is_err(),
+        "an observation for a task that no longer exists must error, not succeed"
+    );
+    assert_eq!(
+        count_events_of_type(&conn, &task.id, EVENT_FORGE_STATE_CHANGED),
+        0,
+        "no event row of any kind must be written for the deleted task"
+    );
+}
