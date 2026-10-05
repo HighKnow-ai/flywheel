@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 07
-current_phase_name: the-board-tells-the-git-truth
+current_phase_name: The Board Tells The Git Truth
 status: executing
-stopped_at: Completed 07-09-PLAN.md (last plan of Phase 7)
-last_updated: "2026-10-05T04:35:00.715Z"
-last_activity: 2026-10-02
+stopped_at: Completed 07-10-PLAN.md
+last_updated: "2026-10-05T06:28:09.653Z"
+last_activity: 2026-10-05
 last_activity_desc: Phase 07 execution started
-state_head: e9ba2c1f57791a939b9faf3be22e69eb8249d9eb
+state_head: 99abb907366b33ffe4740889e4a534abb83e8e0f
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 170
-  completed_plans: 167
+  completed_plans: 168
   percent: 0
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 
 ## Current Position
 
-Phase: 07 (the-board-tells-the-git-truth) — READY TO EXECUTE
-Plan: 9 of 9
+Phase: 07 (The Board Tells The Git Truth) — EXECUTING
+Plan: 2 of 12
 Status: Ready to execute
-Last activity: 2026-10-02 — Phase 07 execution started
+Last activity: 2026-10-05 — Phase 07 execution started
 
 Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
 
@@ -227,6 +227,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 07 P07 | 50min | 3 tasks | 8 files |
 | Phase 07 P08 | 86min | 3 tasks | 18 files |
 | Phase 07 P09 | 55min | 3 tasks | 13 files |
+| Phase 07 P10 | 46min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -523,6 +524,7 @@ Recent decisions affecting current work:
 - [Phase 07]: Preview and send share one assembly function (assemble_request_draft) by construction, so the previewed request body is structurally the published one
 - [Phase 07]: Body transported off argv per-forge: gh pr create reads stdin; glab mr create reads an owner-only (0o600) temp file removed before returning
 - [Phase 07]: forge_open_request packs ForgeError into Err(String) as a stable "<category>:<cli>" string rather than its raw Display, keeping CliFailed's stderr off the IPC boundary
+- [Phase 07]: On a subprocess timeout, abandon (do not join) the stdout/stderr/stdin draining threads after killing and reaping the direct child. — A shell-wrapped stub can fork a surviving grandchild that inherits the pipe write end; joining the reader threads on the timeout path blocks until that grandchild's pipe closes, silently defeating the ceiling. Discovered via the gh end-to-end test taking the full child duration instead of the configured ceiling.
 
 ### Pending Todos
 
@@ -581,6 +583,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-04T11:17:07.756Z
-Stopped at: Completed 07-09-PLAN.md (last plan of Phase 7)
+Last session: 2026-10-05T06:28:09.504Z
+Stopped at: Completed 07-10-PLAN.md
 Resume file: None
