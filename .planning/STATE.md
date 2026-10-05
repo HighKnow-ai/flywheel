@@ -572,6 +572,7 @@ Recent decisions affecting current work:
 | 260929-lq1 | Re-read before deciding: fix stale-snapshot proposal targets in the live UAT harness | 2026-09-29 | 4f88bc8 | [260929-lq1-re-read-before-deciding-fix-stale-snapsh](./quick/260929-lq1-re-read-before-deciding-fix-stale-snapsh/) |
 | 260929-nxq | The live UAT driver must answer the agent and not advance over a withheld consent; SHAPE-02 asserts a materialised board row | 2026-09-29 | 56aad64 | [260929-nxq-the-live-uat-driver-must-answer-the-agen](./quick/260929-nxq-the-live-uat-driver-must-answer-the-agen/) |
 | 260929-p61 | The live challenge stage asks Cyril the agent's real questions instead of composing a fallback | 2026-09-29 | 9fe317d | [260929-p61-the-live-challenge-stage-asks-cyril-the-](./quick/260929-p61-the-live-challenge-stage-asks-cyril-the-/) |
+| 261005-mn5 | Fix the forge-tick lost-update race with a compare-and-swap on the task's captured status (BL-01), correct forge_and_repo_path's false spawn claim (HI-01), and give the scheduler forge tick its first test coverage (MED-02) | 2026-10-05 | 31683e7 | [261005-mn5-fix-the-forge-tick-lost-update-race-make](./quick/261005-mn5-fix-the-forge-tick-lost-update-race-make/) |
 
 ### Roadmap Evolution
 
@@ -588,6 +589,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-05T08:02:13.837Z
-Stopped at: Completed 07-12-PLAN.md
+Last session: 2026-10-05T09:03:35Z
+Stopped at: Completed 261005-mn5-PLAN.md
 Resume file: None
