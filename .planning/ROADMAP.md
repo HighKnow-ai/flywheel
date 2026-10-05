@@ -775,7 +775,7 @@ walkthrough.
   4. User commits by hand from his own terminal on a task's branch and Flywheel detects it and reflects it on the board item, never silently overwriting it.
   5. Flywheel works against a GitHub project and a GitLab project and degrades cleanly to local-only git when no forge is configured; from any task the user opens its worktree in his own editor or terminal in one action.
 
-**Plans**: 9/9 plans executed in 7 waves (tracer-first; the serial tail is forced by three chokepoint files every plan touches — `adapters/tauri.ts`, `src-tauri/src/main.rs` and `capabilities/default.json`)
+**Plans**: 9/9 plans executed in 7 waves, plus 3 gap-closure plans in 3 further waves (tracer-first; the serial tail is forced by three chokepoint files every plan touches — `adapters/tauri.ts`, `src-tauri/src/main.rs` and `capabilities/default.json`)
 **UI hint**: yes
 
 Plans:
@@ -809,6 +809,18 @@ Plans:
 **Wave 7** *(blocked on 07-08 — the phase's one outward action)*
 
 - [x] 07-09-PLAN.md — The board item becomes the pull request: previewed, then opened, with the In Review move left to the one edge detector (LINK-05)
+
+**Wave 8 — gap closure** *(`07-VERIFICATION.md` Gap 1's second missing item: bound the subprocess before anything else, because the lock fix alone still leaves a starved tick)*
+
+- [ ] 07-10-PLAN.md — Gap closure: one bounded wait every `gh`, `glab` and `git` child process routes through, so no call in the forge or fetch path can hang forever (LINK-02, LINK-08, LINK-09)
+
+**Wave 9 — gap closure** *(blocked on 07-10; Gap 1's first missing item — the app-wide mutex)*
+
+- [ ] 07-11-PLAN.md — Gap closure: resolve under the lock, dispatch lock-free, re-lock only to write — and remove the connection-taking forms so the shape cannot come back (LINK-02, LINK-05, LINK-08)
+
+**Wave 10 — gap closure** *(blocked on 07-11; Gap 2 — criterion 3's unexercised live arm)*
+
+- [ ] 07-12-PLAN.md — Gap closure: the open-to-In-Review-to-Done chain run end to end as one automated command, both forges, forge server substituted and nothing else (LINK-05, LINK-06, LINK-07, LINK-08)
 
 **Notes**: LINK-10 matters more than it looks: the moment the board and the working tree disagree
 about a branch, the user stops trusting the board and goes back to the terminal — which is
