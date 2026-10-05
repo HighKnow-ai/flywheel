@@ -18,12 +18,20 @@
 //!
 //! Fourth (phase 07 plan 07-11, closing verification Gap 1 / code review CR-01): resolution and
 //! dispatch are separate functions, deliberately. [`forge_and_repo_path`] takes a `&Connection`
-//! and spawns nothing; [`request_for_branch_at`] and [`create_request_at`] spawn a subprocess and
-//! take no `Connection` at all. A database lock must never be alive while a forge CLI runs — the
-//! app has exactly one `AppState.db` mutex guarding every Tauri command, and a function that took
-//! both a connection and ran a subprocess was the only way a caller COULD hold that lock across an
-//! unbounded-latency network call. With no such function left, a caller must resolve under the
-//! lock, release it, and dispatch lock-free — the shape is unrepresentable, not just avoided.
+//! and issues no forge CLI call and no network call — that is what the resolution/dispatch split
+//! exists to guarantee, and on its stored-override arms it spawns no process at all; but on its
+//! detection fallback (a project whose `projects.forge` is NULL) it spawns one bounded local
+//! `git remote get-url origin`. [`request_for_branch_at`] and [`create_request_at`] spawn a
+//! subprocess and take no `Connection` at all. A database lock must never be alive while a forge
+//! CLI runs — the app has exactly one `AppState.db` mutex guarding every Tauri command, and a
+//! function that took both a connection and ran an unbounded network call was the only way a
+//! caller COULD hold that lock across one. With no such function left, a caller must resolve
+//! under the lock, release it, and dispatch lock-free — the shape is unrepresentable, not just
+//! avoided. The detection fallback's one bounded local `git` spawn is tolerated running under the
+//! lock (all three call sites hold it there) rather than split out to its own lock-free phase: a
+//! local config read, bounded by `GIT_TIMEOUT_SECS`, cannot produce the unbounded freeze this
+//! split exists to prevent, and [`forge_and_repo_path`]'s own callers memoise it per project, so
+//! it is at most one spawn per project per tick.
 
 use std::path::PathBuf;
 
@@ -145,9 +153,16 @@ pub fn detect_forge_from_origin(repo_path: &std::path::Path) -> Forge {
 
 /// `project_id`'s stored forge override and repo path in one read, so [`forge_for_project`] and
 /// every dispatch caller never issue two separate queries for data that lives in the same row.
-/// Takes a connection and spawns nothing — the resolution half of the resolution/dispatch split
-/// the module header's fourth rule states; callers resolve here, release the lock, then dispatch
-/// through [`request_for_branch_at`] or [`create_request_at`], neither of which takes a connection.
+/// Takes a connection and issues no forge CLI call and no network call — the resolution half of
+/// the resolution/dispatch split the module header's fourth rule states; callers resolve here,
+/// release the lock, then dispatch through [`request_for_branch_at`] or [`create_request_at`],
+/// neither of which takes a connection. On the stored-override arms (`projects.forge` is
+/// `"github"`, `"gitlab"` or `"local"`) it spawns no process at all; but on the detection
+/// fallback (`projects.forge` is `NULL`) it spawns one bounded local `git remote get-url origin`
+/// via [`detect_forge_from_origin`], while this function's own caller still holds the database
+/// lock — tolerated per the module header's fourth rule, since a local config read bounded by
+/// `GIT_TIMEOUT_SECS` cannot produce the unbounded freeze the resolution/dispatch split exists to
+/// prevent.
 pub fn forge_and_repo_path(
     conn: &Connection,
     project_id: &str,
