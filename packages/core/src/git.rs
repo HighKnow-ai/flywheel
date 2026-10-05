@@ -9,6 +9,12 @@
 //! `anyhow::Error`, matching this crate's established `domain::task`/`domain::project` idiom —
 //! non-zero git exit status becomes an `Err` carrying git's own stderr, never a silently-ignored
 //! `Output`.
+//!
+//! The wait is bounded by `proc::GIT_TIMEOUT_SECS` (code review WR-02): a `git` invocation that
+//! never exits is killed and surfaces as an `Err` after that ceiling instead of hanging forever.
+//! A timeout is NOT lock contention — `git_retry::is_lock_contention` matches git's own
+//! lock-failure stderr phrasings, which a timeout error never carries — so [`git_at`]'s retry
+//! wrapper returns a timed-out call unchanged after exactly one attempt, never retrying it.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -35,12 +41,15 @@ pub fn worktree_root_from_env() -> std::path::PathBuf {
 /// "non-zero exit is an `Err`" policy; [`rev_parse_verify`] wraps it with the "non-zero exit means
 /// `false`" policy — both policies belong to the caller, never to this function.
 fn spawn_git(repo_path: &Path, args: &[&str]) -> anyhow::Result<Output> {
-    Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(args)
-        .output()
-        .with_context(|| format!("failed to spawn git -C {repo_path:?} {args:?}"))
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(repo_path).args(args);
+    crate::proc::output_with_timeout(
+        &mut cmd,
+        None,
+        std::time::Duration::from_secs(crate::proc::GIT_TIMEOUT_SECS),
+        &format!("git -C {repo_path:?} {args:?}"),
+    )
+    .with_context(|| format!("failed to spawn git -C {repo_path:?} {args:?}"))
 }
 
 /// Run `git -C <repo_path> <args>`, returning the raw [`Output`] on a zero exit status.

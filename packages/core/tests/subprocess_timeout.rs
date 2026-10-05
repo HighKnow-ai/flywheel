@@ -150,3 +150,49 @@ fn gh_request_for_branch_against_a_hung_gh_returns_bounded_error() {
         );
     });
 }
+
+/// Ignored for the same reason as the `gh` arm above: it burns the real 30-second
+/// `FORGE_CLI_TIMEOUT_SECS` ceiling, so the default `cargo test` run skips it.
+#[test]
+#[ignore]
+fn glab_request_for_branch_against_a_hung_glab_returns_bounded_error() {
+    let stub_dir = tempfile::tempdir().expect("failed to create scratch stub dir");
+    write_stub(stub_dir.path(), "glab", "sleep 40");
+
+    with_stub_on_path(stub_dir.path(), || {
+        let repo = tempfile::tempdir().expect("failed to create scratch repo dir");
+        let start = Instant::now();
+        let result = core::forge::gitlab::request_for_branch(repo.path(), "whatever");
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err(), "a hung glab should surface as an error, not a hang");
+        assert!(
+            elapsed >= Duration::from_secs(FORGE_CLI_TIMEOUT_SECS),
+            "returned before the forge CLI ceiling: {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(FORGE_CLI_TIMEOUT_SECS + 10),
+            "returned long after the forge CLI ceiling: {elapsed:?}"
+        );
+    });
+}
+
+/// Proves the guard did not change the success path for `git.rs`'s own spawn helper: a real
+/// invocation through [`core::git::git_at`] against a stub-free, freshly `git init`-ed repository
+/// still succeeds exactly as it did before this plan.
+#[test]
+fn git_at_still_succeeds_normally_on_a_real_repository() {
+    let repo = tempfile::tempdir().expect("failed to create scratch repo dir");
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["init", "--quiet"])
+        .status()
+        .expect("failed to spawn git init for the test fixture");
+    assert!(status.success(), "git init should succeed for the test fixture");
+
+    let output = core::git::git_at(repo.path(), &["rev-parse", "--is-inside-work-tree"])
+        .expect("git_at should still succeed on a real repository after routing through the guard");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "true");
+}

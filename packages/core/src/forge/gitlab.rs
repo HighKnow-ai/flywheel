@@ -30,9 +30,19 @@ use crate::forge::request_body::RequestDraft;
 use crate::forge::{CiResult, ForgeError, ForgeRequest, ForgeState};
 
 /// The ONE `glab` process construction site in this file. Both [`run_glab`] and the auth-status
-/// confirmation it makes on a non-zero exit call through here.
+/// confirmation it makes on a non-zero exit call through here. The wait is bounded by
+/// `crate::proc::FORGE_CLI_TIMEOUT_SECS` (code review WR-02): a `glab` that never exits is killed
+/// and surfaces as an `std::io::Error` of kind `TimedOut` instead of hanging this function's
+/// caller forever.
 fn spawn_glab(repo_path: &Path, args: &[&str]) -> std::io::Result<Output> {
-    Command::new("glab").current_dir(repo_path).args(args).output()
+    let mut cmd = Command::new("glab");
+    cmd.current_dir(repo_path).args(args);
+    crate::proc::output_with_timeout(
+        &mut cmd,
+        None,
+        std::time::Duration::from_secs(crate::proc::FORGE_CLI_TIMEOUT_SECS),
+        &format!("glab {}", args.join(" ")),
+    )
 }
 
 fn looks_like_auth_error(stderr: &str) -> bool {
