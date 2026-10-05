@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 07
 current_phase_name: The Board Tells The Git Truth
 status: executing
-stopped_at: Completed 07-11-PLAN.md
-last_updated: "2026-10-05T07:22:58.200Z"
+stopped_at: Completed 07-12-PLAN.md
+last_updated: "2026-10-05T08:02:13.978Z"
 last_activity: 2026-10-05
 last_activity_desc: Phase 07 execution started
-state_head: fd9bbda88e1b30618b6bc6a2449d296e59747210
+state_head: 5fde7d73ae64165273f87e182bef7be4818c95c2
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 170
-  completed_plans: 169
+  completed_plans: 170
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 07 (The Board Tells The Git Truth) — EXECUTING
-Plan: 3 of 12
+Plan: 4 of 12
 Status: Ready to execute
 Last activity: 2026-10-05 — Phase 07 execution started
 
@@ -229,6 +229,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 07 P09 | 55min | 3 tasks | 13 files |
 | Phase 07 P10 | 46min | 2 tasks | 6 files |
 | Phase 07 P11 | ~55min | 3 tasks | 7 files |
+| Phase 07 P12 | 42min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -527,6 +528,8 @@ Recent decisions affecting current work:
 - [Phase 07]: forge_open_request packs ForgeError into Err(String) as a stable "<category>:<cli>" string rather than its raw Display, keeping CliFailed's stderr off the IPC boundary
 - [Phase 07]: On a subprocess timeout, abandon (do not join) the stdout/stderr/stdin draining threads after killing and reaping the direct child. — A shell-wrapped stub can fork a surviving grandchild that inherits the pipe write end; joining the reader threads on the timeout path blocks until that grandchild's pipe closes, silently defeating the ceiling. Discovered via the gh end-to-end test taking the full child duration instead of the configured ceiling.
 - [Phase 07]: Split forge dispatch from resolution (forge_and_repo_path / request_for_branch_at / create_request_at) so no function in packages/core can take a database connection and spawn a gh/glab/git fetch subprocess (07-11). — Closes verification Gap 1's first missing item: a slow or hung forge/fetch call must never be able to hold AppState.db's single app-wide mutex, and the shape needed to be unrepresentable, not just unused, so the fix was to remove the connection-taking dispatch wrappers rather than add a guard.
+- [Phase 07]: FakeForge shares one scratch dir/state-file set between the gh and glab stubs; each test writes the forge-specific literal vocabulary rather than the helper normalising it.
+- [Phase 07]: Both TDD tasks commit once as test(07-12): this plan forbids any production-code change, so there is no feat(...) implementation step to pair with a RED commit.
 
 ### Pending Todos
 
@@ -585,6 +588,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-05T07:22:15.674Z
-Stopped at: Completed 07-11-PLAN.md
+Last session: 2026-10-05T08:02:13.837Z
+Stopped at: Completed 07-12-PLAN.md
 Resume file: None
