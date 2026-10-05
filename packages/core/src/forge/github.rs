@@ -17,9 +17,8 @@
 //! `query/events.rs`'s own `row_to_event` precedent: a future `gh` version changing a field's type
 //! degrades to a safe default, never panics and never silently reports a wrong definite value.
 
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 
 use serde_json::Value;
 
@@ -29,27 +28,24 @@ use crate::forge::{CiResult, ForgeError, ForgeRequest, ForgeState};
 /// The ONE `gh` process construction site in this file (PROC-02's sibling discipline for forge
 /// CLIs). Both [`run_gh`] and the auth-status confirmation it makes on a non-zero exit call
 /// through here — never a second construction site. `stdin`, when present, is piped in and
-/// written before the child is waited on (T-07-09-02's body-off-argv transport for
-/// [`create_request`]) — `None` keeps every existing read-path call exactly as it spawned before
-/// this plan.
+/// written by the bounded-wait guard in `crate::proc` before the child is waited on
+/// (T-07-09-02's body-off-argv transport for [`create_request`]) — `None` keeps every existing
+/// read-path call exactly as it spawned before this plan. The wait itself is bounded by
+/// `crate::proc::FORGE_CLI_TIMEOUT_SECS` (code review WR-02): a `gh` that never exits is killed
+/// and surfaces as an `std::io::Error` of kind `TimedOut` instead of hanging this function's
+/// caller forever.
 fn spawn_gh(repo_path: &Path, args: &[&str], stdin: Option<&[u8]>) -> std::io::Result<Output> {
     // `.current_dir(repo_path)` so `gh` resolves the repository from the worktree rather than
     // from any ambient process directory (`supervisor_cwd.rs`'s own discipline, extended here to
     // a non-git CLI).
     let mut cmd = Command::new("gh");
     cmd.current_dir(repo_path).args(args);
-    match stdin {
-        None => cmd.output(),
-        Some(bytes) => {
-            cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-            let mut child = cmd.spawn()?;
-            // `.take()` is infallible here: `stdin(Stdio::piped())` above guarantees `Some`.
-            let mut child_stdin = child.stdin.take().expect("stdin was piped above");
-            child_stdin.write_all(bytes)?;
-            drop(child_stdin);
-            child.wait_with_output()
-        }
-    }
+    crate::proc::output_with_timeout(
+        &mut cmd,
+        stdin,
+        std::time::Duration::from_secs(crate::proc::FORGE_CLI_TIMEOUT_SECS),
+        &format!("gh {}", args.join(" ")),
+    )
 }
 
 /// A rough, conservative heuristic for "this stderr describes an authentication problem" — never
