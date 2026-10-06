@@ -848,7 +848,7 @@ broken CLI.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
 
-**Plans**: 10/12 plans executed in 5 waves; 4 gap-closure plans in 3 waves
+**Plans**: 11/12 plans executed in 5 waves; 4 gap-closure plans in 3 waves
 **UI hint**: yes
 
 Plans:
@@ -885,7 +885,7 @@ Plans:
 
 **Gap wave 2** *(blocked on 08-09 — restructures the same two files that plan's command lives in)*
 
-- [ ] 08-11-PLAN.md — CR-01: the DB-half/git-half split for the merge plan, the review-read target and the epic request, so no git subprocess runs under the SQLite lock, and merge.rs's header stops claiming otherwise (REVW-04, REVW-05)
+- [x] 08-11-PLAN.md — CR-01: the DB-half/git-half split for the merge plan, the review-read target and the epic request, so no git subprocess runs under the SQLite lock, and merge.rs's header stops claiming otherwise (REVW-04, REVW-05)
 
 **Gap wave 3** *(blocked on 08-11 — rewrites the same error-mapping lines)*
 
@@ -1085,7 +1085,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
-| 8. Review And Merge Inside Flywheel | 10/12 | In Progress|  |
+| 8. Review And Merge Inside Flywheel | 11/12 | In Progress|  |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |
