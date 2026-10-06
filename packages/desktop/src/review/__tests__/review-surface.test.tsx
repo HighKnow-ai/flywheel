@@ -18,6 +18,8 @@ vi.mock("../../adapters/tauri", () => ({
   reviewFiles: (...args: unknown[]) => reviewFilesMock(...args),
   reviewFilePatch: (...args: unknown[]) => reviewFilePatchMock(...args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  // The merge precheck (plan 08-07) is not under test here; it never resolves, so no merge action renders.
+  reviewMergePrecheck: () => new Promise(() => {}),
   // The criteria rail (plan 08-06) shares the surface; these tests are about the file list, so it
   // reads an item with no criteria.
   reviewCriteriaState: () => Promise.resolve([]),

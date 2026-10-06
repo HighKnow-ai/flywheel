@@ -27,6 +27,8 @@ vi.mock("../../adapters/tauri", () => ({
   },
   reviewCriteriaState: () => Promise.resolve(state.current),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  // The merge precheck (plan 08-07) is not under test here; it never resolves, so no merge action renders.
+  reviewMergePrecheck: () => new Promise(() => {}),
   reviewFiles: () =>
     Promise.resolve({
       target: { state: "resolved", postMerge: false, base: "epic", head: "task", projectId: "p1", epicId: "e1", taskId: "t1" },

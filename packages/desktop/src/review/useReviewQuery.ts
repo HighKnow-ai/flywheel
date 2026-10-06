@@ -9,6 +9,7 @@ import {
   reviewCriteriaState,
   reviewFilePatch,
   reviewFiles,
+  reviewMergePrecheck,
   subscribeBoardChanged,
   type ReviewScopeDto,
 } from "../adapters/tauri";
@@ -119,6 +120,41 @@ export function useReviewCriteriaState(scope: ReviewScopeDto, itemId: string | u
     queryKey: itemId ? reviewCriteriaStateQueryKey(scope, itemId) : (["review-criteria-state", "none"] as const),
     queryFn: () => reviewCriteriaState(scope, itemId as string),
     enabled: Boolean(itemId),
+    staleTime: 0,
+  });
+}
+
+export function mergePrecheckQueryKey(taskId: string) {
+  return ["review-merge-precheck", taskId] as const;
+}
+
+/** What a merge of the task would do (REVW-04) — the side-effect-free dry run, so reading it is
+ * free. `staleTime: 0` re-runs it whenever a new observer mounts (the confirm sheet opening), so
+ * the will-conflict hint is as fresh as the sheet; the merge itself re-runs the dry run anyway. */
+export function useMergePrecheck(taskId: string | undefined, enabled: boolean) {
+  const queryClient = useQueryClient();
+  const active = enabled && Boolean(taskId);
+
+  useEffect(() => {
+    if (!active || !taskId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: mergePrecheckQueryKey(taskId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [active, taskId, queryClient]);
+
+  return useQuery({
+    queryKey: taskId ? mergePrecheckQueryKey(taskId) : (["review-merge-precheck", "none"] as const),
+    queryFn: () => reviewMergePrecheck(taskId as string),
+    enabled: active,
     staleTime: 0,
   });
 }

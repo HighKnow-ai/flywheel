@@ -14,13 +14,16 @@
  * highlight and anchor badges back down. Like `item-detail/GitFactsSection.tsx`, the file list renders nothing at all while its read is
  * in flight — absence is the design, not a placeholder.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
+import * as icons from "lucide-react";
+import { MARKS_BY_ID } from "../legend/marks";
 import type { ReviewFileDto, ReviewScopeDto } from "../adapters/tauri";
 import { nextSelectionId, useRegionBindings } from "../state/keyboard";
 import { CriteriaRail, useCheckAgainstSelection } from "./CriteriaRail";
 import { FileDiff, type AnchorBadge } from "./FileDiff";
+import { MergeConfirmSheet } from "./MergeConfirmSheet";
 import { toggleChange, type ReviewSelection, type SelectedChange } from "./selection";
-import { useReviewCriteriaState, useReviewFiles, useReviewPatch } from "./useReviewQuery";
+import { useMergePrecheck, useReviewCriteriaState, useReviewFiles, useReviewPatch } from "./useReviewQuery";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -89,6 +92,39 @@ function FilePatch({
   );
 }
 
+/** The `integrated` legend mark (plan 08-06 defined it; this is its first renderer). Word and glyph,
+ * never colour alone. */
+function IntegratedMark() {
+  const mark = MARKS_BY_ID.integrated;
+  const Glyph = (icons as unknown as Record<string, ComponentType<{ size?: number; strokeWidth?: number }>>)[
+    mark?.glyph ?? "GitMerge"
+  ];
+  return (
+    <span className="type-label" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--success-text-rack)" }}>
+      {Glyph && <Glyph size={14} strokeWidth={2} />}
+      {mark?.label ?? "Integrated"}
+    </span>
+  );
+}
+
+/** Why the Merge action is absent, in the surface's own voice. `noBranch` and `noIntegrationBranch`
+ * are already said by the file list's own empty states, so they add nothing here. */
+function MergeRefusalNote({ category }: { category: string }) {
+  let text: string | null = null;
+  if (category === "noEpic") {
+    text =
+      "Review works for every task, but an in-app merge needs an epic with a cut integration branch. This task has no epic — open a request for it from the item panel instead.";
+  } else if (category === "nothingToMerge") {
+    text = "Nothing to merge: this branch has no commits ahead of its epic's integration branch.";
+  }
+  if (!text) return null;
+  return (
+    <p className="type-label" style={{ margin: 0, padding: "var(--space-xs) var(--space-md)", color: "var(--text-muted-rack)", borderBottom: "1px solid var(--divider)" }}>
+      {text}
+    </p>
+  );
+}
+
 export interface ReviewSurfaceProps {
   scope: ReviewScopeDto;
   itemId: string;
@@ -128,6 +164,13 @@ export function ReviewSurface({ scope, itemId, label, onBack }: ReviewSurfacePro
     });
   }
 
+  // The merge action exists for a task only. The precheck is the dry run (free, writes nothing); it
+  // is read here, not only in the sheet, because whether the action is offered depends on it.
+  const isTask = scope === "task";
+  const mergePrecheck = useMergePrecheck(itemId, isTask);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const integrated = isTask && target?.postMerge === true;
+
   const [selection, setSelection] = useState<ReviewSelection | null>(null);
   const [focusedCriterionId, setFocusedCriterionId] = useState<string | null>(null);
   const checkAgainstSelection = useCheckAgainstSelection(scope, itemId, selection);
@@ -153,22 +196,27 @@ export function ReviewSurface({ scope, itemId, label, onBack }: ReviewSurfacePro
 
   useRegionBindings("review-surface", "review-surface", {
     "check-with-selection": () => {
-      if (focusedCriterionId) checkAgainstSelection(focusedCriterionId);
+      if (!mergeOpen && focusedCriterionId) checkAgainstSelection(focusedCriterionId);
     },
-    "move-down": () => setFocusedPath((current) => nextSelectionId(rows, current, 1)),
-    "move-up": () => setFocusedPath((current) => nextSelectionId(rows, current, -1)),
+    "move-down": () => {
+      if (!mergeOpen) setFocusedPath((current) => nextSelectionId(rows, current, 1));
+    },
+    "move-up": () => {
+      if (!mergeOpen) setFocusedPath((current) => nextSelectionId(rows, current, -1));
+    },
     "expand-file": () => {
-      if (focusedPath) toggle(focusedPath);
+      if (!mergeOpen && focusedPath) toggle(focusedPath);
     },
   });
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onBack();
+      // With the merge sheet open, Escape closes the sheet (which handles it itself), not the surface.
+      if (event.key === "Escape" && !mergeOpen) onBack();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onBack]);
+  }, [onBack, mergeOpen]);
 
   let listBody;
   if (filesQuery.isError) {
@@ -274,12 +322,35 @@ export function ReviewSurface({ scope, itemId, label, onBack }: ReviewSurfacePro
         <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
           {scope === "epic" ? "Epic review" : "Task review"}
         </span>
+        {integrated && <IntegratedMark />}
         {target?.state === "resolved" && (
           <span className="type-label" style={{ fontFamily: MONO_STACK, color: "var(--text-muted-rack)", marginLeft: "auto" }}>
-            {target.head} → {target.base}
+            {integrated ? `merged: ${(target.head ?? "").slice(0, 7)} against its first parent` : `${target.head} → ${target.base}`}
           </span>
         )}
+        {isTask && !integrated && !mergeOpen && mergePrecheck.data?.state === "ready" && (
+          <button
+            type="button"
+            onClick={() => setMergeOpen(true)}
+            className="type-label"
+            style={{
+              marginLeft: target?.state === "resolved" ? 0 : "auto",
+              background: "var(--accent-nontext)",
+              border: "none",
+              borderRadius: "var(--radius-chrome)",
+              color: "var(--text-primary-rack)",
+              padding: "var(--space-xs) var(--space-md)",
+              cursor: "pointer",
+            }}
+          >
+            Merge
+          </button>
+        )}
       </header>
+      {isTask && !integrated && mergePrecheck.data?.state === "refused" && (
+        <MergeRefusalNote category={mergePrecheck.data.category} />
+      )}
+      {mergeOpen && <MergeConfirmSheet taskId={itemId} onClose={() => setMergeOpen(false)} />}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <div style={{ width: "clamp(260px, 26%, 360px)", overflowY: "auto", borderRight: "1px solid var(--divider)" }}>
           <CriteriaRail
