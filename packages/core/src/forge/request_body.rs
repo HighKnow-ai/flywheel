@@ -101,6 +101,185 @@ pub fn assemble_request_draft(conn: &Connection, task_id: &str) -> anyhow::Resul
     Ok(RequestDraft { title: task_title, body, head_branch, target_branch })
 }
 
+// `assemble_epic_request_draft`'s criteria read is the epic-scoped sibling of `CRITERIA_SQL`: same
+// current-revision filter, same `checked` column, left-joined to the anchor table so evidence is
+// summarised when it exists and absent when it does not (D-140 — no anchor row IS no evidence).
+
+// One row per task of the epic, with its current-revision criteria counted as checked-of-total.
+const EPIC_TASKS_SQL: &str = "SELECT t.id, t.key, t.title, t.status, \
+    (SELECT COUNT(*) FROM acceptance_criteria c WHERE c.parent_type = 'task' AND c.parent_id = t.id \
+        AND c.superseded_at IS NULL AND c.checked = 1), \
+    (SELECT COUNT(*) FROM acceptance_criteria c WHERE c.parent_type = 'task' AND c.parent_id = t.id \
+        AND c.superseded_at IS NULL) \
+    FROM tasks t WHERE t.epic_id = ?1 ORDER BY t.rank ASC, t.id ASC";
+
+struct EpicCriterionRow {
+    statement: String,
+    hint: Option<String>,
+    checked: bool,
+    anchor: Option<(String, String, i64, i64)>,
+}
+
+struct EpicTaskRow {
+    key: String,
+    title: String,
+    status: String,
+    checked: i64,
+    total: i64,
+    integrated: bool,
+}
+
+/// Assemble the deterministic request draft for `epic_id` (REVW-05): the epic's integration branch
+/// as the head, the project's default branch as the target. The structural sibling of
+/// [`assemble_request_draft`], and pure and clockless for the same reason: the renderer passes an
+/// epic id and never a title or a body, so the text previewed before sending and the text
+/// published are the same text by construction, not by coincidence. It writes nothing — in
+/// particular an epic with no integration branch is a named error, never a trigger to cut one.
+///
+/// The one non-database input is the integrated marker per task ([`crate::merge::is_integrated`]),
+/// a read-only git ancestry check; two calls over an unchanged database and repository agree.
+pub fn assemble_epic_request_draft(conn: &Connection, epic_id: &str) -> anyhow::Result<RequestDraft> {
+    // Current revision only, left-joined to the anchor table (D-140).
+    const EPIC_CRITERIA_SQL: &str = "SELECT c.statement, c.verification_hint, c.checked, \
+        a.path, a.side, a.line_start, a.line_end \
+        FROM acceptance_criteria c LEFT JOIN criterion_anchors a ON a.criterion_id = c.id \
+        WHERE c.parent_type = 'epic' AND c.parent_id = ?1 AND c.superseded_at IS NULL \
+        ORDER BY c.rank ASC, c.id ASC";
+
+    let (project_id, epic_key, epic_title, description, integration_branch): (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    ) = conn
+        .query_row(
+            "SELECT project_id, key, title, description, integration_branch FROM epics WHERE id = ?1",
+            params![epic_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+
+    let Some(head_branch) = integration_branch else {
+        anyhow::bail!(
+            "{epic_key} has no integration branch yet — nothing has been merged into it, so there is nothing to propose"
+        );
+    };
+
+    let (repo_path, target_branch): (String, String) = conn
+        .query_row(
+            "SELECT repo_path, default_branch FROM projects WHERE id = ?1",
+            params![project_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("project {project_id:?} not found"))?;
+    let repo_path = std::path::Path::new(&repo_path);
+
+    let mut criteria_stmt = conn.prepare(EPIC_CRITERIA_SQL)?;
+    let criteria: Vec<EpicCriterionRow> = criteria_stmt
+        .query_map(params![epic_id], |row| {
+            let checked_int: i64 = row.get(2)?;
+            let path: Option<String> = row.get(3)?;
+            let anchor = match path {
+                Some(path) => Some((path, row.get::<_, String>(4)?, row.get::<_, i64>(5)?, row.get::<_, i64>(6)?)),
+                None => None,
+            };
+            Ok(EpicCriterionRow {
+                statement: row.get(0)?,
+                hint: row.get(1)?,
+                checked: checked_int != 0,
+                anchor,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the epic's acceptance criteria")?;
+    drop(criteria_stmt);
+
+    let mut tasks_stmt = conn.prepare(EPIC_TASKS_SQL)?;
+    let raw_tasks: Vec<(String, String, String, String, i64, i64)> = tasks_stmt
+        .query_map(params![epic_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the epic's tasks")?;
+    drop(tasks_stmt);
+
+    let mut tasks = Vec::with_capacity(raw_tasks.len());
+    for (task_id, key, title, status, checked, total) in raw_tasks {
+        let integrated = crate::merge::is_integrated(conn, repo_path, &task_id, &head_branch)?;
+        tasks.push(EpicTaskRow { key, title, status, checked, total, integrated });
+    }
+
+    let body = render_epic_body(&epic_key, &epic_title, description.as_deref(), &criteria, &tasks);
+
+    Ok(RequestDraft { title: epic_title, body, head_branch, target_branch })
+}
+
+/// Fixed order: key and title, description (omitted when empty), criteria (omitted when none),
+/// then the task roll-up (omitted when the epic has no tasks).
+fn render_epic_body(
+    epic_key: &str,
+    epic_title: &str,
+    description: Option<&str>,
+    criteria: &[EpicCriterionRow],
+    tasks: &[EpicTaskRow],
+) -> String {
+    let mut out = String::new();
+    out.push_str(epic_key);
+    out.push_str(": ");
+    out.push_str(epic_title);
+    out.push('\n');
+
+    if let Some(description) = description.map(str::trim).filter(|d| !d.is_empty()) {
+        out.push('\n');
+        out.push_str(description);
+        out.push('\n');
+    }
+
+    if !criteria.is_empty() {
+        out.push_str("\n## Acceptance Criteria\n\n");
+        for c in criteria {
+            out.push_str(if c.checked { "- [x] " } else { "- [ ] " });
+            out.push_str(&c.statement);
+            if let Some(hint) = &c.hint {
+                out.push_str(" (Verify: ");
+                out.push_str(hint);
+                out.push(')');
+            }
+            if let Some((path, side, start, end)) = &c.anchor {
+                out.push_str(" — evidence: ");
+                out.push_str(path);
+                if start == end {
+                    out.push_str(&format!(":{start}"));
+                } else {
+                    out.push_str(&format!(":{start}-{end}"));
+                }
+                if side == "old" {
+                    out.push_str(" (before)");
+                }
+            }
+            out.push('\n');
+        }
+    }
+
+    if !tasks.is_empty() {
+        out.push_str("\n## Tasks\n\n");
+        for t in tasks {
+            out.push_str(&format!(
+                "- {}: {} — {} — {}/{} criteria checked — {}\n",
+                t.key,
+                t.title,
+                t.status,
+                t.checked,
+                t.total,
+                if t.integrated { "integrated" } else { "not integrated" }
+            ));
+        }
+    }
+
+    out
+}
+
 /// Render the body's three labelled sections (D-118's body-shape decision): the task key with a
 /// one-line statement of the task, the current-revision criteria checklist (real `checked`
 /// state, never presenting an unmet criterion as met), and the session summaries in chronological
