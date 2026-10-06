@@ -295,8 +295,9 @@ function AppShell() {
                 label={reviewSurface.label}
                 onBack={() => setReviewSurface(null)}
                 onOpenSession={(agentRunId, epicId, logOffset) => {
+                  const taskId = reviewSurface.scope === "task" ? reviewSurface.itemId : null;
                   setReviewSurface(null);
-                  setActiveAgentRunId(agentRunId, null, null, epicId, logOffset);
+                  setActiveAgentRunId(agentRunId, taskId, null, epicId, logOffset);
                 }}
               />
             </Suspense>

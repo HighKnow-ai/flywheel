@@ -10,6 +10,13 @@
  * The merge re-runs the dry run itself, so a will-conflict hint that went stale between opening
  * and confirming can only make the hint wrong, never the merge.
  *
+ * After the write it reports exactly one of three outcomes the core proved — integrated, already
+ * integrated, or aborted on conflict — or a named refusal. A conflict names every conflicted file and
+ * offers two ways out through affordances that already exist (start a session on the task with the
+ * conflict as its brief; open the task's worktree in the editor). There is deliberately no merge tool
+ * and no retry on a refusal caused by concurrency: a retry button there invites the race the guard
+ * exists to prevent (D-144).
+ *
  * This component writes no status (D-122): the adapter surface it imports has no status setter.
  */
 import { useRef, useState } from "react";
@@ -18,21 +25,147 @@ import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useGitFacts } from "../board/useBoardQuery";
 import * as adapter from "../adapters/tauri";
+import type { MergePreviewDto, ReviewMergeOutcomeDto } from "../adapters/tauri";
 import { useMergePrecheck, useReviewCriteriaState } from "./useReviewQuery";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
+/** The preview the user confirmed, kept so the result can name the branches after the board has
+ * moved on and the live precheck no longer resolves. */
+type Ready = Extract<MergePreviewDto, { state: "ready" }>;
+
+type Result =
+  | { kind: "outcome"; outcome: ReviewMergeOutcomeDto; confirmed: Ready }
+  | { kind: "failure"; code: string; detail: string };
+
+/** Parse the command's rejection, packed as `"<category>[:<detail>]"`. Anything unrecognised is the
+ * generic failure; raw text is never shown (the core logs it). */
+function parseFailure(err: unknown): { code: string; detail: string } {
+  const message = err instanceof Error ? err.message : String(err);
+  const [code, ...rest] = message.split(":");
+  return { code, detail: rest.join(":") };
+}
+
+function failureText(code: string, detail: string): string {
+  switch (code) {
+    case "mergeInFlight":
+      return `A merge into ${detail} is already running. Wait for it to finish, then open this sheet again.`;
+    case "refused":
+      return detail === "noEpic"
+        ? "This task has no epic, so it cannot be merged in-app. Open a request for it from the item panel instead."
+        : detail === "nothingToMerge"
+          ? "Nothing to merge: this branch has no commits ahead of its integration branch."
+          : "This task cannot be merged yet: it has no branch or its epic has no integration branch.";
+    case "mergeFailed":
+      return "The merge did not complete and nothing was recorded on the board. Details are in the application log.";
+    case "eventNotRecorded":
+      return "The merge landed in git, but Flywheel could not record it on the board, so this task will not show as integrated.";
+    default:
+      return "The merge could not be started.";
+  }
+}
+
+/** The conflict as the resolving session's brief — written so the agent can act on it with no other
+ * context. Bounded, because the instruction field is capped server-side. */
+function conflictBrief(confirmed: Ready, files: string[]): string {
+  const listed = files.slice(0, 50).map((f) => `- ${f}`).join("\n");
+  const more = files.length > 50 ? `\n- ...and ${files.length - 50} more` : "";
+  return (
+    `Merging ${confirmed.sourceBranch} into ${confirmed.targetBranch} was attempted and aborted because it conflicts. ` +
+    `Nothing was changed. Conflicted files:\n${listed}${more}\n\n` +
+    `Resolve this in this worktree: merge ${confirmed.targetBranch} into your branch, resolve each conflict while ` +
+    `keeping this task's intent and its acceptance criteria, run the tests, and commit.`
+  );
+}
+
 export interface MergeConfirmSheetProps {
   taskId: string;
   onClose: () => void;
+  /** Starts a session on the task and navigates to it. The surface supplies a version that clears
+   * itself first. */
+  onOpenSession?: (agentRunId: string) => void;
 }
 
-export function MergeConfirmSheet({ taskId, onClose }: MergeConfirmSheetProps) {
+function ResultBody({ result }: { result: Result }) {
+  if (result.kind === "failure") {
+    return (
+      <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        {failureText(result.code, result.detail)}
+      </p>
+    );
+  }
+  const { outcome, confirmed } = result;
+  if (outcome.kind === "merged") {
+    return (
+      <p role="status" className="type-body" style={{ margin: 0 }}>
+        Integrated into {outcome.epicKey} — merge commit{" "}
+        <span style={{ fontFamily: MONO_STACK }}>{outcome.mergeCommit.slice(0, 7)}</span> on{" "}
+        <span style={{ fontFamily: MONO_STACK }}>{outcome.targetBranch}</span>. Nothing was pushed.
+      </p>
+    );
+  }
+  if (outcome.kind === "alreadyIntegrated") {
+    return (
+      <p role="status" className="type-body" style={{ margin: 0 }}>
+        Nothing was merged: <span style={{ fontFamily: MONO_STACK }}>{confirmed.sourceBranch}</span> is already contained in{" "}
+        <span style={{ fontFamily: MONO_STACK }}>{confirmed.targetBranch}</span>.
+      </p>
+    );
+  }
+  const n = outcome.files.length;
+  return (
+    <div role="alert">
+      <p className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        Merge aborted — {n} {n === 1 ? "conflict" : "conflicts"}, nothing changed.
+      </p>
+      <ul style={{ margin: 0, paddingLeft: "var(--space-lg)", fontFamily: MONO_STACK }}>
+        {outcome.files.map((path) => (
+          <li key={path} className="type-label">
+            {path}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ConflictExits({
+  starting,
+  onResolve,
+  onOpenEditor,
+}: {
+  starting: boolean;
+  onResolve: () => void;
+  onOpenEditor: () => void;
+}) {
+  const style = {
+    background: "transparent",
+    border: "none",
+    color: "var(--accent-text-rack)",
+    textDecoration: "underline",
+    padding: 0,
+    cursor: "pointer",
+  } as const;
+  return (
+    <div style={{ display: "flex", gap: "var(--space-md)" }}>
+      <button type="button" disabled={starting} onClick={onResolve} className="type-label" style={{ ...style, opacity: starting ? 0.6 : 1 }}>
+        Start a session to resolve
+      </button>
+      <button type="button" onClick={onOpenEditor} className="type-label" style={style}>
+        Open in editor
+      </button>
+    </div>
+  );
+}
+
+export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfirmSheetProps) {
   const precheck = useMergePrecheck(taskId, true);
   const criteria = useReviewCriteriaState("task", taskId);
   const gitFacts = useGitFacts(taskId);
   const [merging, setMerging] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
+  const [sideError, setSideError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   // A ref is the synchronous guard: React may not have flushed the disabling re-render before a
   // second activation fires in the same tick (the launch sheet's own `startingRef` reasoning).
   const mergingRef = useRef(false);
@@ -49,15 +182,32 @@ export function MergeConfirmSheet({ taskId, onClose }: MergeConfirmSheetProps) {
     if (mergingRef.current || !preview) return;
     mergingRef.current = true;
     setMerging(true);
-    setError(null);
+    const confirmed = preview;
     adapter
       .reviewMergeTask(taskId)
-      .then(() => onClose())
-      .catch((err: unknown) => {
+      .then((outcome) => setResult({ kind: "outcome", outcome, confirmed }))
+      .catch((err: unknown) => setResult({ kind: "failure", ...parseFailure(err) }))
+      .finally(() => {
         mergingRef.current = false;
         setMerging(false);
-        setError(err instanceof Error ? err.message : String(err));
       });
+  }
+
+  function handleResolveSession(confirmed: Ready, files: string[]) {
+    setStarting(true);
+    setSideError(null);
+    adapter
+      .startAgentRun(taskId, "acceptEdits", conflictBrief(confirmed, files))
+      .then((run) => onOpenSession?.(run.id))
+      .catch(() => {
+        setStarting(false);
+        setSideError("Could not start a session on this task.");
+      });
+  }
+
+  function handleOpenEditor() {
+    setSideError(null);
+    adapter.worktreeOpen(taskId, "editor").catch(() => setSideError("Could not open the worktree in the editor."));
   }
 
   return createPortal(
@@ -100,7 +250,7 @@ export function MergeConfirmSheet({ taskId, onClose }: MergeConfirmSheetProps) {
           >
             <header style={{ padding: "var(--space-md)", borderBottom: "1px solid var(--divider)", flexShrink: 0 }}>
               <span className="type-heading" style={{ fontFamily: MONO_STACK, overflowWrap: "anywhere" }}>
-                {preview ? `Merge ${preview.sourceBranch} → ${preview.targetBranch}` : "Merge"}
+                {result ? "Merge result" : preview ? `Merge ${preview.sourceBranch} → ${preview.targetBranch}` : "Merge"}
               </span>
             </header>
 
@@ -115,12 +265,27 @@ export function MergeConfirmSheet({ taskId, onClose }: MergeConfirmSheetProps) {
                 gap: "var(--space-sm)",
               }}
             >
-              {precheck.isError && (
+              {!result && precheck.isError && (
                 <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
                   Could not read what this merge would do. Close this sheet and try again.
                 </p>
               )}
-              {preview && (
+              {result && <ResultBody result={result} />}
+              {result?.kind === "outcome" && result.outcome.kind === "conflicted" && (
+                <ConflictExits
+                  starting={starting}
+                  onResolve={() => {
+                    if (result.outcome.kind === "conflicted") handleResolveSession(result.confirmed, result.outcome.files);
+                  }}
+                  onOpenEditor={handleOpenEditor}
+                />
+              )}
+              {sideError && (
+                <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+                  {sideError}
+                </p>
+              )}
+              {!result && preview && (
                 <>
                   <p className="type-body" style={{ margin: 0 }}>
                     {preview.commitCount} {preview.commitCount === 1 ? "commit" : "commits"},{" "}
@@ -155,11 +320,6 @@ export function MergeConfirmSheet({ taskId, onClose }: MergeConfirmSheetProps) {
                   )}
                 </>
               )}
-              {error && (
-                <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
-                  {error}
-                </p>
-              )}
             </div>
 
             <div
@@ -172,7 +332,16 @@ export function MergeConfirmSheet({ taskId, onClose }: MergeConfirmSheetProps) {
                 gap: "var(--space-sm)",
               }}
             >
-              {merging ? (
+              {result ? (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="type-body"
+                  style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
+                >
+                  Close
+                </button>
+              ) : merging ? (
                 <span role="status" className="type-body" style={{ color: "var(--text-muted-rack)" }}>
                   Merging…
                 </span>

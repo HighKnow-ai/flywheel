@@ -131,11 +131,11 @@ export interface ReviewSurfaceProps {
   /** The item's key and title, for the header. */
   label: string;
   onBack: () => void;
-  /** Reserved for plan 08-07's resolve-session offer; `App.tsx` already supplies it. */
+  /** Called by the merge sheet's resolve-a-conflict offer once it has started a session. */
   onOpenSession?: (agentRunId: string, epicId: string | null, logOffset: number | null) => void;
 }
 
-export function ReviewSurface({ scope, itemId, label, onBack }: ReviewSurfaceProps) {
+export function ReviewSurface({ scope, itemId, label, onBack, onOpenSession }: ReviewSurfaceProps) {
   const filesQuery = useReviewFiles(scope, itemId);
   const files = filesQuery.data?.files ?? [];
   const target = filesQuery.data?.target;
@@ -350,7 +350,17 @@ export function ReviewSurface({ scope, itemId, label, onBack }: ReviewSurfacePro
       {isTask && !integrated && mergePrecheck.data?.state === "refused" && (
         <MergeRefusalNote category={mergePrecheck.data.category} />
       )}
-      {mergeOpen && <MergeConfirmSheet taskId={itemId} onClose={() => setMergeOpen(false)} />}
+      {mergeOpen && (
+        <MergeConfirmSheet
+          taskId={itemId}
+          onClose={() => setMergeOpen(false)}
+          // Clear this surface before the session takes the screen, rather than stacking on it.
+          onOpenSession={(agentRunId) => {
+            onBack();
+            onOpenSession?.(agentRunId, null, null);
+          }}
+        />
+      )}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <div style={{ width: "clamp(260px, 26%, 360px)", overflowY: "auto", borderRight: "1px solid var(--divider)" }}>
           <CriteriaRail
