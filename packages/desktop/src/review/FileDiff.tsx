@@ -8,11 +8,21 @@
  * and the plain text still renders, with a line saying so. A binary file renders one binary line
  * and calls no tokenizer.
  */
-import { useMemo, useState } from "react";
-import { Diff, Hunk, markEdits, parseDiff, tokenize } from "react-diff-view";
+import { useMemo, useState, type ReactNode } from "react";
+import {
+  computeNewLineNumber,
+  computeOldLineNumber,
+  Diff,
+  getChangeKey,
+  Hunk,
+  markEdits,
+  parseDiff,
+  tokenize,
+} from "react-diff-view";
 import "react-diff-view/style/index.css";
 import "./review.css";
 import { diffRefractor, languageFor } from "./highlight";
+import type { ReviewSelection, SelectedChange } from "./selection";
 
 /** Hunks rendered per chunk. A heuristic, not a measurement (research assumption A1) — a constant
  * so it is tunable without a structural change. */
@@ -26,7 +36,26 @@ const BINARY_PATCH = /^(Binary files .* differ|GIT binary patch)$/m;
 
 const noticeStyle = { color: "var(--text-muted-rack)", margin: 0, padding: "var(--space-xs) var(--space-md)" };
 
-export function FileDiff({ patch, path }: { patch: string; path: string }) {
+/** A criterion already anchored to a line of this file — rendered as a badge after that line. */
+export interface AnchorBadge {
+  criterionId: string;
+  statement: string;
+  side: "old" | "new";
+  lineEnd: number;
+}
+
+export interface FileDiffProps {
+  patch: string;
+  path: string;
+  /** The surface's selection; only highlighted here when it belongs to this file. */
+  selection?: ReviewSelection | null;
+  /** Reports a gutter click upward. The surface owns the selection (the rail is a sibling). */
+  onSelectChange?: (key: string, change: SelectedChange) => void;
+  /** Criteria anchored in THIS file. Widgets carry board text only, never patch content. */
+  anchors?: AnchorBadge[];
+}
+
+export function FileDiff({ patch, path, selection = null, onSelectChange, anchors = [] }: FileDiffProps) {
   const [shown, setShown] = useState(HUNK_CHUNK);
 
   const parsed = useMemo(() => {
@@ -56,6 +85,54 @@ export function FileDiff({ patch, path }: { patch: string; path: string }) {
       return null;
     }
   }, [parsed, language, skipHighlight]);
+
+  // Line-level hooks (D-135 corrected by research): `Decoration` wraps hunks, so the selection
+  // highlight is `selectedChanges`, the click is `gutterEvents`, and an anchor badge is a `widgets`
+  // entry keyed by change key. Hooks stay above the early returns below.
+  const selectedChanges = useMemo(
+    () => (selection && selection.path === path ? Object.keys(selection.changes) : []),
+    [selection, path],
+  );
+
+  const gutterEvents = useMemo(
+    () =>
+      onSelectChange
+        ? {
+            onClick: ({ change }: { change: Parameters<typeof getChangeKey>[0] | null }) => {
+              if (!change) return;
+              const deleted = change.type === "delete";
+              onSelectChange(getChangeKey(change), {
+                side: deleted ? "old" : "new",
+                line: deleted ? computeOldLineNumber(change) : computeNewLineNumber(change),
+              });
+            },
+          }
+        : undefined,
+    [onSelectChange],
+  );
+
+  const widgets = useMemo(() => {
+    const out: Record<string, ReactNode> = {};
+    if (parsed.binary || !parsed.file || anchors.length === 0) return out;
+    for (const hunk of parsed.file.hunks) {
+      for (const change of hunk.changes) {
+        const onThisLine = anchors.filter((a) =>
+          a.side === "old"
+            ? change.type !== "insert" && computeOldLineNumber(change) === a.lineEnd
+            : change.type !== "delete" && computeNewLineNumber(change) === a.lineEnd,
+        );
+        if (onThisLine.length === 0) continue;
+        out[getChangeKey(change)] = (
+          <div className="type-label review-anchor-widget">
+            {onThisLine.map((a) => (
+              <span key={a.criterionId}>Evidence for: {a.statement}</span>
+            ))}
+          </div>
+        );
+      }
+    }
+    return out;
+  }, [parsed, anchors]);
 
   if (parsed.binary) {
     return (
@@ -89,6 +166,9 @@ export function FileDiff({ patch, path }: { patch: string; path: string }) {
         diffType={file.type}
         hunks={visible}
         tokens={tokens}
+        selectedChanges={selectedChanges}
+        gutterEvents={gutterEvents}
+        widgets={widgets}
         className="review-diff"
       >
         {(hunks) => hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)}

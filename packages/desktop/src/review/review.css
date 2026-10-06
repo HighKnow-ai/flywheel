@@ -59,3 +59,18 @@
 .review-diff .token.deleted {
   color: var(--destructive-text-rack);
 }
+
+/* Selectable lines: the gutter is the click target (D-139). */
+.review-diff .diff-gutter {
+  cursor: pointer;
+}
+
+/* The badge after an anchored line (D-139) — board text only, never patch content. */
+.review-anchor-widget {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-xs) var(--space-md);
+  color: var(--text-muted-rack);
+  background: var(--row-surface);
+  border-left: 2px solid var(--accent-text-rack);
+}

@@ -112,7 +112,9 @@ export type ActionId =
   | "reject-selected-proposals"
   | "defer-selected-proposals"
   // Phase 8 plan 08-01: expand/collapse the focused file in the review surface.
-  | "expand-file";
+  | "expand-file"
+  // Phase 8 plan 08-06: check the focused criterion against the selected diff lines (D-139).
+  | "check-with-selection";
 
 export interface Binding {
   id: ActionId;
@@ -276,6 +278,9 @@ export const BINDINGS: Binding[] = [
   { id: "move-up", region: "review-surface", key: "ArrowUp", label: "Move selection up" },
   { id: "expand-file", region: "review-surface", key: "Enter", label: "Expand file" },
   { id: "expand-file", region: "review-surface", key: " ", label: "Expand file" },
+  // The check is the act of attestation (T-08-06-01): selecting lines alone never writes. The
+  // row's own Space/Enter plain check stays untouched — two affordances, not one overloaded one.
+  { id: "check-with-selection", region: "review-surface", key: "c", label: "Check criterion against selection" },
 
   // ---- Command-palette-only (no keystroke; CommandPalette.tsx's generator source) --------
   { id: "create-issue", region: "command-palette", label: "Create Issue" },
@@ -506,7 +511,7 @@ const TRIAGE_SURFACE_ACTION_IDS = new Set<ActionId>([
 // Phase 8 plan 08-01: the review surface's complete allow-list. The movement ids are shared with
 // the tray and triage sets, so the layer branch below answers from THIS set rather than falling
 // through to the board clause.
-const REVIEW_SURFACE_ACTION_IDS = new Set<ActionId>(["move-down", "move-up", "expand-file"]);
+const REVIEW_SURFACE_ACTION_IDS = new Set<ActionId>(["move-down", "move-up", "expand-file", "check-with-selection"]);
 
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "open-palette") return layer !== "picker" && layer !== "palette";
@@ -522,9 +527,10 @@ export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
     return TRIAGE_SURFACE_ACTION_IDS.has(id) || TRAY_SELECTION_ACTION_IDS.has(id);
   }
   if (layer === "review-surface") return REVIEW_SURFACE_ACTION_IDS.has(id);
-  // `expand-file` is the review surface's alone (move-down/up are shared with the board, so cannot
-  // be refused here); every other layer must refuse it rather than fall through to the board clause.
-  if (id === "expand-file") return false;
+  // `expand-file` and `check-with-selection` are the review surface's alone (move-down/up are shared
+  // with the board, so cannot be refused here); every other layer must refuse them rather than fall
+  // through to the board clause.
+  if (id === "expand-file" || id === "check-with-selection") return false;
   if (PROPOSAL_TRAY_ACTION_IDS.has(id)) return layer === "proposal-tray";
   if (layer === "proposal-tray") return TRAY_SELECTION_ACTION_IDS.has(id);
   return layer === "board" || layer === "quick-add";

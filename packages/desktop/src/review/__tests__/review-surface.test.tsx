@@ -5,7 +5,7 @@
  * chunk control that tells the reader a long file is only partly shown.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReviewSurface } from "../ReviewSurface";
 import { FileDiff, HUNK_CHUNK } from "../FileDiff";
@@ -18,6 +18,11 @@ vi.mock("../../adapters/tauri", () => ({
   reviewFiles: (...args: unknown[]) => reviewFilesMock(...args),
   reviewFilePatch: (...args: unknown[]) => reviewFilePatchMock(...args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  // The criteria rail (plan 08-06) shares the surface; these tests are about the file list, so it
+  // reads an item with no criteria.
+  reviewCriteriaState: () => Promise.resolve([]),
+  invokeCommand: () => Promise.resolve([]),
+  criterionCheckWithAnchor: () => Promise.resolve(),
 }));
 
 const RUST_PATCH = `diff --git a/src/lib.rs b/src/lib.rs
@@ -180,7 +185,8 @@ describe("ReviewSurface", () => {
     renderSurface(vi.fn(), "FLY-1 The epic");
 
     expect(await screen.findByText(/FLY-1 The epic has no integration branch yet/)).toBeInTheDocument();
-    expect(screen.queryByRole("list")).toBeNull();
+    // The file list is absent (the criteria rail has its own list, so scope to the files nav).
+    expect(within(screen.getByRole("navigation", { name: "Changed files" })).queryByRole("list")).toBeNull();
     expect(reviewFilePatchMock).not.toHaveBeenCalled();
   });
 

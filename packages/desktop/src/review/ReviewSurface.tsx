@@ -8,15 +8,19 @@
  * and an epic (the integration branch against the default branch). The file list is ONE git read
  * on open; a file's patch is fetched only once it is expanded, and every file starts collapsed.
  *
- * The left pane is reserved for the criteria rail (plan 08-06) and renders nothing until then.
- * Like `item-detail/GitFactsSection.tsx`, the file list renders nothing at all while its read is
+ * The criteria rail (plan 08-06) is the leftmost pane. The surface owns the reader's line selection
+ * (an anchor is one path with one range, so a selection never spans files) because the rail — a
+ * sibling of the diff — is what consumes it; the diff reports gutter clicks up and renders the
+ * highlight and anchor badges back down. Like `item-detail/GitFactsSection.tsx`, the file list renders nothing at all while its read is
  * in flight — absence is the design, not a placeholder.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReviewFileDto, ReviewScopeDto } from "../adapters/tauri";
 import { nextSelectionId, useRegionBindings } from "../state/keyboard";
-import { FileDiff } from "./FileDiff";
-import { useReviewFiles, useReviewPatch } from "./useReviewQuery";
+import { CriteriaRail, useCheckAgainstSelection } from "./CriteriaRail";
+import { FileDiff, type AnchorBadge } from "./FileDiff";
+import { toggleChange, type ReviewSelection, type SelectedChange } from "./selection";
+import { useReviewCriteriaState, useReviewFiles, useReviewPatch } from "./useReviewQuery";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -41,11 +45,17 @@ function FilePatch({
   itemId,
   file,
   visible,
+  selection,
+  onSelectChange,
+  anchors,
 }: {
   scope: ReviewScopeDto;
   itemId: string;
   file: ReviewFileDto;
   visible: boolean;
+  selection: ReviewSelection | null;
+  onSelectChange: (path: string, key: string, change: SelectedChange) => void;
+  anchors: AnchorBadge[];
 }) {
   const patch = useReviewPatch(scope, itemId, file.path, file.oldPath, true);
   return (
@@ -66,7 +76,15 @@ function FilePatch({
           No diff available.
         </p>
       )}
-      {typeof patch.data === "string" && <FileDiff patch={patch.data} path={file.path} />}
+      {typeof patch.data === "string" && (
+        <FileDiff
+          patch={patch.data}
+          path={file.path}
+          selection={selection}
+          onSelectChange={(key, change) => onSelectChange(file.path, key, change)}
+          anchors={anchors}
+        />
+      )}
     </section>
   );
 }
@@ -110,7 +128,33 @@ export function ReviewSurface({ scope, itemId, label, onBack }: ReviewSurfacePro
     });
   }
 
+  const [selection, setSelection] = useState<ReviewSelection | null>(null);
+  const [focusedCriterionId, setFocusedCriterionId] = useState<string | null>(null);
+  const checkAgainstSelection = useCheckAgainstSelection(scope, itemId, selection);
+  const criteriaState = useReviewCriteriaState(scope, itemId);
+  // Anchored criteria by file, as badges. Absent anchors are simply absent: no badge, no claim.
+  const anchorsByPath = useMemo(() => {
+    const out: Record<string, AnchorBadge[]> = {};
+    for (const s of criteriaState.data ?? []) {
+      if (!s.anchor || !s.criterion.checked) continue;
+      (out[s.anchor.path] ??= []).push({
+        criterionId: s.criterion.id,
+        statement: s.criterion.statement,
+        side: s.anchor.side,
+        lineEnd: s.anchor.lineEnd,
+      });
+    }
+    return out;
+  }, [criteriaState.data]);
+
+  function selectChange(path: string, key: string, change: SelectedChange) {
+    setSelection((current) => toggleChange(current, path, key, change));
+  }
+
   useRegionBindings("review-surface", "review-surface", {
+    "check-with-selection": () => {
+      if (focusedCriterionId) checkAgainstSelection(focusedCriterionId);
+    },
     "move-down": () => setFocusedPath((current) => nextSelectionId(rows, current, 1)),
     "move-up": () => setFocusedPath((current) => nextSelectionId(rows, current, -1)),
     "expand-file": () => {
@@ -237,7 +281,15 @@ export function ReviewSurface({ scope, itemId, label, onBack }: ReviewSurfacePro
         )}
       </header>
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        {/* Criteria rail (plan 08-06) goes here; it renders nothing until then. */}
+        <div style={{ width: "clamp(260px, 26%, 360px)", overflowY: "auto", borderRight: "1px solid var(--divider)" }}>
+          <CriteriaRail
+            scope={scope}
+            itemId={itemId}
+            selection={selection}
+            onCheck={checkAgainstSelection}
+            onFocusChange={setFocusedCriterionId}
+          />
+        </div>
         <nav
           aria-label="Changed files"
           style={{ width: "clamp(260px, 30%, 380px)", overflowY: "auto", borderRight: "1px solid var(--divider)" }}
@@ -253,7 +305,16 @@ export function ReviewSurface({ scope, itemId, label, onBack }: ReviewSurfacePro
           {files
             .filter((f) => opened.has(f.path))
             .map((file) => (
-              <FilePatch key={file.path} scope={scope} itemId={itemId} file={file} visible={expanded.has(file.path)} />
+              <FilePatch
+                key={file.path}
+                scope={scope}
+                itemId={itemId}
+                file={file}
+                visible={expanded.has(file.path)}
+                selection={selection}
+                onSelectChange={selectChange}
+                anchors={anchorsByPath[file.path] ?? []}
+              />
             ))}
         </div>
       </div>
