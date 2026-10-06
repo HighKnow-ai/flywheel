@@ -269,8 +269,8 @@ use core::domain::epic::create_epic;
 use core::domain::task::create_task;
 use core::ids::new_id;
 use core::merge::{
-    plan_merge, record_merge_event, run_merge, try_lock_epic, MergeOutcome, MergePlan,
-    EVENT_MERGE_ABORTED, EVENT_TASK_INTEGRATED,
+    integrated_merge_commit, is_integrated, plan_merge, record_merge_event, run_merge, try_lock_epic,
+    MergeOutcome, MergePlan, EVENT_MERGE_ABORTED, EVENT_TASK_INTEGRATED,
 };
 use rusqlite::{params, Connection};
 
@@ -622,5 +622,104 @@ fn two_sequential_merges_into_one_epic_both_land_and_both_tips_are_reachable() {
                 .success();
             assert!(ok, "{tip} must be reachable from the integration head");
         }
+    });
+}
+
+// ----- the integrated marker -----
+
+/// Merge `branch` for a new task and record the event; returns the task id and the plan.
+fn merge_and_record(bd: &mut Board, title: &str, branch: &str) -> (String, MergePlan) {
+    let (t, plan, outcome) = merged_plan(bd, title, branch);
+    let actor = bd.actor.clone();
+    record_merge_event(&mut bd.conn, &plan, &outcome, &actor).expect("record");
+    (t, plan)
+}
+
+#[test]
+fn marker_empty_branch_with_no_event_is_not_integrated_though_trivially_an_ancestor() {
+    let mut bd = board();
+    // a freshly cut task branch: zero commits of its own, so it IS an ancestor of the integration branch
+    git(bd.repo.path(), &["branch", "flywheel/task-fresh", bd.b.integration]);
+    let t = bd.task("Fresh", "flywheel/task-fresh");
+    let ancestor = Command::new("git")
+        .arg("-C")
+        .arg(bd.repo.path())
+        .args(["merge-base", "--is-ancestor", "flywheel/task-fresh", bd.b.integration])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ancestor, "the fixture must exhibit the trap");
+    assert!(!is_integrated(&bd.conn, bd.repo.path(), &t, bd.b.integration).unwrap());
+    assert_eq!(integrated_merge_commit(&bd.conn, &t).unwrap(), None);
+}
+
+#[test]
+fn marker_recorded_merge_still_reachable_is_integrated() {
+    with_scratch_worktree_root(|_root| {
+        let mut bd = board();
+        let (t, plan) = merge_and_record(&mut bd, "Clean work", "flywheel/task-clean");
+        assert!(is_integrated(&bd.conn, bd.repo.path(), &t, bd.b.integration).unwrap());
+        let recorded = integrated_merge_commit(&bd.conn, &t).unwrap().expect("recorded commit");
+        assert_eq!(recorded, git(&plan.epic_worktree, &["rev-parse", "HEAD"]));
+    });
+}
+
+#[test]
+fn marker_merge_commit_no_longer_an_ancestor_is_not_integrated() {
+    with_scratch_worktree_root(|_root| {
+        let mut bd = board();
+        let (t, plan) = merge_and_record(&mut bd, "Clean work", "flywheel/task-clean");
+        // rewrite the integration branch back past the merge
+        git(&plan.epic_worktree, &["reset", "--hard", "--quiet", "HEAD~1"]);
+        assert!(!is_integrated(&bd.conn, bd.repo.path(), &t, bd.b.integration).unwrap());
+    });
+}
+
+#[test]
+fn marker_unresolvable_recorded_commit_is_not_integrated_and_does_not_error() {
+    let mut bd = board();
+    let t = bd.task("Ghost", bd.b.task_clean);
+    let plan = plan_merge(&bd.conn, &t).unwrap();
+    let ghost = MergeOutcome::Merged { merge_commit: "deadbeef".repeat(5) };
+    record_merge_event(&mut bd.conn, &plan, &ghost, &bd.actor.clone()).unwrap();
+    assert_eq!(integrated_merge_commit(&bd.conn, &t).unwrap(), Some("deadbeef".repeat(5)));
+    assert!(!is_integrated(&bd.conn, bd.repo.path(), &t, bd.b.integration).unwrap());
+}
+
+#[test]
+fn marker_merge_commit_is_returned_only_for_a_task_with_an_integrated_event() {
+    with_scratch_worktree_root(|_root| {
+        let mut bd = board();
+        let (t, _plan) = merge_and_record(&mut bd, "Clean work", "flywheel/task-clean");
+        let other = bd.task("Other", bd.b.task_rich);
+        assert!(integrated_merge_commit(&bd.conn, &t).unwrap().is_some());
+        assert_eq!(integrated_merge_commit(&bd.conn, &other).unwrap(), None);
+    });
+}
+
+#[test]
+fn marker_derivation_performs_no_write() {
+    with_scratch_worktree_root(|_root| {
+        let mut bd = board();
+        let (t, _plan) = merge_and_record(&mut bd, "Clean work", "flywheel/task-clean");
+        let before = bd.total_events();
+        let status = bd.status_of(&t);
+        let refs = git(bd.repo.path(), &["for-each-ref"]);
+        is_integrated(&bd.conn, bd.repo.path(), &t, bd.b.integration).unwrap();
+        integrated_merge_commit(&bd.conn, &t).unwrap();
+        assert_eq!(bd.total_events(), before);
+        assert_eq!(bd.status_of(&t), status);
+        assert_eq!(git(bd.repo.path(), &["for-each-ref"]), refs);
+    });
+}
+
+#[test]
+fn marker_after_a_merge_the_three_dot_range_is_empty_yet_the_task_reads_integrated() {
+    with_scratch_worktree_root(|_root| {
+        let mut bd = board();
+        let (t, _plan) = merge_and_record(&mut bd, "Clean work", "flywheel/task-clean");
+        let range = format!("{}...{}", bd.b.integration, bd.b.task_clean);
+        assert_eq!(git(bd.repo.path(), &["diff", "--name-only", &range]), "", "the trap: nothing left to show");
+        assert!(is_integrated(&bd.conn, bd.repo.path(), &t, bd.b.integration).unwrap());
     });
 }

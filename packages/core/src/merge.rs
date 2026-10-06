@@ -273,3 +273,51 @@ pub fn try_lock_epic(epic_id: &str) -> Option<EpicMergeGuard> {
     let mut held = set.lock().unwrap_or_else(|p| p.into_inner());
     held.insert(epic_id.to_string()).then(|| EpicMergeGuard { epic_id: epic_id.to_string() })
 }
+
+/// The merge commit recorded by the task's most recent integrated event, if any. A read only.
+pub fn integrated_merge_commit(conn: &Connection, task_id: &str) -> anyhow::Result<Option<String>> {
+    let payload: Option<String> = conn
+        .query_row(
+            "SELECT payload FROM events WHERE task_id = ?1 AND event_type = ?2
+             ORDER BY sequence DESC LIMIT 1",
+            params![task_id, EVENT_TASK_INTEGRATED],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("failed to read the task's integrated event")?;
+    let Some(payload) = payload else { return Ok(None) };
+    let value: serde_json::Value =
+        serde_json::from_str(&payload).context("integrated event payload is not JSON")?;
+    Ok(value["merge_commit"].as_str().map(str::to_string))
+}
+
+/// Is the task integrated into `integration_branch`? Derived from the recorded event PLUS a live
+/// ancestry check, never from ancestry alone, and never writes anything.
+///
+/// The trap this shape avoids: a task branch with zero commits of its own is an ancestor of the
+/// branch it was cut from the moment it is cut, so an ancestry-only test lights the marker on
+/// brand-new tasks. And after a successful merge the three-dot range between the integration
+/// branch and the task branch is empty (the task tip became the merge base), so a surface reading
+/// only that range would claim "no changes" for work it had just landed. The recorded merge commit
+/// answers both, which is why the event carries it. Plan 08-07 reads this marker and, for an
+/// integrated task, diffs the merge commit against its first parent to show what landed.
+///
+/// A merge commit that no longer resolves (history rewritten) is `false`, not an error.
+pub fn is_integrated(
+    conn: &Connection,
+    repo_path: &Path,
+    task_id: &str,
+    integration_branch: &str,
+) -> anyhow::Result<bool> {
+    let Some(merge_commit) = integrated_merge_commit(conn, task_id)? else {
+        return Ok(false);
+    };
+    if !git::rev_parse_verify(repo_path, &format!("{merge_commit}^{{commit}}"))? {
+        return Ok(false);
+    }
+    let out = git::git_output_at(
+        repo_path,
+        &["merge-base", "--is-ancestor", &merge_commit, integration_branch],
+    )?;
+    Ok(out.status.success())
+}
