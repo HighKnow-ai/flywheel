@@ -1,0 +1,61 @@
+/*
+ * The review diff's colours (Phase 8 plan 08-01). `react-diff-view`'s own structural stylesheet
+ * is imported in FileDiff.tsx; this file points its custom properties and the Prism token classes
+ * at the project's design-token roles. No hex literals here — `styles/tokens.css` is the one
+ * source of colour.
+ */
+.review-diff {
+  --diff-background-color: transparent;
+  --diff-text-color: var(--text-primary-rack);
+  --diff-font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --diff-selection-background-color: var(--row-surface-selected);
+  --diff-gutter-insert-background-color: color-mix(in srgb, var(--success-text-rack) 22%, var(--surface-dominant));
+  --diff-gutter-delete-background-color: color-mix(in srgb, var(--destructive-text-rack) 22%, var(--surface-dominant));
+  --diff-gutter-insert-text-color: var(--text-primary-rack);
+  --diff-gutter-delete-text-color: var(--text-primary-rack);
+  --diff-code-insert-background-color: color-mix(in srgb, var(--success-text-rack) 12%, transparent);
+  --diff-code-delete-background-color: color-mix(in srgb, var(--destructive-text-rack) 12%, transparent);
+  --diff-code-insert-edit-background-color: color-mix(in srgb, var(--success-text-rack) 30%, transparent);
+  --diff-code-delete-edit-background-color: color-mix(in srgb, var(--destructive-text-rack) 30%, transparent);
+  --diff-code-insert-text-color: var(--text-primary-rack);
+  --diff-code-delete-text-color: var(--text-primary-rack);
+  --diff-code-insert-edit-text-color: var(--text-primary-rack);
+  --diff-code-delete-edit-text-color: var(--text-primary-rack);
+  --diff-omit-gutter-line-color: var(--divider);
+  font-size: 12px;
+}
+
+.review-diff .token.comment,
+.review-diff .token.prolog,
+.review-diff .token.doctype,
+.review-diff .token.cdata,
+.review-diff .token.punctuation {
+  color: var(--text-muted-rack);
+}
+
+.review-diff .token.keyword,
+.review-diff .token.selector,
+.review-diff .token.tag,
+.review-diff .token.atrule {
+  color: var(--accent-text-rack);
+}
+
+.review-diff .token.string,
+.review-diff .token.char,
+.review-diff .token.attr-value,
+.review-diff .token.inserted {
+  color: var(--success-text-rack);
+}
+
+.review-diff .token.number,
+.review-diff .token.boolean,
+.review-diff .token.constant,
+.review-diff .token.symbol,
+.review-diff .token.function,
+.review-diff .token.class-name {
+  color: var(--blocked-text-rack);
+}
+
+.review-diff .token.deleted {
+  color: var(--destructive-text-rack);
+}

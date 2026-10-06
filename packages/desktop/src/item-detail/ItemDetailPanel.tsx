@@ -82,6 +82,9 @@ export interface ItemDetailPanelProps {
    * store import, per `onStartWork`'s own established convention above. Only rendered for an epic
    * (the fixed three-level hierarchy gives only an epic a shaping session of its own). */
   onContinueShaping?: () => void;
+  /** Called when the Review button is pressed (Phase 8 plan 08-01) — the caller pushes into the
+   * review surface. Offered for both a task and an epic, since one surface serves both scopes. */
+  onReview?: () => void;
 }
 
 export function ItemDetailPanel({
@@ -93,6 +96,7 @@ export function ItemDetailPanel({
   onStartWork,
   onOpenRun,
   onContinueShaping,
+  onReview,
 }: ItemDetailPanelProps) {
   const [titleDraft, setTitleDraft] = useState(item.title);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
@@ -243,6 +247,25 @@ export function ItemDetailPanel({
               }}
             >
               Start Work
+            </button>
+          )}
+
+          {(item.kind === "task" || item.kind === "epic") && (
+            <button
+              type="button"
+              onClick={onReview}
+              className="type-body"
+              style={{
+                alignSelf: "flex-start",
+                background: "var(--accent-nontext)",
+                border: "none",
+                borderRadius: "var(--radius-chrome)",
+                color: "var(--text-primary-rack)",
+                padding: "var(--space-xs) var(--space-md)",
+                cursor: "pointer",
+              }}
+            >
+              Review
             </button>
           )}
 

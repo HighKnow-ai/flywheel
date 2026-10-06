@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import React, { Suspense, useEffect, useMemo } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
 import { subscribeMenuAction } from "./adapters/tauri";
@@ -25,6 +25,11 @@ import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboa
 import { useMenuLayerSync } from "./state/menuSync";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
 import { TriageSurface } from "./triage/TriageSurface";
+// Phase 8 plan 08-01: loaded on first open so the board's cold start pays nothing for the diff
+// renderer and the Prism grammars.
+const ReviewSurface = React.lazy(() =>
+  import("./review/ReviewSurface").then((m) => ({ default: m.ReviewSurface })),
+);
 import "./styles/tokens.css";
 import "./styles/type.css";
 import "./styles/motion.css";
@@ -114,6 +119,9 @@ function AppShell() {
   // this field directly (the same cross-tree trigger shape every other App-level surface uses).
   const triageSurfaceProjectId = useUiStore((state) => state.triageSurfaceProjectId);
   const setTriageSurfaceProjectId = useUiStore((state) => state.setTriageSurfaceProjectId);
+  // Phase 8 plan 08-01: the review surface — same cross-tree trigger shape as the triage surface.
+  const reviewSurface = useUiStore((state) => state.reviewSurface);
+  const setReviewSurface = useUiStore((state) => state.setReviewSurface);
   // The triage surface's own epic roster — read the same way `BoardView.tsx` does (`useEpics`),
   // since `AppShell` has no other source for it. Gated on `triageSurfaceProjectId` itself
   // (`useEpics`'s own `enabled: Boolean(projectId)`), so this issues no read while the surface is
@@ -276,6 +284,22 @@ function AppShell() {
                 setActiveAgentRunId(agentRunId, null, null, epicId, logOffset);
               }}
             />
+          ) : reviewSurface ? (
+            // Phase 8: pushed into from the item detail panel, popped back out of on "← Board" or
+            // Escape. Checked after the triage branch and before the session branch; the board's
+            // own filters and selection live in the store and are untouched underneath.
+            <Suspense fallback={null}>
+              <ReviewSurface
+                scope={reviewSurface.scope}
+                itemId={reviewSurface.itemId}
+                label={reviewSurface.label}
+                onBack={() => setReviewSurface(null)}
+                onOpenSession={(agentRunId, epicId, logOffset) => {
+                  setReviewSurface(null);
+                  setActiveAgentRunId(agentRunId, null, null, epicId, logOffset);
+                }}
+              />
+            </Suspense>
           ) : activeAgentRunId ? (
             // D-31: pushed into from a task, popped back out of on "← Board" — the board itself
             // (and its own state — filters, selection, scroll) is untouched underneath this.

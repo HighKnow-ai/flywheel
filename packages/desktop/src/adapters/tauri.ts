@@ -1287,3 +1287,49 @@ export async function forgeRequestDraft(taskId: string): Promise<RequestDraftDto
 export async function forgeOpenRequest(taskId: string): Promise<ForgeRequestDto> {
   return invokeCommand<ForgeRequestDto>("forge_open_request", { taskId });
 }
+
+/** One changed file in a review (Phase 8 plan 08-01) — mirrors `commands::review::ReviewFileDto`.
+ * `status` is git's leading letter (`M`/`A`/`D`/`R`/`C`/`T`); a binary file carries no counts. */
+export interface ReviewFileDto {
+  path: string;
+  oldPath: string | null;
+  status: string;
+  added: number | null;
+  removed: number | null;
+  binary: boolean;
+}
+
+/** How a review scope resolved — mirrors `commands::review::ReviewTargetDto`. No repository path
+ * crosses the boundary. `noIntegrationBranch` means the epic has no integration branch yet. */
+export interface ReviewTargetDto {
+  state: "resolved" | "noIntegrationBranch" | "noBranch";
+  base: string | null;
+  head: string | null;
+  projectId: string | null;
+  epicId: string | null;
+  taskId: string | null;
+}
+
+export interface ReviewFilesDto {
+  target: ReviewTargetDto;
+  files: ReviewFileDto[];
+}
+
+export type ReviewScopeDto = "task" | "epic";
+
+/** The changed-file list for a task or epic (REVW-01/REVW-02). Read-only; the scope and an id are
+ * the whole input — the refs are derived inside the core. Thin wrapper over `review_files`. */
+export async function reviewFiles(scope: ReviewScopeDto, itemId: string): Promise<ReviewFilesDto> {
+  return invokeCommand<ReviewFilesDto>("review_files", { scope, itemId });
+}
+
+/** One file's unified patch text, or `null` when the scope does not resolve to a branch. Pass
+ * `oldPath` for a rename so git keeps the rename header. Thin wrapper over `review_file_patch`. */
+export async function reviewFilePatch(
+  scope: ReviewScopeDto,
+  itemId: string,
+  path: string,
+  oldPath: string | null,
+): Promise<string | null> {
+  return invokeCommand<string | null>("review_file_patch", { scope, itemId, path, oldPath });
+}

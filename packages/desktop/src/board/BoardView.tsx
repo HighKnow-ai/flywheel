@@ -223,6 +223,7 @@ export function BoardView({
   // CommandPalette — this board only ever opens it by name (the task id), never imports the
   // sheet component itself, exactly as `detailItemId`/`activePicker` are opened by id above.
   const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
+  const setReviewSurface = useUiStore((state) => state.setReviewSurface);
   // The live session surface (D-31, plan 02-01), mounted once at the `App.tsx` level like the
   // launch sheet above — opened by id only, from `ItemDetailPanel.tsx`'s Runs section (a specific
   // run id) or from `open-live-session`'s board-list `l` key / palette command below (resolved
@@ -1137,6 +1138,13 @@ export function BoardView({
           }
           onSetStatus={(status) => requestStatusChange(selectedItem.kind ?? "task", selectedItem.id, status)}
           onStartWork={() => setLaunchSheetTaskId(selectedItem.id)}
+          onReview={() =>
+            setReviewSurface({
+              scope: selectedItem.kind === "epic" ? "epic" : "task",
+              itemId: selectedItem.id,
+              label: `${selectedItem.key} ${selectedItem.title}`,
+            })
+          }
           onOpenRun={(agentRunId) => setActiveAgentRunId(agentRunId, selectedItem.id)}
           onContinueShaping={() => void continueShapingEpic(selectedItem.id)}
           // The palette renders over this panel by design (the Escape ladder's fixed order) —

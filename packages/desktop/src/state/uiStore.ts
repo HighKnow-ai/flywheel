@@ -82,6 +82,13 @@ export interface PendingDone {
   total: number;
 }
 
+/** What the review surface is open for: a task or an epic, plus its key and title for the header. */
+export interface ReviewSurfaceTarget {
+  scope: "task" | "epic";
+  itemId: string;
+  label: string;
+}
+
 interface UiState {
   searchTerm: string;
   filterDraft: BoardFilterDraft;
@@ -189,6 +196,10 @@ interface UiState {
    * level, a peer of the session surface, but it is opened from `board/TriageLane.tsx`'s header
    * (deep inside `BoardView`'s tree), which does not import the surface component itself. */
   triageSurfaceProjectId: string | null;
+  /** The item the review surface (Phase 8 plan 08-01) is open for, or `null` when closed — same
+   * cross-tree reasoning as the triage field above: mounted once in `App.tsx`, opened from the
+   * item detail panel's Review button. `label` is the item's key and title for the surface header. */
+  reviewSurface: ReviewSurfaceTarget | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -235,6 +246,8 @@ interface UiState {
   /** Opens/closes the dedicated triage surface for `projectId` (`null` to close) — the route
    * control's own call, mirroring `setLaunchSheetTaskId`'s "one field, one writer" shape. */
   setTriageSurfaceProjectId: (projectId: string | null) => void;
+  /** Opens/closes the review surface (`null` to close). */
+  setReviewSurface: (target: ReviewSurfaceTarget | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -259,6 +272,7 @@ export const useUiStore = create<UiState>((set) => ({
   launchSheetAuthoringHandoff: null,
   settingsOpen: false,
   triageSurfaceProjectId: null,
+  reviewSurface: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -338,6 +352,7 @@ export const useUiStore = create<UiState>((set) => ({
   clearLaunchSheetAuthoringHandoff: () => set({ launchSheetAuthoringHandoff: null }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setTriageSurfaceProjectId: (projectId) => set({ triageSurfaceProjectId: projectId }),
+  setReviewSurface: (target) => set({ reviewSurface: target }),
 }));
 
 /** Resets every UI field back to its initial value — the shared reset four test suites
@@ -369,5 +384,6 @@ export function resetUiState() {
     launchSheetAuthoringHandoff: null,
     settingsOpen: false,
     triageSurfaceProjectId: null,
+    reviewSurface: null,
   });
 }

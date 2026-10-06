@@ -31,7 +31,9 @@ export type FocusRegion =
   // D-103 (plan 06-07): the dedicated triage surface's own region — `ProposalRow`'s `region` prop
   // (plan 06-07 Task 1) is what lets the SAME row component act in either this region or the
   // tray's, so the two never fork into separate row implementations.
-  | "triage-surface";
+  | "triage-surface"
+  // Phase 8 plan 08-01: the review surface's own region — `j`/`k` through its file list.
+  | "review-surface";
 
 /** Every board action reachable from the keyboard, the palette, or (menu.rs) the native menu.
  * `create-issue`/`open-legend`/`filter-status`/`filter-epic`/`filter-assignee`/`filter-priority`
@@ -107,7 +109,9 @@ export type ActionId =
   | "merge-proposal"
   | "defer-proposal"
   | "reject-selected-proposals"
-  | "defer-selected-proposals";
+  | "defer-selected-proposals"
+  // Phase 8 plan 08-01: expand/collapse the focused file in the review surface.
+  | "expand-file";
 
 export interface Binding {
   id: ActionId;
@@ -258,6 +262,15 @@ export const BINDINGS: Binding[] = [
     shift: true,
     label: "Defer Selected Proposals",
   },
+
+  // ---- Review surface (Phase 8 plan 08-01) — j/k through the changed-file list, Enter/Space to
+  // expand the focused file. Escape pops the surface itself (handled by the surface component).
+  { id: "move-down", region: "review-surface", key: "j", label: "Move selection down" },
+  { id: "move-down", region: "review-surface", key: "ArrowDown", label: "Move selection down" },
+  { id: "move-up", region: "review-surface", key: "k", label: "Move selection up" },
+  { id: "move-up", region: "review-surface", key: "ArrowUp", label: "Move selection up" },
+  { id: "expand-file", region: "review-surface", key: "Enter", label: "Expand file" },
+  { id: "expand-file", region: "review-surface", key: " ", label: "Expand file" },
 
   // ---- Command-palette-only (no keystroke; CommandPalette.tsx's generator source) --------
   { id: "create-issue", region: "command-palette", label: "Create Issue" },
@@ -413,7 +426,9 @@ export type UiLayer =
   | "permission-card"
   | "proposal-tray"
   // D-103 (plan 06-07): the triage surface's own layer — see `TRIAGE_SURFACE_ACTION_IDS` below.
-  | "triage-surface";
+  | "triage-surface"
+  // Phase 8 plan 08-01: the review surface's own layer — its allow-list sits beside the triage one below.
+  | "review-surface";
 
 /** The four booleans every layer decision is made from. `EscapeLadderState` below extends this
  * with only `hasSelection` — the two are the same subject read two ways (which layer to CLOSE on
@@ -483,6 +498,11 @@ const TRIAGE_SURFACE_ACTION_IDS = new Set<ActionId>([
   "defer-selected-proposals",
 ]);
 
+// Phase 8 plan 08-01: the review surface's complete allow-list. The movement ids are shared with
+// the tray and triage sets, so the layer branch below answers from THIS set rather than falling
+// through to the board clause.
+const REVIEW_SURFACE_ACTION_IDS = new Set<ActionId>(["move-down", "move-up", "expand-file"]);
+
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "open-palette") return layer !== "picker" && layer !== "palette";
   // T-02-15 (STRIDE, elevation of privilege): permission-answer bindings must never fire outside
@@ -496,6 +516,7 @@ export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (layer === "triage-surface") {
     return TRIAGE_SURFACE_ACTION_IDS.has(id) || TRAY_SELECTION_ACTION_IDS.has(id);
   }
+  if (layer === "review-surface") return REVIEW_SURFACE_ACTION_IDS.has(id);
   if (PROPOSAL_TRAY_ACTION_IDS.has(id)) return layer === "proposal-tray";
   if (layer === "proposal-tray") return TRAY_SELECTION_ACTION_IDS.has(id);
   return layer === "board" || layer === "quick-add";
