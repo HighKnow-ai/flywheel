@@ -848,14 +848,14 @@ broken CLI.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
 
-**Plans**: 8 plans in 5 waves
+**Plans**: 1/8 plans executed in 5 waves
 **UI hint**: yes
 
 Plans:
 
 **Wave 1 — the tracer** *(the thinnest end-to-end slice, proven before anything expands out from it)*
 
-- [ ] 08-01-PLAN.md — Tracer: a task's diff on screen end to end — the raw-output git wrapper, both scopes resolved server-side, two read commands, and the refractor-adapted unified diff (REVW-01, REVW-02)
+- [x] 08-01-PLAN.md — Tracer: a task's diff on screen end to end — the raw-output git wrapper, both scopes resolved server-side, two read commands, and the refractor-adapted unified diff (REVW-01, REVW-02)
 
 **Wave 2** *(three independent expansions off the tracer — no file overlap between them)*
 
@@ -1070,7 +1070,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
-| 8. Review And Merge Inside Flywheel | 0/TBD | Not started | - |
+| 8. Review And Merge Inside Flywheel | 1/8 | In Progress|  |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |

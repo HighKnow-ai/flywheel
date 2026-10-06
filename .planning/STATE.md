@@ -1,19 +1,19 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 08
-current_phase_name: review-and-merge-inside-flywheel
+current_phase_name: Review And Merge Inside Flywheel
 status: executing
-stopped_at: Phase 8 context gathered
-last_updated: "2026-10-06T01:34:38.791Z"
-last_activity: 2026-10-05
-last_activity_desc: Phase 07 complete, transitioned to Phase 8
-state_head: a4902a1b5b5bb2cc343e3da79b29846974eec7bd
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-10-06T02:03:45.207Z"
+last_activity: 2026-10-06
+last_activity_desc: Phase 08 execution started
+state_head: 2330dfe876817bc25e2b9c57df330222a5d1f6bb
 progress:
   total_phases: 13
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 178
-  completed_plans: 170
-  percent: 8
+  completed_plans: 171
+  percent: 0
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-02)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 07 — The Board Tells The Git Truth
+**Current focus:** Phase 08 — Review And Merge Inside Flywheel
 
 ## Current Position
 
-Phase: 08 (review-and-merge-inside-flywheel) — READY TO EXECUTE
-Plan: Not started
+Phase: 08 (Review And Merge Inside Flywheel) — EXECUTING
+Plan: 2 of 8
 Status: Ready to execute
-Last activity: 2026-10-05 — Phase 07 complete, transitioned to Phase 8
+Last activity: 2026-10-06 — Phase 08 execution started
 
-Progress: [█░░░░░░░░░] 8% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
+Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
 
 ## Performance Metrics
 
@@ -231,6 +231,7 @@ Progress: [█░░░░░░░░░] 8% — 6 of 13 phases complete (158/1
 | Phase 07 P10 | 46min | 2 tasks | 6 files |
 | Phase 07 P11 | ~55min | 3 tasks | 7 files |
 | Phase 07 P12 | 42min | 2 tasks | 1 files |
+| Phase 08 P01 | 35 min | 3 tasks | 24 files |
 
 ## Accumulated Context
 
@@ -531,6 +532,8 @@ Recent decisions affecting current work:
 - [Phase 07]: Split forge dispatch from resolution (forge_and_repo_path / request_for_branch_at / create_request_at) so no function in packages/core can take a database connection and spawn a gh/glab/git fetch subprocess (07-11). — Closes verification Gap 1's first missing item: a slow or hung forge/fetch call must never be able to hold AppState.db's single app-wide mutex, and the shape needed to be unrepresentable, not just unused, so the fix was to remove the connection-taking dispatch wrappers rather than add a guard.
 - [Phase 07]: FakeForge shares one scratch dir/state-file set between the gh and glab stubs; each test writes the forge-specific literal vocabulary rather than the helper normalising it.
 - [Phase 07]: Both TDD tasks commit once as test(07-12): this plan forbids any production-code change, so there is no feat(...) implementation step to pair with a RED commit.
+- [Phase 08]: Review base is the LOCAL integration branch; diffs run against project repo_path; NULL integration branch is a typed no-branch outcome, never cut by a read path
+- [Phase 08]: Review diff: react-diff-view 3.3.3 + refractor 5.0.0 via a .children adapter, unified only, 40-hunk chunks, highlight skipped above 5000 changed lines
 
 ### Pending Todos
 
@@ -590,6 +593,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-05T11:47:16.969Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-review-and-merge-inside-flywheel/08-CONTEXT.md
+Last session: 2026-10-06T02:03:45.044Z
+Stopped at: Completed 08-01-PLAN.md
+Resume file: None
