@@ -87,6 +87,9 @@ export interface ReviewSurfaceTarget {
   scope: "task" | "epic";
   itemId: string;
   label: string;
+  /** Set when an epic review was reached from a task's review (the scope toggle), so toggling back
+   * returns to that same task. Absent when the surface was opened on the epic directly. */
+  fromTask?: { itemId: string; label: string };
 }
 
 interface UiState {

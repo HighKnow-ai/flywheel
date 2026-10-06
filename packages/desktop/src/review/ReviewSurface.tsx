@@ -18,7 +18,9 @@ import { useEffect, useMemo, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
 import { MARKS_BY_ID } from "../legend/marks";
 import type { ReviewFileDto, ReviewScopeDto } from "../adapters/tauri";
+import { useEpics } from "../board/useBoardQuery";
 import { nextSelectionId, useRegionBindings } from "../state/keyboard";
+import { useUiStore } from "../state/uiStore";
 import { CriteriaRail, useCheckAgainstSelection } from "./CriteriaRail";
 import { EpicRequestBar, EpicRequestSheet } from "./EpicRequestSheet";
 import { FileDiff, type AnchorBadge } from "./FileDiff";
@@ -131,12 +133,14 @@ export interface ReviewSurfaceProps {
   itemId: string;
   /** The item's key and title, for the header. */
   label: string;
+  /** For an epic review reached from a task: the task to return to when the scope is toggled back. */
+  fromTask?: { itemId: string; label: string };
   onBack: () => void;
   /** Called by the merge sheet's resolve-a-conflict offer once it has started a session. */
   onOpenSession?: (agentRunId: string, epicId: string | null, logOffset: number | null) => void;
 }
 
-export function ReviewSurface({ scope, itemId, label, onBack, onOpenSession }: ReviewSurfaceProps) {
+export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSession }: ReviewSurfaceProps) {
   const filesQuery = useReviewFiles(scope, itemId);
   const files = filesQuery.data?.files ?? [];
   const target = filesQuery.data?.target;
@@ -178,6 +182,37 @@ export function ReviewSurface({ scope, itemId, label, onBack, onOpenSession }: R
 
   const [selection, setSelection] = useState<ReviewSelection | null>(null);
   const [focusedCriterionId, setFocusedCriterionId] = useState<string | null>(null);
+
+  // A selection is one range in one file in one scope, and the opened files are that scope's: carrying
+  // either across a scope change would offer evidence from a diff the reader is no longer looking at.
+  useEffect(() => {
+    setSelection(null);
+    setFocusedCriterionId(null);
+    setOpened(new Set());
+    setExpanded(new Set());
+  }, [scope, itemId]);
+
+  // The scope toggle rewrites the one store field that says what the surface shows, so the scope
+  // survives a remount. A task hops to its own epic (from the resolved target); an epic hops back to
+  // the task it was reached from. There is nothing to hop to otherwise, so no toggle.
+  const setReviewSurface = useUiStore((state) => state.setReviewSurface);
+  const epicRoster = useEpics(isTask ? (target?.projectId ?? undefined) : undefined);
+  const hopEpicId = isTask ? target?.epicId : null;
+  const canToggle = isTask ? Boolean(hopEpicId) : Boolean(fromTask);
+  function switchScope(next: ReviewScopeDto) {
+    if (next === scope) return;
+    if (next === "epic" && hopEpicId) {
+      const epic = (epicRoster.data?.epics ?? []).find((e) => e.id === hopEpicId);
+      setReviewSurface({
+        scope: "epic",
+        itemId: hopEpicId,
+        label: epic ? `${epic.key} ${epic.title}` : "Epic",
+        fromTask: { itemId, label },
+      });
+    } else if (next === "task" && fromTask) {
+      setReviewSurface({ scope: "task", itemId: fromTask.itemId, label: fromTask.label });
+    }
+  }
   const checkAgainstSelection = useCheckAgainstSelection(scope, itemId, selection);
   const criteriaState = useReviewCriteriaState(scope, itemId);
   // Anchored criteria by file, as badges. Absent anchors are simply absent: no badge, no claim.
@@ -327,6 +362,29 @@ export function ReviewSurface({ scope, itemId, label, onBack, onOpenSession }: R
         <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
           {scope === "epic" ? "Epic review" : "Task review"}
         </span>
+        {canToggle && (
+          <span role="group" aria-label="Review scope" style={{ display: "inline-flex", gap: 2 }}>
+            {(["task", "epic"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={scope === option}
+                onClick={() => switchScope(option)}
+                className="type-label"
+                style={{
+                  background: scope === option ? "var(--row-surface-selected)" : "transparent",
+                  border: "1px solid var(--divider)",
+                  borderRadius: "var(--radius-chrome)",
+                  color: "inherit",
+                  padding: "var(--space-xs) var(--space-sm)",
+                  cursor: "pointer",
+                }}
+              >
+                {option === "task" ? "This task" : "Whole epic"}
+              </button>
+            ))}
+          </span>
+        )}
         {integrated && <IntegratedMark />}
         {target?.state === "resolved" && (
           <span className="type-label" style={{ fontFamily: MONO_STACK, color: "var(--text-muted-rack)", marginLeft: "auto" }}>
@@ -355,7 +413,7 @@ export function ReviewSurface({ scope, itemId, label, onBack, onOpenSession }: R
       {isTask && !integrated && mergePrecheck.data?.state === "refused" && (
         <MergeRefusalNote category={mergePrecheck.data.category} />
       )}
-      {scope === "epic" && <EpicRequestBar epicId={itemId} onOpen={() => setRequestOpen(true)} />}
+      {scope === "epic" && target?.state === "resolved" && <EpicRequestBar epicId={itemId} onOpen={() => setRequestOpen(true)} />}
       {requestOpen && <EpicRequestSheet epicId={itemId} onClose={() => setRequestOpen(false)} />}
       {mergeOpen && (
         <MergeConfirmSheet

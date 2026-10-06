@@ -13,21 +13,45 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EpicRequestBar, EpicRequestSheet, safeHref } from "../EpicRequestSheet";
+import { ReviewSurface } from "../ReviewSurface";
+import { useUiStore } from "../../state/uiStore";
 import type {
   EpicRequestOutcomeDto,
   EpicRequestPreviewDto,
   ForgeRequestDto,
+  ReviewFilesDto,
 } from "../../adapters/tauri";
 
 const draftMock = vi.fn();
 const openMock = vi.fn();
 const requestMock = vi.fn();
+const filesMock = vi.fn();
+const criteriaStateMock = vi.fn();
+const precheckMock = vi.fn();
 
 vi.mock("../../adapters/tauri", () => ({
   forgeEpicRequestDraft: (...args: unknown[]) => draftMock(...args),
   forgeOpenEpicRequest: (...args: unknown[]) => openMock(...args),
   forgeRequestForEpic: (...args: unknown[]) => requestMock(...args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  // The surface (the scope toggle) reads these; there is no status setter in this list on purpose.
+  reviewFiles: (...args: unknown[]) => filesMock(...args),
+  reviewFilePatch: () =>
+    Promise.resolve(
+      "diff --git a/src/lib.rs b/src/lib.rs\nindex 1111111..2222222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,3 +1,3 @@\n fn main() {\n-    let x = 1;\n+    let x = 2;\n }\n",
+    ),
+  reviewMergePrecheck: (...args: unknown[]) => precheckMock(...args),
+  reviewCriteriaState: (...args: unknown[]) => criteriaStateMock(...args),
+  criterionCheckWithAnchor: () => Promise.resolve(),
+  invokeCommand: (command: string, args?: { scope?: string; itemId?: string }) => {
+    // The item panel's list and the rail share one query key and one fetch, so whichever mounts
+    // first supplies the read; both reach the same command.
+    if (command === "review_criteria_state") return criteriaStateMock(args?.scope, args?.itemId);
+    if (command === "epic_list_all") {
+      return Promise.resolve({ epics: [{ id: "e1", key: "FLY-1", title: "The epic" }], total: 1, truncated: false });
+    }
+    return Promise.resolve([]);
+  },
 }));
 
 function request(overrides: Partial<ForgeRequestDto> = {}): ForgeRequestDto {
@@ -76,6 +100,10 @@ beforeEach(() => {
   draftMock.mockReset().mockResolvedValue(ready());
   openMock.mockReset();
   requestMock.mockReset().mockResolvedValue(null);
+  filesMock.mockReset();
+  criteriaStateMock.mockReset().mockResolvedValue([]);
+  precheckMock.mockReset().mockReturnValue(new Promise(() => {}));
+  useUiStore.setState({ reviewSurface: null });
 });
 
 afterEach(cleanup);
@@ -280,5 +308,167 @@ describe("EpicRequestBar", () => {
     const second = render(withClient(<EpicRequestBar epicId="e1" onOpen={vi.fn()} />));
     await waitFor(() => expect(draftMock).toHaveBeenCalledTimes(2));
     expect(second.container.textContent).toBe("");
+  });
+});
+
+const FILE = { path: "src/lib.rs", oldPath: null, status: "M", added: 1, removed: 1, binary: false };
+
+/** `reviewFiles` answers by scope: a task resolves against its epic, an epic against the default branch. */
+function filesFor(taskEpicId: string | null = "e1", epicResolves = true) {
+  filesMock.mockImplementation((scope: string, itemId: string): Promise<ReviewFilesDto> => {
+    if (scope === "task") {
+      return Promise.resolve({
+        target: {
+          state: "resolved",
+          postMerge: false,
+          base: "flywheel/epic-1",
+          head: "flywheel/task-1",
+          projectId: "p1",
+          epicId: taskEpicId,
+          taskId: itemId,
+        },
+        files: [FILE],
+      });
+    }
+    return Promise.resolve(
+      epicResolves
+        ? {
+            target: {
+              state: "resolved",
+              postMerge: false,
+              base: "main",
+              head: "flywheel/epic-1",
+              projectId: "p1",
+              epicId: itemId,
+              taskId: null,
+            },
+            files: [{ ...FILE, path: "src/epic-only.rs" }],
+          }
+        : {
+            target: {
+              state: "noIntegrationBranch",
+              postMerge: false,
+              base: null,
+              head: null,
+              projectId: null,
+              epicId: null,
+              taskId: null,
+            },
+            files: [],
+          },
+    );
+  });
+}
+
+function renderSurface(props: {
+  scope: "task" | "epic";
+  itemId: string;
+  label: string;
+  fromTask?: { itemId: string; label: string };
+}) {
+  const client = new QueryClient();
+  const ui = (p: typeof props) => (
+    <QueryClientProvider client={client}>
+      <ReviewSurface {...p} onBack={vi.fn()} />
+    </QueryClientProvider>
+  );
+  const result = render(ui(props));
+  return { ...result, rerenderWith: (p: typeof props) => result.rerender(ui(p)) };
+}
+
+function mergeReady() {
+  return {
+    state: "ready",
+    epicKey: "FLY-1",
+    sourceBranch: "flywheel/task-1",
+    targetBranch: "flywheel/epic-1",
+    commitCount: 1,
+    fileCount: 1,
+    conflictedFiles: [],
+  };
+}
+
+describe("ReviewSurface: the scope toggle", () => {
+  it("task scope renders the task's criteria rail and file list and offers Merge, not the request", async () => {
+    filesFor();
+    precheckMock.mockResolvedValue(mergeReady());
+    renderSurface({ scope: "task", itemId: "t1", label: "FLY-9 A task" });
+    expect(await screen.findByText("src/lib.rs")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Criteria rail" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Merge" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open request" })).toBeNull();
+    await waitFor(() => expect(criteriaStateMock).toHaveBeenCalledWith("task", "t1"));
+  });
+
+  it("toggling to the whole epic writes the store field with the epic id and where it came from", async () => {
+    filesFor();
+    renderSurface({ scope: "task", itemId: "t1", label: "FLY-9 A task" });
+    await screen.findByText("src/lib.rs");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Whole epic" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Whole epic" }));
+    expect(useUiStore.getState().reviewSurface).toEqual({
+      scope: "epic",
+      itemId: "e1",
+      label: "FLY-1 The epic",
+      fromTask: { itemId: "t1", label: "FLY-9 A task" },
+    });
+  });
+
+  it("epic scope renders the epic's criteria and accumulated files, the request action, and no Merge", async () => {
+    filesFor();
+    precheckMock.mockResolvedValue(mergeReady());
+    renderSurface({ scope: "epic", itemId: "e1", label: "FLY-1 The epic", fromTask: { itemId: "t1", label: "FLY-9 A task" } });
+    expect(await screen.findByText("src/epic-only.rs")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Open request" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Merge" })).toBeNull();
+    await waitFor(() => expect(criteriaStateMock).toHaveBeenCalledWith("epic", "e1"));
+    expect(precheckMock).not.toHaveBeenCalled();
+  });
+
+  it("toggling back writes the same task into the store", async () => {
+    filesFor();
+    renderSurface({ scope: "epic", itemId: "e1", label: "FLY-1 The epic", fromTask: { itemId: "t1", label: "FLY-9 A task" } });
+    await screen.findByText("src/epic-only.rs");
+    fireEvent.click(screen.getByRole("button", { name: "This task" }));
+    expect(useUiStore.getState().reviewSurface).toEqual({ scope: "task", itemId: "t1", label: "FLY-9 A task" });
+  });
+
+  it("is absent for a task with no epic", async () => {
+    filesFor(null);
+    renderSurface({ scope: "task", itemId: "t1", label: "FLY-9 A task" });
+    await screen.findByText("src/lib.rs");
+    expect(screen.queryByRole("group", { name: "Review scope" })).toBeNull();
+  });
+
+  it("opening directly in epic scope renders epic scope with no toggle interaction", async () => {
+    filesFor();
+    renderSurface({ scope: "epic", itemId: "e1", label: "FLY-1 The epic" });
+    expect(await screen.findByText("src/epic-only.rs")).toBeTruthy();
+    expect(screen.getByText("Epic review")).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Review scope" })).toBeNull();
+  });
+
+  it("an epic with no integration branch renders the absence, no files, no action, and still its criteria", async () => {
+    filesFor("e1", false);
+    renderSurface({ scope: "epic", itemId: "e1", label: "FLY-1 The epic" });
+    expect(await screen.findByText(/has no integration branch yet/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open request" })).toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "Changed files" })).queryAllByRole("listitem")).toEqual([]);
+    expect(screen.getByRole("complementary", { name: "Criteria rail" })).toBeTruthy();
+    await waitFor(() => expect(criteriaStateMock).toHaveBeenCalledWith("epic", "e1"));
+  });
+
+  it("switching scope clears the line selection", async () => {
+    filesFor();
+    const view = renderSurface({ scope: "task", itemId: "t1", label: "FLY-9 A task" });
+    fireEvent.click(await screen.findByRole("button", { name: /src\/lib\.rs/ }));
+    await waitFor(() => expect(document.querySelector(".diff-gutter-insert")).toBeTruthy());
+    fireEvent.click(document.querySelector(".diff-gutter-insert") as HTMLElement);
+    await screen.findByText(/Selected: src\/lib\.rs/);
+
+    view.rerenderWith({ scope: "epic", itemId: "e1", label: "FLY-1 The epic", fromTask: { itemId: "t1", label: "FLY-9 A task" } });
+    await screen.findByText("src/epic-only.rs");
+    expect(screen.queryByText(/Selected:/)).toBeNull();
+    expect(screen.getByText(/No lines selected/)).toBeTruthy();
   });
 });
