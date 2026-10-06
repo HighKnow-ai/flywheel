@@ -28,6 +28,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use super::criterion::CriterionDto;
+use super::ipc_error;
 
 use crate::state::AppState;
 
@@ -77,7 +78,7 @@ impl From<flywheel_core::review::ReviewTarget> for ReviewTargetDto {
     fn from(t: flywheel_core::review::ReviewTarget) -> Self {
         use flywheel_core::review::ReviewTarget;
         let bare = |state: &str| Self {
-            state: state.to_string(),
+            state: String::from(state),
             post_merge: false,
             base: None,
             head: None,
@@ -128,11 +129,11 @@ pub fn review_files(
     // The DB lock is held for the board read only; the ancestry check and the diff run after it is
     // released.
     let inputs = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        flywheel_core::review::review_target_inputs(&conn, scope, &item_id).map_err(|e| e.to_string())?
+        let conn = state.db.lock().map_err(|e| ipc_error("review_files:lock", e))?;
+        flywheel_core::review::review_target_inputs(&conn, scope, &item_id).map_err(|e| ipc_error("review_files:resolve", e))?
     };
-    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| e.to_string())?;
-    let files = flywheel_core::review::files_for_target(&target).map_err(|e| e.to_string())?;
+    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| ipc_error("review_files:finish", e))?;
+    let files = flywheel_core::review::files_for_target(&target).map_err(|e| ipc_error("review_files:git", e))?;
     Ok(ReviewFilesDto {
         target: ReviewTargetDto::from(target),
         files: files.into_iter().map(ReviewFileDto::from).collect(),
@@ -150,12 +151,12 @@ pub fn review_file_patch(
 ) -> Result<Option<String>, String> {
     let scope = parse_scope(&scope)?;
     let inputs = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        flywheel_core::review::review_target_inputs(&conn, scope, &item_id).map_err(|e| e.to_string())?
+        let conn = state.db.lock().map_err(|e| ipc_error("review_file_patch:lock", e))?;
+        flywheel_core::review::review_target_inputs(&conn, scope, &item_id).map_err(|e| ipc_error("review_file_patch:resolve", e))?
     };
-    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| e.to_string())?;
+    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| ipc_error("review_file_patch:finish", e))?;
     flywheel_core::review::patch_for_target(&target, &path, old_path.as_deref())
-        .map_err(|e| e.to_string())
+        .map_err(|e| ipc_error("review_file_patch:git", e))
 }
 
 /// The evidence behind a checked criterion — mirrors `CriterionAnchor`. Staleness is not here: it
@@ -187,7 +188,7 @@ impl From<flywheel_core::review::AnchorStaleness> for StalenessDto {
             S::MovedOrChanged => ("movedOrChanged", None),
             S::Unknown => ("unknown", None),
         };
-        Self { state: state.to_string(), commits }
+        Self { state: String::from(state), commits }
     }
 }
 
@@ -209,11 +210,11 @@ pub fn review_criteria_state(
 ) -> Result<Vec<ReviewCriterionStateDto>, String> {
     let scope = parse_scope(&scope)?;
     let (inputs, rows) = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.lock().map_err(|e| ipc_error("review_criteria_state:lock", e))?;
         flywheel_core::review::criteria_with_anchors(&conn, scope, &item_id)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| ipc_error("review_criteria_state:read", e))?
     };
-    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| e.to_string())?;
+    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| ipc_error("review_criteria_state:finish", e))?;
     Ok(flywheel_core::review::with_staleness(&target, rows)
         .into_iter()
         .map(|e| ReviewCriterionStateDto {
@@ -265,8 +266,8 @@ impl From<flywheel_core::review::EpicTaskCriteria> for EpicTaskRollupRowDto {
 #[tauri::command(async)]
 pub fn review_epic_task_rollup(state: State<AppState>, epic_id: String) -> Result<Vec<EpicTaskRollupRowDto>, String> {
     let rows = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        flywheel_core::review::epic_task_rollup(&conn, &epic_id).map_err(|e| e.to_string())?
+        let conn = state.db.lock().map_err(|e| ipc_error("review_epic_task_rollup:lock", e))?;
+        flywheel_core::review::epic_task_rollup(&conn, &epic_id).map_err(|e| ipc_error("review_epic_task_rollup:read", e))?
     };
     Ok(rows.into_iter().map(EpicTaskRollupRowDto::from).collect())
 }
@@ -301,7 +302,7 @@ pub fn criterion_check_with_anchor(
     // Under the lock: proof the criterion belongs to the item being reviewed, and the target's board
     // read. The ancestry check runs after the lock is released.
     let inputs = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.lock().map_err(|e| ipc_error("criterion_check_with_anchor:lock", e))?;
         let parent: Option<(String, String)> = conn
             .query_row(
                 "SELECT parent_type, parent_id FROM acceptance_criteria WHERE id = ?1",
@@ -313,9 +314,9 @@ pub fn criterion_check_with_anchor(
         if parent.as_ref().map(|(t, id)| (t.as_str(), id.as_str())) != Some((expected, item_id.as_str())) {
             return Err(format!("criterion {criterion_id:?} does not belong to {expected} {item_id:?}"));
         }
-        flywheel_core::review::review_target_inputs(&conn, scope, &item_id).map_err(|e| e.to_string())?
+        flywheel_core::review::review_target_inputs(&conn, scope, &item_id).map_err(|e| ipc_error("criterion_check_with_anchor:resolve", e))?
     };
-    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| e.to_string())?;
+    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| ipc_error("criterion_check_with_anchor:finish", e))?;
 
     // The sha is derived here, from the head ref the core resolved — never taken from the caller.
     let head_sha = match (&anchor, &target) {
@@ -325,17 +326,17 @@ pub fn criterion_check_with_anchor(
                 repo_path,
                 &["rev-parse", "--verify", &format!("{head}^{{commit}}")],
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| ipc_error("criterion_check_with_anchor:revParse", e))?;
             String::from_utf8_lossy(&out.stdout).trim().to_string()
         }
         (Some(_), _) => return Err("this item has no branch to anchor evidence against yet".to_string()),
     };
 
     {
-        let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        let mut conn = state.db.lock().map_err(|e| ipc_error("criterion_check_with_anchor:lockWrite", e))?;
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error("criterion_check_with_anchor:actor", e))?;
         check_criterion_with_anchor(&mut conn, &actor_id, &criterion_id, anchor, &head_sha)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| ipc_error("criterion_check_with_anchor:write", e))?;
     }
     app.emit("board:changed", serde_json::json!({ "entity": "criterion", "id": criterion_id }))
         .ok();
@@ -389,7 +390,7 @@ pub fn review_merge_precheck(
     // The lock covers the board read only; the rev-list and diff in `finish_plan` run after it is
     // gone. A refusal can come from either half and is a preview, not an error.
     let inputs = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.lock().map_err(|e| ipc_error("review_merge_precheck:lock", e))?;
         plan_merge_inputs(&conn, &task_id)
     };
     let planned = inputs.and_then(finish_plan);
@@ -398,13 +399,13 @@ pub fn review_merge_precheck(
         Err(e) => {
             return match e.downcast_ref::<MergeRefusal>() {
                 Some(refusal) => Ok(MergePreviewDto::Refused { category: refusal.category().to_string() }),
-                None => Err(e.to_string()),
+                None => Err(ipc_error("review_merge_precheck:plan", e)),
             }
         }
     };
     let conflicted_files =
         match flywheel_core::git::merge_tree_check(&plan.repo_path, &plan.target_branch, &plan.source_branch)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| ipc_error("review_merge_precheck:dryRun", e))?
         {
             MergePrecheck::Clean => Vec::new(),
             MergePrecheck::Conflicts(files) => files,
@@ -437,7 +438,7 @@ pub fn review_merge_task(
     // Board read under the lock, then the lock is gone before any git runs. A refusal can come
     // from either half.
     let inputs = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.lock().map_err(|e| ipc_error("review_merge_task:lock", e))?;
         merge::plan_merge_inputs(&conn, &task_id)
     };
     let plan = match inputs.and_then(merge::finish_plan) {
@@ -445,7 +446,7 @@ pub fn review_merge_task(
         Err(e) => {
             return Err(match e.downcast_ref::<MergeRefusal>() {
                 Some(refusal) => format!("refused:{}", refusal.category()),
-                None => e.to_string(),
+                None => ipc_error("review_merge_task:plan", e),
             })
         }
     };
@@ -466,7 +467,7 @@ pub fn review_merge_task(
         }
     };
 
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut conn = state.db.lock().map_err(|e| ipc_error("review_merge_task:relock", e))?;
     let recorded = flywheel_core::domain::actor::local_human_actor_id(&conn)
         .and_then(|actor_id| merge::record_merge_event(&mut conn, &plan, &outcome, &actor_id));
     drop(conn);

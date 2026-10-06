@@ -28,6 +28,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+use super::ipc_error;
 use crate::state::AppState;
 
 /// One normalised pull/merge request, projected for the renderer — mirrors
@@ -105,7 +106,7 @@ pub fn forge_request_for_task(
     state: State<AppState>,
     task_id: String,
 ) -> Result<ForgeReadDto, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.lock().map_err(|e| ipc_error("forge_request_for_task:lock", e))?;
 
     let worktree_row: Option<(String, String)> = conn
         .query_row(
@@ -114,14 +115,14 @@ pub fn forge_request_for_task(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ipc_error("forge_request_for_task:worktree", e))?;
 
     let Some((project_id, branch)) = worktree_row else {
         return Ok(ForgeReadDto::NoWorktree);
     };
 
     let (forge, repo_path) =
-        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| e.to_string())?;
+        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| ipc_error("forge_request_for_task:forge", e))?;
     if matches!(forge, flywheel_core::forge::Forge::Local) {
         // Correct to return from inside the lock here: Forge::Local spawns no process at all, so
         // nothing is held across anything.
@@ -132,10 +133,10 @@ pub fn forge_request_for_task(
     match flywheel_core::forge::request_for_branch_at(forge, &repo_path, &branch) {
         Ok(None) => Ok(ForgeReadDto::NoRequest),
         Ok(Some(request)) => {
-            let conn = state.db.lock().map_err(|e| e.to_string())?;
+            let conn = state.db.lock().map_err(|e| ipc_error("forge_request_for_task:relock", e))?;
             let unmet_criteria =
                 flywheel_core::query::forge::latest_unmet_criteria_count(&conn, &task_id)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| ipc_error("forge_request_for_task:unmet", e))?;
             drop(conn);
             Ok(ForgeReadDto::Request { request: ForgeRequestDto::from(&request), unmet_criteria })
         }
@@ -188,9 +189,9 @@ pub fn forge_request_draft(
     state: State<AppState>,
     task_id: String,
 ) -> Result<RequestDraftDto, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.lock().map_err(|e| ipc_error("forge_request_draft:lock", e))?;
     let draft = flywheel_core::forge::request_body::assemble_request_draft(&conn, &task_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ipc_error("forge_request_draft:assemble", e))?;
     Ok(RequestDraftDto::from(draft))
 }
 
@@ -219,17 +220,17 @@ pub fn forge_open_request(
     app: AppHandle,
     task_id: String,
 ) -> Result<ForgeRequestDto, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.lock().map_err(|e| ipc_error("forge_open_request:lock", e))?;
 
     let draft = flywheel_core::forge::request_body::assemble_request_draft(&conn, &task_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ipc_error("forge_open_request:assemble", e))?;
 
     let project_id: String = conn
         .query_row("SELECT project_id FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ipc_error("forge_open_request:project", e))?;
 
     let (forge, repo_path) =
-        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| e.to_string())?;
+        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| ipc_error("forge_open_request:forge", e))?;
     drop(conn);
 
     let result = flywheel_core::forge::create_request_at(forge, &repo_path, &draft);
@@ -317,20 +318,20 @@ pub fn forge_epic_request_draft(
     // ancestry checks run after it is released. An absent integration branch yields no draft, and
     // that is decided from the inputs before any git runs.
     let (inputs, draft_inputs) = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let inputs = epic_request_inputs(&conn, &epic_id).map_err(|e| e.to_string())?;
+        let conn = state.db.lock().map_err(|e| ipc_error("forge_epic_request_draft:lock", e))?;
+        let inputs = epic_request_inputs(&conn, &epic_id).map_err(|e| ipc_error("forge_epic_request_draft:inputs", e))?;
         let draft_inputs = if inputs.has_integration_branch() {
-            Some(request_body::epic_draft_inputs(&conn, &epic_id).map_err(|e| e.to_string())?)
+            Some(request_body::epic_draft_inputs(&conn, &epic_id).map_err(|e| ipc_error("forge_epic_request_draft:draftInputs", e))?)
         } else {
             None
         };
         (inputs, draft_inputs)
     };
-    let blocker = epic_request_blocker(&inputs).map_err(|e| e.to_string())?;
+    let blocker = epic_request_blocker(&inputs).map_err(|e| ipc_error("forge_epic_request_draft:blocker", e))?;
     let draft = draft_inputs
         .map(|d| request_body::finish_epic_request_draft(d).map(RequestDraftDto::from))
         .transpose()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ipc_error("forge_epic_request_draft:draft", e))?;
     Ok(EpicRequestPreviewDto { blocker: blocker.map(|b| blocker_name(b).to_string()), draft })
 }
 
@@ -366,10 +367,10 @@ pub fn forge_open_epic_request(
     // The lock covers the board reads only. The blocker check, the draft's ancestry checks, the
     // push and the forge call all run after it is released.
     let (inputs, draft_inputs) = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let inputs = epic_request_inputs(&conn, &epic_id).map_err(|e| e.to_string())?;
+        let conn = state.db.lock().map_err(|e| ipc_error("forge_open_epic_request:lock", e))?;
+        let inputs = epic_request_inputs(&conn, &epic_id).map_err(|e| ipc_error("forge_open_epic_request:inputs", e))?;
         let draft_inputs = if inputs.has_integration_branch() {
-            Some(request_body::epic_draft_inputs(&conn, &epic_id).map_err(|e| e.to_string())?)
+            Some(request_body::epic_draft_inputs(&conn, &epic_id).map_err(|e| ipc_error("forge_open_epic_request:draftInputs", e))?)
         } else {
             None
         };
@@ -377,13 +378,13 @@ pub fn forge_open_epic_request(
     };
 
     // A blocked epic is refused by name before anything is pushed.
-    if let Some(blocker) = epic_request_blocker(&inputs).map_err(|e| e.to_string())? {
+    if let Some(blocker) = epic_request_blocker(&inputs).map_err(|e| ipc_error("forge_open_epic_request:blocker", e))? {
         return Err(format!("blocked:{}", blocker_name(blocker)));
     }
     let Some(draft_inputs) = draft_inputs else {
         return Err(format!("blocked:{}", blocker_name(EpicRequestBlocker::NoIntegrationBranch)));
     };
-    let draft = request_body::finish_epic_request_draft(draft_inputs).map_err(|e| e.to_string())?;
+    let draft = request_body::finish_epic_request_draft(draft_inputs).map_err(|e| ipc_error("forge_open_epic_request:draft", e))?;
 
     let outcome = flywheel_core::forge::open_epic_request_at(inputs.forge(), inputs.repo_path(), &draft)
         .map_err(|e| forge_error_code(e, "opening a request", &epic_id))?;
@@ -413,19 +414,19 @@ pub fn forge_request_for_epic(
     state: State<AppState>,
     epic_id: String,
 ) -> Result<Option<ForgeRequestDto>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.lock().map_err(|e| ipc_error("forge_request_for_epic:lock", e))?;
     let (project_id, branch): (String, Option<String>) = conn
         .query_row(
             "SELECT project_id, integration_branch FROM epics WHERE id = ?1",
             params![epic_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ipc_error("forge_request_for_epic:project", e))?;
     let Some(branch) = branch else {
         return Ok(None);
     };
     let (forge, repo_path) =
-        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| e.to_string())?;
+        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| ipc_error("forge_request_for_epic:forge", e))?;
     drop(conn);
 
     flywheel_core::forge::request_for_branch_at(forge, &repo_path, &branch)
@@ -463,10 +464,10 @@ pub fn board_forge_flags(
     state: State<AppState>,
     project_id: String,
 ) -> Result<Vec<ForgeFlagDto>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.lock().map_err(|e| ipc_error("board_forge_flags:lock", e))?;
     let flags =
         flywheel_core::query::forge::board_forge_flags(&conn, &project_id, BOARD_FORGE_FLAGS_CAP)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| ipc_error("board_forge_flags:read", e))?;
     Ok(flags.into_iter().map(ForgeFlagDto::from).collect())
 }
 
@@ -489,16 +490,16 @@ pub fn settings_set_project_forge(
         }
     }
 
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut conn = state.db.lock().map_err(|e| ipc_error("settings_set_project_forge:lock", e))?;
     let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error("settings_set_project_forge:actor", e))?;
     flywheel_core::domain::settings::set_project_forge(
         &mut conn,
         &actor_id,
         &project_id,
         forge.as_deref(),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| ipc_error("settings_set_project_forge:write", e))?;
     Ok(())
 }
 
@@ -521,13 +522,13 @@ pub struct ProjectForgeOverrideDto {
 pub fn project_forge_overrides(
     state: State<AppState>,
 ) -> Result<Vec<ProjectForgeOverrideDto>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.lock().map_err(|e| ipc_error("project_forge_overrides:lock", e))?;
     let projects =
-        flywheel_core::domain::project::list_projects(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::project::list_projects(&conn).map_err(|e| ipc_error("project_forge_overrides:list", e))?;
     let mut overrides = Vec::with_capacity(projects.len());
     for project in projects {
         let forge = flywheel_core::domain::settings::project_forge(&conn, &project.id)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| ipc_error("project_forge_overrides:read", e))?;
         overrides.push(ProjectForgeOverrideDto {
             project_id: project.id,
             project_name: project.name,
