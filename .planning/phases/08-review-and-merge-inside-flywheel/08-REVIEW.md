@@ -2,86 +2,75 @@
 phase: 08-review-and-merge-inside-flywheel
 reviewed: 2026-10-06T00:00:00Z
 depth: standard
-files_reviewed: 53
+files_reviewed: 20
 files_reviewed_list:
-  - packages/core/src/context_packet.rs
-  - packages/core/src/db/migrations/0018_criterion_anchors.sql
-  - packages/core/src/db/mod.rs
-  - packages/core/src/domain/acceptance_criterion.rs
-  - packages/core/src/epic_context_packet.rs
+  - packages/core/src/review.rs
+  - packages/core/src/merge.rs
   - packages/core/src/forge/mod.rs
   - packages/core/src/forge/request_body.rs
-  - packages/core/src/git.rs
-  - packages/core/src/lib.rs
-  - packages/core/src/merge.rs
-  - packages/core/src/query/authoring.rs
-  - packages/core/src/review.rs
-  - packages/core/tests/common/mod.rs
-  - packages/core/tests/context_packet.rs
   - packages/core/tests/criterion_anchors.rs
-  - packages/core/tests/epic_request_draft.rs
-  - packages/core/tests/forge_live_chain.rs
-  - packages/core/tests/review_diff.rs
-  - packages/core/tests/review_merge.rs
-  - packages/desktop/package.json
-  - packages/desktop/src-tauri/capabilities/default.json
-  - packages/desktop/src-tauri/src/commands/forge.rs
   - packages/desktop/src-tauri/src/commands/mod.rs
   - packages/desktop/src-tauri/src/commands/review.rs
+  - packages/desktop/src-tauri/src/commands/forge.rs
   - packages/desktop/src-tauri/src/main.rs
+  - packages/desktop/src-tauri/capabilities/default.json
   - packages/desktop/src/adapters/tauri.ts
-  - packages/desktop/src/App.tsx
-  - packages/desktop/src/board/__tests__/review-doors.test.tsx
-  - packages/desktop/src/board/BoardView.tsx
-  - packages/desktop/src/board/CommandPalette.tsx
-  - packages/desktop/src/item-detail/AcceptanceCriteriaList.tsx
-  - packages/desktop/src/item-detail/ItemDetailPanel.tsx
-  - packages/desktop/src/legend/__tests__/legend.test.tsx
-  - packages/desktop/src/legend/marks.ts
+  - packages/desktop/src/state/keyboard.ts
+  - packages/desktop/src/review/CriteriaRail.tsx
+  - packages/desktop/src/review/ReviewSurface.tsx
+  - packages/desktop/src/review/useReviewQuery.ts
   - packages/desktop/src/review/__tests__/criteria-rail.test.tsx
   - packages/desktop/src/review/__tests__/epic-request.test.tsx
-  - packages/desktop/src/review/__tests__/highlight.test.ts
+  - packages/desktop/src/review/__tests__/keyboard-activation.test.tsx
   - packages/desktop/src/review/__tests__/merge-sheet.test.tsx
   - packages/desktop/src/review/__tests__/review-surface.test.tsx
-  - packages/desktop/src/review/CriteriaRail.tsx
-  - packages/desktop/src/review/EpicRequestSheet.tsx
-  - packages/desktop/src/review/FileDiff.tsx
-  - packages/desktop/src/review/highlight.ts
-  - packages/desktop/src/review/MergeConfirmSheet.tsx
-  - packages/desktop/src/review/review.css
-  - packages/desktop/src/review/ReviewSurface.tsx
-  - packages/desktop/src/review/selection.ts
-  - packages/desktop/src/review/useReviewQuery.ts
-  - packages/desktop/src/session/__tests__/session-surface.test.tsx
-  - packages/desktop/src/session/SessionSurface.tsx
-  - packages/desktop/src/state/__tests__/keyboard-agent.test.ts
-  - packages/desktop/src/state/keyboard.ts
-  - packages/desktop/src/state/uiStore.ts
 findings:
-  critical: 3
+  critical: 0
   warning: 11
   info: 5
-  total: 19
+  total: 16
 status: issues_found
 ---
 
-# Phase 8: Code Review Report
+# Phase 8: Code Review Report (incremental re-review after gap closure 08-09..08-12)
 
 **Reviewed:** 2026-10-06
 **Depth:** standard
-**Files Reviewed:** 53
+**Files Reviewed:** 20
 **Status:** issues_found
 
 ## Summary
 
-The phase adds a review surface (diff, criteria rail with anchors), an in-app merge into an epic integration branch, and an epic request flow. The structure is sound: `spawn_git` is still the only `Command::new("git")` in the source trees (grep confirmed), the anchor write path is one transaction with one event and anchors are cleared on uncheck, migration 0018 is correct (FK cascade works because `foreign_keys=ON` is set per connection), every Phase 8 command is both in `generate_handler!` and named in the capabilities roster, and `safeHref` correctly allow-lists `http(s)`.
+This is the second review round. It re-checks the three blockers of the first round (CR-01, CR-02, CR-03)
+against the code as it stands after commits ab960cc..8c6bb2f, and reviews the new 08-09 roll-up on its own
+merits. The prior report is overwritten; prior findings that live in these 20 files were re-read against current
+code, and those that live in files outside this round's scope are listed at the end as not re-examined.
 
-The weaknesses cluster in four places:
+### Verdicts on the three prior blockers
 
-1. The "git never runs under the SQLite lock" invariant that `merge.rs` and `forge/mod.rs` state in their headers is not true for `plan_merge`, the epic request preview/open path, and every review read that touches an integrated task.
-2. Raw git stderr and absolute repo paths still cross the IPC boundary through bare `e.to_string()` in the new commands.
-3. The window-level key bindings added for the review surface swallow `Enter` on every button and cascade `Escape` into the surface.
-4. Anchor evidence is weaker than its design claims: the path is unvalidated and the sha is the head at click time, not at read time.
+| Finding | Verdict | Basis |
+|---------|---------|-------|
+| CR-01 (git under the DB mutex) | **CLOSED as scoped.** Two adjacent spawn-under-lock sites outside the plan's eight bodies remain (WR-01, WR-02). | All eight rewired command bodies verified below. |
+| CR-02 (stderr / abs paths over IPC) | **CLOSED.** | No `e.to_string()` survives in `commands/review.rs` or `commands/forge.rs`. The nine renderer-parsed prefixes are byte-identical. |
+| CR-03 (Enter/Space swallowed on buttons) | **CLOSED.** One narrow residual (IN-01). | The guard is a target test, not a blanket suppression, and does not open a double-handling path. |
+
+**CR-01 detail.** I walked each command body for the lock's lexical scope:
+
+- `review_files`, `review_file_patch`, `review_criteria_state`: the guard is a block-local `conn`, the block yields an owned `ReviewTargetInputs`, and `finish_review_target` (the `merge_commit_is_reachable` ancestry check), `files_for_target`, `patch_for_target` and `with_staleness` all run after the block.
+- `criterion_check_with_anchor`: the lock covers the ownership `SELECT` plus `review_target_inputs`. The `finish_review_target` call and the `rev-parse` run unlocked. The write re-locks in a separate block.
+- `review_merge_precheck`, `review_merge_task`: `plan_merge_inputs` runs under the lock; `finish_plan` (rev-list and diff) runs after the block closes. `merge_tree_check` and `run_merge` run unlocked. `review_merge_task` takes the epic guard only for the git work, re-locks only to record the event, and drops the lock before `emit`.
+- `forge_epic_request_draft`, `forge_open_epic_request`: `epic_request_inputs` and `epic_draft_inputs` are board-only reads under the lock. `epic_request_blocker`, `finish_epic_request_draft` and the push/forge dispatch all run after release.
+- `forge_and_repo_path`'s detection spawn is genuinely deferred into `EpicRequestInputs::forge()`. `epic_request_inputs` calls only the board-only `stored_forge_and_repo_path`, and `forge()` is first reached inside `epic_request_blocker`, after release. The `OnceCell` memoises, so the blocker check and the dispatch agree.
+
+The git halves take opaque inputs with private fields and no connection, so a command handler cannot substitute a ref between halves.
+
+**CR-02 detail.** Every `map_err` in `commands/review.rs` and `commands/forge.rs` goes through `ipc_error` with a literal context string, or is a fixed sentence. The remaining non-`ipc_error` returns echo only renderer-supplied values (`parse_scope`, the criterion ownership refusal, the forge vocabulary check) or fixed strings. `PoisonError` is handled through `impl Display`. The repo path, branch names and stderr in `PushRejected.detail`, `PushedButNotOpened.detail`, `forge_error_code` and the merge failure log go to `eprintln!` only. Across 3df9940..HEAD the only prefix-bearing line that changed is a new defensive `blocked:` return (IN-03); `refused:`, `mergeInFlight:`, `mergeFailed`, `eventNotRecorded`, `cliNotInstalled:`, `cliNotAuthenticated:`, `cliFailed:` and `malformedJson:` are unchanged. The renderer parsers (`MergeConfirmSheet.parseFailure`, `EpicRequestSheet.parseFailure`, `ForgeSection`) split on the first `:` and fall through to a generic sentence for the new `failed` code, so there is no regression.
+
+**CR-03 detail.** `isActivationTarget` is applied only when `event.key` is `Enter` or `" "`, and only after `resolveBinding` has matched, before `preventDefault`. With focus on `body` or a non-interactive element the binding still resolves and is cancelled (test: "Enter on the body still resolves expand-file"). With focus on a button, anchor or `role=button`, the hook returns without handling or cancelling, so the element's own activation is the only action. Double-handling cannot occur. `Enter` and `Space` are bound through `useRegionBindings` only in `review-surface`; the other callers (triage, proposal tray, permission card, session) bind letters, so the guard changes nothing for them. `CriteriaRail` still stops `j k Space Enter` at React's root, so the rail's own list never reaches the window listener. WR-06 (Escape cascade) is also fixed: the sheets' `DismissableLayer` handler calls `preventDefault()` before `handleCancel()`, the criteria inputs call `preventDefault()` and `stopPropagation()`, and the surface listener now checks `defaultPrevented`.
+
+**New code (08-09).** `epic_task_rollup` is a single read-only statement with correct scoping: current-revision criteria only, evidence counted by `EXISTS`, `with + without = checked` by construction, deterministic order. Its tests cover counts, superseded revisions, empty or unknown epic, tie order and cross-epic isolation. The command takes only an epic id. The rail section renders nothing for an empty roll-up and is not fetched in task scope. No defect found; two small observations are in IN-02.
+
+No new blocker was found. The gaps below are residual spawn-under-lock sites the plan did not reach, missing regression guards for the invariants this round introduced, and still-open warnings from round one that I re-verified in the current code.
 
 ## Structural Findings (fallow)
 
@@ -89,185 +78,126 @@ None provided for this review.
 
 ## Narrative Findings (AI reviewer)
 
-## Critical Issues
-
-### CR-01: Git subprocesses run while the single SQLite mutex is held (plan/run/record split is not honoured)
-
-**File:** `packages/core/src/merge.rs:160-165`, `packages/desktop/src-tauri/src/commands/review.rs:337-340,382-392`, `packages/core/src/forge/mod.rs:266-303`, `packages/core/src/forge/request_body.rs:207-211`, `packages/desktop/src-tauri/src/commands/forge.rs:314-325,354-368`, `packages/core/src/review.rs:107`
-**Issue:** The `merge.rs` header claims `plan_merge` "resolves everything under a connection" and that no caller can hold the lock across a subprocess. But `plan_merge` itself spawns `git rev-list --count` and `review_files` (two `git diff` runs). Both `review_merge_precheck` and `review_merge_task` call it while holding `state.db.lock()`. The same pattern appears elsewhere:
-
-- `epic_request_preconditions` runs `ahead_behind` (`rev-parse` plus `rev-list`) and `git remote get-url origin` on a connection, and `forge_epic_request_draft` and `forge_open_epic_request` call it under the lock.
-- `assemble_epic_request_draft` calls `merge::is_integrated` once per task in the epic, each of which is up to three git spawns, again under the lock.
-- `resolve_review_target` calls `is_integrated` (rev-parse and merge-base) for any task with an integrated event. It is called under the lock by `review_files`, `review_file_patch`, `review_criteria_state` and `criterion_check_with_anchor`.
-- `assemble_context_packet` now does per-anchor git work under the lock (see WR-10).
-
-Every command in the app shares one `AppState.db` mutex, so a slow repository, a lock-contention retry in `git_at`, or a 120 s `GIT_TIMEOUT_SECS` timeout per spawn freezes the whole board. An epic with N tasks multiplies it by about 3N spawns. `forge/mod.rs` explicitly documents why this is a bug ("a database lock must never be alive while a forge CLI runs") and tolerates only a single bounded `git remote get-url`. This phase adds many more.
-**Fix:** Split the DB half from the git half, as `review::criteria_with_anchors` / `with_staleness` already do.
-
-```rust
-// merge.rs: DB half only (no git), returns plain values
-pub fn plan_merge_inputs(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlanInputs> { /* SELECTs only */ }
-// git half: takes no connection
-pub fn finish_plan(inputs: MergePlanInputs) -> anyhow::Result<MergePlan> { /* rev-list, review_files */ }
-```
-
-In the commands: `let inputs = { let conn = lock; plan_merge_inputs(&conn, &id)? };` then call `finish_plan(inputs)` with the lock dropped. Do the same for `epic_request_preconditions` and `assemble_epic_request_draft`: read the epic, project, task rows and integrated-event commit ids under the lock, then run the ancestry checks lock-free. Correct the `merge.rs` header once it is true.
-
-### CR-02: Raw git stderr and absolute repo paths are returned to the renderer through `e.to_string()`
-
-**File:** `packages/desktop/src-tauri/src/commands/review.rs:127,150,276,346-352,388`, `packages/desktop/src-tauri/src/commands/forge.rs:315-316,322,357-358,361-362`
-**Issue:** `git_at` builds its error as `"git -C {repo_path:?} {args:?} failed (exit ..): {stderr}"`, and `merge_tree_check` bails with `{stderr}` too. `anyhow::Error::to_string()` returns that outermost message verbatim. These command paths return it as the `Err(String)` sent to the webview:
-
-- `review_files`, via `files_for_target(...).map_err(|e| e.to_string())`.
-- `review_file_patch`, same shape.
-- `criterion_check_with_anchor`, via the `rev-parse` `git_at` call.
-- `review_merge_precheck`, via `merge_tree_check` (stderr) and the non-refusal `plan_merge` error (rev-list).
-- `review_merge_task`, via the non-refusal `plan_merge` error at line 388. This is the same command whose doc comment says the raw cause is "logged, never returned".
-- `forge_epic_request_draft` and `forge_open_epic_request`, via `epic_request_preconditions` (`ahead_behind`) and `assemble_epic_request_draft`.
-
-The project rule, stated in `forge.rs` (T-07-08-01, T-08-08-06) and `review.rs`, is that CLI and git stderr is logged and only a category crosses IPC. This leaks stderr, the user's home path and the repo layout to the renderer, which is the component that renders agent-produced and repo-supplied content.
-**Fix:** Add one helper next to `parse_scope` and use it everywhere a core error is mapped.
-
-```rust
-fn ipc_error(context: &str, e: anyhow::Error) -> String {
-    eprintln!("{context}: {e:#}");
-    format!("failed:{context}")
-}
-// usage: .map_err(|e| ipc_error("review_files", e))?
-```
-
-The renderer already treats any unparsed message as the generic failure, so no TypeScript change is needed.
-
-### CR-03: The review surface's window-level `Enter`/`Space` bindings swallow button activation (including the merge confirm)
-
-**File:** `packages/desktop/src/state/keyboard.ts:279-280,745-759`, `packages/desktop/src/review/ReviewSurface.tsx:237-250`
-**Issue:** `useRegionBindings` registers a `window` keydown listener that calls `event.preventDefault()` before invoking the handler whenever `resolveBinding` matches. `isTypingTarget` excludes only `INPUT`, `TEXTAREA` and contenteditable, so a focused `<button>` does not count as typing. The review region binds `Enter` and `" "` to `expand-file`. The consequences:
-
-- A keyboard user who tabs to a file row, "Merge", "← Board", the scope toggle, "Open request" or a criterion's "Check against selection" and presses Enter gets `preventDefault` on keydown. That cancels the button's click activation. The handler then toggles `focusedPath`, which is the previously clicked file, not the focused one.
-- `preventDefault` runs before the handler's own `!sheetOpen` guard. With the Merge or Epic Request sheet open, Enter on the primary "Merge" or "Open request" button is eaten, so a keyboard user cannot confirm from the sheet. The sheets are portaled but the listener is on `window`.
-
-This is a keyboard-first product, and the destructive confirmation has no working Enter path.
-**Fix:** Do not claim keys that belong to a focused interactive element.
-
-```ts
-// keyboard.ts, resolveBinding / useRegionBindings
-function isActivationTarget(t: EventTarget | null) {
-  return t instanceof HTMLElement && (t.closest("button, a, [role='button']") !== null);
-}
-// in useRegionBindings: skip Enter/Space bindings when the target is an interactive element
-if ((event.key === "Enter" || event.key === " ") && isActivationTarget(event.target)) return;
-```
-
-Also move `event.preventDefault()` after the handler decides it acted (or have `sheetOpen` short-circuit before the binding is registered).
-
 ## Warnings
 
-### WR-01: "Already up to date" is matched on localized git output, and so is push error classification
+### WR-01: `forge_request_for_epic` still spawns git under the DB lock, and two header claims are now false
 
-**File:** `packages/core/src/git.rs:525,585-593`
-**Issue:** `merge_no_ff` decides "a commit was created" with `!stdout.contains("Already up to date")`. Git localizes that string (for example "Déjà à jour"). With a non-English `LANG`, a no-op merge is reported as `Merged`. `run_merge` then returns `Merged { merge_commit: HEAD }` and `record_merge_event` writes a `task.integrated` event whose commit is not a merge of this task. `push_branch` has the same weakness: it classifies rejection and authentication failures by English substrings of stderr, so under another locale every failure falls through to the generic bail.
-**Fix:** Do not parse prose. Compare `rev-parse HEAD` before and after the merge to decide whether a commit was created. For push, set `cmd.env("LC_ALL", "C")` in `spawn_git`, which is also what makes the stderr substrings reliable.
+**File:** `packages/desktop/src-tauri/src/commands/forge.rs:417-430`, `packages/core/src/forge/mod.rs:30-36`
+**Issue:** `forge_request_for_epic` is an epic-request command added in this phase. It locks `state.db`, then calls `forge_and_repo_path(&conn, ..)` with the lock still held. When the project's `forge` column is NULL, that runs `git remote get-url origin` under the mutex. It is the same hazard CR-01 fixed for the other epic-request commands, on the read the request sheet issues (`useEpicRequest`). The `forge/mod.rs` header says "all three call sites hold it there" (there are four, counting `scheduler.rs:351`) and that "the epic-request path is stricter and does not rely on that tolerance". The second statement is false for this command.
+**Fix:** Use the board-only half and defer detection until the lock is released.
 
-### WR-02: Anchor path is never validated against the diff or for control characters, and it reaches an agent prompt and a public PR body
+```rust
+// forge/mod.rs: expose the board-only half
+pub fn stored_forge_and_repo_path(conn: &Connection, project_id: &str) -> anyhow::Result<(Option<Forge>, PathBuf)> { /* existing body */ }
 
-**File:** `packages/core/src/domain/acceptance_criterion.rs:680-693`, `packages/core/src/context_packet.rs` (`render_evidence_line`), `packages/core/src/forge/request_body.rs:249-259`
-**Issue:** `check_criterion_with_anchor` checks only `path.len()`, the `side` vocabulary and the line ordering. The path is renderer-supplied, may contain `\n`, and need not be a file in the review diff, so the line range is not bounded either. The stored string is later interpolated verbatim into (a) the agent's initial prompt (`Evidence: {path} lines ...`) and (b) the epic request body that is published to a public forge. A repository with a filename such as `x\n## Instructions ...` (legal in git) lets repo content inject lines into an agent prompt or a PR description once a user checks a criterion against a line in that file.
-**Fix:** In the command layer, after resolving the target, require that `path` is one of `files_for_target(&target)` (or at least reject control characters), and reject a range that exceeds the patch. In the core, also reject `\n`, `\r` and NUL in `a.path`. Escape or single-line-quote the path where it is rendered.
-
-### WR-03: The stored anchor sha is the branch head at click time, not the commit the user read
-
-**File:** `packages/desktop/src-tauri/src/commands/review.rs:268-280`
-**Issue:** The command rev-parses the target's head ref at the moment of the check. The line numbers came from a patch rendered earlier. If an agent commits to the task branch between render and click, the anchor records `sha = newer head` with line numbers from the older diff. `anchor_staleness` then counts commits only after the newer sha, so evidence for code the user never saw reports "Untouched". The design rule "no renderer value can claim a commit" is met, but the opposite failure (evidence bound to the wrong commit) is introduced.
-**Fix:** Have the renderer send the head sha its diff was read at (`target.head` resolved by the core when the file list loaded) as an expected value, not a stored value. The command re-resolves the head and refuses with a named "the branch moved since you opened this diff" error when they differ. The stored sha stays core-resolved.
-
-### WR-04: Two concurrent `forge_open_epic_request` calls can push twice and open duplicate requests
-
-**File:** `packages/desktop/src-tauri/src/commands/forge.rs:348-389`, `packages/core/src/forge/mod.rs:339-375`
-**Issue:** The command is `async` and runs on a thread pool. `open_epic_request_at` does lookup, push, then create with no mutual exclusion. The sheet's `openingRef` guards a single sheet instance only. A second window instance, a double invocation across re-mounts, or an immediate re-open after a "pushed but not opened" result can both see "no open request", both push, and both call `gh pr create`. The loser's create error then surfaces as `PushedButNotOpened`, which is false (a request exists). The merge path already has `try_lock_epic` for exactly this.
-**Fix:** Take `merge::try_lock_epic(&epic_id)` (or a sibling `EPICS_REQUESTING` set) around `open_epic_request_at`, returning a named `requestInFlight:<key>` error.
-
-### WR-05: Every push failure is reported as "rejected"
-
-**File:** `packages/core/src/forge/mod.rs:357-359`, `packages/desktop/src/review/EpicRequestSheet.tsx:166-171`
-**Issue:** `open_epic_request_at` maps any `Err` from `push_branch` (timeout kill, git not found, no network, auth refused, no `origin`) to `PushRejected`. The sheet then says "The push was rejected, so no request was created". `push_branch` already distinguishes rejected from authentication, and a timeout can leave the branch partly or fully pushed. For a timeout that may have landed, "Nothing reached the remote" is not provable, and the user is told nothing was pushed.
-**Fix:** Add `PushFailed` (not rejected) to `EpicRequestOutcome` and the DTO with its own sentence, and treat a timeout as "unknown, check the remote".
-
-### WR-06: Escape in the surface cascades: it closes the surface while a sheet or a criterion input is handling it
-
-**File:** `packages/desktop/src/review/ReviewSurface.tsx:252-259`, `packages/desktop/src/item-detail/AcceptanceCriteriaList.tsx:410-438`
-**Issue:** The surface listens for `Escape` on `window` and calls `onBack()` unless the render-time `sheetOpen` is true. The criteria list's edit and add inputs handle `Escape` with `preventDefault()` and cancel, but do not stop propagation, and `CriteriaRail` stops only `j k Space Enter`. So Escape while editing or adding a criterion cancels the edit and also pops the whole review surface (losing selection and opened files). For the sheets, Radix's capture-phase handler closes the sheet, React re-renders synchronously for a discrete event, the effect re-subscribes with `sheetOpen=false`, and the new window listener can still receive the same Escape. No test covers Escape with a sheet open.
-**Fix:** Honour the "already handled" signal that both inputs and Radix already set.
-
-```ts
-function onKeyDown(event: KeyboardEvent) {
-  if (event.defaultPrevented || event.key !== "Escape" || sheetOpen) return;
-  onBack();
-}
+// forge.rs, forge_request_for_epic
+let (stored, repo_path) = { /* lock, SELECTs, stored_forge_and_repo_path */ };
+let forge = stored.unwrap_or_else(|| flywheel_core::forge::detect_forge_from_origin(&repo_path)); // lock released
 ```
 
-Add a test that presses Escape with the merge sheet open and in a criterion edit input.
+Then correct the header sentence. The same applies to `forge_request_for_task` and `forge_open_request`, which are Phase 7 and were accepted as tolerated.
 
-### WR-07: The conflict brief is bounded by file count, not by the 4000-character instruction cap, and embeds raw paths
+### WR-02: The pub "composer" functions keep the footgun, and `assemble_context_packet` still does git under the lock and hard-fails on it
+
+**File:** `packages/core/src/context_packet.rs:263-265`, `packages/desktop/src-tauri/src/commands/agent_run.rs:449-463,542-545`, `packages/desktop/src-tauri/src/commands/review.rs:21-25`
+**Issue:** The `review.rs` command header now says holding the lock across the git half "is not expressible". That is not true. `plan_merge`, `resolve_review_target`, `review_file_list`, `review_file_patch`, `review_criteria_state`, `epic_request_preconditions`, `assemble_epic_request_draft` and `is_integrated` remain `pub` and take `&Connection` while spawning git. They are required by the integration tests, so they cannot be removed. `context_packet.rs:263` calls `resolve_review_target(conn, ..)` whenever any criterion is anchored, and `agent_run_preview` and the start path call the packet assembler with the connection from `state.db.lock()` (`agent_run.rs:463`). This is the prior WR-10 / CR-01 bullet: it runs `rev-parse` and `merge-base` under the lock, and a target-resolution error still aborts packet assembly via `?` instead of degrading staleness to `None`.
+**Fix:** In `context_packet.rs`, use `resolve_review_target(..).ok()` and leave `anchor_staleness` as `None` on error, so a decoration cannot abort agent launch. Mark the composers `#[doc(hidden)]` (or rename them `*_blocking`) and soften the "not expressible" wording to "not possible from the halves". Longer term, give `assemble_context_packet` the same two-half shape.
+
+### WR-03: The two invariants this round introduced have no regression guard
+
+**File:** `packages/desktop/src-tauri/src/commands/mod.rs:26-38`, `packages/desktop/src-tauri/src/commands/review.rs`, `packages/desktop/src-tauri/src/commands/forge.rs`
+**Issue:** There is no test for `ipc_error` (its `failed:<context>` format, or that it never includes the cause), none that scans the two command modules for a reintroduced `.map_err(|e| e.to_string())`, and none that pins the nine renderer-parsed prefixes. Nothing exercises `plan_merge_inputs`, `finish_plan`, `review_target_inputs`, `finish_review_target`, `epic_request_inputs`, `epic_request_blocker`, `epic_draft_inputs` or `finish_epic_request_draft` directly. They are covered only indirectly through the composers. The repo already uses source-scan gates (`supervisor_cwd.rs`, `forge_degrade.rs`). The only edit under `packages/core/tests` in this round is the roll-up tests. A single later `e.to_string()` or a lock held one line too long would reopen CR-01 or CR-02 silently.
+**Fix:** Add a unit test in `commands/mod.rs` that `ipc_error("a:b", anyhow!("git -C \"/home/u/repo\" failed: boom"))` equals exactly `"failed:a:b"`. Add a source-scan test asserting `commands/review.rs` and `commands/forge.rs` contain no `e.to_string()` or `format!("{e` in a `map_err`, and that each of the nine prefix literals appears. Add a core test that `finish_plan` and `finish_review_target` work with the connection dropped, which the signatures already prove at compile time.
+
+### WR-04: Checking a criterion against a selection still fails silently
+
+**File:** `packages/desktop/src/review/CriteriaRail.tsx:27-39`
+**Issue:** Re-verified present. `useMutation` has no `onError` and the returned callback is `mutation.mutate`, so a rejection (a criterion that does not belong to the item, no branch to anchor against, a git failure, a partial anchor) is discarded. The footer then reads "Checking a criterion records this as its evidence", as if it had worked. With CR-02 closed, the only rejection text is now a generic category, so surfacing it leaks nothing. Also, `useCallback(..., [mutation])` depends on the `mutation` object, which changes identity every render, so the callback is not stable.
+**Fix:** Render a generic line (for example "Could not record that check.") from `mutation.isError` in the footer, clear it on the next attempt with `mutation.reset()`, and depend on `mutation.mutate` (which is stable) in the `useCallback`.
+
+### WR-05: Two concurrent `forge_open_epic_request` calls can push twice and open duplicate requests
+
+**File:** `packages/desktop/src-tauri/src/commands/forge.rs:358-407`, `packages/core/src/forge/mod.rs:405-441`
+**Issue:** Re-verified present. The command is `async` and runs on a pool. `open_epic_request_at` does lookup, push, then create with no mutual exclusion. The sheet's `openingRef` guards one sheet instance only. A second invocation can see "no open request", push, and call create. The loser's create failure is then reported as `PushedButNotOpened`, which is false. The merge path already has `try_lock_epic` for the same shape.
+**Fix:** Hold a per-epic "requesting" guard (a sibling of `EPICS_MERGING`) around `open_epic_request_at` and return a named `requestInFlight:<key>` error. Add it to `EpicRequestSheet.failureText`.
+
+### WR-06: Every push failure is reported as "rejected"
+
+**File:** `packages/core/src/forge/mod.rs:423-425`, `packages/desktop/src/review/EpicRequestSheet.tsx:166-171`
+**Issue:** Re-verified present. Any `Err` from `push_branch` (timeout, git missing, no network, auth refused, no `origin`) becomes `PushRejected`, and the sheet says "The push was rejected, so no request was created". After a timeout the branch may already be on the remote, so "nothing reached the remote" is not provable.
+**Fix:** Add a `PushFailed` outcome (and DTO kind) with its own sentence, and word the timeout case as "unknown, check the remote".
+
+### WR-07: The stored anchor sha is the branch head at click time, not the commit the user read
+
+**File:** `packages/desktop/src-tauri/src/commands/review.rs:321-333`
+**Issue:** Re-verified present. The sha is resolved from the head ref when the check is made. If the task branch advanced since the diff was rendered, the anchor records the newer sha with line numbers from the older diff, and `anchor_staleness` then reports "Untouched" for code the user never saw.
+**Fix:** Have the renderer send the head the diff was read at (from `ReviewTargetDto.head`) as an expected value. Re-resolve in the command and refuse with a named "branch moved since you opened this diff" error on mismatch. The stored sha stays core-resolved.
+
+### WR-08: "What you saw is what you sent" is not guaranteed for the epic request
+
+**File:** `packages/desktop/src-tauri/src/commands/forge.rs:369-390`, `packages/core/src/forge/request_body.rs:166-265`
+**Issue:** Re-verified present. `forge_open_epic_request` re-reads the board and re-runs the per-task ancestry checks at confirm time. Any change since the preview (an agent checking a criterion, a merge landing) publishes a body the user did not see, to a possibly public forge. The two-half split makes the window slightly longer between board read and git half, though still one consistent board snapshot.
+**Fix:** Return a SHA-256 of title plus body with the preview, send it back on confirm, and refuse with `draftChanged` on mismatch so the sheet re-fetches.
+
+### WR-09: A merge that lands in git but is not recorded can never become "integrated"
+
+**File:** `packages/desktop/src-tauri/src/commands/review.rs:470-482`, `packages/core/src/merge.rs:203-223`
+**Issue:** Re-verified present. If `record_merge_event` fails after `run_merge` succeeded, the command returns `eventNotRecorded`. A retry then hits `finish_plan`'s zero-commits `NothingToMerge` refusal, and `AlreadyIntegrated` records nothing by design. The task never shows as integrated, and the epic request body lists it as "not integrated".
+**Fix:** Retry the event write once before returning `eventNotRecorded`. Better, let a retry detect "source is already an ancestor of target and no integrated event exists" and record the existing merge commit.
+
+### WR-10: The conflict brief is bounded by file count, not by the instruction cap
 
 **File:** `packages/desktop/src/review/MergeConfirmSheet.tsx:70-79`
-**Issue:** The comment says the brief is bounded because the instruction field is capped server-side (4000 characters, per `agent_run_start`). The bound is 50 paths regardless of length. About 390 characters of fixed text plus 50 paths averaging more than about 70 characters already exceeds 4000, and `agent_run_start` then rejects it. The user sees only "Could not start a session on this task." Paths are also interpolated as-is, so a path with a newline injects text into the agent prompt (same class as WR-02), and the session starts with `acceptEdits`.
-**Fix:** Build the list until a character budget (for example 3000) is reached and append "...and N more". Replace control characters in paths. Consider surfacing the server's too-long refusal distinctly.
+**Issue:** Re-verified present. The brief lists up to 50 paths regardless of length, plus about 390 characters of fixed text. Fifty paths averaging more than about 70 characters exceed the 4000-character `agent_run_start` cap, and the user then sees only "Could not start a session on this task." Paths are interpolated raw, so a newline in a path injects lines into the agent prompt, and the session starts with `acceptEdits`.
+**Fix:** Build the list until a character budget (for example 3000) is reached, append "...and N more", and replace control characters in paths.
 
-### WR-08: Checking a criterion against a selection fails silently
+### WR-11: Anchor paths are written verbatim into a public PR body
 
-**File:** `packages/desktop/src/review/CriteriaRail.tsx:27-38`
-**Issue:** The `useMutation` has no `onError` and the callback uses `mutation.mutate`, so rejections (a criterion that "does not belong", "no branch to anchor against yet", a git failure resolving the sha, a partial anchor) are swallowed. The user pressed "Check against selection" and sees nothing; the criterion is simply not checked. Evidence capture is the point of the rail, and the footer text ("Checking a criterion records this as its evidence") reads as if it worked.
-**Fix:** Surface `mutation.error` (generic sentence, details logged) in the rail's footer next to the selection line, and clear it on the next attempt.
-
-### WR-09: "What you saw is what you sent" is not guaranteed for the epic request
-
-**File:** `packages/core/src/forge/request_body.rs:141-216`, `packages/desktop/src-tauri/src/commands/forge.rs:354-368`, `packages/desktop/src/review/EpicRequestSheet.tsx:1-17`
-**Issue:** The sheet header asserts the published text equals the previewed text "by construction". But the draft is re-assembled on confirm from live state: criteria `checked`, anchors, task status, and the git-derived `integrated` marker per task. Any change between opening the sheet and clicking Open (an agent checking a criterion, a merge landing, a status change) publishes a body the user did not preview, to a possibly public forge. The task-level equivalent from Phase 7 shares this, but this phase restates the guarantee and adds git-derived content.
-**Fix:** Return a short content hash (SHA-256 of title + body) with the preview and send it back with the confirm. The command re-assembles and refuses with `draftChanged` on mismatch, so the sheet re-fetches and re-shows. Keeps the "epic id plus a hash, no text" input surface.
-
-### WR-10: Assembling the agent context packet now hard-fails on git and depends on live git state
-
-**File:** `packages/core/src/context_packet.rs` (`assemble_context_packet`, the `resolve_review_target(...).context(...)?` block)
-**Issue:** When any checked criterion has an anchor, `assemble_context_packet` calls `resolve_review_target(...)?` and propagates its error. A decoration (staleness) can therefore abort agent launch and preview, for example when `is_integrated` cannot spawn git or an epic row is missing. Per-anchor staleness is already `.ok()`-swallowed one level down, so this is inconsistent. The packet also now varies with git state, so the launch preview and the prompt actually sent can differ after a commit. And all of it runs under the DB lock (CR-01).
-**Fix:** Treat a target-resolution error as "staleness unmeasurable": `let target = resolve_review_target(...).ok();` and leave `anchor_staleness: None` (it already renders "could not be determined"). Move the git half out of the connection scope as in CR-01.
-
-### WR-11: A merge that lands in git but is not recorded can never become "integrated" and has no repair path
-
-**File:** `packages/desktop/src-tauri/src/commands/review.rs:410-423`, `packages/core/src/merge.rs:324-370`
-**Issue:** `is_integrated` requires a `task.integrated` event. If `record_merge_event` fails after `run_merge` succeeded, the command returns `eventNotRecorded`. A retry then hits `plan_merge`'s zero-commits-ahead refusal (`nothingToMerge`), and `AlreadyIntegrated` records nothing by design. The task never shows as integrated, the post-merge review shows an empty three-dot diff ("No changes"), and the epic request body lists it as "not integrated". The sheet tells the user this, but offers no way out.
-**Fix:** Let `plan_merge`/`run_merge` detect "source is already an ancestor of target and no integrated event exists" and record a `task.integrated` event with the existing merge commit (found via `git log --merges --first-parent --ancestry-path`), or at minimum expose a "record this merge" action. At the least, retry the event write once before returning `eventNotRecorded`.
+**File:** `packages/core/src/forge/request_body.rs:314-325`
+**Issue:** Sink half of the prior WR-02, re-verified. `render_epic_body` does `out.push_str(path)` for each anchored criterion with no escaping, and the body is published to a forge. A path containing `\n` (legal in git) injects arbitrary lines or Markdown into the request. The source half (`check_criterion_with_anchor` validating only length, side and range) is in `acceptance_criterion.rs`, outside this round's file list, and was not re-read.
+**Fix:** In `render_epic_body`, replace control characters in `path` before writing it, or render it in a code span after stripping `\n`, `\r` and backticks. Validate at the write path as well (reject control characters in `a.path`).
 
 ## Info
 
-### IN-01: The `criterion.toggled` event misreports and loses anchor information
+### IN-01: The CR-03 guard enumerates `button, a, [role='button']` only
 
-**File:** `packages/core/src/domain/acceptance_criterion.rs:752-803`
-**Issue:** `check_criterion_with_anchor(.., None, ..)` on an already-checked, anchored criterion leaves the anchor in place, but the event payload carries `"anchor": null` ("stored anchor, or null" per the doc comment). An uncheck deletes the anchor but the event records nothing about what evidence was cleared, so the event log cannot reconstruct the removed evidence.
-**Fix:** On a no-anchor check, read the existing anchor and put it in the payload. On uncheck, add `"anchor_cleared": <previous anchor or null>`. Also have the command-level ownership check require `superseded_at IS NULL`, so evidence is not written onto a history row.
+**File:** `packages/desktop/src/state/keyboard.ts:305-313,761-765`
+**Issue:** Other elements that own Enter or Space activation (`[role=checkbox]`, `[role=switch]`, `[role=tab]`, `[role=menuitem]`, `[role=option]`, `[role=link]`, `summary`, `select`) fall through, so an Enter-bound region would still claim their keydown. Nothing in the review surface renders those today, so there is no live defect. Separately, `preventDefault()` still runs before the handler's own `!sheetOpen` check, so with a sheet open and focus on a non-interactive node, Enter and Space are cancelled for no effect (for example Space scrolling a focused sheet body).
+**Fix:** Widen the selector to the ARIA activation roles, and, if cheap, let a handler return `false` to signal "not handled" so `preventDefault` runs only when it acted.
 
-### IN-02: The URL allow-list exists only in the new sheet
+### IN-02: The roll-up carries data the rail never uses, and cannot tell an error from an empty epic
 
-**File:** `packages/desktop/src/review/EpicRequestSheet.tsx:28-37`, `packages/desktop/src/item-detail/ForgeSection.tsx:91,108`
-**Issue:** `safeHref` correctly restricts forge-supplied URLs to `http:`/`https:`, but it is local to this file. `ForgeSection.tsx` renders the same `ForgeRequestDto.url` and `ciUrl` straight into `href`. The same untrusted field is sanitized in one component and not in its sibling.
-**Fix:** Move `safeHref` into a shared module (for example `adapters/` or `lib/`) and use it in `ForgeSection` for both `url` and `ciUrl`.
+**File:** `packages/desktop/src/review/CriteriaRail.tsx:52,72-91`, `packages/core/src/review.rs:395-407`
+**Issue:** `status` and `with_evidence` cross the whole stack (core, DTO, adapter, test fixtures) but only `checked`, `total` and `withoutEvidence` are rendered. `useEpicTaskRollup(...).data ?? []` makes a failed read look the same as an epic with no tasks, so the section silently disappears. Neither is wrong under the "absence is the design" rule the file states, but both should be a decision rather than an accident.
+**Fix:** Either render the status word beside the key or drop `status` and `with_evidence` from the DTO. Optionally show a one-line "Could not read task criteria" when `isError`.
 
-### IN-03: Ref names derived from the database are not protected against option-like values
+### IN-03: Unreachable `blocked:` return in `forge_open_epic_request`
 
-**File:** `packages/core/src/git.rs:248,334,461-465,500`, `packages/core/src/merge.rs:159`
-**Issue:** `range = format!("{base}...{head}")`, `merge-tree ... target source` and `merge ... source` pass DB-derived branch names where git can read a leading `-` as an option. All values currently originate from Flywheel's own branch naming or project registration, not the renderer, so this is hardening rather than an exploit. Paths are correctly placed after `--` with `--literal-pathspecs`.
-**Fix:** Validate stored branch names with `git check-ref-format --branch` when they are written, or assert `!name.starts_with('-')` in `spawn_git`'s callers for these functions.
+**File:** `packages/desktop/src-tauri/src/commands/forge.rs:384-386`
+**Issue:** `draft_inputs` is `None` only when `inputs.has_integration_branch()` is false, and in that case `epic_request_blocker` has already returned `NoIntegrationBranch` and the command returned at line 381-383. The new `let Some(draft_inputs) = ... else { return Err(..) }` is dead code kept as a defensive fallback.
+**Fix:** Keep it with a one-line comment saying it is defensive, or restructure so the draft inputs are an `Option` consumed once.
 
-### IN-04: The capabilities roster is prose, stale, and not an enforcement point
+### IN-04: The capabilities roster is stale and not an enforcement point
 
 **File:** `packages/desktop/src-tauri/capabilities/default.json:4`
-**Issue:** All nine Phase 8 commands are registered and named in the roster, and `shell:allow-execute` stays scoped to the sidecar. But the roster omits registered commands (`criterion_revise`, `criterion_revisions`, `epic_list_all`, `issue_set_parent`, `task_set_epic`, `menu_set_action_enabled`, `agent_run_discard`, `task_session_summaries` and every `authoring_*` command), so it misleads anyone auditing from it. The file's own text says `generate_handler!` is the real boundary.
-**Fix:** Generate the roster from `main.rs` in a test, or drop the roster and keep a one-line pointer to `generate_handler!`.
+**Issue:** Re-verified. `review_epic_task_rollup` was added correctly, but the roster still omits registered commands (`criterion_revise`, `criterion_revisions`, `epic_list_all`, `issue_set_parent`, `task_set_epic`, `menu_set_action_enabled`, `agent_run_discard`, `task_session_summaries`, every `authoring_*`). The file's own text says `generate_handler!` is the real boundary.
+**Fix:** Generate the roster from `main.rs` in a test, or replace the prose list with a pointer to `generate_handler!`.
 
 ### IN-05: Test fixtures leak process-global environment when a test panics
 
-**File:** `packages/core/tests/review_merge.rs:17-26`, `packages/core/tests/forge_live_chain.rs:315-337`
-**Issue:** `with_scratch_worktree_root` and `with_fake_forge_clis` restore `FLYWHEEL_WORKTREE_ROOT` and `PATH` after `f(...)` returns. If an assertion inside `f` panics, the restore is skipped. The mutex poison is recovered, but a dangling `FLYWHEEL_WORKTREE_ROOT` (a deleted tempdir) or an augmented `PATH` persists into later tests in the binary, which can turn one real failure into confusing secondary ones.
+**File:** `packages/core/tests/criterion_anchors.rs:17-26`, `packages/core/tests/review_merge.rs:17-26`
+**Issue:** Re-verified in both files. `with_scratch_worktree_root` restores `FLYWHEEL_WORKTREE_ROOT` after `f()` returns, so an assertion panic skips the restore. The mutex poison is recovered, but a dangling variable pointing at a deleted tempdir persists into later tests in the same binary. The new roll-up test `rollup_ignores_superseded_criterion_revisions` runs inside this helper.
 **Fix:** Restore in a `Drop` guard so it runs during unwinding.
+
+## Not re-examined this round
+
+These first-round findings are in files outside this round's 20-file scope. They were not re-read, so their status is unchanged and unverified:
+
+- Locale-dependent "Already up to date" and push-error classification (`packages/core/src/git.rs`, prior WR-01).
+- Anchor path and range validation in `check_criterion_with_anchor` (`acceptance_criterion.rs`, source half of prior WR-02; sink half is WR-11 above).
+- `criterion.toggled` payload misreporting the anchor on no-anchor check and uncheck (`acceptance_criterion.rs`, prior IN-01).
+- `safeHref` present only in `EpicRequestSheet`, absent from `ForgeSection` (prior IN-02).
+- Option-like ref names not rejected in `git.rs` and `merge.rs` argv (prior IN-03; the `merge.rs` call sites are unchanged in this round's diff).
 
 ---
 
