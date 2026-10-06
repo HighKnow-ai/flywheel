@@ -126,7 +126,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Review & Merge
 
-- [ ] **REVW-01**: User can review a task's full diff inside the application with syntax highlighting
+- [x] **REVW-01**: User can review a task's full diff inside the application with syntax highlighting
 - [ ] **REVW-02**: User can review the accumulated diff of an epic's integration branch
 - [x] **REVW-03**: User can check off a task's acceptance criteria against the diff during review
 - [ ] **REVW-04**: User can merge a task branch into its epic integration branch from within the application, with conflicts surfaced clearly
@@ -303,7 +303,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FLEET-03 | Phase 10 | Pending |
 | FLEET-04 | Phase 10 | Pending |
 | FLEET-05 | Phase 10 | Pending |
-| REVW-01 | Phase 8 | Pending |
+| REVW-01 | Phase 8 | Complete |
 | REVW-02 | Phase 8 | Pending |
 | REVW-03 | Phase 8 | Complete |
 | REVW-04 | Phase 8 | Pending |
