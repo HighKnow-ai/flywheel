@@ -185,7 +185,7 @@ pub fn review_file_patch(
 
 /// Whether the code a criterion was checked against has moved since (D-141). A reading, never a
 /// verdict on the user's mark: nothing here unchecks anything.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum AnchorStaleness {
     /// No commit touched the anchored path since the recorded sha.
     Untouched,

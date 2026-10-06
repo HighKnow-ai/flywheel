@@ -110,7 +110,7 @@ pub fn list_epics_page(
     rows.context("failed to list the agent's epic page")
 }
 
-const AGENT_TASK_CRITERIA_SQL: &str = "SELECT statement, verification_hint FROM acceptance_criteria \
+const AGENT_TASK_CRITERIA_SQL: &str = "SELECT statement, verification_hint, checked FROM acceptance_criteria \
     WHERE parent_type = 'task' AND parent_id = ?1 AND superseded_at IS NULL \
     ORDER BY rank ASC, id ASC";
 
@@ -143,6 +143,9 @@ pub fn list_tasks_for_epic(
                 Ok(crate::context_packet::CriterionEntry {
                     statement: row.get(0)?,
                     verification_hint: row.get(1)?,
+                    checked: row.get::<_, i64>(2)? != 0,
+                    anchor: None,
+                    anchor_staleness: None,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()

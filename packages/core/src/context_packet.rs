@@ -15,6 +15,11 @@
 //! below re-derives the identical hypothetical value read-only: the epic's already-cut
 //! `integration_branch` if one exists, or exactly the name `ensure_epic_integration_branch` would
 //! cut later (`branch::epic_integration_branch_name`) — never cutting it here.
+//!
+//! One bounded exception to "no git call" (D-142, plan 08-02): when a checked criterion carries an
+//! anchor, its staleness is derived by the review module's read-only `git` queries (rev-parse,
+//! cat-file, diff, rev-list) so the agent reads the same verdict the review rail shows. Nothing is
+//! written, and no branch is ever cut (the target is resolved by `review::resolve_review_target`).
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -22,9 +27,11 @@ use serde::Serialize;
 
 use crate::branch::{epic_integration_branch_name, task_branch_name};
 use crate::compaction::{CompactedSummary, CompactionBoundary};
+use crate::domain::acceptance_criterion::{row_to_anchor, CriterionAnchor};
 use crate::domain::session_summary::DecisionEntry;
 use crate::domain::worktree::worktree_root;
 use crate::drift::DriftWarning;
+use crate::review::{AnchorStaleness, ReviewScope};
 
 /// The fully-qualified `report_summary` MCP tool name, exactly as `packages/sidecar/src/
 /// mcp-permission-server.ts`'s `SUMMARY_TOOL_NAME` composes it (`mcp__${MCP_SERVER_NAME}__
@@ -33,11 +40,19 @@ use crate::drift::DriftWarning;
 /// exactly one occurrence of the literal string.
 pub const REPORT_SUMMARY_TOOL_NAME: &str = "mcp__flywheel-permissions__report_summary";
 
-/// One acceptance criterion entry, in rank order — statement plus its verification hint (D-05).
+/// One acceptance criterion entry, in rank order — statement plus its verification hint (D-05),
+/// whether it is checked, and (D-142) the evidence behind a check: the anchor, and how that anchor
+/// has aged. `anchor_staleness` is derived from git when the packet is assembled and stored
+/// nowhere; `None` beside a `Some` anchor means it could not be measured (no branch to measure
+/// against), which renders as "unknown", never as "untouched". Roster reads (the epic packet, the
+/// agent's epic read) do not load anchors, so their entries carry `anchor: None`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CriterionEntry {
     pub statement: String,
     pub verification_hint: Option<String>,
+    pub checked: bool,
+    pub anchor: Option<CriterionAnchor>,
+    pub anchor_staleness: Option<AnchorStaleness>,
 }
 
 /// The epic section, present only when the task has an epic (D-13) — an absent epic is `None` on
@@ -159,9 +174,11 @@ const EPIC_ROW_SQL: &str =
 // filter in the whole file. Putting a superseded statement in front of a model would hand it the
 // drift directly; every agent-facing read must see current wording only, no matter how a criterion
 // was most recently edited.
-const CRITERIA_SQL: &str = "SELECT statement, verification_hint FROM acceptance_criteria \
-    WHERE parent_type = 'task' AND parent_id = ?1 AND superseded_at IS NULL \
-    ORDER BY rank ASC, id ASC";
+const CRITERIA_SQL: &str = "SELECT ac.statement, ac.verification_hint, ac.checked, \
+    a.criterion_id, a.path, a.side, a.line_start, a.line_end, a.sha, a.created_at \
+    FROM acceptance_criteria ac LEFT JOIN criterion_anchors a ON a.criterion_id = ac.id \
+    WHERE ac.parent_type = 'task' AND ac.parent_id = ?1 AND ac.superseded_at IS NULL \
+    ORDER BY ac.rank ASC, ac.id ASC";
 
 const SUMMARIES_SQL: &str = "SELECT agent_run_id, changed_files, changed_prose, remains, \
     next_session_must_know, decisions, acknowledged_decisions, diff_ref, auto_generated, \
@@ -222,16 +239,35 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
     });
 
     let mut criteria_stmt = conn.prepare(CRITERIA_SQL)?;
-    let criteria = criteria_stmt
+    let mut criteria = criteria_stmt
         .query_map(params![task_id], |row| {
+            let anchor = match row.get::<_, Option<String>>(3)? {
+                Some(_) => Some(row_to_anchor(row, 3)?),
+                None => None,
+            };
             Ok(CriterionEntry {
                 statement: row.get(0)?,
                 verification_hint: row.get(1)?,
+                checked: row.get::<_, i64>(2)? != 0,
+                anchor,
+                anchor_staleness: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the task's acceptance criteria")?;
     drop(criteria_stmt);
+
+    // D-142: ask the SAME function the review rail asks, so the agent and the human read one
+    // verdict. Read-only git, and only when some criterion actually carries an anchor.
+    if criteria.iter().any(|c| c.anchor.is_some()) {
+        let target = crate::review::resolve_review_target(conn, ReviewScope::Task, task_id)
+            .context("failed to resolve the task's review target")?;
+        for entry in criteria.iter_mut() {
+            if let Some(anchor) = &entry.anchor {
+                entry.anchor_staleness = crate::review::staleness_for_target(&target, anchor);
+            }
+        }
+    }
 
     let mut summaries_stmt = conn.prepare(SUMMARIES_SQL)?;
     let summaries = summaries_stmt
@@ -427,6 +463,29 @@ fn render_folded_summary_block(out: &mut String, ordinal: usize, summary: &Compa
     out.push('\n');
 }
 
+/// The one indented line under a checked criterion naming what satisfied it and whether that code
+/// has moved since. The `None` and `Unknown` clauses never say "unchanged": an unmeasured anchor
+/// must not read as a verified one.
+fn render_evidence_line(anchor: &CriterionAnchor, staleness: Option<AnchorStaleness>) -> String {
+    let sha: String = anchor.sha.chars().take(7).collect();
+    let clause = match staleness {
+        Some(AnchorStaleness::Untouched) => "that file is unchanged since".to_string(),
+        Some(AnchorStaleness::Changed { commits }) => format!(
+            "that file has changed since ({commits} commit{} touched it)",
+            if commits == 1 { "" } else { "s" }
+        ),
+        Some(AnchorStaleness::MovedOrChanged) => "that file has moved or changed since".to_string(),
+        Some(AnchorStaleness::Unknown) => {
+            "that commit no longer exists, so whether the file changed is unknown".to_string()
+        }
+        None => "whether that file changed since could not be determined".to_string(),
+    };
+    format!(
+        "  Evidence: {} lines {}-{} ({} side) at {sha}; {clause}\n",
+        anchor.path, anchor.line_start, anchor.line_end, anchor.side
+    )
+}
+
 /// Render the initial prompt text (D-28) — stable headings, stable ordering, and an omitted
 /// heading rather than an empty section: no epic means no epic heading, no criteria means no
 /// criteria heading, an empty (or whitespace-only) instruction means no instruction heading.
@@ -486,6 +545,11 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
                 out.push(')');
             }
             out.push('\n');
+            // D-142: only a CHECKED criterion with an anchor carries an evidence line — an
+            // unchecked one, or a check made with no anchor, renders nothing extra.
+            if let (true, Some(anchor)) = (criterion.checked, &criterion.anchor) {
+                out.push_str(&render_evidence_line(anchor, criterion.anchor_staleness));
+            }
         }
     }
 

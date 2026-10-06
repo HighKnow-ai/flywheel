@@ -162,7 +162,7 @@ const EPIC_TASKS_SQL: &str =
 // D-79/P3, the load-bearing filter in this whole file: restricted to current revisions
 // (`superseded_at IS NULL`). An agent-facing read must never see a superseded statement, no
 // matter how a criterion was most recently edited.
-const TASK_CRITERIA_SQL: &str = "SELECT statement, verification_hint FROM acceptance_criteria \
+const TASK_CRITERIA_SQL: &str = "SELECT statement, verification_hint, checked FROM acceptance_criteria \
     WHERE parent_type = 'task' AND parent_id = ?1 AND superseded_at IS NULL \
     ORDER BY rank ASC, id ASC";
 
@@ -310,7 +310,13 @@ pub fn assemble_epic_context_packet(
         let mut criteria_stmt = conn.prepare(TASK_CRITERIA_SQL)?;
         let criteria = criteria_stmt
             .query_map(params![task_id], |row| {
-                Ok(CriterionEntry { statement: row.get(0)?, verification_hint: row.get(1)? })
+                Ok(CriterionEntry {
+                    statement: row.get(0)?,
+                    verification_hint: row.get(1)?,
+                    checked: row.get::<_, i64>(2)? != 0,
+                    anchor: None,
+                    anchor_staleness: None,
+                })
             })?
             .collect::<Result<Vec<_>, _>>()
             .context("failed to read a roster task's acceptance criteria")?;

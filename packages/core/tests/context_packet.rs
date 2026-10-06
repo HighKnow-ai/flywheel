@@ -571,3 +571,132 @@ fn two_assemble_context_packet_calls_against_an_unchanged_database_with_nine_sum
         assert_eq!(packet_a.compaction, packet_b.compaction);
     });
 }
+
+// ---- criterion evidence (D-142, plan 08-02) ---------------------------------------------------
+
+use core::domain::acceptance_criterion::{check_criterion_with_anchor, revise_criterion, toggle_criterion, AnchorInput};
+
+fn git(repo: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git").arg("-C").arg(repo).args(args).output().expect("spawn git");
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+struct Evidence {
+    conn: rusqlite::Connection,
+    actor: String,
+    repo: tempfile::TempDir,
+    task_id: String,
+    criterion_id: String,
+    sha: String,
+}
+
+/// A task whose worktree row names the real `flywheel/task-rich` branch, with one criterion.
+fn evidence_fixture() -> Evidence {
+    let (mut conn, actor, project, repo) = common::seeded_git_project();
+    let b = common::review_branches(repo.path());
+    let sha = git(repo.path(), &["rev-parse", b.task_rich]);
+    let task = create_task(&mut conn, &project.id, &actor, "Evidence", None).expect("task");
+    let c = create_criterion(&mut conn, &project.id, &actor, "task", &task.id, "Keeps working", None)
+        .expect("criterion");
+    conn.execute(
+        "INSERT INTO worktrees (id, task_id, project_id, path, branch, base_branch, status, created_by, created_at)
+         VALUES (?1, ?2, ?3, '/nonexistent/worktree', ?4, 'main', 'active', ?5, '2026-01-01T00:00:00.000Z')",
+        rusqlite::params![core::ids::new_id(), task.id, project.id, b.task_rich, actor],
+    )
+    .expect("worktree row");
+    Evidence { conn, actor, repo, task_id: task.id, criterion_id: c.id, sha }
+}
+
+fn anchor_keep() -> Option<AnchorInput> {
+    Some(AnchorInput { path: "keep.txt".into(), side: "new".into(), line_start: 3, line_end: 5 })
+}
+
+fn prompt_of(e: &Evidence) -> String {
+    render_prompt(&assemble_context_packet(&e.conn, &e.task_id).expect("assembly"), "")
+}
+
+#[test]
+fn an_unchecked_criterion_renders_no_evidence_line() {
+    let e = evidence_fixture();
+    let prompt = prompt_of(&e);
+    assert!(prompt.contains("- Keeps working"));
+    assert!(!prompt.contains("Evidence:"), "{prompt}");
+}
+
+#[test]
+fn a_criterion_checked_with_no_anchor_renders_no_evidence_line() {
+    let mut e = evidence_fixture();
+    check_criterion_with_anchor(&mut e.conn, &e.actor, &e.criterion_id, None, &e.sha).unwrap();
+    assert!(!prompt_of(&e).contains("Evidence:"));
+}
+
+#[test]
+fn a_checked_anchored_criterion_names_path_range_and_short_sha() {
+    let mut e = evidence_fixture();
+    check_criterion_with_anchor(&mut e.conn, &e.actor, &e.criterion_id, anchor_keep(), &e.sha).unwrap();
+    let prompt = prompt_of(&e);
+    let line = format!("  Evidence: keep.txt lines 3-5 (new side) at {}; that file is unchanged since", &e.sha[..7]);
+    assert!(prompt.contains(&line), "{prompt}");
+}
+
+#[test]
+fn a_stale_anchor_says_the_file_has_changed_since() {
+    let mut e = evidence_fixture();
+    check_criterion_with_anchor(&mut e.conn, &e.actor, &e.criterion_id, anchor_keep(), &e.sha).unwrap();
+    git(e.repo.path(), &["checkout", "-q", "flywheel/task-rich"]);
+    std::fs::write(e.repo.path().join("keep.txt"), "rewritten after the check\n").unwrap();
+    git(e.repo.path(), &["commit", "-q", "-am", "later work"]);
+    let prompt = prompt_of(&e);
+    assert!(prompt.contains("that file has changed since (1 commit touched it)"), "{prompt}");
+    assert!(prompt_of(&e).contains("Keeps working"), "the check stands; only the evidence ages");
+}
+
+#[test]
+fn an_anchor_sha_that_no_longer_resolves_never_reads_as_untouched() {
+    let mut e = evidence_fixture();
+    let ghost = "0123456789abcdef0123456789abcdef01234567";
+    check_criterion_with_anchor(&mut e.conn, &e.actor, &e.criterion_id, anchor_keep(), ghost).unwrap();
+    let prompt = prompt_of(&e);
+    assert!(prompt.contains("no longer exists, so whether the file changed is unknown"), "{prompt}");
+    assert!(!prompt.contains("unchanged since"));
+}
+
+#[test]
+fn two_consecutive_assemblies_with_an_anchor_are_byte_identical() {
+    let mut e = evidence_fixture();
+    check_criterion_with_anchor(&mut e.conn, &e.actor, &e.criterion_id, anchor_keep(), &e.sha).unwrap();
+    let a = assemble_context_packet(&e.conn, &e.task_id).unwrap();
+    let b = assemble_context_packet(&e.conn, &e.task_id).unwrap();
+    assert_eq!(a, b);
+    assert_eq!(render_prompt(&a, ""), render_prompt(&b, ""));
+}
+
+#[test]
+fn unchecking_removes_the_evidence_line_again() {
+    let mut e = evidence_fixture();
+    check_criterion_with_anchor(&mut e.conn, &e.actor, &e.criterion_id, anchor_keep(), &e.sha).unwrap();
+    toggle_criterion(&mut e.conn, &e.actor, &e.criterion_id).unwrap();
+    assert!(!prompt_of(&e).contains("Evidence:"));
+}
+
+#[test]
+fn a_superseded_revision_contributes_nothing_and_the_successor_keeps_the_evidence() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor, project, repo) = common::seeded_git_project();
+        let sha = git(repo.path(), &["rev-parse", "HEAD"]);
+        let task = create_task(&mut conn, &project.id, &actor, "Superseded", None).unwrap();
+        let c = create_criterion(&mut conn, &project.id, &actor, "task", &task.id, "Original wording", None).unwrap();
+        let anchor = Some(AnchorInput { path: "README.md".into(), side: "new".into(), line_start: 1, line_end: 1 });
+        check_criterion_with_anchor(&mut conn, &actor, &c.id, anchor, &sha).unwrap();
+        start_agent_run(&mut conn, &task.id, "acceptEdits", &actor).unwrap();
+        revise_criterion(&mut conn, &actor, &c.id, "Revised wording", None).unwrap();
+
+        let packet = assemble_context_packet(&conn, &task.id).unwrap();
+        assert_eq!(packet.criteria.len(), 1);
+        assert_eq!(packet.criteria[0].statement, "Revised wording");
+        let prompt = render_prompt(&packet, "");
+        assert!(!prompt.contains("Original wording"));
+        assert!(prompt.contains("Evidence: README.md lines 1-1"), "{prompt}");
+    });
+}
