@@ -848,7 +848,7 @@ broken CLI.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
 
-**Plans**: 6/8 plans executed in 5 waves
+**Plans**: 7/8 plans executed in 5 waves
 **UI hint**: yes
 
 Plans:
@@ -870,7 +870,7 @@ Plans:
 
 **Wave 4** *(blocked on 08-03 and 08-06 — shares the review surface and the adapter seam)*
 
-- [ ] 08-07-PLAN.md — The merge action on the surface: the confirm sheet, the per-epic guard, three proven outcomes, and a conflict with two ways out (REVW-04)
+- [x] 08-07-PLAN.md — The merge action on the surface: the confirm sheet, the per-epic guard, three proven outcomes, and a conflict with two ways out (REVW-04)
 
 **Wave 5** *(blocked on 08-05 and 08-07 — the phase's ship gate)*
 
@@ -1070,7 +1070,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
-| 8. Review And Merge Inside Flywheel | 6/8 | In Progress|  |
+| 8. Review And Merge Inside Flywheel | 7/8 | In Progress|  |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |

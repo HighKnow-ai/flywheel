@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: Review And Merge Inside Flywheel
 status: executing
-stopped_at: Completed 08-06-PLAN.md
-last_updated: "2026-10-06T04:53:14.578Z"
+stopped_at: Completed 08-07-PLAN.md
+last_updated: "2026-10-06T05:40:12.878Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 08 execution started
-state_head: f91cce109f703d0e1f21794371232b038fed942b
+state_head: b0f152f9a46a90d65d5f4706eb0cfca50d76f200
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 178
-  completed_plans: 176
+  completed_plans: 177
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08 (Review And Merge Inside Flywheel) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Status: Ready to execute
 Last activity: 2026-10-06 — Phase 08 execution started
 
@@ -237,6 +237,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08 P04 | 15 min | 2 tasks | 7 files |
 | Phase 08 P05 | 40 min | 2 tasks | 4 files |
 | Phase 08 P06 | 8 min | 2 tasks | 12 files |
+| Phase 08 P07 | 25 min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -545,6 +546,8 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-04: review keystroke is v; open-review stays out of the review-surface action set; expand-file refused outside review layer
 - [Phase 08]: 08-05: only an Open/ChangesRequested request counts as already open; push failure and push-without-request are distinct outcomes; raw CLI stderr logged not returned
 - [Phase 08]: 08-06: check-with-selection is key c in the review-surface layer only; a mixed delete+insert selection anchors to the new side; the rail stops j/k/Space/Enter from reaching the surface's window listener
+- [Phase 08]: 08-07: MergeRefusal typed error carries refusal categories across the command boundary; the per-epic guard wraps run_merge only, never co-held with the DB lock — Avoids parsing prose and rules out lock deadlock; the guard is released before the event is recorded and the emit
+- [Phase 08]: 08-07: an integrated task is reviewed as its merge commit against its first parent (ReviewTarget post_merge) — The three-dot range is empty after a merge, indistinguishable from nothing to review (Pitfall 5)
 
 ### Pending Todos
 
@@ -604,6 +607,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-06T04:53:14.424Z
-Stopped at: Completed 08-06-PLAN.md
+Last session: 2026-10-06T05:40:12.714Z
+Stopped at: Completed 08-07-PLAN.md
 Resume file: None
