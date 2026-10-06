@@ -126,6 +126,7 @@ export function CommandPalette() {
   const selectedItemId = useUiStore((state) => state.selectedItemId);
   const setSelectedItemId = useUiStore((state) => state.setSelectedItemId);
   const setDetailItemId = useUiStore((state) => state.setDetailItemId);
+  const setReviewSurface = useUiStore((state) => state.setReviewSurface);
   const setDeleteTarget = useUiStore((state) => state.setDeleteTarget);
   // D-90 (plan 05-03): the `return-stage` palette entry's own gate — disabled unless the CURRENT
   // session (if any) is an authoring run with somewhere earlier to return to.
@@ -298,6 +299,26 @@ export function CommandPalette() {
             close();
           },
         },
+        // D-133: a review path beside the default detail path — a sha or branch is resolved for
+        // reasons other than reviewing it, so detail stays first. Issues carry no criteria.
+        ...(resolution.itemKind === "task" || resolution.itemKind === "epic"
+          ? [
+              {
+                id: `git-identifier-review:${resolution.itemId}`,
+                label: `Review: ${resolution.itemTitle}`,
+                group: "Git",
+                run: () => {
+                  setCurrentProjectId(resolution.projectId);
+                  setReviewSurface({
+                    scope: resolution.itemKind === "epic" ? "epic" : "task",
+                    itemId: resolution.itemId,
+                    label: `${resolution.itemKey} ${resolution.itemTitle}`,
+                  });
+                  close();
+                },
+              },
+            ]
+          : []),
       ];
     }
     if (outcome.outcome === "ambiguousPrefix") {
@@ -324,7 +345,7 @@ export function CommandPalette() {
     }
     return [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identityQuery.data, setCurrentProjectId, setSelectedItemId, setDetailItemId]);
+  }, [identityQuery.data, setCurrentProjectId, setSelectedItemId, setDetailItemId, setReviewSurface]);
 
   const commands = useMemo<Command[]>(() => {
     const out: Command[] = [];

@@ -879,6 +879,7 @@ export function SessionSurface({
   const discardingRef = useRef(false);
   const [stopWarning, setStopWarning] = useState<string | null>(null);
   const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
+  const setReviewSurface = useUiStore((state) => state.setReviewSurface);
   // D-66's hand-off, generalised for a conversation (plan 05-09): an authoring run's Discard
   // primes a fresh authoring launch for the SAME epic rather than the task launch sheet — see
   // `handleDiscard` below.
@@ -1239,6 +1240,27 @@ export function SessionSurface({
             }}
           >
             {discarding ? "Discarding…" : "Discard"}
+          </button>
+        )}
+
+        {!showStop && taskId && (
+          // D-133: a finished run is the moment review is most likely wanted. The review branch
+          // sits ahead of the session branch in the surface chain, so setting the store field is
+          // the whole navigation — no second path.
+          <button
+            type="button"
+            onClick={() => setReviewSurface({ scope: "task", itemId: taskId, label: "This task" })}
+            className="type-label"
+            style={{
+              background: "var(--accent-nontext)",
+              border: "none",
+              borderRadius: "var(--radius-chrome)",
+              color: "var(--text-primary-rack)",
+              padding: "var(--space-xs) var(--space-md)",
+              cursor: "pointer",
+            }}
+          >
+            Review changes
           </button>
         )}
       </header>

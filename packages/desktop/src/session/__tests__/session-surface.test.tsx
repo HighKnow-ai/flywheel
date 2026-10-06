@@ -15,7 +15,7 @@
  *   only geometry that exists in jsdom, and which is precisely the geometry the defect got wrong.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionSurface } from "../SessionSurface";
 import { sessionFeedQueryKey } from "../../board/useBoardQuery";
@@ -1041,5 +1041,32 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
 
     // @ts-expect-error test-only cleanup of the global override installed above
     delete window.matchMedia;
+  });
+});
+
+describe("review offer (08-04, D-133)", () => {
+  function renderOffer(status: "running" | "blocked" | "completed" | "failed" | "interrupted", taskId: string | null) {
+    mockCombinedReads({});
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" taskId={taskId} onBack={() => {}} initialStatus={status} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it.each(["completed", "failed", "interrupted"] as const)("offers review of the task once the run is %s", (status) => {
+    renderOffer(status, "task-1");
+    fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
+    expect(useUiStore.getState().reviewSurface).toEqual({ scope: "task", itemId: "task-1", label: "This task" });
+  });
+
+  it.each(["running", "blocked"] as const)("offers nothing while the run is %s", (status) => {
+    renderOffer(status, "task-1");
+    expect(screen.queryByRole("button", { name: "Review changes" })).not.toBeInTheDocument();
+  });
+
+  it("offers nothing for a terminal run with no task id", () => {
+    renderOffer("completed", null);
+    expect(screen.queryByRole("button", { name: "Review changes" })).not.toBeInTheDocument();
   });
 });
