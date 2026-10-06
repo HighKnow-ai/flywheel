@@ -108,7 +108,7 @@ Every `useRegionBindings` caller:
 
 ## Deviations from Plan
 
-**1. [Documentation] Review-suite baseline figure.** The plan's Task 2 gate quotes "at least 157" passing tests for `src/review`. The directory reports 107 passing (104 before this plan plus 8 minus overlap is not the issue: that run is the whole `src/review` directory). The figure 157 appears to be miscounted in the plan; the plan-level gate that matters (full suite at least 754) holds at 765 and no test fails. No code change.
+**1. [Documentation] Review-suite baseline figure.** The plan's Task 2 gate quotes "at least 157" passing tests for `src/review`. The directory actually reports 107 passing (8 of them new), so the plan's figure was miscounted. The plan-level gate that matters (full suite at least 754) holds at 765 and no test fails. No code change.
 
 **2. [Process] Task 1 commit amended once.** The first Task 1 commit carried an unused `fireEvent` import (tsc TS6133); amended before Task 2 so each commit typechecks. Final hash `e2c69fd`.
 
