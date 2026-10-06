@@ -20,6 +20,7 @@ import { MARKS_BY_ID } from "../legend/marks";
 import type { ReviewFileDto, ReviewScopeDto } from "../adapters/tauri";
 import { nextSelectionId, useRegionBindings } from "../state/keyboard";
 import { CriteriaRail, useCheckAgainstSelection } from "./CriteriaRail";
+import { EpicRequestBar, EpicRequestSheet } from "./EpicRequestSheet";
 import { FileDiff, type AnchorBadge } from "./FileDiff";
 import { MergeConfirmSheet } from "./MergeConfirmSheet";
 import { toggleChange, type ReviewSelection, type SelectedChange } from "./selection";
@@ -170,6 +171,10 @@ export function ReviewSurface({ scope, itemId, label, onBack, onOpenSession }: R
   const mergePrecheck = useMergePrecheck(itemId, isTask);
   const [mergeOpen, setMergeOpen] = useState(false);
   const integrated = isTask && target?.postMerge === true;
+  // The epic's request action is epic scope only; it is the mirror of Merge, which is task scope only.
+  const [requestOpen, setRequestOpen] = useState(false);
+  // A sheet owns the keyboard while it is open.
+  const sheetOpen = mergeOpen || requestOpen;
 
   const [selection, setSelection] = useState<ReviewSelection | null>(null);
   const [focusedCriterionId, setFocusedCriterionId] = useState<string | null>(null);
@@ -196,27 +201,27 @@ export function ReviewSurface({ scope, itemId, label, onBack, onOpenSession }: R
 
   useRegionBindings("review-surface", "review-surface", {
     "check-with-selection": () => {
-      if (!mergeOpen && focusedCriterionId) checkAgainstSelection(focusedCriterionId);
+      if (!sheetOpen && focusedCriterionId) checkAgainstSelection(focusedCriterionId);
     },
     "move-down": () => {
-      if (!mergeOpen) setFocusedPath((current) => nextSelectionId(rows, current, 1));
+      if (!sheetOpen) setFocusedPath((current) => nextSelectionId(rows, current, 1));
     },
     "move-up": () => {
-      if (!mergeOpen) setFocusedPath((current) => nextSelectionId(rows, current, -1));
+      if (!sheetOpen) setFocusedPath((current) => nextSelectionId(rows, current, -1));
     },
     "expand-file": () => {
-      if (!mergeOpen && focusedPath) toggle(focusedPath);
+      if (!sheetOpen && focusedPath) toggle(focusedPath);
     },
   });
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      // With the merge sheet open, Escape closes the sheet (which handles it itself), not the surface.
-      if (event.key === "Escape" && !mergeOpen) onBack();
+      // With a sheet open, Escape closes the sheet (which handles it itself), not the surface.
+      if (event.key === "Escape" && !sheetOpen) onBack();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onBack, mergeOpen]);
+  }, [onBack, sheetOpen]);
 
   let listBody;
   if (filesQuery.isError) {
@@ -350,6 +355,8 @@ export function ReviewSurface({ scope, itemId, label, onBack, onOpenSession }: R
       {isTask && !integrated && mergePrecheck.data?.state === "refused" && (
         <MergeRefusalNote category={mergePrecheck.data.category} />
       )}
+      {scope === "epic" && <EpicRequestBar epicId={itemId} onOpen={() => setRequestOpen(true)} />}
+      {requestOpen && <EpicRequestSheet epicId={itemId} onClose={() => setRequestOpen(false)} />}
       {mergeOpen && (
         <MergeConfirmSheet
           taskId={itemId}

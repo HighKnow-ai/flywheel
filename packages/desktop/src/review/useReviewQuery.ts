@@ -6,6 +6,8 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  forgeEpicRequestDraft,
+  forgeRequestForEpic,
   reviewCriteriaState,
   reviewFilePatch,
   reviewFiles,
@@ -156,5 +158,73 @@ export function useMergePrecheck(taskId: string | undefined, enabled: boolean) {
     queryFn: () => reviewMergePrecheck(taskId as string),
     enabled: active,
     staleTime: 0,
+  });
+}
+
+export function epicRequestDraftQueryKey(epicId: string) {
+  return ["review-epic-request-draft", epicId] as const;
+}
+
+export function epicRequestQueryKey(epicId: string) {
+  return ["review-epic-request", epicId] as const;
+}
+
+/** The epic's request draft and the named reason it cannot be proposed (REVW-05) — a read, so
+ * `enabled` is whether anything is showing it. */
+export function useEpicRequestDraft(epicId: string | undefined, enabled: boolean) {
+  const queryClient = useQueryClient();
+  const active = enabled && Boolean(epicId);
+
+  useEffect(() => {
+    if (!active || !epicId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: epicRequestDraftQueryKey(epicId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [active, epicId, queryClient]);
+
+  return useQuery({
+    queryKey: epicId ? epicRequestDraftQueryKey(epicId) : (["review-epic-request-draft", "none"] as const),
+    queryFn: () => forgeEpicRequestDraft(epicId as string),
+    enabled: active,
+    staleTime: 0,
+  });
+}
+
+/** The epic's existing request, read live from the forge. */
+export function useEpicRequest(epicId: string | undefined, enabled = true) {
+  const queryClient = useQueryClient();
+  const active = enabled && Boolean(epicId);
+
+  useEffect(() => {
+    if (!active || !epicId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: epicRequestQueryKey(epicId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [active, epicId, queryClient]);
+
+  return useQuery({
+    queryKey: epicId ? epicRequestQueryKey(epicId) : (["review-epic-request", "none"] as const),
+    queryFn: () => forgeRequestForEpic(epicId as string),
+    enabled: active,
+    staleTime: 0,
+    retry: false,
   });
 }
