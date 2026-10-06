@@ -9,7 +9,8 @@
 //! renderer value can claim the evidence was read at a commit it was not (T-08-02-01).
 //!
 //! Plan 08-07 adds `review_merge_precheck` (read) and `review_merge_task` (the one git write,
-//! REVW-04). The merge takes a task id alone; it resolves under the database lock, drops it, takes
+//! REVW-04). The merge takes a task id alone; it reads the board into `MergePlanInputs` under the
+//! database lock, drops it, runs `finish_plan` (the rev-list and diff) with the lock gone, takes
 //! the per-epic guard only for the git work, then re-locks to record the event — never two locks
 //! at once, and neither held across the emit.
 //!
@@ -377,12 +378,15 @@ pub fn review_merge_precheck(
     task_id: String,
 ) -> Result<MergePreviewDto, String> {
     use flywheel_core::git::MergePrecheck;
-    use flywheel_core::merge::{plan_merge, MergeRefusal};
+    use flywheel_core::merge::{finish_plan, plan_merge_inputs, MergeRefusal};
 
-    let planned = {
+    // The lock covers the board read only; the rev-list and diff in `finish_plan` run after it is
+    // gone. A refusal can come from either half and is a preview, not an error.
+    let inputs = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        plan_merge(&conn, &task_id)
+        plan_merge_inputs(&conn, &task_id)
     };
+    let planned = inputs.and_then(finish_plan);
     let plan = match planned {
         Ok(plan) => plan,
         Err(e) => {
@@ -424,8 +428,13 @@ pub fn review_merge_task(
 ) -> Result<MergeOutcomeDto, String> {
     use flywheel_core::merge::{self, MergeOutcome, MergeRefusal};
 
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let plan = match merge::plan_merge(&conn, &task_id) {
+    // Board read under the lock, then the lock is gone before any git runs. A refusal can come
+    // from either half.
+    let inputs = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        merge::plan_merge_inputs(&conn, &task_id)
+    };
+    let plan = match inputs.and_then(merge::finish_plan) {
         Ok(plan) => plan,
         Err(e) => {
             return Err(match e.downcast_ref::<MergeRefusal>() {
@@ -434,7 +443,6 @@ pub fn review_merge_task(
             })
         }
     };
-    drop(conn);
 
     // The epic guard is held across the git work only: never while the database lock is held, and
     // released before the event is recorded and the notification is emitted.

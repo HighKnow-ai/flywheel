@@ -6,10 +6,19 @@
 //! never creates an integration branch — a merge into an epic with none cut is a refusal, not a
 //! trigger (resolving a merge must not have the side effect of cutting a branch).
 //!
-//! Three separable halves, inheriting the forge module's rule that the git-running half takes plain
-//! values rather than a connection, so no caller can hold the database lock across a subprocess:
-//! [`plan_merge`] resolves everything under a connection, [`run_merge`] does all the git and takes
-//! no connection, and [`record_merge_event`] writes the one event.
+//! Four separable halves, inheriting the forge module's rule that the git-running half takes plain
+//! values rather than a connection. The connection-free signature, not a comment, is what keeps a
+//! caller from holding the database lock across a subprocess:
+//! - [`plan_merge_inputs`] and [`record_merge_event`] are the only halves that take a connection,
+//!   and neither spawns git. The first reads the board into an opaque [`MergePlanInputs`]; the
+//!   second writes the one event.
+//! - [`finish_plan`] and [`run_merge`] take plain values and are the only halves that spawn git.
+//!   `finish_plan` counts the commits and files; `run_merge` does the merge.
+//! - [`merge_commit_is_reachable`] is the git half of the integrated marker. [`is_integrated`]
+//!   composes it with a board read ([`integrated_merge_commit`]) and is for core-internal and test
+//!   use only.
+//! - [`plan_merge`] composes `plan_merge_inputs` and `finish_plan` for core-internal and test use. A
+//!   command handler must call the two halves itself, with the lock released between them.
 //!
 //! The merge runs in a worktree that belongs to the EPIC (derived path, no table row), never in the
 //! task's own worktree, so an agent working there cannot collide with it.
@@ -108,9 +117,27 @@ impl std::fmt::Display for MergeRefusal {
 
 impl std::error::Error for MergeRefusal {}
 
-/// Resolve a task's merge into its epic's integration branch, or refuse by name (a
-/// [`MergeRefusal`] inside the returned error). Nothing is written to git or to the board.
-pub fn plan_merge(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlan> {
+/// What the board said about a merge, before any git runs. Private fields: it is an opaque
+/// hand-off from [`plan_merge_inputs`] to [`finish_plan`], so a caller cannot substitute a branch or
+/// a path between the two halves, and the git half re-reads nothing.
+#[derive(Debug, Clone)]
+pub struct MergePlanInputs {
+    repo_path: PathBuf,
+    project_id: String,
+    epic_id: String,
+    epic_key: String,
+    task_id: String,
+    task_key: String,
+    task_title: String,
+    source_branch: String,
+    target_branch: String,
+    epic_worktree: PathBuf,
+}
+
+/// The database half of [`plan_merge`]: resolve the task, its branch, its epic's integration branch
+/// and the epic worktree path, or refuse by name (a [`MergeRefusal`] inside the returned error).
+/// Reads the board only and spawns no git, so it is safe under the database lock.
+pub fn plan_merge_inputs(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlanInputs> {
     let (project_id, task_key, task_title, epic_id): (String, String, String, Option<String>) = conn
         .query_row(
             "SELECT project_id, key, title, epic_id FROM tasks WHERE id = ?1",
@@ -156,6 +183,37 @@ pub fn plan_merge(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlan>
     // task's worktree.
     let epic_worktree = crate::domain::worktree::worktree_root().join(&key_prefix).join(&epic_key);
 
+    Ok(MergePlanInputs {
+        repo_path,
+        project_id,
+        epic_id,
+        epic_key,
+        task_id: task_id.to_string(),
+        task_key,
+        task_title,
+        source_branch,
+        target_branch,
+        epic_worktree,
+    })
+}
+
+/// The git half of [`plan_merge`]: count the commits and files the merge would land, or refuse with
+/// [`MergeRefusal::NothingToMerge`] when there are none. Takes no connection, so a caller can read
+/// the inputs under the database lock, release it, then call this. Nothing is written.
+pub fn finish_plan(inputs: MergePlanInputs) -> anyhow::Result<MergePlan> {
+    let MergePlanInputs {
+        repo_path,
+        project_id,
+        epic_id,
+        epic_key,
+        task_id,
+        task_key,
+        task_title,
+        source_branch,
+        target_branch,
+        epic_worktree,
+    } = inputs;
+
     let range = format!("{target_branch}..{source_branch}");
     let count = git::git_at(&repo_path, &["rev-list", "--count", &range])?;
     let commit_count: u32 = String::from_utf8_lossy(&count.stdout).trim().parse().unwrap_or(0);
@@ -169,7 +227,7 @@ pub fn plan_merge(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlan>
         project_id,
         epic_id,
         epic_key,
-        task_id: task_id.to_string(),
+        task_id,
         task_key,
         task_title,
         source_branch,
@@ -178,6 +236,13 @@ pub fn plan_merge(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlan>
         commit_count,
         file_count,
     })
+}
+
+/// [`plan_merge_inputs`] then [`finish_plan`]. For core-internal and test use: it takes a
+/// connection AND spawns git, so it must not be called from a command handler while the database
+/// lock is held. The two halves exist for that.
+pub fn plan_merge(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlan> {
+    finish_plan(plan_merge_inputs(conn, task_id)?)
 }
 
 /// Make sure the epic's integration worktree exists and has the integration branch checked out.
@@ -359,12 +424,23 @@ pub fn is_integrated(
     let Some(merge_commit) = integrated_merge_commit(conn, task_id)? else {
         return Ok(false);
     };
+    merge_commit_is_reachable(repo_path, &merge_commit, integration_branch)
+}
+
+/// The git half of the integrated marker: does `merge_commit` still resolve, and is it an ancestor
+/// of `integration_branch`? Takes no connection, so a caller can read the recorded commit under the
+/// database lock, release it, then ask this. An unresolvable commit is `false`, not an error.
+pub fn merge_commit_is_reachable(
+    repo_path: &Path,
+    merge_commit: &str,
+    integration_branch: &str,
+) -> anyhow::Result<bool> {
     if !git::rev_parse_verify(repo_path, &format!("{merge_commit}^{{commit}}"))? {
         return Ok(false);
     }
     let out = git::git_output_at(
         repo_path,
-        &["merge-base", "--is-ancestor", &merge_commit, integration_branch],
+        &["merge-base", "--is-ancestor", merge_commit, integration_branch],
     )?;
     Ok(out.status.success())
 }
