@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: Review And Merge Inside Flywheel
-status: executing
-stopped_at: Completed 08-07-PLAN.md
-last_updated: "2026-10-06T05:40:12.878Z"
+status: verifying
+stopped_at: Completed 08-08-PLAN.md
+last_updated: "2026-10-06T06:00:53.216Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 08 execution started
-state_head: b0f152f9a46a90d65d5f4706eb0cfca50d76f200
+state_head: b745fcea6e60347124aaa80b139dc2899b93b40f
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 178
-  completed_plans: 177
+  completed_plans: 178
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 
 Phase: 08 (Review And Merge Inside Flywheel) — EXECUTING
 Plan: 8 of 8
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-06 — Phase 08 execution started
 
 Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
@@ -238,6 +238,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08 P05 | 40 min | 2 tasks | 4 files |
 | Phase 08 P06 | 8 min | 2 tasks | 12 files |
 | Phase 08 P07 | 25 min | 3 tasks | 14 files |
+| Phase 08 P08 | 25 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -548,6 +549,8 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-06: check-with-selection is key c in the review-surface layer only; a mixed delete+insert selection anchors to the new side; the rail stops j/k/Space/Enter from reaching the surface's window listener
 - [Phase 08]: 08-07: MergeRefusal typed error carries refusal categories across the command boundary; the per-epic guard wraps run_merge only, never co-held with the DB lock — Avoids parsing prose and rules out lock deadlock; the guard is released before the event is recorded and the emit
 - [Phase 08]: 08-07: an integrated task is reviewed as its merge commit against its first parent (ReviewTarget post_merge) — The three-dot range is empty after a merge, indistinguishable from nothing to review (Pitfall 5)
+- [Phase 08]: 08-08: the epic open command re-checks its four preconditions and refuses a blocked epic before any push; failure variants return no CLI text
+- [Phase 08]: 08-08: the review scope toggle rewrites the reviewSurface store field and remembers fromTask so toggling back returns to the same task
 
 ### Pending Todos
 
@@ -577,9 +580,10 @@ Recent decisions affecting current work:
 - ⚠️ **[Phase 03] Session-termination finding investigated — root-cause-identified (03-20/03-21).** 03-19's ~15-16s session-termination finding was root-caused by the dedicated follow-up spike it recommended: `03-SESSION-LIFECYCLE-FINDINGS.md` records **Disposition: root-cause-identified**, H1 CONFIRMED — the watchdog's own heartbeat-staleness kill (`DEFAULT_HEARTBEAT_STALE_MS=15000`) correctly reaped an unsupervised session (`--heartbeat=off`: terminated at `elapsed_ms=7397`, `closeOrigin: watchdog-heartbeat-stale`), while a production-shaped `--heartbeat=on` run sustained the block for the full 90s window with zero termination artifacts — the product was never at fault; the prior measurement harness was. Plan 03-21 took Branch B (harness-only doc fix; no change to `watchdog.ts`'s stale-kill condition) and added a repeatable acceptance command (`uat-06-permission-block-lifecycle.mjs --heartbeat=on --answer-after=60000 --decision=deny`, `honoured=true`) proving a supervised session survives a 60+ second unanswered destructive-gate block and honours the eventual answer. **AGNT-07 is NOT Complete**: a separate, broader bypass class was found afterwards (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`) and the requirement was walked back to Gaps Found in `db18b0e`. Still genuinely open per the findings document's own "What this does not claim": reproduction inside a packaged `.app` (only the dev-mode sidecar bundle was driven), on a machine other than the one measured, and against a `claude` version other than 2.1.267 remain untested; H1a (whether 03-19's specific `FLYWHEEL_HEARTBEAT_STALE_MS=120000` override reached the watchdog) was not directly retested with a non-default value.
 - ✅ **RESOLVED by Phase 12 — AGNT-07's `PATH`-reorder bypass class is closed at a different layer.** The round-six/round-ten bypasses were all variations on one theme: the raw-text classifier in `packages/shim/src/main.rs` can always be out-argued, because it only ever runs if the shim wins a `PATH` name lookup it cannot guarantee winning. Phase 12 stopped trying to win that lookup. Layer 3 (git's own `pre-push` hook, installed via `core.hooksPath`) refuses branch deletion, force-push and history rewrite from inside the real `git` process, after `PATH` resolution, with the shim absent from `PATH` entirely — and `packages/shim/src/main.rs` is now fenced by a committed string-literal baseline test so the classifier cannot be quietly widened for an eleventh round. 22/22 non-backstop truths verified; three live-session truths accepted by human review 2026-10-02.
 - ⚠️ **[Phase 12] Four destructive categories are still Layer-2-only.** `hard-reset`, `force-clean`, `recursive-delete` and `default-branch-push` have no git-native interception layer, so they still rest on P1 — the premise Phase 12 proved Flywheel cannot guarantee by default. The `SessionStart`/`CLAUDE_ENV_FILE` hook restores P1 by construction and measured `restored` live, but on one macOS machine against `claude 2.1.285` in `bypassPermissions`, with two upstream caveats still open (`anthropics/claude-code#27987` sourcing bug on some builds; `anthropics/claude-code#19357` contradictory official docs, closed "not planned"). Either a second interception layer or a second independent measurement is owed before these four can be called closed.
-- ⚠️ **[Phase 12] Layer 3 can be silently removed and the product does not say so.** A competing `core.hooksPath`, a rewritten `pre-push` hook, or a pre-existing non-Flywheel hook (which makes install *refuse*, while registration still succeeds) all leave a project ungated. Every case is deliberate and documented in the trust-boundary document's Named Residuals table, but none of it is visible in the UI — the board should be able to tell the user a project's gate is not installed.
+- ⚠️ **[Phase 12] Layer 3 can be silently removed and the product does not say so.** A competing `core.hooksPath`, a rewritten `pre-push` hook, or a pre-existing non-Flywheel hook (which makes install *refuse*, while registration still succeeds) all leave a project ungated. Every case is deliberate and documented in the trust-boundary document's Named Residuals table, but of it is visible in the UI — the board should be able to tell the user a project's gate is not installed.
 - [Phase 03] scripts/uat/run-all.sh failed 4/6 scriptable items (UAT 3, 5, 6a, 6b) when run once as plan 03-34's own end-of-phase regression gate. This plan's diff (test-corpus + docs only) cannot plausibly cause a live-claude-session failure; judged pre-existing flakiness matching the phase's repeated 03-24/03-26/03-29/03-30/03-32 pattern, per 03-34-SUMMARY.md. Next phase verification should judge whether this needs a dedicated live-session investigation before AGNT-07 closes. See WINDOWS.md entry 11.
 - Live gate (uat-08-socratic-authoring.mjs) now PASSES: run 01M3QQQM4GAYB2Y9RQMJDRWAX0 exited 0 on 2026-09-30 — the first clean live pass the phase has produced. SHAPE-01 challenged=true noWorkPlanned=refused; SHAPE-02 board-counts delta=6 (before epics:0/tasks:0/criteria:0, after epics:1/tasks:1/criteria:4) via acceptPath=task-subtree; SHAPE-03/04 reject and amend each exercised individually; SHAPE-05 informational (needs a second session, proven structurally by authoring_acceptance.rs::criterion_4_*). The answer-bank fallback ratio was 0/9 — nine real developer answers, zero generic fallbacks, against 6/6 generic the run before. Enabled by three instrument closures (260929-lq1 stale-snapshot decision targets; 260929-nxq the question extractor and withheld-consent classifier plus SHAPE-02's board-row delta; 260929-p61 the developer-answer handoff that made the answer bank unreachable from the live arm). The 2026-09-29 backend_refusal/invalid_request death at the distillation turn did NOT recur and is judged transient. REMAINING: the SHAPE-01 challenge-quality and SHAPE-03 draft-usefulness verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md are still UNJUDGED — a human read of the conversation, which no script can certify.
+- 08-08: epic scope has no roll-up of its tasks (D-132); needs a core query and command, logged in WINDOWS.md as an unmet truth
 
 ### Quick Tasks Completed
 
@@ -607,6 +611,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-06T05:40:12.714Z
-Stopped at: Completed 08-07-PLAN.md
+Last session: 2026-10-06T06:00:53.059Z
+Stopped at: Completed 08-08-PLAN.md
 Resume file: None

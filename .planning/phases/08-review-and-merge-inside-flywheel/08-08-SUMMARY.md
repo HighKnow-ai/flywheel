@@ -86,7 +86,6 @@ key-decisions:
   - "Toggling to epic scope stores fromTask on the reviewSurface field so toggling back returns to the same task; the epic's label comes from the existing epic roster, falling back to the word Epic"
   - "Only an open or changes-requested request counts as already open; a merged one for the same branch does not hide the action"
 
-duration: "~25 min"
 ---
 
 # Phase 8 Plan 08: Epic Request and Scope Toggle Summary
