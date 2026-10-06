@@ -22,6 +22,7 @@
 use anyhow::Context;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
+use serde::Serialize;
 
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
@@ -51,6 +52,63 @@ pub struct AcceptanceCriterion {
     pub superseded_at: Option<String>,
 }
 
+/// Longest anchored path the write path stores (T-08-02-06) — well above any real repository
+/// path, there only so a hostile or buggy caller cannot park an unbounded string in the table.
+const MAX_ANCHOR_PATH_LEN: usize = 4096;
+
+/// Where a criterion was checked against: caller-supplied range, NEVER a sha. The sha is the
+/// `head_sha` argument of [`check_criterion_with_anchor`], resolved inside the core.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AnchorInput {
+    pub path: String,
+    /// `"old"` or `"new"` — which side of the diff the line numbers index (research A9).
+    pub side: String,
+    pub line_start: u32,
+    pub line_end: u32,
+}
+
+/// The stored evidence for one checked criterion (`criterion_anchors`, migration 0018). Staleness
+/// is not a field: it is derived from git on every read (D-75, D-141).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CriterionAnchor {
+    pub criterion_id: String,
+    pub path: String,
+    pub side: String,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub sha: String,
+    pub created_at: String,
+}
+
+/// Map a row of `criterion_id, path, side, line_start, line_end, sha, created_at` starting at
+/// column `at`. Shared by [`anchor_for_criterion`] and `review::review_criteria_state`.
+pub(crate) fn row_to_anchor(row: &Row, at: usize) -> rusqlite::Result<CriterionAnchor> {
+    Ok(CriterionAnchor {
+        criterion_id: row.get(at)?,
+        path: row.get(at + 1)?,
+        side: row.get(at + 2)?,
+        line_start: row.get(at + 3)?,
+        line_end: row.get(at + 4)?,
+        sha: row.get(at + 5)?,
+        created_at: row.get(at + 6)?,
+    })
+}
+
+/// The anchor recorded for `criterion_id`, or `None` — the no-evidence state (D-140).
+pub fn anchor_for_criterion(
+    conn: &Connection,
+    criterion_id: &str,
+) -> anyhow::Result<Option<CriterionAnchor>> {
+    conn.query_row(
+        "SELECT criterion_id, path, side, line_start, line_end, sha, created_at
+         FROM criterion_anchors WHERE criterion_id = ?1",
+        params![criterion_id],
+        |row| row_to_anchor(row, 0),
+    )
+    .optional()
+    .context("failed to read the criterion's anchor")
+}
+
 /// `("task"|"epic", parent_id)` -> the denormalised `(task_id, epic_id)` pair the `events` table
 /// stores at write time (D-19) — the single place that mapping is computed, so every mutation
 /// function below carries it identically. A `parent_type` outside `{"task","epic"}` can only
@@ -69,7 +127,7 @@ fn parent_columns(parent_type: &str, parent_id: &str) -> (Option<String>, Option
 /// parent_id, statement, verification_hint, checked, rank, created_at, updated_at, revision,
 /// revision_of, superseded_at) — the shape [`list_criteria`], [`list_current_criteria`] and
 /// [`list_revisions_for_root`] all share, so the column order is defined exactly once.
-fn row_to_criterion(row: &Row) -> rusqlite::Result<AcceptanceCriterion> {
+pub(crate) fn row_to_criterion(row: &Row) -> rusqlite::Result<AcceptanceCriterion> {
     Ok(AcceptanceCriterion {
         id: row.get(0)?,
         parent_type: row.get(1)?,
@@ -528,6 +586,17 @@ pub fn revise_criterion_in_tx(
     )
     .context("failed to insert successor criterion revision")?;
 
+    // The successor is inserted `checked` exactly as the predecessor was, so it must inherit the
+    // evidence too. Without this copy a locked-criterion edit leaves a row that is checked with
+    // its anchor dropped, which breaks D-140 by way of D-77.
+    tx.execute(
+        "INSERT INTO criterion_anchors (criterion_id, path, side, line_start, line_end, sha, created_by, created_at)
+         SELECT ?1, path, side, line_start, line_end, sha, created_by, ?2
+         FROM criterion_anchors WHERE criterion_id = ?3",
+        params![successor_id, now, criterion_id],
+    )
+    .context("failed to carry the criterion's anchor onto its successor revision")?;
+
     // Touches ONE column: superseded_at. Never the same statement in this or any other
     // assignment list (the crate-wide grep gate this plan's own <verify> runs).
     tx.execute(
@@ -580,10 +649,59 @@ pub fn revise_criterion_in_tx(
 /// an edit (T-01-20). A second UPDATE, naming only `updated_at`, touches the parent task/epic
 /// row so its own "last modified" reflects that its contract state changed, without rewriting
 /// any of the parent's own authored fields.
+///
+/// Unchecking also deletes the criterion's anchor in the same transaction: an anchor that
+/// survived an uncheck would be silently resurrected by the next check, presenting evidence
+/// nobody re-examined (D-139).
 pub fn toggle_criterion(
     conn: &mut Connection,
     actor_id: &str,
     criterion_id: &str,
+) -> anyhow::Result<AcceptanceCriterion> {
+    write_checked(conn, actor_id, criterion_id, None)
+}
+
+/// Check a criterion, optionally recording the evidence for it (REVW-03, D-139/D-140). Always
+/// sets `checked = 1` — this is a check, not a toggle. With `anchor: Some`, the anchor row is
+/// upserted (a second check against another range replaces the first); with `None` the criterion
+/// is checked with no evidence and any existing anchor is left as it stands.
+///
+/// `head_sha` is the sha the range was read at. It must be resolved by the core (the command layer
+/// rev-parses the review target's head ref); no renderer-supplied value may reach this parameter,
+/// or the evidence would be whatever the renderer claims. One transaction, one
+/// `criterion.toggled` event whose payload carries the stored anchor (or null).
+pub fn check_criterion_with_anchor(
+    conn: &mut Connection,
+    actor_id: &str,
+    criterion_id: &str,
+    anchor: Option<AnchorInput>,
+    head_sha: &str,
+) -> anyhow::Result<AcceptanceCriterion> {
+    if let Some(a) = &anchor {
+        if a.side != "old" && a.side != "new" {
+            anyhow::bail!("anchor side must be \"old\" or \"new\", got {:?}", a.side);
+        }
+        if a.path.is_empty() || a.path.len() > MAX_ANCHOR_PATH_LEN {
+            anyhow::bail!("anchor path must be 1..={MAX_ANCHOR_PATH_LEN} bytes");
+        }
+        if a.line_start < 1 || a.line_end < a.line_start {
+            anyhow::bail!("anchor line range must satisfy 1 <= start <= end");
+        }
+        if head_sha.is_empty() {
+            anyhow::bail!("an anchor needs the sha it was read at");
+        }
+    }
+    write_checked(conn, actor_id, criterion_id, Some((anchor, head_sha)))
+}
+
+/// The one write behind [`toggle_criterion`] (`check: None` — flip) and
+/// [`check_criterion_with_anchor`] (`check: Some` — set, with optional evidence): one transaction,
+/// one `criterion.toggled` event.
+fn write_checked(
+    conn: &mut Connection,
+    actor_id: &str,
+    criterion_id: &str,
+    check: Option<(Option<AnchorInput>, &str)>,
 ) -> anyhow::Result<AcceptanceCriterion> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
@@ -623,13 +741,37 @@ pub fn toggle_criterion(
         .with_context(|| format!("criterion {criterion_id:?} not found"))?;
 
     let project_id = resolve_parent_project_id(&tx, &parent_type, &parent_id)?;
-    let new_checked = if checked == 0 { 1 } else { 0 };
+    let new_checked = if check.is_some() || checked == 0 { 1 } else { 0 };
 
     tx.execute(
         "UPDATE acceptance_criteria SET checked = ?1, updated_at = ?2 WHERE id = ?3",
         params![new_checked, now, criterion_id],
     )
     .context("failed to toggle criterion")?;
+
+    let anchor_json = match &check {
+        Some((Some(a), head_sha)) => {
+            tx.execute(
+                "INSERT INTO criterion_anchors (criterion_id, path, side, line_start, line_end, sha, created_by, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(criterion_id) DO UPDATE SET
+                    path = excluded.path, side = excluded.side, line_start = excluded.line_start,
+                    line_end = excluded.line_end, sha = excluded.sha,
+                    created_by = excluded.created_by, created_at = excluded.created_at",
+                params![criterion_id, a.path, a.side, a.line_start, a.line_end, head_sha, actor_id, now],
+            )
+            .context("failed to record the criterion's anchor")?;
+            serde_json::json!({
+                "path": a.path, "side": a.side, "line_start": a.line_start,
+                "line_end": a.line_end, "sha": head_sha,
+            })
+        }
+        _ => serde_json::Value::Null,
+    };
+    if new_checked == 0 {
+        tx.execute("DELETE FROM criterion_anchors WHERE criterion_id = ?1", params![criterion_id])
+            .context("failed to clear the criterion's anchor on uncheck")?;
+    }
 
     let touch_result: rusqlite::Result<usize> = match parent_type.as_str() {
         "task" => tx.execute(
@@ -646,7 +788,7 @@ pub fn toggle_criterion(
 
     let (task_id, epic_id) = parent_columns(&parent_type, &parent_id);
     let sequence = next_sequence(&tx, &project_id, "local")?;
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "field": "checked",
         "before": checked != 0,
         "after": new_checked != 0,
@@ -656,6 +798,9 @@ pub fn toggle_criterion(
             statement
         ),
     });
+    if check.is_some() {
+        payload["anchor"] = anchor_json;
+    }
     append_event(
         &tx,
         &project_id,

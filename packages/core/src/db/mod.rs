@@ -36,6 +36,7 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0015_proposal_triage_extension.sql"),
         include_str!("migrations/0016_authoring_proposals_fts.sql"),
         include_str!("migrations/0017_forge_setting.sql"),
+        include_str!("migrations/0018_criterion_anchors.sql"),
     ]
 }
 
