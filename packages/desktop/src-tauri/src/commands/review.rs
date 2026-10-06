@@ -18,9 +18,11 @@
 //! with its current-revision criteria counted out. It takes the id and nothing else and spawns no
 //! git, so it is safe under the database lock.
 //!
-//! Both are async commands so the git call runs off the main thread, and both resolve
-//! under the database lock and release it before git is spawned — a slow diff blocks no other
-//! command handler.
+//! The review commands are async so the git call runs off the main thread. Each reads the board into
+//! an opaque inputs value under the database lock (`review_target_inputs`, `criteria_with_anchors`,
+//! `plan_merge_inputs`), releases the lock, and only then runs the git half
+//! (`finish_review_target`, `finish_plan`), which takes no connection — a slow ancestry check or
+//! diff blocks no other command handler, and holding the lock across it is not expressible.
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -123,12 +125,13 @@ pub fn review_files(
     item_id: String,
 ) -> Result<ReviewFilesDto, String> {
     let scope = parse_scope(&scope)?;
-    // The DB lock is held for resolution only; git runs after it is released.
-    let target = {
+    // The DB lock is held for the board read only; the ancestry check and the diff run after it is
+    // released.
+    let inputs = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        flywheel_core::review::resolve_review_target(&conn, scope, &item_id)
-            .map_err(|e| e.to_string())?
+        flywheel_core::review::review_target_inputs(&conn, scope, &item_id).map_err(|e| e.to_string())?
     };
+    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| e.to_string())?;
     let files = flywheel_core::review::files_for_target(&target).map_err(|e| e.to_string())?;
     Ok(ReviewFilesDto {
         target: ReviewTargetDto::from(target),
@@ -146,11 +149,11 @@ pub fn review_file_patch(
     old_path: Option<String>,
 ) -> Result<Option<String>, String> {
     let scope = parse_scope(&scope)?;
-    let target = {
+    let inputs = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        flywheel_core::review::resolve_review_target(&conn, scope, &item_id)
-            .map_err(|e| e.to_string())?
+        flywheel_core::review::review_target_inputs(&conn, scope, &item_id).map_err(|e| e.to_string())?
     };
+    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| e.to_string())?;
     flywheel_core::review::patch_for_target(&target, &path, old_path.as_deref())
         .map_err(|e| e.to_string())
 }
@@ -205,11 +208,12 @@ pub fn review_criteria_state(
     item_id: String,
 ) -> Result<Vec<ReviewCriterionStateDto>, String> {
     let scope = parse_scope(&scope)?;
-    let (target, rows) = {
+    let (inputs, rows) = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         flywheel_core::review::criteria_with_anchors(&conn, scope, &item_id)
             .map_err(|e| e.to_string())?
     };
+    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| e.to_string())?;
     Ok(flywheel_core::review::with_staleness(&target, rows)
         .into_iter()
         .map(|e| ReviewCriterionStateDto {
@@ -294,8 +298,9 @@ pub fn criterion_check_with_anchor(
         _ => return Err("an anchor needs path, side, line_start and line_end together".to_string()),
     };
 
-    // Under the lock: the actor, and proof the criterion belongs to the item being reviewed.
-    let target = {
+    // Under the lock: proof the criterion belongs to the item being reviewed, and the target's board
+    // read. The ancestry check runs after the lock is released.
+    let inputs = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         let parent: Option<(String, String)> = conn
             .query_row(
@@ -308,8 +313,9 @@ pub fn criterion_check_with_anchor(
         if parent.as_ref().map(|(t, id)| (t.as_str(), id.as_str())) != Some((expected, item_id.as_str())) {
             return Err(format!("criterion {criterion_id:?} does not belong to {expected} {item_id:?}"));
         }
-        flywheel_core::review::resolve_review_target(&conn, scope, &item_id).map_err(|e| e.to_string())?
+        flywheel_core::review::review_target_inputs(&conn, scope, &item_id).map_err(|e| e.to_string())?
     };
+    let target = flywheel_core::review::finish_review_target(inputs).map_err(|e| e.to_string())?;
 
     // The sha is derived here, from the head ref the core resolved — never taken from the caller.
     let head_sha = match (&anchor, &target) {

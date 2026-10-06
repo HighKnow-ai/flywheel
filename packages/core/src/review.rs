@@ -50,12 +50,36 @@ pub enum ReviewTarget {
     NoBranch,
 }
 
-/// Resolve `item_id` under `scope` to a repo path and a base/head ref pair.
-pub fn resolve_review_target(
+/// What the board said about a review target, before any git runs. Private fields: an opaque
+/// hand-off from [`review_target_inputs`] to [`finish_review_target`], so a caller cannot substitute
+/// a ref or a path between the two halves, and the git half re-reads nothing.
+#[derive(Debug, Clone)]
+pub struct ReviewTargetInputs(Pending);
+
+#[derive(Debug, Clone)]
+enum Pending {
+    /// Fully decided from the board: an epic, or a task with no branch or no integration branch.
+    Settled(ReviewTarget),
+    /// A task whose range is known but not yet checked against git for a recorded merge.
+    Task {
+        repo_path: PathBuf,
+        base: String,
+        head: String,
+        project_id: String,
+        epic_id: Option<String>,
+        task_id: String,
+        /// The merge commit of the task's integrated event, if it has one. A board read.
+        recorded_merge_commit: Option<String>,
+    },
+}
+
+/// The database half of [`resolve_review_target`]: every board read, no git. Safe under the
+/// database lock; hand the result to [`finish_review_target`] once the lock is released.
+pub fn review_target_inputs(
     conn: &Connection,
     scope: ReviewScope,
     item_id: &str,
-) -> anyhow::Result<ReviewTarget> {
+) -> anyhow::Result<ReviewTargetInputs> {
     match scope {
         ReviewScope::Task => {
             let branch: Option<String> = conn
@@ -67,7 +91,7 @@ pub fn resolve_review_target(
                 .optional()
                 .context("failed to look up the worktree for this task")?;
             let Some(head) = branch else {
-                return Ok(ReviewTarget::NoBranch);
+                return Ok(ReviewTargetInputs(Pending::Settled(ReviewTarget::NoBranch)));
             };
 
             let (project_id, epic_id): (String, Option<String>) = conn
@@ -90,42 +114,29 @@ pub fn resolve_review_target(
                         .with_context(|| format!("epic {epic_id:?} not found"))?;
                     match integration {
                         Some(b) => b,
-                        None => return Ok(ReviewTarget::NoIntegrationBranch),
+                        None => {
+                            return Ok(ReviewTargetInputs(Pending::Settled(
+                                ReviewTarget::NoIntegrationBranch,
+                            )))
+                        }
                     }
                 }
                 None => default_branch,
             };
 
-            // After a merge the three-dot range between the integration branch and the task
-            // branch is EMPTY: the task tip became the merge base. Reading it would report "no
-            // changes" for the work just landed, indistinguishable from a task with nothing to
-            // review. So an integrated task is reviewed as the recorded merge commit against its
-            // first parent (the integration side), which is exactly what the merge landed.
-            // The ancestry check runs two quick local git reads under the caller's connection,
-            // and only for a task that has an integrated event. ponytail: commits the task branch
-            // gains after its merge are not in this range; add a second range if that matters.
-            if epic_id.is_some() && crate::merge::is_integrated(conn, &repo_path, item_id, &base)? {
-                if let Some(merge_commit) = crate::merge::integrated_merge_commit(conn, item_id)? {
-                    return Ok(ReviewTarget::Resolved {
-                        repo_path,
-                        base: format!("{merge_commit}^1"),
-                        head: merge_commit,
-                        project_id,
-                        epic_id,
-                        task_id: Some(item_id.to_string()),
-                        post_merge: true,
-                    });
-                }
-            }
-            Ok(ReviewTarget::Resolved {
+            let recorded_merge_commit = match epic_id {
+                Some(_) => crate::merge::integrated_merge_commit(conn, item_id)?,
+                None => None,
+            };
+            Ok(ReviewTargetInputs(Pending::Task {
                 repo_path,
                 base,
                 head,
                 project_id,
                 epic_id,
-                task_id: Some(item_id.to_string()),
-                post_merge: false,
-            })
+                task_id: item_id.to_string(),
+                recorded_merge_commit,
+            }))
         }
         ReviewScope::Epic => {
             let (project_id, integration): (String, Option<String>) = conn
@@ -136,10 +147,10 @@ pub fn resolve_review_target(
                 )
                 .with_context(|| format!("epic {item_id:?} not found"))?;
             let Some(head) = integration else {
-                return Ok(ReviewTarget::NoIntegrationBranch);
+                return Ok(ReviewTargetInputs(Pending::Settled(ReviewTarget::NoIntegrationBranch)));
             };
             let (repo_path, base) = project_repo(conn, &project_id)?;
-            Ok(ReviewTarget::Resolved {
+            Ok(ReviewTargetInputs(Pending::Settled(ReviewTarget::Resolved {
                 repo_path,
                 base,
                 head,
@@ -147,9 +158,64 @@ pub fn resolve_review_target(
                 epic_id: Some(item_id.to_string()),
                 task_id: None,
                 post_merge: false,
-            })
+            })))
         }
     }
+}
+
+/// The git half of [`resolve_review_target`]: decide whether an integrated task is reviewed as its
+/// merge commit. Takes no connection, so a caller can read the inputs under the database lock,
+/// release it, then call this.
+pub fn finish_review_target(inputs: ReviewTargetInputs) -> anyhow::Result<ReviewTarget> {
+    let (repo_path, base, head, project_id, epic_id, task_id, recorded_merge_commit) = match inputs.0 {
+        Pending::Settled(target) => return Ok(target),
+        Pending::Task { repo_path, base, head, project_id, epic_id, task_id, recorded_merge_commit } => {
+            (repo_path, base, head, project_id, epic_id, task_id, recorded_merge_commit)
+        }
+    };
+
+    // After a merge the three-dot range between the integration branch and the task
+    // branch is EMPTY: the task tip became the merge base. Reading it would report "no
+    // changes" for the work just landed, indistinguishable from a task with nothing to
+    // review. So an integrated task is reviewed as the recorded merge commit against its
+    // first parent (the integration side), which is exactly what the merge landed.
+    // The ancestry check runs two quick local git reads, and only for a task that has an
+    // integrated event. ponytail: commits the task branch gains after its merge are not
+    // in this range; add a second range if that matters.
+    if let Some(merge_commit) = recorded_merge_commit {
+        if crate::merge::merge_commit_is_reachable(&repo_path, &merge_commit, &base)? {
+            return Ok(ReviewTarget::Resolved {
+                repo_path,
+                base: format!("{merge_commit}^1"),
+                head: merge_commit,
+                project_id,
+                epic_id,
+                task_id: Some(task_id),
+                post_merge: true,
+            });
+        }
+    }
+    Ok(ReviewTarget::Resolved {
+        repo_path,
+        base,
+        head,
+        project_id,
+        epic_id,
+        task_id: Some(task_id),
+        post_merge: false,
+    })
+}
+
+/// Resolve `item_id` under `scope` to a repo path and a base/head ref pair. For core-internal and
+/// test use: it takes a connection AND spawns git, so it must not be called from a command handler
+/// while the database lock is held. [`review_target_inputs`] and [`finish_review_target`] exist for
+/// that.
+pub fn resolve_review_target(
+    conn: &Connection,
+    scope: ReviewScope,
+    item_id: &str,
+) -> anyhow::Result<ReviewTarget> {
+    finish_review_target(review_target_inputs(conn, scope, item_id)?)
 }
 
 fn project_repo(conn: &Connection, project_id: &str) -> anyhow::Result<(PathBuf, String)> {
@@ -290,14 +356,15 @@ pub struct CriterionReviewState {
 }
 
 /// The database half of [`review_criteria_state`]: the item's current-revision criteria with their
-/// anchors (absent = no evidence), and the resolved target. Takes the connection so a caller can
-/// run this under the database lock, release it, then call [`with_staleness`] lock-free.
+/// anchors (absent = no evidence), and the target's unfinished inputs. Takes the connection so a
+/// caller can run this under the database lock, release it, then call [`finish_review_target`] and
+/// [`with_staleness`] lock-free.
 pub fn criteria_with_anchors(
     conn: &Connection,
     scope: ReviewScope,
     item_id: &str,
-) -> anyhow::Result<(ReviewTarget, Vec<(AcceptanceCriterion, Option<CriterionAnchor>)>)> {
-    let target = resolve_review_target(conn, scope, item_id)?;
+) -> anyhow::Result<(ReviewTargetInputs, Vec<(AcceptanceCriterion, Option<CriterionAnchor>)>)> {
+    let target = review_target_inputs(conn, scope, item_id)?;
     let parent_type = match scope {
         ReviewScope::Task => "task",
         ReviewScope::Epic => "epic",
@@ -399,6 +466,6 @@ pub fn review_criteria_state(
     scope: ReviewScope,
     item_id: &str,
 ) -> anyhow::Result<Vec<CriterionReviewState>> {
-    let (target, rows) = criteria_with_anchors(conn, scope, item_id)?;
-    Ok(with_staleness(&target, rows))
+    let (inputs, rows) = criteria_with_anchors(conn, scope, item_id)?;
+    Ok(with_staleness(&finish_review_target(inputs)?, rows))
 }
