@@ -55,8 +55,61 @@ pub enum MergeOutcome {
     Conflicted { files: Vec<String> },
 }
 
-/// Resolve a task's merge into its epic's integration branch, or refuse by name. Nothing is
-/// written to git or to the board.
+/// Why a merge cannot be planned. A typed error (rather than a bare sentence) so the command layer
+/// can hand the renderer a named category without parsing prose; `Display` keeps the sentences.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MergeRefusal {
+    /// No worktree row, so no branch to merge.
+    NoBranch { task_key: String },
+    /// An epic-less task: an in-app merge lands in an epic integration branch.
+    NoEpic { task_key: String },
+    /// The epic has no integration branch cut yet.
+    NoIntegrationBranch { epic_key: String },
+    /// Zero commits ahead of the integration branch (already integrated, or no work yet).
+    NothingToMerge { task_key: String, target_branch: String },
+}
+
+impl MergeRefusal {
+    /// The stable category the renderer switches on.
+    pub fn category(&self) -> &'static str {
+        match self {
+            Self::NoBranch { .. } => "noBranch",
+            Self::NoEpic { .. } => "noEpic",
+            Self::NoIntegrationBranch { .. } => "noIntegrationBranch",
+            Self::NothingToMerge { .. } => "nothingToMerge",
+        }
+    }
+}
+
+impl std::fmt::Display for MergeRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoBranch { task_key } => write!(
+                f,
+                "{task_key} has no branch to merge: no worktree has been created for it"
+            ),
+            Self::NoEpic { task_key } => write!(
+                f,
+                "{task_key} has no epic, so it cannot be merged in-app: an in-app merge lands in an \
+                 epic integration branch. Use the task-level open-request path instead."
+            ),
+            Self::NoIntegrationBranch { epic_key } => write!(
+                f,
+                "epic {epic_key} has no integration branch yet: there is nothing to merge into"
+            ),
+            Self::NothingToMerge { task_key, target_branch } => write!(
+                f,
+                "{task_key} has no commits ahead of {target_branch}: there is nothing to merge \
+                 (already integrated, or no work yet)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MergeRefusal {}
+
+/// Resolve a task's merge into its epic's integration branch, or refuse by name (a
+/// [`MergeRefusal`] inside the returned error). Nothing is written to git or to the board.
 pub fn plan_merge(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlan> {
     let (project_id, task_key, task_title, epic_id): (String, String, String, Option<String>) = conn
         .query_row(
@@ -73,14 +126,11 @@ pub fn plan_merge(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlan>
         .optional()
         .context("failed to look up the worktree for this task")?;
     let Some(source_branch) = source_branch else {
-        bail!("{task_key} has no branch to merge: no worktree has been created for it");
+        return Err(MergeRefusal::NoBranch { task_key }.into());
     };
 
     let Some(epic_id) = epic_id else {
-        bail!(
-            "{task_key} has no epic, so it cannot be merged in-app: an in-app merge lands in an \
-             epic integration branch. Use the task-level open-request path instead."
-        );
+        return Err(MergeRefusal::NoEpic { task_key }.into());
     };
     let (epic_key, integration): (String, Option<String>) = conn
         .query_row(
@@ -90,7 +140,7 @@ pub fn plan_merge(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlan>
         )
         .with_context(|| format!("epic {epic_id:?} not found"))?;
     let Some(target_branch) = integration else {
-        bail!("epic {epic_key} has no integration branch yet: there is nothing to merge into");
+        return Err(MergeRefusal::NoIntegrationBranch { epic_key }.into());
     };
 
     let (repo_path, key_prefix): (String, String) = conn
@@ -110,10 +160,7 @@ pub fn plan_merge(conn: &Connection, task_id: &str) -> anyhow::Result<MergePlan>
     let count = git::git_at(&repo_path, &["rev-list", "--count", &range])?;
     let commit_count: u32 = String::from_utf8_lossy(&count.stdout).trim().parse().unwrap_or(0);
     if commit_count == 0 {
-        bail!(
-            "{task_key} has no commits ahead of {target_branch}: there is nothing to merge \
-             (already integrated, or no work yet)"
-        );
+        return Err(MergeRefusal::NothingToMerge { task_key, target_branch }.into());
     }
     let file_count = git::review_files(&repo_path, &target_branch, &source_branch)?.len() as u32;
 

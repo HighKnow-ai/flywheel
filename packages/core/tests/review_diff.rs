@@ -126,6 +126,7 @@ struct Board {
     epic_id: String,
     task_in_epic: String,
     task_no_epic: String,
+    actor: String,
 }
 
 fn insert_worktree(conn: &Connection, task_id: &str, project_id: &str, actor: &str, branch: &str) {
@@ -159,6 +160,7 @@ fn board(set_integration: bool) -> Board {
         epic_id: epic.id,
         task_in_epic: t1.id,
         task_no_epic: t2.id,
+        actor,
     }
 }
 
@@ -239,4 +241,77 @@ fn consecutive_file_lists_are_byte_identical_and_patch_passes_through() {
         review_file_patch(&b.conn, ReviewScope::Task, &b.task_in_epic, "keep.txt", None).unwrap(),
         None
     );
+}
+
+/// Land `task_rich` in the integration branch with a real two-parent merge commit (built with
+/// plumbing so no epic worktree is needed), and record it the way the command layer does.
+fn integrate(b: &mut Board) -> String {
+    let repo = b._repo.path();
+    let plan = core::merge::plan_merge(&b.conn, &b.task_in_epic).expect("plan_merge");
+    let tree = git_output_at(repo, &["merge-tree", "--write-tree", b.branches.integration, b.branches.task_rich])
+        .expect("merge-tree");
+    let tree = String::from_utf8_lossy(&tree.stdout).lines().next().unwrap().to_string();
+    let commit = git_output_at(
+        repo,
+        &["commit-tree", &tree, "-p", b.branches.integration, "-p", b.branches.task_rich, "-m", "merge"],
+    )
+    .expect("commit-tree");
+    let commit = String::from_utf8_lossy(&commit.stdout).trim().to_string();
+    git_output_at(
+        repo,
+        &["update-ref", &format!("refs/heads/{}", b.branches.integration), &commit],
+    )
+    .expect("update-ref");
+    core::merge::record_merge_event(
+        &mut b.conn,
+        &plan,
+        &core::merge::MergeOutcome::Merged { merge_commit: commit.clone() },
+        &b.actor,
+    )
+    .expect("record");
+    commit
+}
+
+#[test]
+fn an_integrated_task_is_reviewed_as_the_merge_commit_against_its_first_parent() {
+    let mut b = board(true);
+    let before = review_file_list(&b.conn, ReviewScope::Task, &b.task_in_epic).unwrap();
+    assert!(!before.1.is_empty(), "the unmerged task has changes to review");
+    assert!(matches!(before.0, ReviewTarget::Resolved { post_merge: false, .. }));
+
+    let commit = integrate(&mut b);
+
+    // The trap: the three-dot range between the integration branch and the task branch is empty
+    // once merged, so a surface reading only that range would say "no changes".
+    let stale = review_files(b._repo.path(), b.branches.integration, b.branches.task_rich).unwrap();
+    assert!(stale.is_empty(), "the ordinary range is empty after a merge: {stale:?}");
+
+    let (target, files) = review_file_list(&b.conn, ReviewScope::Task, &b.task_in_epic).unwrap();
+    match target {
+        ReviewTarget::Resolved { base, head, post_merge, .. } => {
+            assert!(post_merge);
+            assert_eq!(head, commit);
+            assert_eq!(base, format!("{commit}^1"));
+        }
+        other => panic!("expected Resolved, got {other:?}"),
+    }
+    assert!(!files.is_empty(), "an integrated task still shows what the merge landed");
+    let paths: Vec<_> = files.iter().map(|f| f.path.clone()).collect();
+    let expected: Vec<_> = before.1.iter().map(|f| f.path.clone()).collect();
+    assert_eq!(paths, expected, "the merge landed exactly the task's changes");
+}
+
+#[test]
+fn a_recorded_merge_commit_that_no_longer_resolves_falls_back_to_the_ordinary_range() {
+    let mut b = board(true);
+    integrate(&mut b);
+    // Rewrite history: the integration branch no longer contains the recorded merge commit.
+    git_output_at(
+        b._repo.path(),
+        &["update-ref", &format!("refs/heads/{}", b.branches.integration), "main"],
+    )
+    .unwrap();
+    let (target, files) = review_file_list(&b.conn, ReviewScope::Task, &b.task_in_epic).unwrap();
+    assert!(matches!(target, ReviewTarget::Resolved { post_merge: false, .. }));
+    assert!(!files.is_empty());
 }

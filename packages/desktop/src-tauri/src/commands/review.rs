@@ -8,6 +8,11 @@
 //! write takes no sha: the one stored is resolved here from the review target's head ref, so no
 //! renderer value can claim the evidence was read at a commit it was not (T-08-02-01).
 //!
+//! Plan 08-07 adds `review_merge_precheck` (read) and `review_merge_task` (the one git write,
+//! REVW-04). The merge takes a task id alone; it resolves under the database lock, drops it, takes
+//! the per-epic guard only for the git work, then re-locks to record the event — never two locks
+//! at once, and neither held across the emit.
+//!
 //! Both are async commands so the git call runs off the main thread, and both resolve
 //! under the database lock and release it before git is spawned — a slow diff blocks no other
 //! command handler.
@@ -51,6 +56,9 @@ impl From<flywheel_core::git::ReviewFile> for ReviewFileDto {
 #[serde(rename_all = "camelCase")]
 pub struct ReviewTargetDto {
     pub state: String,
+    /// True when the task is already integrated: the range is the merge commit against its first
+    /// parent (what the merge landed), not the task branch against the target.
+    pub post_merge: bool,
     pub base: Option<String>,
     pub head: Option<String>,
     pub project_id: Option<String>,
@@ -63,6 +71,7 @@ impl From<flywheel_core::review::ReviewTarget> for ReviewTargetDto {
         use flywheel_core::review::ReviewTarget;
         let bare = |state: &str| Self {
             state: state.to_string(),
+            post_merge: false,
             base: None,
             head: None,
             project_id: None,
@@ -70,8 +79,9 @@ impl From<flywheel_core::review::ReviewTarget> for ReviewTargetDto {
             task_id: None,
         };
         match t {
-            ReviewTarget::Resolved { base, head, project_id, epic_id, task_id, .. } => Self {
+            ReviewTarget::Resolved { base, head, project_id, epic_id, task_id, post_merge, .. } => Self {
                 state: "resolved".to_string(),
+                post_merge,
                 base: Some(base),
                 head: Some(head),
                 project_id: Some(project_id),
@@ -278,4 +288,147 @@ pub fn criterion_check_with_anchor(
     app.emit("board:changed", serde_json::json!({ "entity": "criterion", "id": criterion_id }))
         .ok();
     Ok(())
+}
+
+/// What a merge would do, from the side-effect-free dry run. `ready` carries the figures the
+/// confirm sheet prints; `refused` carries a named category (`noBranch`, `noEpic`,
+/// `noIntegrationBranch`, `nothingToMerge`) instead of a sentence, because the surface needs to
+/// say why the action is unavailable in its own words.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "state")]
+pub enum MergePreviewDto {
+    #[serde(rename = "ready", rename_all = "camelCase")]
+    Ready {
+        epic_key: String,
+        source_branch: String,
+        target_branch: String,
+        commit_count: u32,
+        file_count: u32,
+        /// Empty when the dry run found no conflicts.
+        conflicted_files: Vec<String>,
+    },
+    #[serde(rename = "refused")]
+    Refused { category: String },
+}
+
+/// The three outcomes the core can prove. Conflicted paths cross the boundary as values; raw git
+/// output never does.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind")]
+pub enum MergeOutcomeDto {
+    #[serde(rename = "merged", rename_all = "camelCase")]
+    Merged { epic_key: String, target_branch: String, merge_commit: String },
+    #[serde(rename = "alreadyIntegrated")]
+    AlreadyIntegrated,
+    #[serde(rename = "conflicted")]
+    Conflicted { files: Vec<String> },
+}
+
+/// Preview a task's merge into its epic's integration branch. Read-only: no worktree is touched
+/// and nothing is written. A refusal from the plan is a preview, not an error.
+#[tauri::command(async)]
+pub fn review_merge_precheck(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<MergePreviewDto, String> {
+    use flywheel_core::git::MergePrecheck;
+    use flywheel_core::merge::{plan_merge, MergeRefusal};
+
+    let planned = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        plan_merge(&conn, &task_id)
+    };
+    let plan = match planned {
+        Ok(plan) => plan,
+        Err(e) => {
+            return match e.downcast_ref::<MergeRefusal>() {
+                Some(refusal) => Ok(MergePreviewDto::Refused { category: refusal.category().to_string() }),
+                None => Err(e.to_string()),
+            }
+        }
+    };
+    let conflicted_files =
+        match flywheel_core::git::merge_tree_check(&plan.repo_path, &plan.target_branch, &plan.source_branch)
+            .map_err(|e| e.to_string())?
+        {
+            MergePrecheck::Clean => Vec::new(),
+            MergePrecheck::Conflicts(files) => files,
+        };
+    Ok(MergePreviewDto::Ready {
+        epic_key: plan.epic_key,
+        source_branch: plan.source_branch,
+        target_branch: plan.target_branch,
+        commit_count: plan.commit_count,
+        file_count: plan.file_count,
+        conflicted_files,
+    })
+}
+
+/// Merge a task's branch into its epic's integration branch. Takes a task id and nothing else:
+/// branches, counts and paths are all derived by the plan, so the previewed figures and the merged
+/// figures are the same figures. Pushes nothing and writes no status column.
+///
+/// Errors are `"<category>[:<detail>]"`: `refused:<category>`, `mergeInFlight:<epic key>`,
+/// `mergeFailed` (raw cause logged, never returned) and `eventNotRecorded` (the merge landed in git
+/// but the board event did not write).
+#[tauri::command(async)]
+pub fn review_merge_task(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+) -> Result<MergeOutcomeDto, String> {
+    use flywheel_core::merge::{self, MergeOutcome, MergeRefusal};
+
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let plan = match merge::plan_merge(&conn, &task_id) {
+        Ok(plan) => plan,
+        Err(e) => {
+            return Err(match e.downcast_ref::<MergeRefusal>() {
+                Some(refusal) => format!("refused:{}", refusal.category()),
+                None => e.to_string(),
+            })
+        }
+    };
+    drop(conn);
+
+    // The epic guard is held across the git work only: never while the database lock is held, and
+    // released before the event is recorded and the notification is emitted.
+    let ran = {
+        let Some(_guard) = merge::try_lock_epic(&plan.epic_id) else {
+            return Err(format!("mergeInFlight:{}", plan.epic_key));
+        };
+        merge::run_merge(&plan)
+    };
+    let outcome = match ran {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            eprintln!("merge of task {task_id} into {} failed: {e:#}", plan.target_branch);
+            return Err("mergeFailed".to_string());
+        }
+    };
+
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let recorded = flywheel_core::domain::actor::local_human_actor_id(&conn)
+        .and_then(|actor_id| merge::record_merge_event(&mut conn, &plan, &outcome, &actor_id));
+    drop(conn);
+    if let Err(e) = recorded {
+        eprintln!("merge of task {task_id} ({outcome:?}) was not recorded on the board: {e:#}");
+        // A conflict landed nothing, so its outcome stands; a landed merge without its event
+        // would not show as integrated, and the sheet must say exactly that.
+        if matches!(outcome, MergeOutcome::Merged { .. }) {
+            app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+            return Err("eventNotRecorded".to_string());
+        }
+    }
+
+    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+    Ok(match outcome {
+        MergeOutcome::Merged { merge_commit } => MergeOutcomeDto::Merged {
+            epic_key: plan.epic_key,
+            target_branch: plan.target_branch,
+            merge_commit,
+        },
+        MergeOutcome::AlreadyIntegrated => MergeOutcomeDto::AlreadyIntegrated,
+        MergeOutcome::Conflicted { files } => MergeOutcomeDto::Conflicted { files },
+    })
 }

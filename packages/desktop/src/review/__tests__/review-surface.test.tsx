@@ -59,6 +59,7 @@ function resolved(files: ReviewFileDto[]): ReviewFilesDto {
   return {
     target: {
       state: "resolved",
+      postMerge: false,
       base: "flywheel/epic",
       head: "flywheel/task",
       projectId: "p1",
@@ -179,7 +180,7 @@ describe("ReviewSurface", () => {
 
   it("names the epic and requests nothing when it has no integration branch", async () => {
     reviewFilesMock.mockResolvedValue({
-      target: { state: "noIntegrationBranch", base: null, head: null, projectId: null, epicId: null, taskId: null },
+      target: { state: "noIntegrationBranch", postMerge: false, base: null, head: null, projectId: null, epicId: null, taskId: null },
       files: [],
     });
     renderSurface(vi.fn(), "FLY-1 The epic");

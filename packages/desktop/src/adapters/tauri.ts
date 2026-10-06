@@ -1303,6 +1303,9 @@ export interface ReviewFileDto {
  * crosses the boundary. `noIntegrationBranch` means the epic has no integration branch yet. */
 export interface ReviewTargetDto {
   state: "resolved" | "noIntegrationBranch" | "noBranch";
+  /** True when the task is already integrated: the range is the merge commit against its first
+   * parent (what the merge landed), not the task branch against its target. */
+  postMerge: boolean;
   base: string | null;
   head: string | null;
   projectId: string | null;
@@ -1387,4 +1390,41 @@ export async function criterionCheckWithAnchor(args: {
     lineStart: anchor?.lineStart ?? null,
     lineEnd: anchor?.lineEnd ?? null,
   });
+}
+
+/** What a merge would do — mirrors `commands::review::MergePreviewDto`. A refusal is a preview
+ * carrying a named category, not an error: the surface needs to say why the action is missing. */
+export type MergePreviewDto =
+  | {
+      state: "ready";
+      epicKey: string;
+      sourceBranch: string;
+      targetBranch: string;
+      commitCount: number;
+      fileCount: number;
+      /** Empty when the side-effect-free dry run found no conflicts. */
+      conflictedFiles: string[];
+    }
+  | { state: "refused"; category: "noBranch" | "noEpic" | "noIntegrationBranch" | "nothingToMerge" };
+
+/** The three outcomes the core proves — mirrors `commands::review::MergeOutcomeDto` (named
+ * `ReviewMergeOutcomeDto` here because the authoring proposal merge already owns `MergeOutcomeDto`). */
+export type ReviewMergeOutcomeDto =
+  | { kind: "merged"; epicKey: string; targetBranch: string; mergeCommit: string }
+  | { kind: "alreadyIntegrated" }
+  | { kind: "conflicted"; files: string[] };
+
+/** Preview a task's merge into its epic's integration branch (REVW-04). Read-only: no worktree is
+ * touched and nothing is written. Takes a task id and nothing else. Thin wrapper over
+ * `review_merge_precheck`. */
+export async function reviewMergePrecheck(taskId: string): Promise<MergePreviewDto> {
+  return invokeCommand<MergePreviewDto>("review_merge_precheck", { taskId });
+}
+
+/** Merge a task's branch into its epic's integration branch (REVW-04). Takes a task id and
+ * nothing else — every branch and path is derived server-side, so the previewed figures are the
+ * merged figures. Rejects with `refused:<category>`, `mergeInFlight:<epicKey>`, `mergeFailed` or
+ * `eventNotRecorded`. Thin wrapper over `review_merge_task`. */
+export async function reviewMergeTask(taskId: string): Promise<ReviewMergeOutcomeDto> {
+  return invokeCommand<ReviewMergeOutcomeDto>("review_merge_task", { taskId });
 }

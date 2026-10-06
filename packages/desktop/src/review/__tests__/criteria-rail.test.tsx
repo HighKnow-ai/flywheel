@@ -29,7 +29,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   reviewFiles: () =>
     Promise.resolve({
-      target: { state: "resolved", base: "epic", head: "task", projectId: "p1", epicId: "e1", taskId: "t1" },
+      target: { state: "resolved", postMerge: false, base: "epic", head: "task", projectId: "p1", epicId: "e1", taskId: "t1" },
       files: ["src/lib.rs", "src/other.rs"].map((path) => ({
         path,
         oldPath: null,

@@ -40,6 +40,9 @@ pub enum ReviewTarget {
         project_id: String,
         epic_id: Option<String>,
         task_id: Option<String>,
+        /// True when the task is already integrated and the range is the merge commit against
+        /// its first parent (what the merge landed), not the task branch against the target.
+        post_merge: bool,
     },
     /// The epic (or the task's epic) has no integration branch yet — nothing to review.
     NoIntegrationBranch,
@@ -92,6 +95,28 @@ pub fn resolve_review_target(
                 }
                 None => default_branch,
             };
+
+            // After a merge the three-dot range between the integration branch and the task
+            // branch is EMPTY: the task tip became the merge base. Reading it would report "no
+            // changes" for the work just landed, indistinguishable from a task with nothing to
+            // review. So an integrated task is reviewed as the recorded merge commit against its
+            // first parent (the integration side), which is exactly what the merge landed.
+            // The ancestry check runs two quick local git reads under the caller's connection,
+            // and only for a task that has an integrated event. ponytail: commits the task branch
+            // gains after its merge are not in this range; add a second range if that matters.
+            if epic_id.is_some() && crate::merge::is_integrated(conn, &repo_path, item_id, &base)? {
+                if let Some(merge_commit) = crate::merge::integrated_merge_commit(conn, item_id)? {
+                    return Ok(ReviewTarget::Resolved {
+                        repo_path,
+                        base: format!("{merge_commit}^1"),
+                        head: merge_commit,
+                        project_id,
+                        epic_id,
+                        task_id: Some(item_id.to_string()),
+                        post_merge: true,
+                    });
+                }
+            }
             Ok(ReviewTarget::Resolved {
                 repo_path,
                 base,
@@ -99,6 +124,7 @@ pub fn resolve_review_target(
                 project_id,
                 epic_id,
                 task_id: Some(item_id.to_string()),
+                post_merge: false,
             })
         }
         ReviewScope::Epic => {
@@ -120,6 +146,7 @@ pub fn resolve_review_target(
                 project_id,
                 epic_id: Some(item_id.to_string()),
                 task_id: None,
+                post_merge: false,
             })
         }
     }

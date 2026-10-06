@@ -217,6 +217,8 @@ fn main() {
             commands::review::review_file_patch,
             commands::review::review_criteria_state,
             commands::review::criterion_check_with_anchor,
+            commands::review::review_merge_precheck,
+            commands::review::review_merge_task,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
