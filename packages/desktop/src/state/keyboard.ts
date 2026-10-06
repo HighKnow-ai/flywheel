@@ -71,6 +71,7 @@ export type ActionId =
   // deliberately NOT reachable from `board-list` — `bindingAllowedInLayer` below permits them only
   // in the `"permission-card"` layer (T-02-15).
   | "start-work"
+  | "open-review"
   | "open-live-session"
   | "stop-session"
   | "toggle-raw-view"
@@ -177,6 +178,10 @@ export const BINDINGS: Binding[] = [
   // `w`/`l` — neither collides with the nine letters above (`j k o c s p e a m`), verified at test
   // time from this table rather than restated (02-03-PLAN.md Task 3).
   { id: "start-work", region: "board-list", key: "w", label: "Start Work" },
+  // D-133: `r` is taken, `v` is the free letter that reads as review. Deliberately NOT in
+  // `REVIEW_SURFACE_ACTION_IDS` — it is dispatched from the board, so it must fall through to the
+  // board clause of `bindingAllowedInLayer`.
+  { id: "open-review", region: "board-list", key: "v", label: "Review" },
   { id: "open-live-session", region: "board-list", key: "l", label: "Open Live Session" },
   // `r` — free in this region (verified against every entry above, none of which claims it) and
   // the mnemonic for "reshape"/"reopen" (D-91, plan 05-10 Task 1). Epic-row-only, mirroring
@@ -517,6 +522,9 @@ export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
     return TRIAGE_SURFACE_ACTION_IDS.has(id) || TRAY_SELECTION_ACTION_IDS.has(id);
   }
   if (layer === "review-surface") return REVIEW_SURFACE_ACTION_IDS.has(id);
+  // `expand-file` is the review surface's alone (move-down/up are shared with the board, so cannot
+  // be refused here); every other layer must refuse it rather than fall through to the board clause.
+  if (id === "expand-file") return false;
   if (PROPOSAL_TRAY_ACTION_IDS.has(id)) return layer === "proposal-tray";
   if (layer === "proposal-tray") return TRAY_SELECTION_ACTION_IDS.has(id);
   return layer === "board" || layer === "quick-add";

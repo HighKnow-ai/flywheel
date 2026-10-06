@@ -636,6 +636,19 @@ export function BoardView({
           setLaunchSheetTaskId(selectedId);
         }
         break;
+      case "open-review": {
+        // D-133: one keystroke, scope from the row kind. An issue carries no acceptance criteria
+        // (D-05/D-06/D-07), so it opens nothing.
+        const kind = selectedItem?.kind ?? "task";
+        if (selectedId && selectedItem && (kind === "task" || kind === "epic")) {
+          setReviewSurface({
+            scope: kind,
+            itemId: selectedId,
+            label: `${selectedItem.key} ${selectedItem.title}`,
+          });
+        }
+        break;
+      }
       case "open-live-session":
         // Same task-only refusal as `start-work` above (D-37). Resolution of "which run is
         // active" is the ONE shared `openLiveSessionForTask` entry point (`useBoardQuery.ts`) —

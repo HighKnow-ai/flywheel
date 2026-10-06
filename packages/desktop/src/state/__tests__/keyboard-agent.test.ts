@@ -59,7 +59,9 @@ describe("board-list additions", () => {
           b.key.length === 1 &&
           !b.meta &&
           b.id !== "start-work" &&
-          b.id !== "open-live-session",
+          b.id !== "open-live-session" &&
+          // Phase 8 (08-04, D-133): `v` is the one addition since; it is not a Phase 1 letter.
+          b.id !== "open-review",
       ).map((b) => b.key as string),
     );
     expect(existingLetters.has("w")).toBe(false);
