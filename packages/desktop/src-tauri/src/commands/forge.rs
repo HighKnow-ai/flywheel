@@ -262,6 +262,160 @@ pub fn forge_open_request(
     }
 }
 
+/// The named reason an epic's integration branch cannot be proposed yet, as the renderer's string
+/// (`flywheel_core::forge::EpicRequestBlocker`'s four variants, camelCase like every other tag).
+fn blocker_name(blocker: flywheel_core::forge::EpicRequestBlocker) -> &'static str {
+    use flywheel_core::forge::EpicRequestBlocker::*;
+    match blocker {
+        NoIntegrationBranch => "noIntegrationBranch",
+        NothingToPropose => "nothingToPropose",
+        NoForgeConfigured => "noForgeConfigured",
+        NoRemote => "noRemote",
+    }
+}
+
+/// `"<category>:<cli>"` for a forge failure, the same strings the task commands above produce. Raw
+/// CLI output goes to the error log and never into the returned string (T-08-08-06).
+fn forge_error_code(err: flywheel_core::forge::ForgeError, what: &str, epic_id: &str) -> String {
+    use flywheel_core::forge::ForgeError::*;
+    match err {
+        CliNotInstalled { cli } => format!("cliNotInstalled:{cli}"),
+        CliNotAuthenticated { cli } => format!("cliNotAuthenticated:{cli}"),
+        CliFailed { cli, stderr } => {
+            eprintln!("forge CLI {cli} failed {what} for epic {epic_id}: {stderr}");
+            format!("cliFailed:{cli}")
+        }
+        MalformedJson { cli, detail } => {
+            eprintln!("forge CLI {cli} returned JSON this module could not read {what} for epic {epic_id}: {detail}");
+            format!("malformedJson:{cli}")
+        }
+    }
+}
+
+/// What an epic's request would say and whether it can be sent (REVW-05). `blocker` is one of
+/// `noIntegrationBranch`, `nothingToPropose`, `noForgeConfigured` or `noRemote`; it is a named
+/// category rather than an error because the sheet has to explain why the action is unavailable.
+/// `draft` is absent when there is no integration branch to draft from.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicRequestPreviewDto {
+    pub blocker: Option<String>,
+    pub draft: Option<RequestDraftDto>,
+}
+
+/// Read-only preview of the draft [`forge_open_epic_request`] would send. Accepts an epic id and
+/// nothing else — no title, body, branch or target — so a caller cannot influence the text beyond
+/// choosing which epic to preview.
+#[tauri::command(async)]
+pub fn forge_epic_request_draft(
+    state: State<AppState>,
+    epic_id: String,
+) -> Result<EpicRequestPreviewDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let blocker = flywheel_core::forge::epic_request_preconditions(&conn, &epic_id)
+        .map_err(|e| e.to_string())?;
+    let draft = if blocker == Some(flywheel_core::forge::EpicRequestBlocker::NoIntegrationBranch) {
+        None
+    } else {
+        Some(RequestDraftDto::from(
+            flywheel_core::forge::request_body::assemble_epic_request_draft(&conn, &epic_id)
+                .map_err(|e| e.to_string())?,
+        ))
+    };
+    drop(conn);
+    Ok(EpicRequestPreviewDto { blocker: blocker.map(|b| blocker_name(b).to_string()), draft })
+}
+
+/// What opening an epic's request did. A push that landed without a request is its own variant so
+/// it can never read as success. Neither failure variant carries CLI output: it is logged.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum EpicRequestOutcomeDto {
+    Opened { request: ForgeRequestDto },
+    AlreadyOpen { request: ForgeRequestDto },
+    PushRejected,
+    PushedButNotOpened { branch: String },
+}
+
+/// Open a pull/merge request for `epic_id`'s integration branch (REVW-05). Accepts an epic id and
+/// nothing else: it re-assembles the draft with the SAME function [`forge_epic_request_draft`]
+/// just previewed, so the published text is the previewed text by construction. A blocked epic is
+/// refused by name before anything is pushed. Writes no status column and registers no poll — no
+/// epic-request observer exists, so the request ships read-only.
+///
+/// The mutex is released once, before the push and the forge call, so a slow remote cannot block
+/// any other command.
+#[tauri::command(async)]
+pub fn forge_open_epic_request(
+    state: State<AppState>,
+    app: AppHandle,
+    epic_id: String,
+) -> Result<EpicRequestOutcomeDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+
+    if let Some(blocker) = flywheel_core::forge::epic_request_preconditions(&conn, &epic_id)
+        .map_err(|e| e.to_string())?
+    {
+        return Err(format!("blocked:{}", blocker_name(blocker)));
+    }
+    let draft = flywheel_core::forge::request_body::assemble_epic_request_draft(&conn, &epic_id)
+        .map_err(|e| e.to_string())?;
+    let project_id: String = conn
+        .query_row("SELECT project_id FROM epics WHERE id = ?1", params![epic_id], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    let (forge, repo_path) =
+        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| e.to_string())?;
+    drop(conn);
+
+    use flywheel_core::forge::EpicRequestOutcome;
+    let outcome = flywheel_core::forge::open_epic_request_at(forge, &repo_path, &draft)
+        .map_err(|e| forge_error_code(e, "opening a request", &epic_id))?;
+    let dto = match outcome {
+        EpicRequestOutcome::Opened(request) => EpicRequestOutcomeDto::Opened { request: ForgeRequestDto::from(&request) },
+        EpicRequestOutcome::AlreadyOpen(request) => {
+            EpicRequestOutcomeDto::AlreadyOpen { request: ForgeRequestDto::from(&request) }
+        }
+        EpicRequestOutcome::PushRejected { detail } => {
+            eprintln!("push of epic {epic_id}'s integration branch was rejected: {detail}");
+            return Ok(EpicRequestOutcomeDto::PushRejected);
+        }
+        EpicRequestOutcome::PushedButNotOpened { branch, detail } => {
+            eprintln!("epic {epic_id}: {branch} is on the remote but no request was opened: {detail}");
+            EpicRequestOutcomeDto::PushedButNotOpened { branch }
+        }
+    };
+    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id })).ok();
+    Ok(dto)
+}
+
+/// The existing request for `epic_id`'s integration branch, read live from the forge (the same
+/// read the task section uses, a new caller rather than a new way of calling the forge), or `None`
+/// when there is no branch, no forge or no request. Read-only; no lock is held across the CLI.
+#[tauri::command(async)]
+pub fn forge_request_for_epic(
+    state: State<AppState>,
+    epic_id: String,
+) -> Result<Option<ForgeRequestDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let (project_id, branch): (String, Option<String>) = conn
+        .query_row(
+            "SELECT project_id, integration_branch FROM epics WHERE id = ?1",
+            params![epic_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    let Some(branch) = branch else {
+        return Ok(None);
+    };
+    let (forge, repo_path) =
+        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| e.to_string())?;
+    drop(conn);
+
+    flywheel_core::forge::request_for_branch_at(forge, &repo_path, &branch)
+        .map(|found| found.as_ref().map(ForgeRequestDto::from))
+        .map_err(|e| forge_error_code(e, "reading the request", &epic_id))
+}
+
 /// The board's bounded, log-only CI-failure/unmet-criteria rollup for one project (D-124, D-123,
 /// T-07-08-04) — mirrors `flywheel_core::query::forge::ForgeFlag` field-for-field.
 #[derive(Debug, Clone, Serialize)]

@@ -1288,6 +1288,45 @@ export async function forgeOpenRequest(taskId: string): Promise<ForgeRequestDto>
   return invokeCommand<ForgeRequestDto>("forge_open_request", { taskId });
 }
 
+/** Why an epic's integration branch cannot be proposed yet (Phase 8 plan 08-08, REVW-05) — mirrors
+ * `commands::forge::blocker_name`. */
+export type EpicRequestBlockerDto = "noIntegrationBranch" | "nothingToPropose" | "noForgeConfigured" | "noRemote";
+
+/** `blocker` is why the action is unavailable, if it is; `draft` is absent when there is no
+ * integration branch to draft from. Mirrors `commands::forge::EpicRequestPreviewDto`. */
+export interface EpicRequestPreviewDto {
+  blocker: EpicRequestBlockerDto | null;
+  draft: RequestDraftDto | null;
+}
+
+/** What opening an epic's request did — mirrors `commands::forge::EpicRequestOutcomeDto`. A push that
+ * landed without a request is its own variant; neither failure carries CLI output. */
+export type EpicRequestOutcomeDto =
+  | { kind: "opened"; request: ForgeRequestDto }
+  | { kind: "alreadyOpen"; request: ForgeRequestDto }
+  | { kind: "pushRejected" }
+  | { kind: "pushedButNotOpened"; branch: string };
+
+/** `epicId`'s deterministic request draft and the named blocker, if any. Read-only. Takes an epic id
+ * alone, like its task sibling. Thin wrapper over `forge_epic_request_draft`. */
+export async function forgeEpicRequestDraft(epicId: string): Promise<EpicRequestPreviewDto> {
+  return invokeCommand<EpicRequestPreviewDto>("forge_epic_request_draft", { epicId });
+}
+
+/** Propose `epicId`'s integration branch to the forge. An epic id alone: the body is assembled by the
+ * same core function that produced the preview. A rejection's message is `"blocked:<blocker>"` or one
+ * of the `"<category>:<cli>"` strings `forgeOpenRequest` documents. Thin wrapper over
+ * `forge_open_epic_request`. */
+export async function forgeOpenEpicRequest(epicId: string): Promise<EpicRequestOutcomeDto> {
+  return invokeCommand<EpicRequestOutcomeDto>("forge_open_epic_request", { epicId });
+}
+
+/** The existing request for the epic's integration branch, read live, or `null`. Read-only. Thin
+ * wrapper over `forge_request_for_epic`. */
+export async function forgeRequestForEpic(epicId: string): Promise<ForgeRequestDto | null> {
+  return invokeCommand<ForgeRequestDto | null>("forge_request_for_epic", { epicId });
+}
+
 /** One changed file in a review (Phase 8 plan 08-01) — mirrors `commands::review::ReviewFileDto`.
  * `status` is git's leading letter (`M`/`A`/`D`/`R`/`C`/`T`); a binary file carries no counts. */
 export interface ReviewFileDto {
