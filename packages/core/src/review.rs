@@ -13,12 +13,13 @@
 //!
 //! Every git read routes through `crate::git`; this module is sync throughout.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
+use crate::domain::acceptance_criterion::{row_to_anchor, row_to_criterion, AcceptanceCriterion, CriterionAnchor};
 use crate::git;
 
 /// Which kind of board item a review is over.
@@ -180,4 +181,143 @@ pub fn review_file_patch(
     old_path: Option<&str>,
 ) -> anyhow::Result<Option<String>> {
     patch_for_target(&resolve_review_target(conn, scope, item_id)?, path, old_path)
+}
+
+/// Whether the code a criterion was checked against has moved since (D-141). A reading, never a
+/// verdict on the user's mark: nothing here unchecks anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnchorStaleness {
+    /// No commit touched the anchored path since the recorded sha.
+    Untouched,
+    /// `commits` commits touched the anchored path since the recorded sha.
+    Changed { commits: u32 },
+    /// The path is gone at head, or was renamed away since the recorded sha.
+    MovedOrChanged,
+    /// The recorded sha (or the head ref) no longer resolves — never read as untouched.
+    Unknown,
+}
+
+/// Derive an anchor's staleness from git. Derived on every read and stored nowhere (D-75).
+///
+/// Order matters. A renamed file has no later commits on its OLD path, so a count-only test would
+/// report it untouched (research Pitfall 9); the existence and rename-source checks therefore run
+/// before the commit count. An unresolvable sha is `Unknown`, checked first.
+pub fn anchor_staleness(
+    repo_path: &Path,
+    head: &str,
+    anchor_sha: &str,
+    anchor_path: &str,
+) -> anyhow::Result<AnchorStaleness> {
+    // `^{commit}` forces an object lookup: a bare full-length hex sha verifies without existing.
+    let sha_ok = git::rev_parse_verify(repo_path, &format!("{anchor_sha}^{{commit}}"))?;
+    if !sha_ok || !git::rev_parse_verify(repo_path, &format!("{head}^{{commit}}"))? {
+        return Ok(AnchorStaleness::Unknown);
+    }
+
+    let exists = git::git_output_at(repo_path, &["cat-file", "-e", &format!("{head}:{anchor_path}")])?;
+    if !exists.status.success() {
+        return Ok(AnchorStaleness::MovedOrChanged);
+    }
+
+    let range = format!("{anchor_sha}..{head}");
+    let names = git::git_at(repo_path, &["diff", "-z", "--name-status", "-M", &range])?;
+    let names = String::from_utf8_lossy(&names.stdout).into_owned();
+    let mut fields = names.split('\0').filter(|f| !f.is_empty());
+    while let Some(token) = fields.next() {
+        if token.starts_with('R') || token.starts_with('C') {
+            let old = fields.next();
+            fields.next(); // the new path
+            if token.starts_with('R') && old == Some(anchor_path) {
+                return Ok(AnchorStaleness::MovedOrChanged);
+            }
+        } else {
+            fields.next(); // the path
+        }
+    }
+
+    let count = git::git_at(
+        repo_path,
+        &["--literal-pathspecs", "rev-list", "--count", &range, "--", anchor_path],
+    )?;
+    let commits: u32 = String::from_utf8_lossy(&count.stdout).trim().parse().unwrap_or(0);
+    Ok(if commits > 0 { AnchorStaleness::Changed { commits } } else { AnchorStaleness::Untouched })
+}
+
+/// [`anchor_staleness`] for an anchor against an already-resolved target. `None` when the target
+/// did not resolve (no branch to measure against) or git failed — the criteria stay readable.
+pub fn staleness_for_target(target: &ReviewTarget, anchor: &CriterionAnchor) -> Option<AnchorStaleness> {
+    match target {
+        ReviewTarget::Resolved { repo_path, head, .. } => {
+            anchor_staleness(repo_path, head, &anchor.sha, &anchor.path).ok()
+        }
+        _ => None,
+    }
+}
+
+/// One current-revision criterion with its evidence and how that evidence has aged.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CriterionReviewState {
+    pub criterion: AcceptanceCriterion,
+    pub anchor: Option<CriterionAnchor>,
+    pub staleness: Option<AnchorStaleness>,
+}
+
+/// The database half of [`review_criteria_state`]: the item's current-revision criteria with their
+/// anchors (absent = no evidence), and the resolved target. Takes the connection so a caller can
+/// run this under the database lock, release it, then call [`with_staleness`] lock-free.
+pub fn criteria_with_anchors(
+    conn: &Connection,
+    scope: ReviewScope,
+    item_id: &str,
+) -> anyhow::Result<(ReviewTarget, Vec<(AcceptanceCriterion, Option<CriterionAnchor>)>)> {
+    let target = resolve_review_target(conn, scope, item_id)?;
+    let parent_type = match scope {
+        ReviewScope::Task => "task",
+        ReviewScope::Epic => "epic",
+    };
+    let mut stmt = conn.prepare(
+        "SELECT ac.id, ac.parent_type, ac.parent_id, ac.statement, ac.verification_hint, ac.checked,
+                ac.rank, ac.created_at, ac.updated_at, ac.revision, ac.revision_of, ac.superseded_at,
+                a.criterion_id, a.path, a.side, a.line_start, a.line_end, a.sha, a.created_at
+         FROM acceptance_criteria ac
+         LEFT JOIN criterion_anchors a ON a.criterion_id = ac.id
+         WHERE ac.parent_type = ?1 AND ac.parent_id = ?2 AND ac.superseded_at IS NULL
+         ORDER BY ac.rank ASC, ac.id ASC",
+    )?;
+    let rows = stmt
+        .query_map(params![parent_type, item_id], |row| {
+            let criterion = row_to_criterion(row)?;
+            let anchor = match row.get::<_, Option<String>>(12)? {
+                Some(_) => Some(row_to_anchor(row, 12)?),
+                None => None,
+            };
+            Ok((criterion, anchor))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read criteria with their anchors")?;
+    Ok((target, rows))
+}
+
+/// The git half of [`review_criteria_state`]: derive each anchor's staleness against `target`.
+pub fn with_staleness(
+    target: &ReviewTarget,
+    rows: Vec<(AcceptanceCriterion, Option<CriterionAnchor>)>,
+) -> Vec<CriterionReviewState> {
+    rows.into_iter()
+        .map(|(criterion, anchor)| {
+            let staleness = anchor.as_ref().and_then(|a| staleness_for_target(target, a));
+            CriterionReviewState { criterion, anchor, staleness }
+        })
+        .collect()
+}
+
+/// Every current criterion of the scope's item, with its anchor and a staleness verdict re-derived
+/// from git on this call. An unresolved target yields `staleness: None`, not an error.
+pub fn review_criteria_state(
+    conn: &Connection,
+    scope: ReviewScope,
+    item_id: &str,
+) -> anyhow::Result<Vec<CriterionReviewState>> {
+    let (target, rows) = criteria_with_anchors(conn, scope, item_id)?;
+    Ok(with_staleness(&target, rows))
 }

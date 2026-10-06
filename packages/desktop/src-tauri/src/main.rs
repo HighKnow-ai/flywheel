@@ -215,6 +215,8 @@ fn main() {
             commands::forge::forge_open_request,
             commands::review::review_files,
             commands::review::review_file_patch,
+            commands::review::review_criteria_state,
+            commands::review::criterion_check_with_anchor,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

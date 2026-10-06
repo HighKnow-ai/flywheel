@@ -200,3 +200,120 @@ fn every_write_appends_exactly_one_toggled_event_carrying_the_anchor() {
     toggle_criterion(&mut conn, &actor, &cid).unwrap();
     assert_eq!(events(&conn).len(), 2, "the uncheck appends exactly one more");
 }
+
+// ---- staleness (D-141, Pitfall 9) -------------------------------------------------------------
+
+use core::review::{anchor_staleness, review_criteria_state, AnchorStaleness, ReviewScope};
+use std::path::Path;
+use std::process::Command;
+
+fn git(repo: &Path, args: &[&str]) -> String {
+    let out = Command::new("git").arg("-C").arg(repo).args(args).output().expect("spawn git");
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// A repo with the review fixture; `flywheel/task-rich` is checked out so tests can commit on it.
+fn rich_repo() -> (tempfile::TempDir, String) {
+    let (_conn, _actor, _project, repo) = common::seeded_git_project();
+    let b = common::review_branches(repo.path());
+    git(repo.path(), &["checkout", b.task_rich]);
+    let tip = git(repo.path(), &["rev-parse", "HEAD"]);
+    (repo, tip)
+}
+
+fn commit_file(repo: &Path, name: &str, body: &str) {
+    std::fs::write(repo.join(name), body).unwrap();
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-q", "-m", "more work"]);
+}
+
+const HEAD: &str = "flywheel/task-rich";
+
+#[test]
+fn untouched_when_only_other_files_changed() {
+    let (repo, sha) = rich_repo();
+    assert_eq!(anchor_staleness(repo.path(), HEAD, &sha, "keep.txt").unwrap(), AnchorStaleness::Untouched);
+    commit_file(repo.path(), "unrelated.txt", "x\n");
+    assert_eq!(anchor_staleness(repo.path(), HEAD, &sha, "keep.txt").unwrap(), AnchorStaleness::Untouched);
+}
+
+#[test]
+fn changed_carries_the_commit_count() {
+    let (repo, sha) = rich_repo();
+    commit_file(repo.path(), "keep.txt", "edited once\n");
+    commit_file(repo.path(), "keep.txt", "edited twice\n");
+    assert_eq!(
+        anchor_staleness(repo.path(), HEAD, &sha, "keep.txt").unwrap(),
+        AnchorStaleness::Changed { commits: 2 }
+    );
+}
+
+#[test]
+fn an_unresolvable_sha_is_unknown_never_untouched() {
+    let (repo, _tip) = rich_repo();
+    git(repo.path(), &["checkout", "-q", "-b", "throwaway"]);
+    commit_file(repo.path(), "scratch.txt", "gone soon\n");
+    let doomed = git(repo.path(), &["rev-parse", "HEAD"]);
+    git(repo.path(), &["checkout", "-q", HEAD]);
+    git(repo.path(), &["branch", "-D", "throwaway"]);
+    git(repo.path(), &["reflog", "expire", "--expire=now", "--all"]);
+    git(repo.path(), &["gc", "-q", "--prune=now"]);
+    assert_eq!(anchor_staleness(repo.path(), HEAD, &doomed, "keep.txt").unwrap(), AnchorStaleness::Unknown);
+}
+
+#[test]
+fn a_path_absent_at_head_is_moved_or_changed() {
+    let (repo, sha) = rich_repo();
+    assert_eq!(
+        anchor_staleness(repo.path(), HEAD, &sha, "never_existed.txt").unwrap(),
+        AnchorStaleness::MovedOrChanged
+    );
+}
+
+#[test]
+fn a_rename_since_the_sha_is_moved_or_changed_not_untouched() {
+    let (repo, sha) = rich_repo();
+    git(repo.path(), &["mv", "new_name.txt", "moved.txt"]);
+    git(repo.path(), &["commit", "-q", "-m", "rename"]);
+    // No commit touches the OLD path after the rename in a way a path-limited count would see as
+    // "still there": the count alone cannot be trusted for this case.
+    assert_eq!(
+        anchor_staleness(repo.path(), HEAD, &sha, "new_name.txt").unwrap(),
+        AnchorStaleness::MovedOrChanged
+    );
+}
+
+#[test]
+fn criteria_state_lists_every_current_criterion_with_a_derived_verdict() {
+    let (mut conn, actor, project, repo) = common::seeded_git_project();
+    let b = common::review_branches(repo.path());
+    let sha = git(repo.path(), &["rev-parse", b.task_rich]);
+    let task = create_task(&mut conn, &project.id, &actor, "T", None).unwrap();
+    let c1 = create_criterion(&mut conn, &project.id, &actor, "task", &task.id, "One", None).unwrap();
+    create_criterion(&mut conn, &project.id, &actor, "task", &task.id, "Two", None).unwrap();
+    check_criterion_with_anchor(&mut conn, &actor, &c1.id, Some(input("keep.txt", 3, 3)), &sha).unwrap();
+
+    // No worktree row: criteria still readable, no verdict, no error.
+    let none = review_criteria_state(&conn, ReviewScope::Task, &task.id).unwrap();
+    assert_eq!(none.len(), 2);
+    assert!(none.iter().all(|e| e.staleness.is_none()));
+    assert!(none[0].anchor.is_some() && none[1].anchor.is_none());
+
+    conn.execute(
+        "INSERT INTO worktrees (id, task_id, project_id, path, branch, base_branch, status, created_by, created_at)
+         VALUES (?1, ?2, ?3, '/nonexistent/worktree', ?4, 'main', 'active', ?5, '2026-01-01T00:00:00.000Z')",
+        params![core::ids::new_id(), task.id, project.id, b.task_rich, actor],
+    )
+    .unwrap();
+    let state = review_criteria_state(&conn, ReviewScope::Task, &task.id).unwrap();
+    assert_eq!(state[0].staleness, Some(AnchorStaleness::Untouched));
+    assert_eq!(state[1].staleness, None, "no anchor, no verdict");
+
+    // The mark stands whatever git says (D-141).
+    git(repo.path(), &["checkout", "-q", b.task_rich]);
+    commit_file(repo.path(), "keep.txt", "changed after the check\n");
+    let state = review_criteria_state(&conn, ReviewScope::Task, &task.id).unwrap();
+    assert_eq!(state[0].staleness, Some(AnchorStaleness::Changed { commits: 1 }));
+    assert!(state[0].criterion.checked, "staleness never unchecks");
+}

@@ -1333,3 +1333,58 @@ export async function reviewFilePatch(
 ): Promise<string | null> {
   return invokeCommand<string | null>("review_file_patch", { scope, itemId, path, oldPath });
 }
+
+/** The evidence behind a checked criterion (Phase 8 plan 08-02, REVW-03) — mirrors
+ * `commands::review::AnchorDto`. `side` says which side of the diff the line numbers index. */
+export interface AnchorDto {
+  path: string;
+  side: "old" | "new";
+  lineStart: number;
+  lineEnd: number;
+  sha: string;
+}
+
+/** How an anchor has aged, derived from git on every read (D-141) — mirrors `StalenessDto`.
+ * `commits` is set only for `changed`. `unknown` is never to be shown as current. */
+export interface StalenessDto {
+  state: "untouched" | "changed" | "movedOrChanged" | "unknown";
+  commits: number | null;
+}
+
+/** One current criterion with its evidence — mirrors `commands::review::ReviewCriterionStateDto`.
+ * `anchor === null` is the no-evidence state; `staleness === null` means no anchor or no branch. */
+export interface ReviewCriterionStateDto {
+  criterion: AcceptanceCriterionDto;
+  anchor: AnchorDto | null;
+  staleness: StalenessDto | null;
+}
+
+/** Every current criterion of a task or epic with its anchor and staleness. Read-only. Thin
+ * wrapper over `review_criteria_state`. */
+export async function reviewCriteriaState(
+  scope: ReviewScopeDto,
+  itemId: string,
+): Promise<ReviewCriterionStateDto[]> {
+  return invokeCommand<ReviewCriterionStateDto[]>("review_criteria_state", { scope, itemId });
+}
+
+/** Check a criterion, optionally against a line range. There is no `sha` here on purpose: the core
+ * derives the one it stores, so the renderer cannot claim a commit. Supply all four anchor fields
+ * or none. Thin wrapper over `criterion_check_with_anchor`. */
+export async function criterionCheckWithAnchor(args: {
+  scope: ReviewScopeDto;
+  itemId: string;
+  criterionId: string;
+  anchor?: { path: string; side: "old" | "new"; lineStart: number; lineEnd: number };
+}): Promise<void> {
+  const { scope, itemId, criterionId, anchor } = args;
+  return invokeCommand<void>("criterion_check_with_anchor", {
+    scope,
+    itemId,
+    criterionId,
+    path: anchor?.path ?? null,
+    side: anchor?.side ?? null,
+    lineStart: anchor?.lineStart ?? null,
+    lineEnd: anchor?.lineEnd ?? null,
+  });
+}
