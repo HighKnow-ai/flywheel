@@ -1,0 +1,153 @@
+/**
+ * Behavior under test (08-10-PLAN.md, CR-03, REVW-04, REVW-05): a keyboard user can confirm a merge
+ * and open an epic request with Enter. `useRegionBindings` listens on `window`; before the fix it
+ * called `preventDefault` on Enter and Space for any non-text target, so a focused button's
+ * activation was cancelled and no keyboard path to either destructive confirmation existed.
+ *
+ * jsdom does not synthesize a click from Enter on a focused button, and `user-event` is not a
+ * dependency. `pressKey` therefore models the WebView rule locally: dispatch the keydown, and click
+ * the element only when nothing cancelled it. That final condition is exactly what the bug violated,
+ * so these assertions are behavioural (the mutation ran) rather than a source check.
+ *
+ * The adapter mock lists ONLY what the surface and the sheets may call; `invokeCommand` rejects any
+ * unknown command, so a status write fails structurally (D-122).
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useRegionBindings } from "../../state/keyboard";
+import { MergeConfirmSheet } from "../MergeConfirmSheet";
+import { EpicRequestSheet } from "../EpicRequestSheet";
+import type { EpicRequestPreviewDto, MergePreviewDto } from "../../adapters/tauri";
+
+const mergeMock = vi.fn();
+const openMock = vi.fn();
+
+vi.mock("../../adapters/tauri", () => ({
+  invokeCommand: (command: string) => {
+    if (command === "criterion_list") return Promise.resolve([]);
+    if (command === "review_criteria_state") return Promise.resolve([]);
+    if (command === "criterion_revisions") return Promise.resolve([]);
+    return Promise.reject(new Error(`unexpected command ${command}`));
+  },
+  reviewCriteriaState: () => Promise.resolve([]),
+  reviewEpicTaskRollup: () => Promise.resolve([]),
+  subscribeBoardChanged: () => Promise.resolve(() => {}),
+  gitFacts: () => Promise.resolve({ uncommitted: [] }),
+  reviewMergePrecheck: () => Promise.resolve(readyPrecheck),
+  reviewMergeTask: (...args: unknown[]) => mergeMock(...args),
+  forgeEpicRequestDraft: () => Promise.resolve(readyDraft),
+  forgeOpenEpicRequest: (...args: unknown[]) => openMock(...args),
+  forgeRequestForEpic: () => Promise.resolve(null),
+}));
+
+const readyPrecheck: MergePreviewDto = {
+  state: "ready",
+  epicKey: "FLY-7",
+  sourceBranch: "flywheel/fly-9-add-retry",
+  targetBranch: "flywheel/fly-7-integration",
+  commitCount: 3,
+  fileCount: 2,
+  conflictedFiles: [],
+};
+
+const readyDraft: EpicRequestPreviewDto = {
+  blocker: null,
+  draft: { title: "FLY-7 The epic", body: "## Tasks", headBranch: "flywheel/epic-7", targetBranch: "main" },
+};
+
+/** Focus `el`, dispatch a keydown on it, and click it only if nothing cancelled the keydown. */
+function pressKey(el: HTMLElement, key: string): KeyboardEvent {
+  el.focus();
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+  el.dispatchEvent(event);
+  if (!event.defaultPrevented) el.click();
+  return event;
+}
+
+const expandSpy = vi.fn();
+const buttonClick = vi.fn();
+const stableHandlers = { "expand-file": expandSpy };
+
+/** The exact listener under test, live without mounting ReviewSurface or CriteriaRail. */
+function Harness({ children }: { children?: React.ReactNode }) {
+  useRegionBindings("review-surface", "review-surface", stableHandlers);
+  return <>{children}</>;
+}
+
+function withClient(node: React.ReactNode) {
+  return <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>;
+}
+
+beforeEach(() => {
+  expandSpy.mockReset();
+  buttonClick.mockReset();
+  mergeMock.mockReset().mockResolvedValue({ kind: "alreadyIntegrated" });
+  openMock.mockReset().mockResolvedValue({ kind: "pushedNoRequest" });
+});
+
+afterEach(cleanup);
+
+describe("Enter and Space outside an interactive element", () => {
+  it("Enter on the body still resolves expand-file and is cancelled", () => {
+    render(<Harness />);
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    document.body.dispatchEvent(event);
+    expect(expandSpy).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("Space on the body still resolves expand-file and is cancelled", () => {
+    render(<Harness />);
+    const event = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+    document.body.dispatchEvent(event);
+    expect(expandSpy).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+describe("Enter on a focused interactive element", () => {
+  it("leaves a plain button's keydown uncancelled, does not fire expand-file, and lets it activate", () => {
+    render(
+      <Harness>
+        <button type="button" onClick={buttonClick}>
+          Go
+        </button>
+      </Harness>,
+    );
+    const event = pressKey(screen.getByRole("button", { name: "Go" }), "Enter");
+    expect(event.defaultPrevented).toBe(false);
+    expect(expandSpy).not.toHaveBeenCalled();
+    expect(buttonClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the Merge confirm sheet's Merge button run the merge with the task id alone", async () => {
+    render(
+      withClient(
+        <Harness>
+          <MergeConfirmSheet taskId="t1" onClose={() => {}} />
+        </Harness>,
+      ),
+    );
+    const merge = await screen.findByRole("button", { name: "Merge" });
+    await waitFor(() => expect((merge as HTMLButtonElement).disabled).toBe(false));
+    pressKey(merge, "Enter");
+    await waitFor(() => expect(mergeMock).toHaveBeenCalledTimes(1));
+    expect(mergeMock.mock.calls[0]).toEqual(["t1"]);
+  });
+
+  it("lets the Epic request sheet's Open request button open the request with the epic id alone", async () => {
+    render(
+      withClient(
+        <Harness>
+          <EpicRequestSheet epicId="e1" onClose={() => {}} />
+        </Harness>,
+      ),
+    );
+    const open = await screen.findByRole("button", { name: "Open request" });
+    await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
+    pressKey(open, "Enter");
+    await waitFor(() => expect(openMock).toHaveBeenCalledTimes(1));
+    expect(openMock.mock.calls[0]).toEqual(["e1"]);
+  });
+});

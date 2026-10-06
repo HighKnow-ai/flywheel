@@ -302,6 +302,16 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
 }
 
+/** True when `target` sits inside a button, anchor or `role=button` element. `isTypingTarget` guards
+ * *text entry*; this guards *activation*: Enter and Space belong to a focused interactive element
+ * (the browser clicks it on keydown's default action), so a window-level binding must not claim
+ * them — cancelling the keydown here is what made a confirm sheet's button unreachable by keyboard
+ * (CR-03). Used only by `useRegionBindings`; `resolveBinding` stays unchanged because BoardView's
+ * element-level handler wants Enter on its focused list container. */
+function isActivationTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest("button, a, [role='button']") !== null;
+}
+
 function keyMatches(
   event: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey">,
   binding: Binding,
@@ -751,6 +761,8 @@ export function useRegionBindings(
     function onKeyDown(event: KeyboardEvent) {
       const binding = resolveBinding(event, region);
       if (!binding) return;
+      // Before preventDefault: a focused button keeps its own Enter/Space activation (CR-03).
+      if ((event.key === "Enter" || event.key === " ") && isActivationTarget(event.target)) return;
       if (!bindingAllowedInLayer(binding.id, layer)) return;
       const handler = handlers[binding.id];
       if (!handler) return;
