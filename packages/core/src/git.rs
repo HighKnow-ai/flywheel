@@ -43,6 +43,9 @@ pub fn worktree_root_from_env() -> std::path::PathBuf {
 fn spawn_git(repo_path: &Path, args: &[&str]) -> anyhow::Result<Output> {
     let mut cmd = Command::new("git");
     cmd.arg("-C").arg(repo_path).args(args);
+    // A credential prompt on a terminal device would block until the timeout kill; failing fast
+    // is benign for every other call (none of them authenticates).
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
     crate::proc::output_with_timeout(
         &mut cmd,
         None,
@@ -434,6 +437,162 @@ pub fn worktree_remove(repo_path: &Path, worktree_path: &Path) -> anyhow::Result
 
     let worktree_path_str = worktree_path.to_string_lossy().into_owned();
     git_at(repo_path, &["worktree", "remove", &worktree_path_str])
+}
+
+/// The verdict of a merge dry run (plan 08-03, REVW-04).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum MergePrecheck {
+    Clean,
+    /// The conflicted paths, sorted and deduplicated.
+    Conflicts(Vec<String>),
+}
+
+/// Would merging `source` into `target` conflict? Answered without writing anything.
+///
+/// Three verified facts. `git merge-tree --write-tree` writes objects only: it mutates no ref, no
+/// index and no working tree, so this is safe to run against a repository an agent is using.
+/// Without `--no-messages` its informational text also lands on stdout after a blank line, which
+/// would pollute the path list — hence that flag. And it needs git 2.38, which
+/// [`MIN_SUPPORTED_GIT`] already clears.
+///
+/// Exit 0 is clean, exit 1 with a tree oid on stdout is a conflict (then the conflicted paths, NUL
+/// separated). Anything else is a real error, never confused with a conflict: a corrupt repository
+/// exits 128, and an unknown ref exits 1 too (verified) but with an empty stdout.
+pub fn merge_tree_check(repo_path: &Path, target: &str, source: &str) -> anyhow::Result<MergePrecheck> {
+    let output = git_output_at(
+        repo_path,
+        &["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", target, source],
+    )?;
+    match output.status.code() {
+        Some(0) => Ok(MergePrecheck::Clean),
+        Some(1) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+            let mut fields = stdout.split('\0');
+            // A real conflict starts with the written tree oid. An unknown ref ALSO exits 1 but
+            // prints nothing on stdout, so the oid is what tells the two apart.
+            let oid = fields.next().unwrap_or("");
+            if oid.len() < 40 || !oid.bytes().all(|b| b.is_ascii_hexdigit()) {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                bail!("merge dry run of {source:?} into {target:?} failed (no conflict result): {stderr}");
+            }
+            let mut files: Vec<String> =
+                fields.take_while(|f| !f.is_empty()).map(str::to_string).collect();
+            files.sort();
+            files.dedup();
+            Ok(MergePrecheck::Conflicts(files))
+        }
+        code => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("merge dry run of {source:?} into {target:?} failed (exit {code:?}): {stderr}")
+        }
+    }
+}
+
+/// Merge `source` into the branch checked out in `worktree` with `--no-ff`, so every integration
+/// has a durable merge commit. Returns whether a commit was created (`false` = the target already
+/// contained `source`).
+///
+/// Any failure — a conflict, a hook refusal, a transport error — runs
+/// [`merge_abort_if_in_progress`] and returns an error saying the merge was rolled back (or, if
+/// the tree cannot be proven clean afterwards, saying that instead). The message is one argv
+/// element: there is no shell here. The commit hooks are deliberately left to run.
+pub fn merge_no_ff(worktree: &Path, source: &str, message: &str) -> anyhow::Result<bool> {
+    let outcome = git_output_at(worktree, &["merge", "--no-ff", "--no-stat", "-m", message, source]);
+    let failure = match &outcome {
+        Ok(out) if out.status.success() => None,
+        Ok(out) => {
+            eprintln!(
+                "merge of {source:?} in {worktree:?} failed: {}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            Some(format!("git exited {:?}", out.status.code()))
+        }
+        Err(e) => Some(format!("{e:#}")),
+    };
+    if let Some(reason) = failure {
+        let err = match merge_abort_if_in_progress(worktree) {
+            Ok(_) => anyhow!(
+                "merge of {source:?} failed and was rolled back ({reason}); {worktree:?} was re-checked clean"
+            ),
+            Err(unclean) => anyhow!(
+                "merge of {source:?} failed ({reason}) and the rollback could not be verified: {unclean:#}"
+            ),
+        };
+        return Err(err);
+    }
+    let out = outcome?;
+    Ok(!String::from_utf8_lossy(&out.stdout).contains("Already up to date"))
+}
+
+/// Abort a merge left in progress in `worktree` (a crash, a hook refusal), then PROVE the tree is
+/// clean by re-reading porcelain. Returns whether it aborted anything; a tree that is still dirty
+/// afterwards is an error naming the path — a merge path that cannot show a clean tree must say
+/// so rather than report success or report that nothing happened.
+pub fn merge_abort_if_in_progress(worktree: &Path) -> anyhow::Result<bool> {
+    let in_progress = rev_parse_verify(worktree, "MERGE_HEAD")?;
+    if in_progress {
+        git_at(worktree, &["merge", "--abort"])?;
+    }
+    let dirty = crate::domain::worktree::porcelain_entries(worktree)?;
+    if !dirty.is_empty() {
+        bail!(
+            "worktree {worktree:?} is not clean after the merge was aborted ({} entries, first: {:?})",
+            dirty.len(),
+            dirty[0].path
+        );
+    }
+    Ok(in_progress)
+}
+
+/// Check out an already-existing `branch` into a new worktree at `worktree_path`. Copies
+/// [`worktree_add`]'s three refusals; [`worktree_add`] itself cannot be reused because it always
+/// creates a branch and refuses one that exists. Prunes first so a stale registration (directory
+/// deleted by hand) self-heals.
+pub fn worktree_add_existing(
+    repo_path: &Path,
+    worktree_path: &Path,
+    branch: &str,
+) -> anyhow::Result<Output> {
+    if repo_path.as_os_str().is_empty() {
+        bail!("worktree_add_existing refused: repo_path must not be empty");
+    }
+    if worktree_path == repo_path {
+        bail!("worktree_add_existing refused: worktree_path {worktree_path:?} equals repo_path");
+    }
+    let root = worktree_root_from_env();
+    if !worktree_path.starts_with(&root) {
+        bail!(
+            "worktree_add_existing refused: worktree_path {worktree_path:?} is not under the Flywheel worktree root {root:?}"
+        );
+    }
+    git_at(repo_path, &["worktree", "prune"])?;
+    let worktree_path_str = worktree_path.to_string_lossy().into_owned();
+    git_at(repo_path, &["worktree", "add", &worktree_path_str, branch])
+}
+
+/// A plain `git push <remote> <branch>`: nothing in this argv can rewrite or delete remote
+/// history, and a rejected non-fast-forward is surfaced, never retried harder. Raw stderr is
+/// logged and mapped to a named error rather than returned.
+pub fn push_branch(repo_path: &Path, remote: &str, branch: &str) -> anyhow::Result<()> {
+    let out = git_output_at(repo_path, &["push", remote, branch])?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    eprintln!("push of {branch:?} to {remote:?} failed: {stderr}");
+    let lower = stderr.to_lowercase();
+    if lower.contains("non-fast-forward") || lower.contains("fetch first") || lower.contains("[rejected]") {
+        bail!("push of {branch:?} to {remote:?} was rejected: the remote has commits this branch lacks");
+    }
+    if lower.contains("authentication")
+        || lower.contains("could not read username")
+        || lower.contains("permission denied")
+        || lower.contains("terminal prompts disabled")
+    {
+        bail!("push of {branch:?} to {remote:?} failed: authentication was refused");
+    }
+    bail!("push of {branch:?} to {remote:?} failed (exit {:?})", out.status.code())
 }
 
 /// The concrete git version plan 03-08's lock-contention reproduction
