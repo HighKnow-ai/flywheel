@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: Review And Merge Inside Flywheel
 status: executing
-stopped_at: Completed 08-05-PLAN.md
-last_updated: "2026-10-06T04:41:59.474Z"
+stopped_at: Completed 08-06-PLAN.md
+last_updated: "2026-10-06T04:53:14.578Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 08 execution started
-state_head: 19ce4a6813e876151fffd494917fa5ec48140d50
+state_head: f91cce109f703d0e1f21794371232b038fed942b
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 178
-  completed_plans: 175
+  completed_plans: 176
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08 (Review And Merge Inside Flywheel) — EXECUTING
-Plan: 6 of 8
+Plan: 7 of 8
 Status: Ready to execute
 Last activity: 2026-10-06 — Phase 08 execution started
 
@@ -236,6 +236,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08 P03 | 58 min | 3 tasks | 4 files |
 | Phase 08 P04 | 15 min | 2 tasks | 7 files |
 | Phase 08 P05 | 40 min | 2 tasks | 4 files |
+| Phase 08 P06 | 8 min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -543,6 +544,7 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-03: per-epic merge lock is a process-global set in core::merge; epic integration worktree has no table row
 - [Phase 08]: 08-04: review keystroke is v; open-review stays out of the review-surface action set; expand-file refused outside review layer
 - [Phase 08]: 08-05: only an Open/ChangesRequested request counts as already open; push failure and push-without-request are distinct outcomes; raw CLI stderr logged not returned
+- [Phase 08]: 08-06: check-with-selection is key c in the review-surface layer only; a mixed delete+insert selection anchors to the new side; the rail stops j/k/Space/Enter from reaching the surface's window listener
 
 ### Pending Todos
 
@@ -602,6 +604,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-06T04:41:59.310Z
-Stopped at: Completed 08-05-PLAN.md
+Last session: 2026-10-06T04:53:14.424Z
+Stopped at: Completed 08-06-PLAN.md
 Resume file: None
