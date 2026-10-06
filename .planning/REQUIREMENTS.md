@@ -130,7 +130,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [ ] **REVW-02**: User can review the accumulated diff of an epic's integration branch
 - [x] **REVW-03**: User can check off a task's acceptance criteria against the diff during review
 - [ ] **REVW-04**: User can merge a task branch into its epic integration branch from within the application, with conflicts surfaced clearly
-- [ ] **REVW-05**: User can open a pull request or merge request for an epic integration branch in one action
+- [x] **REVW-05**: User can open a pull request or merge request for an epic integration branch in one action
 
 ### Distribution
 
@@ -307,7 +307,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | REVW-02 | Phase 8 | Pending |
 | REVW-03 | Phase 8 | Complete |
 | REVW-04 | Phase 8 | Pending |
-| REVW-05 | Phase 8 | Pending |
+| REVW-05 | Phase 8 | Complete |
 | DIST-01 | Phase 11 | Pending |
 | DIST-02 | Phase 11 | Pending |
 | DIST-03 | Phase 11 | Pending |
