@@ -218,12 +218,14 @@ pub fn request_for_branch_at(
 /// connection-free as of plan 07-11: takes an already-resolved `forge`/`repo_path` pair, never a
 /// `Connection`, so this can be called with no lock held. Returns a no-forge-configured error for
 /// `Forge::Local` **without spawning any process at all**, and otherwise delegates to the matching
-/// adapter's own `create_request`. This is one of exactly two call sites of either adapter's
-/// `create_request` in the whole workspace — the other is the one Tauri command that calls this
-/// function — so an agent, a scheduler job or any MCP tool reaching `create_request` would have to
-/// add a THIRD (D-118 rejected the agent path explicitly; `forge_degrade.rs`'s and
+/// adapter's own `create_request`. This is called from three places in the workspace, each a
+/// deliberate, human-initiated action: the Tauri command that opens a task's request, and
+/// [`open_epic_request_at`] (REVW-05), which opens an epic's and is itself called by the epic
+/// command. An agent, a scheduler job or any MCP tool reaching `create_request` would have to add
+/// another (D-118 rejected the agent path explicitly; `forge_degrade.rs`'s and
 /// `supervisor_cwd.rs`'s own `<verify>` gates are what this crate already uses to assert an
-/// absence like this one, extended here to this function).
+/// absence like this one). No test counts the call sites, so this comment is the record, not a
+/// gate.
 pub fn create_request_at(
     forge: Forge,
     repo_path: &std::path::Path,
@@ -238,5 +240,136 @@ pub fn create_request_at(
         }),
         Forge::GitHub => github::create_request(repo_path, draft),
         Forge::GitLab => gitlab::create_request(repo_path, draft),
+    }
+}
+
+/// Why an epic's integration branch cannot be proposed yet. Each is knowable from local reads, so
+/// the action is refused by name before the forge is ever asked an unanswerable question
+/// (T-08-05-04). A forge CLI that is absent or unauthenticated is only knowable by asking it, so it
+/// is reported from [`ForgeError`] when the request is opened instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum EpicRequestBlocker {
+    /// `epics.integration_branch` is NULL: nothing was ever merged into the epic.
+    NoIntegrationBranch,
+    /// The integration branch has no commits ahead of the project's default branch.
+    NothingToPropose,
+    /// The project's forge is the local (no forge) variant.
+    NoForgeConfigured,
+    /// The repository has no remote named `origin`.
+    NoRemote,
+}
+
+/// Check, in order, the four local preconditions for proposing `epic_id`'s integration branch;
+/// `Ok(None)` means the action can be offered. Takes a connection and shells only read-only git
+/// (`rev-list`, `remote get-url`), so it stays on the connection side of the module header's
+/// fourth rule: resolve here, drop the lock, then call [`open_epic_request_at`].
+pub fn epic_request_preconditions(
+    conn: &Connection,
+    epic_id: &str,
+) -> anyhow::Result<Option<EpicRequestBlocker>> {
+    let (project_id, branch): (String, Option<String>) = conn
+        .query_row(
+            "SELECT project_id, integration_branch FROM epics WHERE id = ?1",
+            params![epic_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+    let Some(branch) = branch else {
+        return Ok(Some(EpicRequestBlocker::NoIntegrationBranch));
+    };
+
+    let default_branch: String = conn
+        .query_row("SELECT default_branch FROM projects WHERE id = ?1", params![project_id], |row| {
+            row.get(0)
+        })
+        .with_context(|| format!("project {project_id:?} not found"))?;
+    let (forge, repo_path) = forge_and_repo_path(conn, &project_id)?;
+
+    // A withheld figure (the default branch does not resolve) is an error, never a fabricated
+    // "nothing to propose".
+    let Some((ahead, _behind)) = crate::git::ahead_behind(&repo_path, &default_branch, &branch)? else {
+        anyhow::bail!("cannot compare {branch:?} with {default_branch:?}: the default branch does not resolve locally");
+    };
+    if ahead == 0 {
+        return Ok(Some(EpicRequestBlocker::NothingToPropose));
+    }
+    if forge == Forge::Local {
+        return Ok(Some(EpicRequestBlocker::NoForgeConfigured));
+    }
+    if crate::git::git_at(&repo_path, &["remote", "get-url", "origin"]).is_err() {
+        return Ok(Some(EpicRequestBlocker::NoRemote));
+    }
+    Ok(None)
+}
+
+/// What happened when an epic's request was opened. A partial result is its own variant so it can
+/// never be presented as success (T-08-05-05).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum EpicRequestOutcome {
+    /// Pushed (if needed) and a new request now exists.
+    Opened(ForgeRequest),
+    /// A request for this head is already open; nothing was pushed or created.
+    AlreadyOpen(ForgeRequest),
+    /// The push was refused. Nothing reached the remote and no request was created.
+    PushRejected { detail: String },
+    /// The branch IS on the remote but the request was not created.
+    PushedButNotOpened { branch: String, detail: String },
+}
+
+/// Open a pull/merge request for an epic's integration branch (REVW-05): reuse an open request if
+/// one exists, else push the head, then create the request. Connection-free like every function in
+/// this module that shells out; `draft` comes from
+/// [`request_body::assemble_epic_request_draft`], the same function that produced the preview.
+///
+/// Ordering is the point. The existing-request lookup runs first, so asking twice surfaces the
+/// first request instead of creating a duplicate, and so an absent or unauthenticated forge CLI
+/// fails here, as the existing [`ForgeError`] category, before anything is pushed. Only an open
+/// request counts as "already open": a merged or closed one for the same head does not block a
+/// new request.
+///
+/// The push runs against `repo_path`, the project's main checkout, never the epic worktree: the
+/// generated pre-push hook's territory check lets a push from outside the configured worktree root
+/// through untouched, whereas a push from inside the worktree would enter the force-push and
+/// branch-deletion ancestry checks for no benefit. The push is plain, and a rejection is returned
+/// to the user, never retried harder.
+///
+/// This writes no status column and registers no poll: nothing in the forge observation path is
+/// keyed on an epic, and this phase ships the epic request read-only (D-122, D-145). The follow-up
+/// it implies is an observer that carries an epic's tasks to Done when its request merges.
+pub fn open_epic_request_at(
+    forge: Forge,
+    repo_path: &std::path::Path,
+    draft: &request_body::RequestDraft,
+) -> Result<EpicRequestOutcome, ForgeError> {
+    if forge == Forge::Local {
+        return Err(ForgeError::CliFailed {
+            cli: "flywheel",
+            stderr: format!("project at {repo_path:?} has no forge configured — cannot open a request"),
+        });
+    }
+
+    if let Some(existing) = request_for_branch_at(forge, repo_path, &draft.head_branch)? {
+        if matches!(existing.state, ForgeState::Open | ForgeState::ChangesRequested) {
+            return Ok(EpicRequestOutcome::AlreadyOpen(existing));
+        }
+    }
+
+    if let Err(e) = crate::git::push_branch(repo_path, "origin", &draft.head_branch) {
+        return Ok(EpicRequestOutcome::PushRejected { detail: e.to_string() });
+    }
+
+    match create_request_at(forge, repo_path, draft) {
+        Ok(request) => Ok(EpicRequestOutcome::Opened(request)),
+        Err(e) => {
+            // Raw CLI output is logged, never returned (T-08-05-03).
+            let detail = match &e {
+                ForgeError::CliFailed { cli, stderr } => {
+                    eprintln!("{cli} could not open the request for {:?}: {stderr}", draft.head_branch);
+                    format!("{cli} could not open the request")
+                }
+                other => other.to_string(),
+            };
+            Ok(EpicRequestOutcome::PushedButNotOpened { branch: draft.head_branch.clone(), detail })
+        }
     }
 }

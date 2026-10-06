@@ -34,7 +34,12 @@ use core::domain::task::create_task;
 use core::domain::worktree::ensure_worktree;
 use core::forge::request_body::{assemble_request_draft, RequestDraft};
 use core::forge::transitions::{apply_forge_observation, EVENT_FORGE_STATE_CHANGED};
-use core::forge::{create_request_at, forge_and_repo_path, request_for_branch_at, CiResult, Forge, ForgeState};
+use core::domain::epic::create_epic;
+use core::forge::request_body::assemble_epic_request_draft;
+use core::forge::{
+    create_request_at, forge_and_repo_path, open_epic_request_at, request_for_branch_at, CiResult,
+    EpicRequestOutcome, Forge, ForgeError, ForgeState,
+};
 use core::query::events::activity_trail;
 use rusqlite::Connection;
 
@@ -128,6 +133,13 @@ impl FakeForge {
         std::fs::write(self.dir.path().join("entries"), n.to_string()).expect("failed to write entries");
     }
 
+    /// Turn on a stub behaviour by creating its flag file: `create_fail` makes `pr create` fail
+    /// with a stderr that must never reach a caller; `unauth` makes the CLI report that it is not
+    /// authenticated.
+    fn set_flag(&self, name: &str) {
+        std::fs::write(self.dir.path().join(name), "1").expect("failed to write flag");
+    }
+
     /// The body the fake's create call actually received — written by the stub reading its own
     /// standard input to end, never asserted by this struct itself.
     fn body(&self) -> String {
@@ -175,16 +187,25 @@ cmd1="$1"
 cmd2="$2"
 
 if [ "$cmd1" = "auth" ] && [ "$cmd2" = "status" ]; then
+  [ -f "__DIR__/unauth" ] && exit 1
   exit 0
 fi
 
 if [ "$cmd1" = "pr" ] && [ "$cmd2" = "create" ]; then
+  if [ -f "__DIR__/create_fail" ]; then
+    echo "boom: /secret/path/leaked-token" >&2
+    exit 1
+  fi
   cat > "__DIR__/body.txt"
   echo "OPEN" > "__DIR__/state"
   exit 0
 fi
 
 if [ "$cmd1" = "pr" ] && [ "$cmd2" = "list" ]; then
+  if [ -f "__DIR__/unauth" ]; then
+    echo "authentication required: run gh auth login" >&2
+    exit 1
+  fi
   state=$(cat "__DIR__/state" 2>/dev/null || echo "NONE")
   ci=$(cat "__DIR__/ci" 2>/dev/null || echo "none")
   entries=$(cat "__DIR__/entries" 2>/dev/null || echo "1")
@@ -626,4 +647,240 @@ fn gitlab_two_requests_select_the_newest_by_created_timestamp_through_the_live_p
             );
         });
     });
+}
+
+// ----- REVW-05: an epic's push-then-create chain (plan 08-05) -----
+//
+// The forge server is the only substituted component. The remote is a REAL local bare repository,
+// so the push is a real push and "the branch is on the remote" is read from the remote itself.
+
+const INTEGRATION: &str = "flywheel/epic-int";
+
+fn git_in(path: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn git {args:?}: {e}"));
+    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Whether the bare remote has `branch` (and at which sha).
+fn remote_tip(remote: &Path, branch: &str) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(remote)
+        .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
+        .output()
+        .expect("spawn git");
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+struct EpicChain {
+    conn: Connection,
+    epic_id: String,
+    task_id: String,
+    forge: Forge,
+    repo_path: std::path::PathBuf,
+    remote: tempfile::TempDir,
+    draft: RequestDraft,
+    _repo_dir: tempfile::TempDir,
+}
+
+/// A GitHub-pinned project whose integration branch is one commit ahead of `main`, with a real bare
+/// remote named `origin`, an epic with one task, and the epic's draft already assembled.
+fn seed_epic_chain() -> EpicChain {
+    let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
+    let b = common::review_branches(repo_dir.path());
+    assert_eq!(b.integration, INTEGRATION);
+    set_project_forge(&mut conn, &actor_id, &project.id, Some("github")).expect("set_project_forge");
+
+    git_in(repo_dir.path(), &["checkout", INTEGRATION]);
+    std::fs::write(repo_dir.path().join("epic_work.txt"), "work\n").unwrap();
+    git_in(repo_dir.path(), &["add", "epic_work.txt"]);
+    git_in(repo_dir.path(), &["commit", "-m", "epic work"]);
+    git_in(repo_dir.path(), &["checkout", "main"]);
+
+    let remote = tempfile::tempdir().expect("remote dir");
+    git_in(remote.path(), &["init", "--bare", "--initial-branch=main"]);
+    git_in(repo_dir.path(), &["remote", "add", "origin", &remote.path().to_string_lossy()]);
+
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Ship the chain", Some("An epic."))
+        .expect("create_epic");
+    conn.execute("UPDATE epics SET integration_branch = ?1 WHERE id = ?2", rusqlite::params![INTEGRATION, epic.id])
+        .expect("set integration_branch");
+    let task = create_task(&mut conn, &project.id, &actor_id, "A task", Some(&epic.id)).expect("task");
+
+    let (forge, repo_path) = forge_and_repo_path(&conn, &project.id).expect("resolve forge");
+    assert_eq!(forge, Forge::GitHub);
+    let draft = assemble_epic_request_draft(&conn, &epic.id).expect("draft");
+    EpicChain { conn, epic_id: epic.id, task_id: task.id, forge, repo_path, remote, draft, _repo_dir: repo_dir }
+}
+
+#[test]
+fn epic_request_pushes_then_creates_with_the_integration_branch_as_head_and_default_as_base() {
+    let c = seed_epic_chain();
+    with_fake_forge_clis(|fake| {
+        let out = open_epic_request_at(c.forge, &c.repo_path, &c.draft).expect("open");
+        assert!(matches!(out, EpicRequestOutcome::Opened(_)), "{out:?}");
+        assert!(fake.invoked());
+
+        let local_tip = git_in(&c.repo_path, &["rev-parse", INTEGRATION]);
+        assert_eq!(remote_tip(c.remote.path(), INTEGRATION), Some(local_tip), "the branch must be on the remote");
+
+        let argv = fake.argv_lines();
+        let pos = |flag: &str| argv.iter().position(|l| l == flag).unwrap_or_else(|| panic!("{flag} missing: {argv:?}"));
+        assert_eq!(argv[pos("--head") + 1], INTEGRATION);
+        assert_eq!(argv[pos("--base") + 1], "main");
+        assert_eq!(fake.body(), c.draft.body, "the published text is the previewed text");
+    });
+}
+
+#[test]
+fn epic_request_push_runs_from_the_project_checkout_never_a_worktree() {
+    let c = seed_epic_chain();
+    let marker = c.remote.path().join("pre_push_cwd.txt");
+    let hook = c.repo_path.join(".git/hooks/pre-push");
+    std::fs::write(&hook, format!("#!/bin/sh\npwd -P > \"{}\"\n", marker.display())).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    with_fake_forge_clis(|_fake| {
+        open_epic_request_at(c.forge, &c.repo_path, &c.draft).expect("open");
+    });
+    let ran_in = std::fs::read_to_string(&marker).expect("the pre-push hook must have run");
+    assert_eq!(
+        std::fs::canonicalize(ran_in.trim()).unwrap(),
+        std::fs::canonicalize(&c.repo_path).unwrap(),
+        "the push must run from the project's main checkout"
+    );
+}
+
+#[test]
+fn epic_request_rejected_push_is_push_rejected_creates_nothing_and_never_forces() {
+    let c = seed_epic_chain();
+    // Another clone lands a different commit on the same branch name first, so ours is non-ff.
+    let other = tempfile::tempdir().expect("other clone");
+    git_in(other.path(), &["init", "--initial-branch=main"]);
+    git_in(other.path(), &["config", "user.email", "x@y.z"]);
+    git_in(other.path(), &["config", "user.name", "X"]);
+    std::fs::write(other.path().join("theirs.txt"), "theirs\n").unwrap();
+    git_in(other.path(), &["add", "theirs.txt"]);
+    git_in(other.path(), &["commit", "-m", "theirs"]);
+    git_in(other.path(), &["push", &c.remote.path().to_string_lossy(), &format!("HEAD:refs/heads/{INTEGRATION}")]);
+    let theirs = remote_tip(c.remote.path(), INTEGRATION).expect("remote branch");
+
+    with_fake_forge_clis(|fake| {
+        let out = open_epic_request_at(c.forge, &c.repo_path, &c.draft).expect("open");
+        let EpicRequestOutcome::PushRejected { detail } = out else { panic!("expected PushRejected, got {out:?}") };
+        assert!(detail.contains("rejected"), "{detail}");
+        assert!(!fake.argv_has_token("create"), "no request may be created after a rejected push");
+        assert_eq!(remote_tip(c.remote.path(), INTEGRATION), Some(theirs), "the remote history is untouched");
+    });
+}
+
+#[test]
+fn epic_request_pushed_but_not_opened_is_a_partial_outcome_not_a_success() {
+    let c = seed_epic_chain();
+    with_fake_forge_clis(|fake| {
+        fake.set_flag("create_fail");
+        let out = open_epic_request_at(c.forge, &c.repo_path, &c.draft).expect("open");
+        let EpicRequestOutcome::PushedButNotOpened { branch, detail } = out else {
+            panic!("expected PushedButNotOpened, got {out:?}")
+        };
+        assert_eq!(branch, INTEGRATION);
+        assert!(!detail.contains("leaked-token") && !detail.contains("/secret"), "raw CLI stderr leaked: {detail}");
+
+        assert!(remote_tip(c.remote.path(), INTEGRATION).is_some(), "the branch landed on the remote");
+        assert!(fake.argv_has_token("create"), "the create call was attempted");
+        let after = request_for_branch_at(c.forge, &c.repo_path, INTEGRATION).expect("lookup");
+        assert!(after.is_none(), "no request exists");
+    });
+}
+
+#[test]
+fn epic_request_asked_twice_surfaces_the_existing_request_instead_of_creating_a_second() {
+    let c = seed_epic_chain();
+    with_fake_forge_clis(|fake| {
+        let first = open_epic_request_at(c.forge, &c.repo_path, &c.draft).expect("first");
+        assert!(matches!(first, EpicRequestOutcome::Opened(_)), "{first:?}");
+        let second = open_epic_request_at(c.forge, &c.repo_path, &c.draft).expect("second");
+        assert!(matches!(second, EpicRequestOutcome::AlreadyOpen(_)), "{second:?}");
+        let creates = fake.argv_lines().iter().filter(|l| *l == "create").count();
+        assert_eq!(creates, 1, "exactly one create call across both asks");
+    });
+}
+
+#[test]
+fn epic_request_already_open_pushes_nothing() {
+    let c = seed_epic_chain();
+    with_fake_forge_clis(|fake| {
+        fake.set_state("OPEN");
+        let out = open_epic_request_at(c.forge, &c.repo_path, &c.draft).expect("open");
+        assert!(matches!(out, EpicRequestOutcome::AlreadyOpen(_)), "{out:?}");
+        assert!(remote_tip(c.remote.path(), INTEGRATION).is_none(), "lookup precedes the push");
+    });
+}
+
+#[test]
+fn epic_request_with_an_absent_cli_returns_cli_not_installed_before_pushing() {
+    let c = seed_epic_chain();
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let original = std::env::var_os("PATH");
+    // A PATH holding `git` and nothing else: no `gh` anywhere, yet concurrently running tests in
+    // this binary (which spawn git outside `ENV_LOCK`) still resolve it.
+    let git_only = tempfile::tempdir().expect("git-only path dir");
+    let git_bin = std::env::split_paths(original.as_deref().unwrap_or_default())
+        .map(|d| d.join("git"))
+        .find(|p| p.is_file())
+        .expect("git must be on PATH");
+    std::os::unix::fs::symlink(&git_bin, git_only.path().join("git")).expect("symlink git");
+    // SAFETY: serialised by `ENV_LOCK`; restored below.
+    unsafe { std::env::set_var("PATH", git_only.path()) };
+    let result = open_epic_request_at(c.forge, &c.repo_path, &c.draft);
+    unsafe {
+        match &original {
+            Some(p) => std::env::set_var("PATH", p),
+            None => std::env::remove_var("PATH"),
+        }
+    }
+    assert_eq!(result, Err(ForgeError::CliNotInstalled { cli: "gh" }));
+    assert!(remote_tip(c.remote.path(), INTEGRATION).is_none(), "nothing may be pushed first");
+}
+
+#[test]
+fn epic_request_with_an_unauthenticated_cli_returns_cli_not_authenticated_before_pushing() {
+    let c = seed_epic_chain();
+    with_fake_forge_clis(|fake| {
+        fake.set_flag("unauth");
+        let result = open_epic_request_at(c.forge, &c.repo_path, &c.draft);
+        assert_eq!(result, Err(ForgeError::CliNotAuthenticated { cli: "gh" }));
+        assert!(remote_tip(c.remote.path(), INTEGRATION).is_none(), "nothing may be pushed first");
+    });
+}
+
+#[test]
+fn epic_request_for_a_project_with_no_forge_is_refused_before_any_push() {
+    let c = seed_epic_chain();
+    with_fake_forge_clis(|_fake| {
+        let result = open_epic_request_at(Forge::Local, &c.repo_path, &c.draft);
+        assert!(matches!(result, Err(ForgeError::CliFailed { cli: "flywheel", .. })), "{result:?}");
+        assert!(remote_tip(c.remote.path(), INTEGRATION).is_none());
+    });
+}
+
+#[test]
+fn epic_request_writes_no_status_column_for_the_epic_or_its_tasks() {
+    let c = seed_epic_chain();
+    let statuses = |conn: &Connection| -> (String, String) {
+        (
+            conn.query_row("SELECT status FROM epics WHERE id = ?1", [&c.epic_id], |r| r.get(0)).unwrap(),
+            task_status(conn, &c.task_id),
+        )
+    };
+    let before = statuses(&c.conn);
+    with_fake_forge_clis(|_fake| {
+        open_epic_request_at(c.forge, &c.repo_path, &c.draft).expect("open");
+    });
+    assert_eq!(statuses(&c.conn), before);
 }

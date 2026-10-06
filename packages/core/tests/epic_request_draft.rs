@@ -10,7 +10,9 @@ use core::domain::acceptance_criterion::{
 };
 use core::domain::epic::create_epic;
 use core::domain::task::create_task;
+use core::domain::settings::set_project_forge;
 use core::forge::request_body::assemble_epic_request_draft;
+use core::forge::{epic_request_preconditions, EpicRequestBlocker};
 use core::ids::new_id;
 use core::merge::{plan_merge, record_merge_event, run_merge};
 use rusqlite::{params, Connection};
@@ -219,4 +221,74 @@ fn draft_reads_no_clock_so_the_same_database_at_two_times_is_the_same_draft() {
     let first = bd.draft();
     std::thread::sleep(std::time::Duration::from_millis(1100));
     assert_eq!(first, bd.draft());
+}
+
+// ----- preconditions -----
+
+impl Board {
+    /// Land one real merge so the integration branch is ahead of `main`.
+    fn get_ahead(&mut self) {
+        let t = self.task("Clean work", self.b.task_clean);
+        self.merge(&t);
+    }
+
+    fn set_forge(&mut self, forge: &str) {
+        set_project_forge(&mut self.conn, &self.actor, &self.project_id, Some(forge)).expect("set forge");
+    }
+
+    fn blocker(&self) -> Option<EpicRequestBlocker> {
+        epic_request_preconditions(&self.conn, &self.epic_id).expect("preconditions")
+    }
+}
+
+#[test]
+fn precondition_no_integration_branch_blocks() {
+    let mut bd = board();
+    bd.conn.execute("UPDATE epics SET integration_branch = NULL WHERE id = ?1", [&bd.epic_id]).unwrap();
+    assert_eq!(bd.blocker(), Some(EpicRequestBlocker::NoIntegrationBranch));
+}
+
+#[test]
+fn precondition_nothing_to_propose_when_the_branch_has_no_commits_ahead() {
+    let mut bd = board();
+    bd.set_forge("github");
+    assert_eq!(bd.blocker(), Some(EpicRequestBlocker::NothingToPropose));
+}
+
+#[test]
+fn precondition_no_forge_configured_for_the_local_variant() {
+    with_scratch_worktree_root(|_| {
+        let mut bd = board();
+        bd.get_ahead();
+        bd.set_forge("local");
+        assert_eq!(bd.blocker(), Some(EpicRequestBlocker::NoForgeConfigured));
+    });
+}
+
+#[test]
+fn precondition_no_remote_when_origin_is_absent() {
+    with_scratch_worktree_root(|_| {
+        let mut bd = board();
+        bd.get_ahead();
+        bd.set_forge("github");
+        assert_eq!(bd.blocker(), Some(EpicRequestBlocker::NoRemote));
+    });
+}
+
+#[test]
+fn precondition_none_when_branch_ahead_forge_recognised_and_remote_present() {
+    with_scratch_worktree_root(|_| {
+        let mut bd = board();
+        bd.get_ahead();
+        bd.set_forge("github");
+        let remote = tempfile::tempdir().unwrap();
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(bd.repo.path())
+            .args(["remote", "add", "origin", &remote.path().to_string_lossy()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(bd.blocker(), None);
+    });
 }
