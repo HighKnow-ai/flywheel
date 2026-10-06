@@ -7,6 +7,8 @@
 //! identically by the read-only preview command and by `create_request`, which re-assembles
 //! rather than accepting a title or a body from its caller.
 
+use std::path::PathBuf;
+
 use anyhow::Context;
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -129,23 +131,42 @@ struct EpicTaskRow {
     integrated: bool,
 }
 
-/// Assemble the deterministic request draft for `epic_id` (REVW-05): the epic's integration branch
-/// as the head, the project's default branch as the target. The structural sibling of
-/// [`assemble_request_draft`], and pure and clockless for the same reason: the renderer passes an
-/// epic id and never a title or a body, so the text previewed before sending and the text
-/// published are the same text by construction, not by coincidence. It writes nothing — in
-/// particular an epic with no integration branch is a named error, never a trigger to cut one.
-///
-/// The one non-database input is the integrated marker per task ([`crate::merge::is_integrated`]),
-/// a read-only git ancestry check; two calls over an unchanged database and repository agree.
-pub fn assemble_epic_request_draft(conn: &Connection, epic_id: &str) -> anyhow::Result<RequestDraft> {
-    // Current revision only, left-joined to the anchor table (D-140).
-    const EPIC_CRITERIA_SQL: &str = "SELECT c.statement, c.verification_hint, c.checked, \
-        a.path, a.side, a.line_start, a.line_end \
-        FROM acceptance_criteria c LEFT JOIN criterion_anchors a ON a.criterion_id = c.id \
-        WHERE c.parent_type = 'epic' AND c.parent_id = ?1 AND c.superseded_at IS NULL \
-        ORDER BY c.rank ASC, c.id ASC";
+/// One task of the epic as the board reads it, plus the merge commit its integrated event
+/// recorded. Whether that commit is still reachable is a git fact and waits for the git half.
+struct EpicTaskInput {
+    key: String,
+    title: String,
+    status: String,
+    checked: i64,
+    total: i64,
+    merge_commit: Option<String>,
+}
 
+/// What the board said about an epic's request draft, before any git runs. Private fields: an
+/// opaque hand-off from [`epic_draft_inputs`] to [`finish_epic_request_draft`], so a caller cannot
+/// substitute a branch, path or commit between the two halves, and the git half re-reads nothing.
+pub struct EpicDraftInputs {
+    epic_key: String,
+    epic_title: String,
+    description: Option<String>,
+    head_branch: String,
+    target_branch: String,
+    repo_path: PathBuf,
+    criteria: Vec<EpicCriterionRow>,
+    tasks: Vec<EpicTaskInput>,
+}
+
+// Current revision only, left-joined to the anchor table (D-140).
+const EPIC_CRITERIA_SQL: &str = "SELECT c.statement, c.verification_hint, c.checked, \
+    a.path, a.side, a.line_start, a.line_end \
+    FROM acceptance_criteria c LEFT JOIN criterion_anchors a ON a.criterion_id = c.id \
+    WHERE c.parent_type = 'epic' AND c.parent_id = ?1 AND c.superseded_at IS NULL \
+    ORDER BY c.rank ASC, c.id ASC";
+
+/// The database half of [`assemble_epic_request_draft`]: every board read, no git. An epic with no
+/// integration branch is a named error, never a trigger to cut one. Safe under the database lock;
+/// hand the result to [`finish_epic_request_draft`] once the lock is released.
+pub fn epic_draft_inputs(conn: &Connection, epic_id: &str) -> anyhow::Result<EpicDraftInputs> {
     let (project_id, epic_key, epic_title, description, integration_branch): (
         String,
         String,
@@ -173,7 +194,6 @@ pub fn assemble_epic_request_draft(conn: &Connection, epic_id: &str) -> anyhow::
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .with_context(|| format!("project {project_id:?} not found"))?;
-    let repo_path = std::path::Path::new(&repo_path);
 
     let mut criteria_stmt = conn.prepare(EPIC_CRITERIA_SQL)?;
     let criteria: Vec<EpicCriterionRow> = criteria_stmt
@@ -206,13 +226,58 @@ pub fn assemble_epic_request_draft(conn: &Connection, epic_id: &str) -> anyhow::
 
     let mut tasks = Vec::with_capacity(raw_tasks.len());
     for (task_id, key, title, status, checked, total) in raw_tasks {
-        let integrated = crate::merge::is_integrated(conn, repo_path, &task_id, &head_branch)?;
-        tasks.push(EpicTaskRow { key, title, status, checked, total, integrated });
+        let merge_commit = crate::merge::integrated_merge_commit(conn, &task_id)?;
+        tasks.push(EpicTaskInput { key, title, status, checked, total, merge_commit });
     }
 
-    let body = render_epic_body(&epic_key, &epic_title, description.as_deref(), &criteria, &tasks);
+    Ok(EpicDraftInputs {
+        epic_key,
+        epic_title,
+        description,
+        head_branch,
+        target_branch,
+        repo_path: PathBuf::from(repo_path),
+        criteria,
+        tasks,
+    })
+}
+
+/// The git half of [`assemble_epic_request_draft`]: one ancestry check per task that has a recorded
+/// merge commit, then the deterministic body. Takes no connection, so a caller can read the inputs
+/// under the database lock, release it, then call this. The body bytes depend only on the inputs
+/// and those ancestry answers.
+pub fn finish_epic_request_draft(inputs: EpicDraftInputs) -> anyhow::Result<RequestDraft> {
+    let EpicDraftInputs { epic_key, epic_title, description, head_branch, target_branch, repo_path, criteria, tasks } =
+        inputs;
+
+    let mut rows = Vec::with_capacity(tasks.len());
+    for t in tasks {
+        let integrated = match &t.merge_commit {
+            Some(commit) => crate::merge::merge_commit_is_reachable(&repo_path, commit, &head_branch)?,
+            None => false,
+        };
+        rows.push(EpicTaskRow { key: t.key, title: t.title, status: t.status, checked: t.checked, total: t.total, integrated });
+    }
+
+    let body = render_epic_body(&epic_key, &epic_title, description.as_deref(), &criteria, &rows);
 
     Ok(RequestDraft { title: epic_title, body, head_branch, target_branch })
+}
+
+/// Assemble the deterministic request draft for `epic_id` (REVW-05): the epic's integration branch
+/// as the head, the project's default branch as the target. The structural sibling of
+/// [`assemble_request_draft`], and pure and clockless for the same reason: the renderer passes an
+/// epic id and never a title or a body, so the text previewed before sending and the text
+/// published are the same text by construction, not by coincidence. It writes nothing — in
+/// particular an epic with no integration branch is a named error, never a trigger to cut one.
+///
+/// The one non-database input is the integrated marker per task
+/// ([`crate::merge::merge_commit_is_reachable`]), a read-only git ancestry check; two calls over an
+/// unchanged database and repository agree. For core-internal and test use: this takes a
+/// connection AND spawns git, so a command handler must call [`epic_draft_inputs`] and
+/// [`finish_epic_request_draft`] itself, with the database lock released between them.
+pub fn assemble_epic_request_draft(conn: &Connection, epic_id: &str) -> anyhow::Result<RequestDraft> {
+    finish_epic_request_draft(epic_draft_inputs(conn, epic_id)?)
 }
 
 /// Fixed order: key and title, description (omitted when empty), criteria (omitted when none),

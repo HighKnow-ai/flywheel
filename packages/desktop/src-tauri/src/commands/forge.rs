@@ -311,18 +311,26 @@ pub fn forge_epic_request_draft(
     state: State<AppState>,
     epic_id: String,
 ) -> Result<EpicRequestPreviewDto, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let blocker = flywheel_core::forge::epic_request_preconditions(&conn, &epic_id)
-        .map_err(|e| e.to_string())?;
-    let draft = if blocker == Some(flywheel_core::forge::EpicRequestBlocker::NoIntegrationBranch) {
-        None
-    } else {
-        Some(RequestDraftDto::from(
-            flywheel_core::forge::request_body::assemble_epic_request_draft(&conn, &epic_id)
-                .map_err(|e| e.to_string())?,
-        ))
+    use flywheel_core::forge::{epic_request_blocker, epic_request_inputs, request_body};
+
+    // The lock covers the board reads only; ahead-behind, the remote check and the per-task
+    // ancestry checks run after it is released. An absent integration branch yields no draft, and
+    // that is decided from the inputs before any git runs.
+    let (inputs, draft_inputs) = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let inputs = epic_request_inputs(&conn, &epic_id).map_err(|e| e.to_string())?;
+        let draft_inputs = if inputs.has_integration_branch() {
+            Some(request_body::epic_draft_inputs(&conn, &epic_id).map_err(|e| e.to_string())?)
+        } else {
+            None
+        };
+        (inputs, draft_inputs)
     };
-    drop(conn);
+    let blocker = epic_request_blocker(&inputs).map_err(|e| e.to_string())?;
+    let draft = draft_inputs
+        .map(|d| request_body::finish_epic_request_draft(d).map(RequestDraftDto::from))
+        .transpose()
+        .map_err(|e| e.to_string())?;
     Ok(EpicRequestPreviewDto { blocker: blocker.map(|b| blocker_name(b).to_string()), draft })
 }
 
@@ -343,32 +351,41 @@ pub enum EpicRequestOutcomeDto {
 /// refused by name before anything is pushed. Writes no status column and registers no poll — no
 /// epic-request observer exists, so the request ships read-only.
 ///
-/// The mutex is released once, before the push and the forge call, so a slow remote cannot block
-/// any other command.
+/// The mutex is released once, after the board reads and before any git or forge work, so a slow
+/// repository or remote cannot block any other command.
 #[tauri::command(async)]
 pub fn forge_open_epic_request(
     state: State<AppState>,
     app: AppHandle,
     epic_id: String,
 ) -> Result<EpicRequestOutcomeDto, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    use flywheel_core::forge::{
+        epic_request_blocker, epic_request_inputs, request_body, EpicRequestBlocker, EpicRequestOutcome,
+    };
 
-    if let Some(blocker) = flywheel_core::forge::epic_request_preconditions(&conn, &epic_id)
-        .map_err(|e| e.to_string())?
-    {
+    // The lock covers the board reads only. The blocker check, the draft's ancestry checks, the
+    // push and the forge call all run after it is released.
+    let (inputs, draft_inputs) = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let inputs = epic_request_inputs(&conn, &epic_id).map_err(|e| e.to_string())?;
+        let draft_inputs = if inputs.has_integration_branch() {
+            Some(request_body::epic_draft_inputs(&conn, &epic_id).map_err(|e| e.to_string())?)
+        } else {
+            None
+        };
+        (inputs, draft_inputs)
+    };
+
+    // A blocked epic is refused by name before anything is pushed.
+    if let Some(blocker) = epic_request_blocker(&inputs).map_err(|e| e.to_string())? {
         return Err(format!("blocked:{}", blocker_name(blocker)));
     }
-    let draft = flywheel_core::forge::request_body::assemble_epic_request_draft(&conn, &epic_id)
-        .map_err(|e| e.to_string())?;
-    let project_id: String = conn
-        .query_row("SELECT project_id FROM epics WHERE id = ?1", params![epic_id], |row| row.get(0))
-        .map_err(|e| e.to_string())?;
-    let (forge, repo_path) =
-        flywheel_core::forge::forge_and_repo_path(&conn, &project_id).map_err(|e| e.to_string())?;
-    drop(conn);
+    let Some(draft_inputs) = draft_inputs else {
+        return Err(format!("blocked:{}", blocker_name(EpicRequestBlocker::NoIntegrationBranch)));
+    };
+    let draft = request_body::finish_epic_request_draft(draft_inputs).map_err(|e| e.to_string())?;
 
-    use flywheel_core::forge::EpicRequestOutcome;
-    let outcome = flywheel_core::forge::open_epic_request_at(forge, &repo_path, &draft)
+    let outcome = flywheel_core::forge::open_epic_request_at(inputs.forge(), inputs.repo_path(), &draft)
         .map_err(|e| forge_error_code(e, "opening a request", &epic_id))?;
     let dto = match outcome {
         EpicRequestOutcome::Opened(request) => EpicRequestOutcomeDto::Opened { request: ForgeRequestDto::from(&request) },

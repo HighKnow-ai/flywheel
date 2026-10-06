@@ -31,7 +31,9 @@
 //! lock (all three call sites hold it there) rather than split out to its own lock-free phase: a
 //! local config read, bounded by `GIT_TIMEOUT_SECS`, cannot produce the unbounded freeze this
 //! split exists to prevent, and [`forge_and_repo_path`]'s own callers memoise it per project, so
-//! it is at most one spawn per project per tick.
+//! it is at most one spawn per project per tick. The epic-request path is stricter and does not
+//! rely on that tolerance: [`epic_request_inputs`] reads only the stored override, and the
+//! detection spawn waits in [`EpicRequestInputs::forge`], after the lock is released.
 
 use std::path::PathBuf;
 
@@ -167,6 +169,17 @@ pub fn forge_and_repo_path(
     conn: &Connection,
     project_id: &str,
 ) -> anyhow::Result<(Forge, PathBuf)> {
+    let (stored, repo_path) = stored_forge_and_repo_path(conn, project_id)?;
+    let forge = stored.unwrap_or_else(|| detect_forge_from_origin(&repo_path));
+    Ok((forge, repo_path))
+}
+
+/// The board-only half of [`forge_and_repo_path`]: the stored override (`None` when
+/// `projects.forge` is NULL and detection is still owed) and the repo path. Spawns nothing.
+fn stored_forge_and_repo_path(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<(Option<Forge>, PathBuf)> {
     let (repo_path, stored): (String, Option<String>) = conn
         .query_row(
             "SELECT repo_path, forge FROM projects WHERE id = ?1",
@@ -174,18 +187,17 @@ pub fn forge_and_repo_path(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .with_context(|| format!("project {project_id:?} not found"))?;
-    let repo_path = PathBuf::from(repo_path);
 
     let forge = match stored.as_deref() {
-        Some("github") => Forge::GitHub,
-        Some("gitlab") => Forge::GitLab,
-        Some("local") => Forge::Local,
+        Some("github") => Some(Forge::GitHub),
+        Some("gitlab") => Some(Forge::GitLab),
+        Some("local") => Some(Forge::Local),
         // An out-of-vocabulary value cannot reach here — the CHECK constraint in
         // 0017_forge_setting.sql rejects it before it is ever stored — but a `None` falls
         // through to live detection, D-119's documented fallback.
-        Some(_) | None => detect_forge_from_origin(&repo_path),
+        Some(_) | None => None,
     };
-    Ok((forge, repo_path))
+    Ok((forge, PathBuf::from(repo_path)))
 }
 
 /// `project_id`'s effective forge: the stored `projects.forge` override when non-NULL (D-119),
@@ -259,47 +271,101 @@ pub enum EpicRequestBlocker {
     NoRemote,
 }
 
-/// Check, in order, the four local preconditions for proposing `epic_id`'s integration branch;
-/// `Ok(None)` means the action can be offered. Takes a connection and shells only read-only git
-/// (`rev-list`, `remote get-url`), so it stays on the connection side of the module header's
-/// fourth rule: resolve here, drop the lock, then call [`open_epic_request_at`].
-pub fn epic_request_preconditions(
-    conn: &Connection,
-    epic_id: &str,
-) -> anyhow::Result<Option<EpicRequestBlocker>> {
-    let (project_id, branch): (String, Option<String>) = conn
+/// What the board said about an epic's request, before any git runs. Private fields: an opaque
+/// hand-off from [`epic_request_inputs`] to [`epic_request_blocker`], so a caller cannot substitute
+/// a branch or a path between the board read and the git work, and the git half re-reads nothing.
+#[derive(Debug, Clone)]
+pub struct EpicRequestInputs {
+    integration_branch: Option<String>,
+    default_branch: String,
+    /// The stored override, or `None` when detection from `origin` is still owed (a git spawn, so
+    /// it is deferred to [`EpicRequestInputs::forge`] rather than done under the lock).
+    stored_forge: Option<Forge>,
+    detected_forge: std::cell::OnceCell<Forge>,
+    repo_path: PathBuf,
+}
+
+impl EpicRequestInputs {
+    /// Whether the epic has an integration branch cut. A board fact: no git.
+    pub fn has_integration_branch(&self) -> bool {
+        self.integration_branch.is_some()
+    }
+
+    /// The project's repository path, for the lock-free dispatch that follows.
+    pub fn repo_path(&self) -> &std::path::Path {
+        &self.repo_path
+    }
+
+    /// The project's effective forge: the stored override, else one bounded local
+    /// `git remote get-url origin`, memoised so the blocker check and the dispatch agree. May spawn
+    /// git, so call it only after the database lock is released.
+    pub fn forge(&self) -> Forge {
+        self.stored_forge.unwrap_or_else(|| *self.detected_forge.get_or_init(|| detect_forge_from_origin(&self.repo_path)))
+    }
+}
+
+/// The database half of [`epic_request_preconditions`]: the epic's integration branch and its
+/// project's default branch, forge override and repo path. Reads the board only and spawns no git,
+/// so it is safe under the database lock.
+pub fn epic_request_inputs(conn: &Connection, epic_id: &str) -> anyhow::Result<EpicRequestInputs> {
+    let (project_id, integration_branch): (String, Option<String>) = conn
         .query_row(
             "SELECT project_id, integration_branch FROM epics WHERE id = ?1",
             params![epic_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .with_context(|| format!("epic {epic_id:?} not found"))?;
-    let Some(branch) = branch else {
-        return Ok(Some(EpicRequestBlocker::NoIntegrationBranch));
-    };
-
     let default_branch: String = conn
         .query_row("SELECT default_branch FROM projects WHERE id = ?1", params![project_id], |row| {
             row.get(0)
         })
         .with_context(|| format!("project {project_id:?} not found"))?;
-    let (forge, repo_path) = forge_and_repo_path(conn, &project_id)?;
+    let (stored_forge, repo_path) = stored_forge_and_repo_path(conn, &project_id)?;
+    Ok(EpicRequestInputs {
+        integration_branch,
+        default_branch,
+        stored_forge,
+        detected_forge: std::cell::OnceCell::new(),
+        repo_path,
+    })
+}
+
+/// The git half of [`epic_request_preconditions`]: check, in order, the four local preconditions
+/// for proposing the epic's integration branch; `Ok(None)` means the action can be offered. Takes
+/// no connection, so a caller can read the inputs under the database lock, release it, then call
+/// this. The order is what makes the outcomes distinguishable.
+pub fn epic_request_blocker(inputs: &EpicRequestInputs) -> anyhow::Result<Option<EpicRequestBlocker>> {
+    let Some(branch) = &inputs.integration_branch else {
+        return Ok(Some(EpicRequestBlocker::NoIntegrationBranch));
+    };
+    let default_branch = &inputs.default_branch;
+    let repo_path = &inputs.repo_path;
 
     // A withheld figure (the default branch does not resolve) is an error, never a fabricated
     // "nothing to propose".
-    let Some((ahead, _behind)) = crate::git::ahead_behind(&repo_path, &default_branch, &branch)? else {
+    let Some((ahead, _behind)) = crate::git::ahead_behind(repo_path, default_branch, branch)? else {
         anyhow::bail!("cannot compare {branch:?} with {default_branch:?}: the default branch does not resolve locally");
     };
     if ahead == 0 {
         return Ok(Some(EpicRequestBlocker::NothingToPropose));
     }
-    if forge == Forge::Local {
+    if inputs.forge() == Forge::Local {
         return Ok(Some(EpicRequestBlocker::NoForgeConfigured));
     }
-    if crate::git::git_at(&repo_path, &["remote", "get-url", "origin"]).is_err() {
+    if crate::git::git_at(repo_path, &["remote", "get-url", "origin"]).is_err() {
         return Ok(Some(EpicRequestBlocker::NoRemote));
     }
     Ok(None)
+}
+
+/// [`epic_request_inputs`] then [`epic_request_blocker`]. For core-internal and test use: it takes a
+/// connection AND spawns git, so it must not be called from a command handler while the database
+/// lock is held. The two halves exist for that.
+pub fn epic_request_preconditions(
+    conn: &Connection,
+    epic_id: &str,
+) -> anyhow::Result<Option<EpicRequestBlocker>> {
+    epic_request_blocker(&epic_request_inputs(conn, epic_id)?)
 }
 
 /// What happened when an epic's request was opened. A partial result is its own variant so it can
