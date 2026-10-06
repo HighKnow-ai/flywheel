@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 19
+open_count: 18
 waived_count: 0
-fixed_count: 9
+fixed_count: 10
 total_count: 28
-last_updated: 2026-10-06T05:55:53.998Z
+last_updated: 2026-10-06T07:12:00.016Z
 ---
 
 # Broken Windows Ledger
@@ -42,7 +42,7 @@ last_updated: 2026-10-06T05:55:53.998Z
 | 25 | 07 | deviation | packages/desktop/src-tauri/src/scheduler.rs |  | 07-07 Task 3: literal acceptance criterion grep -c 'board:changed' == 2 could not be satisfied without duplicating the event-name literal; the forge job emits through the existing shared emit_board_changed helper (count stays 1), which is the correct architecture per the module's own header comment. | open |  | 2026-10-02T11:33:21.016Z |  |
 | 26 | 07 | deviation | packages/desktop/src-tauri/src/commands/forge.rs |  | forge_open_request takes app: AppHandle in addition to state/task_id (plan text named only state/task_id) — needed to emit board:changed, matching every other mutating command in this codebase (agent_run_stop, criterion_revise); AppHandle is Tauri-injected, never renderer-supplied, so the real invariant (no title/body/branch/target from the renderer) still holds. | open |  | 2026-10-04T11:15:19.850Z |  |
 | 27 | 07 | unrun-verify | packages/core/src/forge/github.rs |  | create_request's live arm (an actual gh pr create / glab mr create against a real authenticated forge) was never exercised — only hermetic argv/stdin construction and tempfile-write tests ran. No disposable forge repo was available in this environment; mirrors 07-03's forge_probe precedent of deferring the live check to a human-invoked command rather than running it during automated verification. | open |  | 2026-10-04T11:15:20.021Z |  |
-| 28 | 08 | unmet-truth | packages/desktop/src/review/ReviewSurface.tsx |  | Epic scope shows the epic's own criteria only; the roll-up of its tasks (D-132) has no data source (08-06's rail builds none, no command lists an epic's tasks with criteria counts) | open |  | 2026-10-06T05:55:53.998Z |  |
+| 28 | 08 | unmet-truth | packages/desktop/src/review/ReviewSurface.tsx |  | Epic scope shows the epic's own criteria only; the roll-up of its tasks (D-132) has no data source (08-06's rail builds none, no command lists an epic's tasks with criteria counts) | fixed |  | 2026-10-06T05:55:53.998Z | 2026-10-06T07:12:00.016Z |
 
 ````json
 [
@@ -377,10 +377,10 @@ last_updated: 2026-10-06T05:55:53.998Z
     "file": "packages/desktop/src/review/ReviewSurface.tsx",
     "line": null,
     "description": "Epic scope shows the epic's own criteria only; the roll-up of its tasks (D-132) has no data source (08-06's rail builds none, no command lists an epic's tasks with criteria counts)",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-10-06T05:55:53.998Z",
-    "resolved_at": null
+    "resolved_at": "2026-10-06T07:12:00.016Z"
   }
 ]
 ````
