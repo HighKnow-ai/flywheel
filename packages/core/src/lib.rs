@@ -23,6 +23,7 @@ pub mod marker;
 pub mod proc;
 pub mod query;
 pub mod ranking;
+pub mod review;
 pub mod runtime_protocol;
 pub mod shim;
 pub mod session_log;

@@ -100,6 +100,25 @@ pub fn rev_parse_verify(repo_path: &Path, ref_name: &str) -> anyhow::Result<bool
     Ok(output.status.success())
 }
 
+/// Run `git -C <repo_path> <args>` and return the raw [`Output`] whatever the exit status —
+/// the caller reads `status` and `stdout` itself. Applies [`git_at`]'s two refusals (empty
+/// `repo_path`, empty `args`) and nothing else.
+///
+/// Why this exists: [`git_at`] turns a non-zero exit into an `Err` and drops stdout, which
+/// destroys exactly the two signals `git merge-tree` (exit 1 means conflict, with the conflicted
+/// file list on stdout) and `git merge` carry. Plan 08-03's merge is built on this function.
+/// Still routed through [`spawn_git`], so this file remains the workspace's only git construction
+/// site.
+pub fn git_output_at(repo_path: &Path, args: &[&str]) -> anyhow::Result<Output> {
+    if repo_path.as_os_str().is_empty() {
+        bail!("git_output_at refused: repo_path must not be empty");
+    }
+    if args.is_empty() {
+        bail!("git_output_at refused: args must not be empty");
+    }
+    spawn_git(repo_path, args)
+}
+
 /// Create a worktree at `worktree_path` on a new branch `branch`, based on `base_ref`, inside
 /// `repo_path`. Refuses (without spawning `git worktree add`) when:
 /// - `worktree_path` equals `repo_path` (PROC-02 adjacency)
@@ -197,6 +216,136 @@ pub fn diff_stat_and_names(repo_path: &Path, base_ref: &str) -> anyhow::Result<D
         names_text.split('\n').filter(|line| !line.is_empty()).map(str::to_string).collect();
 
     Ok(DiffStat { stat, changed_paths })
+}
+
+/// One changed file in a review (Phase 8, REVW-01/REVW-02). `status` is git's leading status
+/// letter (`M`, `A`, `D`, `R`, `C`, `T`), never the similarity-suffixed form. `old_path` is
+/// `Some` only for a rename/copy. A binary file carries `binary: true` and no counts.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ReviewFile {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub status: String,
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
+    pub binary: bool,
+}
+
+/// The changed files in `<base>...<head>` (three dots: compared against the merge-base, so only
+/// what `head` itself changed shows up) with status, rename source and line counts.
+///
+/// Two reads through [`git_at`]: `diff -z --name-status -M` and `diff -z --numstat -M`. `-z`
+/// keeps spaces and odd bytes in paths intact (no C-quoting); `-M` turns a move into one `R`
+/// entry instead of a delete plus an add. Both reads emit files in the same order, so they are
+/// parsed separately and zipped by position.
+///
+/// This is additive: [`diff_stat_and_names`] keeps its `--no-renames` semantics and its `--stat`
+/// text because `drift.rs` depends on exactly those.
+pub fn review_files(repo_path: &Path, base: &str, head: &str) -> anyhow::Result<Vec<ReviewFile>> {
+    let range = format!("{base}...{head}");
+    let names = git_at(repo_path, &["diff", "-z", "--name-status", "-M", &range])?;
+    let nums = git_at(repo_path, &["diff", "-z", "--numstat", "-M", &range])?;
+    let names = String::from_utf8_lossy(&names.stdout).into_owned();
+    let nums = String::from_utf8_lossy(&nums.stdout).into_owned();
+
+    // name-status: `<status>\0<path>\0` or, for R/C, `<status>\0<old>\0<new>\0`.
+    let mut entries: Vec<(String, Option<String>, String)> = Vec::new();
+    let mut fields = names.split('\0').filter(|f| !f.is_empty());
+    while let Some(token) = fields.next() {
+        let letter = token.chars().next().map(String::from).unwrap_or_default();
+        if letter == "R" || letter == "C" {
+            let old = fields.next().context("name-status rename missing old path")?;
+            let new = fields.next().context("name-status rename missing new path")?;
+            entries.push((letter, Some(old.to_string()), new.to_string()));
+        } else {
+            let path = fields.next().context("name-status entry missing path")?;
+            entries.push((letter, None, path.to_string()));
+        }
+    }
+
+    // numstat: `<added>\t<removed>\t<path>\0`, or `<added>\t<removed>\t\0<old>\0<new>\0`.
+    let mut counts: Vec<(Option<u32>, Option<u32>, bool)> = Vec::new();
+    let mut fields = nums.split('\0').filter(|f| !f.is_empty());
+    // An empty third column (rename) leaves the head field ending in a tab, so it is not empty and
+    // survives the filter; the two path fields that follow it are consumed below.
+    while let Some(head_field) = fields.next() {
+        let mut cols = head_field.splitn(3, '\t');
+        let added = cols.next().unwrap_or("");
+        let removed = cols.next().unwrap_or("");
+        let path_col = cols.next().unwrap_or("");
+        if path_col.is_empty() {
+            // rename/copy: the old and new path follow as their own NUL fields
+            fields.next();
+            fields.next();
+        }
+        if added == "-" && removed == "-" {
+            counts.push((None, None, true));
+        } else {
+            counts.push((added.parse().ok(), removed.parse().ok(), false));
+        }
+    }
+
+    if entries.len() != counts.len() {
+        bail!(
+            "review_files: name-status ({}) and numstat ({}) disagree on the file count for {range}",
+            entries.len(),
+            counts.len()
+        );
+    }
+
+    Ok(entries
+        .into_iter()
+        .zip(counts)
+        .map(|((status, old_path, path), (added, removed, binary))| ReviewFile {
+            path,
+            old_path,
+            status,
+            added,
+            removed,
+            binary,
+        })
+        .collect())
+}
+
+/// One file's patch text for `<base>...<head>`. Both paths of a rename must be passed (`old_path`
+/// as the second pathspec): with rename detection on and a pathspec naming only the new path, git
+/// has no old side to pair it with and reports the file as newly added, losing the rename.
+///
+/// `--literal-pathspecs` is a git global option, so it is the first element of `args` (after the
+/// `-C <path>` pair [`spawn_git`] prepends); it stops a file named like a pathspec magic string
+/// from being interpreted. `--no-ext-diff`/`--no-textconv` keep repository config from running
+/// helpers while reading.
+pub fn review_patch(
+    repo_path: &Path,
+    base: &str,
+    head: &str,
+    path: &str,
+    old_path: Option<&str>,
+) -> anyhow::Result<String> {
+    if path.is_empty() {
+        bail!("review_patch refused: path must not be empty");
+    }
+    if path.contains('\0') || old_path.is_some_and(|p| p.is_empty() || p.contains('\0')) {
+        bail!("review_patch refused: path must not contain a NUL byte");
+    }
+    let range = format!("{base}...{head}");
+    let mut args = vec![
+        "--literal-pathspecs",
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-U3",
+        "-M",
+        range.as_str(),
+        "--",
+        path,
+    ];
+    if let Some(old) = old_path {
+        args.push(old);
+    }
+    let out = git_at(repo_path, &args)?;
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// Ahead/behind counts between `branch` and `target_ref` (D-116, LINK-02, Phase 7 plan 07-01).
