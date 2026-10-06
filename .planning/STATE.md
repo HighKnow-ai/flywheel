@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: Review And Merge Inside Flywheel
 status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-10-06T03:03:20.111Z"
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-10-06T03:56:49.261Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 08 execution started
-state_head: a0fd437077db6137a70846a1aba742c19da88400
+state_head: 318692c043027e576752967c2dbc2cfc9de71271
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 178
-  completed_plans: 172
+  completed_plans: 173
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08 (Review And Merge Inside Flywheel) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
 Last activity: 2026-10-06 — Phase 08 execution started
 
@@ -233,6 +233,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 07 P12 | 42min | 2 tasks | 1 files |
 | Phase 08 P01 | 35 min | 3 tasks | 24 files |
 | Phase 08 P02 | 60 min | 3 tasks | 13 files |
+| Phase 08 P03 | 58 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -536,6 +537,8 @@ Recent decisions affecting current work:
 - [Phase 08]: Review base is the LOCAL integration branch; diffs run against project repo_path; NULL integration branch is a typed no-branch outcome, never cut by a read path
 - [Phase 08]: Review diff: react-diff-view 3.3.3 + refractor 5.0.0 via a .children adapter, unified only, 40-hunk chunks, highlight skipped above 5000 changed lines
 - [Phase 08]: Criterion anchors live in their own table; row absence is the no-evidence state; staleness is derived from git per read and stored nowhere — Avoids touching ~8 positional criterion reads; D-139/D-141
+- [Phase 08]: 08-03: merge-tree exit 1 is a conflict only when stdout starts with a tree oid (unknown ref also exits 1)
+- [Phase 08]: 08-03: per-epic merge lock is a process-global set in core::merge; epic integration worktree has no table row
 
 ### Pending Todos
 
@@ -595,6 +598,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-06T03:03:19.939Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-10-06T03:56:49.105Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None

@@ -848,7 +848,7 @@ broken CLI.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
 
-**Plans**: 2/8 plans executed in 5 waves
+**Plans**: 3/8 plans executed in 5 waves
 **UI hint**: yes
 
 Plans:
@@ -860,7 +860,7 @@ Plans:
 **Wave 2** *(three independent expansions off the tracer — no file overlap between them)*
 
 - [x] 08-02-PLAN.md — Criterion anchors in the core: migration 0018, the check-with-anchor write, staleness derived from git, and the context packet that carries both (REVW-03)
-- [ ] 08-03-PLAN.md — The merge in the core: a dry run that touches nothing, a merge in a per-epic worktree, an abort that proves the tree clean, one event, no status write (REVW-04)
+- [x] 08-03-PLAN.md — The merge in the core: a dry run that touches nothing, a merge in a per-epic worktree, an abort that proves the tree clean, one event, no status write (REVW-04)
 - [ ] 08-04-PLAN.md — The other three doors onto review: one board keystroke, the palette's resolved git identifier, and the offer a finished run makes (REVW-01, REVW-02)
 
 **Wave 3** *(08-05 blocked on 08-03's git writes; 08-06 on 08-02's anchor commands and on 08-04's keyboard edit; the two share no file)*
@@ -1070,7 +1070,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
-| 8. Review And Merge Inside Flywheel | 2/8 | In Progress|  |
+| 8. Review And Merge Inside Flywheel | 3/8 | In Progress|  |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |
