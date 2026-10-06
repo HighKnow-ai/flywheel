@@ -848,7 +848,7 @@ broken CLI.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
 
-**Plans**: 8/8 plans executed in 5 waves; 4 gap-closure plans in 3 waves
+**Plans**: 9/12 plans executed in 5 waves; 4 gap-closure plans in 3 waves
 **UI hint**: yes
 
 Plans:
@@ -880,7 +880,7 @@ Plans:
 
 **Gap wave 1** *(08-09 and 08-10 share no file and no test file; 08-10's new test renders the two sheets directly rather than through the rail, so it does not couple to 08-09)*
 
-- [ ] 08-09-PLAN.md — Gap 1 (D-132): the epic task criteria roll-up end to end — a read-only core query, one registered command, the adapter and hook, the epic-scope rail section, and WINDOWS.md row 28 closed (REVW-02)
+- [x] 08-09-PLAN.md — Gap 1 (D-132): the epic task criteria roll-up end to end — a read-only core query, one registered command, the adapter and hook, the epic-scope rail section, and WINDOWS.md row 28 closed (REVW-02)
 - [ ] 08-10-PLAN.md — Gap 2 (CR-03): Enter and Space are left to a focused button, so the merge confirmation and the epic request are keyboard-reachable; Escape stops cascading past sheets and inputs (WR-06) (REVW-04, REVW-05)
 
 **Gap wave 2** *(blocked on 08-09 — restructures the same two files that plan's command lives in)*
@@ -1085,7 +1085,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
-| 8. Review And Merge Inside Flywheel | 8/8 | In Progress|  |
+| 8. Review And Merge Inside Flywheel | 9/12 | In Progress|  |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |
