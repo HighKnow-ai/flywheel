@@ -848,13 +848,46 @@ broken CLI.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
 
-**Plans**: TBD
+**Plans**: 8 plans in 5 waves
 **UI hint**: yes
+
+Plans:
+
+**Wave 1 — the tracer** *(the thinnest end-to-end slice, proven before anything expands out from it)*
+
+- [ ] 08-01-PLAN.md — Tracer: a task's diff on screen end to end — the raw-output git wrapper, both scopes resolved server-side, two read commands, and the refractor-adapted unified diff (REVW-01, REVW-02)
+
+**Wave 2** *(three independent expansions off the tracer — no file overlap between them)*
+
+- [ ] 08-02-PLAN.md — Criterion anchors in the core: migration 0018, the check-with-anchor write, staleness derived from git, and the context packet that carries both (REVW-03)
+- [ ] 08-03-PLAN.md — The merge in the core: a dry run that touches nothing, a merge in a per-epic worktree, an abort that proves the tree clean, one event, no status write (REVW-04)
+- [ ] 08-04-PLAN.md — The other three doors onto review: one board keystroke, the palette's resolved git identifier, and the offer a finished run makes (REVW-01, REVW-02)
+
+**Wave 3** *(08-05 blocked on 08-03's git writes; 08-06 on 08-02's anchor commands and on 08-04's keyboard edit; the two share no file)*
+
+- [ ] 08-05-PLAN.md — Epic request in the core: the deterministic draft, four named preconditions, push-then-create, and an outcome that can say only the push landed (REVW-05)
+- [ ] 08-06-PLAN.md — The criteria rail: the same criteria rows carrying evidence, staleness and a no-evidence count, and select-lines-then-check (REVW-03)
+
+**Wave 4** *(blocked on 08-03 and 08-06 — shares the review surface and the adapter seam)*
+
+- [ ] 08-07-PLAN.md — The merge action on the surface: the confirm sheet, the per-epic guard, three proven outcomes, and a conflict with two ways out (REVW-04)
+
+**Wave 5** *(blocked on 08-05 and 08-07 — the phase's ship gate)*
+
+- [ ] 08-08-PLAN.md — The epic request action and the scope toggle: one surface, both scopes, previewed verbatim and confirmed with an id alone (REVW-05, REVW-02)
 
 **Notes**: Criterion 2 is where the core value becomes a daily habit rather than a slogan — the
 review surface is the moment structured acceptance criteria pay for themselves against a chat
 blob. With this phase complete the full loop is closable in-app: shape → plan → run → reconstitute
 → review → merge.
+
+Four open questions were resolved at planning time and are recorded as flagged assumptions in the
+plans: epic-less tasks get review but no in-app merge (REVW-04 names the *epic* integration branch,
+and a trunk merge would touch the user's main checkout); the epic request ships read-only, because
+nothing in Phase 7 observes an epic request — **follow-up for a later phase: the epic-request
+observer that would carry an epic's tasks to Done**; no push follows a merge, so a merge stays
+local and reversible; and the confirm sheet's will-conflict hint is allowed to go momentarily
+stale, because the real merge re-runs the dry run.
 
 ### Phase 9: Planned Fan-Out That Does Not Collide
 
