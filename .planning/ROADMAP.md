@@ -848,7 +848,7 @@ broken CLI.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
 
-**Plans**: 8/8 plans executed in 5 waves
+**Plans**: 8/8 plans executed in 5 waves; 4 gap-closure plans in 3 waves
 **UI hint**: yes
 
 Plans:
@@ -875,6 +875,21 @@ Plans:
 **Wave 5** *(blocked on 08-05 and 08-07 — the phase's ship gate)*
 
 - [x] 08-08-PLAN.md — The epic request action and the scope toggle: one surface, both scopes, previewed verbatim and confirmed with an id alone (REVW-05, REVW-02)
+
+**Gap closure** *(from 08-VERIFICATION: 2 gaps plus 2 ride-along code-review warnings the developer chose to include; run with `/gsd-execute-phase 8 --gaps-only`)*
+
+**Gap wave 1** *(08-09 and 08-10 share no file and no test file; 08-10's new test renders the two sheets directly rather than through the rail, so it does not couple to 08-09)*
+
+- [ ] 08-09-PLAN.md — Gap 1 (D-132): the epic task criteria roll-up end to end — a read-only core query, one registered command, the adapter and hook, the epic-scope rail section, and WINDOWS.md row 28 closed (REVW-02)
+- [ ] 08-10-PLAN.md — Gap 2 (CR-03): Enter and Space are left to a focused button, so the merge confirmation and the epic request are keyboard-reachable; Escape stops cascading past sheets and inputs (WR-06) (REVW-04, REVW-05)
+
+**Gap wave 2** *(blocked on 08-09 — restructures the same two files that plan's command lives in)*
+
+- [ ] 08-11-PLAN.md — CR-01: the DB-half/git-half split for the merge plan, the review-read target and the epic request, so no git subprocess runs under the SQLite lock, and merge.rs's header stops claiming otherwise (REVW-04, REVW-05)
+
+**Gap wave 3** *(blocked on 08-11 — rewrites the same error-mapping lines)*
+
+- [ ] 08-12-PLAN.md — CR-02: only an error category crosses IPC from the review and forge commands; raw git stderr and absolute paths stay in the host process log (REVW-04, REVW-05)
 
 **Notes**: Criterion 2 is where the core value becomes a daily habit rather than a slogan — the
 review surface is the moment structured acceptance criteria pay for themselves against a chat
