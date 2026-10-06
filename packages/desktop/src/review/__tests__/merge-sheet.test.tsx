@@ -39,6 +39,7 @@ vi.mock("../../adapters/tauri", () => ({
     return Promise.reject(new Error(`unexpected command ${command}`));
   },
   reviewCriteriaState: () => Promise.resolve(criteria.current),
+  reviewEpicTaskRollup: () => Promise.resolve([]),
   subscribeBoardChanged: (handler: () => void) => {
     boardChanged.add(handler);
     return Promise.resolve(() => boardChanged.delete(handler));

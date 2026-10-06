@@ -13,6 +13,10 @@
 //! the per-epic guard only for the git work, then re-locks to record the event — never two locks
 //! at once, and neither held across the emit.
 //!
+//! Plan 08-09 adds `review_epic_task_rollup` (read-only): an epic id in, each of the epic's tasks
+//! with its current-revision criteria counted out. It takes the id and nothing else and spawns no
+//! git, so it is safe under the database lock.
+//!
 //! Both are async commands so the git call runs off the main thread, and both resolve
 //! under the database lock and release it before git is spawned — a slow diff blocks no other
 //! command handler.
@@ -219,6 +223,47 @@ pub fn review_criteria_state(
             staleness: e.staleness.map(StalenessDto::from),
         })
         .collect())
+}
+
+/// One task of an epic with its criteria counts — mirrors `flywheel_core::review::EpicTaskCriteria`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicTaskRollupRowDto {
+    pub task_id: String,
+    pub key: String,
+    pub title: String,
+    pub status: String,
+    pub checked: i64,
+    pub total: i64,
+    pub with_evidence: i64,
+    pub without_evidence: i64,
+}
+
+impl From<flywheel_core::review::EpicTaskCriteria> for EpicTaskRollupRowDto {
+    fn from(t: flywheel_core::review::EpicTaskCriteria) -> Self {
+        Self {
+            task_id: t.task_id,
+            key: t.key,
+            title: t.title,
+            status: t.status,
+            checked: t.checked,
+            total: t.total,
+            with_evidence: t.with_evidence,
+            without_evidence: t.without_evidence,
+        }
+    }
+}
+
+/// Each task of an epic with its current-revision criteria counted (D-132). Read-only. There is
+/// deliberately no `scope` parameter: the roll-up is epic-only by construction, so the renderer
+/// supplies one id and nothing else (D-118, D-139).
+#[tauri::command(async)]
+pub fn review_epic_task_rollup(state: State<AppState>, epic_id: String) -> Result<Vec<EpicTaskRollupRowDto>, String> {
+    let rows = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        flywheel_core::review::epic_task_rollup(&conn, &epic_id).map_err(|e| e.to_string())?
+    };
+    Ok(rows.into_iter().map(EpicTaskRollupRowDto::from).collect())
 }
 
 /// Check a criterion, optionally against a line range of the diff. There is deliberately no sha

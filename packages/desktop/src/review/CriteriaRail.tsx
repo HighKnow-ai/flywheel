@@ -3,7 +3,8 @@
  * criteria beside the diff. It COMPOSES the item panel's criteria list — the same rows,
  * revision markers, plain-check interaction and key grammar the item panel uses — and adds only
  * what review needs: what a check would attach, a per-row "check against selection" affordance,
- * and a footer counting criteria checked without evidence.
+ * and a footer counting criteria checked without evidence. In epic scope it also lists the epic's
+ * tasks with where their criteria stand (D-132); an epic with no tasks shows nothing for them.
  *
  * Selecting lines writes nothing. The check is the act of attestation (T-08-06-01): only
  * `useCheckAgainstSelection`'s mutation calls the write command, and it passes no sha — the core
@@ -14,7 +15,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { criterionCheckWithAnchor, type ReviewScopeDto } from "../adapters/tauri";
 import { AcceptanceCriteriaList } from "../item-detail/AcceptanceCriteriaList";
 import { anchorFromSelection, type ReviewSelection } from "./selection";
-import { useReviewCriteriaState } from "./useReviewQuery";
+import { useEpicTaskRollup, useReviewCriteriaState } from "./useReviewQuery";
 
 /** Returns `(criterionId) => void`: check that criterion against the current selection, or with no
  * evidence at all when nothing is selected (D-140). */
@@ -48,6 +49,7 @@ export interface CriteriaRailProps {
 
 export function CriteriaRail({ scope, itemId, selection, onCheck, onFocusChange }: CriteriaRailProps) {
   const state = useReviewCriteriaState(scope, itemId);
+  const rollup = useEpicTaskRollup(itemId, scope === "epic").data ?? [];
   const withoutEvidence = (state.data ?? []).filter((s) => s.criterion.checked && !s.anchor).length;
   const anchor = anchorFromSelection(selection);
 
@@ -67,6 +69,26 @@ export function CriteriaRail({ scope, itemId, selection, onCheck, onFocusChange 
         onFocusChange={onFocusChange}
         onCheckSelected={onCheck}
       />
+      {scope === "epic" && rollup.length > 0 && (
+        <section aria-label="Task criteria roll-up" style={{ borderTop: "1px solid var(--divider)", paddingTop: "var(--space-sm)" }}>
+          <h3 className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+            Tasks
+          </h3>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+            {rollup.map((t) => (
+              <li key={t.taskId} style={{ display: "flex", flexDirection: "column" }}>
+                <span>
+                  <span className="type-label">{t.key}</span> {t.title}
+                </span>
+                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                  {t.total > 0 ? `${t.checked}/${t.total} criteria checked` : "no criteria"}
+                  {t.withoutEvidence > 0 ? `, ${t.withoutEvidence} without evidence` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
         {anchor
           ? `Selected: ${anchor.path}:${anchor.lineStart}${anchor.lineEnd === anchor.lineStart ? "" : `–${anchor.lineEnd}`} (${anchor.side}). Checking a criterion records this as its evidence.`

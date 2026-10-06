@@ -1,6 +1,7 @@
 //! REVW-03 (D-139, D-140, D-141): the anchor behind a checked criterion — written with a
 //! core-resolved sha, cleared on uncheck, carried across a revision, cascaded on delete, and its
-//! staleness derived from git on every read (Phase 8 plan 08-02).
+//! staleness derived from git on every read (Phase 8 plan 08-02). Plan 08-09 adds the read-only
+//! per-task criteria roll-up an epic's review rail shows (D-132; tests named `rollup`).
 
 mod common;
 
@@ -9,7 +10,9 @@ use core::domain::acceptance_criterion::{
     toggle_criterion, AnchorInput,
 };
 use core::domain::agent_run::start_agent_run;
+use core::domain::epic::create_epic;
 use core::domain::task::{create_task, delete_task};
+use core::review::epic_task_rollup;
 use rusqlite::{params, Connection};
 
 static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -316,4 +319,88 @@ fn criteria_state_lists_every_current_criterion_with_a_derived_verdict() {
     let state = review_criteria_state(&conn, ReviewScope::Task, &task.id).unwrap();
     assert_eq!(state[0].staleness, Some(AnchorStaleness::Changed { commits: 1 }));
     assert!(state[0].criterion.checked, "staleness never unchecks");
+}
+
+// ---- Epic task roll-up (plan 08-09, D-132) ----
+
+/// One epic with two tasks under it.
+fn rollup_epic() -> (Connection, String, String, String, String, String) {
+    let (mut conn, actor, project) = common::seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor, "E", None).unwrap();
+    let a = create_task(&mut conn, &project.id, &actor, "First", Some(&epic.id)).unwrap();
+    let b = create_task(&mut conn, &project.id, &actor, "Second", Some(&epic.id)).unwrap();
+    (conn, actor, project.id, epic.id, a.id, b.id)
+}
+
+#[test]
+fn rollup_counts_checked_total_and_evidence_per_task() {
+    let (mut conn, actor, project, epic, a, _b) = rollup_epic();
+    let c1 = create_criterion(&mut conn, &project, &actor, "task", &a, "One", None).unwrap();
+    let c2 = create_criterion(&mut conn, &project, &actor, "task", &a, "Two", None).unwrap();
+    create_criterion(&mut conn, &project, &actor, "task", &a, "Three", None).unwrap();
+    check_criterion_with_anchor(&mut conn, &actor, &c1.id, Some(input("a.rs", 1, 2)), "sha").unwrap();
+    check_criterion_with_anchor(&mut conn, &actor, &c2.id, None, "sha").unwrap();
+
+    let rows = epic_task_rollup(&conn, &epic).unwrap();
+    let row = rows.iter().find(|r| r.task_id == a).unwrap();
+    assert_eq!((row.total, row.checked, row.with_evidence, row.without_evidence), (3, 2, 1, 1));
+    assert_eq!(row.with_evidence + row.without_evidence, row.checked);
+}
+
+#[test]
+fn rollup_task_with_no_criteria_is_all_zero() {
+    let (conn, .., epic, _a, b) = rollup_epic();
+    let rows = epic_task_rollup(&conn, &epic).unwrap();
+    let row = rows.iter().find(|r| r.task_id == b).unwrap();
+    assert_eq!((row.total, row.checked, row.with_evidence, row.without_evidence), (0, 0, 0, 0));
+}
+
+#[test]
+fn rollup_ignores_superseded_criterion_revisions() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor, project, _repo) = common::seeded_git_project();
+        let project = project.id;
+        let epic = create_epic(&mut conn, &project, &actor, "E", None).unwrap();
+        let task = create_task(&mut conn, &project, &actor, "T", Some(&epic.id)).unwrap();
+        let c = create_criterion(&mut conn, &project, &actor, "task", &task.id, "Old wording", None).unwrap();
+        check_criterion_with_anchor(&mut conn, &actor, &c.id, Some(input("src/a.rs", 4, 9)), "cafe01").unwrap();
+        start_agent_run(&mut conn, &task.id, "acceptEdits", &actor).unwrap(); // locks the criteria
+        let successor = revise_criterion(&mut conn, &actor, &c.id, "New wording", None).unwrap();
+        assert_ne!(successor.id, c.id, "a locked revision is a new row");
+
+        // Two rows exist, both checked, both anchored; only the current one counts.
+        let rows = epic_task_rollup(&conn, &epic.id).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].total, rows[0].checked, rows[0].with_evidence, rows[0].without_evidence), (1, 1, 1, 0));
+    });
+}
+
+#[test]
+fn rollup_of_an_epic_with_no_tasks_or_an_unknown_epic_is_empty() {
+    let (mut conn, actor, project) = common::seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor, "Empty", None).unwrap();
+    assert!(epic_task_rollup(&conn, &epic.id).unwrap().is_empty());
+    assert!(epic_task_rollup(&conn, "no-such-epic").unwrap().is_empty());
+}
+
+#[test]
+fn rollup_rows_of_equal_rank_are_in_task_id_order_on_every_read() {
+    let (conn, .., epic, a, b) = rollup_epic();
+    conn.execute("UPDATE tasks SET rank = 'same' WHERE epic_id = ?1", params![epic]).unwrap();
+    let first = epic_task_rollup(&conn, &epic).unwrap();
+    let ids: Vec<String> = first.iter().map(|r| r.task_id.clone()).collect();
+    let mut expected = vec![a, b];
+    expected.sort();
+    assert_eq!(ids, expected);
+    assert_eq!(first, epic_task_rollup(&conn, &epic).unwrap());
+}
+
+#[test]
+fn rollup_does_not_count_another_epics_tasks() {
+    let (mut conn, actor, project, epic, a, _b) = rollup_epic();
+    let other = create_epic(&mut conn, &project, &actor, "Other", None).unwrap();
+    create_task(&mut conn, &project, &actor, "Elsewhere", Some(&other.id)).unwrap();
+    let ids: Vec<String> = epic_task_rollup(&conn, &epic).unwrap().into_iter().map(|r| r.task_id).collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&a));
 }

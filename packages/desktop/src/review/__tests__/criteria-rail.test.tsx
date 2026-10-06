@@ -13,10 +13,11 @@ import { CriteriaRail } from "../CriteriaRail";
 import { ReviewSurface } from "../ReviewSurface";
 import { bindingAllowedInLayer } from "../../state/keyboard";
 import { AcceptanceCriteriaList } from "../../item-detail/AcceptanceCriteriaList";
-import type { AcceptanceCriterionDto, ReviewCriterionStateDto } from "../../adapters/tauri";
+import type { AcceptanceCriterionDto, EpicTaskRollupRowDto, ReviewCriterionStateDto } from "../../adapters/tauri";
 
 const state = { current: [] as ReviewCriterionStateDto[] };
 const checkMock = vi.fn();
+const rollupMock = vi.fn();
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string) => {
@@ -26,6 +27,7 @@ vi.mock("../../adapters/tauri", () => ({
     return Promise.reject(new Error(`unexpected command ${command}`));
   },
   reviewCriteriaState: () => Promise.resolve(state.current),
+  reviewEpicTaskRollup: (...args: unknown[]) => rollupMock(...args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   // The merge precheck (plan 08-07) is not under test here; it never resolves, so no merge action renders.
   reviewMergePrecheck: () => new Promise(() => {}),
@@ -113,10 +115,10 @@ function entry(
   };
 }
 
-function renderRail() {
+function renderRail(scope: "task" | "epic" = "task", itemId = "t1") {
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <CriteriaRail scope="task" itemId="t1" selection={null} onCheck={() => {}} onFocusChange={() => {}} />
+      <CriteriaRail scope={scope} itemId={itemId} selection={null} onCheck={() => {}} onFocusChange={() => {}} />
     </QueryClientProvider>,
   );
 }
@@ -125,7 +127,51 @@ beforeEach(() => {
   state.current = [];
   nextId = 0;
   checkMock.mockClear();
+  rollupMock.mockReset();
+  rollupMock.mockResolvedValue([]);
   opened = 0;
+});
+
+describe("CriteriaRail epic roll-up (D-132)", () => {
+  const row = (over: Partial<EpicTaskRollupRowDto>): EpicTaskRollupRowDto => ({
+    taskId: "t1",
+    key: "FLY-1",
+    title: "First task",
+    status: "todo",
+    checked: 2,
+    total: 3,
+    withEvidence: 1,
+    withoutEvidence: 1,
+    ...over,
+  });
+
+  it("lists every task of the epic with its checked-of-total and without-evidence counts", async () => {
+    rollupMock.mockResolvedValue([row({}), row({ taskId: "t2", key: "FLY-2", title: "Second task", checked: 0, total: 0, withEvidence: 0, withoutEvidence: 0 })]);
+    renderRail("epic", "e1");
+    const region = await screen.findByRole("region", { name: "Task criteria roll-up" });
+    expect(within(region).getByText("FLY-1")).toBeInTheDocument();
+    expect(within(region).getByText(/First task/)).toBeInTheDocument();
+    expect(within(region).getByText(/2\/3 criteria checked, 1 without evidence/)).toBeInTheDocument();
+    expect(within(region).getByText("FLY-2")).toBeInTheDocument();
+    expect(within(region).getByText("no criteria")).toBeInTheDocument();
+    expect(rollupMock).toHaveBeenCalledWith("e1");
+  });
+
+  it("renders no section and issues no roll-up read in task scope", async () => {
+    rollupMock.mockResolvedValue([row({})]);
+    renderRail("task", "t1");
+    await screen.findByText("Acceptance criteria");
+    expect(screen.queryByRole("region", { name: "Task criteria roll-up" })).toBeNull();
+    expect(rollupMock).not.toHaveBeenCalled();
+  });
+
+  it("renders nothing at all for an epic with no tasks — no heading, no placeholder", async () => {
+    renderRail("epic", "e1");
+    await screen.findByText("Acceptance criteria");
+    await waitFor(() => expect(rollupMock).toHaveBeenCalled());
+    expect(screen.queryByRole("region", { name: "Task criteria roll-up" })).toBeNull();
+    expect(screen.queryByText("Tasks")).toBeNull();
+  });
 });
 
 describe("CriteriaRail", () => {

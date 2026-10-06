@@ -42,6 +42,7 @@ vi.mock("../../adapters/tauri", () => ({
     ),
   reviewMergePrecheck: (...args: unknown[]) => precheckMock(...args),
   reviewCriteriaState: (...args: unknown[]) => criteriaStateMock(...args),
+  reviewEpicTaskRollup: () => Promise.resolve([]),
   criterionCheckWithAnchor: () => Promise.resolve(),
   invokeCommand: (command: string, args?: { scope?: string; itemId?: string }) => {
     // The item panel's list and the rail share one query key and one fetch, so whichever mounts

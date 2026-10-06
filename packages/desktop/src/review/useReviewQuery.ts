@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   forgeEpicRequestDraft,
   forgeRequestForEpic,
+  reviewEpicTaskRollup,
   reviewCriteriaState,
   reviewFilePatch,
   reviewFiles,
@@ -194,6 +195,40 @@ export function useEpicRequestDraft(epicId: string | undefined, enabled: boolean
   return useQuery({
     queryKey: epicId ? epicRequestDraftQueryKey(epicId) : (["review-epic-request-draft", "none"] as const),
     queryFn: () => forgeEpicRequestDraft(epicId as string),
+    enabled: active,
+    staleTime: 0,
+  });
+}
+
+export function epicTaskRollupQueryKey(epicId: string) {
+  return ["review-epic-task-rollup", epicId] as const;
+}
+
+/** Each task of the epic with its criteria counts (D-132) — a read, so `enabled` is whether an
+ * epic-scope rail is showing it. */
+export function useEpicTaskRollup(epicId: string | undefined, enabled: boolean) {
+  const queryClient = useQueryClient();
+  const active = enabled && Boolean(epicId);
+
+  useEffect(() => {
+    if (!active || !epicId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: epicTaskRollupQueryKey(epicId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [active, epicId, queryClient]);
+
+  return useQuery({
+    queryKey: epicId ? epicTaskRollupQueryKey(epicId) : (["review-epic-task-rollup", "none"] as const),
+    queryFn: () => reviewEpicTaskRollup(epicId as string),
     enabled: active,
     staleTime: 0,
   });

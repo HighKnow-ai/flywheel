@@ -325,6 +325,60 @@ pub fn criteria_with_anchors(
     Ok((target, rows))
 }
 
+/// One task of an epic with where its current-revision criteria stand (D-132). `without_evidence`
+/// is checked criteria that carry no anchor; `with_evidence + without_evidence == checked`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EpicTaskCriteria {
+    pub task_id: String,
+    pub key: String,
+    pub title: String,
+    pub status: String,
+    pub checked: i64,
+    pub total: i64,
+    pub with_evidence: i64,
+    pub without_evidence: i64,
+}
+
+/// Every task of `epic_id` with its criteria counted: the roll-up beside an epic's own criteria in
+/// the review rail (D-132). Rows are ordered by rank then task id, so the order is identical on
+/// every read. An unknown epic, or one with no tasks, is an empty vector.
+///
+/// Read-only, and it takes a connection and spawns no git, so it is safe to call while the
+/// database lock is held. It deliberately carries no integrated marker, unlike the roll-up in
+/// `forge::request_body`: that marker needs `merge::is_integrated`, which spawns git and would put
+/// a subprocess back inside the lock's scope (the CR-01 hazard). Superseded criterion revisions
+/// are excluded from every count, so a stale revision is never shown as a task's current state.
+pub fn epic_task_rollup(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<EpicTaskCriteria>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.key, t.title, t.status,
+            (SELECT COUNT(*) FROM acceptance_criteria c WHERE c.parent_type = 'task'
+                AND c.parent_id = t.id AND c.superseded_at IS NULL),
+            (SELECT COUNT(*) FROM acceptance_criteria c WHERE c.parent_type = 'task'
+                AND c.parent_id = t.id AND c.superseded_at IS NULL AND c.checked = 1),
+            (SELECT COUNT(*) FROM acceptance_criteria c WHERE c.parent_type = 'task'
+                AND c.parent_id = t.id AND c.superseded_at IS NULL AND c.checked = 1
+                AND EXISTS (SELECT 1 FROM criterion_anchors a WHERE a.criterion_id = c.id))
+         FROM tasks t WHERE t.epic_id = ?1 ORDER BY t.rank ASC, t.id ASC",
+    )?;
+    let rows = stmt.query_map(params![epic_id], |row| {
+        let checked: i64 = row.get(5)?;
+        let with_evidence: i64 = row.get(6)?;
+        Ok(EpicTaskCriteria {
+            task_id: row.get(0)?,
+            key: row.get(1)?,
+            title: row.get(2)?,
+            status: row.get(3)?,
+            total: row.get(4)?,
+            checked,
+            with_evidence,
+            without_evidence: checked - with_evidence,
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .context("failed to read the epic's task criteria roll-up")?;
+    Ok(rows)
+}
+
 /// The git half of [`review_criteria_state`]: derive each anchor's staleness against `target`.
 pub fn with_staleness(
     target: &ReviewTarget,

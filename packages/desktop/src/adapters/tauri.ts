@@ -1410,6 +1410,25 @@ export async function reviewCriteriaState(
   return invokeCommand<ReviewCriterionStateDto[]>("review_criteria_state", { scope, itemId });
 }
 
+/** One task of an epic with its current-revision criteria counted (Phase 8 plan 08-09, D-132) —
+ * mirrors `commands::review::EpicTaskRollupRowDto`. `withEvidence + withoutEvidence === checked`. */
+export interface EpicTaskRollupRowDto {
+  taskId: string;
+  key: string;
+  title: string;
+  status: string;
+  checked: number;
+  total: number;
+  withEvidence: number;
+  withoutEvidence: number;
+}
+
+/** Each task of an epic with its criteria counts, in rank order. Read-only; the epic id is the whole
+ * input. Thin wrapper over `review_epic_task_rollup`. */
+export async function reviewEpicTaskRollup(epicId: string): Promise<EpicTaskRollupRowDto[]> {
+  return invokeCommand<EpicTaskRollupRowDto[]>("review_epic_task_rollup", { epicId });
+}
+
 /** Check a criterion, optionally against a line range. There is no `sha` here on purpose: the core
  * derives the one it stores, so the renderer cannot claim a commit. Supply all four anchor fields
  * or none. Thin wrapper over `criterion_check_with_anchor`. */

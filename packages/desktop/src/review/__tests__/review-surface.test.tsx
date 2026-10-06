@@ -23,6 +23,7 @@ vi.mock("../../adapters/tauri", () => ({
   // The criteria rail (plan 08-06) shares the surface; these tests are about the file list, so it
   // reads an item with no criteria.
   reviewCriteriaState: () => Promise.resolve([]),
+  reviewEpicTaskRollup: () => Promise.resolve([]),
   invokeCommand: () => Promise.resolve([]),
   criterionCheckWithAnchor: () => Promise.resolve(),
 }));

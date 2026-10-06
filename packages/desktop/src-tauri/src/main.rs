@@ -222,6 +222,7 @@ fn main() {
             commands::review::criterion_check_with_anchor,
             commands::review::review_merge_precheck,
             commands::review::review_merge_task,
+            commands::review::review_epic_task_rollup,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
