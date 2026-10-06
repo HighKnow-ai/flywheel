@@ -213,6 +213,8 @@ fn main() {
             commands::forge::project_forge_overrides,
             commands::forge::forge_request_draft,
             commands::forge::forge_open_request,
+            commands::review::review_files,
+            commands::review::review_file_patch,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

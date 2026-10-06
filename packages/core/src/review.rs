@@ -135,6 +135,31 @@ fn project_repo(conn: &Connection, project_id: &str) -> anyhow::Result<(PathBuf,
     Ok((PathBuf::from(repo_path), default_branch))
 }
 
+/// The changed files of an already-resolved target (empty unless it resolved). Takes no
+/// connection, so a caller can resolve under the database lock, release it, then run git.
+pub fn files_for_target(target: &ReviewTarget) -> anyhow::Result<Vec<git::ReviewFile>> {
+    match target {
+        ReviewTarget::Resolved { repo_path, base, head, .. } => {
+            git::review_files(repo_path, base, head)
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
+/// One file's patch text for an already-resolved target, or `None` when it did not resolve.
+pub fn patch_for_target(
+    target: &ReviewTarget,
+    path: &str,
+    old_path: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    match target {
+        ReviewTarget::Resolved { repo_path, base, head, .. } => {
+            Ok(Some(git::review_patch(repo_path, base, head, path, old_path)?))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// The scope's resolved target plus its changed-file list (empty unless the target resolved).
 pub fn review_file_list(
     conn: &Connection,
@@ -142,12 +167,7 @@ pub fn review_file_list(
     item_id: &str,
 ) -> anyhow::Result<(ReviewTarget, Vec<git::ReviewFile>)> {
     let target = resolve_review_target(conn, scope, item_id)?;
-    let files = match &target {
-        ReviewTarget::Resolved { repo_path, base, head, .. } => {
-            git::review_files(repo_path, base, head)?
-        }
-        _ => Vec::new(),
-    };
+    let files = files_for_target(&target)?;
     Ok((target, files))
 }
 
@@ -159,10 +179,5 @@ pub fn review_file_patch(
     path: &str,
     old_path: Option<&str>,
 ) -> anyhow::Result<Option<String>> {
-    match resolve_review_target(conn, scope, item_id)? {
-        ReviewTarget::Resolved { repo_path, base, head, .. } => {
-            Ok(Some(git::review_patch(&repo_path, &base, &head, path, old_path)?))
-        }
-        _ => Ok(None),
-    }
+    patch_for_target(&resolve_review_target(conn, scope, item_id)?, path, old_path)
 }

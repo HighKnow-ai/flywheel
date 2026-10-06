@@ -17,6 +17,7 @@ pub mod git_truth;
 pub mod issue;
 pub mod menu;
 pub mod project;
+pub mod review;
 pub mod settings;
 pub mod task;
 pub mod worktree_open;
