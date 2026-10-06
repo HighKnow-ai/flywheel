@@ -201,6 +201,38 @@ export const MARKS: Mark[] = [
     meaning:
       "How many of this item's acceptance criteria are checked, out of its total. Visible wherever the item appears (D-08); an item with none shows 0/0.",
   },
+  // Review marks (Phase 8, D-139/D-140/D-141). The first three annotate a CHECKED criterion's
+  // evidence; the fourth is rendered by plan 08-07 (the legend rule runs one way — an entry ahead
+  // of its renderer is correct, and it keeps this file owned by one plan).
+  {
+    id: "criterion-no-evidence",
+    channel: "criteria",
+    glyph: "CircleSlash",
+    label: "No evidence",
+    meaning: "This criterion was checked without pointing at any code.",
+  },
+  {
+    id: "criterion-anchor-fresh",
+    channel: "criteria",
+    glyph: "Anchor",
+    label: "Evidence current",
+    meaning: "The code this criterion was verified against has not changed since.",
+  },
+  {
+    id: "criterion-anchor-stale",
+    channel: "criteria",
+    glyph: "History",
+    label: "Evidence changed",
+    meaning:
+      "The code this criterion was verified against has changed since — the check still stands, but it was made against older code.",
+  },
+  {
+    id: "integrated",
+    channel: "criteria",
+    glyph: "GitMerge",
+    label: "Integrated",
+    meaning: "This task's branch has been merged into its epic's integration branch.",
+  },
   // Estimate marks (D-12: S/M/L, stored as a nullable ordinal INTEGER 1-3, rendered as the
   // letters themselves — never as a number, and never aggregated anywhere in the UI or a query).
   // Sharing one glyph across the three levels is deliberate, mirroring `criteria-count-badge`:

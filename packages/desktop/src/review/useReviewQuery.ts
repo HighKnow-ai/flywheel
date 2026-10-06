@@ -6,6 +6,7 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  reviewCriteriaState,
   reviewFilePatch,
   reviewFiles,
   subscribeBoardChanged,
@@ -84,6 +85,40 @@ export function useReviewPatch(
     queryKey: reviewPatchQueryKey(scope, itemId, path, oldPath),
     queryFn: () => reviewFilePatch(scope, itemId, path, oldPath),
     enabled,
+    staleTime: 0,
+  });
+}
+
+/** The same key `item-detail/AcceptanceCriteriaList.tsx` reads its evidence under, so the rail, the
+ * surface and the item panel share one fetch. */
+export function reviewCriteriaStateQueryKey(scope: ReviewScopeDto, itemId: string) {
+  return ["review-criteria-state", scope, itemId] as const;
+}
+
+/** Every current criterion of the item with its anchor and staleness (REVW-03). */
+export function useReviewCriteriaState(scope: ReviewScopeDto, itemId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!itemId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: reviewCriteriaStateQueryKey(scope, itemId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [scope, itemId, queryClient]);
+
+  return useQuery({
+    queryKey: itemId ? reviewCriteriaStateQueryKey(scope, itemId) : (["review-criteria-state", "none"] as const),
+    queryFn: () => reviewCriteriaState(scope, itemId as string),
+    enabled: Boolean(itemId),
     staleTime: 0,
   });
 }

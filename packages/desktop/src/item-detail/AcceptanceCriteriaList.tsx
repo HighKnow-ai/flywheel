@@ -20,7 +20,7 @@
 import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as icons from "lucide-react";
-import { invokeCommand } from "../adapters/tauri";
+import { invokeCommand, type ReviewCriterionStateDto } from "../adapters/tauri";
 import { MARKS_BY_ID } from "../legend/marks";
 
 export type CriterionParentKind = "task" | "epic";
@@ -45,6 +45,11 @@ export interface AcceptanceCriteriaListProps {
   parentType: CriterionParentKind;
   parentId: string;
   projectId?: string;
+  /** The review rail's hooks (Phase 8 plan 08-06). The rail COMPOSES this list rather than forking
+   * it, so these are the only two seams it needs: which row has focus, and a per-row "check
+   * against the selected lines" affordance (present only inside the rail). */
+  onFocusChange?: (criterionId: string | null) => void;
+  onCheckSelected?: (criterionId: string) => void;
 }
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
@@ -57,6 +62,72 @@ function Icon({ name, size = 14 }: { name: string; size?: number }) {
 
 function criteriaQueryKey(parentType: string, parentId: string) {
   return ["criteria", parentType, parentId] as const;
+}
+
+/** The query key the evidence read lives under — `review/useReviewQuery.ts`'s
+ * `reviewCriteriaStateQueryKey` builds the identical key, so the rail and this list share one fetch. */
+function evidenceQueryKey(parentType: string, parentId: string) {
+  return ["review-criteria-state", parentType, parentId] as const;
+}
+
+/**
+ * A CHECKED criterion's evidence (REVW-03, D-139/D-140/D-141): the anchored path, range and short
+ * sha with how it has aged — or, with no anchor, a quiet "no evidence" marker, never
+ * indistinguishable from an anchored check. Unchecked criteria render nothing here. An unknown
+ * staleness is a plain sentence and never the fresh marker (T-08-06-03).
+ */
+function EvidenceLine({ entry }: { entry: ReviewCriterionStateDto }) {
+  const noEvidence = MARKS_BY_ID["criterion-no-evidence"];
+  const fresh = MARKS_BY_ID["criterion-anchor-fresh"];
+  const stale = MARKS_BY_ID["criterion-anchor-stale"];
+  const muted = { color: "var(--text-muted-rack)", display: "inline-flex", alignItems: "center", gap: 4 } as const;
+  const { anchor, staleness } = entry;
+
+  if (!anchor) {
+    return (
+      <span className="type-label" style={muted}>
+        <Icon name={noEvidence?.glyph ?? "CircleSlash"} size={12} />
+        {noEvidence?.label}
+      </span>
+    );
+  }
+
+  const range = anchor.lineStart === anchor.lineEnd ? `${anchor.lineStart}` : `${anchor.lineStart}–${anchor.lineEnd}`;
+  let ageMark = null;
+  if (staleness?.state === "untouched") {
+    ageMark = (
+      <span style={muted}>
+        <Icon name={fresh?.glyph ?? "Anchor"} size={12} />
+        {fresh?.label}
+      </span>
+    );
+  } else if (staleness?.state === "changed") {
+    const n = staleness.commits ?? 0;
+    ageMark = (
+      <span style={muted}>
+        <Icon name={stale?.glyph ?? "History"} size={12} />
+        {stale?.label} — {n} commit{n === 1 ? "" : "s"} since
+      </span>
+    );
+  } else if (staleness?.state === "movedOrChanged") {
+    ageMark = (
+      <span style={muted}>
+        <Icon name={stale?.glyph ?? "History"} size={12} />
+        {stale?.label} — file moved or changed
+      </span>
+    );
+  } else if (staleness?.state === "unknown") {
+    ageMark = <span style={muted}>recorded commit can no longer be found</span>;
+  }
+
+  return (
+    <span className="type-label" style={{ ...muted, flexWrap: "wrap", columnGap: "var(--space-sm)" }}>
+      <span style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace' }}>
+        {anchor.path}:{range} ({anchor.side}) @ {anchor.sha.slice(0, 7)}
+      </span>
+      {ageMark}
+    </span>
+  );
 }
 
 /**
@@ -117,9 +188,28 @@ function RevisedMarker({ criterionId }: { criterionId: string }) {
   );
 }
 
-export function AcceptanceCriteriaList({ parentType, parentId, projectId }: AcceptanceCriteriaListProps) {
+export function AcceptanceCriteriaList({
+  parentType,
+  parentId,
+  projectId,
+  onFocusChange,
+  onCheckSelected,
+}: AcceptanceCriteriaListProps) {
   const queryClient = useQueryClient();
   const queryKey = criteriaQueryKey(parentType, parentId);
+  const evidenceKey = evidenceQueryKey(parentType, parentId);
+
+  // D-140: the absence of evidence must be visible wherever a criterion appears, so the item panel
+  // reads the same anchors the review rail does. While this has not loaded nothing is claimed.
+  const evidenceQuery = useQuery({
+    queryKey: evidenceKey,
+    queryFn: async () =>
+      (await invokeCommand<ReviewCriterionStateDto[]>("review_criteria_state", {
+        scope: parentType,
+        itemId: parentId,
+      })) ?? [],
+  });
+  const evidenceById = new Map((evidenceQuery.data ?? []).map((entry) => [entry.criterion.id, entry]));
 
   const criteriaQuery = useQuery({
     queryKey,
@@ -141,7 +231,12 @@ export function AcceptanceCriteriaList({ parentType, parentId, projectId }: Acce
 
   const toggleCriterion = useMutation({
     mutationFn: (criterionId: string) => invokeCommand<CriterionDto>("criterion_toggle", { criterionId }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    // Unchecking clears the criterion's anchor in the same core transaction, so evidence refreshes too.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey }),
+        queryClient.invalidateQueries({ queryKey: evidenceKey }),
+      ]),
   });
 
   // D-76/D-77 (plan 04-10): the edit affordance's own mutation, following `toggleCriterion`'s
@@ -167,6 +262,10 @@ export function AcceptanceCriteriaList({ parentType, parentId, projectId }: Acce
   const hintInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const autoOpenedRef = useRef(false);
+
+  useEffect(() => {
+    onFocusChange?.(focusedId);
+  }, [focusedId, onFocusChange]);
 
   // The edit affordance (plan 04-10) — `n`/add's sibling, not its clone: editing an EXISTING
   // criterion already has both fields in hand, so it is one inline step (statement + hint
@@ -443,7 +542,34 @@ export function AcceptanceCriteriaList({ parentType, parentId, projectId }: Acce
                       {criterion.verificationHint}
                     </span>
                   )}
+                  {criterion.checked && evidenceQuery.data && (
+                    <EvidenceLine
+                      entry={evidenceById.get(criterion.id) ?? { criterion, anchor: null, staleness: null }}
+                    />
+                  )}
                 </span>
+              )}
+              {!editing && onCheckSelected && (
+                <button
+                  type="button"
+                  className="type-label"
+                  aria-label={`Check "${criterion.statement}" against the selected lines`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setFocusedId(criterion.id);
+                    onCheckSelected(criterion.id);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "1px solid var(--divider)",
+                    borderRadius: "var(--radius-chrome)",
+                    flexShrink: 0,
+                    cursor: "pointer",
+                    color: "var(--accent-text-rack)",
+                  }}
+                >
+                  Check against selection
+                </button>
               )}
               {!editing && (
                 <button

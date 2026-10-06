@@ -131,4 +131,21 @@ describe("Legend surface", () => {
     const destructiveGateRow = rows.find((row) => row.textContent?.includes("Destructive"));
     expect(destructiveGateRow, "legend row for the destructive-gate mark not found").toBeDefined();
   });
+
+  it.each([
+    ["criterion-no-evidence", "No evidence"],
+    ["criterion-anchor-fresh", "Evidence current"],
+    ["criterion-anchor-stale", "Evidence changed"],
+    ["integrated", "Integrated"],
+  ])(
+    "defines and renders the Phase 8 mark %s with its printed word (D-139/D-140/D-141) — no mark may exist that the legend does not define",
+    (id, label) => {
+      const mark = MARKS.find((m) => m.id === id);
+      expect(mark, `missing mark "${id}"`).toBeDefined();
+      expect(mark?.meaning.length).toBeGreaterThan(0);
+      render(<Legend />);
+      const row = screen.getAllByRole("listitem").find((r) => r.textContent?.includes(label));
+      expect(row, `legend row for "${id}" not found`).toBeDefined();
+    },
+  );
 });
