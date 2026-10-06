@@ -13,11 +13,12 @@
  * unknown command, so a status write fails structurally (D-122).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useRegionBindings } from "../../state/keyboard";
 import { MergeConfirmSheet } from "../MergeConfirmSheet";
 import { EpicRequestSheet } from "../EpicRequestSheet";
+import { ReviewSurface } from "../ReviewSurface";
 import type { EpicRequestPreviewDto, MergePreviewDto } from "../../adapters/tauri";
 
 const mergeMock = vi.fn();
@@ -32,6 +33,23 @@ vi.mock("../../adapters/tauri", () => ({
   },
   reviewCriteriaState: () => Promise.resolve([]),
   reviewEpicTaskRollup: () => Promise.resolve([]),
+  startAgentRun: () => Promise.resolve(),
+  worktreeOpen: () => Promise.resolve(),
+  reviewFiles: () =>
+    Promise.resolve({
+      target: {
+        state: "resolved",
+        postMerge: false,
+        base: "flywheel/epic",
+        head: "flywheel/task",
+        projectId: "p1",
+        epicId: "e1",
+        taskId: "t1",
+      },
+      files: [{ path: "src/lib.rs", oldPath: null, status: "M", added: 1, removed: 1, binary: false }],
+    }),
+  reviewFilePatch: () => Promise.resolve(""),
+  criterionCheckWithAnchor: () => Promise.resolve(),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   gitFacts: () => Promise.resolve({ uncommitted: [] }),
   reviewMergePrecheck: () => Promise.resolve(readyPrecheck),
@@ -149,5 +167,45 @@ describe("Enter on a focused interactive element", () => {
     pressKey(open, "Enter");
     await waitFor(() => expect(openMock).toHaveBeenCalledTimes(1));
     expect(openMock.mock.calls[0]).toEqual(["e1"]);
+  });
+});
+
+describe("Escape in the review surface (WR-06)", () => {
+  const onBack = vi.fn();
+  const swallow = (event: Event) => event.preventDefault();
+
+  function renderSurface() {
+    return render(
+      withClient(
+        <ReviewSurface scope="task" itemId="t1" label="FLY-9 Add retry" onBack={onBack} onOpenSession={() => {}} />,
+      ),
+    );
+  }
+
+  beforeEach(() => onBack.mockClear());
+  afterEach(() => window.removeEventListener("keydown", swallow, true));
+
+  it("does not pop the surface for an Escape something else already handled", async () => {
+    renderSurface();
+    await screen.findByRole("button", { name: "Merge" });
+    // Capture phase on window runs before the surface's bubbling listener: ordering is guaranteed.
+    window.addEventListener("keydown", swallow, true);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
+  it("pops the surface once for an unhandled Escape with no sheet open", async () => {
+    renderSurface();
+    await screen.findByRole("button", { name: "Merge" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not pop the surface for an Escape while the merge sheet is open", async () => {
+    renderSurface();
+    fireEvent.click(await screen.findByRole("button", { name: "Merge" }));
+    await screen.findByRole("dialog", { name: "Merge sheet" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onBack).not.toHaveBeenCalled();
   });
 });

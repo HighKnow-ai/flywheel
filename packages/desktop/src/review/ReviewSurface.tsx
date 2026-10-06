@@ -251,8 +251,10 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      // With a sheet open, Escape closes the sheet (which handles it itself), not the surface.
-      if (event.key === "Escape" && !sheetOpen) onBack();
+      // With a sheet open, Escape closes the sheet (which handles it itself), not the surface. An
+      // Escape a sheet or a criterion input already handled (defaultPrevented) is not this
+      // surface's to act on either (WR-06).
+      if (event.key === "Escape" && !event.defaultPrevented && !sheetOpen) onBack();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
