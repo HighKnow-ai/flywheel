@@ -848,7 +848,7 @@ broken CLI.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
 
-**Plans**: 12/12 plans executed in 5 waves; 4 gap-closure plans in 3 waves
+**Plans**: 12/12 plans executed in 5 waves; 4 gap-closure plans in 3 waves; 3 UAT gap-closure plans in 2 further waves
 **UI hint**: yes
 
 Plans:
@@ -890,6 +890,17 @@ Plans:
 **Gap wave 3** *(blocked on 08-11 — rewrites the same error-mapping lines)*
 
 - [x] 08-12-PLAN.md — CR-02: only an error category crosses IPC from the review and forge commands; raw git stderr and absolute paths stay in the host process log (REVW-04, REVW-05)
+
+**UAT gap closure** *(from 08-UAT.md — three gaps found by the new real-browser WebKit harness, each with a measured root cause; run with `/gsd-execute-phase 8 --gaps-only`)*
+
+**UAT gap wave 1** *(08-13 and 08-14 share no file: the first is CSS plus one browser spec, the second is the core/IPC/adapter hash path. 08-13's verify is file-scoped to its own spec because the keyboard spec stays red until 08-15)*
+
+- [ ] 08-13-PLAN.md — G-08-1: the diff's row tint becomes the only paint behind code glyphs and a word-level edit is marked rather than filled, so all 11 sub-AA token/row pairs clear 4.5:1 in WebKit with no new colour value (REVW-01)
+- [ ] 08-14-PLAN.md — G-08-5 (WR-08): `RequestDraft::content_hash`, carried on the preview and required on the confirm, so an epic request whose draft moved is refused with `draftChanged` before anything is pushed and the sheet re-renders instead of publishing (REVW-05)
+
+**UAT gap wave 2** *(blocked on 08-14 — restructures the same `EpicRequestSheet.tsx` that plan's confirm path lives in)*
+
+- [ ] 08-15-PLAN.md — G-08-6: `m` and `r` become real `review-surface` bindings and both confirm sheets focus their own primary button, so macOS has a keyboard route to the merge and the epic request despite WKWebView keeping buttons out of the Tab order (REVW-03, REVW-04, REVW-05)
 
 **Notes**: Criterion 2 is where the core value becomes a daily habit rather than a slogan — the
 review surface is the moment structured acceptance criteria pay for themselves against a chat
