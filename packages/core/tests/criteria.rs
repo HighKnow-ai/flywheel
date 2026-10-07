@@ -740,3 +740,122 @@ fn a_newly_added_criterion_ranks_after_the_last_current_one_not_a_superseded_row
         );
     });
 }
+
+// ---------------------------------------------------------------------------------------------
+// Plan 08.1-03 — `seed_criteria`: the guarded tool that clears probe text off the real board and
+// seeds real criteria on the tasks that have an active worktree (D-23). The test includes the
+// binary's own source file as a module so it exercises the REAL guard, not a reimplementation.
+// ---------------------------------------------------------------------------------------------
+
+#[allow(dead_code)]
+#[path = "bin/seed_criteria.rs"]
+mod seed_criteria;
+
+fn criterion_event_count(conn: &Connection, criterion_id: &str, event_type: &str) -> i64 {
+    count_rows(
+        conn,
+        "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type = ?2",
+        &[&criterion_id, &event_type],
+    )
+}
+
+#[test]
+fn seed_criteria_deletes_a_row_whose_statement_is_exactly_probe_text() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Probe holder", None).unwrap();
+    let probe = create_criterion(&mut conn, &project.id, &actor_id, "task", &task.id, " test ", None).unwrap();
+
+    seed_criteria::delete_probes(&mut conn, &actor_id).expect("delete_probes should succeed");
+
+    assert!(
+        list_criteria(&conn, "task", &task.id).unwrap().iter().all(|c| c.id != probe.id),
+        "the probe row should be gone"
+    );
+}
+
+#[test]
+fn seed_criteria_leaves_a_criterion_with_real_prose_untouched() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Real holder", None).unwrap();
+    let real = create_criterion(
+        &mut conn, &project.id, &actor_id, "task", &task.id, "Rejects an empty email with a 400", None,
+    )
+    .unwrap();
+    // A statement merely CONTAINING a probe word is still real prose: the guard is an exact match.
+    let contains = create_criterion(
+        &mut conn, &project.id, &actor_id, "task", &task.id, "Adds a test for the empty case", None,
+    )
+    .unwrap();
+
+    seed_criteria::delete_probes(&mut conn, &actor_id).expect("delete_probes should succeed");
+
+    let after = list_criteria(&conn, "task", &task.id).unwrap();
+    assert_eq!(after.iter().filter(|c| c.id == real.id || c.id == contains.id).count(), 2);
+    let kept = after.iter().find(|c| c.id == real.id).unwrap();
+    assert_eq!(kept.statement, real.statement);
+}
+
+#[test]
+fn seed_criteria_gives_an_active_worktree_task_with_no_criteria_some() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let with_worktree = create_task(&mut conn, &project.id, &actor_id, "Wire up the filter chips #21", None).unwrap();
+        let without_worktree = create_task(&mut conn, &project.id, &actor_id, "No worktree here", None).unwrap();
+        start_agent_run(&mut conn, &with_worktree.id, "acceptEdits", &actor_id).expect("start_agent_run");
+
+        let created = seed_criteria::seed_worktree_tasks(&mut conn, &actor_id).expect("seed should succeed");
+
+        let seeded = list_criteria(&conn, "task", &with_worktree.id).unwrap();
+        assert!((2..=4).contains(&seeded.len()), "expected 2-4 criteria, got {}", seeded.len());
+        assert_eq!(created, seeded.len());
+        assert!(list_criteria(&conn, "task", &without_worktree.id).unwrap().is_empty());
+
+        // Idempotent: a second run adds nothing to a task that already carries criteria.
+        assert_eq!(seed_criteria::seed_worktree_tasks(&mut conn, &actor_id).unwrap(), 0);
+    });
+}
+
+#[test]
+fn seed_criteria_leaves_an_event_behind_for_every_row_it_touches() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = create_task(&mut conn, &project.id, &actor_id, "Cache the event stream #26", None).unwrap();
+        start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id).expect("start_agent_run");
+        let probe = create_criterion(&mut conn, &project.id, &actor_id, "task", &task.id, "hello", None).unwrap();
+
+        seed_criteria::delete_probes(&mut conn, &actor_id).unwrap();
+        seed_criteria::seed_worktree_tasks(&mut conn, &actor_id).unwrap();
+
+        assert_eq!(criterion_event_count(&conn, &probe.id, "criterion.deleted"), 1);
+        let seeded = list_criteria(&conn, "task", &task.id).unwrap();
+        assert!(!seeded.is_empty());
+        for criterion in &seeded {
+            assert_eq!(criterion_event_count(&conn, &criterion.id, "criterion.created"), 1);
+        }
+    });
+}
+
+#[test]
+fn seed_criteria_refuses_to_run_without_a_mode_and_an_explicit_target() {
+    let to_args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+    // No mode at all.
+    assert!(seed_criteria::resolve_invocation(&to_args(&[]), true).is_err());
+    // A mode, but no app-data override and no explicit real-database flag.
+    assert!(seed_criteria::resolve_invocation(&to_args(&["both"]), false).is_err());
+    // An unknown mode.
+    assert!(seed_criteria::resolve_invocation(&to_args(&["wipe"]), true).is_err());
+    // The flag, or the override, is what authorises a run.
+    assert!(seed_criteria::resolve_invocation(&to_args(&["both", "--i-mean-the-real-database"]), false).is_ok());
+    assert!(seed_criteria::resolve_invocation(&to_args(&["delete-probes"]), true).is_ok());
+
+    // And the real binary, run with no mode against a scratch directory, exits non-zero and
+    // creates nothing in it.
+    let dir = scratch_dir();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_seed_criteria"))
+        .env("FLYWHEEL_APP_DATA_DIR", dir.path())
+        .output()
+        .expect("failed to spawn seed_criteria");
+    assert!(!output.status.success(), "no mode must exit non-zero");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "a refused run must write nothing");
+}

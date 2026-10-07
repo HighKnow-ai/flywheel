@@ -31,6 +31,10 @@ path = "tests/bin/uat_authoring_ops.rs"
 name = "forge_probe"
 path = "tests/bin/forge_probe.rs"
 
+[[bin]]
+name = "seed_criteria"
+path = "tests/bin/seed_criteria.rs"
+
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
 rusqlite_migration = "2.6"
