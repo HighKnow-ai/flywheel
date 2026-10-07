@@ -1,29 +1,57 @@
 ---
 phase: 08-review-and-merge-inside-flywheel
-verified: 2026-10-07T16:55:00Z
+verified: 2026-10-07T16:15:00Z
 status: passed
-score: 7/8 must-haves verified
+score: 6/9 must-haves verified
 human_verification: deferred
 deferred_to: ".planning/DEFERRED-REVIEW.md"
-deferred_items: [D-REV-02, D-REV-03, D-REV-04]
+deferred_items: [D-REV-02, D-REV-03, D-REV-04, D-REV-05, D-REV-06, D-REV-07, D-REV-08]
+timestamp_convention: |
+  `verified:` is local wall clock (+08:00) labelled Z, matching every other
+  artifact in this phase. True UTC at write time was 2026-10-07T08:15Z. The
+  staleness check is digest-based (#4155), so this does not affect it; a future
+  evidence-gate `git log --since` reads ~8h wide, which fails closed.
 closure_note: |
   Closed on automated verification plus ROADMAP success criteria, per the owner's
   2026-10-07 decision to suspend human verification until MVP (.claude/CLAUDE.md
   § "Human verification is deferred until MVP"). This is NOT a claim that the
   deferred items were observed:
-    - criterion 2 (check criteria against the diff) is NOT demonstrable on this
-      board at all — the database holds 2 acceptance_criteria rows, none on a
-      reviewable task. Code path live and test-covered; data absent. D-REV-04.
-    - criterion 3's conflict half is UNVERIFIED — merge-tree is clean 5/5, so no
-      conflicting merge is reachable. The merge half IS proven: THRE-43 went from
-      1 commit ahead to 0 after an in-app `m` + Enter, checked independently with
-      git rev-list. D-REV-02.
-    - WR-04's draftChanged ordering is proven by reading only. D-REV-03.
-  Newly proven this round, and no longer blocked: REVW-05's idempotency against
-  the REAL gh CLI and live GitHub API (opened PR #1, second call AlreadyOpen #1,
-  cleanup verified) — previously a #[ignore]d test that had never run.
-  Fixed this round: G-08-R2-1, the epic review trapping focus in the criteria
-  composer and swallowing `r` (857c21b, two non-vacuous regression tests).
+    - criterion 2 (check a task's criteria against its diff) is NOT demonstrable
+      on this board. Code path live and test-covered; the DATA is absent. D-REV-04.
+      CORRECTED THIS ROUND: the database now holds FOUR acceptance_criteria rows
+      (2 task + 2 epic), not two, and the epic carrying the integration branch
+      `flywheel/epic/thre-7-agent-session-supervision` now has ONE criterion, not
+      zero. Both epic rows were created 2026-10-07T07:27-07:28Z with probe text
+      ("test"/"hello", hints "hello"/"ok") — i.e. during round-2 UAT, almost
+      certainly typed INTO the auto-opened composer that G-08-R2-1 had stolen
+      focus into. The criterion-2 verdict is unchanged in substance: all five
+      tasks that have a worktree still carry ZERO criteria, and the two task-scope
+      rows sit on an epic-less, worktree-less task, so there is still no task diff
+      against which a task criterion can be checked. The register's stated numbers
+      were stale and are corrected in place (additively).
+    - criterion 3 is PARTIAL. Merge half PROVEN LIVE and re-confirmed
+      independently this round: `ae6423c` is a real two-parent merge commit,
+      THRE-43's tip is an ancestor of the epic branch, `git rev-list --count` is 0.
+      CORRECTED THIS ROUND: the conflict half is NOT untested — it is proven by
+      four named core tests against REAL conflicting git fixtures
+      (`task_conflict_a`/`task_conflict_b` in tests/common/mod.rs), including
+      "rolls back and leaves the worktree clean" and "never creates the epic
+      worktree", plus four renderer tests that render the conflict result naming
+      every file and "nothing changed". What is unverified is narrower than
+      recorded: no conflict has ever been observed END TO END in the running app
+      (merge-tree is clean 5/5, re-confirmed), and WR-05's keyboard exit route out
+      of the conflict result does not exist. D-REV-02.
+    - WR-04's draftChanged ordering is still proven by READING only
+      (forge.rs:401-404 returns before open_epic_request_at at 407). D-REV-03.
+  Criteria 1 and 4 are satisfied. Criterion 4 gained real evidence last round:
+  REVW-05's idempotency against the REAL gh CLI and live GitHub API (opened PR #1,
+  second call AlreadyOpen #1, cleanup verified) — previously a #[ignore]d test that
+  had never run. The attribute is still present (forge_live_github.rs:87) by
+  design; it is run by name with `-- --ignored`.
+  Fixed and INDEPENDENTLY RE-PROVEN this round: G-08-R2-1. I reverted
+  `autoOpenWhenEmpty={false}` from CriteriaRail and ran the named test file: 2
+  failed / 8 passed. Restored, full suite 770/770. The fail-first claim is not
+  taken on the SUMMARY's word.
 covered_files:
   - ".planning/REQUIREMENTS.md"
   - ".planning/phases/08-review-and-merge-inside-flywheel/08-01-PLAN.md"
@@ -58,237 +86,324 @@ covered_files:
   - ".planning/phases/08-review-and-merge-inside-flywheel/08-15-SUMMARY.md"
   - "packages/core/Cargo.toml"
   - "packages/core/src/context_packet.rs"
+  - "packages/core/src/db/migrations/0018_criterion_anchors.sql"
+  - "packages/core/src/db/mod.rs"
+  - "packages/core/src/domain/acceptance_criterion.rs"
+  - "packages/core/src/epic_context_packet.rs"
   - "packages/core/src/forge/mod.rs"
   - "packages/core/src/forge/request_body.rs"
   - "packages/core/src/git.rs"
+  - "packages/core/src/lib.rs"
   - "packages/core/src/merge.rs"
+  - "packages/core/src/query/authoring.rs"
   - "packages/core/src/review.rs"
+  - "packages/core/tests/common/mod.rs"
+  - "packages/core/tests/context_packet.rs"
   - "packages/core/tests/criterion_anchors.rs"
   - "packages/core/tests/epic_request_draft.rs"
+  - "packages/core/tests/forge_live_chain.rs"
+  - "packages/core/tests/forge_live_github.rs"
+  - "packages/core/tests/review_diff.rs"
+  - "packages/core/tests/review_merge.rs"
+  - "packages/desktop/package.json"
   - "packages/desktop/src-tauri/capabilities/default.json"
   - "packages/desktop/src-tauri/src/commands/forge.rs"
   - "packages/desktop/src-tauri/src/commands/mod.rs"
   - "packages/desktop/src-tauri/src/commands/review.rs"
   - "packages/desktop/src-tauri/src/main.rs"
+  - "packages/desktop/src/App.tsx"
   - "packages/desktop/src/adapters/tauri.ts"
+  - "packages/desktop/src/board/BoardView.tsx"
   - "packages/desktop/src/board/CommandPalette.tsx"
   - "packages/desktop/src/board/__tests__/layer-guard.test.tsx"
+  - "packages/desktop/src/board/__tests__/review-doors.test.tsx"
+  - "packages/desktop/src/item-detail/AcceptanceCriteriaList.tsx"
+  - "packages/desktop/src/item-detail/ItemDetailPanel.tsx"
+  - "packages/desktop/src/item-detail/__tests__/forge-section.test.tsx"
+  - "packages/desktop/src/legend/__tests__/legend.test.tsx"
+  - "packages/desktop/src/legend/marks.ts"
   - "packages/desktop/src/review/CriteriaRail.tsx"
   - "packages/desktop/src/review/EpicRequestSheet.tsx"
+  - "packages/desktop/src/review/FileDiff.tsx"
   - "packages/desktop/src/review/MergeConfirmSheet.tsx"
   - "packages/desktop/src/review/ReviewSurface.tsx"
+  - "packages/desktop/src/review/__tests__/browser/ergonomics.browser.test.tsx"
   - "packages/desktop/src/review/__tests__/browser/keyboard.browser.test.tsx"
   - "packages/desktop/src/review/__tests__/browser/legibility.browser.test.tsx"
+  - "packages/desktop/src/review/__tests__/browser/paint.ts"
+  - "packages/desktop/src/review/__tests__/browser/review-fixture.ts"
   - "packages/desktop/src/review/__tests__/criteria-rail.test.tsx"
   - "packages/desktop/src/review/__tests__/epic-request.test.tsx"
+  - "packages/desktop/src/review/__tests__/highlight.test.ts"
   - "packages/desktop/src/review/__tests__/keyboard-activation.test.tsx"
   - "packages/desktop/src/review/__tests__/merge-sheet.test.tsx"
   - "packages/desktop/src/review/__tests__/review-surface.test.tsx"
+  - "packages/desktop/src/review/highlight.ts"
   - "packages/desktop/src/review/review.css"
+  - "packages/desktop/src/review/selection.ts"
   - "packages/desktop/src/review/useReviewQuery.ts"
+  - "packages/desktop/src/session/SessionSurface.tsx"
+  - "packages/desktop/src/session/__tests__/session-surface.test.tsx"
+  - "packages/desktop/src/state/__tests__/keyboard-agent.test.ts"
   - "packages/desktop/src/state/keyboard.ts"
-covered_digest: "v1:sha256:4bbb813d7092bd89a3603239e596e67c30c81f848ab2db1829cbe11466cd0e05"
+  - "packages/desktop/src/state/uiStore.ts"
+  - "packages/desktop/src/test/browser-setup.ts"
+  - "packages/desktop/vitest.browser.config.ts"
+  - "packages/desktop/vitest.config.ts"
+  - "scripts/uat/README.md"
+covered_digest: "v1:sha256:32e75a1a2f6a6694f23e230c1074281350e4bdd792a54a648ea04d269af42bfa"
 behavior_unverified: 1
 overrides_applied: 0
 re_verification:
-  previous_status: human_needed
-  previous_score: 6/6
+  previous_status: passed
+  previous_score: 7/8
+  trigger: "fingerprint stale — AcceptanceCriteriaList.tsx and CriteriaRail.tsx changed by 857c21b after the prior report was written"
   gaps_closed:
-    - "G-08-1 diff tint legibility, closed by 08-13"
-    - "G-08-5 stale epic request preview, closed by 08-14 (guard present and wired; refusal-before-push has no test below the renderer mock)"
-    - "G-08-6 no keyboard route to Merge / Open request on WebKit, closed by 08-15 (proven in Playwright WebKit only)"
+    - "G-08-R2-1 epic review traps focus in the criteria composer, swallowing `r` — closed by 857c21b, fail-first reproduced by this verifier"
   gaps_remaining: []
   regressions: []
+  corrections:
+    - "D-REV-04's measured criteria count was 2; it is now 4, and the integration-branch epic is no longer at zero. Substance of the criterion-2 verdict unchanged."
+    - "Criterion 3's conflict half was recorded UNVERIFIED; it is test-proven at core and renderer with real conflicting fixtures. Only the end-to-end in-app observation and WR-05's keyboard exit remain unverified."
+    - "D-REV-02 was recorded `automatable: YES — a conflicting branch pair is three git commands in a test fixture`. The fixture ALREADY EXISTS and merge-sheet.test.tsx already renders the conflict result state, so the remaining work is one assertion, not a fixture."
 gaps: []
 deferred: []
+advisory:
+  - finding: "3 `error TS2345` from `tsc --noEmit -p packages/desktop`: `toHaveTextContent(/regex/)` typed as `string | number`, at forge-section.test.tsx:352 and settings-surface.test.tsx:179-180"
+    category: other
+    reason: |
+      PRE-EXISTING and not attributable to this phase. `git log -L` puts the
+      forge-section.test.tsx:345-358 region at 1c3ab1c (Phase 07-08), not at
+      08-14; settings-surface.test.tsx was never touched by Phase 08. The cause
+      is a jest-dom matcher-types resolution defect, not a wrong assertion —
+      `toHaveTextContent` accepts a RegExp at runtime and all three assertions
+      pass. Resolved by wiring `@testing-library/jest-dom` matcher types into
+      the desktop tsconfig.
+      It DOES violate 08-08-PLAN.md's acceptance criterion as literally worded
+      ("`npx tsc --noEmit` exits 0 ... no line containing 'error TS'"), which is
+      recorded here rather than dropped. It is not a blocker: no roadmap success
+      criterion depends on it, the build passes, 770/770 tests pass.
+    evidence_status: "reproducible — `packages/desktop/node_modules/.bin/tsc --noEmit -p packages/desktop` prints exactly those 3 lines. Evidenced, but Warning severity, not Blocker, so the Step 7 evidence gate's blocker rule does not engage."
 behavior_unverified_items:
-  - truth: "A confirm whose draft changed is refused with draftChanged BEFORE anything is pushed or any forge call is made"
+  - truth: "An epic request whose draft moved is refused with the bare string `draftChanged` BEFORE any push or forge call (WR-04)"
     test: "Preview an epic request, check a criterion on the board from elsewhere, then confirm; observe that no `git push` and no `gh pr create` ran and the sheet shows the new text"
-    expected: "Rejection is the bare string draftChanged; remote has no new branch or PR; sheet re-renders the current text"
-    why_human: "The comparison lives inside a #[tauri::command] taking State and AppHandle, so no Rust test reaches it; the renderer tests mock the rejection. The ordering is correct by reading (forge.rs lines 401-404 return before open_epic_request_at at 407), but a refactor that moved the check below the push would pass every current test (WR-04)."
-human_verification:
-  - test: "Run `npm --prefix packages/desktop run tauri dev`, open a task review, press m, press Enter; open an epic review, press r, press Enter"
-    expected: "Each sheet opens with its confirm button focused and Enter confirms once, with no mouse and no Tab"
-    why_human: "G-08-6's route is measured in Playwright WebKit, not in the real macOS WKWebView under Tauri. No automation can drive that binary (no WebDriver for WKWebView on macOS)."
-  - test: "Open an epic request against a real authenticated GitHub or GitLab repo twice in a row (UAT item 4): `FLYWHEEL_UAT_GITHUB_REPO=<owner>/flywheel-uat cargo test -p core --test forge_live_github -- --ignored --nocapture`"
-    expected: "First call pushes and opens one request; second returns AlreadyOpen with the same request number"
-    why_human: "Still BLOCKED, third-party: it opens a real PR on a real repository with the account owner's credentials, so it is #[ignore]d and has never been run. Everything else about REVW-05 is proven against a gh/glab stub that is the only substituted component (forge_live_chain.rs)."
-  - test: "After a conflicting merge in the real app, try to reach 'Start a session to resolve', 'Open in editor' and Close with the keyboard"
-    expected: "A keyboard route exists, or the team accepts mouse-only exits on macOS"
-    why_human: "WR-05: MergeConfirmSheet focuses only the Merge button, once. After the result renders the button unmounts and focus falls to the scope container. If WKWebView does not Tab to buttons (the premise 08-15 is built on) these three are mouse-only; Escape still closes."
+    expected: "Rejection is the bare string `draftChanged`; the remote has no new branch or PR; the sheet re-renders the current text"
+    why_human: |
+      NOT a genuine human item — a testability defect, and said so plainly. The
+      comparison lives inside a `#[tauri::command]` taking `State` and
+      `AppHandle`, so no Rust test reaches it, and the renderer tests mock the
+      rejection. A stub-forge test asserting the gh stub was never invoked on a
+      hash mismatch would pin the ordering. Deferred as D-REV-03, flagged there
+      as the highest-value automation item in the register.
+coincidental_reliance_items: []
 ---
 
 # Phase 8: Review And Merge Inside Flywheel Verification Report
 
 **Phase Goal:** Cyril reviews an agent's work against the acceptance criteria that were agreed before it started, and lands it, without dropping back to a terminal.
-**Verified:** 2026-10-07T15:10:00Z
-**Status:** human_needed
-**Re-verification:** Yes, after the third gap-closure round (08-13, 08-14, 08-15). The earlier `human_needed 6/6` report predated the UAT and is replaced.
+**Verified:** 2026-10-07T16:15:00Z
+**Status:** passed (human verification deferred, not performed)
+**Re-verification:** Yes. The prior report was reported `stale` by `verification.status` because `857c21b` changed two files in its `covered_files`. This report re-computes against current code and refreshes the fingerprint.
 
 ## Verdict in one paragraph
 
-The four roadmap success criteria hold in the code. G-08-1, G-08-5 and G-08-6 are each closed in the sense the UAT defined, with one residue per gap that only a human or a live service can clear. No finding is a blocker. The status is `human_needed` and not `passed` because three items cannot be settled by this tree's automation: the real-WKWebView keyboard route, the live-forge run (UAT item 4, still blocked), and the ordering invariant of the `draftChanged` guard, which no test reaches.
+The phase closes. Criteria 1 and 4 are satisfied, criterion 3 is partial, criterion 2 is not demonstrable on this board for want of DATA rather than code. G-08-R2-1 — the round-2 UAT gap where the epic review stole focus into the criteria composer and swallowed `r` — is genuinely fixed, and I proved its two regression tests red myself rather than taking the SUMMARY's word for it. Nothing found this round blocks the phase. Two of the facts I was asked to carry forward were measurably stale and are corrected: the board now holds four acceptance-criteria rows rather than two, and criterion 3's conflict half is test-proven against real conflicting git fixtures rather than untested. Neither correction changes a verdict; both change the reasoning, and one of them (D-REV-02) makes a register item *more* automatable than it was recorded.
 
 ## Goal Achievement
 
 ### Observable Truths
 
+ROADMAP success criteria 1-4 are the contract. Truths 5-9 are the gap truths carried from prior rounds.
+
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | SC1: task diff with syntax highlighting, and the epic's accumulated diff, are readable in-app | VERIFIED | Regression check only (unchanged this round). `ReviewSurface` renders both scopes; 122 jsdom tests under `src/review` and `layer-guard` pass; 23 WebKit tests pass (ran both myself); UAT item 2 passed. |
-| 2 | SC2: each criterion can be checked against the diff during review | VERIFIED | `c` binding and gutter selection proven in WebKit (`keyboard.browser.test.tsx`, "checks the criterion the rail has focused"), scroll position preserved (UAT 2 pass). |
-| 3 | SC3: a task branch merges into its epic integration branch in-app; conflicts are surfaced, never silent or half-merged | VERIFIED | `cargo test -p core --test review_merge`: 37 pass (ran it). Conflict sheet names both files and both exits, activated with Enter in WebKit (UAT 3 pass). |
-| 4 | SC4: a PR/MR for a finished epic's integration branch opens in one action | VERIFIED (against a stub forge) | `open_epic_request_at` pushes then creates; nine `epic_request_*` tests in `forge_live_chain.rs` cover open, already-open, push rejected, partial outcome, absent and unauthenticated CLI, no forge. The real-forge arm has never run (human item 2). |
-| 5 | G-08-1: every syntax-token role on added and removed rows clears 4.5:1, and exactly one palette ships | VERIFIED | See G-08-1 below. |
-| 6 | G-08-5a: the published text is the text the sheet rendered; renderer cannot influence it; no git/CLI/path output crosses IPC | VERIFIED | See G-08-5 below. |
-| 7 | G-08-5b: a confirm whose draft changed is refused with bare `draftChanged` before anything is pushed | PRESENT_BEHAVIOR_UNVERIFIED | Correct by reading; no test exercises the ordering (WR-04). |
-| 8 | G-08-6: merge and epic-request confirmations are reachable and confirmable with no mouse | VERIFIED (WebKit) | See G-08-6 below. WKWebView itself is human item 1. |
+| 1 | SC1: user reads a task's full diff with syntax highlighting, and the accumulated diff of its epic's integration branch | ✓ VERIFIED | Owner reached and read both scopes in the running app ("Rest seems to work perfectly"). Regression check this round: 770/770 desktop tests across 51 files, `ReviewSurface` renders both scopes, `CriteriaRail` wired at `ReviewSurface.tsx:439`. |
+| 2 | SC2: user checks off each of the task's acceptance criteria against the diff while reviewing it | ✗ NOT DEMONSTRABLE (data) | Not a code failure — a data vacuum, re-measured this round. Code path live and covered by 08-02/08-06/08-09 tests (`criterion_anchors` 19/19 green). But all five tasks holding a worktree carry ZERO criteria, and the only two task-scope criteria sit on an epic-less, worktree-less task, so no task diff exists to check a task criterion against. D-REV-04. |
+| 3 | SC3: a task branch merges into its epic integration branch in-app, and any conflict is surfaced clearly rather than failing silently or half-merging | ⚠️ PARTIAL | **Merge half proven live**, re-confirmed independently: `ae6423c` is a real two-parent merge commit ("Merge THRE-43 ... into flywheel/epic/thre-7-..."), THRE-43's tip is an ancestor of the epic branch, `git rev-list --count` returns 0. **Conflict half proven by test, never observed in-app**: `review_merge` 37/37 green including `merge_no_ff_conflict_rolls_back_and_leaves_the_worktree_clean`, `run_merge_conflict_names_the_files_and_never_creates_the_epic_worktree`, `run_merge_conflict_against_an_existing_epic_worktree_leaves_it_clean`, all against real conflicting fixtures; renderer shows "Merge aborted — 3 conflicts, nothing changed" listing every file. `git merge-tree --write-tree` is clean 5/5 (re-measured), so no live conflict is reachable. D-REV-02. |
+| 4 | SC4: a PR/MR for a finished epic's integration branch opens in one action | ✓ VERIFIED | Proven against the REAL `gh` CLI and live GitHub API last round: opened PR #1 on a throwaway repo, second call returned `AlreadyOpen #1`, cleanup verified (PR closed, branch deleted). Stub-forge chain `forge_live_chain` 37/37 green this round. |
+| 5 | G-08-R2-1: pressing `r` on an epic review with zero criteria opens the epic request sheet instead of typing a character | ✓ VERIFIED | **Fail-first reproduced by this verifier**, not taken on trust. I removed `autoOpenWhenEmpty={false}` from `CriteriaRail.tsx` and ran `keyboard-activation.test.tsx`: **2 failed / 8 passed**. Restored; with the fix the file is 10/10 and the suite 770/770. The `r` test fires at `document.activeElement`, not `document.body`, so it is non-vacuous (a body-targeted press passes with the bug present). |
+| 6 | G-08-1: every syntax-token role on added and removed rows clears 4.5:1, and exactly one palette ships | ✓ VERIFIED | Regression check only (unchanged this round). `legibility.browser.test.tsx` measures painted contrast in real WebKit for every role/row pair across five languages. Residue carried: a gutter-selected row is unmeasured (now D-REV-06). |
+| 7 | G-08-5a: the published text is the text the sheet rendered; the renderer cannot influence it; no git/CLI/path output crosses IPC | ✓ VERIFIED | Regression check only. `epic_request_draft` 22/22 green. `content_hash` is the single digest, used by both the preview DTO and the confirm command. |
+| 8 | G-08-5b / WR-04: a confirm whose draft changed is refused with bare `draftChanged` before anything is pushed | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | Present, wired and correct by reading (`forge.rs:401-404` returns before `open_epic_request_at` at 407). No test exercises the ordering. A refactor moving the check below the push would pass every test in the repo. D-REV-03. |
+| 9 | G-08-6: merge and epic-request confirmations are reachable and confirmable with no mouse | ✓ VERIFIED | `m` + Enter observed by the owner in the real macOS WKWebView (round-2 UAT test 1, task half passed). The `r` half was broken by G-08-R2-1 and is now fixed and test-covered (truth 5). Bindings fenced to the `review-surface` layer; `layer-guard.test.tsx:325` asserts the fence. |
 
-**Score:** 7/8 truths verified (1 present, behavior-unverified).
+**Score:** 6/9 truths verified (1 behavior-unverified, 1 partial, 1 not demonstrable).
 
-## G-08-1: diff tint legibility (closed)
+## What changed since the prior report
 
-- `review.css` lines 20-27: row tint is `color-mix(... 12%, transparent)`; both `--diff-code-*-edit-background-color` are `transparent`. Lines 35-41 mark a word-level edit with `box-shadow: inset 0 -2px 0` in the signal hue, differing between insert and delete. The edit span therefore adds no paint behind glyphs.
-- I recomputed the ratios independently from the token hexes (not from the executor's model). Over `#171b22` with the 12% row mix, the lowest role that ever paints code is 4.51:1 (destructive token on an insert row, a combination that does not occur on real rows); keyword is 5.22 / 5.51, punctuation 5.53 and above. Every role passes 4.5:1. The 22% gutter tints carry only `--text-primary-rack`.
-- I ran the WebKit suite: `legibility.browser.test.tsx` measures painted contrast in the real engine for every role/row pair across five languages, plus a non-vacuous check that edit spans exist and paint no background of their own. Green.
-- One palette: no `prefers-color-scheme` or `[data-theme` appears in any shipped stylesheet or source file (grep over `src/`; hits are only the legibility test that asserts their absence). `tokens.css` and `theme/tokens.ts` were not modified by this round.
-- Residue, not a gap: a selected (gutter-clicked) row stacks a 14% blue selection over the row tint. Computed: keyword 4.65 and 4.87, all code-bearing roles above 4.5. Only a `.token.deleted` or `.token.inserted` span inside a selected row drops to 4.02 / 4.21, which means a diff-of-a-diff. The browser test does not select a row before measuring, so this state is unmeasured. Info only.
+`857c21b` is the only functional commit in the covered set since the prior report. It fixes G-08-R2-1 as a **composition** defect, which is the right diagnosis: `AcceptanceCriteriaList`'s zero-criteria auto-open-and-focus is correct in the item panel (the documented zero-item state in `01-UI-SPEC.md`) and wrong when composed into a surface that owns single-key bindings.
 
-## G-08-5: what you previewed is what is published (closed, one caveat)
+- `AcceptanceCriteriaList.tsx:59, 204, 290, 295` — new optional `autoOpenWhenEmpty` prop, defaulting to `true`, guarding the auto-open effect and included in its dependency array.
+- `CriteriaRail.tsx:76` — passes `autoOpenWhenEmpty={false}`.
+- The panel's path is unchanged **and still test-protected**: `ItemDetailPanel.tsx:292` passes no prop (so `true`), and `item-detail/__tests__/criteria.test.tsx:113` still asserts the composer opens on its own for a zero-item parent — 12/12 green. The fix is non-regressive by test, not merely by reading the default.
 
-- `RequestDraft::content_hash` (core `request_body.rs`) is SHA-256 over title, `\n`, body. It is the single digest function. `RequestDraftDto::from` calls it on the preview path; `forge_open_epic_request` calls it on the re-assembled draft.
-- `forge_open_epic_request(epic_id, content_hash)` accepts no title, body, branch or target. The `draft` it hashes is the same object passed to `open_epic_request_at`, so a matching hash can only permit publishing text the core itself assembled. The hash can cause a refusal, never a substitution.
-- Mismatch returns the literal `"draftChanged"`; both digests go only to `eprintln!`. Every other error in the command goes through `ipc_error` (`failed:<context>`), `forge_error_code` (`<category>:<cli>`) or `blocked:<name>`. `PushRejected` detail and `PushedButNotOpened` detail are logged, not returned. A branch name crosses IPC in `PushedButNotOpened`, which is by design and not a path. No git output, CLI output or absolute path crosses IPC.
-- The sheet sends `draft.contentHash` from the same `preview.data` it rendered, calls `forgeOpenEpicRequest(epicId, sentHash)`, and on `draftChanged` refetches instead of showing a failure. The adapter (`tauri.ts:1324`) is the only invoker.
-- Tests: 22 in `epic_request_draft.rs` pass (hash stable on unchanged board, moves on criterion check and on title change, 64 lowercase hex). Renderer test at `epic-request.test.tsx:135` covers re-render and next confirm carrying the new hash.
-- Caveat (WR-04, truth 7): the compare-and-refuse step has no test below the renderer mock. I read it: the hash check at forge.rs 401-404 returns before `open_epic_request_at`. Present and correct, not behaviorally proven.
-- Caveat (WR-03, warning): the digest excludes `head_branch` and `target_branch`, yet the sheet header shows `head -> target` and the footer says "exactly this text". `target_branch` is read from `projects.default_branch` at confirm time. A change to it between preview and confirm is not refused. The branches are not published text, so the must-have as worded ("the text published") holds. The user-facing promise is slightly wider than the guard.
-- Caveat (WR-06, warning, predates this round): the task-scope `forge_open_request` has no such guard and its doc comment still claims "by construction". The DTO now ships a `contentHash` for it that nothing checks. Logged in `deferred-items.md` as a named follow-up. It is outside this gap's scope and outside the four roadmap criteria.
+This is also the shortest correct fix: one optional prop with a safe default, no new abstraction, no change to `useRegionBindings` (whose refusal to claim a printable key while a text field holds focus is the correct behavior and was never the bug).
 
-## G-08-6: keyboard route to the confirmations (closed in WebKit)
+## Corrections to carried facts
 
-- `keyboard.ts`: `open-merge` bound to `m` and `open-epic-request` to `r`, region `review-surface`. Both are in `REVIEW_SURFACE_ACTION_IDS`, and `bindingAllowedInLayer` returns false for them in every other layer (line 562). `CommandPalette.tsx` `continue`s past both, so no dead palette entry. `layer-guard.test.tsx:325` asserts the fence.
-- Merge sheet and epic sheet each focus their confirm button on open (`MergeConfirmSheet.tsx:180-185`, `EpicRequestSheet.tsx` keyed effect), so the already-proven Enter/Space activation lands on it. `useRegionBindings`' `isActivationTarget` guard (CR-03) is unchanged.
-- WebKit tests (ran them): `m` opens the merge sheet with Merge focused and Enter and Space each confirm exactly once with `["t1"]`; `r` opens the epic sheet with Open request focused and Enter confirms once carrying `READY_DRAFT.draft.contentHash`; `m` inert when the precheck refuses; `m` inert in epic scope; `r` inert in task scope; neither re-fires while a sheet is open. No test presses Tab, which is correct now that the route is a binding.
-- Residue: jsdom or Playwright WebKit is not WKWebView under Tauri. Human item 1.
+Both corrections were made by re-measuring, not by re-reasoning. Neither changes a verdict.
 
-## Ruling on WR-01 (`m` preventDefault)
+### 1. The board now holds four acceptance-criteria rows, not two
 
-**The claim is true, and it does not break any roadmap criterion or any plan must-have as the must-have is worded.**
+The register and the prior report state "the database holds exactly TWO `acceptance_criteria` rows, both on tasks" and "every epic carrying an integration branch has zero". Re-measured against `~/Library/Application Support/Flywheel/flywheel.db`:
 
-- Verified in code: `ReviewSurface.tsx:240-256` always passes an `"open-merge"` handler. `useRegionBindings` (`keyboard.ts:781-791`) returns early only when `handlers[binding.id]` is missing, otherwise it calls `event.preventDefault()` before the handler. The handler tests `mergeOffered` after the keystroke is already cancelled. So `m` is cancelled and does nothing in epic scope, with an integrated task, and while the precheck is loading or refused. `EpicRequestBar` does it right for `r` by passing `{}` when `offered` is false.
-- Why it is not a failure: 08-15's must-have reads "`m` and `r` do nothing when the corresponding button is not offered ... the keyboard route and the button appear under exactly the same conditions". Both halves hold: no sheet opens, and `mergeOffered` is the one expression read by the button and the handler. `resolveBinding` already skips bare keys when the target is an `INPUT`, `TEXTAREA` or contenteditable, so no text entry can be swallowed. A bare `m` has no browser default action on a non-editable target. No user-visible harm exists today.
-- What is false is the 08-15 SUMMARY's stronger wording that the binding "cannot swallow a keystroke". That sentence should be corrected. The tests assert only that no dialog opened, so they cannot see it. Fix is the reviewer's one-liner: add the entry only when `mergeOffered && !sheetOpen`, plus a cancelable-event test. Warning, not a gap.
+| parent_type | count |
+|---|---|
+| task | 2 |
+| epic | 2 |
+
+Both epic rows were created `2026-10-07T07:27:49Z` and `2026-10-07T07:28:09Z`, with statements `test` / `hello` and hints `hello` / `ok`. One of them is on epic `01M24BE37RE8ZGHN2P34GGK44Y` ("Agent session supervision"), which carries integration branch `flywheel/epic/thre-7-agent-session-supervision` — the exact epic used in the THRE-43 merge. So "every epic carrying an integration branch has zero" is now false.
+
+The probe text and the timing place these rows inside round-2 UAT, almost certainly typed into the auto-opened composer that G-08-R2-1 had stolen focus into. That is corroboration of the bug, not a contradiction of the fix: `CriteriaRail` now passes `autoOpenWhenEmpty={false}` regardless of how many criteria exist.
+
+**Criterion 2's verdict is unchanged.** The criterion is about a *task's* criteria against a *task's* diff. The five tasks with worktrees still carry zero criteria each; the two task-scope rows sit on task `01M22XC0SZDG9D7S01P13V2WXF` ("test", `in_review`, no epic, no worktree), so there is no diff to review them against. Still not demonstrable.
+
+**Side effect worth naming:** the G-08-R2-1 root-cause note in `08-UAT.md` relies on "every epic carrying an integration branch has zero acceptance criteria" as proof the broken path was the only one reachable. That premise was true when measured and is now false — because the bug itself was used to falsify it. The diagnosis stands; its supporting measurement has expired.
+
+### 2. Criterion 3's conflict half is test-proven, not untested
+
+Recorded as "conflict half UNVERIFIED". That understates the evidence. The conflicting-git fixture **already exists** (`task_conflict_a` / `task_conflict_b`, `packages/core/tests/common/mod.rs:217-291`) and four named core tests run against it, covering exactly the words of the criterion — "surfaced clearly rather than failing silently or half-merging":
+
+- `merge_tree_check_conflict_names_each_path_once_sorted`
+- `merge_no_ff_conflict_rolls_back_and_leaves_the_worktree_clean`
+- `run_merge_conflict_names_the_files_and_never_creates_the_epic_worktree`
+- `run_merge_conflict_against_an_existing_epic_worktree_leaves_it_clean`
+
+Plus four renderer tests (`merge-sheet.test.tsx:219, 328, 338, 358`) that render the conflict result naming every file and reading "Merge aborted — 3 conflicts, nothing changed".
+
+What is genuinely unverified is narrower: no conflict has been observed **end to end in the running app** (merge-tree clean 5/5), and WR-05's keyboard exit route out of the conflict result does not exist. I keep criterion 3 at PARTIAL on the first of those, and I have not counted it toward the score.
+
+**This makes D-REV-02 more automatable than recorded.** Its note reads "a conflicting branch pair is three git commands in a test fixture". The fixture exists, and `merge-sheet.test.tsx` already drives the conflict result state by mocking `mergeMock` to resolve `{kind: "conflicted", files: [...]}`. The remaining work is **one assertion** — that after the result renders, `document.activeElement` is one of the three exits — not a fixture. `MergeConfirmSheet.tsx:176-183` confirms why it would fail today: `focusedRef` guards the focus call to fire once, on the confirm button, so after the result replaces it focus is never moved.
 
 ## Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `packages/desktop/src/review/review.css` | Single-layer row tint, marked edit | VERIFIED | Edit background transparent; mark is inset box-shadow; no theme switch. |
-| `packages/desktop/src/review/__tests__/browser/legibility.browser.test.tsx` | Painted-contrast measurement | VERIFIED | Green in WebKit; non-vacuous. |
-| `packages/core/src/forge/request_body.rs` | `content_hash()` | VERIFIED | Single digest, used by both commands. |
-| `packages/desktop/src-tauri/src/commands/forge.rs` | `contentHash` in, `draftChanged` out | VERIFIED | Guard before push; bare category. |
-| `packages/desktop/src/adapters/tauri.ts` | typed `forgeOpenEpicRequest(epicId, contentHash)` | VERIFIED | Sole invoker. |
-| `packages/desktop/src/review/EpicRequestSheet.tsx` | echoes hash, refetches on refusal, focuses primary | VERIFIED | Wired; WR-02 notice edge case noted. |
-| `packages/desktop/src/state/keyboard.ts` | `m`, `r`, layer fence | VERIFIED | Three places all updated. |
-| `packages/desktop/src/review/MergeConfirmSheet.tsx` | focus confirm on open | VERIFIED (partial) | Result state not focused (WR-05). |
-| `.../uat-screenshots/uat-01-review-diff-1440x900.png` | regenerated | VERIFIED | Present; regenerated by the browser suite. |
+| `packages/desktop/src/item-detail/AcceptanceCriteriaList.tsx` | optional `autoOpenWhenEmpty`, default `true`, guarding the auto-open effect | ✓ VERIFIED | Prop declared (:59), defaulted (:204), guards the effect (:290) and is in its deps (:295). Default path still covered by `criteria.test.tsx:113`, 12/12 green. |
+| `packages/desktop/src/review/CriteriaRail.tsx` | passes `autoOpenWhenEmpty={false}` | ✓ VERIFIED | :76. Rail is imported and rendered at `ReviewSurface.tsx:24, 439` — wired, not orphaned. |
+| `packages/desktop/src/review/__tests__/keyboard-activation.test.tsx` | two non-vacuous G-08-R2-1 regression tests | ✓ VERIFIED | Both proven red by this verifier (2 failed with the fix reverted). Non-vacuous: fires at `document.activeElement`. |
+| `packages/desktop/src/review/review.css` | single-layer row tint, marked edit | ✓ VERIFIED | Regression check; unchanged this round. |
+| `packages/core/src/forge/request_body.rs` | `content_hash()` | ✓ VERIFIED | Single digest, both callers. |
+| `packages/desktop/src-tauri/src/commands/forge.rs` | `contentHash` in, `draftChanged` out, guard before push | ✓ VERIFIED (ordering by reading) | :401-404 before :407. See truth 8. |
+| `packages/desktop/src/review/MergeConfirmSheet.tsx` | focus confirm on open | ✓ VERIFIED (partial) | :176-183. Result-state exits never focused (WR-05, D-REV-02). |
+| `packages/core/tests/common/mod.rs` | conflicting-branch fixture | ✓ VERIFIED | `task_conflict_a`/`task_conflict_b` at :217-291 — exists, and is why D-REV-02 needs no new fixture. |
+| `.../uat-screenshots/uat-01-review-diff-1440x900.png` | postdates `review.css` | ✓ VERIFIED | `find -newer` returns the path (08-13's own acceptance check, re-run). |
 
 ## Key Link Verification
 
 | From | To | Via | Status |
 |------|----|----|--------|
+| `CriteriaRail` | `AcceptanceCriteriaList` | `autoOpenWhenEmpty={false}` prop (:76) | WIRED |
+| `ItemDetailPanel` | `AcceptanceCriteriaList` | no prop → default `true`, panel unchanged (:292) | WIRED |
+| `ReviewSurface` | `CriteriaRail` | import :24, render :439 | WIRED |
 | `request_body.rs` `content_hash` | preview DTO and confirm command | same function, both callers | WIRED |
 | `EpicRequestSheet` `draft.contentHash` | `forge_open_epic_request` | `adapter.forgeOpenEpicRequest` | WIRED |
-| `draftChanged` rejection | `preview.refetch()` | `.catch` in `handleConfirm` | WIRED |
 | `BINDINGS` `m`/`r` | `ReviewSurface` / `EpicRequestBar` handlers | `useRegionBindings("review-surface", ...)` | WIRED |
-| `allActionIds()` | palette | `continue` in `CommandPalette` switch | WIRED (excluded) |
-| `review.css` edit properties | react-diff-view `.diff-code-edit` | CSS custom properties plus 3-class selector | WIRED |
+| `allActionIds()` | palette | `continue` in `CommandPalette` switch | WIRED (deliberately excluded) |
 
 ## Data-Flow Trace (Level 4)
 
 | Artifact | Data | Source | Real data | Status |
 |----------|------|--------|-----------|--------|
-| `EpicRequestSheet` title and body | `preview.data.draft` | `forge_epic_request_draft`, board reads plus git ancestry per task | Yes | FLOWING |
+| `EpicRequestSheet` title and body | `preview.data.draft` | `forge_epic_request_draft` — board reads plus git ancestry per task | Yes | FLOWING |
 | Published title and body | `draft` in the confirm command | re-assembled from DB under the lock, then hashed and compared | Yes | FLOWING |
+| `CriteriaRail` criteria rows | `criteriaQuery.data` | `criterion_list` command | Yes, but EMPTY on every reviewable item | ⚠️ FLOWING-BUT-EMPTY — the data vacuum behind criterion 2 (D-REV-04). Not a hollow prop: the query is real and the empty result is the truthful answer for this board. |
 
 ## Behavioral Spot-Checks (run by me this session)
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| WebKit suite (legibility, ergonomics, keyboard) | `vitest run --config vitest.browser.config.ts` in `packages/desktop` | 3 files, 23 tests pass | PASS |
-| Review and layer-guard jsdom | `vitest run src/review src/board/__tests__/layer-guard.test.tsx` | 7 files, 122 tests pass | PASS |
-| Core epic request draft and merge | `cargo test -p core --test epic_request_draft --test review_merge` | 22 and 37 pass | PASS |
-| Contrast recomputation | independent node script over token hexes | all code-bearing roles >= 4.5 on row tint | PASS |
+| Full desktop suite | `npm --prefix packages/desktop test` | 51 files, 770 tests pass | ✓ PASS |
+| G-08-R2-1 fail-first (fix reverted) | `npm --prefix packages/desktop test -- src/review/__tests__/keyboard-activation.test.tsx` with `autoOpenWhenEmpty={false}` removed | **2 failed, 8 passed** — both regression tests red | ✓ PASS (fail-first confirmed) |
+| Item-panel zero-item autofocus preserved | `npm --prefix packages/desktop test -- src/item-detail/__tests__/criteria.test.tsx` | 12 pass | ✓ PASS |
+| Core merge, draft, anchors, forge chain | `cargo test -p core --test review_merge --test epic_request_draft --test criterion_anchors --test forge_live_chain` | 37 + 22 + 19 + 37 = 115 pass, 0 failed, 0 ignored | ✓ PASS |
+| Typecheck | `packages/desktop/node_modules/.bin/tsc --noEmit -p packages/desktop` | 3 `error TS2345`, all pre-existing | ⚠️ see Advisory |
+| THRE-43 merge really landed | `git merge-base --is-ancestor` + `git rev-list --count` + `git log` on the epic branch | ancestor YES, ahead 0, `ae6423c` is a two-parent merge commit | ✓ PASS |
+| No live conflict reachable | `git merge-tree --write-tree <epic> <task>` × 5 | clean 5/5, ahead 0 on all five | ✓ PASS (confirms unreachability) |
+| Criteria data vacuum | `sqlite3` over `acceptance_criteria`, `worktrees`, `epics` | 4 rows; 0 on all five worktree tasks | ✓ PASS (confirms vacuum, corrects the count) |
+| Screenshot postdates CSS | `find ... -newer packages/desktop/src/review/review.css` | path returned | ✓ PASS |
 
-Not re-run, relied on the orchestrator's measurements: `cargo build --workspace`, the full `cargo test --workspace` (2 ignored), full jsdom 51 files / 768 tests, sidecar 223 tests.
+The full workspace suite was run once, not per must-have. Named-test runs were used for the fail-first check and the panel-regression check.
 
 ## Probe Execution
 
-SKIPPED: no probes declared by any 08 plan.
+SKIPPED: no probes declared by any Phase 08 plan (`find scripts -path '*/tests/probe-*.sh'` is empty; no plan or summary names one).
+
+## Test Quality Audit
+
+| Test file | Linked req | Active | Skipped | Circular | Assertion level | Verdict |
+|---|---|---|---|---|---|---|
+| `review/__tests__/keyboard-activation.test.tsx` | REVW-03/04/05 | 10 | 0 | No | Behavioral (dispatches a key, asserts a dialog appears) | SOUND — and proven non-vacuous by reverting the fix |
+| `item-detail/__tests__/criteria.test.tsx` | REVW-03 | 12 | 0 | No | Behavioral | SOUND |
+| `core/tests/review_merge.rs` | REVW-04 | 37 | 0 | No | Behavioral against real git repos | SOUND |
+| `core/tests/epic_request_draft.rs` | REVW-05 | 22 | 0 | No | Value (hash stability and movement) | SOUND |
+| `core/tests/criterion_anchors.rs` | REVW-03 | 19 | 0 | No | Value | SOUND |
+| `core/tests/forge_live_chain.rs` | REVW-05 | 37 | 0 | No | Behavioral against a gh/glab stub | SOUND |
+| `core/tests/forge_live_github.rs` | REVW-05 | 1 | 1 (`#[ignore]`, :87) | No | Behavioral against the live API | SOUND — and it was RUN last round by name with `-- --ignored`, so the requirement is no longer carried by a never-executed test |
+
+**Disabled tests on requirements:** 1 (`forge_live_github.rs`), but no longer the sole evidence for its requirement and no longer unexecuted. Not a blocker.
+**Circular patterns detected:** 0. No test fixture in the phase's test set is generated by the system under test.
+**Insufficient assertions:** 0 on the phase's own requirements. The one ordering invariant with no test at all is truth 8 (WR-04), reported there rather than here.
 
 ## Requirements Coverage
 
 | Requirement | Source plans | Description | Status | Evidence |
-|-------------|--------------|-------------|--------|----------|
-| REVW-01 | 08-01, 08-02, 08-13 and others | Task diff in-app with syntax highlighting | SATISFIED | Truths 1, 5 |
-| REVW-02 | 08-01, 08-09 and others | Accumulated diff of epic integration branch | SATISFIED | Truth 1 |
-| REVW-03 | 08-15 and others | Check off criteria against the diff | SATISFIED | Truth 2 |
-| REVW-04 | 08-15 and others | Merge in-app, conflicts surfaced | SATISFIED | Truths 3, 8 |
-| REVW-05 | 08-14, 08-15 and others | Open PR/MR for epic in one action | SATISFIED (stub forge); live run is human item 2 | Truths 4, 6, 7, 8 |
+|---|---|---|---|---|
+| REVW-01 | 08-01, 08-02, 08-13 | Task diff in-app with syntax highlighting | SATISFIED | Truths 1, 6 |
+| REVW-02 | 08-01, 08-09 | Accumulated diff of the epic integration branch | SATISFIED | Truth 1 |
+| REVW-03 | 08-02, 08-06, 08-09, 08-15 | Check off criteria against the diff | SATISFIED IN CODE, NOT DEMONSTRABLE ON THIS BOARD | Truth 2 — tests green, data absent (D-REV-04) |
+| REVW-04 | 08-03, 08-07, 08-10, 08-11, 08-12, 08-15 | Merge in-app, conflicts surfaced | SATISFIED | Truth 3 — merge live-proven, conflict test-proven |
+| REVW-05 | 08-05, 08-08, 08-14, 08-15 | Open a PR/MR for an epic in one action | SATISFIED | Truths 4, 7, 8, 9 — live forge proven |
 
-All five IDs appear in at least one plan's `requirements:` frontmatter, and no ID maps to Phase 8 in REQUIREMENTS.md without a claiming plan. No orphans.
+All five IDs appear in at least one plan's `requirements:` frontmatter. `REQUIREMENTS.md` lines 129-133 read `[x]` and lines 306-310 read `Complete`. No orphans: no ID maps to Phase 8 without a claiming plan.
 
-**Tracking defect, checked:** the reported 08-15 problem (REVW-05 left unmarked) does not exist in this tree. `REQUIREMENTS.md` lines 129-133 all read `[x]` and lines 306-310 all read `Complete`.
+## Advisory (New Scope, Unevidenced)
+
+| # | Finding | Category | Why Advisory |
+|---|---------|----------|--------------|
+| 1 | 3 × `error TS2345` (`toHaveTextContent(/regex/)`) from `tsc --noEmit -p packages/desktop` | other | Evidenced and reproducible, but **pre-existing and Warning severity, not Blocker** — no roadmap criterion depends on it, the build passes, 770/770 tests pass. `git log -L` puts the forge-section region at `1c3ab1c` (Phase 07-08); `settings-surface.test.tsx` was never touched by Phase 08. Cause is a jest-dom matcher-types resolution defect, not a wrong assertion. It does violate 08-08-PLAN.md's literal `tsc --noEmit` acceptance criterion, recorded here rather than dropped. |
 
 ## Anti-Patterns Found
 
-No `TBD`, `FIXME` or `XXX` in any modified source file. No stub, empty handler or hardcoded-empty render in the touched files.
+No `TBD`, `FIXME` or `XXX` in any file changed by this round. No skipped or `todo` tests under `src/review/__tests__/`. No stub, empty handler or hardcoded-empty render in the touched files.
 
 | File | Pattern | Severity | Impact |
 |------|---------|----------|--------|
-| `ReviewSurface.tsx:240-256` | handler registered unconditionally, so `m` is cancelled when not offered (WR-01) | Warning | No user-visible effect today; SUMMARY wording false |
-| `MergeConfirmSheet.tsx:180-185` | result-state buttons not focused (WR-05) | Warning | Conflict exits and Close mouse-only if WKWebView skips buttons in Tab order |
-| `request_body.rs` / sheet header | branches outside digest (WR-03) | Warning | Target branch drift between preview and confirm not refused |
-| `forge.rs:204-231` | task-path `forge_open_request` unguarded, doc claims "by construction" (WR-06) | Warning | Predates round; tracked in deferred-items.md |
-| `EpicRequestSheet.tsx:249-265` | refusal with identical refetched hash shows no notice; notice never clears (WR-02) | Warning | Click appears to do nothing; rare |
-| `forge.rs:403` | renderer string logged unvalidated (IN-01); `keyMatches` ignores ctrl/alt (IN-02) | Info | Log injection and Ctrl+R/M on non-macOS |
+| `MergeConfirmSheet.tsx:176-183` | `focusedRef` guards focus to fire once on the confirm button, so the conflict result's three exits are never focused (WR-05) | ⚠️ Warning | Conflict exits and Close are mouse-only if WKWebView keeps buttons out of the Tab order. Escape still closes. D-REV-02 — now one assertion away from a test. |
+| `ReviewSurface.tsx:240-256` | `"open-merge"` handler registered unconditionally, so `m` is `preventDefault`ed even when not offered (WR-01) | ⚠️ Warning | No user-visible effect today — a bare `m` has no browser default on a non-editable target, and `resolveBinding` already skips bare keys in text fields. The 08-15 SUMMARY's claim that the binding "cannot swallow a keystroke" is the part that is false. |
+| `request_body.rs` / sheet header | `head_branch` and `target_branch` are outside the digest, yet the footer says "exactly this text" (WR-03) | ⚠️ Warning | Target-branch drift between preview and confirm is not refused. The must-have as worded (the *text* published) holds. |
+| `forge.rs:204-231` | task-path `forge_open_request` has no hash guard; its doc comment still claims "by construction" (WR-06) | ⚠️ Warning | Predates this round; tracked in `deferred-items.md`. Outside the four roadmap criteria. |
+| `EpicRequestSheet.tsx:249-265` | a refusal whose refetched hash is identical shows no notice, and the notice never clears (WR-02) | ⚠️ Warning | The click appears to do nothing. Rare. |
+| `forge.rs:403` | renderer-supplied string logged unvalidated (IN-01); `keyMatches` ignores ctrl/alt (IN-02) | ℹ️ Info | Log injection; Ctrl+R/M on non-macOS. |
 
-None of the six warnings falsifies a roadmap criterion or a plan truth. WR-04 is carried as truth 7.
+None of these falsifies a roadmap criterion or a plan truth. WR-04 is carried as truth 8 rather than listed here.
 
-## The blocked UAT item
+## Human Verification
 
-UAT item 4 is **still blocked, reason `third-party`**. The test exists and is correct in shape (`forge_live_github.rs`, `#[ignore]`, calls `open_epic_request_at` twice, asserts `AlreadyOpen` with the same number, then closes the PR and deletes the branch). It has never been run, because it opens a real pull request on a real GitHub repository under the account owner's credentials, and the agent running here has neither the repository nor the authority to create one. Nothing in this round could unblock it. The logic it would exercise is covered by the stub-forge chain in `forge_live_chain.rs`, so it is a confidence item for the real `gh` and `git push` behaviour, not evidence of a defect.
+**DEFERRED — not performed, and not claimed as performed.**
 
-## Human Verification Required
+By owner decision on 2026-10-07 (`.claude/CLAUDE.md` § "Human verification is deferred until MVP"), human verification is suspended until Phase 11. No `human_needed` status was set, no UAT round was opened, and `08-UAT.md` was not modified. Every item that would have been asked is queued in `.planning/DEFERRED-REVIEW.md`.
 
-### 1. Keyboard route in the real WKWebView
+Items routed there from this phase: **D-REV-02, D-REV-03, D-REV-04** (carried, with D-REV-02's and D-REV-04's notes corrected additively) and **D-REV-05, D-REV-06, D-REV-07, D-REV-08** (newly harvested from `<verify><human-check>` blocks in 08-01, 08-08, 08-09 and 08-13).
 
-**Test:** `npm --prefix packages/desktop run tauri dev`; open a task review, press `m`, then Enter; open an epic review, press `r`, then Enter.
-**Expected:** Sheet opens with its confirm button focused; Enter confirms once; no mouse, no Tab.
-**Why human:** Proven in Playwright WebKit only. No WebDriver exists for WKWebView on macOS.
+**On honesty of `automatable`.** Of the four newly harvested items, **one is fully automatable** (D-REV-06 — a single gutter click before an existing measurement loop), **one is partly automatable** (D-REV-07 — scroll preservation is testable; "the rail stays usable" is not), and **two are genuine human items** (D-REV-05 and D-REV-08) because their stated reason is human aesthetic judgment, which is a physical reason. Two of the four also carry a defect in the *question*, not the answer:
 
-### 2. Live forge run (UAT item 4, blocked)
-
-**Test:** `gh repo create flywheel-uat --private --add-readme`, then `FLYWHEEL_UAT_GITHUB_REPO=<owner>/flywheel-uat cargo test -p core --test forge_live_github -- --ignored --nocapture`.
-**Expected:** One PR opened, second call returns the existing one with the same number, both cleaned up.
-**Why human:** Needs the account owner's credentials and creates a real PR.
-
-### 3. `draftChanged` ordering and keyboard exits after a conflict
-
-**Test (a):** Preview an epic request, change the board, confirm. **Expected:** nothing pushed, new text shown. A cheap alternative to a manual run is extracting the compare into a core function and testing it (WR-04).
-**Test (b):** After a conflicting merge, try to reach the two exits and Close by keyboard. **Expected:** a route exists, or the team accepts mouse-only there (WR-05).
-**Why human:** No test reaches the guard; the post-result focus path is unfocused by construction.
-
-## Process note on MVP mode
-
-ROADMAP marks Phase 8 `Mode: mvp`, but its Goal is not in "As a ..., I want to ..., so that ..." form, so the MVP user-story guard would refuse. I did not refuse: the four roadmap success criteria are explicit and were the contract this verification was asked to check. Earlier rounds treated it the same way. If MVP-mode flow coverage is wanted, the goal needs rewriting via `/gsd mvp-phase 8`.
+- 08-01's check asks for "both the light and the dark theme". **The app ships exactly one palette** — no `prefers-color-scheme` or `[data-theme` appears in any shipped stylesheet. Half that check is void and should not be asked of a human at Phase 11.
+- 08-09's check needs an epic with three or more tasks carrying criteria. **No such epic exists**, so it is blocked on D-REV-04's data vacuum and is not answerable by a human either until the board has data.
 
 ## Gaps Summary
 
-No gaps. G-08-1, G-08-5 and G-08-6 are closed against their definitions. The phase closes on its roadmap criteria, which hold. It carries three human-verification items and six code-review warnings. Recommended order if any are acted on before moving on: WR-04 (small extraction, protects the one security-relevant ordering), WR-05 (completes the keyboard story G-08-6 began), WR-01 (one-line fix plus a test, and corrects the SUMMARY claim).
+No gaps. No blocker. The phase closes on its roadmap success criteria plus its automated verification, with criterion 2 not demonstrable and criterion 3 partial, both stated plainly rather than rounded up.
+
+Highest-value follow-ups, in order, and all of them tests rather than questions:
+
+1. **D-REV-03 / WR-04** — a stub-forge test asserting the `gh` stub was never invoked on a hash mismatch. This is the one action in the phase that leaves the machine, and its ordering is held only by reading.
+2. **D-REV-02 / WR-05** — one assertion on `document.activeElement` after the conflict result renders. The fixture and the render path both already exist.
+3. **D-REV-04** — seed real acceptance criteria on the five tasks that have worktrees. This is the phase's own core-value criterion and the project's Core Value line; it is a seed task, not a code task.
+4. **D-REV-06** — one `fireEvent.click` on the gutter before the existing `legibility.browser.test.tsx` measurement loop.
+5. **WR-01** — register the `open-merge` entry only when `mergeOffered && !sheetOpen`, plus a cancelable-event test, and correct the 08-15 SUMMARY's overstated wording.
 
 ---
 
-_Verified: 2026-10-07T15:10:00Z_
+_Verified: 2026-10-07T16:15:00Z_
 _Verifier: Claude (gsd-verifier)_

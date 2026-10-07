@@ -4,10 +4,10 @@ current_phase: 08
 current_phase_name: Review And Merge Inside Flywheel
 status: executing
 stopped_at: Completed 08-15-PLAN.md
-last_updated: "2026-10-07T06:44:57.570Z"
+last_updated: "2026-10-07T07:39:17.614Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08 execution started
-state_head: 9dedbb00d0f76d22c5b25f4761d8eb534b84e0a6
+state_head: 857c21b3658d56385d84092ba6a7c191ae46e7ea
 progress:
   total_phases: 13
   completed_phases: 0
@@ -610,6 +610,7 @@ Recent decisions affecting current work:
 | 260929-nxq | The live UAT driver must answer the agent and not advance over a withheld consent; SHAPE-02 asserts a materialised board row | 2026-09-29 | 56aad64 | [260929-nxq-the-live-uat-driver-must-answer-the-agen](./quick/260929-nxq-the-live-uat-driver-must-answer-the-agen/) |
 | 260929-p61 | The live challenge stage asks Cyril the agent's real questions instead of composing a fallback | 2026-09-29 | 9fe317d | [260929-p61-the-live-challenge-stage-asks-cyril-the-](./quick/260929-p61-the-live-challenge-stage-asks-cyril-the-/) |
 | 261005-mn5 | Fix the forge-tick lost-update race with a compare-and-swap on the task's captured status (BL-01), correct forge_and_repo_path's false spawn claim (HI-01), and give the scheduler forge tick its first test coverage (MED-02) | 2026-10-05 | 31683e7 | [261005-mn5-fix-the-forge-tick-lost-update-race-make](./quick/261005-mn5-fix-the-forge-tick-lost-update-race-make/) |
+| 7 | Fix G-08-R2-1: epic review no longer traps focus in the criteria composer; r reaches open-epic-request | 2026-10-07 | 857c21b | — |
 
 ### Roadmap Evolution
 
