@@ -11,3 +11,8 @@
   program (`tsconfig.browser-tests.json`), excluding `src/**/*.browser.test.tsx` from
   `tsconfig.json`, and running both in `npm run build`. No test assertion was rewritten and the
   browser files are still typechecked. `npm run build` and all 784 jsdom tests pass.
+
+- The Impeccable mechanical detector cannot evaluate this phase's markup here: `detect.mjs --json` prints `DEGRADED - HTML parser modules unavailable (htmlparser2, css-select, css-tree, domutils)` and falls back to regex matching, so its empty result for the 08.1 comps is an undercount, not a clean bill. In particular the selection-rule finding (a 2px left rule against `craft-floor.md` line 35) is neither confirmed nor refuted. Not fixed by the executor: the parsers are packages and a package install is not auto-fixable. Needs the owner (or a plan 07/09 task) to install them, then re-run the detector on `comps/*.html` and `comps/comp.css`.
+  status: open
+  **Found during:** 08.1-04 Task 2
+  **Blocks:** plan 09's selection-rule decision gate should not treat the detector as having spoken until this is closed.

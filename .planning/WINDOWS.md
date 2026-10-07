@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 18
+open_count: 19
 waived_count: 0
 fixed_count: 10
-total_count: 28
-last_updated: 2026-10-06T07:12:00.016Z
+total_count: 29
+last_updated: 2026-10-07T12:04:02.798Z
 ---
 
 # Broken Windows Ledger
@@ -43,6 +43,7 @@ last_updated: 2026-10-06T07:12:00.016Z
 | 26 | 07 | deviation | packages/desktop/src-tauri/src/commands/forge.rs |  | forge_open_request takes app: AppHandle in addition to state/task_id (plan text named only state/task_id) — needed to emit board:changed, matching every other mutating command in this codebase (agent_run_stop, criterion_revise); AppHandle is Tauri-injected, never renderer-supplied, so the real invariant (no title/body/branch/target from the renderer) still holds. | open |  | 2026-10-04T11:15:19.850Z |  |
 | 27 | 07 | unrun-verify | packages/core/src/forge/github.rs |  | create_request's live arm (an actual gh pr create / glab mr create against a real authenticated forge) was never exercised — only hermetic argv/stdin construction and tempfile-write tests ran. No disposable forge repo was available in this environment; mirrors 07-03's forge_probe precedent of deferring the live check to a human-invoked command rather than running it during automated verification. | open |  | 2026-10-04T11:15:20.021Z |  |
 | 28 | 08 | unmet-truth | packages/desktop/src/review/ReviewSurface.tsx |  | Epic scope shows the epic's own criteria only; the roll-up of its tasks (D-132) has no data source (08-06's rail builds none, no command lists an epic's tasks with criteria counts) | fixed |  | 2026-10-06T05:55:53.998Z | 2026-10-06T07:12:00.016Z |
+| 29 | 08.1 | unrun-verify | .planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/mission-control.html |  | detect.mjs ran degraded (parser modules missing); selection-rule finding unevaluated | open |  | 2026-10-07T12:04:02.798Z |  |
 
 ````json
 [
@@ -381,6 +382,18 @@ last_updated: 2026-10-06T07:12:00.016Z
     "reason": "",
     "recorded_at": "2026-10-06T05:55:53.998Z",
     "resolved_at": "2026-10-06T07:12:00.016Z"
+  },
+  {
+    "id": 29,
+    "kind": "unrun-verify",
+    "phase": "08.1",
+    "file": ".planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/mission-control.html",
+    "line": null,
+    "description": "detect.mjs ran degraded (parser modules missing); selection-rule finding unevaluated",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-07T12:04:02.798Z",
+    "resolved_at": null
   }
 ]
 ````
