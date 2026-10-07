@@ -64,9 +64,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Agents File Their Own Backlog** - Agents propose what they learn into a triage lane that nothing escapes without a human (completed 2026-10-02)
 - [x] **Phase 7: The Board Tells The Git Truth** - Answer "where does this task actually stand in git and on the forge?" without a terminal (completed 2026-10-05)
 - [ ] **Phase 8: Review And Merge Inside Flywheel** - Review an agent's diff against its acceptance criteria and land it in-app
+- [ ] **Phase 8.1: Visual polish: brand assets and confirmed motion** (INSERTED) - A bolder, more modern direction; Flywheel wears its own mark and moves the way its contract says it moves
 - [ ] **Phase 9: Planned Fan-Out That Does Not Collide** - Turn one epic into several agents at once, bounded by real file-set disjointness
 - [ ] **Phase 10: Fleet Supervision Across Every Project** - Answer "what is every agent everywhere doing, and what needs me?" in one glance
-- [ ] **Phase 10.1: Visual polish: brand assets and confirmed motion** (INSERTED) - A bolder, more modern direction; Flywheel wears its own mark and moves the way its contract says it moves
 - [ ] **Phase 11: Ship It** - Install Flywheel like any Mac app; another developer builds it from source
 - [x] **Phase 12: Destructive-gate trust boundary redesign** - Close the destructive-command gate's trust hole at a layer the developer's login shell cannot reorder (completed 2026-10-02)
 
@@ -915,62 +915,18 @@ observer that would carry an epic's tasks to Done**; no push follows a merge, so
 local and reversible; and the confirm sheet's will-conflict hint is allowed to go momentarily
 stale, because the real merge re-runs the dry run.
 
-### Phase 9: Planned Fan-Out That Does Not Collide
-
-**Goal**: Cyril turns one epic into several agents working at once, with parallelism bounded by real file-set disjointness rather than optimism.
-**Mode:** mvp
-**Depends on**: Phase 3, Phase 6
-**Requirements**: PLAN-01, PLAN-02, PLAN-03, PLAN-04, PLAN-05, PLAN-06, PLAN-07, AGNT-05
-**Success Criteria** (what must be TRUE):
-
-  1. User asks the planner to decompose an epic and gets tasks that each declare the set of files they expect to modify, grouped into waves for dispatch.
-  2. When two candidate tasks declare overlapping files, only that pair drops to sequential execution while the rest of the wave still runs in parallel — and the user can ask why any two tasks were sequenced and get an answer.
-  3. An agent that tries to write a file outside its task's declared file-set is stopped at the tool level, and the attempt appears to the user as a scope event rather than a silent block.
-  4. User caps global parallel width and the planner never exceeds it.
-  5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
-
-**Plans**: TBD
-**UI hint**: yes
-
-**Notes**: Criteria 2 and 3 are companion enforcement mechanisms, not alternatives — the pairwise
-overlap check only sees *declared* files, while the tool-level pre-write hook catches undeclared
-writes. Research measures ~35% of scoped tasks touching files outside their declared set without
-tool-level enforcement, falling to ~4% with it. Criterion 5 exists partly for compliance optics:
-visible backoff is what keeps Flywheel from looking like abuse to the backend.
-
-### Phase 10: Fleet Supervision Across Every Project
-
-**Goal**: Cyril answers "what is every agent, everywhere, doing — and what needs me?" in one glance, across every registered project.
-**Mode:** mvp
-**Depends on**: Phase 9
-**Requirements**: FLEET-01, FLEET-02, FLEET-03, FLEET-04, FLEET-05, WORK-07, AGNT-08
-**Success Criteria** (what must be TRUE):
-
-  1. One view lists every agent running across every registered project and what each one is doing, distinguishing running, blocked, finished-awaiting-review and failed at a glance.
-  2. A dedicated queue shows every agent currently blocked and waiting on a human, across all projects at once.
-  3. User jumps from any fleet entry straight to that agent's live output and to its board item.
-  4. User receives an operating-system notification when an agent becomes blocked or completes, without watching the window.
-  5. User sees every worktree across all projects with its disk usage and reclaims stale ones, and sees token usage and cost for each session.
-
-**Plans**: TBD
-**UI hint**: yes
-
-**Notes**: Generalises the single-project views proven in earlier phases; research is explicit
-that multi-project aggregation only makes sense once single-project supervision is solid.
-Criterion 2 is the one that decides whether fleet supervision beats tab-cycling through terminals.
-
-### Phase 10.1: Visual polish: brand assets and confirmed motion (INSERTED)
+### Phase 8.1: Visual polish: brand assets and confirmed motion (INSERTED)
 
 **Goal**: Flywheel looks like a product built in 2026 — a bolder, more modern visual direction the
 owner actually wants to look at all day — wearing its own mark and moving the way its design
 contract says it moves.
 **Requirements**: TBD
-**Depends on:** Phase 10
+**Depends on:** Phase 8
 **Plans:** 0 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 10.1 to break down)
+- [ ] TBD (run /gsd-plan-phase 8.1 to break down)
 
 **Success Criteria** (what must be TRUE):
 
@@ -1014,17 +970,74 @@ Two consequences to plan for:
     owner from an Impeccable round; replacing it by taste-in-the-moment would discard the one
     process that produced an owner-endorsed answer last time.
 
-Sequenced immediately before **Phase 11: Ship It** on purpose: the app icon is a distribution
-artifact, so it must be right *before* signing and notarization rather than after.
+**Re-sequenced 2026-10-07 from 10.1 to 8.1, by owner decision.** It previously sat immediately
+before **Phase 11: Ship It**, on the argument that the app icon is a distribution artifact and so
+must be right before signing and notarization. That argument is still true but is no longer the
+binding one: shown the board with real data during Phase 08's UAT, the owner called the design
+"really terrible" and "really not modern", and said he wants to start using Flywheel as his own
+MVP. He is the first user and looks at this surface all day, so the direction stops being polish
+and becomes adoption — and every surface Phases 9 and 10 add would otherwise be built on a world
+he has already rejected, then need re-doing. Running it before Phase 9 means the new surfaces are
+built on the new direction once, not twice. Landing the icon well before Ship It costs nothing.
 
-Sequenced immediately before **Phase 11: Ship It** on purpose: the app icon is a distribution
-artifact, so it must be right *before* signing and notarization rather than after. This phase is
-blocked on one owner decision already recorded as open in `PRODUCT.md` and carried forward in
+**Still blocked on one owner decision**, recorded as open in `PRODUCT.md` and carried forward in
 `01-UI-SPEC.md` Open Decisions #1 — whether Flywheel carries the HighKnow lightbulb-brain mark or
-earns its own under it. There is no point drawing an icon before deciding whose mark it is.
+earns its own under it. There is no point drawing an icon before deciding whose mark it is, so
+that decision is this phase's first gate.
+
+**Scope added by the same UAT session.** The owner's other observation was that there are "no cues
+for actual changes on tasks" — nothing on a board row says whether a task has a real diff behind
+it. That is information design rather than brand or motion, and it has a measured cost: finding the
+one reviewable task in a 907-task board during Phase 08 UAT took a hand-written SQL query against
+`worktrees` joined to `tasks` and `epics` plus a `git merge-tree` sweep, because the UI shows
+nothing. It belongs in this phase's direction round, not in a later one.
 
 The individual gaps are also filed on the board as issues THRE-1068 through THRE-1074, so this
 phase is the roadmap view of work the board already tracks item-by-item.
+
+### Phase 9: Planned Fan-Out That Does Not Collide
+
+**Goal**: Cyril turns one epic into several agents working at once, with parallelism bounded by real file-set disjointness rather than optimism.
+**Mode:** mvp
+**Depends on**: Phase 3, Phase 6
+**Requirements**: PLAN-01, PLAN-02, PLAN-03, PLAN-04, PLAN-05, PLAN-06, PLAN-07, AGNT-05
+**Success Criteria** (what must be TRUE):
+
+  1. User asks the planner to decompose an epic and gets tasks that each declare the set of files they expect to modify, grouped into waves for dispatch.
+  2. When two candidate tasks declare overlapping files, only that pair drops to sequential execution while the rest of the wave still runs in parallel — and the user can ask why any two tasks were sequenced and get an answer.
+  3. An agent that tries to write a file outside its task's declared file-set is stopped at the tool level, and the attempt appears to the user as a scope event rather than a silent block.
+  4. User caps global parallel width and the planner never exceeds it.
+  5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
+
+**Plans**: TBD
+**UI hint**: yes
+
+**Notes**: Criteria 2 and 3 are companion enforcement mechanisms, not alternatives — the pairwise
+overlap check only sees *declared* files, while the tool-level pre-write hook catches undeclared
+writes. Research measures ~35% of scoped tasks touching files outside their declared set without
+tool-level enforcement, falling to ~4% with it. Criterion 5 exists partly for compliance optics:
+visible backoff is what keeps Flywheel from looking like abuse to the backend.
+
+### Phase 10: Fleet Supervision Across Every Project
+
+**Goal**: Cyril answers "what is every agent, everywhere, doing — and what needs me?" in one glance, across every registered project.
+**Mode:** mvp
+**Depends on**: Phase 9
+**Requirements**: FLEET-01, FLEET-02, FLEET-03, FLEET-04, FLEET-05, WORK-07, AGNT-08
+**Success Criteria** (what must be TRUE):
+
+  1. One view lists every agent running across every registered project and what each one is doing, distinguishing running, blocked, finished-awaiting-review and failed at a glance.
+  2. A dedicated queue shows every agent currently blocked and waiting on a human, across all projects at once.
+  3. User jumps from any fleet entry straight to that agent's live output and to its board item.
+  4. User receives an operating-system notification when an agent becomes blocked or completes, without watching the window.
+  5. User sees every worktree across all projects with its disk usage and reclaims stale ones, and sees token usage and cost for each session.
+
+**Plans**: TBD
+**UI hint**: yes
+
+**Notes**: Generalises the single-project views proven in earlier phases; research is explicit
+that multi-project aggregation only makes sense once single-project supervision is solid.
+Criterion 2 is the one that decides whether fleet supervision beats tab-cycling through terminals.
 
 ### Phase 11: Ship It
 
@@ -1085,7 +1098,7 @@ with reason):
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 10.1 → 11
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 8.1 → 9 → 10 → 11
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -1097,9 +1110,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | In Progress|  |
+| 8.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
-| 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
 
@@ -1169,4 +1182,4 @@ Plans:
 
 ---
 *Roadmap created: 2026-09-08*
-*Granularity: fine · Structure: vertical MVP · 11 phases + 1 inserted (10.1) · 93/93 v1 requirements mapped*
+*Granularity: fine · Structure: vertical MVP · 11 phases + 1 inserted (8.1) · 93/93 v1 requirements mapped*

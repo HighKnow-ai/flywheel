@@ -44,6 +44,11 @@
       "status": "in_progress"
     },
     {
+      "number": "8.1",
+      "name": "Visual polish: brand assets and confirmed motion",
+      "status": "pending"
+    },
+    {
       "number": "9",
       "name": "Planned Fan-Out That Does Not Collide",
       "status": "pending"
@@ -51,11 +56,6 @@
     {
       "number": "10",
       "name": "Fleet Supervision Across Every Project",
-      "status": "pending"
-    },
-    {
-      "number": "10.1",
-      "name": "Visual polish: brand assets and confirmed motion",
       "status": "pending"
     },
     {
@@ -72,7 +72,7 @@
   "next": {
     "command": "/gsd:progress --next",
     "label": "Advance to the next step",
-    "reason": "Phase 08 of 13 · 0% · executing"
+    "reason": "Phase 08 of 13 \u00b7 0% \u00b7 executing"
   },
-  "updated_at": "2026-10-07T05:44:56.940Z"
+  "updated_at": "2026-10-07T06:44:55.405Z"
 }
