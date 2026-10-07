@@ -36,6 +36,7 @@ data = {n: load(n) for n in ["projects","epics","tasks","status_counts","worktre
 def git(path, *args):
     return subprocess.run(["git", "-C", path, *args], capture_output=True, text=True, timeout=20)
 
+data["diffs"] = {"real": [], "fixture": None}
 for w in data["worktrees"]:
     p = w.pop("path")  # the filesystem path stays out of the committed artifact
     w["ahead"], w["dirty"] = None, None
@@ -47,6 +48,17 @@ for w in data["worktrees"]:
     s = git(p, "status", "--porcelain")
     if s.returncode == 0:
         w["dirty"] = bool(s.stdout.strip())
+        if w["dirty"]:  # the real uncommitted diff, capped, for the review comp
+            data["diffs"]["real"].append({"task_key": w["task_key"], "patch": "\n".join(git(p, "diff").stdout.splitlines()[:400])})
+
+# No active task has commits ahead today, so the review comp needs a stand-in diff. It is a real
+# commit from this repository, and every comp that shows it labels it FIXTURE.
+FIXTURE_REF, FIXTURE_PATH = "1b65d20", "packages/desktop/src/review/CriteriaRail.tsx"
+top = subprocess.run(["git", "-C", os.path.dirname(out), "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+fx = subprocess.run(["git", "-C", top, "show", "--format=%h %s", FIXTURE_REF, "--", FIXTURE_PATH], capture_output=True, text=True)
+if fx.returncode == 0:
+    lines = fx.stdout.splitlines()
+    data["diffs"]["fixture"] = {"ref": FIXTURE_REF, "path": FIXTURE_PATH, "subject": lines[0], "patch": "\n".join(lines[1:401])}
 
 data["activity"] = data["activity"][:80]
 json.dump(data, open(out, "w"), indent=1, sort_keys=False)
