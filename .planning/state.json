@@ -41,7 +41,7 @@
     {
       "number": "8",
       "name": "Review And Merge Inside Flywheel",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "8.1",
@@ -71,8 +71,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 08 of 13 \u00b7 0% \u00b7 executing"
+    "label": "Advance to the next step (plan phase 8.1)",
+    "reason": "Phase 8.1 of 13 — needs a plan"
   },
-  "updated_at": "2026-10-07T06:44:55.405Z"
+  "updated_at": "2026-10-07T08:17:24.249Z"
 }
