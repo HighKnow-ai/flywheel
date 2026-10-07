@@ -30,6 +30,7 @@
  */
 import { useState, type CSSProperties } from "react";
 import { Plus, TriangleAlert } from "lucide-react";
+import logoUrl from "../assets/logo.svg";
 import type { Project } from "../board/useBoardQuery";
 import { useBlockedSummary, useRecoverySummary } from "../board/useBoardQuery";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
@@ -129,6 +130,13 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
 
   return (
     <nav aria-label="Projects" className="project-rail" style={railStyle}>
+      <img
+        src={logoUrl}
+        alt="Flywheel by HighKnow"
+        width={36}
+        height={36}
+        style={{ flexShrink: 0, marginBottom: "var(--space-sm)" }}
+      />
       {projects.map((project) => {
         const isCurrent = project.id === currentProjectId;
         const isUnreachable = project.status === "unreachable";

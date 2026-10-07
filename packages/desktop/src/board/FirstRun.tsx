@@ -10,6 +10,7 @@
  */
 import { useState, type CSSProperties } from "react";
 import { openFolderDialog } from "../adapters/tauri";
+import logoUrl from "../assets/logo.svg";
 import { useRegisterProject } from "./useBoardQuery";
 
 /** A short, uppercase, greppable default derived from a repo path's directory name (D-10).
@@ -107,6 +108,8 @@ export function FirstRun() {
 
   return (
     <div className="first-run" style={emptyStateStyle}>
+      {/* Image element, never inline markup: a static SVG loaded as an image cannot execute script. */}
+      <img src={logoUrl} alt="Flywheel by HighKnow" width={64} height={64} />
       <h1 className="type-heading">No projects yet</h1>
       <p className="type-body">
         Register a local git repository to see its board. Flywheel never touches board content in
