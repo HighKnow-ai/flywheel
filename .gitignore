@@ -14,3 +14,6 @@ dist-ssr/
 # Impeccable working files
 .impeccable/
 
+
+# Vitest browser-mode failure screenshots (regenerated on every red run)
+packages/desktop/.vitest/

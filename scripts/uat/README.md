@@ -1039,3 +1039,72 @@ and the Abandoned/Acknowledge flow still need a human at the window.
 The Rust binaries exist so the harness cannot drift: they call `shim::shim_env_for_run`,
 `runtime_protocol::runtime_dir`, `runtime_protocol::touch_heartbeat` and the domain layer directly,
 rather than reimplementing what `sidecar.rs` assembles.
+
+---
+
+# Phase 08 UAT harness
+
+`.planning/phases/08-review-and-merge-inside-flywheel/08-UAT.md` listed six items for a human. Five
+of the six are now measured by code, for the same reason this directory exists: "requires a running
+app" is a statement about missing tooling, not about the guarantee.
+
+| UAT item | Harness | Verdict |
+|---|---|---|
+| 1 — diff legibility and token colour on tinted rows | `packages/desktop/src/review/__tests__/browser/legibility.browser.test.tsx` | **FAIL** — 11 token roles below WCAG AA on tinted rows, worst 2.91:1. The test stays red until the tints are fixed. |
+| 2 — the criteria rail over a long diff, and the epic roll-up | `.../browser/ergonomics.browser.test.tsx` | **PASS** — scroll position preserved across both check paths, rail scrolls independently, roll-up compared field-by-field against the board |
+| 3 — merge sheet wording, conflict exits, integrated marker | `.../browser/keyboard.browser.test.tsx` (conflict half) + `cargo test -p core --test review_merge` | **PASS** — only the packaged macOS binary is out of reach (see below) |
+| 4 — epic request opened twice against a real forge | `packages/core/tests/forge_live_github.rs` | **Opt-in** — `#[ignore]`d; opens a real pull request, so the account owner runs it |
+| 6 — keyboard-only pass in the real WebView | `.../browser/keyboard.browser.test.tsx` | **Split** — activation (CR-03) PASSES in the real engine; Tab *reachability* FAILS on WebKit |
+
+Run the browser arm:
+
+```bash
+npm --prefix packages/desktop install          # once: @vitest/browser-playwright + playwright
+npx --prefix packages/desktop playwright install webkit
+npm --prefix packages/desktop run test:browser
+```
+
+Run the live-forge arm (opens a real PR on a repository you name, then closes it and deletes its
+branch):
+
+```bash
+gh repo create flywheel-uat --private --add-readme        # once
+FLYWHEEL_UAT_GITHUB_REPO=<owner>/flywheel-uat \
+  cargo test -p core --test forge_live_github -- --ignored --nocapture
+```
+
+## Why a real browser, and why WebKit
+
+`vitest.config.ts` runs everything in jsdom, which has no layout engine, does not resolve
+`color-mix()`, and does not synthesise a click from Enter on a focused button. All three Phase 08
+items above are *about* exactly those things, so each would have passed vacuously in jsdom — the
+same failure class `assertNoEvent` guards against in the Phase 03 items. `vitest.browser.config.ts`
+is a second arm, excluded from the jsdom one, running in Playwright's WebKit because the macOS
+Tauri shell renders in WKWebView.
+
+`src/review/__tests__/keyboard-activation.test.tsx` states the vacuity itself: "jsdom does not
+synthesize a click from Enter on a focused button […] `pressKey` therefore models the WebView rule
+locally." The browser arm measures it instead, and the two findings below are what that bought.
+
+## The two findings, and their falsifiability checks
+
+- **Item 1.** Measured with the shipped `relativeLuminance` from `theme/contrast.ts` — not a second
+  implementation of WCAG — against colours read back out of the engine and alpha-composited up the
+  ancestor chain, because `review.css`'s tints are partly transparent `color-mix()` values. The
+  falsifiability check is in the test's sibling assertion: added, removed and unchanged rows must
+  paint three *different* colours, so a run where the tint silently failed to apply would fail
+  rather than report a flattering ratio.
+- **Item 6.** `Tab` focused zero buttons in 60 presses under WebKit. The same probe under Chromium
+  (`--browser.instances.0.browser=chromium`) reaches the Merge button after four button stops —
+  identical page, identical harness. That contrast is the falsifiability check: it rules out a
+  broken helper and localises the finding to the engine. WebKit omits `<button>` from sequential
+  focus navigation unless full keyboard access is enabled (`WKPreferences.tabFocusesLinks`, NO by
+  default); nothing in `src-tauri` sets it, and no key binding or palette command offers another
+  route to Merge or Open request.
+
+## What no harness in this repository can reach
+
+Driving the **packaged** macOS application. WKWebView exposes no WebDriver endpoint and
+`tauri-driver` supports Linux and Windows only, so the last mile of item 3 is a human opening
+`npm --prefix packages/desktop run tauri dev`. Everything that surface does, other than being
+inside a signed bundle, is covered above.

@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:browser": "vitest run --config vitest.browser.config.ts"
   },
   "dependencies": {
     "@radix-ui/react-dismissable-layer": "1.1.19",
@@ -31,7 +32,10 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/browser": "5.0.0",
+    "@vitest/browser-playwright": "5.0.0",
     "jsdom": "30.0.1",
+    "playwright": "1.63.0",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",
     "vitest": "5.0.0"
