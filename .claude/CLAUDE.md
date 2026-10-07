@@ -191,6 +191,49 @@ No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skill
 
 <!-- GSD:workflow-start source:GSD defaults -->
 
+## Human verification is deferred until MVP
+
+**Owner decision, 2026-10-07:** *"I would just like to remove every user review until
+completion of the MVP, and delay all of it to the end when we have a useable product."*
+
+No GSD config key expresses this — `workflow.human_verify_mode` only chooses *when* human
+items are asked (`mid-flight` / `end-of-phase`), never *whether*. So this section is the
+mechanism, and it overrides the default workflow.
+
+**Until Phase 11 (Ship It):**
+
+- **Do not run `/gsd-verify-work`** and do not open a `{phase}-UAT.md` round. If a workflow
+  routes there, stop and append to the register instead.
+- **Do not ask the owner to perform a verification step**, and do not present a
+  `### CHECKPOINT: Verification Required` block. The planner emits no
+  `checkpoint:human-verify`; a `<verify><human-check>` block is harvested to the register,
+  not to a UAT file.
+- **A phase closes on its automated verification plus its ROADMAP success criteria.** A
+  `*-VERIFICATION.md` that would read `human_needed` reads `deferred` instead, with its items
+  in the register. `human_needed` is not a reason to hold a phase open.
+- **Every deferred item goes in `.planning/DEFERRED-REVIEW.md`** with its `truth`,
+  `why_deferred`, `risk_if_wrong` and an honest `automatable`. Nothing is dropped — it is
+  queued. A phase that closes with unverified criteria says so plainly in its own artifacts.
+- **Write the cheap test instead of deferring it.** If the check is one `cargo test`, one
+  Playwright assertion or one fixture, it is not a human item — write it and move on. On
+  2026-10-07, three of Phase 08's four "requires a human" items turned out to be automatable;
+  "hard to automate" had been recorded as "needs a human" and then stopped being questioned.
+  A `why_human` must name a *physical* reason (no WebDriver for WKWebView, real hardware,
+  human aesthetic judgment) or it is a testability defect, not a human item.
+
+**Two things this does NOT suspend:**
+
+- `checkpoint:decision` and `checkpoint:human-action` — those gate the work itself (a choice
+  only the owner can make, an auth step only they can perform), not post-hoc verification.
+  Still ask those.
+- Honest reporting. Speed changes what gets *fixed*, never what gets *claimed*. Do not
+  describe a deferred item as verified, and do not let a phase's artifacts imply a criterion
+  was observed when it was queued.
+
+**At Phase 11**, redeem the register in one batch against an installed build, following its
+own redemption protocol: automate everything marked `automatable: YES` first, and only what
+survives reaches the owner.
+
 ## GSD Workflow Enforcement
 
 Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.

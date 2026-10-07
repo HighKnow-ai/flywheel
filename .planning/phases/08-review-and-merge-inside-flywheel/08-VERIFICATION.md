@@ -1,8 +1,29 @@
 ---
 phase: 08-review-and-merge-inside-flywheel
-verified: 2026-10-07T15:10:00Z
-status: human_needed
+verified: 2026-10-07T16:55:00Z
+status: passed
 score: 7/8 must-haves verified
+human_verification: deferred
+deferred_to: ".planning/DEFERRED-REVIEW.md"
+deferred_items: [D-REV-02, D-REV-03, D-REV-04]
+closure_note: |
+  Closed on automated verification plus ROADMAP success criteria, per the owner's
+  2026-10-07 decision to suspend human verification until MVP (.claude/CLAUDE.md
+  § "Human verification is deferred until MVP"). This is NOT a claim that the
+  deferred items were observed:
+    - criterion 2 (check criteria against the diff) is NOT demonstrable on this
+      board at all — the database holds 2 acceptance_criteria rows, none on a
+      reviewable task. Code path live and test-covered; data absent. D-REV-04.
+    - criterion 3's conflict half is UNVERIFIED — merge-tree is clean 5/5, so no
+      conflicting merge is reachable. The merge half IS proven: THRE-43 went from
+      1 commit ahead to 0 after an in-app `m` + Enter, checked independently with
+      git rev-list. D-REV-02.
+    - WR-04's draftChanged ordering is proven by reading only. D-REV-03.
+  Newly proven this round, and no longer blocked: REVW-05's idempotency against
+  the REAL gh CLI and live GitHub API (opened PR #1, second call AlreadyOpen #1,
+  cleanup verified) — previously a #[ignore]d test that had never run.
+  Fixed this round: G-08-R2-1, the epic review trapping focus in the criteria
+  composer and swallowing `r` (857c21b, two non-vacuous regression tests).
 covered_files:
   - ".planning/REQUIREMENTS.md"
   - ".planning/phases/08-review-and-merge-inside-flywheel/08-01-PLAN.md"

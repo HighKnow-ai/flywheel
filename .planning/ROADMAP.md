@@ -1060,6 +1060,17 @@ the OSS desktop ADE and the future commercial relay must hold with the relay ent
 Signing and notarization are documented and proven on Tauri — execution only, no research needed,
 though the Apple Developer account ($99/yr) is a real prerequisite to budget before this phase.
 
+**Deferred review redemption (added 2026-10-07).** By owner decision every human verification
+is suspended until this phase — see `.claude/CLAUDE.md` § "Human verification is deferred until
+MVP" and the register at `.planning/DEFERRED-REVIEW.md`. This phase therefore carries one extra
+gate: redeem that register against an installed, usable build, following its own protocol —
+automate every item marked `automatable: YES` BEFORE asking the owner anything, then put only
+what survives in front of him in a single pass. On the evidence that produced this decision,
+most items are automatable; they had been filed as human items for want of a fixture, not for
+want of a human. Items marked `contradicted-by-measurement` are owner DECISIONS, not tests, and
+are asked separately (D-REV-01 is one: AGNT-07 claims the destructive gate asks a human, the
+shipped behavior refuses, and the requirement is the side that is wrong).
+
 ## Requirement Coverage
 
 All 93 v1 requirements map to exactly one phase. No orphans, no duplicates.

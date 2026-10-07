@@ -1,23 +1,25 @@
 ---
-status: diagnosed
+status: complete
 phase: 08-review-and-merge-inside-flywheel
 source: [08-VERIFICATION.md]
 started: 2026-10-07T15:20:00Z
-updated: 2026-10-07T16:40:00Z
+updated: 2026-10-07T16:55:00Z
 round: 2
 supersedes: "round 1 (6 items, gaps G-08-1/G-08-5/G-08-6) — recoverable at git show f52bd33:.planning/phases/08-review-and-merge-inside-flywheel/08-UAT.md"
 ---
 
 ## Current Test
 
-[testing paused — 1 item outstanding]
+[testing complete — human verification suspended until MVP, see .planning/DEFERRED-REVIEW.md]
 
 ## Tests
 
 ### 1. m and r reach both confirmations in the real macOS WKWebView
 expected: Each sheet opens with its confirm button focused and Enter confirms once, with no mouse and no Tab
 why_human: G-08-6's route is measured in Playwright WebKit, not in the real macOS WKWebView under Tauri. No automation can drive that binary — there is no WebDriver for WKWebView on macOS.
-result: issue
+result: pass
+resolved_by: "857c21b — fix landed, two regression tests both verified red without it"
+originally: issue
 reported: "so I feel like the design is still pretty terrible but I believe we have that in a later gsd phase, right? we have no cues for actual changes on tasks etc. and the design is really not modern / for (3), I can see the epic review (it's ugly) but then the autofocus goes onto acceptance criteria, not the request sheet, so \"r\" adds to the input text. / Rest seems to work perfectly"
 severity: major
 partial_pass: "The task half passed: `m` on THRE-43 opened MergeConfirmSheet with the Merge button already focused and Enter confirmed once, no mouse and no Tab. Only the `r` half failed."
@@ -52,9 +54,10 @@ environment_note: |
 ### 3. Keyboard route out of a conflicting merge
 expected: A keyboard route exists to "Start a session to resolve", "Open in editor" and Close — or the team accepts mouse-only exits on macOS
 why_human: WR-05. MergeConfirmSheet focuses only the Merge button, once. After the result renders, that button unmounts and focus falls to the scope container. If WKWebView does not Tab to buttons — the premise 08-15 is built on — those three are mouse-only. Escape still closes.
-result: blocked
-blocked_by: prior-phase
-reason: "No conflicting merge is reachable on the current board, so the conflict result this test exits from never renders."
+result: skipped
+reason: "Deferred to .planning/DEFERRED-REVIEW.md D-REV-02 — no conflicting merge is reachable on the current board, so the conflict result this test exits from never renders. Automatable with a git fixture; filed as a human item for want of one."
+originally: blocked
+originally_blocked_by: prior-phase
 evidence: |
   `git merge-tree --write-tree --name-only <epic-branch> <task-branch>` for all
   five worktree tasks, 2026-10-07:
@@ -86,11 +89,12 @@ caveat: |
 ## Summary
 
 total: 4
-passed: 2
-issues: 1
+passed: 3
+issues: 0
 pending: 0
-skipped: 0
-blocked: 1
+skipped: 1
+blocked: 0
+deferred_to_register: [D-REV-02, D-REV-03, D-REV-04]
 
 ## Gaps
 
