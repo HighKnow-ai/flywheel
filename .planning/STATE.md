@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 current_phase: "08.1"
 current_phase_name: "Visual polish: brand assets and confirmed motion (INSERTED)"
 status: executing
-stopped_at: Phase 8.1 context gathered
-last_updated: "2026-10-07T10:43:00.875Z"
+stopped_at: Completed 08.1-01-PLAN.md
+last_updated: "2026-10-07T11:19:59.318Z"
 last_activity: 2026-10-07
-last_activity_desc: Phase 08 complete, transitioned to Phase 8.1
-state_head: b3e4203f0e76cb7ef65c6bb82b4e7534c0dee73f
+last_activity_desc: Phase 08.1 execution started
+state_head: d0bd7a7839c1917d5b6d430268856fd9b2a1eb04
 progress:
   total_phases: 13
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 205
-  completed_plans: 185
-  percent: 8
+  completed_plans: 186
+  percent: 0
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-02)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 08 — Review And Merge Inside Flywheel
+**Current focus:** Phase 08.1 — Visual polish: brand assets and confirmed motion (INSERTED)
 
 ## Current Position
 
-Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — READY TO EXECUTE
-Plan: Not started
+Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
+Plan: 2 of 20
 Status: Ready to execute
-Last activity: 2026-10-07 — Phase 08 complete, transitioned to Phase 8.1
+Last activity: 2026-10-07 — Phase 08.1 execution started
 
-Progress: [█░░░░░░░░░] 8% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
+Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
 
 ## Performance Metrics
 
@@ -247,6 +247,7 @@ Progress: [█░░░░░░░░░] 8% — 6 of 13 phases complete (158/1
 | Phase 08 P13 | 3 min | 2 tasks | 3 files |
 | Phase 08 P14 | 30min | 3 tasks | 11 files |
 | Phase 08 P15 | 14 min | 3 tasks | 7 files |
+| Phase 08.1 P01 | 42 min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -567,6 +568,8 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-14: epic request confirm guarded by a core-computed SHA-256 content hash (sha2 0.10.9, no new lockfile package); refusal is the bare draftChanged category and the sheet re-renders instead of alerting — WR-08/G-08-5: published text must be the text the user read; hash keeps the renderer from supplying text. Follow-up: same guard on forge_open_request.
 - [Phase 08]: 08-15: shape (b) real bindings (m = open-merge, r = open-epic-request, review-surface) over a webview preference, because the WebKit test harness cannot observe a src-tauri setting — A fix its own acceptance test cannot observe is not a closed gap; (b) matches the existing review-surface binding precedent
 - [Phase 08]: 08-15: EpicRequestBar passes an empty handler map when the action is unavailable, since useRegionBindings preventDefaults any key with a handler — Leaves r unclaimed with no forge or an open request
+- [Phase 08.1]: 08.1-01: change-flag base is the epic's LOCAL integration branch (else default branch), never a remote-tracking ref; cannot-measure stays null end to end and renders nothing — RESEARCH Corrections 4/5: four of five real integration branches are absent from origin
+- [Phase 08.1]: 08.1-01: useChangeFlags coalesces board:changed refreshes into one per 1s window; staleTime alone does not bound invalidateQueries — T-08.1-02 DoS mitigation
 
 ### Pending Todos
 
@@ -628,6 +631,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-07T09:17:40.229Z
-Stopped at: Phase 8.1 context gathered
-Resume file: .planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/08.1-CONTEXT.md
+Last session: 2026-10-07T11:19:59.131Z
+Stopped at: Completed 08.1-01-PLAN.md
+Resume file: None
