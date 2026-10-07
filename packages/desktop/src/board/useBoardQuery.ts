@@ -11,6 +11,7 @@ import {
   authoringRunForEpic,
   blockedSummary,
   boardChangeFlags,
+  boardEpicProgress,
   boardForgeFlags,
   boardRecoverySummary,
   forgeRequestForTask,
@@ -1133,6 +1134,46 @@ export function useChangeFlags(projectId: string | undefined) {
     queryFn: () => boardChangeFlags(projectId as string),
     enabled: Boolean(projectId),
     staleTime: 5000,
+  });
+}
+
+/** `useEpicProgress`'s query key, keyed by `projectId` (Phase 8.1 plan 05, D-05/D-06). */
+export function epicProgressQueryKey(projectId: string | undefined) {
+  return ["epic-progress", projectId] as const;
+}
+
+/**
+ * Every epic's roll-up for the WHOLE board in one query (D-05/D-06): task counts by status, agents
+ * running/blocked and criteria position, read from one grouped aggregate over all of the project's
+ * tasks — not from the loaded board window, which is a 200-row page. Structural sibling of
+ * [`useForgeFlags`]: project-scoped, invalidated on `subscribeBoardChanged`, never polled. One
+ * query for the board and never one per epic (D-16's rule). `undefined` disables the query.
+ */
+export function useEpicProgress(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: epicProgressQueryKey(projectId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [projectId, queryClient]);
+
+  return useQuery({
+    queryKey: epicProgressQueryKey(projectId),
+    queryFn: () => boardEpicProgress(projectId as string),
+    enabled: Boolean(projectId),
   });
 }
 

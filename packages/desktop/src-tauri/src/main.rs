@@ -143,6 +143,7 @@ fn main() {
             commands::issue::issue_set_parent,
             commands::board::board_list,
             commands::board::board_search,
+            commands::board::board_epic_progress,
             commands::actor::actor_list,
             commands::criterion::criterion_create,
             commands::criterion::criterion_update,

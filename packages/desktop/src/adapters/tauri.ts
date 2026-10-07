@@ -1242,6 +1242,28 @@ export async function boardChangeFlags(projectId: string): Promise<ChangeFlagDto
 }
 
 /**
+ * One epic's roll-up for the roster (Phase 8.1 plan 05, D-05/D-06) — mirrors
+ * `commands/board.rs`'s `EpicProgressDto` field-for-field. `epicId: null` is the "No epic" bucket.
+ * `criteria: null` means the epic's tasks carry no criteria at all, which is NOT the same as
+ * `{ checked: 0, total: n }`: it is what lets the UI print "no criteria yet" instead of a zero
+ * percent that lies (D-06). `byStatus` is in the board's fixed band order and sums to `total`.
+ * Read-only; takes a project id and nothing else.
+ */
+export interface EpicProgressDto {
+  epicId: string | null;
+  byStatus: { status: string; count: number }[];
+  total: number;
+  done: number;
+  agentsRunning: number;
+  agentsBlocked: number;
+  criteria: { checked: number; total: number } | null;
+}
+
+export async function boardEpicProgress(projectId: string): Promise<EpicProgressDto[]> {
+  return invokeCommand<EpicProgressDto[]>("board_epic_progress", { projectId });
+}
+
+/**
  * The fixed forge vocabulary (D-119) — `null` clears a project's override back to detection. Thin
  * typed wrapper over `settings_set_project_forge`.
  */
