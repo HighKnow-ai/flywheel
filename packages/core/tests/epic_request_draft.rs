@@ -8,10 +8,10 @@ use std::path::Path;
 use core::domain::acceptance_criterion::{
     check_criterion_with_anchor, create_criterion, revise_criterion, toggle_criterion, AnchorInput,
 };
-use core::domain::epic::create_epic;
+use core::domain::epic::{create_epic, update_epic};
 use core::domain::task::create_task;
 use core::domain::settings::set_project_forge;
-use core::forge::request_body::assemble_epic_request_draft;
+use core::forge::request_body::{assemble_epic_request_draft, RequestDraft};
 use core::forge::{epic_request_preconditions, EpicRequestBlocker};
 use core::ids::new_id;
 use core::merge::{plan_merge, record_merge_event, run_merge};
@@ -221,6 +221,59 @@ fn draft_reads_no_clock_so_the_same_database_at_two_times_is_the_same_draft() {
     let first = bd.draft();
     std::thread::sleep(std::time::Duration::from_millis(1100));
     assert_eq!(first, bd.draft());
+}
+
+// ----- the content hash (G-08-5): the confirm refuses a draft that moved since the preview -----
+
+#[test]
+fn content_hash_is_equal_across_two_assemblies_of_an_unchanged_board() {
+    let mut bd = board();
+    create_criterion(&mut bd.conn, &bd.project_id, &bd.actor, "epic", &bd.epic_id, "A criterion", None).unwrap();
+    assert_eq!(bd.draft().content_hash(), bd.draft().content_hash());
+}
+
+#[test]
+fn content_hash_moves_when_a_criterion_is_checked() {
+    let mut bd = board();
+    let c = create_criterion(&mut bd.conn, &bd.project_id, &bd.actor, "epic", &bd.epic_id, "A criterion", None).unwrap();
+    let before = bd.draft().content_hash();
+    toggle_criterion(&mut bd.conn, &bd.actor, &c.id).unwrap();
+    assert_ne!(before, bd.draft().content_hash(), "a checked criterion moves the body, so the preview is stale");
+}
+
+#[test]
+fn content_hash_moves_when_the_epic_title_changes() {
+    let mut bd = board();
+    let before = bd.draft().content_hash();
+    update_epic(&mut bd.conn, &bd.actor, &bd.epic_id, Some("Ship the review flow, revised"), None).unwrap();
+    assert_ne!(before, bd.draft().content_hash());
+}
+
+#[test]
+fn content_hash_is_64_lowercase_hex_characters() {
+    let hash = board().draft().content_hash();
+    assert_eq!(hash.len(), 64, "{hash}");
+    assert!(hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{hash}");
+}
+
+#[test]
+fn content_hash_distinguishes_where_the_title_ends_and_the_body_begins() {
+    // Same title + body concatenation, split one character apart. The newline separator between
+    // them in the digest is what makes these two drafts hash differently.
+    let draft = |title: &str, body: &str| RequestDraft {
+        title: title.to_string(),
+        body: body.to_string(),
+        head_branch: "flywheel/epic-int".to_string(),
+        target_branch: "main".to_string(),
+    };
+    let short_title = draft("Ship the review flo", "w and merge");
+    let long_title = draft("Ship the review flow", " and merge");
+    assert_eq!(
+        format!("{}{}", short_title.title, short_title.body),
+        format!("{}{}", long_title.title, long_title.body),
+        "the fixture must differ only in where the split falls"
+    );
+    assert_ne!(short_title.content_hash(), long_title.content_hash());
 }
 
 // ----- preconditions -----
