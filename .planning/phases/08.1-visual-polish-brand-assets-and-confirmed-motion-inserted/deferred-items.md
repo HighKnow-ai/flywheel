@@ -36,3 +36,21 @@
   **Blocks:** plan 09 still owns this decision and must make it by judgement against the four
   alternatives rendered in `mission-control.html`. It must NOT record the detector as having
   cleared the 2px rule — the detector is silent on it by construction, not by approval.
+
+- `gsd_run query state.update-progress` reports a wrong percentage and a wrong completed-phase
+  count, so every progress figure in STATE.md and in `/gsd-progress` understates this project.
+  Observed 2026-10-07 during 08.1-04: the verb returns
+  `{"updated":true,"percent":0,"completed":189,"total":205,"bar":"[░░░░░░░░░░] 0%"}` — 189/205 is
+  92%, not 0% — and writes `completed_phases: 0` while `gsd_run query roadmap.analyze` reports 9 of
+  13 phases complete. STATE.md's body text disagrees with both, reading "6 of 13 phases complete".
+  Three sources, three different answers.
+  status: open
+  **Found during:** 08.1-04 (noted by the executor, diagnosed by the orchestrator)
+  **Not fixed here, deliberately:** the defect is in the shared global tool at
+  `~/.claude/gsd-core/bin/gsd-tools.cjs` (@opengsd/gsd-core 1.13.0), not in this repository.
+  Patching a shared binary mid-phase would change behaviour for every other project on this machine
+  and is out of scope for a visual-polish phase. Hand-editing the STATE frontmatter is futile
+  because the verb overwrites it on the next call.
+  **Impact:** cosmetic reporting only — no product behaviour and no gate depends on it. Phase
+  completion is decided by ROADMAP success criteria and the verifier, not by this bar.
+  **To fix:** report upstream to @opengsd/gsd-core, or pin a corrected local copy.
