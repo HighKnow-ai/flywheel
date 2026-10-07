@@ -1,206 +1,138 @@
 ---
 phase: 08-review-and-merge-inside-flywheel
-reviewed: 2026-10-06T00:00:00Z
+reviewed: 2026-10-07T00:00:00Z
 depth: standard
-files_reviewed: 20
+files_reviewed: 19
 files_reviewed_list:
-  - packages/core/src/review.rs
-  - packages/core/src/merge.rs
-  - packages/core/src/forge/mod.rs
+  - packages/core/Cargo.toml
   - packages/core/src/forge/request_body.rs
-  - packages/core/tests/criterion_anchors.rs
-  - packages/desktop/src-tauri/src/commands/mod.rs
-  - packages/desktop/src-tauri/src/commands/review.rs
+  - packages/core/tests/epic_request_draft.rs
   - packages/desktop/src-tauri/src/commands/forge.rs
-  - packages/desktop/src-tauri/src/main.rs
-  - packages/desktop/src-tauri/capabilities/default.json
   - packages/desktop/src/adapters/tauri.ts
-  - packages/desktop/src/state/keyboard.ts
-  - packages/desktop/src/review/CriteriaRail.tsx
+  - packages/desktop/src/board/CommandPalette.tsx
+  - packages/desktop/src/board/__tests__/layer-guard.test.tsx
+  - packages/desktop/src/item-detail/__tests__/forge-section.test.tsx
+  - packages/desktop/src/review/EpicRequestSheet.tsx
+  - packages/desktop/src/review/MergeConfirmSheet.tsx
   - packages/desktop/src/review/ReviewSurface.tsx
-  - packages/desktop/src/review/useReviewQuery.ts
-  - packages/desktop/src/review/__tests__/criteria-rail.test.tsx
+  - packages/desktop/src/review/__tests__/browser/keyboard.browser.test.tsx
+  - packages/desktop/src/review/__tests__/browser/legibility.browser.test.tsx
+  - packages/desktop/src/review/__tests__/browser/review-fixture.ts
   - packages/desktop/src/review/__tests__/epic-request.test.tsx
   - packages/desktop/src/review/__tests__/keyboard-activation.test.tsx
-  - packages/desktop/src/review/__tests__/merge-sheet.test.tsx
-  - packages/desktop/src/review/__tests__/review-surface.test.tsx
+  - packages/desktop/src/review/review.css
+  - packages/desktop/src/state/keyboard.ts
+  - Cargo.lock
 findings:
   critical: 0
-  warning: 11
-  info: 5
-  total: 16
+  warning: 6
+  info: 4
+  total: 10
 status: issues_found
 ---
 
-# Phase 8: Code Review Report (incremental re-review after gap closure 08-09..08-12)
+# Phase 8: Code Review Report (gap-closure round: plans 08-13, 08-14, 08-15)
 
-**Reviewed:** 2026-10-06
+**Reviewed:** 2026-10-07
 **Depth:** standard
-**Files Reviewed:** 20
+**Files Reviewed:** 19
 **Status:** issues_found
+
+This is an incremental review of the gap-closure work only (commits aa6280c..00c8d7c: G-08-1, G-08-5, G-08-6). It supplements the earlier phase 08 review and does not replace it.
 
 ## Summary
 
-This is the second review round. It re-checks the three blockers of the first round (CR-01, CR-02, CR-03)
-against the code as it stands after commits ab960cc..8c6bb2f, and reviews the new 08-09 roll-up on its own
-merits. The prior report is overwritten; prior findings that live in these 20 files were re-read against current
-code, and those that live in files outside this round's scope are listed at the end as not re-examined.
+No blocker was found. The core claims of the three plans hold up under tracing:
 
-### Verdicts on the three prior blockers
+- **08-14 (content hash).** The renderer cannot influence published text. The `contentHash` argument is compared against a hash of a draft the core assembled itself, and that same `draft` object is what `open_epic_request_at` publishes. So the hash can only cause a refusal. The `draftChanged` path returns a bare category. The digests go only to `eprintln!`. No git output or path crosses IPC: every other error in this command goes through `ipc_error` (`failed:<context>`) or `forge_error_code`.
+- **08-13 (CSS).** `grep` finds no `prefers-color-scheme` or `[data-theme]` in any stylesheet. The only hits are inside the legibility test, which asserts their absence. The edit-span change is confined to `review.css`.
+- **08-15 (focus).** Traced by hand: the epic sheet's focus effect does refocus the remounted Open request button after a `draftChanged` refusal. The sequence is `opening` true, so `primaryKey` is `null` and `focusedKeyRef` resets. Then `opening` false, so the key is `"confirm"` and the new button mounts and takes focus. The missing test is a coverage gap, not a defect.
 
-| Finding | Verdict | Basis |
-|---------|---------|-------|
-| CR-01 (git under the DB mutex) | **CLOSED as scoped.** Two adjacent spawn-under-lock sites outside the plan's eight bodies remain (WR-01, WR-02). | All eight rewired command bodies verified below. |
-| CR-02 (stderr / abs paths over IPC) | **CLOSED.** | No `e.to_string()` survives in `commands/review.rs` or `commands/forge.rs`. The nine renderer-parsed prefixes are byte-identical. |
-| CR-03 (Enter/Space swallowed on buttons) | **CLOSED.** One narrow residual (IN-01). | The guard is a target test, not a blanket suppression, and does not open a double-handling path. |
-
-**CR-01 detail.** I walked each command body for the lock's lexical scope:
-
-- `review_files`, `review_file_patch`, `review_criteria_state`: the guard is a block-local `conn`, the block yields an owned `ReviewTargetInputs`, and `finish_review_target` (the `merge_commit_is_reachable` ancestry check), `files_for_target`, `patch_for_target` and `with_staleness` all run after the block.
-- `criterion_check_with_anchor`: the lock covers the ownership `SELECT` plus `review_target_inputs`. The `finish_review_target` call and the `rev-parse` run unlocked. The write re-locks in a separate block.
-- `review_merge_precheck`, `review_merge_task`: `plan_merge_inputs` runs under the lock; `finish_plan` (rev-list and diff) runs after the block closes. `merge_tree_check` and `run_merge` run unlocked. `review_merge_task` takes the epic guard only for the git work, re-locks only to record the event, and drops the lock before `emit`.
-- `forge_epic_request_draft`, `forge_open_epic_request`: `epic_request_inputs` and `epic_draft_inputs` are board-only reads under the lock. `epic_request_blocker`, `finish_epic_request_draft` and the push/forge dispatch all run after release.
-- `forge_and_repo_path`'s detection spawn is genuinely deferred into `EpicRequestInputs::forge()`. `epic_request_inputs` calls only the board-only `stored_forge_and_repo_path`, and `forge()` is first reached inside `epic_request_blocker`, after release. The `OnceCell` memoises, so the blocker check and the dispatch agree.
-
-The git halves take opaque inputs with private fields and no connection, so a command handler cannot substitute a ref between halves.
-
-**CR-02 detail.** Every `map_err` in `commands/review.rs` and `commands/forge.rs` goes through `ipc_error` with a literal context string, or is a fixed sentence. The remaining non-`ipc_error` returns echo only renderer-supplied values (`parse_scope`, the criterion ownership refusal, the forge vocabulary check) or fixed strings. `PoisonError` is handled through `impl Display`. The repo path, branch names and stderr in `PushRejected.detail`, `PushedButNotOpened.detail`, `forge_error_code` and the merge failure log go to `eprintln!` only. Across 3df9940..HEAD the only prefix-bearing line that changed is a new defensive `blocked:` return (IN-03); `refused:`, `mergeInFlight:`, `mergeFailed`, `eventNotRecorded`, `cliNotInstalled:`, `cliNotAuthenticated:`, `cliFailed:` and `malformedJson:` are unchanged. The renderer parsers (`MergeConfirmSheet.parseFailure`, `EpicRequestSheet.parseFailure`, `ForgeSection`) split on the first `:` and fall through to a generic sentence for the new `failed` code, so there is no regression.
-
-**CR-03 detail.** `isActivationTarget` is applied only when `event.key` is `Enter` or `" "`, and only after `resolveBinding` has matched, before `preventDefault`. With focus on `body` or a non-interactive element the binding still resolves and is cancelled (test: "Enter on the body still resolves expand-file"). With focus on a button, anchor or `role=button`, the hook returns without handling or cancelling, so the element's own activation is the only action. Double-handling cannot occur. `Enter` and `Space` are bound through `useRegionBindings` only in `review-surface`; the other callers (triage, proposal tray, permission card, session) bind letters, so the guard changes nothing for them. `CriteriaRail` still stops `j k Space Enter` at React's root, so the rail's own list never reaches the window listener. WR-06 (Escape cascade) is also fixed: the sheets' `DismissableLayer` handler calls `preventDefault()` before `handleCancel()`, the criteria inputs call `preventDefault()` and `stopPropagation()`, and the surface listener now checks `defaultPrevented`.
-
-**New code (08-09).** `epic_task_rollup` is a single read-only statement with correct scoping: current-revision criteria only, evidence counted by `EXISTS`, `with + without = checked` by construction, deterministic order. Its tests cover counts, superseded revisions, empty or unknown epic, tie order and cross-epic isolation. The command takes only an epic id. The rail section renders nothing for an empty roll-up and is not fetched in task scope. No defect found; two small observations are in IN-02.
-
-No new blocker was found. The gaps below are residual spawn-under-lock sites the plan did not reach, missing regression guards for the invariants this round introduced, and still-open warnings from round one that I re-verified in the current code.
-
-## Structural Findings (fallow)
-
-None provided for this review.
-
-## Narrative Findings (AI reviewer)
+One of the 08-15 SUMMARY's claims is false as stated: `m` can swallow a keystroke while doing nothing (WR-01). The remaining findings are robustness and consistency problems.
 
 ## Warnings
 
-### WR-01: `forge_request_for_epic` still spawns git under the DB lock, and two header claims are now false
+### WR-01: `m` is `preventDefault`ed in epic scope and whenever Merge is not offered, contradicting the "cannot swallow a keystroke" invariant
 
-**File:** `packages/desktop/src-tauri/src/commands/forge.rs:417-430`, `packages/core/src/forge/mod.rs:30-36`
-**Issue:** `forge_request_for_epic` is an epic-request command added in this phase. It locks `state.db`, then calls `forge_and_repo_path(&conn, ..)` with the lock still held. When the project's `forge` column is NULL, that runs `git remote get-url origin` under the mutex. It is the same hazard CR-01 fixed for the other epic-request commands, on the read the request sheet issues (`useEpicRequest`). The `forge/mod.rs` header says "all three call sites hold it there" (there are four, counting `scheduler.rs:351`) and that "the epic-request path is stricter and does not rely on that tolerance". The second statement is false for this command.
-**Fix:** Use the board-only half and defer detection until the lock is released.
-
-```rust
-// forge/mod.rs: expose the board-only half
-pub fn stored_forge_and_repo_path(conn: &Connection, project_id: &str) -> anyhow::Result<(Option<Forge>, PathBuf)> { /* existing body */ }
-
-// forge.rs, forge_request_for_epic
-let (stored, repo_path) = { /* lock, SELECTs, stored_forge_and_repo_path */ };
-let forge = stored.unwrap_or_else(|| flywheel_core::forge::detect_forge_from_origin(&repo_path)); // lock released
+**File:** `packages/desktop/src/review/ReviewSurface.tsx:240-256`
+**Issue:** `useRegionBindings` calls `event.preventDefault()` for any key whose id has an entry in the handler map (`keyboard.ts:788-791`). `EpicRequestBar` honours this by passing `{}` when the action is unavailable (`EpicRequestSheet.tsx:83`), so `r` is correct. `ReviewSurface` does not. It always puts `"open-merge"` in the map, and the handler body checks `mergeOffered` only after the keystroke has already been cancelled. In epic scope, with an integrated task, or with a refused or loading precheck, `m` is cancelled and nothing happens. The browser tests "m does nothing when the precheck refuses" and "m is inert in epic scope" assert only that no dialog opened, so they cannot see this. The same pattern already exists for `c`, `j`, `k` and Enter/Space (pre-existing). Practical harm today is small, because `isTypingTarget` covers input and textarea. It would matter as soon as a `<select>` or `role=combobox` is on this surface. The 08-15 summary's "cannot swallow" claim is nonetheless wrong for `m`, and the two new bindings are inconsistent with each other.
+**Fix:** Add the entry only when it can act, as `EpicRequestBar` does:
+```tsx
+useRegionBindings("review-surface", "review-surface", {
+  // ...existing handlers...
+  ...(mergeOffered && !sheetOpen ? { "open-merge": () => setMergeOpen(true) } : {}),
+});
 ```
+Add a test that dispatches `keydown` `m` on a cancelable event in epic scope and asserts `defaultPrevented === false`. `userEvent.keyboard` cannot observe this.
 
-Then correct the header sentence. The same applies to `forge_request_for_task` and `forge_open_request`, which are Phase 7 and were accepted as tolerated.
+### WR-02: A `draftChanged` refusal whose refetch returns the same hash gives the user no feedback at all
 
-### WR-02: The pub "composer" functions keep the footgun, and `assemble_context_packet` still does git under the lock and hard-fails on it
+**File:** `packages/desktop/src/review/EpicRequestSheet.tsx:249-257, 265`
+**Issue:** `draftMoved` is `draft.contentHash !== refusedHash`. If the core refuses but the refetched draft hashes the same as the one just refused, the notice never appears. The hash covers ancestry-dependent "integrated" markers (`finish_epic_request_draft` runs git per task), so a transient or flip-flopping git answer is enough to cause this. `opening` returns to false, the sheet looks unchanged, and the click appears to have done nothing. The next click may or may not succeed. Nothing tells the user a refusal happened.
+Conversely, once `draftMoved` is true it never clears while the sheet is open. It stays visible after the user has read the new text, and across later unrelated refreshes, until `refusedHash` is overwritten by another refusal.
+**Fix:** Track the refusal as an explicit state, not a derived comparison. For example, set `notice: "changed" | "unchanged"` on refusal. Clear it on the next confirm attempt or after the refetch settles. Show "The board changed..." or "Nothing in the text changed. Try again." accordingly. Keep `refusedHash` only if it is still needed for the comparison.
 
-**File:** `packages/core/src/context_packet.rs:263-265`, `packages/desktop/src-tauri/src/commands/agent_run.rs:449-463,542-545`, `packages/desktop/src-tauri/src/commands/review.rs:21-25`
-**Issue:** The `review.rs` command header now says holding the lock across the git half "is not expressible". That is not true. `plan_merge`, `resolve_review_target`, `review_file_list`, `review_file_patch`, `review_criteria_state`, `epic_request_preconditions`, `assemble_epic_request_draft` and `is_integrated` remain `pub` and take `&Connection` while spawning git. They are required by the integration tests, so they cannot be removed. `context_packet.rs:263` calls `resolve_review_target(conn, ..)` whenever any criterion is anchored, and `agent_run_preview` and the start path call the packet assembler with the connection from `state.db.lock()` (`agent_run.rs:463`). This is the prior WR-10 / CR-01 bullet: it runs `rev-parse` and `merge-base` under the lock, and a target-resolution error still aborts packet assembly via `?` instead of degrading staleness to `None`.
-**Fix:** In `context_packet.rs`, use `resolve_review_target(..).ok()` and leave `anchor_staleness` as `None` on error, so a decoration cannot abort agent launch. Mark the composers `#[doc(hidden)]` (or rename them `*_blocking`) and soften the "not expressible" wording to "not possible from the halves". Longer term, give `assemble_context_packet` the same two-half shape.
+### WR-03: The content hash excludes the head and target branches, yet the sheet header presents them as part of what will be published
 
-### WR-03: The two invariants this round introduced have no regression guard
+**File:** `packages/core/src/forge/request_body.rs:31-52` (consumed at `packages/desktop/src-tauri/src/commands/forge.rs:401`)
+**Issue:** The digest is over `title` and `body` only, a decision the doc comment states. The sheet header reads `Open request ${headBranch} → ${targetBranch}` (`EpicRequestSheet.tsx:311`) and the confirm button's footer says "opens the request with exactly this text". `target_branch` comes from `projects.default_branch` (`epic_draft_inputs`). If that value is edited between preview and confirm, the confirm is not refused. The request is then opened against a target the user did not see, and G-08-5's "what you saw is what you sent" is broken for that field. The window is small, but the whole point of 08-14 is to close this class.
+**Fix:** Either include both branches in the digest, with the same unambiguous framing as the title and body, or state in the doc comment and the sheet that branches are re-resolved at send time. Including them is one extra `hasher.update` pair per branch, and the existing tests keep working.
 
-**File:** `packages/desktop/src-tauri/src/commands/mod.rs:26-38`, `packages/desktop/src-tauri/src/commands/review.rs`, `packages/desktop/src-tauri/src/commands/forge.rs`
-**Issue:** There is no test for `ipc_error` (its `failed:<context>` format, or that it never includes the cause), none that scans the two command modules for a reintroduced `.map_err(|e| e.to_string())`, and none that pins the nine renderer-parsed prefixes. Nothing exercises `plan_merge_inputs`, `finish_plan`, `review_target_inputs`, `finish_review_target`, `epic_request_inputs`, `epic_request_blocker`, `epic_draft_inputs` or `finish_epic_request_draft` directly. They are covered only indirectly through the composers. The repo already uses source-scan gates (`supervisor_cwd.rs`, `forge_degrade.rs`). The only edit under `packages/core/tests` in this round is the roll-up tests. A single later `e.to_string()` or a lock held one line too long would reopen CR-01 or CR-02 silently.
-**Fix:** Add a unit test in `commands/mod.rs` that `ipc_error("a:b", anyhow!("git -C \"/home/u/repo\" failed: boom"))` equals exactly `"failed:a:b"`. Add a source-scan test asserting `commands/review.rs` and `commands/forge.rs` contain no `e.to_string()` or `format!("{e` in a `map_err`, and that each of the nine prefix literals appears. Add a core test that `finish_plan` and `finish_review_target` work with the connection dropped, which the signatures already prove at compile time.
+### WR-04: The `draftChanged` refusal itself has no test below the renderer mock
 
-### WR-04: Checking a criterion against a selection still fails silently
+**File:** `packages/desktop/src-tauri/src/commands/forge.rs:397-405`; `packages/core/tests/epic_request_draft.rs:226-277`
+**Issue:** The new core tests cover `content_hash` as a pure function. The renderer tests mock the rejection with `new Error("draftChanged")`. Nothing exercises the actual guard: "re-assemble, hash, compare, return `draftChanged` before any push, with no CLI output in the string". That one comparison is the security-relevant behaviour of 08-14. It lives only inside a `#[tauri::command]` that needs `State` and `AppHandle`, so it is untestable as written. A refactor that moved the check after `open_epic_request_at` would pass every current test.
+**Fix:** Extract a core function, for example `fn require_unchanged(draft: &RequestDraft, previewed: &str) -> Result<(), DraftChanged>`. Test that a mismatch is an error and that a match is `Ok`. Better, test that `open_epic_request_at` is never reached on mismatch, by making the helper own the call order. The command then only maps `DraftChanged` to the bare string.
 
-**File:** `packages/desktop/src/review/CriteriaRail.tsx:27-39`
-**Issue:** Re-verified present. `useMutation` has no `onError` and the returned callback is `mutation.mutate`, so a rejection (a criterion that does not belong to the item, no branch to anchor against, a git failure, a partial anchor) is discarded. The footer then reads "Checking a criterion records this as its evidence", as if it had worked. With CR-02 closed, the only rejection text is now a generic category, so surfacing it leaks nothing. Also, `useCallback(..., [mutation])` depends on the `mutation` object, which changes identity every render, so the callback is not stable.
-**Fix:** Render a generic line (for example "Could not record that check.") from `mutation.isError` in the footer, clear it on the next attempt with `mutation.reset()`, and depend on `mutation.mutate` (which is stable) in the `useCallback`.
+### WR-05: Merge sheet's result state is still keyboard-unreachable on WKWebView (inconsistent with the epic sheet)
 
-### WR-05: Two concurrent `forge_open_epic_request` calls can push twice and open duplicate requests
+**File:** `packages/desktop/src/review/MergeConfirmSheet.tsx:180-185, 347-355`
+**Issue:** The 08-15 premise is that WKWebView never tab-focuses buttons. The epic sheet therefore focuses its primary button in every state, including Close once there is a result (`primaryKey === "close"`). The merge sheet focuses only the Merge button, once, and `focusedRef` is never reset. When the result renders, the Merge button unmounts and focus falls to the focus scope container. Close, "Start a session to resolve" and "Open in editor" then have no keyboard route, apart from Escape, which closes the sheet. After a conflict, the two exits the sheet advertises are mouse-only on macOS, which is the exact defect G-08-6 set out to remove.
+**Fix:** Mirror the epic sheet. Use a `primaryRef` and a keyed effect where the key is `confirm` before a result, then `exit` when the result is a conflict (focusing "Start a session to resolve"), and `close` otherwise. Reset the focused key when it becomes `null`.
 
-**File:** `packages/desktop/src-tauri/src/commands/forge.rs:358-407`, `packages/core/src/forge/mod.rs:405-441`
-**Issue:** Re-verified present. The command is `async` and runs on a pool. `open_epic_request_at` does lookup, push, then create with no mutual exclusion. The sheet's `openingRef` guards one sheet instance only. A second invocation can see "no open request", push, and call create. The loser's create failure is then reported as `PushedButNotOpened`, which is false. The merge path already has `try_lock_epic` for the same shape.
-**Fix:** Hold a per-epic "requesting" guard (a sibling of `EPICS_MERGING`) around `open_epic_request_at` and return a named `requestInFlight:<key>` error. Add it to `EpicRequestSheet.failureText`.
+### WR-06: Task-scope `forge_open_request` has the same stale-preview gap, and its doc still claims it cannot happen
 
-### WR-06: Every push failure is reported as "rejected"
-
-**File:** `packages/core/src/forge/mod.rs:423-425`, `packages/desktop/src/review/EpicRequestSheet.tsx:166-171`
-**Issue:** Re-verified present. Any `Err` from `push_branch` (timeout, git missing, no network, auth refused, no `origin`) becomes `PushRejected`, and the sheet says "The push was rejected, so no request was created". After a timeout the branch may already be on the remote, so "nothing reached the remote" is not provable.
-**Fix:** Add a `PushFailed` outcome (and DTO kind) with its own sentence, and word the timeout case as "unknown, check the remote".
-
-### WR-07: The stored anchor sha is the branch head at click time, not the commit the user read
-
-**File:** `packages/desktop/src-tauri/src/commands/review.rs:321-333`
-**Issue:** Re-verified present. The sha is resolved from the head ref when the check is made. If the task branch advanced since the diff was rendered, the anchor records the newer sha with line numbers from the older diff, and `anchor_staleness` then reports "Untouched" for code the user never saw.
-**Fix:** Have the renderer send the head the diff was read at (from `ReviewTargetDto.head`) as an expected value. Re-resolve in the command and refuse with a named "branch moved since you opened this diff" error on mismatch. The stored sha stays core-resolved.
-
-### WR-08: "What you saw is what you sent" is not guaranteed for the epic request
-
-**File:** `packages/desktop/src-tauri/src/commands/forge.rs:369-390`, `packages/core/src/forge/request_body.rs:166-265`
-**Issue:** Re-verified present. `forge_open_epic_request` re-reads the board and re-runs the per-task ancestry checks at confirm time. Any change since the preview (an agent checking a criterion, a merge landing) publishes a body the user did not see, to a possibly public forge. The two-half split makes the window slightly longer between board read and git half, though still one consistent board snapshot.
-**Fix:** Return a SHA-256 of title plus body with the preview, send it back on confirm, and refuse with `draftChanged` on mismatch so the sheet re-fetches.
-
-### WR-09: A merge that lands in git but is not recorded can never become "integrated"
-
-**File:** `packages/desktop/src-tauri/src/commands/review.rs:470-482`, `packages/core/src/merge.rs:203-223`
-**Issue:** Re-verified present. If `record_merge_event` fails after `run_merge` succeeded, the command returns `eventNotRecorded`. A retry then hits `finish_plan`'s zero-commits `NothingToMerge` refusal, and `AlreadyIntegrated` records nothing by design. The task never shows as integrated, and the epic request body lists it as "not integrated".
-**Fix:** Retry the event write once before returning `eventNotRecorded`. Better, let a retry detect "source is already an ancestor of target and no integrated event exists" and record the existing merge commit.
-
-### WR-10: The conflict brief is bounded by file count, not by the instruction cap
-
-**File:** `packages/desktop/src/review/MergeConfirmSheet.tsx:70-79`
-**Issue:** Re-verified present. The brief lists up to 50 paths regardless of length, plus about 390 characters of fixed text. Fifty paths averaging more than about 70 characters exceed the 4000-character `agent_run_start` cap, and the user then sees only "Could not start a session on this task." Paths are interpolated raw, so a newline in a path injects lines into the agent prompt, and the session starts with `acceptEdits`.
-**Fix:** Build the list until a character budget (for example 3000) is reached, append "...and N more", and replace control characters in paths.
-
-### WR-11: Anchor paths are written verbatim into a public PR body
-
-**File:** `packages/core/src/forge/request_body.rs:314-325`
-**Issue:** Sink half of the prior WR-02, re-verified. `render_epic_body` does `out.push_str(path)` for each anchored criterion with no escaping, and the body is published to a forge. A path containing `\n` (legal in git) injects arbitrary lines or Markdown into the request. The source half (`check_criterion_with_anchor` validating only length, side and range) is in `acceptance_criterion.rs`, outside this round's file list, and was not re-read.
-**Fix:** In `render_epic_body`, replace control characters in `path` before writing it, or render it in a code span after stripping `\n`, `\r` and backticks. Validate at the write path as well (reject control characters in `a.path`).
+**File:** `packages/desktop/src-tauri/src/commands/forge.rs:204-210, 164-186, 231`
+**Issue:** The comment says the "published text is the previewed text by construction (T-07-09-01)". That is the claim 08-14 just showed false for epics, because re-assembly can differ from the preview after a board change. `RequestDraftDto::from` now computes and ships a `content_hash` for the task preview as well ("unused there yet"), but `forge_open_request` does not accept or check one. The task path publishes to the same possibly-public forge. The DTO field now suggests the guard exists. This predates the gap-closure round, but the new hash makes the asymmetry misleading.
+**Fix:** Either thread `content_hash` through `forge_open_request` and `ForgeSection.tsx` in the same way, or correct the comment to say the guarantee holds only for an unchanged board, and track the task path as an open gap.
 
 ## Info
 
-### IN-01: The CR-03 guard enumerates `button, a, [role='button']` only
+### IN-01: Renderer-supplied `content_hash` and `epic_id` are written to the host log unvalidated
 
-**File:** `packages/desktop/src/state/keyboard.ts:305-313,761-765`
-**Issue:** Other elements that own Enter or Space activation (`[role=checkbox]`, `[role=switch]`, `[role=tab]`, `[role=menuitem]`, `[role=option]`, `[role=link]`, `summary`, `select`) fall through, so an Enter-bound region would still claim their keydown. Nothing in the review surface renders those today, so there is no live defect. Separately, `preventDefault()` still runs before the handler's own `!sheetOpen` check, so with a sheet open and focus on a non-interactive node, Enter and Space are cancelled for no effect (for example Space scrolling a focused sheet body).
-**Fix:** Widen the selector to the ARIA activation roles, and, if cheap, let a handler return `false` to signal "not handled" so `preventDefault` runs only when it acted.
+**File:** `packages/desktop/src-tauri/src/commands/forge.rs:403`
+**Issue:** `content_hash` is an arbitrary renderer-controlled string. It is logged verbatim, so a value with newlines can forge log lines, and a very large value is written in full. It is cheap to reject the malformed case before doing any git work.
+**Fix:** Early in the command, if `content_hash.len() != 64` or it contains a non-hex character, return `draftChanged` without logging the raw value.
 
-### IN-02: The roll-up carries data the rail never uses, and cannot tell an error from an empty epic
+### IN-02: `keyMatches` ignores `ctrlKey` and `altKey`, so Ctrl+R and Ctrl+M open the confirmation sheets
 
-**File:** `packages/desktop/src/review/CriteriaRail.tsx:52,72-91`, `packages/core/src/review.rs:395-407`
-**Issue:** `status` and `with_evidence` cross the whole stack (core, DTO, adapter, test fixtures) but only `checked`, `total` and `withoutEvidence` are rendered. `useEpicTaskRollup(...).data ?? []` makes a failed read look the same as an epic with no tasks, so the section silently disappears. Neither is wrong under the "absence is the design" rule the file states, but both should be a decision rather than an accident.
-**Fix:** Either render the status word beside the key or drop `status` and `with_evidence` from the DTO. Optionally show a one-line "Could not read task criteria" when `isError`.
+**File:** `packages/desktop/src/state/keyboard.ts:327-335`
+**Issue:** Only `metaKey` and `shiftKey` are compared. On non-macOS builds, Ctrl+R (reload) and Ctrl+M match the new `r` and `m` bindings and are cancelled. The effect is only to open a confirm sheet, not to act, but it is a behaviour change introduced by making bare letters publish-adjacent. Pre-existing for every other letter binding.
+**Fix:** Add `Boolean(binding.ctrl) === event.ctrlKey` and the same for `alt`, or reject any event with `ctrlKey || altKey` when `binding.meta` is not set.
 
-### IN-03: Unreachable `blocked:` return in `forge_open_epic_request`
+### IN-03: The newline separator makes the title/body digest unambiguous only if titles cannot contain a newline
 
-**File:** `packages/desktop/src-tauri/src/commands/forge.rs:384-386`
-**Issue:** `draft_inputs` is `None` only when `inputs.has_integration_branch()` is false, and in that case `epic_request_blocker` has already returned `NoIntegrationBranch` and the command returned at line 381-383. The new `let Some(draft_inputs) = ... else { return Err(..) }` is dead code kept as a defensive fallback.
-**Fix:** Keep it with a one-line comment saying it is defensive, or restructure so the draft inputs are an `Option` consumed once.
+**File:** `packages/core/src/forge/request_body.rs:36-47`
+**Issue:** The doc comment says the separator "makes the pair unambiguous". It does not if an epic title may contain `\n`. Title `a\nb` with body `c` and title `a` with body `b\nc` hash identically. The body always starts with `key: title`, so a real edit would still move the hash and this is not exploitable. The claim and the test name overstate it.
+**Fix:** Hash a length prefix instead of a separator (`hasher.update((title.len() as u64).to_be_bytes())`), or soften the comment.
 
-### IN-04: The capabilities roster is stale and not an enforcement point
+### IN-04: Sheet-open `r` is not gated by `sheetOpen`, and `noForgeConfigured` can strand `requestOpen`
 
-**File:** `packages/desktop/src-tauri/capabilities/default.json:4`
-**Issue:** Re-verified. `review_epic_task_rollup` was added correctly, but the roster still omits registered commands (`criterion_revise`, `criterion_revisions`, `epic_list_all`, `issue_set_parent`, `task_set_epic`, `menu_set_action_enabled`, `agent_run_discard`, `task_session_summaries`, every `authoring_*`). The file's own text says `generate_handler!` is the real boundary.
-**Fix:** Generate the roster from `main.rs` in a test, or replace the prose list with a pointer to `generate_handler!`.
-
-### IN-05: Test fixtures leak process-global environment when a test panics
-
-**File:** `packages/core/tests/criterion_anchors.rs:17-26`, `packages/core/tests/review_merge.rs:17-26`
-**Issue:** Re-verified in both files. `with_scratch_worktree_root` restores `FLYWHEEL_WORKTREE_ROOT` after `f()` returns, so an assertion panic skips the restore. The mutex poison is recovered, but a dangling variable pointing at a deleted tempdir persists into later tests in the same binary. The new roll-up test `rollup_ignores_superseded_criterion_revisions` runs inside this helper.
-**Fix:** Restore in a `Drop` guard so it runs during unwinding.
-
-## Not re-examined this round
-
-These first-round findings are in files outside this round's 20-file scope. They were not re-read, so their status is unchanged and unverified:
-
-- Locale-dependent "Already up to date" and push-error classification (`packages/core/src/git.rs`, prior WR-01).
-- Anchor path and range validation in `check_criterion_with_anchor` (`acceptance_criterion.rs`, source half of prior WR-02; sink half is WR-11 above).
-- `criterion.toggled` payload misreporting the anchor on no-anchor check and uncheck (`acceptance_criterion.rs`, prior IN-01).
-- `safeHref` present only in `EpicRequestSheet`, absent from `ForgeSection` (prior IN-02).
-- Option-like ref names not rejected in `git.rs` and `merge.rs` argv (prior IN-03; the `merge.rs` call sites are unchanged in this round's diff).
+**File:** `packages/desktop/src/review/EpicRequestSheet.tsx:81-83, 234`
+**Issue:** `EpicRequestBar`'s `offered` ignores whether the sheet is already open, unlike `mergeOffered`, which includes `!mergeOpen`. While the sheet is open, `r` is cancelled and `onOpen` is a no-op. This is harmless but inconsistent. Separately, `if (blocker === "noForgeConfigured") return null` unmounts the sheet without calling `onClose`. If the blocker appears while the sheet is open, the parent's `requestOpen` stays true. That leaves `sheetOpen` true, so j/k and the Escape-to-go-back handler are disabled with nothing on screen. This needs a mid-session forge change to trigger, so it is unlikely.
+**Fix:** Call `onClose()` from an effect when the blocker becomes `noForgeConfigured`, and pass `requestOpen` into the bar so the binding map is empty while the sheet is open.
 
 ---
 
-_Reviewed: 2026-10-06_
+## Verified clean (no finding)
+
+- **Epic sheet refocus after `draftChanged`:** works by trace (see Summary). A regression test would still be worthwhile: reject once, refetch, assert `document.activeElement` is the new Open request button.
+- **`useRegionBindings` / `EpicRequestBar`:** `r` passes an empty map when unavailable, so it is unclaimed (the `m` half is WR-01). The `bindingAllowedInLayer` allow-lists and the new layer-guard test are correct, and the palette exclusion matches the existing dead-entry pattern.
+- **CSS (G-08-1):** edit background is `transparent` and the mark is an inset 2px bottom shadow. Specificity is three classes against react-diff-view's two. No second palette or theme switch was introduced.
+- **Cargo:** `sha2 = "0.10"` resolves to the already-present `0.10.9`. `Cargo.lock` gained one dependency edge and no new package.
+
+---
+
+_Reviewed: 2026-10-07_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
