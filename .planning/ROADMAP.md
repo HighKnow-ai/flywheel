@@ -848,7 +848,7 @@ broken CLI.
   3. User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging.
   4. User opens a pull request or merge request for a finished epic's integration branch in one action.
 
-**Plans**: 12/12 plans executed in 5 waves; 4 gap-closure plans in 3 waves; 3 UAT gap-closure plans in 2 further waves
+**Plans**: 13/15 plans executed in 5 waves; 4 gap-closure plans in 3 waves; 3 UAT gap-closure plans in 2 further waves
 **UI hint**: yes
 
 Plans:
@@ -895,7 +895,7 @@ Plans:
 
 **UAT gap wave 1** *(08-13 and 08-14 share no file: the first is CSS plus one browser spec, the second is the core/IPC/adapter hash path. 08-13's verify is file-scoped to its own spec because the keyboard spec stays red until 08-15)*
 
-- [ ] 08-13-PLAN.md — G-08-1: the diff's row tint becomes the only paint behind code glyphs and a word-level edit is marked rather than filled, so all 11 sub-AA token/row pairs clear 4.5:1 in WebKit with no new colour value (REVW-01)
+- [x] 08-13-PLAN.md — G-08-1: the diff's row tint becomes the only paint behind code glyphs and a word-level edit is marked rather than filled, so all 11 sub-AA token/row pairs clear 4.5:1 in WebKit with no new colour value (REVW-01)
 - [ ] 08-14-PLAN.md — G-08-5 (WR-08): `RequestDraft::content_hash`, carried on the preview and required on the confirm, so an epic request whose draft moved is refused with `draftChanged` before anything is pushed and the sheet re-renders instead of publishing (REVW-05)
 
 **UAT gap wave 2** *(blocked on 08-14 — restructures the same `EpicRequestSheet.tsx` that plan's confirm path lives in)*
@@ -1096,7 +1096,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Socratic Epic Authoring | 50/50 | Complete    | 2026-09-30 |
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
-| 8. Review And Merge Inside Flywheel | 12/12 | In Progress|  |
+| 8. Review And Merge Inside Flywheel | 13/15 | In Progress|  |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 10.1 Visual polish: brand assets and confirmed motion | 0/TBD | Not started | - |

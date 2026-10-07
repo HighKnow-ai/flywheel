@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 08
-current_phase_name: review-and-merge-inside-flywheel
+current_phase_name: Review And Merge Inside Flywheel
 status: executing
-stopped_at: Completed 08-12-PLAN.md
-last_updated: "2026-10-07T05:44:56.900Z"
-last_activity: 2026-10-06
+stopped_at: Completed 08-13-PLAN.md
+last_updated: "2026-10-07T05:51:52.906Z"
+last_activity: 2026-10-07
 last_activity_desc: Phase 08 execution started
-state_head: e91bc095d3e283f01d0713c0bae894bec1f23898
+state_head: 20e4ff7a2f430ff08b41cbb52e11d9e7cf23f54a
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 185
-  completed_plans: 182
+  completed_plans: 183
   percent: 0
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 
 ## Current Position
 
-Phase: 08 (review-and-merge-inside-flywheel) — READY TO EXECUTE
-Plan: 12 of 15 (08-01..08-12 executed; 08-13..08-15 are gap-closure plans, pending)
-Status: Ready to execute gap closure
-Last activity: 2026-10-06 — Phase 08 execution started
+Phase: 08 (Review And Merge Inside Flywheel) — EXECUTING
+Plan: 2 of 15
+Status: Ready to execute
+Last activity: 2026-10-07 — Phase 08 execution started
 
 Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
 
@@ -243,6 +243,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08 P10 | 15 min | 2 tasks | 4 files |
 | Phase 08 P11 | 35 min | 3 tasks | 6 files |
 | Phase 08 P12 | 10 min | 1 tasks | 3 files |
+| Phase 08 P13 | 3 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -559,6 +560,7 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-10: Enter/Space activation guard lives in useRegionBindings only (not resolveBinding), so BoardView's element-level open-detail path is unchanged
 - [Phase 08]: 08-11: git halves take an opaque private-field inputs value and no connection, so holding the db lock across a spawn is not expressible; forge detection deferred to EpicRequestInputs::forge()
 - [Phase 08]: 08-12: ipc_error(context, e) in commands/mod.rs logs the full cause chain and returns failed:<context>; all 58 review/forge error mappings use it, renderer-parsed strings unchanged
+- [Phase 08]: 08-13: remove stacked edit-span tint (transparent) and mark word-level edits with a 2px inset hue box-shadow; row mixes stay 12%, worst contrast 5.22:1 — Zero new colour values; lowering mix percentages was infeasible
 
 ### Pending Todos
 
@@ -619,6 +621,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-06T08:19:51.434Z
-Stopped at: Completed 08-12-PLAN.md
+Last session: 2026-10-07T05:51:52.737Z
+Stopped at: Completed 08-13-PLAN.md
 Resume file: None
