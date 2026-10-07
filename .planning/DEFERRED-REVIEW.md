@@ -105,7 +105,7 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-04
   phase: "08 — Review And Merge Inside Flywheel"
   truth: "User checks off each of a task's acceptance criteria against the diff while reviewing it (Phase 08 success criterion 2)."
-  status: not-demonstrable
+  status: closed (data vacuum only — 2026-10-07, plan 08.1-03)
   why_deferred: |
     NOT a code defect — a data vacuum. The entire database holds TWO
     acceptance_criteria rows, both on tasks, and neither is on any of the five
@@ -142,6 +142,23 @@ context to be answerable months later by someone who was not in the room:
     carrying an integration branch has zero acceptance criteria" as proof the
     broken path was the only reachable one. That premise was true when measured
     and is now false. The diagnosis stands; the measurement has expired.
+  closure_2026-10-07: |
+    CLOSED by plan 08.1-03 (D-23). What closed is the DATA VACUUM, and only that:
+    the five tasks that hold an active worktree (THRE-33, -38, -43, -53, -58) now
+    each carry three real, diff-checkable acceptance criteria (15 rows), so the
+    review surface's criteria rail has something to render and be comped against.
+    Written through create_criterion; 15 `criterion.created` events back them.
+    The COUNT in this entry was stale twice. It said TWO rows; the first
+    correction above said FOUR, 2 on tasks and 2 on epics. 08.1-RESEARCH.md
+    Correction 7 confirms FOUR, and that ALL FOUR were probe text (`test`, `test`,
+    `test`, `hello`) — not two, as CONTEXT D-23 also claimed. All four were
+    deleted through delete_criterion (4 `criterion.deleted` events); the tool
+    refuses to delete any statement not on its exact-match probe allowlist.
+    Pre-run backup: ~/Library/Application Support/Flywheel/flywheel.pre-seed-criteria-20261007T113454.db
+    NOT claimed: that the behaviour is verified. Seeding removes the blocker; it
+    does not observe a human checking a criterion against a diff. That half of
+    the Phase 08 truth stays deferred to Phase 11 and is NOT marked verified.
+    STILL OPEN: D-REV-05's ergonomic half — this plan does not touch it.
 
 - id: D-REV-05
   phase: "08 — Review And Merge Inside Flywheel"
