@@ -3,7 +3,7 @@ status: diagnosed
 phase: 08-review-and-merge-inside-flywheel
 source: [08-VERIFICATION.md]
 started: 2026-10-07T15:20:00Z
-updated: 2026-10-07T16:20:00Z
+updated: 2026-10-07T16:40:00Z
 round: 2
 supersedes: "round 1 (6 items, gaps G-08-1/G-08-5/G-08-6) — recoverable at git show f52bd33:.planning/phases/08-review-and-merge-inside-flywheel/08-UAT.md"
 ---
@@ -96,7 +96,23 @@ blocked: 1
 
 - gap_id: G-08-R2-1
   truth: "Pressing `r` on the epic review surface opens the epic request confirmation with its confirm button focused"
-  status: failed
+  status: resolved
+  resolved_by: "857c21b fix(08): epic review no longer traps focus in the criteria composer"
+  resolved_at: 2026-10-07
+  resolution: |
+    AcceptanceCriteriaList's zero-criteria auto-open is now behind an optional
+    `autoOpenWhenEmpty` prop defaulting to true (item panel unchanged);
+    CriteriaRail passes false. Two regression tests added to
+    review/__tests__/keyboard-activation.test.tsx, BOTH verified red without the
+    fix. The `r` test fires at document.activeElement rather than document.body
+    — the guard keys off event.target, so a body-targeted press passed while the
+    bug was still present, which would have shipped a vacuous test.
+    Full desktop suite: 770 passed / 51 files.
+    NOT re-confirmed by hand in WKWebView, deliberately: the DOM half is now
+    test-covered and is not WebView-specific, and the WKWebView-specific half
+    (Enter activating an already-focused button) already passed in this test's
+    `m` arm. Re-running the round would cost a human pass to re-prove what the
+    suite now holds.
   reason: "User reported: the autofocus goes onto acceptance criteria, not the request sheet, so \"r\" adds to the input text. The `m` half of this test passed in the real WKWebView — only the `r` route is broken."
   severity: major
   test: 1
@@ -136,4 +152,69 @@ blocked: 1
     - "Gate the zero-criteria auto-open behind an opt-in prop (panel passes it, CriteriaRail does not) — the rail should render the composer closed."
     - "A browser test asserting that on opening an epic review with zero criteria, document.activeElement is not a text-entry element and `r` opens the request sheet. This is NOT WKWebView-specific and would have caught the bug in Playwright WebKit."
   severity_note: "Blocks the `r` route on every epic review currently reachable, not an edge case."
-  debug_session: "" 
+  debug_session: ""
+
+## Phase-Criteria Assessment
+
+Recorded here rather than in a further UAT round, per the owner's 2026-10-07
+decision to stop running testing rounds and drain findings through the board.
+A phase closes on its roadmap success criteria, not on zero findings.
+
+- criterion: 1
+  text: "User reads a task's full diff with syntax highlighting, and the accumulated diff of its epic's integration branch"
+  verdict: satisfied
+  evidence: "Owner reached and read both scopes in the running app: 'Rest seems to work perfectly.'"
+
+- criterion: 2
+  text: "User checks off each of the task's acceptance criteria against the diff while reviewing it"
+  verdict: NOT DEMONSTRABLE ON THIS BOARD
+  evidence: |
+    The whole database holds TWO acceptance_criteria rows, both on tasks, and
+    NEITHER is on any of the five tasks that have a worktree. Every epic
+    carrying an integration branch has zero. So there is no reviewable item on
+    this board against which a criterion can be checked off at all — the
+    interaction could not be exercised, by the owner or by anyone.
+    Covered by automated tests (08-02, 08-06, 08-09) and the code path is live;
+    what is missing is DATA, not behavior.
+    This is the phase's own stated core-value criterion — its Notes call it
+    "where the core value becomes a daily habit rather than a slogan" — and it
+    is also the project's Core Value line ("anchored to a structured board item
+    with real acceptance criteria"). A 907-task board with 2 criteria cannot
+    show it. Filed as board work, not as a phase blocker.
+
+- criterion: 3
+  text: "User merges a task branch into its epic integration branch from within the application, and any conflict is surfaced clearly rather than failing silently or half-merging"
+  verdict: partially satisfied
+  evidence: |
+    Merge half PROVEN: the owner merged THRE-43 into
+    flywheel/epic/thre-7-agent-session-supervision with `m` + Enter, and an
+    independent `git rev-list --count` afterwards showed the branch gone from 1
+    commit ahead to 0 — the merge really landed, not just rendered success.
+    Conflict half UNVERIFIED: `git merge-tree --write-tree` across all five
+    worktree tasks returned clean 5/5, so no conflict is reachable on this
+    board. See test 3 (blocked). Owner declined a synthetic conflict.
+
+- criterion: 4
+  text: "User opens a pull request or merge request for a finished epic's integration branch in one action"
+  verdict: satisfied
+  evidence: |
+    Core path proven against the REAL forge for the first time (test 2): opened
+    PR #1 on cymarechal/flywheel-uat, second call returned AlreadyOpen #1,
+    cleanup verified. The in-app one-keystroke route was broken by G-08-R2-1 and
+    is fixed in 857c21b with two non-vacuous regression tests.
+
+## Carry-Forward Board Work
+
+Filed as issues rather than GSD plans, per the ship-first decision:
+  - Seed or author real acceptance criteria on reviewable tasks — criterion 2 is
+    not demonstrable without them, and this is the product's Core Value.
+  - Board rows carry no cue that a task has an actual diff. Finding the one
+    reviewable task in a 907-task board took a hand-written SQL join plus a
+    `git merge-tree` sweep. Routed into Phase 8.1's direction round.
+  - A conflicting-merge fixture, so criterion 3's conflict half and WR-05's exit
+    route become testable instead of waiting on a real conflict.
+  - `draftChanged` ordering (test 4) is still proven only by reading, not by a
+    test. Highest-value automation item of this round.
+  - forge_live_github.rs's setup docs should name the per-identity
+    `core.sshCommand` trap: the clone inherits the GLOBAL key and fails with
+    "Repository not found", which reads as a missing repo rather than a wrong key.
