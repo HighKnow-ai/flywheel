@@ -16,10 +16,11 @@
  * can change, so each is one sentence naming the fix. "This project has no forge" is a permanent
  * property of the project, so (D-120, absence is the design) it renders nothing at all.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
+import { useRegionBindings } from "../state/keyboard";
 import * as adapter from "../adapters/tauri";
 import type { EpicRequestBlockerDto, EpicRequestOutcomeDto, ForgeRequestDto } from "../adapters/tauri";
 import { useEpicRequest, useEpicRequestDraft } from "./useReviewQuery";
@@ -74,6 +75,13 @@ export function EpicRequestBar({ epicId, onOpen }: { epicId: string; onOpen: () 
   const preview = useEpicRequestDraft(epicId, true);
   const existing = useEpicRequest(epicId);
 
+  // Whether the action is offered. One expression, read by the button and by the `r` binding, so the
+  // keystroke can never open a sheet the bar would not offer (G-08-6). With no forge this is false
+  // and the empty map below leaves `r` unclaimed: absence is the design (D-120).
+  const offered = !isOpenRequest(existing.data) && Boolean(preview.data?.draft) && !preview.data?.blocker;
+  // Before every conditional return, so hook order is stable.
+  useRegionBindings("review-surface", "review-surface", offered ? { "open-epic-request": onOpen } : {});
+
   const barStyle = {
     margin: 0,
     padding: "var(--space-xs) var(--space-md)",
@@ -101,6 +109,7 @@ export function EpicRequestBar({ epicId, onOpen }: { epicId: string; onOpen: () 
       </p>
     );
   }
+  if (!offered) return null;
   return (
     <div style={{ ...barStyle, display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
       <button
@@ -197,9 +206,29 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
   const [refusedHash, setRefusedHash] = useState<string | null>(null);
   // A ref is the synchronous guard: a second activation can fire before the disabling re-render.
   const openingRef = useRef(false);
+  // The primary footer button takes focus (G-08-6): Tab does not reach buttons in WKWebView, and
+  // Radix's own grab would land on Cancel by DOM order. Focused once each time it (re)appears, so a
+  // later render cannot pull focus back from wherever the reader has since moved it.
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const focusedKeyRef = useRef<string | null>(null);
 
   const draft = preview.data?.draft ?? null;
   const blocker = preview.data?.blocker ?? null;
+  const done = outcome !== null || failure !== null;
+  // Which button is primary right now: Close once there is a result or a blocker, Open request while
+  // a draft is ready, none while the request is in flight.
+  const primaryKey = done || blocker ? "close" : opening ? null : draft ? "confirm" : null;
+  // Declared above the early return below so the hook count never changes with the blocker.
+  useEffect(() => {
+    if (!primaryKey) {
+      focusedKeyRef.current = null;
+      return;
+    }
+    if (focusedKeyRef.current !== primaryKey && primaryRef.current) {
+      focusedKeyRef.current = primaryKey;
+      primaryRef.current.focus();
+    }
+  }, [primaryKey]);
 
   // This project has no forge: no sheet, no action, no empty state.
   if (blocker === "noForgeConfigured") return null;
@@ -233,12 +262,11 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
       });
   }
 
-  const done = outcome !== null || failure !== null;
   const draftMoved = refusedHash !== null && draft !== null && draft.contentHash !== refusedHash;
   const blockedText = blocker ? blockerSentence(blocker) : null;
 
   return createPortal(
-    <FocusScope trapped loop asChild>
+    <FocusScope trapped loop asChild onMountAutoFocus={(event) => event.preventDefault()}>
       <DismissableLayer
         onEscapeKeyDown={(event) => {
           event.preventDefault();
@@ -347,6 +375,7 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
             >
               {done || blocker ? (
                 <button
+                  ref={primaryRef}
                   type="button"
                   onClick={onClose}
                   className="type-body"
@@ -369,6 +398,7 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
                     Cancel
                   </button>
                   <button
+                    ref={primaryRef}
                     type="button"
                     onClick={handleConfirm}
                     disabled={!draft}
