@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: Review And Merge Inside Flywheel
 status: executing
-stopped_at: Completed 08-14-PLAN.md
-last_updated: "2026-10-07T06:24:04.084Z"
+stopped_at: Completed 08-15-PLAN.md
+last_updated: "2026-10-07T06:44:57.570Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08 execution started
-state_head: 6e8b591664d657b675eff2a16d2021fe8b290c9b
+state_head: 9dedbb00d0f76d22c5b25f4761d8eb534b84e0a6
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 185
-  completed_plans: 184
+  completed_plans: 185
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08 (Review And Merge Inside Flywheel) — EXECUTING
-Plan: 3 of 15
+Plan: 4 of 15
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08 execution started
 
@@ -245,6 +245,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08 P12 | 10 min | 1 tasks | 3 files |
 | Phase 08 P13 | 3 min | 2 tasks | 3 files |
 | Phase 08 P14 | 30min | 3 tasks | 11 files |
+| Phase 08 P15 | 14 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -563,6 +564,8 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-12: ipc_error(context, e) in commands/mod.rs logs the full cause chain and returns failed:<context>; all 58 review/forge error mappings use it, renderer-parsed strings unchanged
 - [Phase 08]: 08-13: remove stacked edit-span tint (transparent) and mark word-level edits with a 2px inset hue box-shadow; row mixes stay 12%, worst contrast 5.22:1 — Zero new colour values; lowering mix percentages was infeasible
 - [Phase 08]: 08-14: epic request confirm guarded by a core-computed SHA-256 content hash (sha2 0.10.9, no new lockfile package); refusal is the bare draftChanged category and the sheet re-renders instead of alerting — WR-08/G-08-5: published text must be the text the user read; hash keeps the renderer from supplying text. Follow-up: same guard on forge_open_request.
+- [Phase 08]: 08-15: shape (b) real bindings (m = open-merge, r = open-epic-request, review-surface) over a webview preference, because the WebKit test harness cannot observe a src-tauri setting — A fix its own acceptance test cannot observe is not a closed gap; (b) matches the existing review-surface binding precedent
+- [Phase 08]: 08-15: EpicRequestBar passes an empty handler map when the action is unavailable, since useRegionBindings preventDefaults any key with a handler — Leaves r unclaimed with no forge or an open request
 
 ### Pending Todos
 
@@ -623,6 +626,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-07T06:24:03.923Z
-Stopped at: Completed 08-14-PLAN.md
+Last session: 2026-10-07T06:44:57.326Z
+Stopped at: Completed 08-15-PLAN.md
 Resume file: None
