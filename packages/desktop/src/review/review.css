@@ -3,6 +3,10 @@
  * is imported in FileDiff.tsx; this file points its custom properties and the Prism token classes
  * at the project's design-token roles. No hex literals here — `styles/tokens.css` is the one
  * source of colour.
+ *
+ * Invariant: the row tint is the only paint behind code glyphs, and a word-level edit is marked
+ * rather than filled, because two stacked signal-hue layers put every token role below AA
+ * (G-08-1).
  */
 .review-diff {
   --diff-background-color: transparent;
@@ -15,14 +19,25 @@
   --diff-gutter-delete-text-color: var(--text-primary-rack);
   --diff-code-insert-background-color: color-mix(in srgb, var(--success-text-rack) 12%, transparent);
   --diff-code-delete-background-color: color-mix(in srgb, var(--destructive-text-rack) 12%, transparent);
-  --diff-code-insert-edit-background-color: color-mix(in srgb, var(--success-text-rack) 30%, transparent);
-  --diff-code-delete-edit-background-color: color-mix(in srgb, var(--destructive-text-rack) 30%, transparent);
+  --diff-code-insert-edit-background-color: transparent;
+  --diff-code-delete-edit-background-color: transparent;
   --diff-code-insert-text-color: var(--text-primary-rack);
   --diff-code-delete-text-color: var(--text-primary-rack);
   --diff-code-insert-edit-text-color: var(--text-primary-rack);
   --diff-code-delete-edit-text-color: var(--text-primary-rack);
   --diff-omit-gutter-line-color: var(--divider);
   font-size: 12px;
+}
+
+/* A word-level edit is marked, not filled: the full-strength hue sits at the inline box's bottom
+ * edge, never behind the glyphs, so it costs no contrast. Three classes outrank react-diff-view's
+ * own two-class rule without !important. */
+.review-diff .diff-code-insert .diff-code-edit {
+  box-shadow: inset 0 -2px 0 var(--success-text-rack);
+}
+
+.review-diff .diff-code-delete .diff-code-edit {
+  box-shadow: inset 0 -2px 0 var(--destructive-text-rack);
 }
 
 .review-diff .token.comment,
