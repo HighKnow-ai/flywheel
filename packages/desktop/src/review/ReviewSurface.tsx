@@ -175,6 +175,9 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
   const mergePrecheck = useMergePrecheck(itemId, isTask);
   const [mergeOpen, setMergeOpen] = useState(false);
   const integrated = isTask && target?.postMerge === true;
+  // Whether Merge is offered. One expression, read by the button and by the `m` binding, so the
+  // keystroke and the button can never be offered under different conditions (G-08-6).
+  const mergeOffered = isTask && !integrated && !mergeOpen && mergePrecheck.data?.state === "ready";
   // The epic's request action is epic scope only; it is the mirror of Merge, which is task scope only.
   const [requestOpen, setRequestOpen] = useState(false);
   // A sheet owns the keyboard while it is open.
@@ -246,6 +249,9 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
     },
     "expand-file": () => {
       if (!sheetOpen && focusedPath) toggle(focusedPath);
+    },
+    "open-merge": () => {
+      if (!sheetOpen && mergeOffered) setMergeOpen(true);
     },
   });
 
@@ -393,7 +399,7 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
             {integrated ? `merged: ${(target.head ?? "").slice(0, 7)} against its first parent` : `${target.head} → ${target.base}`}
           </span>
         )}
-        {isTask && !integrated && !mergeOpen && mergePrecheck.data?.state === "ready" && (
+        {mergeOffered && (
           <button
             type="button"
             onClick={() => setMergeOpen(true)}

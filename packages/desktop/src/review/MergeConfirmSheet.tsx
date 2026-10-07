@@ -19,7 +19,7 @@
  *
  * This component writes no status (D-122): the adapter surface it imports has no status setter.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
@@ -169,8 +169,20 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
   // A ref is the synchronous guard: React may not have flushed the disabling re-render before a
   // second activation fires in the same tick (the launch sheet's own `startingRef` reasoning).
   const mergingRef = useRef(false);
+  // The confirm button takes initial focus (G-08-6): Tab does not reach buttons in WKWebView, and
+  // Radix's own grab would land on Cancel by DOM order. Focused once per open, so a later render
+  // cannot pull focus back from wherever the reader has since moved it.
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const focusedRef = useRef(false);
 
   const preview = precheck.data?.state === "ready" ? precheck.data : null;
+  const confirmReady = Boolean(preview) && !result && !merging;
+  useEffect(() => {
+    if (confirmReady && !focusedRef.current && confirmRef.current) {
+      focusedRef.current = true;
+      confirmRef.current.focus();
+    }
+  }, [confirmReady]);
   const withoutEvidence = (criteria.data ?? []).filter((s) => s.criterion.checked && !s.anchor).length;
   const uncommitted = gitFacts.data?.uncommitted.length ?? 0;
 
@@ -211,7 +223,7 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
   }
 
   return createPortal(
-    <FocusScope trapped loop asChild>
+    <FocusScope trapped loop asChild onMountAutoFocus={(event) => event.preventDefault()}>
       <DismissableLayer
         onEscapeKeyDown={(event) => {
           event.preventDefault();
@@ -356,6 +368,7 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
                     Cancel
                   </button>
                   <button
+                    ref={confirmRef}
                     type="button"
                     onClick={handleConfirm}
                     disabled={!preview}

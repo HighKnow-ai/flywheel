@@ -114,7 +114,14 @@ export type ActionId =
   // Phase 8 plan 08-01: expand/collapse the focused file in the review surface.
   | "expand-file"
   // Phase 8 plan 08-06: check the focused criterion against the selected diff lines (D-139).
-  | "check-with-selection";
+  | "check-with-selection"
+  // Phase 8 plan 08-15 (G-08-6, D-146/D-118): the keyboard route to the two confirmations. WKWebView
+  // leaves `<button>` out of Tab order, so the Merge and Open request buttons were mouse-only on
+  // macOS; these two bindings are the route. Each is offered under exactly the conditions its
+  // button is (the surface hoists one const per action), and each confirm sheet focuses its own
+  // confirm button on open so the Enter/Space activation of CR-03 lands on it.
+  | "open-merge"
+  | "open-epic-request";
 
 export interface Binding {
   id: ActionId;
@@ -281,6 +288,11 @@ export const BINDINGS: Binding[] = [
   // The check is the act of attestation (T-08-06-01): selecting lines alone never writes. The
   // row's own Space/Enter plain check stays untouched — two affordances, not one overloaded one.
   { id: "check-with-selection", region: "review-surface", key: "c", label: "Check criterion against selection" },
+  // `m` and `r` also exist in other regions (`open-epic-picker`; `continue-shaping`/`toggle-raw-view`).
+  // That is not a collision: `resolveBinding` filters by region, as `j`/`k` are already shared between
+  // `board-list` and `review-surface`.
+  { id: "open-merge", region: "review-surface", key: "m", label: "Merge this task" },
+  { id: "open-epic-request", region: "review-surface", key: "r", label: "Open request for this epic" },
 
   // ---- Command-palette-only (no keystroke; CommandPalette.tsx's generator source) --------
   { id: "create-issue", region: "command-palette", label: "Create Issue" },
@@ -521,7 +533,14 @@ const TRIAGE_SURFACE_ACTION_IDS = new Set<ActionId>([
 // Phase 8 plan 08-01: the review surface's complete allow-list. The movement ids are shared with
 // the tray and triage sets, so the layer branch below answers from THIS set rather than falling
 // through to the board clause.
-const REVIEW_SURFACE_ACTION_IDS = new Set<ActionId>(["move-down", "move-up", "expand-file", "check-with-selection"]);
+const REVIEW_SURFACE_ACTION_IDS = new Set<ActionId>([
+  "move-down",
+  "move-up",
+  "expand-file",
+  "check-with-selection",
+  "open-merge",
+  "open-epic-request",
+]);
 
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "open-palette") return layer !== "picker" && layer !== "palette";
@@ -537,10 +556,12 @@ export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
     return TRIAGE_SURFACE_ACTION_IDS.has(id) || TRAY_SELECTION_ACTION_IDS.has(id);
   }
   if (layer === "review-surface") return REVIEW_SURFACE_ACTION_IDS.has(id);
-  // `expand-file` and `check-with-selection` are the review surface's alone (move-down/up are shared
-  // with the board, so cannot be refused here); every other layer must refuse them rather than fall
-  // through to the board clause.
-  if (id === "expand-file" || id === "check-with-selection") return false;
+  // Unlike `move-down`/`move-up` (shared with the board, so they cannot be refused here), these four
+  // are the review surface's alone; every other layer must refuse them rather than fall through to
+  // the board clause.
+  if (id === "expand-file" || id === "check-with-selection" || id === "open-merge" || id === "open-epic-request") {
+    return false;
+  }
   if (PROPOSAL_TRAY_ACTION_IDS.has(id)) return layer === "proposal-tray";
   if (layer === "proposal-tray") return TRAY_SELECTION_ACTION_IDS.has(id);
   return layer === "board" || layer === "quick-add";

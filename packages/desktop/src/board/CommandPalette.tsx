@@ -504,6 +504,18 @@ export function CommandPalette() {
           // doing nothing (the exact dead-menu-entry defect `return-stage`'s own case above was
           // added to avoid, 05-03-SUMMARY.md's Deviations).
           continue;
+        case "expand-file":
+        case "check-with-selection":
+        case "open-merge":
+        case "open-epic-request":
+          // Phase 8 (plans 08-01, 08-06, 08-15): review-surface-only verbs. The palette has no "review
+          // surface currently open" target, `bindingAllowedInLayer` gates all four to the
+          // `"review-surface"` layer, and `dispatchAction` only ever resolves `"global"`-region
+          // bindings, so a palette-issued activation could never reach one. Excluded here rather than
+          // falling through to the generic board-list push below as an entry that does nothing — the
+          // same dead-menu-entry defect the proposal-tray case above avoids. (`expand-file` and
+          // `check-with-selection` contributed exactly such entries before this case existed.)
+          continue;
         case "filter-status":
         case "filter-epic":
         case "filter-assignee":
