@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: review-and-merge-inside-flywheel
 status: executing
-stopped_at: Completed 08-08-PLAN.md
-last_updated: "2026-10-06T07:03:24.483Z"
+stopped_at: Completed 08-12-PLAN.md
+last_updated: "2026-10-07T05:44:56.900Z"
 last_activity: 2026-10-06
 last_activity_desc: Phase 08 execution started
-state_head: c5553e2e4ef89d0eb105a761325223079f2738e1
+state_head: e91bc095d3e283f01d0713c0bae894bec1f23898
 progress:
   total_phases: 13
   completed_phases: 0
-  total_plans: 182
-  completed_plans: 178
+  total_plans: 185
+  completed_plans: 182
   percent: 0
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08 (review-and-merge-inside-flywheel) — READY TO EXECUTE
-Plan: 8 of 8
-Status: Ready to execute
+Plan: 12 of 15 (08-01..08-12 executed; 08-13..08-15 are gap-closure plans, pending)
+Status: Ready to execute gap closure
 Last activity: 2026-10-06 — Phase 08 execution started
 
 Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
@@ -239,6 +239,10 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08 P06 | 8 min | 2 tasks | 12 files |
 | Phase 08 P07 | 25 min | 3 tasks | 14 files |
 | Phase 08 P08 | 25 min | 3 tasks | 10 files |
+| Phase 08 P09 | 30 min | 2 tasks | 13 files |
+| Phase 08 P10 | 15 min | 2 tasks | 4 files |
+| Phase 08 P11 | 35 min | 3 tasks | 6 files |
+| Phase 08 P12 | 10 min | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -551,6 +555,10 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-07: an integrated task is reviewed as its merge commit against its first parent (ReviewTarget post_merge) — The three-dot range is empty after a merge, indistinguishable from nothing to review (Pitfall 5)
 - [Phase 08]: 08-08: the epic open command re-checks its four preconditions and refuses a blocked epic before any push; failure variants return no CLI text
 - [Phase 08]: 08-08: the review scope toggle rewrites the reviewSurface store field and remembers fromTask so toggling back returns to the same task
+- [Phase 08]: 08-09: epic task roll-up carries no integrated marker, so it spawns no git and is safe under the database lock (CR-01)
+- [Phase 08]: 08-10: Enter/Space activation guard lives in useRegionBindings only (not resolveBinding), so BoardView's element-level open-detail path is unchanged
+- [Phase 08]: 08-11: git halves take an opaque private-field inputs value and no connection, so holding the db lock across a spawn is not expressible; forge detection deferred to EpicRequestInputs::forge()
+- [Phase 08]: 08-12: ipc_error(context, e) in commands/mod.rs logs the full cause chain and returns failed:<context>; all 58 review/forge error mappings use it, renderer-parsed strings unchanged
 
 ### Pending Todos
 
@@ -611,6 +619,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-06T06:00:53.059Z
-Stopped at: Completed 08-08-PLAN.md
+Last session: 2026-10-06T08:19:51.434Z
+Stopped at: Completed 08-12-PLAN.md
 Resume file: None
