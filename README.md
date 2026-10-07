@@ -43,3 +43,5 @@ cargo test --workspace
 # Frontend
 npm --prefix packages/desktop run test
 ```
+
+stop-test
