@@ -71,7 +71,13 @@ const readyPrecheck: MergePreviewDto = {
 
 const readyDraft: EpicRequestPreviewDto = {
   blocker: null,
-  draft: { title: "FLY-7 The epic", body: "## Tasks", headBranch: "flywheel/epic-7", targetBranch: "main" },
+  draft: {
+    title: "FLY-7 The epic",
+    body: "## Tasks",
+    headBranch: "flywheel/epic-7",
+    targetBranch: "main",
+    contentHash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  },
 };
 
 /** Focus `el`, dispatch a keydown on it, and click it only if nothing cancelled the keydown. */

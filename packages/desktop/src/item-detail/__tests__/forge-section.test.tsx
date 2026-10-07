@@ -57,6 +57,7 @@ function baseDraft(overrides: Partial<RequestDraftDto> = {}): RequestDraftDto {
     body: "FLY-1: Add the forge section\n\n## Acceptance Criteria\n\n- [x] It renders\n",
     headBranch: "flywheel/fly-1-add-the-forge-section",
     targetBranch: "main",
+    contentHash: "0".repeat(64),
     ...overrides,
   };
 }

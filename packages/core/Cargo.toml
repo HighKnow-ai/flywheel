@@ -64,5 +64,10 @@ libc = "0.2"
 # description to an owner-only `NamedTempFile` rather than argv (T-07-09-02) — `glab mr create`
 # has no stdin-reading form, unlike `gh pr create`'s `--body-file -`.
 tempfile = "3"
+# `RequestDraft::content_hash` (plan 08-14, G-08-5/WR-08): the epic request confirm refuses when the
+# draft it would publish is not the draft the sheet rendered, and the comparison is a SHA-256 over the
+# title and body. `0.10.9` is already resolved in the workspace `Cargo.lock` (via `tauri-codegen`/`wry`),
+# so declaring it here adds no package to the resolved tree.
+sha2 = "0.10"
 
 [dev-dependencies]

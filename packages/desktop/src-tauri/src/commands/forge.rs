@@ -166,15 +166,21 @@ pub struct RequestDraftDto {
     pub body: String,
     pub head_branch: String,
     pub target_branch: String,
+    /// `RequestDraft::content_hash`, computed by the core. The renderer echoes it back unmodified
+    /// on confirm and never computes one (G-08-5); it is on the task preview too, unused there yet.
+    pub content_hash: String,
 }
 
 impl From<flywheel_core::forge::request_body::RequestDraft> for RequestDraftDto {
     fn from(draft: flywheel_core::forge::request_body::RequestDraft) -> Self {
+        // Hashed before the fields are moved out below.
+        let content_hash = draft.content_hash();
         Self {
             title: draft.title,
             body: draft.body,
             head_branch: draft.head_branch,
             target_branch: draft.target_branch,
+            content_hash,
         }
     }
 }
@@ -347,10 +353,13 @@ pub enum EpicRequestOutcomeDto {
 }
 
 /// Open a pull/merge request for `epic_id`'s integration branch (REVW-05). Accepts an epic id and
-/// nothing else: it re-assembles the draft with the SAME function [`forge_epic_request_draft`]
-/// just previewed, so the published text is the previewed text by construction. A blocked epic is
-/// refused by name before anything is pushed. Writes no status column and registers no poll — no
-/// epic-request observer exists, so the request ships read-only.
+/// the `content_hash` the preview carried — never a title, body, branch or target. It re-assembles
+/// the draft with the SAME function [`forge_epic_request_draft`] previewed and refuses with the bare
+/// category `draftChanged`, before anything is pushed, when that draft does not hash to
+/// `content_hash`: the board moved after the user read the preview (G-08-5). The hash can only
+/// cause a refusal, never a substitution. A blocked epic is refused by name before anything is
+/// pushed. Writes no status column and registers no poll — no epic-request observer exists, so the
+/// request ships read-only.
 ///
 /// The mutex is released once, after the board reads and before any git or forge work, so a slow
 /// repository or remote cannot block any other command.
@@ -359,6 +368,7 @@ pub fn forge_open_epic_request(
     state: State<AppState>,
     app: AppHandle,
     epic_id: String,
+    content_hash: String,
 ) -> Result<EpicRequestOutcomeDto, String> {
     use flywheel_core::forge::{
         epic_request_blocker, epic_request_inputs, request_body, EpicRequestBlocker, EpicRequestOutcome,
@@ -385,6 +395,14 @@ pub fn forge_open_epic_request(
         return Err(format!("blocked:{}", blocker_name(EpicRequestBlocker::NoIntegrationBranch)));
     };
     let draft = request_body::finish_epic_request_draft(draft_inputs).map_err(|e| ipc_error("forge_open_epic_request:draft", e))?;
+
+    // The text about to be published must be the text the user read. Refused before any push or
+    // forge call; the category crosses IPC bare, the digests stay in the host log (T-08-14-03).
+    let current_hash = draft.content_hash();
+    if current_hash != content_hash {
+        eprintln!("epic {epic_id}: draft changed since the preview (previewed {content_hash}, now {current_hash})");
+        return Err("draftChanged".to_string());
+    }
 
     let outcome = flywheel_core::forge::open_epic_request_at(inputs.forge(), inputs.repo_path(), &draft)
         .map_err(|e| forge_error_code(e, "opening a request", &epic_id))?;

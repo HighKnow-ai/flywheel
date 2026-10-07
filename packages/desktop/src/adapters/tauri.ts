@@ -1264,6 +1264,8 @@ export interface RequestDraftDto {
   body: string;
   headBranch: string;
   targetBranch: string;
+  /** SHA-256 of the title and body, computed by the core. Echo it back; never compute one. */
+  contentHash: string;
 }
 
 /**
@@ -1313,12 +1315,14 @@ export async function forgeEpicRequestDraft(epicId: string): Promise<EpicRequest
   return invokeCommand<EpicRequestPreviewDto>("forge_epic_request_draft", { epicId });
 }
 
-/** Propose `epicId`'s integration branch to the forge. An epic id alone: the body is assembled by the
- * same core function that produced the preview. A rejection's message is `"blocked:<blocker>"` or one
- * of the `"<category>:<cli>"` strings `forgeOpenRequest` documents. Thin wrapper over
+/** Propose `epicId`'s integration branch to the forge. The body is assembled by the same core function
+ * that produced the preview; the caller supplies no text, only `contentHash`, the preview's own value
+ * echoed back unmodified. The renderer computes no digest of its own. A rejection's message is
+ * `"draftChanged"` (the board moved since the preview; nothing was pushed), `"blocked:<blocker>"`, or
+ * one of the `"<category>:<cli>"` strings `forgeOpenRequest` documents. Thin wrapper over
  * `forge_open_epic_request`. */
-export async function forgeOpenEpicRequest(epicId: string): Promise<EpicRequestOutcomeDto> {
-  return invokeCommand<EpicRequestOutcomeDto>("forge_open_epic_request", { epicId });
+export async function forgeOpenEpicRequest(epicId: string, contentHash: string): Promise<EpicRequestOutcomeDto> {
+  return invokeCommand<EpicRequestOutcomeDto>("forge_open_epic_request", { epicId, contentHash });
 }
 
 /** The existing request for the epic's integration branch, read live, or `null`. Read-only. Thin

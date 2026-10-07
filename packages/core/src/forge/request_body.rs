@@ -27,6 +27,31 @@ pub struct RequestDraft {
     pub target_branch: String,
 }
 
+impl RequestDraft {
+    /// SHA-256 of the text a human reads, as 64 lowercase hex characters (G-08-5, WR-08). The epic
+    /// request preview carries this value and the confirm command refuses when the draft it
+    /// re-assembles hashes differently, so the text that is published is the text that was shown.
+    ///
+    /// The digest is over `title`, one newline byte, then `body`. The separator is what makes the
+    /// pair unambiguous: a draft whose title gained a character while its body lost the same one
+    /// hashes differently. The branches are deliberately NOT in the digest — the guard's subject is
+    /// the text the user read. This is a change detector, not an authentication tag: the value
+    /// round-trips through the renderer as an opaque string and the renderer never computes it.
+    pub fn content_hash(&self) -> String {
+        use sha2::{Digest, Sha256};
+        use std::fmt::Write;
+
+        let mut hasher = Sha256::new();
+        hasher.update(self.title.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(self.body.as_bytes());
+        hasher.finalize().iter().fold(String::with_capacity(64), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
+    }
+}
+
 // Current-revision criteria only — this file's own load-bearing filter, the same discipline
 // `context_packet.rs`'s own `CRITERIA_SQL` states for the identical reason (D-79's "a draft
 // never reads a superseded statement"), extended here to also carry `checked`, which the context

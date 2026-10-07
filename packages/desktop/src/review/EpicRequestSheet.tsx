@@ -3,10 +3,11 @@
  * D-122): the one action in the review phase that publishes board content outside the machine, so it
  * keeps Phase 7's preview-then-confirm discipline (`item-detail/ForgeSection.tsx`).
  *
- * The sheet previews the draft exactly as the command returned it and confirms with an epic id
- * ALONE. This file never builds, trims or re-orders request text: the preview and the publish come
- * from one core function, which is what makes "what you saw is what you sent" a property of the
- * design instead of a promise.
+ * The sheet previews the draft exactly as the command returned it and confirms with an epic id and
+ * the content hash that preview carried. This file never builds, trims, re-orders or hashes request
+ * text: the preview and the publish come from one core function, and the core refuses a confirm
+ * whose draft no longer matches the hash, which is what makes "what you saw is what you sent" a
+ * property of the design instead of a promise.
  *
  * Nothing here writes a status or polls: no epic-request observer exists in this phase, so the
  * request ships read-only. A request that merges carries nothing to Done yet.
@@ -123,6 +124,9 @@ export function EpicRequestBar({ epicId, onOpen }: { epicId: string; onOpen: () 
 
 type Failure = { code: string; detail: string };
 
+/** The bare category `forge_open_epic_request` rejects with when the draft changed since the preview. */
+const DRAFT_CHANGED = "draftChanged";
+
 /** The command rejects with `"<category>:<detail>"`. Anything else is the generic failure; raw text
  * is never shown (the core logs it). */
 function parseFailure(err: unknown): Failure {
@@ -188,6 +192,9 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
   const [opening, setOpening] = useState(false);
   const [outcome, setOutcome] = useState<EpicRequestOutcomeDto | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
+  // The hash of the draft the core refused as stale (G-08-5). Kept as a value rather than a flag so
+  // the notice appears exactly when the re-fetched draft differs from the one that was refused.
+  const [refusedHash, setRefusedHash] = useState<string | null>(null);
   // A ref is the synchronous guard: a second activation can fire before the disabling re-render.
   const openingRef = useRef(false);
 
@@ -205,10 +212,21 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
     if (openingRef.current || !draft || blocker) return;
     openingRef.current = true;
     setOpening(true);
+    const sentHash = draft.contentHash;
     adapter
-      .forgeOpenEpicRequest(epicId)
+      .forgeOpenEpicRequest(epicId, sentHash)
       .then(setOutcome)
-      .catch((err: unknown) => setFailure(parseFailure(err)))
+      .catch((err: unknown) => {
+        const parsed = parseFailure(err);
+        // The board moved after the user read the preview and nothing was pushed: show the current
+        // text rather than a failure, so the next action is reading it.
+        if (parsed.code === DRAFT_CHANGED) {
+          setRefusedHash(sentHash);
+          void preview.refetch();
+        } else {
+          setFailure(parsed);
+        }
+      })
       .finally(() => {
         openingRef.current = false;
         setOpening(false);
@@ -216,6 +234,7 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
   }
 
   const done = outcome !== null || failure !== null;
+  const draftMoved = refusedHash !== null && draft !== null && draft.contentHash !== refusedHash;
   const blockedText = blocker ? blockerSentence(blocker) : null;
 
   return createPortal(
@@ -295,6 +314,11 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
               )}
               {!done && !blocker && draft && (
                 <>
+                  {draftMoved && (
+                    <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+                      The board changed while this sheet was open. The text below is the current text.
+                    </p>
+                  )}
                   <p className="type-body" style={{ margin: 0, fontWeight: 600 }}>
                     {draft.title}
                   </p>
