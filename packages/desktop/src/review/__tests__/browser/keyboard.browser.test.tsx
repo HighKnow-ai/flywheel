@@ -1,7 +1,7 @@
 /**
  * UAT item 6 (CR-03, REVW-03/REVW-04): a keyboard-only pass through review in a real WebView —
- * j/k over the file list, Enter to expand, `c` to check a criterion, Tab to Merge, Enter and Space
- * on the confirm button.
+ * j/k over the file list, Enter to expand, `c` to check a criterion, `m` / `r` to a confirmation
+ * sheet, Enter and Space on its confirm button.
  *
  * This is the item the jsdom suite cannot close, and `__tests__/keyboard-activation.test.tsx` says
  * so in its own header: "jsdom does not synthesize a click from Enter on a focused button […]
@@ -15,18 +15,22 @@
  *   1. ACTIVATION. A focused button must still activate on Enter/Space despite
  *      `useRegionBindings`' `window`-level `preventDefault`, and the region binding must not ALSO
  *      fire. Measured below: CR-03 holds in the real engine.
- *   2. REACHABILITY. The button must be focusable by keyboard in the first place. Measured below,
- *      and the same probe run against both engines:
+ *   2. REACHABILITY. The button must be reachable by keyboard in the first place. A Tab probe,
+ *      run against both engines, measured (G-08-6):
  *         webkit   — buttons focused by 60 Tab presses: 0.  Merge reached: NO.
  *         chromium — buttons focused before reaching Merge: 4.  Merge reached: YES.
  *      Identical page, identical harness. WebKit excludes `<button>` from sequential focus
  *      navigation unless full keyboard access is on (`WKPreferences.tabFocusesLinks`, NO by
- *      default, mirroring Safari's "Press Tab to highlight each item on a webpage"); nothing in
- *      `src-tauri` sets it, and the command palette registers no merge or request command, so on
- *      macOS there is no keyboard route to either confirmation at all. The reachability test below
- *      is therefore expected to FAIL until that is closed — by setting the webview preference, or
- *      by giving the two actions real bindings (in which case rewrite that test to assert the
- *      binding, not Tab).
+ *      default, mirroring Safari's "Press Tab to highlight each item on a webpage").
+ *
+ *      RESOLUTION: the route is a binding, and Tab is deliberately not part of it. `m` (task
+ *      scope) and `r` (epic scope) are `review-surface` bindings offered under exactly the
+ *      conditions the Merge and Open request buttons are, and each confirmation sheet focuses its
+ *      own confirm button on open, so the Enter/Space activation measured in property 1 lands on it.
+ *      The reachability block below asserts that route through `userEvent.keyboard`, reads focus off
+ *      `document.activeElement`, and presses no Tab. The alternative — setting the webview
+ *      preference — was rejected because this harness runs Playwright's WebKit, which `src-tauri`
+ *      does not configure, so such a preference could not be observed here.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -44,7 +48,7 @@ import "../../../styles/type.css";
 import "../../../styles/motion.css";
 import "../../../App.css";
 import { ReviewSurface } from "../../ReviewSurface";
-import { CONFLICTED_PRECHECK, resetSpies, resetState, spies, state } from "./review-fixture";
+import { CONFLICTED_PRECHECK, READY_DRAFT, resetSpies, resetState, spies, state } from "./review-fixture";
 
 /** How many Tab presses a keyboard user may reasonably spend. Bounded so an unreachable control
  * fails rather than hangs. */
@@ -55,6 +59,16 @@ function renderSurface() {
     <QueryClientProvider client={new QueryClient()}>
       <div className="rack-ground" style={{ height: "900px" }}>
         <ReviewSurface scope="task" itemId="t1" label="FLY-9 Add push retry" onBack={() => {}} onOpenSession={() => {}} />
+      </div>
+    </QueryClientProvider>,
+  );
+}
+
+function renderEpicSurface() {
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <div className="rack-ground" style={{ height: "900px" }}>
+        <ReviewSurface scope="epic" itemId="e1" label="FLY-7 Review and merge" onBack={() => {}} onOpenSession={() => {}} />
       </div>
     </QueryClientProvider>,
   );
@@ -226,28 +240,91 @@ describe("UAT 6 — Enter and Space really activate a focused button (CR-03)", (
 });
 
 describe("UAT 6 — reaching those buttons with the keyboard alone", () => {
-  it("puts the Merge button in the engine's sequential focus order", async () => {
+  // The route is a binding, not Tab: see this file's header. No test here presses Tab.
+  async function epicSurfaceReady() {
+    await waitFor(() => expect(fileRows().length).toBeGreaterThan(0));
+    await screen.findByRole("button", { name: "Open request" });
+  }
+
+  it.each([
+    ["Enter", "{Enter}"],
+    ["Space", " "],
+  ])("m opens the merge sheet with its Merge button already focused, and %s confirms exactly once", async (_name, key) => {
     renderSurface();
     await surfaceReady();
-    const merge = buttonNamed("Merge");
-    expect(merge).toBeTruthy();
 
-    let buttonsFocused = 0;
-    let reached = false;
-    for (let i = 0; i < TAB_BUDGET; i += 1) {
-      await userEvent.keyboard("{Tab}");
-      if (document.activeElement?.tagName === "BUTTON") buttonsFocused += 1;
-      if (document.activeElement === merge) {
-        reached = true;
-        break;
-      }
-    }
+    await userEvent.keyboard("m");
 
-    expect(
-      { buttonsFocused, reached },
-      `Merge was not reachable in ${TAB_BUDGET} Tab presses; this engine focused ${buttonsFocused} button(s) in total. ` +
-        "See this file's header: WebKit omits <button> from sequential focus navigation unless full " +
-        "keyboard access is enabled, and no webview preference or key binding supplies another route.",
-    ).toEqual({ buttonsFocused: expect.any(Number), reached: true });
+    const sheet = await screen.findByRole("dialog", { name: "Merge sheet" });
+    const confirm = buttonNamed("Merge", sheet);
+    expect(confirm, "the sheet has no Merge button").toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(confirm));
+    expect(spies.mergeTask).not.toHaveBeenCalled();
+
+    await userEvent.keyboard(key);
+
+    await waitFor(() => expect(spies.mergeTask).toHaveBeenCalledTimes(1));
+    expect(spies.mergeTask.mock.calls[0]).toEqual(["t1"]);
+  });
+
+  it("r opens the epic request sheet with its Open request button already focused, and Enter confirms once with the previewed hash", async () => {
+    renderEpicSurface();
+    await epicSurfaceReady();
+
+    await userEvent.keyboard("r");
+
+    const sheet = await screen.findByRole("dialog", { name: "Epic request sheet" });
+    const confirm = buttonNamed("Open request", sheet);
+    expect(confirm, "the sheet has no Open request button").toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(confirm));
+    expect(spies.openEpicRequest).not.toHaveBeenCalled();
+
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(spies.openEpicRequest).toHaveBeenCalledTimes(1));
+    // The hash the preview carried must cross, not just the call.
+    expect(spies.openEpicRequest.mock.calls[0]).toEqual(["e1", READY_DRAFT.draft?.contentHash]);
+  });
+
+  it("m does nothing when the precheck refuses the merge: the key and the button are offered together", async () => {
+    state.precheck = { state: "refused", category: "nothingToMerge" };
+    renderSurface();
+    await waitFor(() => expect(fileRows().length).toBeGreaterThan(0));
+    await screen.findByText(/Nothing to merge/);
+    expect(buttonNamed("Merge")).toBeUndefined();
+
+    await userEvent.keyboard("m");
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(spies.mergeTask).not.toHaveBeenCalled();
+  });
+
+  it("m is inert in epic scope and r is inert in task scope", async () => {
+    const epic = renderEpicSurface();
+    await epicSurfaceReady();
+    await userEvent.keyboard("m");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    epic.unmount();
+
+    renderSurface();
+    await surfaceReady();
+    await userEvent.keyboard("r");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("m and r do nothing while a sheet is already open: one dialog, focus stays on its confirm button", async () => {
+    renderSurface();
+    await surfaceReady();
+    await userEvent.keyboard("m");
+    const sheet = await screen.findByRole("dialog", { name: "Merge sheet" });
+    const confirm = buttonNamed("Merge", sheet);
+    await waitFor(() => expect(document.activeElement).toBe(confirm));
+
+    await userEvent.keyboard("m");
+    await userEvent.keyboard("r");
+
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(document.activeElement).toBe(confirm);
+    expect(spies.mergeTask).not.toHaveBeenCalled();
   });
 });
