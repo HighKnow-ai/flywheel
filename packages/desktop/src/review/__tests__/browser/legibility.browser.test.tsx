@@ -128,6 +128,31 @@ describe("UAT 1 — diff legibility at review width", () => {
     ).toEqual([]);
   });
 
+  it("marks a word-level edit without painting a second signal-hue layer behind its glyphs (G-08-1)", async () => {
+    renderSurface();
+    await expandEveryFile();
+
+    const insertEdits = Array.from(document.querySelectorAll<HTMLElement>(".review-diff .diff-code-insert .diff-code-edit"));
+    const deleteEdits = Array.from(document.querySelectorAll<HTMLElement>(".review-diff .diff-code-delete .diff-code-edit"));
+    // Not vacuous: a fixture that stopped producing word-level edits must fail here, not pass.
+    expect(insertEdits.length, "the fixture produced no added-row edit spans").toBeGreaterThan(0);
+    expect(deleteEdits.length, "the fixture produced no removed-row edit spans").toBeGreaterThan(0);
+
+    // An edit span adds no paint of its own: what resolves behind it is its row's tint, byte for byte.
+    const rowPaint = (edit: HTMLElement) => toHex(effectiveBackground(edit.closest("td.diff-code") as Element));
+    const stacked = [...insertEdits, ...deleteEdits]
+      .filter((edit) => toHex(effectiveBackground(edit)) !== rowPaint(edit))
+      .map((edit) => `${edit.closest("td.diff-code")?.className} edit paints ${toHex(effectiveBackground(edit))} over row ${rowPaint(edit)}`);
+    expect(stacked, "edit spans paint their own background behind glyphs").toEqual([]);
+
+    // The signal moved, it was not deleted: a mark that is present and differs by row kind.
+    const insertMark = getComputedStyle(insertEdits[0]).boxShadow;
+    const deleteMark = getComputedStyle(deleteEdits[0]).boxShadow;
+    expect(insertMark, "added-row edit is unmarked").not.toBe("none");
+    expect(deleteMark, "removed-row edit is unmarked").not.toBe("none");
+    expect(insertMark, "added and removed edit marks are identical").not.toBe(deleteMark);
+  });
+
   it("paints an added and a removed row as distinguishable from an unchanged one", async () => {
     renderSurface();
     await expandEveryFile();
