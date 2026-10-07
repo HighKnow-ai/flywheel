@@ -773,6 +773,10 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
     "PRIOR_AUTHORING_RUNS_SQL",  // epic_context_packet.rs — GENUINELY UNBOUNDED, a recorded debt (see
                                   // this constant's own doc comment above), not a bounded-some-other-way
                                   // exception — left here so the gate stays honest about what it tolerates
+    "board_epic_progress",      // epic_progress.rs (phase 08.1 plan 05) — three GROUP BY aggregates, DELIBERATELY
+                                 // un-LIMIT'd: a row window is the defect that plan fixes (the unscoped board
+                                 // read is 200 of 920 rows). Bounded by epics x 5 statuses, and by an explicit
+                                 // EPIC_ROSTER_CEILING check that errors on truncation instead of cutting short
     "resolve_board_read",       // authoring.rs (plan 05-18, extracted from the desktop handler) —
                                   // its two inline SELECTs are both cardinality-one/aggregate: the
                                   // run's own project_id is a single row keyed by agent_runs' PRIMARY
