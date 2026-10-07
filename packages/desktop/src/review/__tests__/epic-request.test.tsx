@@ -1,7 +1,8 @@
 /**
  * Behavior under test (08-08-PLAN.md, REVW-05, REVW-02, D-118/D-120/D-132/D-122): an epic's
  * integration branch is proposed from the review surface by previewing the draft exactly as the
- * command returned it and confirming with an epic id ALONE; each local blocker is named (or, for
+ * command returned it and confirming with an epic id and the content hash that preview carried (a
+ * confirm whose draft moved since is refused and re-rendered, G-08-5); each local blocker is named (or, for
  * "no forge", absent); a forge CLI that is missing or unauthenticated is named; a push that landed
  * without a request is reported as exactly that; an epic that already has a request shows it
  * read-only; and the header toggle moves one surface between a task and its epic.
@@ -120,13 +121,56 @@ describe("EpicRequestSheet: preview then confirm", () => {
     expect(within(dialog).getByText(/flywheel\/epic-7 → main/)).toBeTruthy();
   });
 
-  it("confirming calls the open function with the epic id and no other field", async () => {
+  it("confirming calls the open function with the epic id and the preview's content hash, nothing else", async () => {
     openMock.mockResolvedValue({ kind: "opened", request: request() } satisfies EpicRequestOutcomeDto);
     renderSheet();
     fireEvent.click(await enabledOpenButton());
     await waitFor(() => expect(openMock).toHaveBeenCalledTimes(1));
-    // One argument, and it is the epic id: no title, no body, no branch, no target.
-    expect(openMock.mock.calls[0]).toEqual(["e1"]);
+    // Two arguments: the epic id and the hash the rendered preview carried. No title, no body, no
+    // branch, no target.
+    expect(openMock).toHaveBeenCalledWith("e1", ready().draft?.contentHash);
+    expect(openMock.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("a draftChanged rejection re-renders the current text with a notice instead of an alert, and the next confirm carries the new hash", async () => {
+    const movedHash = "1111111111111111111111111111111111111111111111111111111111111111";
+    const moved: EpicRequestPreviewDto = {
+      blocker: null,
+      draft: {
+        ...(ready().draft as NonNullable<EpicRequestPreviewDto["draft"]>),
+        body: "## Criteria\n- [ ] it works\n- [ ] it was reviewed\n\n## Tasks\n- FLY-8 integrated",
+        contentHash: movedHash,
+      },
+    };
+    draftMock.mockReset().mockResolvedValueOnce(ready()).mockResolvedValue(moved);
+    openMock
+      .mockRejectedValueOnce(new Error("draftChanged"))
+      .mockResolvedValue({ kind: "opened", request: request() } satisfies EpicRequestOutcomeDto);
+    renderSheet();
+    fireEvent.click(await enabledOpenButton());
+
+    const dialog = await screen.findByRole("dialog", { name: "Epic request sheet" });
+    expect(await within(dialog).findByText(/The board changed while this sheet was open/)).toBeTruthy();
+    await waitFor(() => expect(dialog.querySelector("pre")?.textContent).toBe(moved.draft?.body));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Request result")).toBeNull();
+    expect(draftMock).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(await enabledOpenButton());
+    await waitFor(() => expect(openMock).toHaveBeenCalledTimes(2));
+    expect(openMock.mock.calls[0]).toEqual(["e1", ready().draft?.contentHash]);
+    expect(openMock.mock.calls[1]).toEqual(["e1", movedHash]);
+    await screen.findByText(/Request opened/);
+  });
+
+  it("any other rejection category still alerts and does not re-fetch the draft", async () => {
+    openMock.mockRejectedValue(new Error("cliFailed:gh"));
+    renderSheet();
+    fireEvent.click(await enabledOpenButton());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/gh could not be read right now/);
+    expect(screen.queryByText(/The board changed while this sheet was open/)).toBeNull();
+    expect(draftMock).toHaveBeenCalledTimes(1);
   });
 
   it("opening the sheet performs no write: only the draft is read", async () => {

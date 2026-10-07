@@ -172,7 +172,7 @@ describe("Enter on a focused interactive element", () => {
     await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
     pressKey(open, "Enter");
     await waitFor(() => expect(openMock).toHaveBeenCalledTimes(1));
-    expect(openMock.mock.calls[0]).toEqual(["e1"]);
+    expect(openMock.mock.calls[0]).toEqual(["e1", readyDraft.draft?.contentHash]);
   });
 });
 
