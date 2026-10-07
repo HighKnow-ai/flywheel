@@ -860,8 +860,17 @@ Applicable state considerations resolved: 12 covered, 2 backstop, 0 unresolved.
    - **The radius and stroke language — RESOLVED.** `--radius-strip: 2px`, `--radius-chrome: 6px`.
      See Design System § "Radius Language."
    - **Whether Flywheel carries the HighKnow lightbulb-brain mark or earns its own under it** —
-     still an owner decision, recorded as open in `PRODUCT.md`. It does not block Phase 1: no
-     surface in this spec renders a logo except the app icon and the About item.
+     **RESOLVED 2026-10-07, owner decision: the HighKnow lightbulb-brain mark, for now.** Taken to
+     unblock Phase 8.1's app icon and direction round; Flywheel earning its own mark under HighKnow
+     stays available if it ever gets a commercial identity of its own. Recorded in
+     `.planning/PROJECT.md` § Key Decisions.
+     It did not block Phase 1: no surface in this spec renders a logo except the app icon and the
+     About item. **Two corrections to the previous text of this bullet**, both found 2026-10-07:
+     (1) it said the decision was "recorded as open in `PRODUCT.md`" — no `PRODUCT.md` exists in
+     this project, the file is `PROJECT.md`, so the pointer dangled and the decision was recorded
+     nowhere for a month; (2) Gate A above claims the owner supplied the mark as `logo.svg`, but no
+     `logo.svg` exists anywhere in the repository, so Phase 8.1 must PRODUCE the asset, not wire up
+     an existing one.
 2. **shadcn / component-library adoption, and its preset — RESOLVED 2026-09-09.** Option
    `a-selfhost-radix`: no shadcn preset is derived; `shadcn` is not initialized at all. Self-hosted
    type plus hand-rolled unstyled Radix primitives supply the accessibility machinery instead. See
