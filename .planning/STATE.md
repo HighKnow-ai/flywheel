@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 08
 current_phase_name: Review And Merge Inside Flywheel
 status: executing
-stopped_at: Completed 08-13-PLAN.md
-last_updated: "2026-10-07T05:51:52.906Z"
+stopped_at: Completed 08-14-PLAN.md
+last_updated: "2026-10-07T06:24:04.084Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08 execution started
-state_head: 20e4ff7a2f430ff08b41cbb52e11d9e7cf23f54a
+state_head: 6e8b591664d657b675eff2a16d2021fe8b290c9b
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 185
-  completed_plans: 183
+  completed_plans: 184
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08 (Review And Merge Inside Flywheel) — EXECUTING
-Plan: 2 of 15
+Plan: 3 of 15
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08 execution started
 
@@ -244,6 +244,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08 P11 | 35 min | 3 tasks | 6 files |
 | Phase 08 P12 | 10 min | 1 tasks | 3 files |
 | Phase 08 P13 | 3 min | 2 tasks | 3 files |
+| Phase 08 P14 | 30min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -561,6 +562,7 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-11: git halves take an opaque private-field inputs value and no connection, so holding the db lock across a spawn is not expressible; forge detection deferred to EpicRequestInputs::forge()
 - [Phase 08]: 08-12: ipc_error(context, e) in commands/mod.rs logs the full cause chain and returns failed:<context>; all 58 review/forge error mappings use it, renderer-parsed strings unchanged
 - [Phase 08]: 08-13: remove stacked edit-span tint (transparent) and mark word-level edits with a 2px inset hue box-shadow; row mixes stay 12%, worst contrast 5.22:1 — Zero new colour values; lowering mix percentages was infeasible
+- [Phase 08]: 08-14: epic request confirm guarded by a core-computed SHA-256 content hash (sha2 0.10.9, no new lockfile package); refusal is the bare draftChanged category and the sheet re-renders instead of alerting — WR-08/G-08-5: published text must be the text the user read; hash keeps the renderer from supplying text. Follow-up: same guard on forge_open_request.
 
 ### Pending Todos
 
@@ -621,6 +623,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-07T05:51:52.737Z
-Stopped at: Completed 08-13-PLAN.md
+Last session: 2026-10-07T06:24:03.923Z
+Stopped at: Completed 08-14-PLAN.md
 Resume file: None
