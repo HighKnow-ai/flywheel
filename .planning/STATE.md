@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "08.1"
 current_phase_name: "Visual polish: brand assets and confirmed motion (INSERTED)"
 status: executing
-stopped_at: Completed 08.1-03-PLAN.md
-last_updated: "2026-10-07T11:35:44.082Z"
+stopped_at: Completed 08.1-04-PLAN.md
+last_updated: "2026-10-07T12:10:11.674Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08.1 execution started
-state_head: 9a29444373925fff681c711d8bd90d4a36731bc6
+state_head: e037ea86810cbe38d1cdb1eb70c83a62ebe54584
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 205
-  completed_plans: 188
+  completed_plans: 189
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
-Plan: 4 of 20
+Plan: 5 of 20
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08.1 execution started
 
@@ -250,6 +250,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08.1 P01 | 42 min | 3 tasks | 14 files |
 | Phase 08.1 P02 | 4min | 3 tasks | 32 files |
 | Phase 08.1 P03 | 25 min | 2 tasks | 4 files |
+| Phase 08.1 P04 | 35 min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -574,6 +575,7 @@ Recent decisions affecting current work:
 - [Phase 08.1]: 08.1-01: useChangeFlags coalesces board:changed refreshes into one per 1s window; staleTime alone does not bound invalidateQueries — T-08.1-02 DoS mitigation
 - [Phase 08.1]: 08.1-02: logo.svg stays full-bleed for in-app use; only app-icon.svg carries the 824/1024 macOS inset; mark rendered via img element, never inline SVG
 - [Phase 08.1]: D-23: seed_criteria tool is guarded by exact-match probe allowlist; real board now has 15 real criteria on 5 active-worktree tasks, 4 probe rows removed (not 2)
+- [Phase 08.1]: Owner adopted the Mission Control comped direction wholesale (2026-10-07, D-03); voids 01-UI-SPEC measured palette (D-19). 2px selection rule left to plan 09 by judgement; detector cannot rule on it.
 
 ### Pending Todos
 
@@ -635,6 +637,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-07T11:35:43.912Z
-Stopped at: Completed 08.1-03-PLAN.md
+Last session: 2026-10-07T12:10:11.503Z
+Stopped at: Completed 08.1-04-PLAN.md
 Resume file: None
