@@ -28,6 +28,7 @@ import {
   worktreeRemovalCheck,
   worktreeRemove,
   worktreeSummary,
+  type EpicProgressDto,
   type LogWindowDto,
 } from "../adapters/tauri";
 import { EMPTY_FILTER_DRAFT, useUiStore, type BoardFilterDraft } from "../state/uiStore";
@@ -1174,6 +1175,36 @@ export function useEpicProgress(projectId: string | undefined) {
     queryKey: epicProgressQueryKey(projectId),
     queryFn: () => boardEpicProgress(projectId as string),
     enabled: Boolean(projectId),
+  });
+}
+
+/** RED stub — replaced by the real scoped fetch in the GREEN commit. */
+export type GroupScope = { kind: "epic"; epicId: string | null } | { kind: "status"; status: string };
+
+export interface GroupItems {
+  items: BoardItem[];
+  limit: number;
+  total: number;
+  truncated: boolean;
+}
+
+export function epicHeaderTotal(_progress: EpicProgressDto[] | undefined, _epicId: string | null): number | undefined {
+  return undefined;
+}
+
+export function bandHeaderTotal(_counts: BandCounts | undefined, _status: string): number | undefined {
+  return undefined;
+}
+
+export function useGroupItems(
+  _projectId: string | undefined,
+  _scope: GroupScope,
+  _total: number | undefined,
+  _enabled = true,
+) {
+  return useQuery<GroupItems>({
+    queryKey: ["group-items-stub"],
+    queryFn: async () => ({ items: [], limit: 0, total: 0, truncated: false }),
   });
 }
 

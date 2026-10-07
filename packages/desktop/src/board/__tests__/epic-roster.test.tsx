@@ -6,12 +6,20 @@
  * internal id.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { FilterBar } from "../FilterBar";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import { epicRosterTruncationNotice, useBoardChangedSubscription } from "../useBoardQuery";
+import {
+  bandHeaderTotal,
+  epicHeaderTotal,
+  epicRosterTruncationNotice,
+  useBoardChangedSubscription,
+  useEpicProgress,
+  useGroupItems,
+} from "../useBoardQuery";
+import type { EpicProgressDto } from "../../adapters/tauri";
 import type { BandCounts, BoardItem, EpicRoster, EpicSummary, IssueItem } from "../useBoardQuery";
 
 const invokeCommandMock = vi.fn();
@@ -46,6 +54,7 @@ vi.mock("../../adapters/tauri", () => ({
   },
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
+  boardEpicProgress: (projectId: string) => invokeCommandMock("board_epic_progress", { projectId }),
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
@@ -706,5 +715,207 @@ describe("epic roster truncation notice (D-16, D-87, plan 05-04 Task 2)", () => 
 
     await screen.findByText("Backlog");
     expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
+  });
+});
+
+// --- Phase 8.1 plan 05 (D-05/D-06): the roster's data. The aggregate is one board-wide query, and a
+// group's rows come from the EXISTING list command with an explicit limit — the unscoped read is a
+// 200-row window over 920 real rows (RESEARCH Correction 3), so a group larger than that is the
+// only fixture that can fail.
+
+/** Mirrors `commands/board.rs`'s `DEFAULT_LIMIT` — what a list read lands on when it passes none. */
+const CORE_DEFAULT_LIMIT = 200;
+/** Mirrors `commands/board.rs`'s `MAX_LIMIT` — the clamp the core applies to a renderer's limit. */
+const CORE_MAX_LIMIT = 500;
+
+interface FakeRow extends BoardItem {
+  kind: "epic" | "task";
+}
+
+function fakeRow(i: number, kind: "epic" | "task", epicId: string | null, status: string): FakeRow {
+  return {
+    id: `${kind}-${i}`,
+    kind,
+    key: `FLY-${i}`,
+    title: `${kind} ${i}`,
+    status,
+    rank: String(i).padStart(8, "0"),
+    priority: 0,
+    epicId,
+  };
+}
+
+/** The whole fake board: one big epic, a big no-epic bucket, and the epic rows themselves (which —
+ * like the real core — carry a null epic id, so the core's no-epic bucket includes them). */
+const BIG_EPIC = "epic-big";
+const FAKE_BOARD: FakeRow[] = (() => {
+  const rows: FakeRow[] = [];
+  let i = 0;
+  for (let n = 0; n < 230; n += 1) rows.push(fakeRow((i += 1), "task", BIG_EPIC, n < 40 ? "done" : "backlog"));
+  for (let n = 0; n < 250; n += 1) rows.push(fakeRow((i += 1), "task", null, "in_review"));
+  rows.push(fakeRow((i += 1), "epic", null, "in_progress"));
+  rows.push(fakeRow((i += 1), "epic", null, "backlog"));
+  return rows;
+})();
+
+/** A fake `board_list` that behaves like the core where it matters: applies the epic and status
+ * dimensions it is handed and truncates at the limit it is handed (default 200, clamped to 500). */
+function installFakeBoardList() {
+  invokeCommandMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+    if (command === "actor_list") return Promise.resolve([]);
+    if (command === "epic_list_all") return Promise.resolve(epicRoster([OUTSIDE_EPIC]));
+    if (command !== "board_list") return Promise.resolve(undefined);
+    const filter = (args?.filter ?? {}) as { epicIds?: (string | null)[]; statuses?: string[] };
+    const limit = Math.min(Math.max((args?.limit as number | undefined) ?? CORE_DEFAULT_LIMIT, 1), CORE_MAX_LIMIT);
+    const rows = FAKE_BOARD.filter(
+      (r) =>
+        (!filter.epicIds || filter.epicIds.includes(r.epicId)) &&
+        (!filter.statuses || filter.statuses.includes(r.status)),
+    );
+    return Promise.resolve({ items: rows.slice(0, limit), issues: [], counts: { ...EMPTY_COUNTS } });
+  });
+}
+
+function hookWrapper(queryClient: QueryClient) {
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  };
+}
+
+/** The args of the first `board_list` call — asserting one happened, so a hook that never fetched
+ * fails on that fact rather than on a destructuring error. */
+function firstListArgs(): { limit: number; filter?: Record<string, unknown>; projectId?: string } {
+  const calls = invokeCommandMock.mock.calls.filter(([command]) => command === "board_list");
+  expect(calls.length, "the scoped fetch must call board_list").toBeGreaterThan(0);
+  return calls[0][1] as { limit: number; filter?: Record<string, unknown>; projectId?: string };
+}
+
+describe("scoped group content (D-05, RESEARCH Correction 3)", () => {
+  it("the fixture's groups exceed the default limit, or these tests could not fail", () => {
+    expect(FAKE_BOARD.filter((r) => r.epicId === BIG_EPIC).length).toBeGreaterThan(CORE_DEFAULT_LIMIT);
+    expect(FAKE_BOARD.filter((r) => r.epicId === null).length).toBeGreaterThan(CORE_DEFAULT_LIMIT);
+  });
+
+  it("expanding an epic fetches its rows through the epic dimension with a limit that covers the group", async () => {
+    installFakeBoardList();
+    const { result } = renderHook(() => useGroupItems("proj-1", { kind: "epic", epicId: BIG_EPIC }, 230), {
+      wrapper: hookWrapper(new QueryClient()),
+    });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const args = firstListArgs();
+    expect(args).toMatchObject({ projectId: "proj-1", filter: { epicIds: [BIG_EPIC] } });
+    expect(args.limit).toBe(230);
+    expect(result.current.data?.items).toHaveLength(230);
+    expect(result.current.data?.truncated).toBe(false);
+  });
+
+  it("expanding the no-epic bucket returns every one of its tasks, not the default window", async () => {
+    installFakeBoardList();
+    // 250 orphan tasks plus the two epic rows the core's no-epic bucket also yields.
+    const { result } = renderHook(() => useGroupItems("proj-1", { kind: "epic", epicId: null }, 252), {
+      wrapper: hookWrapper(new QueryClient()),
+    });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const args = firstListArgs();
+    expect(args).toMatchObject({ filter: { epicIds: [null] } });
+    expect(args.limit).toBeGreaterThan(CORE_DEFAULT_LIMIT);
+    const tasks = (result.current.data?.items ?? []).filter((r) => r.kind === "task");
+    expect(tasks).toHaveLength(250);
+  });
+
+  it("a status band is fetched through the status dimension", async () => {
+    installFakeBoardList();
+    const { result } = renderHook(() => useGroupItems("proj-1", { kind: "status", status: "in_review" }, 250), {
+      wrapper: hookWrapper(new QueryClient()),
+    });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const args = firstListArgs();
+    expect(args).toMatchObject({ filter: { statuses: ["in_review"] } });
+    expect(result.current.data?.items).toHaveLength(250);
+    expect(result.current.data?.items.every((r) => r.status === "in_review")).toBe(true);
+  });
+
+  it("a group past the core's clamp reports truncation instead of looking complete", async () => {
+    installFakeBoardList();
+    const { result } = renderHook(() => useGroupItems("proj-1", { kind: "epic", epicId: BIG_EPIC }, 900), {
+      wrapper: hookWrapper(new QueryClient()),
+    });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(firstListArgs().limit).toBe(CORE_MAX_LIMIT);
+    expect(result.current.data?.truncated).toBe(true);
+  });
+
+  it("header totals come from the aggregate and the counts field, never from rows in memory", () => {
+    const progress: EpicProgressDto[] = [
+      { epicId: BIG_EPIC, byStatus: [], total: 230, done: 40, agentsRunning: 0, agentsBlocked: 0, criteria: null },
+    ];
+    // Only 200 of the epic's 230 rows are "loaded" anywhere — the header must still say 230.
+    expect(epicHeaderTotal(progress, BIG_EPIC)).toBe(230);
+    expect(epicHeaderTotal(progress, "no-such-epic")).toBeUndefined();
+    const counts: BandCounts = { backlog: 4, todo: 3, inProgress: 2, inReview: 181, done: 2 };
+    expect(bandHeaderTotal(counts, "in_review")).toBe(181);
+    expect(bandHeaderTotal(counts, "in_progress")).toBe(2);
+    expect(bandHeaderTotal(undefined, "backlog")).toBeUndefined();
+  });
+
+  it("does no narrowing of its own: whatever the core returns is what the hook returns", async () => {
+    const stray = fakeRow(9999, "task", "some-other-epic", "done");
+    invokeCommandMock.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "board_list" ? { items: [stray], issues: [], counts: { ...EMPTY_COUNTS } } : undefined,
+      ),
+    );
+    const { result } = renderHook(() => useGroupItems("proj-1", { kind: "epic", epicId: BIG_EPIC }, 1), {
+      wrapper: hookWrapper(new QueryClient()),
+    });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data?.items).toEqual([stray]);
+  });
+});
+
+describe("useEpicProgress (D-05/D-06, D-16)", () => {
+  const PROGRESS: EpicProgressDto[] = [
+    { epicId: "e1", byStatus: [{ status: "todo", count: 2 }], total: 2, done: 0, agentsRunning: 1, agentsBlocked: 0, criteria: null },
+    { epicId: "e2", byStatus: [{ status: "todo", count: 3 }], total: 3, done: 0, agentsRunning: 0, agentsBlocked: 0, criteria: { checked: 0, total: 3 } },
+  ];
+
+  it("serves the whole board with one query and re-runs on a board change", async () => {
+    invokeCommandMock.mockImplementation((command: string) =>
+      Promise.resolve(command === "board_epic_progress" ? PROGRESS : undefined),
+    );
+    const { result } = renderHook(() => useEpicProgress("proj-1"), { wrapper: hookWrapper(new QueryClient()) });
+
+    await waitFor(() => expect(result.current.data).toEqual(PROGRESS));
+    const progressCalls = () => invokeCommandMock.mock.calls.filter(([c]) => c === "board_epic_progress");
+    expect(progressCalls()).toHaveLength(1);
+    expect(progressCalls()[0][1]).toEqual({ projectId: "proj-1" });
+
+    await act(async () => {
+      capturedBoardChangedHandlers.forEach((h) => h());
+    });
+    await waitFor(() => expect(progressCalls()).toHaveLength(2));
+  });
+
+  it("keeps no criteria distinct from zero checked criteria", async () => {
+    invokeCommandMock.mockImplementation((command: string) =>
+      Promise.resolve(command === "board_epic_progress" ? PROGRESS : undefined),
+    );
+    const { result } = renderHook(() => useEpicProgress("proj-1"), { wrapper: hookWrapper(new QueryClient()) });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const byId = new Map(result.current.data?.map((p) => [p.epicId, p]));
+    expect(byId.get("e1")?.criteria).toBeNull();
+    expect(byId.get("e2")?.criteria).toEqual({ checked: 0, total: 3 });
+  });
+
+  it("issues no query without a project", () => {
+    invokeCommandMock.mockClear();
+    renderHook(() => useEpicProgress(undefined), { wrapper: hookWrapper(new QueryClient()) });
+    expect(invokeCommandMock.mock.calls.filter(([c]) => c === "board_epic_progress")).toHaveLength(0);
   });
 });
