@@ -50,6 +50,13 @@ export interface AcceptanceCriteriaListProps {
    * against the selected lines" affordance (present only inside the rail). */
   onFocusChange?: (criterionId: string | null) => void;
   onCheckSelected?: (criterionId: string) => void;
+  /** Whether a zero-criteria item opens its composer on mount (and focuses the statement input).
+   * Defaults to true: that is the item panel's documented zero-item state (01-UI-SPEC.md State
+   * Inventory). The review rail passes false, because a surface that owns single-key bindings
+   * cannot have a sibling steal focus into a text field — the autofocus swallowed `r`
+   * (G-08-R2-1), since `useRegionBindings` rightly declines printable keys while an input has
+   * focus. */
+  autoOpenWhenEmpty?: boolean;
 }
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
@@ -194,6 +201,7 @@ export function AcceptanceCriteriaList({
   projectId,
   onFocusChange,
   onCheckSelected,
+  autoOpenWhenEmpty = true,
 }: AcceptanceCriteriaListProps) {
   const queryClient = useQueryClient();
   const queryKey = criteriaQueryKey(parentType, parentId);
@@ -279,11 +287,12 @@ export function AcceptanceCriteriaList({
   // ("quick-add is already visible and focused so the first keystroke creates the first item" —
   // 01-UI-SPEC.md State Inventory). Opens once per mount, so cancelling (Escape) is honored.
   useEffect(() => {
+    if (!autoOpenWhenEmpty) return;
     if (!autoOpenedRef.current && criteriaQuery.data && criteriaQuery.data.length === 0) {
       autoOpenedRef.current = true;
       setAddStep("statement");
     }
-  }, [criteriaQuery.data]);
+  }, [criteriaQuery.data, autoOpenWhenEmpty]);
 
   useEffect(() => {
     if (addStep === "statement") statementInputRef.current?.focus();

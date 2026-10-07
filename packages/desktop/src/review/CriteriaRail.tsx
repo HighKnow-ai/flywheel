@@ -68,6 +68,12 @@ export function CriteriaRail({ scope, itemId, selection, onCheck, onFocusChange 
         parentId={itemId}
         onFocusChange={onFocusChange}
         onCheckSelected={onCheck}
+        // The rail renders the composer CLOSED even with zero criteria. The panel's zero-item
+        // autofocus is right there and wrong here: this surface owns single-key bindings, so an
+        // input holding focus on mount swallows them (G-08-R2-1 — `r` typed a character instead
+        // of opening the epic request). Every epic with an integration branch currently has zero
+        // criteria, so this was not an edge case.
+        autoOpenWhenEmpty={false}
       />
       {scope === "epic" && rollup.length > 0 && (
         <section aria-label="Task criteria roll-up" style={{ borderTop: "1px solid var(--divider)", paddingTop: "var(--space-sm)" }}>

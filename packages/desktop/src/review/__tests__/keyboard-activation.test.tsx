@@ -215,3 +215,50 @@ describe("Escape in the review surface (WR-06)", () => {
     expect(onBack).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * G-08-R2-1, found by hand in the real macOS WKWebView during Phase 08's round-2 UAT and missed by
+ * every test in this file: the review rail COMPOSES `AcceptanceCriteriaList`, which auto-opens and
+ * focuses its composer when an item has zero acceptance criteria. That is the item panel's
+ * documented zero-item state and is right there — but the review surface owns single-key bindings,
+ * and `useRegionBindings` correctly declines printable keys while a text field holds focus, so the
+ * autofocus made `r` type a character instead of opening the epic request.
+ *
+ * Nothing about this is WKWebView-specific, which is the lesson: the item was filed as "needs a
+ * human because no WebDriver drives WKWebView", and that label stopped anyone writing this.
+ *
+ * Every epic carrying an integration branch had zero criteria when this was found, so the broken
+ * path was the only one reachable, not an edge case. The adapter mock above already returns
+ * `criterion_list -> []`, so the precondition is the default here.
+ */
+describe("epic review does not trap focus in the criteria composer (G-08-R2-1)", () => {
+  function renderEpicSurface() {
+    return render(
+      withClient(
+        <ReviewSurface scope="epic" itemId="e1" label="FLY-7 The epic" onBack={() => {}} onOpenSession={() => {}} />,
+      ),
+    );
+  }
+
+  it("leaves focus outside any text field on mount, with zero criteria", async () => {
+    renderEpicSurface();
+    await screen.findByRole("button", { name: /open request/i });
+    const active = document.activeElement as HTMLElement | null;
+    const tag = active?.tagName ?? "";
+    expect(
+      tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable === true,
+      `focus landed in a text field (<${tag.toLowerCase()}>), which swallows every printable binding`,
+    ).toBe(false);
+  });
+
+  it("opens the epic request sheet for `r` instead of typing a character", async () => {
+    renderEpicSurface();
+    await screen.findByRole("button", { name: /open request/i });
+    // Dispatch on whatever actually holds focus, NOT on document.body. `useRegionBindings` keys its
+    // text-field guard off `event.target`, so a keydown aimed at body reports body as the target and
+    // sails past the guard even when an input is focused — a body-targeted press passed this test
+    // with the bug still present. Firing at the focused element is what a real keystroke does.
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "r" });
+    expect(await screen.findByRole("dialog", { name: /request/i })).toBeInTheDocument();
+  });
+});
