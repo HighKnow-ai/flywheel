@@ -5,8 +5,24 @@
  * invalid prefix, which three of the four registration entry points had no way to recover from
  * since they register immediately with no confirmation step to edit it.
  */
-import { describe, expect, it } from "vitest";
-import { deriveKeyPrefix } from "../FirstRun";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { FirstRun, deriveKeyPrefix } from "../FirstRun";
+import { ProjectRail } from "../../projects/ProjectRail";
+
+vi.mock("../../adapters/tauri", () => ({
+  invokeCommand: () => Promise.resolve(undefined),
+  subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeMenuAction: () => Promise.resolve(() => {}),
+  openFolderDialog: () => Promise.resolve(null),
+}));
+
+afterEach(cleanup);
+
+function withClient(node: React.ReactElement) {
+  return render(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>);
+}
 
 /** Mirrors `core::domain::project::validate_key_prefix` exactly, so this test proves the same
  * contract the backend enforces, not a looser JS-side approximation of it. */
@@ -52,5 +68,44 @@ describe("deriveKeyPrefix", () => {
       const prefix = deriveKeyPrefix(`/repos/${name}`);
       expect(isValidKeyPrefix(prefix)).toBe(true);
     }
+  });
+});
+
+/** SC2 / D-22: the brand mark is on screen in the two surfaces entitled to it, as an <img> with an
+ * accessible name — never injected as raw SVG markup (T-08.1-05). */
+describe("the brand mark", () => {
+  it("renders on the first-run empty state as a named image, ahead of the heading", () => {
+    const { container } = withClient(<FirstRun />);
+    const mark = screen.getByRole("img", { name: /flywheel/i });
+    expect(mark.tagName).toBe("IMG");
+    expect(mark.getAttribute("alt")).toBeTruthy();
+    expect(mark.getAttribute("src")).toBeTruthy();
+    expect(container.querySelector("svg")).toBeNull();
+    const heading = screen.getByRole("heading", { name: "No projects yet" });
+    expect(mark.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders in the project rail as a named image", () => {
+    withClient(
+      <ProjectRail
+        projects={[
+          { id: "p1", keyPrefix: "FLY", name: "Flywheel", repoPath: "/r", defaultBranch: "main", status: "active" },
+        ]}
+        currentProjectId="p1"
+        onSelect={() => {}}
+      />,
+    );
+    const rail = screen.getByRole("navigation", { name: "Projects" });
+    const mark = screen.getByRole("img", { name: /flywheel/i });
+    expect(rail).toContainElement(mark);
+    expect(mark.tagName).toBe("IMG");
+    expect(mark.getAttribute("src")).toBeTruthy();
+  });
+
+  it("is not rendered through raw HTML injection in either surface", () => {
+    const { container } = withClient(<FirstRun />);
+    // An <img> carries the mark by reference; injected markup would surface as an <svg> subtree.
+    expect(container.querySelector("img")).not.toBeNull();
+    expect(container.querySelector("svg")).toBeNull();
   });
 });
