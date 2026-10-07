@@ -66,6 +66,7 @@ import {
   openLiveSessionForTask,
   useActors,
   useBlockedSummary,
+  useChangeFlags,
   useCreateEpic,
   useCreateIssue,
   useDeleteItem,
@@ -340,6 +341,14 @@ export function BoardView({
   const ciFailedTaskIds = useMemo(
     () => new Set(forgeFlagsQuery.data?.filter((flag) => flag.ciFailed).map((flag) => flag.taskId) ?? []),
     [forgeFlagsQuery.data],
+  );
+
+  // D-15/D-16's change annotation (Phase 8.1 plan 01) — ONE board-wide read for every row's
+  // commits-ahead / uncommitted state, keyed by task id; never a per-row or per-epic query.
+  const changeFlagsQuery = useChangeFlags(projectId);
+  const changeFlagsByTaskId = useMemo(
+    () => new Map((changeFlagsQuery.data ?? []).map((flag) => [flag.taskId, flag])),
+    [changeFlagsQuery.data],
   );
 
   // D-82's epic-row pending-proposal count (plan 05-08 Task 3) — derived client-side from the
@@ -866,6 +875,7 @@ export function BoardView({
                   blocked={blockedTaskIds.has(row.item.id)}
                   needsDecision={recoveryTaskIds.has(row.item.id)}
                   ciFailed={ciFailedTaskIds.has(row.item.id)}
+                  changeFlag={changeFlagsByTaskId.get(row.item.id)}
                   pendingProposalCount={pendingProposalCountByEpicId[row.item.id] ?? 0}
                   onSelect={() => setSelectedId(row.item.id)}
                   onOpenDetail={() => {

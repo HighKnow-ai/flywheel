@@ -135,6 +135,13 @@ export interface BoardRowProps {
    * Blocked/Needs Decision pair (or the status glyph alone); absent (not a visible zero) when
    * `false`. Never changes the status column — D-122's forward-only rule owns that. */
   ciFailed?: boolean;
+  /** This task's change state (Phase 8.1 plan 01, D-15) — `BoardView`'s `useChangeFlags(projectId)`
+   * read, one id-keyed map for the whole board, never a per-row query of its own. `ahead` is
+   * commits beyond the task's base (`null` = the base could not be resolved, which is NOT the same
+   * as `0`); `dirty` is uncommitted changes in its worktree. Renders a graded annotation beside the
+   * status glyph — a count and/or a mark, each with an accessible name — and nothing at all when the
+   * prop is absent (no worktree), `ahead` is `0` or `null`, and the tree is clean. */
+  changeFlag?: { ahead: number | null; dirty: boolean };
   /** How many pending authoring proposals target this epic (D-82, plan 05-08 Task 3) — computed
    * client-side by `BoardView` from the same project-scoped proposal window `TriageLane.tsx`
    * reads, never a per-row query of its own (mirrors `blocked`/`needsDecision` above). Ignored for
@@ -173,6 +180,7 @@ export function BoardRow({
   blocked = false,
   needsDecision = false,
   ciFailed = false,
+  changeFlag,
   pendingProposalCount = 0,
   onSelect,
   onOpenDetail,
@@ -188,6 +196,8 @@ export function BoardRow({
   const blockedMark = MARKS_BY_ID["blocked-indicator"];
   const recoveryMark = MARKS_BY_ID["recovery-needed"];
   const ciFailedMark = MARKS_BY_ID["ci-failed"];
+  const changeAheadMark = MARKS_BY_ID["change-ahead"];
+  const changeDirtyMark = MARKS_BY_ID["change-dirty"];
   const priorityMark = MARKS_BY_ID[priorityMarkId(item.priority)];
   const epicMark = MARKS_BY_ID["epic-pill-none"];
   // Defence in depth (G-01-2, T-01-17-02): once `epicsById` is the project's full roster
@@ -217,12 +227,17 @@ export function BoardRow({
   const isEpic = item.kind === "epic";
   const criteriaChecked = item.criteriaChecked ?? 0;
   const criteriaTotal = item.criteriaTotal ?? 0;
+  // D-15: graded, so a count appears only when there is something to count — `null` (cannot
+  // measure) and `0` (level) both read as "nothing to show", never as a printed zero.
+  const aheadCount = changeFlag?.ahead ?? 0;
+  const aheadLabel = aheadCount === 1 ? "1 commit ahead" : `${aheadCount} commits ahead`;
+  const isDirty = changeFlag?.dirty ?? false;
 
   // 01-UI-SPEC.md Accessibility: each row's accessible name concatenates key, title, status,
   // priority and the criteria checked/total count — virtualization must not silently break
   // linear screen-reader navigation. "Blocked" appends when set (D-37) — never colour alone.
   // "Needs Decision" appends after it when set (D-46) — same discipline, never colour alone.
-  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}${blocked ? ", Blocked" : ""}${needsDecision ? ", Needs Decision" : ""}${ciFailed ? ", CI failed" : ""}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked`;
+  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}${blocked ? ", Blocked" : ""}${needsDecision ? ", Needs Decision" : ""}${ciFailed ? ", CI failed" : ""}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked${aheadCount > 0 ? `, ${aheadLabel}` : ""}${isDirty ? ", uncommitted changes" : ""}`;
 
   function handleRowClick() {
     onSelect?.();
@@ -387,6 +402,31 @@ export function BoardRow({
         >
           <Icon name={ciFailedMark?.glyph ?? "CircleX"} size={12} />
           {ciFailedMark?.label ?? "CI failed"}
+        </span>
+      )}
+      {aheadCount > 0 && (
+        // D-15's graded annotation: a mark plus the count, named for a screen reader — never colour
+        // alone. No `field-*` class (same truncation exemption as the pills above), and not a
+        // `role="button"` pill: it is information, not an alert, so it takes the neutral muted role.
+        <span
+          role="img"
+          aria-label={aheadLabel}
+          title={changeAheadMark?.meaning}
+          className="type-micro tabular-nums"
+          style={{ display: "inline-flex", flexShrink: 0, alignItems: "center", gap: 2, color: "var(--text-muted-strip)" }}
+        >
+          <Icon name={changeAheadMark?.glyph ?? "GitCommitVertical"} size={12} />
+          {aheadCount}
+        </span>
+      )}
+      {isDirty && (
+        <span
+          role="img"
+          aria-label="uncommitted changes"
+          title={changeDirtyMark?.meaning}
+          style={{ display: "inline-flex", flexShrink: 0, alignItems: "center", color: "var(--text-muted-strip)" }}
+        >
+          <Icon name={changeDirtyMark?.glyph ?? "Circle"} size={12} />
         </span>
       )}
       <span

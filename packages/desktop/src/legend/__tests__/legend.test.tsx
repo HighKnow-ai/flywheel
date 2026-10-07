@@ -59,12 +59,13 @@ describe("MARKS registry", () => {
  * banner's own glyph (D-45), the abandoned-run badge's own glyph (D-49), the row-level "Needs
  * Decision" rollup pill's own glyph (D-46), the destructive-action gate card's own stop-sign glyph
  * (D-56), the three-stage authoring machine's own marks, the proposal tray's pending-proposal mark
- * (D-88), and the board row's CI-failure pill (D-124).
+ * (D-88), the board row's CI-failure pill (D-124), and the board row's two graded change
+ * annotations — commits ahead and uncommitted changes (D-15).
  */
 describe("agent channel", () => {
   const agentMarks = MARKS.filter((m) => m.channel === "agent");
 
-  it("has exactly fifteen entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md specify", () => {
+  it("has exactly seventeen entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md/08.1-01-PLAN.md specify", () => {
     const expected = [
       { id: "run-running", glyph: "Loader", label: "Running" },
       { id: "run-blocked", glyph: "ShieldAlert", label: "Blocked" },
@@ -76,13 +77,15 @@ describe("agent channel", () => {
       { id: "run-abandoned", glyph: "Unplug", label: "Abandoned" },
       { id: "recovery-needed", glyph: "TriangleAlert", label: "Needs Decision" },
       { id: "ci-failed", glyph: "CircleX", label: "CI failed" },
+      { id: "change-ahead", glyph: "GitCommitVertical", label: "Commits ahead" },
+      { id: "change-dirty", glyph: "Circle", label: "Uncommitted changes" },
       { id: "destructive-gate", glyph: "OctagonAlert", label: "Destructive" },
       { id: "authoring-stage-challenge", glyph: "MessageCircleQuestion", label: "Challenge" },
       { id: "authoring-stage-decompose", glyph: "ListTree", label: "Decompose" },
       { id: "authoring-stage-criteria", glyph: "ListChecks", label: "Criteria" },
       { id: "proposal-pending", glyph: "FileClock", label: "Pending proposal" },
     ];
-    expect(agentMarks).toHaveLength(15);
+    expect(agentMarks).toHaveLength(17);
     for (const exp of expected) {
       const mark = agentMarks.find((m) => m.id === exp.id);
       expect(mark, `missing agent mark "${exp.id}"`).toBeDefined();
