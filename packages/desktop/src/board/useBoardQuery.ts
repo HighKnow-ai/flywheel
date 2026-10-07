@@ -1178,33 +1178,78 @@ export function useEpicProgress(projectId: string | undefined) {
   });
 }
 
-/** RED stub — replaced by the real scoped fetch in the GREEN commit. */
+/** Which group a scoped fetch is for: one epic (or the no-epic bucket) or one status band. */
 export type GroupScope = { kind: "epic"; epicId: string | null } | { kind: "status"; status: string };
 
+/** Mirrors `commands/board.rs`'s `MAX_LIMIT` — the most rows one `board_list` call will return.
+ * The core clamps to this itself (T-01-24, T-08.1-13); it is repeated here only so the hook can
+ * tell the caller when a group is bigger than one call can hold, rather than look complete. */
+const GROUP_FETCH_MAX_ROWS = 500;
+
 export interface GroupItems {
+  /** Exactly what the core returned for the scope — no client-side narrowing (D-03). */
   items: BoardItem[];
+  /** The explicit row limit the fetch passed. */
   limit: number;
+  /** The group's expected row count, as passed in (from the aggregate or the counts field). */
   total: number;
+  /** True when the group is bigger than one call can return, i.e. `items` is a strict prefix. */
   truncated: boolean;
 }
 
-export function epicHeaderTotal(_progress: EpicProgressDto[] | undefined, _epicId: string | null): number | undefined {
-  return undefined;
+/** An epic's task total for its header — straight from the aggregate, never from rows loaded. */
+export function epicHeaderTotal(
+  progress: EpicProgressDto[] | undefined,
+  epicId: string | null,
+): number | undefined {
+  return progress?.find((p) => p.epicId === epicId)?.total;
 }
 
-export function bandHeaderTotal(_counts: BandCounts | undefined, _status: string): number | undefined {
-  return undefined;
+/** A status band's header total — straight from the list command's own `counts` field. */
+export function bandHeaderTotal(counts: BandCounts | undefined, status: string): number | undefined {
+  if (!counts) return undefined;
+  const key = ({ in_progress: "inProgress", in_review: "inReview" } as const)[
+    status as "in_progress" | "in_review"
+  ] ?? (status as keyof BandCounts);
+  return counts[key];
 }
 
+/**
+ * The rows of one expanded group (an epic, the no-epic bucket or a status band). Reuses the
+ * EXISTING `board_list` command through its existing `epicIds`/`statuses` filter dimensions — no
+ * list-by-epic command and no client-side narrowing, so the filter has exactly one implementation
+ * (D-03). What it fixes is the row limit: an unscoped read lands on the core's default of 200, so
+ * a group bigger than that was silently cut short (RESEARCH Correction 3). The limit here is sized
+ * from the group's own `total` and clamped to what the core will return.
+ *
+ * `total` is the row count to expect: an epic's aggregate total, a band's `counts` figure — and
+ * for the no-epic bucket, its tasks PLUS the project's epic rows, because the core's epic filter
+ * puts an epic row (whose own epic id is null) into the no-epic bucket. The query key sits under
+ * the board's own key, so `useBoardChangedSubscription`'s invalidation refreshes it. `enabled`
+ * lets a collapsed group cost nothing.
+ */
 export function useGroupItems(
-  _projectId: string | undefined,
-  _scope: GroupScope,
-  _total: number | undefined,
-  _enabled = true,
+  projectId: string | undefined,
+  scope: GroupScope,
+  total: number | undefined,
+  enabled = true,
 ) {
+  const limit = Math.min(Math.max(total ?? 1, 1), GROUP_FETCH_MAX_ROWS);
+  const filter: BoardFilterInput =
+    scope.kind === "epic" ? { epicIds: [scope.epicId] } : { statuses: [scope.status] };
+
   return useQuery<GroupItems>({
-    queryKey: ["group-items-stub"],
-    queryFn: async () => ({ items: [], limit: 0, total: 0, truncated: false }),
+    queryKey: [...boardQueryKey(projectId), "group", filter, limit],
+    queryFn: async () => {
+      const window = await invokeCommand<BoardWindow>("board_list", { projectId, filter, limit });
+      return {
+        items: window.items,
+        limit,
+        total: total as number,
+        truncated: (total as number) > limit,
+      };
+    },
+    enabled: Boolean(projectId) && enabled && total !== undefined,
   });
 }
 
