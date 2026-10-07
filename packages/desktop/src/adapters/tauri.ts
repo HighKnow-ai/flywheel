@@ -1226,6 +1226,22 @@ export async function boardForgeFlags(projectId: string): Promise<ForgeFlagDto[]
 }
 
 /**
+ * One active worktree's change state (Phase 8.1 plan 01, D-15/D-16) — mirrors
+ * `commands/change_flags.rs`'s `ChangeFlagDto` field-for-field. `ahead: null` is cannot-measure
+ * (the base ref did not resolve), which is NOT the same as `0` (level with its base). A task with
+ * no active worktree has no entry at all. Read-only; takes a project id and nothing else.
+ */
+export interface ChangeFlagDto {
+  taskId: string;
+  ahead: number | null;
+  dirty: boolean;
+}
+
+export async function boardChangeFlags(projectId: string): Promise<ChangeFlagDto[]> {
+  return invokeCommand<ChangeFlagDto[]>("board_change_flags", { projectId });
+}
+
+/**
  * The fixed forge vocabulary (D-119) — `null` clears a project's override back to detection. Thin
  * typed wrapper over `settings_set_project_forge`.
  */

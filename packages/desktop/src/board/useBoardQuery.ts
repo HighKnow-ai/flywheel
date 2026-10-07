@@ -10,6 +10,7 @@ import {
   agentRunsForTask,
   authoringRunForEpic,
   blockedSummary,
+  boardChangeFlags,
   boardForgeFlags,
   boardRecoverySummary,
   forgeRequestForTask,
@@ -1080,6 +1081,58 @@ export function useForgeFlags(projectId: string | undefined) {
     queryKey: forgeFlagsQueryKey(projectId),
     queryFn: () => boardForgeFlags(projectId as string),
     enabled: Boolean(projectId),
+  });
+}
+
+/** `useChangeFlags`'s query key, keyed by `projectId` (Phase 8.1 plan 01, D-16). */
+export function changeFlagsQueryKey(projectId: string | undefined) {
+  return ["change-flags", projectId] as const;
+}
+
+/** How long a burst of `board:changed` events is allowed to collapse into one sweep. */
+const CHANGE_FLAGS_REFRESH_WINDOW_MS = 1000;
+
+/**
+ * Every active worktree's change state (commits ahead, dirty) for the WHOLE board in one query
+ * (D-15/D-16) — feeds the `BoardRow` change annotation. Structural sibling of [`useForgeFlags`]:
+ * project-scoped and refreshed from `subscribeBoardChanged`, never polled. Unlike that hook, each
+ * refresh spawns git, and `board:changed` fires on every board mutation and every scheduler digest
+ * change — so the invalidation is coalesced into one per window (`invalidateQueries` refetches an
+ * active query whatever its `staleTime`, so `staleTime` alone would not bound the sweep rate).
+ * `undefined` disables the query (no project selected yet).
+ */
+export function useChangeFlags(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+
+    subscribeBoardChanged(() => {
+      if (pending !== undefined) return;
+      pending = setTimeout(() => {
+        pending = undefined;
+        void queryClient.invalidateQueries({ queryKey: changeFlagsQueryKey(projectId) });
+      }, CHANGE_FLAGS_REFRESH_WINDOW_MS);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      if (pending !== undefined) clearTimeout(pending);
+    };
+  }, [projectId, queryClient]);
+
+  return useQuery({
+    queryKey: changeFlagsQueryKey(projectId),
+    queryFn: () => boardChangeFlags(projectId as string),
+    enabled: Boolean(projectId),
+    staleTime: 5000,
   });
 }
 

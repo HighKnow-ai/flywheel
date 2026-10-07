@@ -9,6 +9,7 @@ pub mod actor;
 pub mod agent_run;
 pub mod authoring;
 pub mod board;
+pub mod change_flags;
 pub mod criterion;
 pub mod epic;
 pub mod events;
