@@ -925,27 +925,64 @@ contract says it moves.
 **Plans:** 20 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 08.1-01-PLAN.md — Tracer: the change cue end to end (core git+SQLite read → command → hook → row → legend) [D-15, D-16]
 - [ ] 08.1-02-PLAN.md — Brand mark into tracked source, inset icon generated and asserted [SC1, SC2, D-22]
 - [ ] 08.1-03-PLAN.md — Seed real acceptance criteria, delete the probe rows [D-23, closes D-REV-04]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 08.1-04-PLAN.md — Direction contract, code-rendered comps at real density, owner adopts or sends back [D-01, D-04, D-10…D-14]
 - [ ] 08.1-05-PLAN.md — Epic progress aggregate over all 907 tasks; scoped group fetch fixes the 200-row window [D-05, D-06]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 08.1-06-PLAN.md — Structural amendments A-01 (epic-first home), A-02 (grouping lens), A-03 (row anatomy) [D-02, D-03, D-07, D-13]
 - [ ] 08.1-07-PLAN.md — Dual-mode tokens, re-derived palette, per-mode block-aware contrast + painted proof [D-10, D-11, D-12, D-19]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 08.1-08-PLAN.md — `has_worktree` filter dimension end to end, plus amendment A-04 (epic semantics) [D-17]
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 08.1-09-PLAN.md — Amendments A-05 (cue glyphs) and A-06 (selection rule), then `08.1-UI-SPEC.md` with its SUPERSEDES table [D-20]
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 08.1-10-PLAN.md — Four row kinds, one height lookup, the grouping lens, rows keyed by identity [D-07, D-13]
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 08.1-11-PLAN.md — Epic roster render: progress, distribution, counts, change roll-up, computed summary line [D-05, D-06, D-09, D-18]
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
 - [ ] 08.1-12-PLAN.md — Challenges render inline above an epic's tasks; accepting creates a task in place [D-08]
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
 - [ ] 08.1-13-PLAN.md — Four named durations, the three motions, reduced-motion arms, owner confirms the numbers [SC3, SC4, D-21]
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
 - [ ] 08.1-14-PLAN.md — Finish group 1: the rack, its lanes, quick-add, the filter bar, the project rail [D-24, D-25]
 - [ ] 08.1-15-PLAN.md — Finish group 2: the item detail panel and its sections, the palette, the five pickers [D-24, D-25]
 - [ ] 08.1-16-PLAN.md — Finish group 3: the review surface, the criteria rail, the diff's re-derived tints, the two sheets [D-24, D-25]
 - [ ] 08.1-17-PLAN.md — Finish group 4: the live session surface and the launch sheet [D-24, D-25]
 - [ ] 08.1-18-PLAN.md — Finish group 5: settings, triage, the authoring tray, and an accurate legend [D-24, D-25]
 - [ ] 08.1-19-PLAN.md — Finish group 6: the empty and broken states, and the three confirmations [D-24, D-25]
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
 - [ ] 08.1-20-PLAN.md — Phase gate across all five test arms; `DESIGN.md` written from the built world; the register closed honestly [D-24]
+
+**Cross-cutting constraints:**
+
+- The mechanical craft gate reports zero findings on every file in this group (D-24).
+- Screenshots exist for this group and the shipped finish-reviewer agent reviewed them against the approved comp, once for the group (D-24).
+- Screenshots exist for this group and the shipped finish-reviewer agent reviewed them once for the group (D-24).
 
 **Success Criteria** (what must be TRUE):
 
