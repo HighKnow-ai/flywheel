@@ -10,7 +10,6 @@
 :root {
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-settle: 180ms;
-  --duration-displace: 220ms;
   /* The four motions 08.1-UI-SPEC.md § Motion names (D-21). Starting numbers from the contract;
      the owner's confirmed values are recorded in that table and pinned by theme/__tests__/motion.test.ts. */
   --duration-panel: 220ms;
@@ -29,8 +28,9 @@
  * Row travel inside the one rack: a group expanding or collapsing, or a single row reordering,
  * moves the rows below it. Plan 10 keyed rows by identity, so those rows keep their DOM nodes and
  * this transition has something to move. It rides the group-collapse duration (08.1-13) — the
- * contract names four motions and "rows travel" is the collapse motion, not a fifth.
- * `--duration-displace` stays declared (it predates the phase) but nothing references it now.
+ * contract names four motions and "rows travel" is the collapse motion, not a fifth. The owner
+ * confirmed this on 2026-10-08 and retired the old `--duration-displace` (220ms), which nothing
+ * referenced any more: a declared-but-unused constant is the kind someone later "fixes" by wiring back up.
  */
 .displace-transition {
   transition: transform var(--duration-collapse) var(--ease);
@@ -88,7 +88,6 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-settle: 0s;
-    --duration-displace: 0s;
     --duration-panel: 0s;
     --duration-collapse: 0s;
     --duration-palette: 0s;

@@ -5,13 +5,13 @@ import { MOTION } from "../tokens";
 import motionCssSource from "../../styles/motion.css?raw";
 
 /**
- * The four durations the owner confirms (D-21), the two that predate the phase, and the rule that
+ * The four durations the owner confirmed on 2026-10-08 (D-21), the one that predates the phase, and the rule that
  * every one of them is zeroed under `prefers-reduced-motion`. Block-aware for the same reason
  * `contrast.test.ts` is: a whole-file match passes whenever EITHER block carries the value.
  */
 
 const NEW_DURATIONS = ["durationPanel", "durationCollapse", "durationPalette", "durationSelect"] as const;
-const LEGACY_DURATIONS = ["durationSettle", "durationDisplace"] as const;
+const LEGACY_DURATIONS = ["durationSettle"] as const;
 const ALL_DURATIONS = [...NEW_DURATIONS, ...LEGACY_DURATIONS] as const;
 
 const toProp = (key: string): string => `--${key.replace(/([A-Z])/g, "-$1").toLowerCase()}`;
@@ -75,7 +75,7 @@ describe("motion durations", () => {
     }
   });
 
-  it("zeroes all four, and the two pre-existing ones, under reduced motion, with the blanket rule intact", () => {
+  it("zeroes all four, and the pre-existing one, under reduced motion, with the blanket rule intact", () => {
     const { reduced, reducedSource } = blocks(motionCssSource);
     for (const key of ALL_DURATIONS) {
       expect(reduced.get(toProp(key)), toProp(key)).toBe("0s");
@@ -103,11 +103,18 @@ describe("motion durations", () => {
     expect(driftErrors(unzeroed).join("\n")).toContain("--duration-collapse");
   });
 
-  it("keeps the two pre-existing duration properties, which other stylesheets reference", () => {
+  it("keeps the pre-existing settle duration, which other stylesheets reference", () => {
     const { normal } = blocks(motionCssSource);
     for (const key of LEGACY_DURATIONS) {
       expect(normal.get(toProp(key)), toProp(key)).toBe(MOTION[key]);
     }
+  });
+
+  it("keeps the retired displace token retired, in the stylesheet and the typed export", () => {
+    // Owner decision 2026-10-08: row travel rides --duration-collapse; a declared-but-unreferenced
+    // constant is the kind of dead value someone later "fixes" by wiring it back up.
+    expect(motionCssSource.replace(/\/\*[\s\S]*?\*\//g, "")).not.toContain("--duration-displace");
+    expect("durationDisplace" in MOTION).toBe(false);
   });
 
   it("agrees with the typed export in full, today", () => {

@@ -1224,7 +1224,7 @@ export function BoardView({
                 // (01-UI-SPEC.md "Motion", "Selected Direction — Signature interaction"): only
                 // the transform this row's own reorder changes is ever animated — the rest of
                 // the rack keeps its position, since a swap moves at most two adjacent rows.
-                // `prefers-reduced-motion` zeroes `--duration-displace` (motion.css), so the
+                // `prefers-reduced-motion` zeroes `--duration-collapse` (motion.css), so the
                 // state change still applies instantly rather than being removed.
                 data-row-key={virtualRow.key}
                 className={rowClass}
