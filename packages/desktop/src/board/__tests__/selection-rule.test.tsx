@@ -1,7 +1,8 @@
 /**
- * A-06: selection on a task row is a surface shift PLUS a 2px left rule, and the rule carries the
- * focus distinction — the two selected surfaces are only 1.011 / 1.014 apart. This is the BoardRow
- * half of the proof; theme/__tests__/contrast.test.ts proves the rule roles are perceptible, and
+ * A-06: selection on a task row is a 2px left rule PLUS, while the list has focus, a surface shift.
+ * Once the list loses focus the row keeps the lighter rule on the idle surface (08.1-14 finish
+ * review: the two selected surfaces were only 1.01 apart, so band-present against band-absent is the
+ * second cue). This is the BoardRow half of the proof; theme/__tests__/contrast.test.ts proves the rule roles are perceptible, and
  * the browser arm paints a real row in WebKit (legibility.browser.test.tsx).
  */
 import { afterEach, describe, expect, it } from "vitest";
@@ -50,6 +51,19 @@ describe("the task row's 2px selection rule (A-06)", () => {
       expect(rule(props)).toMatch(/^2px solid /);
       cleanup();
     }
+  });
+
+  it("shifts the surface only while the list has focus: unfocused selection sits on the idle surface", () => {
+    const surface = (props: { selected?: boolean; focused?: boolean }): string => {
+      render(<BoardRow item={ITEM} {...props} />);
+      const style = screen.getByRole("listitem").getAttribute("style") ?? "";
+      cleanup();
+      return style.match(/background:\s*([^;]+);/)?.[1] ?? "";
+    };
+    expect(surface({})).toBe("var(--row-surface)");
+    expect(surface({ selected: true, focused: true })).toBe("var(--row-surface-selected)");
+    // Band-present against band-absent: the unfocused row no longer carries a near-identical second band.
+    expect(surface({ selected: true })).toBe("var(--row-surface)");
   });
 
   it("paints no focus ring from the `focused` prop: a pointer-driven selection shows only the rule", () => {

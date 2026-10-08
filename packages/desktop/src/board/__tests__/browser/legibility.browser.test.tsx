@@ -94,6 +94,34 @@ describe(`board row legibility, painted, ${mode} scheme`, () => {
     }
   });
 
+  it("paints every text role at AA on the SELECTED surface too (08.1-14 finish review, finding 4)", () => {
+    // The selected band is as strong as AA lets it be; this is the painted half of that claim: the
+    // engine's composite of the selected wash, behind the weakest text roles on the row.
+    render(
+      <div className="rack-ground" style={{ width: 1000, padding: 16 }}>
+        <div style={{ height: 40 }}>
+          <BoardRow item={ITEM} setSize={1} posInSet={1} blocked needsDecision ciFailed selected focused changeFlag={{ ahead: 3, dirty: true }} />
+        </div>
+      </div>,
+    );
+    const row = screen.getByRole("listitem");
+    expect(toHex(effectiveBackground(row)), `${mode}: the selected row should paint the selected surface`).toBe(
+      PALETTES[mode].rowSurfaceSelected,
+    );
+    const measured: Array<[string, HTMLElement]> = [
+      ["key", screen.getByText("FLY-9")],
+      ["criteria count (muted)", screen.getByText("1/3")],
+      ["blocked pill", row.querySelector<HTMLElement>('[aria-label^="Blocked"]')!],
+      ["needs-decision pill", row.querySelector<HTMLElement>('[aria-label^="Needs Decision"]')!],
+      ["CI-failed pill", row.querySelector<HTMLElement>('[aria-label^="CI failed"]')!],
+      ["commits-ahead count (brand text)", row.querySelector<HTMLElement>('[role="img"][aria-label$="commits ahead"]')!],
+    ];
+    for (const [name, el] of measured) {
+      expect(el, `${name} was not rendered`).toBeTruthy();
+      expect(paintedContrast(el), `${mode}: ${name} painted below AA on the selected surface`).toBeGreaterThanOrEqual(AA_TEXT);
+    }
+  });
+
   it("paints the progress fill and the change annotation's glyph at the non-text floor", () => {
     const row = renderRow();
     const ground = screen.getByTestId("ground");

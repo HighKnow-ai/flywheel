@@ -90,9 +90,10 @@ const rowStyle: CSSProperties = {
 
 const entryStyle: CSSProperties = { ...rowStyle, width: "100%", cursor: "pointer" };
 
-// Neutral current-position mark, never the brand. The rail's own ground IS the selected-row surface
-// (both #f6f8fa / #0f0f0f), so shifting to that colour would draw nothing: the current entry lifts to
-// the page ground instead, with a hairline edge, and takes semibold. Not colour alone.
+// Neutral current-position mark, never the brand. The rail's own ground (--surface-secondary) is within
+// one step of the selected-row surface (#f6f8fa vs #f5f7f9, #0f0f0f vs #101010), so shifting to that
+// colour would draw next to nothing: the current entry lifts to the page ground instead, with a
+// hairline edge, and takes semibold. Not colour alone.
 const currentEntryStyle: CSSProperties = {
   ...entryStyle,
   background: "var(--surface-dominant)",

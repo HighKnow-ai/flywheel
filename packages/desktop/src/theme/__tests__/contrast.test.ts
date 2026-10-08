@@ -39,6 +39,31 @@ const SURFACES: Role[] = [
   "rowSurfaceSelectedUnfocused",
 ];
 
+/** The selected band's gap to the ground that shipped with the 08.1-14 closure: a floor, not a target. */
+const SELECTED_BAND_FLOOR: Record<Mode, number> = { light: 1.07, dark: 1.035 };
+
+/** What the finish reviewer asked for (08.1-14 closure, finding 4). Asserted unreachable below. */
+const REVIEWER_BAND_TARGET: Record<Mode, number> = { light: 1.12, dark: 1.08 };
+
+/**
+ * The surface that is `gap` away from `ground` when darkened (light) or lightened (dark) toward `ink`.
+ * Mixing toward the text colour is how a row wash is made, so this is the family any stronger band
+ * would come from; the search is over the mix fraction, not over hand-picked hexes.
+ */
+function bandAtGap(ground: string, ink: string, gap: number): string {
+  const channel = (hex: string, i: number): number => parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16);
+  const mixed = (p: number): string =>
+    "#" + [0, 1, 2].map((i) => Math.round(channel(ground, i) + (channel(ink, i) - channel(ground, i)) * p).toString(16).padStart(2, "0")).join("");
+  let lo = 0;
+  let hi = 1;
+  for (let step = 0; step < 24; step += 1) {
+    const mid = (lo + hi) / 2;
+    if (contrastRatio(mixed(mid), ground) >= gap) hi = mid;
+    else lo = mid;
+  }
+  return mixed(hi);
+}
+
 const toProp = (key: string): string => `--${key.replace(/([A-Z])/g, "-$1").toLowerCase()}`;
 const escapeRe = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -183,6 +208,31 @@ for (const mode of MODES) {
       // Pins WHY the rule roles exist: if someone widens the surface gap this stays true and
       // merely becomes redundant; if they close the rule gap the test above fails.
       expect(contrastRatio(p.rowSurfaceSelected, p.rowSurfaceSelectedUnfocused)).toBeLessThan(1.05);
+    });
+
+    // 08.1-14 finish review, finding 4. The reviewer asked for a selected band of 1.12 (light) and
+    // 1.08 (dark) against the ground. Plan 07 had already found why the band is weak: every text role
+    // sits on it, and the weakest ones (blocked in light, the dark brand text lift) run out of margin
+    // first. These three assertions keep that argument runnable rather than prose.
+    it("every text role clears 4.5:1 on both selected surfaces, named (not only inside the loop above)", () => {
+      for (const surface of ["rowSurfaceSelected", "rowSurfaceSelectedUnfocused"] as const) {
+        for (const role of TEXT_ROLES) {
+          expect(
+            contrastRatio(p[role], p[surface]),
+            `${mode}: ${role} ${p[role]} on ${surface} ${p[surface]}`,
+          ).toBeGreaterThanOrEqual(AA_TEXT);
+        }
+      }
+    });
+
+    it("the selected band is as strong as it was when this was measured (it may not be quietly softened)", () => {
+      expect(contrastRatio(p.rowSurfaceSelected, p.surfaceDominant)).toBeGreaterThanOrEqual(SELECTED_BAND_FLOOR[mode]);
+    });
+
+    it("the finish reviewer's stronger band is NOT reachable: at that gap a text role falls under 4.5:1", () => {
+      const surface = bandAtGap(p.surfaceDominant, p.textPrimaryRack, REVIEWER_BAND_TARGET[mode]);
+      const worst = Math.min(...TEXT_ROLES.map((role) => contrastRatio(p[role], surface)));
+      expect(worst, `${mode}: worst text role on ${surface}, the reviewer's target band`).toBeLessThan(AA_TEXT);
     });
 
     it("the four row-state surfaces are pairwise distinct", () => {

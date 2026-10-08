@@ -288,16 +288,15 @@ export function BoardRow({
     onOpenAssigneePicker?.();
   }
 
-  // A-06: selection is a surface shift PLUS a 2px left rule, and the rule carries the focus
-  // distinction because the two selected surfaces are only 1.011 / 1.014 apart. Full ink while the
-  // list has focus, the lighter control tone once it has lost it; idle and hover reserve the same
-  // 2px transparent so a row changing state never reflows its content. One branch, extended
+  // A-06: selection is a surface shift PLUS a 2px left rule. Full ink and the surface shift while the
+  // list has focus; once it has lost it, the lighter control tone on the IDLE surface, so focus reads
+  // as band-present against band-absent as well as ink against grey (08.1-14 finish review: the two
+  // selected surfaces were 1.01 apart and only a 2px tick told them apart). The shift cannot be made
+  // stronger than ~1.08 without lowering a text role under AA (tokens.css), so the unfocused state
+  // gives it up entirely rather than keep a second near-identical one. Idle and hover reserve the
+  // same 2px transparent so a row changing state never reflows its content. One branch, extended
   // (not a second): `selectionOverlay` and `selectionRule` move together.
-  const selectionOverlay = focused
-    ? "var(--row-surface-selected)"
-    : selected
-      ? "var(--row-surface-selected-unfocused)"
-      : "var(--row-surface)";
+  const selectionOverlay = focused ? "var(--row-surface-selected)" : "var(--row-surface)";
   const selectionRule = focused
     ? "var(--selection-rule)"
     : selected

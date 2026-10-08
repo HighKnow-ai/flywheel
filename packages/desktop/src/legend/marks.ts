@@ -69,7 +69,7 @@ export const MARKS: Mark[] = [
     glyph: "SquareMinus",
     label: "Selected, unfocused row",
     meaning:
-      "This row is selected but keyboard focus has moved elsewhere (e.g. the detail panel).",
+      "This row is selected but keyboard focus has moved elsewhere (e.g. the detail panel). A task row keeps only its lighter 2px rule; an epic row, which has no rule, keeps a fainter surface shift.",
   },
   {
     id: "focus-ring",

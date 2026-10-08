@@ -43,20 +43,26 @@
   --blocked-text-rack: #9a6700;
 
   /*
-   * Board row states. Selection is a rule plus a background shift (D-12), never a brand colour:
-   * the shift never goes darker than the surface role, because every text and data-channel role
-   * is asserted AA on all of these. Pairwise distinct (legend test); `row-surface` is the
-   * transparent rest state.
+   * Board row states. Selection is a rule plus a background shift (D-12), never a brand colour.
+   * The shift is as strong as AA allows and no stronger: every text and data-channel role is
+   * asserted 4.5:1 on all of these, and the weakest text role (blocked, 4.87 on the ground in
+   * light; the dark brand text lift, 4.70 on the ground in dark) runs out at about 1.08 in light and
+   * 1.04 in dark. The finish reviewer asked for 1.12 / 1.08; neither is reachable without lowering a
+   * text role under AA (08.1-14 closure). Selected = the ceiling (#f5f7f9 / #101010). Selected,
+   * list not focused = about half of it: a task row does not use it (it shows the lighter rule on
+   * the idle surface), an epic row, which has no rule, does. Pairwise distinct (legend test);
+   * `row-surface` is the transparent rest state.
    */
   --row-surface: rgba(0, 0, 0, 0);
   --row-surface-hover: #fafbfc;
-  --row-surface-selected: #f6f8fa;
-  --row-surface-selected-unfocused: #f8f9fb;
+  --row-surface-selected: #f5f7f9;
+  --row-surface-selected-unfocused: #f9fafc;
 
   /*
-   * The 2px rule on a selected task row (A-06). The two selected surfaces above are 1.011 apart,
-   * so the RULE carries focus: full ink while the list has focus, the lighter control tone once it
-   * has lost it (4.06 apart). Separate roles from --text-primary-rack and --border-control on
+   * The 2px rule on a selected task row (A-06). The two selected surfaces above are about 1.03
+   * apart, so the RULE carries focus: full ink while the list has focus, the lighter control tone
+   * once it has lost it (4.06 apart). A task row's unfocused selection also drops the surface shift
+   * altogether (08.1-14 closure), so band-present against band-absent says it a second time. Separate roles from --text-primary-rack and --border-control on
    * purpose: a later change to control borders must not silently move selection.
    */
   --selection-rule: #1f2328;
@@ -124,8 +130,8 @@
 
     --row-surface: rgba(0, 0, 0, 0);
     --row-surface-hover: #0c0c0c;
-    --row-surface-selected: #0f0f0f;
-    --row-surface-selected-unfocused: #0d0d0d;
+    --row-surface-selected: #101010;
+    --row-surface-selected-unfocused: #0e0e0e;
 
     --selection-rule: #ededed;
     --selection-rule-unfocused: #707070;
