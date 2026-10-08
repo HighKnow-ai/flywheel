@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import { resolveBinding } from "../../state/keyboard";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
@@ -57,6 +58,7 @@ const FIXTURE: BoardItem[] = [EPIC_1, TASK_1];
 
 beforeEach(() => {
   resetUiState();
+  showStatusBands();
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);

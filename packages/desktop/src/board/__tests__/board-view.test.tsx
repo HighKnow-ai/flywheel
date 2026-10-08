@@ -213,8 +213,9 @@ function mockLensBoard(opts: {
   });
 }
 
+/** The rack's group headers only: the Issues and Triage lanes below it also carry `aria-expanded`. */
 function groupHeaders(): HTMLElement[] {
-  return screen.getAllByRole("button").filter((el) => el.hasAttribute("aria-expanded"));
+  return Array.from(document.querySelectorAll<HTMLElement>(".status-band"));
 }
 
 function groupHeader(label: RegExp): HTMLElement {
@@ -263,6 +264,7 @@ describe("the grouping lens (D-07, A-02)", () => {
   it("expands an epic in place from one scoped fetch, and leaves the epic rows of the no-epic bucket out", async () => {
     resetUiState();
     mockLensBoard({
+      epics: [ALPHA],
       aggregate: [progress("epic-a", 2), progress(null, 1)],
       byEpic: {
         "epic-a": [task("1", "Alpha one", "todo", "epic-a"), task("2", "Alpha two", "todo", "epic-a")],
@@ -317,7 +319,7 @@ describe("the grouping lens (D-07, A-02)", () => {
     });
     renderBoard([task("2", "Finished task", "done", null)], { ...EMPTY_COUNTS, done: 1 });
 
-    await waitFor(() => expect(groupHeaders().length).toBeGreaterThan(0));
+    await waitFor(() => expect(() => groupHeader(/FLY-7 Gamma/)).not.toThrow());
     fireEvent.click(groupHeader(/FLY-7 Gamma/)); // expand the epic named "done"
     expect(groupHeader(/FLY-7 Gamma/)).toHaveAttribute("aria-expanded", "true");
 

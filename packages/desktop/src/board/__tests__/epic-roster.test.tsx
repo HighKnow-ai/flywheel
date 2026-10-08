@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { FilterBar } from "../FilterBar";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import {
@@ -63,6 +64,7 @@ const OUTSIDE_EPIC = { id: "epic-out-of-window", key: "FLY-7", title: "Outside t
 
 beforeEach(() => {
   resetUiState();
+  showStatusBands();
   capturedBoardChangedHandlers = [];
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {

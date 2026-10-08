@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { useCollapseStore } from "../collapseStore";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts, BoardItem, IssueItem } from "../useBoardQuery";
@@ -60,6 +61,7 @@ const SIXTY_ROWS: BoardItem[] = buildVolumeItems();
 
 beforeEach(() => {
   resetUiState();
+  showStatusBands();
   useCollapseStore.setState({ collapsedByProject: {} });
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {

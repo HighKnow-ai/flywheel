@@ -97,7 +97,14 @@ export interface ReviewSurfaceTarget {
   fromTask?: { itemId: string; label: string };
 }
 
+/** The board's grouping key (D-07, amendment A-02): the one rack groups its rows by epic (the
+ * home surface, A-01) or by status (the five bands, the "everything in review" sweep). A lens over
+ * one board — not a second surface. It has no keybinding (A-02 grants none). */
+export type GroupingKey = "epic" | "status";
+
 interface UiState {
+  groupingKey: GroupingKey;
+  setGroupingKey: (key: GroupingKey) => void;
   searchTerm: string;
   filterDraft: BoardFilterDraft;
   selectedItemId: string | null;
@@ -269,6 +276,8 @@ export const useUiStore = create<UiState>((set) => ({
   deleteTarget: null,
   activePicker: null,
   quickAddOpen: false,
+  groupingKey: "epic",
+  setGroupingKey: (key) => set({ groupingKey: key }),
   quickAddKind: "task",
   pendingDone: null,
   quickAddFocusPending: false,
@@ -377,6 +386,7 @@ export const useUiStore = create<UiState>((set) => ({
  * removes that whole class of drift (this plan's Task 1/Task 3). */
 export function resetUiState() {
   useUiStore.setState({
+    groupingKey: "epic",
     searchTerm: "",
     filterDraft: EMPTY_FILTER_DRAFT,
     selectedItemId: null,

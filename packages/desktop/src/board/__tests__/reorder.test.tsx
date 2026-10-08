@@ -4,10 +4,11 @@
  * identity, never the row's index (01-UI-SPEC.md Keyboard Map: "selection tracks the selected
  * item's id, never its list index").
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
 
 const invokeCommandMock = vi.fn();
@@ -16,6 +17,11 @@ vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
 }));
+
+// These cases are about the status bands; the rack opens on the epic roster (A-01).
+beforeEach(() => {
+  showStatusBands();
+});
 
 const EMPTY_COUNTS: BandCounts = {
   backlog: 0,

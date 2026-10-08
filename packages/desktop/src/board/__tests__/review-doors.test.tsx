@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { CommandPalette } from "../CommandPalette";
 import { bindingAllowedInLayer } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
@@ -33,6 +34,7 @@ const EPIC: BoardItem = { ...TASK, id: "e1", key: "FLY-2", title: "An epic", ran
 
 beforeEach(() => {
   resetUiState();
+  showStatusBands();
   invokeCommandMock.mockReset();
   gitIdentifierResolveMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {

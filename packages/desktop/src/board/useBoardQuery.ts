@@ -4,7 +4,14 @@
  * `subscribeBoardChanged` (D-04): the renderer never trusts its own write as already resolved.
  */
 import { useEffect, useState } from "react";
-import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   agentRunLogWindow,
   agentRunsForTask,
@@ -1156,11 +1163,11 @@ export function epicProgressQueryKey(projectId: string | undefined) {
  * [`useForgeFlags`]: project-scoped, invalidated on `subscribeBoardChanged`, never polled. One
  * query for the board and never one per epic (D-16's rule). `undefined` disables the query.
  */
-export function useEpicProgress(projectId: string | undefined) {
+export function useEpicProgress(projectId: string | undefined, enabled = true) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!projectId) return undefined;
+    if (!projectId || !enabled) return undefined;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
@@ -1175,12 +1182,12 @@ export function useEpicProgress(projectId: string | undefined) {
       cancelled = true;
       unlisten?.();
     };
-  }, [projectId, queryClient]);
+  }, [projectId, enabled, queryClient]);
 
   return useQuery({
     queryKey: epicProgressQueryKey(projectId),
     queryFn: () => boardEpicProgress(projectId as string),
-    enabled: Boolean(projectId),
+    enabled: Boolean(projectId) && enabled,
   });
 }
 
@@ -1220,13 +1227,68 @@ export function bandHeaderTotal(counts: BandCounts | undefined, status: string):
   return counts[key];
 }
 
+/** The board's own active filter and search term — folded into every scoped group fetch so a
+ * group shows exactly what the unscoped board would show for it (D-03: the core does the
+ * filtering, there is no second implementation here). */
+export interface GroupBase {
+  filter?: BoardFilterInput;
+  term?: string;
+}
+
 /**
- * The rows of one expanded group (an epic, the no-epic bucket or a status band). Reuses the
- * EXISTING `board_list` command through its existing `epicIds`/`statuses` filter dimensions — no
- * list-by-epic command and no client-side narrowing, so the filter has exactly one implementation
- * (D-03). What it fixes is the row limit: an unscoped read lands on the core's default of 200, so
- * a group bigger than that was silently cut short (RESEARCH Correction 3). The limit here is sized
- * from the group's own `total` and clamped to what the core will return.
+ * The filter one group's fetch sends: the board's active filter with the group's own dimension
+ * pinned to the group. `null` when the active filter already excludes the group (e.g. an epic
+ * outside the epic chips) — the group is then empty by definition and costs no fetch.
+ */
+export function scopedFilter(base: BoardFilterInput | undefined, scope: GroupScope): BoardFilterInput | null {
+  if (scope.kind === "status") {
+    if (base?.statuses && !base.statuses.includes(scope.status)) return null;
+    return { ...base, statuses: [scope.status] };
+  }
+  if (base?.epicIds && !base.epicIds.includes(scope.epicId)) return null;
+  return { ...base, epicIds: [scope.epicId] };
+}
+
+/**
+ * One group's scoped fetch, as query options so [`useGroupItems`] (one group) and
+ * [`useGroupItemsMany`] (every group of the active lens) share a single definition. Reuses the
+ * EXISTING `board_list` (or `board_search` while a search term is active) through its existing
+ * `epicIds`/`statuses` filter dimensions — no list-by-epic command and no client-side narrowing.
+ * What it fixes is the row limit: an unscoped read lands on the core's default of 200, so a group
+ * bigger than that was silently cut short (RESEARCH Correction 3). The limit here is sized from
+ * the group's own `total` and clamped to what the core will return.
+ */
+function groupItemsQueryOptions(
+  projectId: string | undefined,
+  scope: GroupScope,
+  total: number | undefined,
+  enabled: boolean,
+  base?: GroupBase,
+) {
+  const limit = Math.min(Math.max(total ?? 1, 1), GROUP_FETCH_MAX_ROWS);
+  const filter = scopedFilter(base?.filter, scope);
+  const term = base?.term?.trim() ?? "";
+
+  return {
+    queryKey: [...boardQueryKey(projectId), "group", filter, limit, term] as const,
+    queryFn: async (): Promise<GroupItems> => {
+      const window =
+        term.length > 0
+          ? await invokeCommand<BoardWindow>("board_search", { projectId, term, filter, limit })
+          : await invokeCommand<BoardWindow>("board_list", { projectId, filter, limit });
+      return {
+        items: window.items,
+        limit,
+        total: total as number,
+        truncated: (total as number) > limit,
+      };
+    },
+    enabled: Boolean(projectId) && enabled && filter !== null && total !== undefined,
+  };
+}
+
+/**
+ * The rows of one expanded group (an epic, the no-epic bucket or a status band).
  *
  * `total` is the row count to expect: an epic's aggregate total, a band's `counts` figure — and
  * for the no-epic bucket, its tasks PLUS the project's epic rows, because the core's epic filter
@@ -1239,23 +1301,28 @@ export function useGroupItems(
   scope: GroupScope,
   total: number | undefined,
   enabled = true,
+  base?: GroupBase,
 ) {
-  const limit = Math.min(Math.max(total ?? 1, 1), GROUP_FETCH_MAX_ROWS);
-  const filter: BoardFilterInput =
-    scope.kind === "epic" ? { epicIds: [scope.epicId] } : { statuses: [scope.status] };
+  return useQuery<GroupItems>(groupItemsQueryOptions(projectId, scope, total, enabled, base));
+}
 
-  return useQuery<GroupItems>({
-    queryKey: [...boardQueryKey(projectId), "group", filter, limit],
-    queryFn: async () => {
-      const window = await invokeCommand<BoardWindow>("board_list", { projectId, filter, limit });
-      return {
-        items: window.items,
-        limit,
-        total: total as number,
-        truncated: (total as number) > limit,
-      };
-    },
-    enabled: Boolean(projectId) && enabled && total !== undefined,
+/** Just each group's data, aligned to the input order. A module-level function so `useQueries`
+ * can structurally share the combined result: the rack's rows memo depends on it. */
+const pickGroupData = (results: { data: GroupItems | undefined }[]) => results.map((r) => r.data);
+
+/**
+ * Every group of the active lens in one hook (a hook cannot be called per group): the scoped fetch
+ * of [`useGroupItems`], run for each group whose `enabled` is true. Returns each group's fetched
+ * rows aligned to `groups`, `undefined` while a group is collapsed, loading or failed.
+ */
+export function useGroupItemsMany(
+  projectId: string | undefined,
+  groups: { scope: GroupScope; total: number | undefined; enabled: boolean }[],
+  base?: GroupBase,
+) {
+  return useQueries({
+    queries: groups.map((g) => groupItemsQueryOptions(projectId, g.scope, g.total, g.enabled, base)),
+    combine: pickGroupData,
   });
 }
 

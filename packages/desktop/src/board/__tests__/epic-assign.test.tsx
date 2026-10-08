@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { CommandPalette } from "../CommandPalette";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
@@ -78,6 +79,7 @@ const PROJECT = {
 
 beforeEach(() => {
   resetUiState();
+  showStatusBands();
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
@@ -227,6 +229,20 @@ describe("epic-assign", () => {
 
   it("a_task_carrying_an_epic_id_renders_that_epics_key_and_title_in_the_row_pill", async () => {
     const items: BoardItem[] = [EPIC_1, { ...TASK_1, epicId: "epic-1" }];
+    // Each band's rows now come from a scoped `board_list` (08.1 plan 10); this suite's blanket
+    // `board_list` mock answers it with the palette's FIXTURE, so answer a scoped call faithfully.
+    const unscoped = invokeCommandMock.getMockImplementation()!;
+    invokeCommandMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      const statuses = (args?.filter as { statuses?: string[] } | undefined)?.statuses;
+      if (command === "board_list" && statuses) {
+        return Promise.resolve({
+          items: items.filter((item) => item.status === statuses[0]),
+          issues: [],
+          counts: { ...EMPTY_COUNTS, backlog: items.length },
+        });
+      }
+      return unscoped(command, args);
+    });
     renderBoard(items);
 
     // The pill now resolves from the `useEpics()` roster query (G-01-2), which settles

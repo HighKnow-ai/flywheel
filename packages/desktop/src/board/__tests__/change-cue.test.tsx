@@ -15,6 +15,7 @@ import type { ReactNode } from "react";
 import * as icons from "lucide-react";
 import { BoardRow } from "../BoardRow";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { useChangeFlags } from "../useBoardQuery";
 import { MARKS_BY_ID } from "../../legend/marks";
 import { resetUiState } from "../../state/uiStore";
@@ -55,6 +56,7 @@ const ITEMS: BoardItem[] = [task(1, "Ahead"), task(2, "Dirty"), task(3, "No work
 
 beforeEach(() => {
   resetUiState();
+  showStatusBands();
   boardChangedHandler = undefined;
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {

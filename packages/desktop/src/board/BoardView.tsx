@@ -49,7 +49,7 @@ import { EstimatePicker } from "./pickers/EstimatePicker";
 import { AssigneePicker } from "./pickers/AssigneePicker";
 import { ParentPicker, type ParentOption } from "./pickers/ParentPicker";
 import { ItemDetailPanel, type DetailItem } from "../item-detail/ItemDetailPanel";
-import { useCollapseStore } from "./collapseStore";
+import { groupCollapseKey, useCollapseStore } from "./collapseStore";
 import {
   bindingAllowedInLayer,
   boundarySelectionId,
@@ -62,7 +62,13 @@ import {
 import { useUiStore, type PickerKind } from "../state/uiStore";
 import {
   continueShapingEpic,
+  epicHeaderTotal,
   epicRosterTruncationNotice,
+  SEARCH_DEBOUNCE_MS,
+  toFilterInput,
+  useDebouncedValue,
+  useEpicProgress,
+  useGroupItemsMany,
   openLiveSessionForTask,
   useActors,
   useBlockedSummary,
@@ -82,7 +88,16 @@ import {
   useSetTaskEpic,
   useUpdateItem,
 } from "./useBoardQuery";
-import type { Actor, BandCounts, BoardItem, BoardItemKind, EpicSummary, IssueItem } from "./useBoardQuery";
+import type {
+  Actor,
+  BandCounts,
+  BoardItem,
+  BoardItemKind,
+  EpicSummary,
+  GroupBase,
+  GroupScope,
+  IssueItem,
+} from "./useBoardQuery";
 
 export const BAND_ORDER = ["backlog", "todo", "in_progress", "in_review", "done"] as const;
 type BandStatus = (typeof BAND_ORDER)[number];
@@ -107,8 +122,23 @@ const BAND_COUNT_KEY: Record<BandStatus, keyof BandCounts> = {
 
 type RackRow =
   | { kind: "band-header"; status: BandStatus }
+  /** An epic (or, with `id: null`, the no-epic bucket) in the epic lens. `count` is the aggregate's. */
+  | { kind: "epic-header"; id: string | null; label: string; count: number | undefined }
   | { kind: "quick-add" }
-  | { kind: "task"; item: BoardItem; posInSet: number };
+  | { kind: "task"; item: BoardItem; posInSet: number; setSize: number | undefined };
+
+/** One group of the active lens: a status band or an epic, with where its rows come from. */
+interface RackGroup {
+  /** The status name, or the epic id (`null` for the no-epic bucket). */
+  id: string | null;
+  label: string;
+  /** The header's count — from the list command's counts or the aggregate, never loaded rows. */
+  count: number | undefined;
+  collapsed: boolean;
+  scope: GroupScope;
+  /** The row count its scoped fetch expects (see `useGroupItems`). */
+  fetchTotal: number | undefined;
+}
 
 /** Mirrors the virtualizer's `overscan` below; exported so the volume fixture imports it. */
 export const RACK_OVERSCAN = 10;
@@ -327,6 +357,22 @@ export function BoardView({
   // `01-SECURITY.md` AR-01-04 without reopening G-01-2 (plan 05-04).
   const epicRosterNotice = epicRosterTruncationNotice(epicsQuery.data);
 
+  // The grouping key (D-07, A-02): one rack, one query, two lenses. Each group's rows come from the
+  // SAME scoped `board_list` (`useGroupItemsMany`) whichever key is active — so the in-review
+  // sweep is not capped by the board window's page, and the active filter and search narrow every
+  // group the same way they narrow the window (D-03).
+  const groupingKey = useUiStore((state) => state.groupingKey);
+  const setGroupingKey = useUiStore((state) => state.setGroupingKey);
+  const filterDraft = useUiStore((state) => state.filterDraft);
+  const searchTerm = useUiStore((state) => state.searchTerm);
+  const debouncedTerm = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
+  const groupBase = useMemo<GroupBase>(
+    () => ({ filter: toFilterInput(filterDraft), term: debouncedTerm }),
+    [filterDraft, debouncedTerm],
+  );
+  // The aggregate is every epic header's source (D-05/D-06); the status lens never reads it.
+  const progress = useEpicProgress(projectId, groupingKey === "epic").data;
+
   // D-37's board-visible blocked signal (plan 02-06 Task 3) — one project-scoped read, never a
   // per-row query, so `BoardRow`'s pill and the project rail's own read (`ProjectRail.tsx`) always
   // agree on which tasks are blocked at any given moment.
@@ -401,30 +447,88 @@ export function BoardView({
   // has explicitly opened it via `c`/`⌘N`.
   const effectiveQuickAddOpen = quickAddOpen || items.length === 0;
 
-  const rows = useMemo<RackRow[]>(() => {
-    const byStatus = new Map<BandStatus, BoardItem[]>();
-    for (const status of BAND_ORDER) byStatus.set(status, []);
-    for (const item of items) {
-      byStatus.get(item.status as BandStatus)?.push(item);
+  const groups = useMemo<RackGroup[]>(() => {
+    if (groupingKey === "status") {
+      return BAND_ORDER.map((status) => {
+        const count = counts[BAND_COUNT_KEY[status]];
+        return {
+          id: status,
+          label: BAND_LABEL[status],
+          count,
+          collapsed: Boolean(collapsedByStatus[groupCollapseKey("status", status)]),
+          scope: { kind: "status", status },
+          fetchTotal: count,
+        };
+      });
     }
-
-    const out: RackRow[] = [];
-    for (const status of BAND_ORDER) {
-      out.push({ kind: "band-header", status });
-      if (collapsedByStatus[status]) continue;
-      // Quick-add lives at the top of Backlog — the band new work always enters (D-09).
-      if (status === "backlog" && effectiveQuickAddOpen) {
-        out.push({ kind: "quick-add" });
-      }
-      (byStatus.get(status) ?? []).forEach((item, index) => {
-        out.push({ kind: "task", item, posInSet: index + 1 });
+    const collapsedOf = (id: string | null) => collapsedByStatus[groupCollapseKey("epic", id)] ?? true;
+    const out: RackGroup[] = epics.map((epic) => {
+      const total = epicHeaderTotal(progress, epic.id) ?? (progress ? 0 : undefined);
+      return {
+        id: epic.id,
+        label: `${epic.key} ${epic.title}`,
+        count: total,
+        collapsed: collapsedOf(epic.id),
+        scope: { kind: "epic", epicId: epic.id },
+        fetchTotal: total,
+      };
+    });
+    const noEpicTasks = epicHeaderTotal(progress, null);
+    if (!progress || (noEpicTasks ?? 0) > 0) {
+      out.push({
+        id: null,
+        label: "No epic",
+        count: noEpicTasks,
+        collapsed: collapsedOf(null),
+        scope: { kind: "epic", epicId: null },
+        // The core's epic filter puts the epic rows themselves in this bucket (their own epic id is
+        // null), so the fetch must be sized for tasks PLUS epics; the rows are dropped below.
+        fetchTotal: noEpicTasks === undefined ? undefined : noEpicTasks + epics.length,
       });
     }
     return out;
-  }, [items, collapsedByStatus, effectiveQuickAddOpen]);
+  }, [groupingKey, counts, collapsedByStatus, epics, progress]);
+
+  const fetchedGroups = useGroupItemsMany(
+    projectId,
+    groups.map((g) => ({ scope: g.scope, total: g.fetchTotal, enabled: !g.collapsed })),
+    groupBase,
+  );
+
+  const rows = useMemo<RackRow[]>(() => {
+    const out: RackRow[] = [];
+    // Quick-add lives at the top of Backlog in the status lens (D-09) — the band new work always
+    // enters. The epic lens has no Backlog band, so it leads the rack instead.
+    if (groupingKey === "epic" && effectiveQuickAddOpen) out.push({ kind: "quick-add" });
+    groups.forEach((group, index) => {
+      out.push(
+        groupingKey === "status"
+          ? { kind: "band-header", status: group.id as BandStatus }
+          : { kind: "epic-header", id: group.id, label: group.label, count: group.count },
+      );
+      if (group.collapsed) return;
+      if (groupingKey === "status" && group.id === "backlog" && effectiveQuickAddOpen) {
+        out.push({ kind: "quick-add" });
+      }
+      // Until a group's scoped fetch lands, show what the board window already holds for it, so
+      // an expanded group never blanks (01-UI-SPEC.md "State Inventory": no re-skeleton).
+      const content =
+        fetchedGroups[index]?.items ??
+        items.filter((item) =>
+          group.scope.kind === "status" ? item.status === group.scope.status : item.epicId === group.scope.epicId,
+        );
+      // An epic row is a header in the epic lens, never a task row. Discriminated on `kind`, never
+      // on `epicId`: an epic's own epic id is null, so the no-epic bucket contains the epic rows.
+      const tasks = groupingKey === "epic" ? content.filter((item) => (item.kind ?? "task") !== "epic") : content;
+      tasks.forEach((item, position) => {
+        out.push({ kind: "task", item, posInSet: position + 1, setSize: group.count ?? tasks.length });
+      });
+    });
+    return out;
+  }, [groupingKey, groups, fetchedGroups, items, effectiveQuickAddOpen]);
 
   const selectableItems = useMemo(
-    () => rows.filter((r): r is { kind: "task"; item: BoardItem; posInSet: number } => r.kind === "task"),
+    () => rows.filter((r): r is Extract<RackRow, { kind: "task" }> => r.kind === "task"),
     [rows],
   );
 
@@ -770,7 +874,8 @@ export function BoardView({
   }, []);
 
   const containerStyle: CSSProperties = {
-    height: "100%",
+    flex: 1,
+    minHeight: 0,
     overflow: "auto",
     background: "var(--surface-dominant)",
   };
@@ -779,7 +884,45 @@ export function BoardView({
 
   return (
     <div style={{ height: "100%", display: "flex" }}>
-      <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+      <div style={{ flex: 1, minWidth: 0, position: "relative", display: "flex", flexDirection: "column" }}>
+      <div
+        role="group"
+        aria-label="Group the board by epic or status"
+        style={{
+          flex: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-xs)",
+          padding: "var(--space-xs) var(--space-md)",
+          borderBottom: "1px solid var(--divider)",
+          background: "var(--surface-dominant)",
+        }}
+      >
+        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          Group by
+        </span>
+        {(["epic", "status"] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            className="type-label"
+            aria-label={`Group by ${key}`}
+            aria-pressed={groupingKey === key}
+            onClick={() => setGroupingKey(key)}
+            style={{
+              padding: "var(--space-xs) var(--space-sm)",
+              borderRadius: "var(--radius-chrome)",
+              border: `1px solid ${groupingKey === key ? "var(--border-control)" : "transparent"}`,
+              background: "transparent",
+              color: groupingKey === key ? "var(--text-primary-rack)" : "var(--text-muted-rack)",
+              cursor: "pointer",
+              textTransform: "capitalize",
+            }}
+          >
+            {key}
+          </button>
+        ))}
+      </div>
       {epicRosterNotice && (
         <div
           role="status"
@@ -824,8 +967,24 @@ export function BoardView({
                   <StatusBand
                     label={BAND_LABEL[row.status]}
                     count={count}
-                    collapsed={Boolean(collapsedByStatus[row.status])}
-                    onToggleCollapsed={() => toggleCollapsed(projectId ?? "", row.status)}
+                    collapsed={Boolean(collapsedByStatus[groupCollapseKey("status", row.status)])}
+                    onToggleCollapsed={() =>
+                      toggleCollapsed(projectId ?? "", groupCollapseKey("status", row.status))
+                    }
+                  />
+                </div>
+              );
+            }
+
+            if (row.kind === "epic-header") {
+              const key = groupCollapseKey("epic", row.id);
+              return (
+                <div key={virtualRow.key} style={positionStyle}>
+                  <StatusBand
+                    label={row.label}
+                    count={row.count}
+                    collapsed={collapsedByStatus[key] ?? true}
+                    onToggleCollapsed={() => toggleCollapsed(projectId ?? "", key, true)}
                   />
                 </div>
               );
@@ -882,7 +1041,7 @@ export function BoardView({
                   actorsById={actorsById}
                   epicsById={epicsById}
                   posInSet={row.posInSet}
-                  setSize={counts[BAND_COUNT_KEY[row.item.status as BandStatus]]}
+                  setSize={row.setSize}
                   blocked={blockedTaskIds.has(row.item.id)}
                   needsDecision={recoveryTaskIds.has(row.item.id)}
                   ciFailed={ciFailedTaskIds.has(row.item.id)}
