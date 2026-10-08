@@ -494,6 +494,78 @@ pub fn set_task_status_in_tx(
     Ok(())
 }
 
+/// The event a human decline appends (A-08(a)). A marker plus an audit snapshot (count and
+/// criterion ids, never statement text); the reason itself is read live from the criteria.
+pub const EVENT_CHANGES_REQUESTED: &str = "task.changes_requested";
+
+/// One current, unchecked criterion of a task — what a decline sends back.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct UncheckedCriterion {
+    pub id: String,
+    pub statement: String,
+}
+
+/// Why a decline is not offered. `category()` is the wire string the renderer switches on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangesRequestRefusal {
+    NotInFlight,
+    Integrated,
+    NoCriteria,
+    NothingUnchecked,
+}
+
+impl ChangesRequestRefusal {
+    pub fn category(&self) -> &'static str {
+        match self {
+            Self::NotInFlight => "notInFlight",
+            Self::Integrated => "integrated",
+            Self::NoCriteria => "noCriteria",
+            Self::NothingUnchecked => "nothingUnchecked",
+        }
+    }
+}
+
+/// What the review surface may offer for a task right now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangesRequestState {
+    Ready(Vec<UncheckedCriterion>),
+    SentBack(Vec<UncheckedCriterion>),
+    Refused(ChangesRequestRefusal),
+}
+
+/// What [`request_changes`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangesRequestOutcome {
+    Requested { count: usize },
+    AlreadySentBack,
+    Refused(ChangesRequestRefusal),
+}
+
+/// The live unchecked list when a decline is pending, else `None`.
+pub fn pending_changes_request(
+    _conn: &Connection,
+    _task_id: &str,
+) -> anyhow::Result<Option<Vec<UncheckedCriterion>>> {
+    Ok(None)
+}
+
+/// Derive what the surface may offer for `task_id`.
+pub fn changes_request_state(
+    _conn: &Connection,
+    _task_id: &str,
+) -> anyhow::Result<ChangesRequestState> {
+    Ok(ChangesRequestState::Refused(ChangesRequestRefusal::NotInFlight))
+}
+
+/// Decline a task's work: send its unchecked criteria back to the agent.
+pub fn request_changes(
+    _conn: &mut Connection,
+    _actor_id: &str,
+    _task_id: &str,
+) -> anyhow::Result<ChangesRequestOutcome> {
+    Ok(ChangesRequestOutcome::Refused(ChangesRequestRefusal::NotInFlight))
+}
+
 /// Move a task up or down by one position within its `(project_id, status, priority)` band
 /// (D-11, BOARD-05) — the manual-rank half of the tie-break rule ("priority sorts first, rank
 /// orders within a band"). Filtering the neighbour lookup by `priority`, not merely

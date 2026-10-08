@@ -113,6 +113,21 @@ pub struct DiffSoFar {
     pub working_tree_porcelain: String,
 }
 
+/// The lead sentence of the Review Feedback section, declared once on this side so the prompt and
+/// the launch sheet's preview (`ContextPacketDto`) can never word it differently (T-02-21).
+pub const REVIEW_FEEDBACK_LEAD: &str =
+    "A reviewer sent this task back. These acceptance criteria are still unchecked:";
+
+/// What a reviewer's decline (A-08(a)) tells the next session: the criteria that are still
+/// unchecked, in rank order, current wording only. Derived live from the criteria at assembly —
+/// the `task.changes_requested` event is only the marker, so this can never go stale. Its own
+/// field, deliberately NOT a drift warning: drift is recorded as `drift.detected` events at run
+/// start and raises the Needs Decision signal, which a decline must never do.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ReviewFeedback {
+    pub statements: Vec<String>,
+}
+
 /// Optional packet extras composed one layer above [`assemble_context_packet`] — a struct rather
 /// than a bare argument so a later plan can grow this without changing
 /// [`assemble_context_packet_with_extras`]'s signature. `diff` is `None` when the caller has
@@ -161,6 +176,10 @@ pub struct ContextPacket {
     /// [`assemble_context_packet_with_extras`]. Never stored: re-derived on every assembly, so a
     /// warning clears the instant the fact behind it clears.
     pub drift: Vec<DriftWarning>,
+    /// `Some` only while a reviewer's decline is pending and some criterion is still unchecked
+    /// (A-08(a)). Populated by [`assemble_context_packet`] itself — a pure read of the board — so
+    /// the preview and the run start get it from the one assembler.
+    pub review_feedback: Option<ReviewFeedback>,
     pub worktree: WorktreeFacts,
 }
 
@@ -367,6 +386,7 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         decisions,
         diff: None,
         drift: Vec::new(),
+        review_feedback: None,
         worktree,
     })
 }

@@ -1,0 +1,6 @@
+{
+  "command": "cargo test -p core --test review_changes_request",
+  "exitCode": 101,
+  "output": "TAP version 13\nok 1 - refusal_categories_use_the_camel_case_wire_strings\nnot ok 2 - a_second_request_while_sent_back_appends_nothing\nok 3 - the_decline_event_is_not_a_drift_event\nnot ok 4 - the_packet_carries_exactly_the_unchecked_statements_in_rank_order_and_the_prompt_renders_them\nnot ok 5 - the_section_sits_after_warnings_and_before_epic_context\nnot ok 6 - an_in_review_task_moves_to_in_progress_and_records_one_event_in_one_transaction\nnot ok 7 - an_in_progress_task_gets_no_status_event_and_exactly_one_decline_event\nnot ok 8 - the_state_machine_ready_sent_back_resubmitted_and_resolved\nok 9 - a_task_never_declined_has_no_feedback_and_assembles_byte_identically\nnot ok 10 - a_declined_task_demoted_to_todo_keeps_its_feedback_until_every_criterion_is_checked\nnot ok 11 - a_refused_decline_writes_nothing_and_names_its_category\nnot ok 12 - only_current_revisions_count_and_a_superseded_one_never_appears\n1..12\n# tests 12\n# pass 3\n# fail 9",
+  "targetTest": "an_in_review_task_moves_to_in_progress_and_records_one_event_in_one_transaction"
+}
