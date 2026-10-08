@@ -515,23 +515,31 @@ export function BoardRow({
           {pendingProposalCount}
         </span>
       )}
-      <span
-        role="button"
-        className="field-assignee type-label"
-        aria-label={`Assignee: ${assignee?.displayName ?? "Unassigned"}. Press to change.`}
-        title={assignee ? `${assignee.displayName} (${assigneeBadgeMark?.label})` : assigneeBadgeMark?.meaning}
-        onClick={handleAssigneeAvatarClick}
-        style={{
-          display: "inline-flex",
-          flexShrink: 0,
-          alignItems: "center",
-          gap: 2,
-          color: "var(--text-muted-strip)",
-          cursor: "pointer",
-        }}
-      >
-        <Icon name={assigneeBadgeMark?.glyph ?? "UserRound"} size={12} />
-      </span>
+      {item.assigneeId && (
+        // An unassigned row prints no glyph: absent is not a value, the same discipline as the estimate
+        // badge and the change cue (A-03: a zero or an unknown renders nothing). Fourteen identical
+        // "nobody" marks down a roster flatten the signals that do vary (08.1-14 finish review). The
+        // picker is still one key (`a`), the palette and the detail panel away. The criteria count and
+        // the priority glyph are NOT treated this way: 01-UI-SPEC § Row Anatomy lists both as never
+        // dropped, and D-08 makes the count visible wherever the item appears, zero included.
+        <span
+          role="button"
+          className="field-assignee type-label"
+          aria-label={`Assignee: ${assignee?.displayName ?? "Assigned"}. Press to change.`}
+          title={assignee ? `${assignee.displayName} (${assigneeBadgeMark?.label})` : undefined}
+          onClick={handleAssigneeAvatarClick}
+          style={{
+            display: "inline-flex",
+            flexShrink: 0,
+            alignItems: "center",
+            gap: 2,
+            color: "var(--text-muted-strip)",
+            cursor: "pointer",
+          }}
+        >
+          <Icon name={assigneeBadgeMark?.glyph ?? "UserRound"} size={12} />
+        </span>
+      )}
       <span
         className="type-label tabular-nums"
         title={criteriaBadgeMark?.meaning}
