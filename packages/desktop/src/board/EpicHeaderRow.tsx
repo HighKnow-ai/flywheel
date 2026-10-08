@@ -139,8 +139,8 @@ export function EpicHeaderRow({
     background: surface,
     color: "var(--text-primary-rack)",
     borderBottom: "1px solid var(--divider)",
-    outline: focused ? "2px solid var(--focus-ring)" : "none",
-    outlineOffset: -2,
+    // The keyboard ring is `.epic-header-row:focus-visible` in App.css, not an inline outline: `focused`
+    // is also true after a mouse click, and a click must not leave the brand on the row (D-12).
     cursor: "pointer",
   };
 

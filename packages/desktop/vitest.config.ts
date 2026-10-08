@@ -18,9 +18,11 @@ export default defineConfig({
     // text (a `?raw` import of `styles/tokens.css`) rather than a stub, so these files alone opt
     // back into real CSS processing. `styles/motion.css` joined in 08.1-13 for the same reason:
     // `theme/__tests__/motion.test.ts` pins its durations, and a stubbed (empty) `?raw` import
-    // would make every "declared with this value" assertion vacuous.
+    // would make every "declared with this value" assertion vacuous. `App.css` joined in 08.1-14's
+    // finish pass: `board/__tests__/selection-rule.test.tsx` pins that the row's focus ring is a
+    // :focus-visible rule there, and an empty `?raw` would make that assertion vacuous too.
     css: {
-      include: [/styles\/tokens\.css/, /styles\/motion\.css/],
+      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/],
     },
   },
 });

@@ -92,6 +92,28 @@ button.control-edge:hover:not(:disabled) {
 }
 
 /*
+ * The keyboard-focus ring on a row. It is :focus-visible and not the `focused` prop because that
+ * prop is also true after a mouse click: driven by it, a click leaves a permanent blue rectangle
+ * and the brand becomes the cursor, which 08.1-UI-SPEC § The brand rule forbids. Pointer selection
+ * shows only the surface shift and the 2px rule (A-06). The task row's ring is inset to -4, past the
+ * 2px rule, so a focused row shows both; the epic header has no rule, so -2 is the ring's own edge.
+ */
+.board-row,
+.epic-header-row {
+  outline: none;
+}
+
+.board-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -4px;
+}
+
+.epic-header-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+/*
  * Progressive disclosure ladder (01-UI-SPEC.md "Row Anatomy" — first field dropped as width
  * narrows, in this order: actor-of-last-change, epic pill, assignee avatar, estimate badge
  * last). `container-type: inline-size` on `.board-row` itself is what makes these `@container`

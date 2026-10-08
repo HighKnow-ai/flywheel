@@ -317,10 +317,10 @@ export function BoardRow({
     color: "var(--text-primary-strip)",
     borderBottom: "1px solid var(--divider)",
     borderLeft: `2px solid ${selectionRule}`,
-    // The keyboard-focus ring is inset past the 2px rule (-4, not -2): at -2 it would paint over the
-    // rule and the focused row would show blue where A-06 says full ink.
-    outline: focused ? "2px solid var(--focus-ring)" : "none",
-    outlineOffset: -4,
+    // The keyboard-focus ring is NOT drawn here. `focused` means "selected, and the list holds DOM
+    // focus", which a mouse click also produces, so an inline ring would stay on the row after every
+    // click and make the brand the cursor (D-12). App.css draws it on `.board-row:focus-visible`, which
+    // the engine matches for keyboard focus only, inset to -4 so it clears the 2px rule above.
   };
 
   return (

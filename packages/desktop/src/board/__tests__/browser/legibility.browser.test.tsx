@@ -17,6 +17,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { userEvent } from "vitest/browser";
 import "../../../styles/tokens.css";
 import "../../../styles/type.css";
 import "../../../styles/motion.css";
@@ -148,3 +149,38 @@ describe(`selection rule, painted, ${mode} scheme (A-06)`, () => {
   });
 });
 
+
+describe(`focus ring, painted, ${mode} scheme (08.1-14 finish review)`, () => {
+  /** The selected row with the list holding focus: the props a mouse click AND a key press both produce. */
+  function renderFocusedRow() {
+    render(
+      <div className="rack-ground" style={{ width: 1000 }}>
+        <div style={{ height: 32 }}>
+          <BoardRow item={ITEM} selected focused />
+        </div>
+      </div>,
+    );
+    return screen.getByRole("listitem");
+  }
+
+  it("a pointer click paints no ring; keyboard focus paints the ring inset past the 2px rule", async () => {
+    const row = renderFocusedRow();
+
+    await userEvent.click(row);
+    expect(document.activeElement, "the click should have focused the row").toBe(row);
+    // The regression this pins: the ring was driven by the `focused` prop, so a click left a blue
+    // rectangle on the row for good and the brand became the cursor (D-12).
+    expect(getComputedStyle(row).outlineStyle, `${mode}: a mouse click must not paint the focus ring`).toBe("none");
+
+    row.blur();
+    await userEvent.keyboard("{ArrowDown}");
+    row.focus();
+    const keyboard = getComputedStyle(row);
+    expect(keyboard.outlineStyle, `${mode}: keyboard focus must paint the ring`).toBe("solid");
+    expect(keyboard.outlineWidth).toBe("2px");
+    expect(keyboard.outlineOffset, "the ring clears the 2px selection rule").toBe("-4px");
+    expect(toHex(parseColor(keyboard.outlineColor))).toBe(PALETTES[mode].focusRing);
+    // Both marks show at once: the ink rule is not painted over.
+    expect(toHex(parseColor(keyboard.borderLeftColor))).toBe(PALETTES[mode].selectionRule);
+  });
+});

@@ -6,6 +6,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import appCss from "../../App.css?raw";
 import { BoardRow } from "../BoardRow";
 import type { BoardItem } from "../useBoardQuery";
 
@@ -51,12 +52,24 @@ describe("the task row's 2px selection rule (A-06)", () => {
     }
   });
 
-  it("keeps the keyboard-focus ring clear of the rule: inset past it, not over it", () => {
+  it("paints no focus ring from the `focused` prop: a pointer-driven selection shows only the rule", () => {
+    // `focused` is true after a mouse click too (selected + the list holds DOM focus). If the ring were
+    // an inline style driven by it, every click would leave a permanent blue rectangle and the brand
+    // would be the cursor (D-12). The ring belongs to :focus-visible in App.css, asserted below.
     render(<BoardRow item={ITEM} selected focused />);
     const row = screen.getByRole("listitem");
-    expect(row.style.outline).toContain("var(--focus-ring)");
+    expect(row.style.outline).toBe("");
+    expect(row.style.outlineOffset).toBe("");
+    expect(row.getAttribute("style")).not.toContain("--focus-ring");
+  });
+
+  it("draws the ring on :focus-visible only, inset past the 2px rule (-4, not -2)", () => {
+    const css = appCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    const rule = css.match(/\.board-row:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(rule, "App.css has no .board-row:focus-visible rule").toContain("var(--focus-ring)");
     // The ring is 2px wide; an offset of -2 would paint it exactly over the 2px rule.
-    expect(row.style.outlineOffset).toBe("-4px");
+    expect(rule).toMatch(/outline-offset:\s*-4px/);
+    expect(css).toMatch(/\.board-row[^{]*\{\s*outline:\s*none;?\s*\}/);
   });
 
   it("paints no per-status tint: the row's only background is the selection overlay", () => {
