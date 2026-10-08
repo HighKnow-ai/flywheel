@@ -337,3 +337,20 @@ At Phase 11, with an installed, usable build:
   needs: "An owner call: amend Row Anatomy so a zero count and 'No priority' render nothing (the count would then be absent exactly when the Done warning cannot fire, D-08), or keep them as the contract has them."
   automatable: "No. It is a design and contract decision. Once made, the edit and its tests are small."
 
+
+- id: D-REV-14
+  phase: "08.1 — Visual Polish (plan 15)"
+  truth: "The shipped impeccable-finish-reviewer, run once against the approved item-detail comp and 08.1-UI-SPEC.md for surface group two (the detail panel, the command palette, the five pickers), raises nothing material that is not fixed or recorded."
+  status: unreviewed
+  why_deferred: |
+    The plan 15 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
+    spawn the reviewer; the same limit as D-REV-11. It captured the group in WebKit in both schemes
+    and reviewed the captures itself, which is NOT the independent pass D-24 asks for. Captured in
+    .impeccable/review/ (gitignored): detail-group-built-{light,dark}-{panel,palette,picker}-1440x900.png
+    and the rendered HTML beside them (detail-group-built-*.html, detail-group-palette-*.html,
+    detail-group-picker-*.html). Regenerate with `npm run test:browser` and `npm run test:browser:dark`.
+    The panel capture is the component over the real task THRE-58's own criteria, activity and worktree
+    branch, with one FIXTURE running run (the real board has none), so the reviewer is comparing
+    against a component page, not the app shell (see D-REV-12 for the same gap on group one).
+  risk_if_wrong: "Moderate. The comp's property grid (Status, Priority, Estimate, Worktree, Changes as label/value rows) is not a feature of this panel: the panel has a Status control only, so a fidelity finding there would be a missing surface, not a finish edit."
+  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
