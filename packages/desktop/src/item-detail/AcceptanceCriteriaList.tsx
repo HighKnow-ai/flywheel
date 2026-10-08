@@ -22,6 +22,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as icons from "lucide-react";
 import { invokeCommand, type ReviewCriterionStateDto } from "../adapters/tauri";
 import { MARKS_BY_ID } from "../legend/marks";
+import "./item-detail.css";
 
 export type CriterionParentKind = "task" | "epic";
 
@@ -453,11 +454,9 @@ export function AcceptanceCriteriaList({
 
   return (
     <section aria-label="Acceptance criteria" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-          Acceptance criteria
-        </span>
-        <span className="type-label tabular-nums">
+      <header className="detail-section-head">
+        <span className="type-body detail-section-title">Acceptance criteria</span>
+        <span className="type-body tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
           {checkedCount}/{criteria.length}
         </span>
       </header>
@@ -466,9 +465,10 @@ export function AcceptanceCriteriaList({
         ref={listRef}
         role="list"
         aria-label="Criteria"
+        className="criteria-list"
         tabIndex={0}
         onKeyDown={handleListKeyDown}
-        style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}
+        style={{ display: "flex", flexDirection: "column" }}
       >
         {criteria.length === 0 && addStep === "idle" && (
           <p className="type-body" style={{ color: "var(--text-muted-rack)", margin: 0 }}>
@@ -484,6 +484,8 @@ export function AcceptanceCriteriaList({
             <div
               key={criterion.id}
               role="listitem"
+              className="criterion-row"
+              data-focused={focused ? "true" : undefined}
               aria-label={`${criterion.statement}, ${criterion.checked ? "checked" : "unchecked"}`}
               onClick={() => {
                 if (editing) return; // the edit inputs own clicks while active
@@ -494,10 +496,7 @@ export function AcceptanceCriteriaList({
                 display: "flex",
                 alignItems: "flex-start",
                 gap: "var(--space-sm)",
-                padding: "var(--space-xs) var(--space-sm)",
-                borderRadius: "var(--radius-chrome)",
-                outline: focused ? "2px solid var(--focus-ring)" : "none",
-                outlineOffset: -2,
+                padding: "var(--space-sm) var(--space-sm)",
                 cursor: editing ? "default" : "pointer",
               }}
             >
@@ -518,7 +517,7 @@ export function AcceptanceCriteriaList({
                     onKeyDown={handleEditKeyDown}
                     style={{
                       background: "transparent",
-                      border: "1px solid var(--divider)",
+                      border: "1px solid var(--border-control)",
                       borderRadius: "var(--radius-chrome)",
                       color: "inherit",
                       padding: "var(--space-xs) var(--space-sm)",
@@ -533,7 +532,7 @@ export function AcceptanceCriteriaList({
                     onKeyDown={handleEditKeyDown}
                     style={{
                       background: "transparent",
-                      border: "1px solid var(--divider)",
+                      border: "1px solid var(--border-control)",
                       borderRadius: "var(--radius-chrome)",
                       color: "inherit",
                       padding: "var(--space-xs) var(--space-sm)",
@@ -570,7 +569,7 @@ export function AcceptanceCriteriaList({
                   }}
                   style={{
                     background: "none",
-                    border: "1px solid var(--divider)",
+                    border: "1px solid var(--border-control)",
                     borderRadius: "var(--radius-chrome)",
                     flexShrink: 0,
                     cursor: "pointer",
@@ -617,7 +616,7 @@ export function AcceptanceCriteriaList({
             onKeyDown={handleStatementKeyDown}
             style={{
               background: "transparent",
-              border: "1px solid var(--divider)",
+              border: "1px solid var(--border-control)",
               borderRadius: "var(--radius-chrome)",
               color: "inherit",
               padding: "var(--space-xs) var(--space-sm)",
@@ -635,7 +634,7 @@ export function AcceptanceCriteriaList({
             onKeyDown={handleHintKeyDown}
             style={{
               background: "transparent",
-              border: "1px solid var(--divider)",
+              border: "1px solid var(--border-control)",
               borderRadius: "var(--radius-chrome)",
               color: "inherit",
               padding: "var(--space-xs) var(--space-sm)",

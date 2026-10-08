@@ -91,11 +91,10 @@ interface BannerState {
   error: string | null;
 }
 
+// The edge and radius come from the `control-edge` class (a 3:1 control boundary, never the divider).
 const bannerActionButtonStyle = {
   padding: "var(--space-xs) var(--space-md)",
-  borderRadius: "var(--radius-chrome)",
-  border: "1px solid var(--divider)",
-  background: "var(--surface-dominant)",
+  background: "transparent",
   color: "var(--text-primary-rack)",
   cursor: "pointer",
 } as const;
@@ -107,7 +106,7 @@ const bannerActionButtonStyle = {
  *
  * The two actions carry IDENTICAL visual treatment (same border/background/text colour) —
  * `03-UI-SPEC.md` is explicit this is a genuine either/or, not a safe-default/destructive pair, so
- * `Remove Record` deliberately does NOT reuse `WorktreeRemovalDialog.tsx`'s destructive-fill
+ * `Remove Record` deliberately does NOT reuse `WorktreeRemovalDialog.tsx`'s destructive
  * button style: nothing is destroyed on disk by it, and destructive weight would misreport what it
  * does.
  *
@@ -195,7 +194,7 @@ function MissingWorktreeBanner({ taskId, path }: { taskId: string; path?: string
           type="button"
           disabled={state.acting}
           onClick={() => void recreate()}
-          className="type-body"
+          className="type-body control-edge"
           style={{ ...bannerActionButtonStyle, opacity: state.acting ? 0.6 : 1 }}
         >
           Recreate Worktree
@@ -204,7 +203,7 @@ function MissingWorktreeBanner({ taskId, path }: { taskId: string; path?: string
           type="button"
           disabled={state.acting}
           onClick={() => void forgetRecord()}
-          className="type-body"
+          className="type-body control-edge"
           style={{ ...bannerActionButtonStyle, opacity: state.acting ? 0.6 : 1 }}
         >
           Remove Record

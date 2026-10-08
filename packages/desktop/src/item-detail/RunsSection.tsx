@@ -39,6 +39,7 @@ import {
 import { useAgentRuns, usePendingPermissionRequests, useTaskSessionSummaries } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
+import "./item-detail.css";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -278,6 +279,7 @@ function RunRow({
   return (
     <div
       role="listitem"
+      className="run-row"
       aria-label={identityLine}
       onClick={() => onOpenRun(run.id)}
       style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0, cursor: "pointer" }}
@@ -313,16 +315,8 @@ function RunRow({
               event.stopPropagation();
               onOpenRun(run.id);
             }}
-            className="type-body"
-            style={{
-              marginLeft: "auto",
-              background: "var(--accent-nontext)",
-              border: "none",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: "pointer",
-            }}
+            className="type-body control-edge detail-action"
+            style={{ marginLeft: "auto" }}
           >
             {isTerminal ? "View" : "Watch Live"}
           </button>
@@ -358,14 +352,9 @@ function RunRow({
                 event.stopPropagation();
                 void acknowledge();
               }}
-              className="type-body"
+              className="type-body control-edge detail-action"
               style={{
                 alignSelf: "flex-start",
-                background: "transparent",
-                border: "1px solid var(--divider)",
-                borderRadius: "var(--radius-chrome)",
-                color: "var(--text-primary-rack)",
-                padding: "var(--space-xs) var(--space-md)",
                 cursor: ackState.acting ? "default" : "pointer",
                 opacity: ackState.acting ? 0.6 : 1,
               }}
@@ -418,10 +407,8 @@ export function RunsSection({ taskId, onOpenRun }: RunsSectionProps) {
 
   return (
     <section aria-label="Runs" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", minWidth: 0 }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-          Runs
-        </span>
+      <header className="detail-section-head">
+        <span className="type-body detail-section-title">Runs</span>
       </header>
       <div
         role="list"

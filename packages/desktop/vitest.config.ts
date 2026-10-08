@@ -21,8 +21,10 @@ export default defineConfig({
     // would make every "declared with this value" assertion vacuous. `App.css` joined in 08.1-14's
     // finish pass: `board/__tests__/selection-rule.test.tsx` pins that the row's focus ring is a
     // :focus-visible rule there, and an empty `?raw` would make that assertion vacuous too.
+    // `item-detail/item-detail.css` joined in 08.1-15 for the same reason:
+    // `item-detail/__tests__/finish.test.tsx` pins the criteria list's :focus-visible ring.
     css: {
-      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/],
+      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/],
     },
   },
 });

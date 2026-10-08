@@ -35,6 +35,7 @@ import { ForgeSection } from "./ForgeSection";
 import { GitFactsSection } from "./GitFactsSection";
 import { RunsSection } from "./RunsSection";
 import { WorktreeSummary } from "./WorktreeSummary";
+import "./item-detail.css";
 
 export type DetailItemKind = "epic" | "task" | "issue";
 
@@ -147,7 +148,7 @@ export function ItemDetailPanel({
           aria-label={`${item.key} detail`}
           // `panel-slide-in` (motion.css): arrives from the trailing edge by transform only — width
           // is never animated, since board rows re-evaluate a container query on every width frame.
-          className="panel-slide-in"
+          className="panel-slide-in detail-panel"
           onKeyDown={handlePanelKeyDown}
           style={{
             width: 480,
@@ -157,9 +158,6 @@ export function ItemDetailPanel({
             flexDirection: "column",
             gap: "var(--space-md)",
             padding: "var(--space-lg)",
-            background: "var(--surface-secondary)",
-            color: "var(--text-primary-rack)",
-            borderLeft: "1px solid var(--divider)",
             overflowY: "auto",
           }}
         >
@@ -187,7 +185,7 @@ export function ItemDetailPanel({
             style={{
               background: "transparent",
               border: "none",
-              borderBottom: "1px solid var(--divider)",
+              borderBottom: "1px solid var(--border-control)",
               color: "inherit",
               padding: "var(--space-xs) 0",
             }}
@@ -208,11 +206,9 @@ export function ItemDetailPanel({
                   }
                   setStatusPickerOpen(true);
                 }}
-                className="type-body"
+                className="type-body control-edge"
                 style={{
-                  background: "var(--surface-dominant)",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
+                  background: "transparent",
                   color: "inherit",
                   padding: "var(--space-xs) var(--space-sm)",
                   cursor: "pointer",
@@ -234,62 +230,37 @@ export function ItemDetailPanel({
             </div>
           )}
 
-          {item.kind === "task" && (
-            <button
-              type="button"
-              onClick={onStartWork}
-              className="type-body"
-              style={{
-                alignSelf: "flex-start",
-                background: "var(--accent-nontext)",
-                border: "none",
-                borderRadius: "var(--radius-chrome)",
-                color: "var(--text-primary-rack)",
-                padding: "var(--space-xs) var(--space-md)",
-                cursor: "pointer",
-              }}
-            >
-              Start Work
-            </button>
-          )}
+          <div className="detail-actions">
+            {item.kind === "task" && (
+              <button
+                type="button"
+                onClick={onStartWork}
+                className="type-body control-edge detail-action"
+              >
+                Start Work
+              </button>
+            )}
 
-          {(item.kind === "task" || item.kind === "epic") && (
-            <button
-              type="button"
-              onClick={onReview}
-              className="type-body"
-              style={{
-                alignSelf: "flex-start",
-                background: "var(--accent-nontext)",
-                border: "none",
-                borderRadius: "var(--radius-chrome)",
-                color: "var(--text-primary-rack)",
-                padding: "var(--space-xs) var(--space-md)",
-                cursor: "pointer",
-              }}
-            >
-              Review
-            </button>
-          )}
+            {(item.kind === "task" || item.kind === "epic") && (
+              <button
+                type="button"
+                onClick={onReview}
+                className="type-body control-edge detail-action"
+              >
+                Review
+              </button>
+            )}
 
-          {item.kind === "epic" && (
-            <button
-              type="button"
-              onClick={onContinueShaping}
-              className="type-body"
-              style={{
-                alignSelf: "flex-start",
-                background: "var(--accent-nontext)",
-                border: "none",
-                borderRadius: "var(--radius-chrome)",
-                color: "var(--text-primary-rack)",
-                padding: "var(--space-xs) var(--space-md)",
-                cursor: "pointer",
-              }}
-            >
-              Continue Shaping
-            </button>
-          )}
+            {item.kind === "epic" && (
+              <button
+                type="button"
+                onClick={onContinueShaping}
+                className="type-body control-edge detail-action"
+              >
+                Continue Shaping
+              </button>
+            )}
+          </div>
 
           {!isIssue && (
             <AcceptanceCriteriaList

@@ -46,23 +46,24 @@ export function porcelainStatusWord(code: string): string {
   return PORCELAIN_STATUS_WORDS[code.charAt(0)] ?? PORCELAIN_FALLBACK_WORD;
 }
 
+// Both buttons take the `control-edge` class: a 3:1 `--border-control` edge and the chrome radius.
 const secondaryButtonStyle: React.CSSProperties = {
   padding: "var(--space-xs) var(--space-md)",
-  borderRadius: "var(--radius-chrome)",
-  border: "1px solid var(--divider)",
-  background: "var(--surface-dominant)",
+  background: "transparent",
   color: "var(--text-primary-rack)",
   cursor: "pointer",
 };
 
+// Destructive is drawn, not filled: the destructive hue is the TEXT and the edge, on the dialog's own
+// surface. The fill this replaced painted ink on `--destructive-strip` at 2.95:1 in light and 2.86:1 in
+// dark, both under the 4.5 text floor (the "6.3:1" the old comment claimed was the retired palette's),
+// on the one confirmation that must never be illegible. `--destructive-text-rack` on
+// `--surface-secondary` is asserted AA in both modes by `theme/__tests__/contrast.test.ts`.
 const destructiveButtonStyle: React.CSSProperties = {
   padding: "var(--space-xs) var(--space-md)",
-  borderRadius: "var(--radius-chrome)",
-  border: "1px solid var(--destructive-strip)",
-  background: "var(--destructive-strip)",
-  // `--text-primary-rack` measures 6.3:1 against `--destructive-strip`, well past AA — the same
-  // ratio note `DeleteConfirm.tsx`'s own "Delete" button carries.
-  color: "var(--text-primary-rack)",
+  borderColor: "var(--destructive-text-rack)",
+  background: "transparent",
+  color: "var(--destructive-text-rack)",
   cursor: "pointer",
 };
 
@@ -145,7 +146,7 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
             ref={cancelRef}
             type="button"
             onClick={onClose}
-            className="type-body"
+            className="type-body control-edge"
             style={secondaryButtonStyle}
           >
             OK
@@ -175,7 +176,7 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
             ref={cancelRef}
             type="button"
             onClick={onClose}
-            className="type-body"
+            className="type-body control-edge"
             style={secondaryButtonStyle}
           >
             Cancel
@@ -184,7 +185,7 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
             type="button"
             disabled={removeState.removing}
             onClick={() => void handleRemove()}
-            className="type-body"
+            className="type-body control-edge"
             style={{
               ...destructiveButtonStyle,
               opacity: removeState.removing ? 0.6 : 1,
@@ -250,7 +251,7 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
             ref={cancelRef}
             type="button"
             onClick={onClose}
-            className="type-body"
+            className="type-body control-edge"
             style={secondaryButtonStyle}
           >
             OK
@@ -289,7 +290,7 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: "rgba(0,0,0,0.45)",
+            background: "var(--scrim)",
           }}
         >
           <div
@@ -302,9 +303,9 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
               padding: "var(--space-lg)",
               background: "var(--surface-secondary)",
               color: "var(--text-primary-rack)",
-              border: "1px solid var(--divider)",
+              border: "1px solid var(--border-control)",
               borderRadius: "var(--radius-chrome)",
-              boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+              boxShadow: "var(--shadow-dialog)",
             }}
           >
             {body}

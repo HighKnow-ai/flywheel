@@ -21,6 +21,7 @@ import * as icons from "lucide-react";
 import { invokeCommand, subscribeBoardChanged } from "../adapters/tauri";
 import { actorTypeMarkId, MARKS_BY_ID } from "../legend/marks";
 import { useActors } from "../board/useBoardQuery";
+import "./item-detail.css";
 
 const PAGE_SIZE = 50;
 
@@ -116,10 +117,8 @@ export function ActivityTrail({ parentType, parentId }: ActivityTrailProps) {
 
   return (
     <section aria-label="Activity" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-          Activity
-        </span>
+      <header className="detail-section-head">
+        <span className="type-body detail-section-title">Activity</span>
       </header>
 
       {trailQuery.isPending && (
@@ -128,7 +127,7 @@ export function ActivityTrail({ parentType, parentId }: ActivityTrailProps) {
         </p>
       )}
 
-      <div role="list" aria-label="Activity trail" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+      <div role="list" aria-label="Activity trail" style={{ display: "flex", flexDirection: "column" }}>
         {newestFirst.map((event) => {
           const actor = actorsById.get(event.actorId);
           const badgeMark = MARKS_BY_ID[actorTypeMarkId(actor?.actorType ?? "human")];
@@ -137,24 +136,24 @@ export function ActivityTrail({ parentType, parentId }: ActivityTrailProps) {
             <div
               key={event.id}
               role="listitem"
-              style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-sm)" }}
+              className="activity-entry"
             >
-              <span
-                aria-hidden="true"
-                title={badgeMark?.label ?? "Unknown actor type"}
-                style={{ display: "inline-flex", flexShrink: 0, marginTop: 2, color: "var(--text-muted-rack)" }}
-              >
-                <Icon name={badgeMark?.glyph ?? "User"} />
-              </span>
-              <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                <span className="type-body">{event.description}</span>
-                <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
-                  {actor?.displayName ?? "Unknown actor"} · {badgeMark?.label ?? "Unknown"}
-                  {" · "}
-                  <time dateTime={event.occurredAt} title={absolute}>
-                    {relativeTime(event.occurredAt)}
-                  </time>
+              <span style={{ display: "flex", alignItems: "baseline", gap: "var(--space-sm)", minWidth: 0 }}>
+                <span
+                  aria-hidden="true"
+                  title={badgeMark?.label ?? "Unknown actor type"}
+                  style={{ display: "inline-flex", flexShrink: 0, alignSelf: "center", color: "var(--text-muted-rack)" }}
+                >
+                  <Icon name={badgeMark?.glyph ?? "User"} />
                 </span>
+                <span className="type-body">{event.description}</span>
+              </span>
+              <span className="type-label tabular-nums activity-meta">
+                {actor?.displayName ?? "Unknown actor"} · {badgeMark?.label ?? "Unknown"}
+                {" · "}
+                <time dateTime={event.occurredAt} title={absolute}>
+                  {relativeTime(event.occurredAt)}
+                </time>
               </span>
             </div>
           );
