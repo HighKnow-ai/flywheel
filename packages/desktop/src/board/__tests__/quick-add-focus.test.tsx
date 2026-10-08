@@ -51,6 +51,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
+  boardEpicProgress: (projectId: string) => invokeCommandMock("board_epic_progress", { projectId }),
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
@@ -678,5 +679,44 @@ describe("prohibition 2 and the preserved defaults", () => {
     const { container } = renderVolumeBoard();
     const ulidPattern = /\b[0-9A-HJKMNP-TV-Z]{26}\b/i;
     expect(container.textContent ?? "").not.toMatch(ulidPattern);
+  });
+});
+
+describe("quick-add on the epic lens, where the first group is not the backlog band", () => {
+  it("cmd_n_focuses_quick_add_from_deep_inside_an_expanded_epic", async () => {
+    // One epic holding the whole volume fixture, expanded. The quick-add row leads the rack here,
+    // so its index is not the backlog-leads-the-band-order position the status lens happens to use.
+    const epicTasks = buildVolumeItems().map((item) => ({ ...item, epicId: "epic-a" }));
+    useUiStore.getState().setGroupingKey("epic");
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve({ epics: [{ id: "epic-a", key: "FLY-1", title: "Alpha" }], total: 1, truncated: false });
+      }
+      if (command === "board_epic_progress") {
+        return Promise.resolve([
+          { epicId: "epic-a", byStatus: [], total: epicTasks.length, done: 0, agentsRunning: 0, agentsBlocked: 0, criteria: null },
+        ]);
+      }
+      if (command === "board_list") {
+        return Promise.resolve({ items: epicTasks, issues: [], counts: EMPTY_COUNTS });
+      }
+      return Promise.resolve(undefined);
+    });
+    renderVolumeBoard([]);
+
+    fireEvent.click(await screen.findByText("FLY-1 Alpha")); // expand the epic
+    await screen.findByText("Backlog task 0");
+
+    const container = boardContainer();
+    scrollTo(container, DEEP_SCROLL_OFFSET);
+    expect(screen.queryByPlaceholderText("Type a title, press Enter to create…")).not.toBeInTheDocument();
+    const scrollTopBefore = container.scrollTop;
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(container.scrollTop).toBeLessThan(scrollTopBefore);
   });
 });

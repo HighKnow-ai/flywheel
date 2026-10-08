@@ -26,6 +26,9 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
   boardEpicProgress: (projectId: string) => invokeCommandMock("board_epic_progress", { projectId }),
+  // `ItemDetailPanel`'s git section calls these directly, not through `invokeCommand`.
+  gitFacts: () => Promise.resolve(null),
+  gitTruthFocusTask: () => Promise.resolve(),
 }));
 
 const EMPTY_COUNTS: BandCounts = {
@@ -346,5 +349,68 @@ describe("the grouping lens (D-07, A-02)", () => {
 
     act(() => scrollBoardTo(screen.getByRole("list", { name: "Board" }), 1_000_000));
     expect(await screen.findByText(`Review task ${IN_REVIEW - 1}`)).toBeInTheDocument();
+  });
+});
+
+describe("rows keyed by identity (RESEARCH Pattern 8, Pitfall 10)", () => {
+  const ROWS: BoardItem[] = [
+    task("b1", "Backlog one", "backlog", null),
+    task("b2", "Backlog two", "backlog", null),
+    task("b3", "Backlog three", "backlog", null),
+    task("t1", "Todo task", "todo", null),
+  ];
+  const COUNTS = { ...EMPTY_COUNTS, backlog: 3, todo: 1 };
+
+  /** A row's positioned wrapper, found by its stable identity attribute, never by index. */
+  const todoRow = () => screen.getByText("Todo task").closest("[data-row-key]") as HTMLElement;
+
+  it("keeps a row's DOM node across a collapse of the group above it, so the row moves instead of swapping content", () => {
+    renderBoard(ROWS, COUNTS);
+
+    const before = todoRow();
+    const transformBefore = before.style.transform;
+    expect(before.getAttribute("data-row-key")).toBe("task:t1");
+
+    fireEvent.click(groupHeader(/^Backlog/));
+
+    expect(todoRow()).toBe(before);
+    expect(before.style.transform).not.toBe(transformBefore);
+  });
+
+  it("puts the displacement transition on every row kind, so headers below a collapse slide too", () => {
+    renderBoard(ROWS, COUNTS);
+
+    expect(todoRow()).toHaveClass("displace-transition");
+    expect(groupHeader(/^Todo/).closest("[data-row-key]")).toHaveClass("displace-transition");
+    expect(groupHeader(/^Todo/).closest("[data-row-key]")?.getAttribute("data-row-key")).toBe("band:todo");
+  });
+
+  it("keeps the selection on the intended row after a collapse removes the rows above it", () => {
+    renderBoard(ROWS, COUNTS);
+    act(() => useUiStore.getState().setSelectedItemId("t1"));
+    const before = todoRow();
+
+    fireEvent.click(groupHeader(/^Backlog/));
+
+    expect(todoRow()).toBe(before);
+    expect(within(todoRow()).getByRole("listitem")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Todo task")).toBeInTheDocument();
+  });
+
+  it("returns focus to the board after Escape closes the detail panel, even when a collapse reordered the indices", async () => {
+    renderBoard(ROWS, COUNTS);
+    const list = screen.getByRole("list", { name: "Board" });
+    act(() => list.focus());
+    act(() => {
+      useUiStore.getState().setSelectedItemId("t1");
+      useUiStore.getState().setDetailItemId("t1");
+    });
+    fireEvent.click(groupHeader(/^Backlog/));
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => expect(useUiStore.getState().detailItemId).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(list));
+    expect(useUiStore.getState().selectedItemId).toBe("t1");
   });
 });
