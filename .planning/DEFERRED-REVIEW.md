@@ -340,20 +340,21 @@ At Phase 11, with an installed, usable build:
 
 - id: D-REV-14
   phase: "08.1 — Visual Polish (plan 15)"
-  truth: "The shipped impeccable-finish-reviewer, run once against the approved item-detail comp and 08.1-UI-SPEC.md for surface group two (the detail panel, the command palette, the five pickers), raises nothing material that is not fixed or recorded."
-  status: unreviewed
+  truth: "The shipped impeccable-finish-reviewer, run against the approved item-detail comp and 08.1-UI-SPEC.md for surface group two (the detail panel, the command palette, the five pickers), raises nothing material that is not fixed or recorded."
+  status: "ran 2026-10-08, disposition fix, 8 material findings — each fixed, applied in part, or recorded (see the Finish-review closure in 08.1-15-SUMMARY.md). NOT re-reviewed: the fixes have had no second independent pass."
   why_deferred: |
-    The plan 15 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
-    spawn the reviewer; the same limit as D-REV-11. It captured the group in WebKit in both schemes
-    and reviewed the captures itself, which is NOT the independent pass D-24 asks for. Captured in
+    The gate RAN on 2026-10-08, spawned by the orchestrator (the plan 15 executor could not spawn it). It
+    returned `disposition: fix` with 8 material findings. All eight were applied or answered in the
+    "Finish-review closure" section of 08.1-15-SUMMARY.md (commits 5f3ae8b, a64c8ab, eb1a962); findings 4
+    and 5 were global dark-token fixes applied first. THE REVIEWER HAS NOT BEEN RE-RUN ON THE FIXES: what
+    is recorded is that the findings were addressed and tested, not that the fixed group passes the
+    reviewer. The same dark tokens are inherited by plans 17 to 19. Screenshots of the fixed group are in
     .impeccable/review/ (gitignored): detail-group-built-{light,dark}-{panel,palette,picker}-1440x900.png
-    and the rendered HTML beside them (detail-group-built-*.html, detail-group-palette-*.html,
-    detail-group-picker-*.html). Regenerate with `npm run test:browser` and `npm run test:browser:dark`.
-    The panel capture is the component over the real task THRE-58's own criteria, activity and worktree
-    branch, with one FIXTURE running run (the real board has none), so the reviewer is comparing
-    against a component page, not the app shell (see D-REV-12 for the same gap on group one).
-  risk_if_wrong: "Moderate. The comp's property grid (Status, Priority, Estimate, Worktree, Changes as label/value rows) is not a feature of this panel: the panel has a Status control only, so a fidelity finding there would be a missing surface, not a finish edit."
-  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
+    and the rendered HTML beside them; regenerate with `npm run test:browser` and
+    `npm run test:browser:dark`. The capture is a component page over the real THRE-58's data with one
+    FIXTURE run, not the app shell (see D-REV-12 for the same gap on group one).
+  risk_if_wrong: "Low to moderate. The property grid is restored only as far as data exists (Status, Priority, Estimate at the top; Worktree and Changes as rows in their own sections, not one grid); the comp's `THRE-10` parent key and the Worktree row inside one grid were not rebuilt. Other `ui-monospace` uses in the panel (git shas, forge CLI names, the run's session line) stay under the Phase 2 Mono contract."
+  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer again against those paths; it needs no human."
 
 - id: D-REV-15
   phase: "08.1 — Visual Polish (plan 16)"
