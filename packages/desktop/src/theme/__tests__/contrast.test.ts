@@ -57,21 +57,41 @@ const LEGACY_NAMES = [
   "--text-muted-strip", "--text-primary-rack", "--text-primary-strip",
 ];
 
-/** What in `palette` does not match the stylesheet. */
+const DARK_BLOCK_START = /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{/;
+
+/**
+ * The declarations of ONE mode's block: the root block for light (everything before the dark
+ * colour-scheme media query), the media block for dark (everything from it on). Comments are
+ * stripped first so prose in them is never read as a declaration. Matching a mode against only
+ * its own block is the point: with a property declared in both, a whole-file match passes
+ * whenever EITHER block carries the value (RESEARCH Pitfall 3).
+ */
+function declarations(mode: Mode, css: string): Map<string, string> {
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const at = source.search(DARK_BLOCK_START);
+  const block = mode === "dark" ? (at === -1 ? "" : source.slice(at)) : at === -1 ? source : source.slice(0, at);
+  return new Map(Array.from(block.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g), (m) => [m[1], m[2].trim()]));
+}
+
+/** What in the `mode` palette does not match that mode's block of the stylesheet. */
 function driftErrors(mode: Mode, css: string): string[] {
+  const declared = declarations(mode, css);
   const errors: string[] = [];
   for (const [key, value] of Object.entries(PALETTES[mode])) {
     const prop = toProp(key);
-    if (!new RegExp(`${escapeRe(prop)}:\\s*${escapeRe(value)}\\s*;`).test(css)) {
-      errors.push(`${mode}: expected "${prop}: ${value};" in styles/tokens.css`);
+    if (declared.get(prop) !== value) {
+      errors.push(`${mode}: expected "${prop}: ${value};" in its own block, found ${JSON.stringify(declared.get(prop) ?? null)}`);
     }
   }
   return errors;
 }
 
-/** Role-set parity across modes. RED stub: accepts anything, as the single-block world did. */
-function roleSetErrors(_palettes: Record<string, object>): string[] {
-  return [];
+/** Roles declared in one mode's palette and absent from another's. */
+function roleSetErrors(palettes: Record<string, object>): string[] {
+  const all = new Set(Object.values(palettes).flatMap((p) => Object.keys(p)));
+  return Object.entries(palettes).flatMap(([mode, p]) =>
+    [...all].filter((role) => !(role in p)).map((role) => `${mode} is missing role "${role}"`),
+  );
 }
 
 describe("relativeLuminance", () => {
@@ -197,8 +217,6 @@ describe("typed mirror drift", () => {
  * the whole file passes whenever EITHER block carries the mirrored value. These cases corrupt
  * the stylesheet's dark block alone and demand rejection, for every role.
  */
-const DARK_BLOCK_START = /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{/;
-
 /** `css` with one declaration inside the dark block rewritten (or removed when `value` is null). */
 function withDarkDeclaration(css: string, role: Role, value: string | null): string {
   const at = css.search(DARK_BLOCK_START);
