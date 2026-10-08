@@ -134,7 +134,7 @@ function Page() {
               </Sized>
               {epic.id === expanded.id && (
                 <>
-                  {["Should a filter chip persist when the owner switches project, or reset?", "Proposed task: debounce the chip toggles so one click is one query."].map((title, i) => (
+                  {["Should a filter chip persist when the owner switches project, or reset? [FIXTURE]", "Proposed task: debounce the chip toggles so one click is one query. [FIXTURE]"].map((title, i) => (
                     <Sized kind="challenge" key={title}>
                       <ChallengeRow proposal={proposal(`p${i}`, title, i === 0 ? "question" : "task")} epicLabel={`${epic.key} ${epic.title}`} />
                     </Sized>
@@ -224,6 +224,19 @@ describe(`board group one, built, ${scheme} scheme`, () => {
     for (const label of ["Projects", "Fleet", "Review queue"]) expect(root.textContent).toContain(label);
     expect(root.querySelectorAll(".epic-header-row").length).toBe(epics.length + 1);
     expect(root.querySelectorAll('[role="listitem"].board-row').length).toBeGreaterThan(10);
+    // 08.1-14 finish review, finding 7: a count is never clipped. Every distribution label, including the
+    // "No epic" bucket's three-digit one, shows all of its text (it wraps; it does not ellipsize).
+    const labels = Array.from(root.querySelectorAll<HTMLElement>('[data-slot="distribution-label"]'));
+    expect(labels.length).toBe(epics.length + 1);
+    for (const label of labels) {
+      expect(label.scrollWidth, `"${label.textContent}" is clipped`).toBeLessThanOrEqual(label.clientWidth);
+      expect(getComputedStyle(label).textOverflow, `"${label.textContent}" would ellipsize`).not.toBe("ellipsis");
+    }
+    // Finding 8: all three fixture kinds are tagged, the two challenge rows included.
+    for (const challenge of Array.from(root.querySelectorAll('[data-challenge-id]'))) {
+      expect(challenge.textContent, "a challenge row stands in for a fixture without saying so").toContain("[FIXTURE]");
+    }
+    expect(root.querySelectorAll('[data-challenge-id]').length).toBe(2);
 
     await page.screenshot({ path: `${OUT}/board-group-built-${scheme}-1440x900.png` });
     // The whole page, not only the first window of it: the roster, the status lens and the lane.

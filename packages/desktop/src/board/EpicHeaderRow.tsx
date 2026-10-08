@@ -250,7 +250,9 @@ export function EpicHeaderRow({
                 );
               })}
             </div>
-            <span className="type-label tabular-nums" style={{ ...truncate, color: "var(--text-muted-rack)" }}>
+            {/* Not truncated: this is a line of counts, and a clipped count ("186 o…") is the one thing a
+                counting surface cannot do. It wraps instead; the cell has the height for three lines. */}
+            <span data-slot="distribution-label" className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
               {`${counts.get("in_progress") ?? 0} active, ${counts.get("in_review") ?? 0} in review, ${total - done} open`}
             </span>
           </>
