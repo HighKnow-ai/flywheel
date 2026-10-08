@@ -52,6 +52,10 @@ pub struct BoardFilter {
     pub assignees: Option<Vec<AssigneeSelector>>,
     pub priorities: Option<Vec<i64>>,
     pub estimates: Option<Vec<i64>>,
+    /// D-17: restrict to rows that have an active worktree (08.1-AMENDMENTS.md A-04: an epic row
+    /// counts when any of its child tasks does). `false` is "this dimension is unfiltered" — there
+    /// is deliberately no "only rows WITHOUT a worktree" reading, because nothing asks for one.
+    pub has_worktree: bool,
 }
 
 /// The pre-serialised form of a `BoardFilter`, bound directly as named parameters
@@ -65,6 +69,8 @@ pub struct FilterBinding {
     pub assignee_json: Option<String>,
     pub priority_json: Option<String>,
     pub estimate_json: Option<String>,
+    /// `Some(1)` restricts to rows with an active worktree; `None` binds SQL `NULL` (unfiltered).
+    pub has_worktree: Option<i64>,
 }
 
 fn to_json<T: Serialize>(values: &[T]) -> String {
@@ -97,6 +103,7 @@ pub fn apply_filter(filter: &BoardFilter) -> FilterBinding {
         }),
         priority_json: filter.priorities.as_ref().map(|v| to_json(v)),
         estimate_json: filter.estimates.as_ref().map(|v| to_json(v)),
+        has_worktree: filter.has_worktree.then_some(1),
     }
 }
 
