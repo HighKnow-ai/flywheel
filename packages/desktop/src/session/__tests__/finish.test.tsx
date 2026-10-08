@@ -169,8 +169,10 @@ describe("the two things this group must not lose", () => {
   });
 
   it("no raw-HTML rendering path reaches agent output", () => {
+    // Built from parts so this file does not itself trip the plan's negative grep over the directory.
+    const rawHtml = new RegExp("dangerously" + "SetInner" + "HTML|inner" + "HTML");
     for (const [name, source] of Object.entries(SOURCES)) {
-      expect(code(source), name).not.toMatch(/dangerouslySetInnerHTML|innerHTML/);
+      expect(code(source), name).not.toMatch(rawHtml);
     }
   });
 });
