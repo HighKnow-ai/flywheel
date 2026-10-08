@@ -1,0 +1,20 @@
+{
+  "command": "npx vitest run src/theme/__tests__/motion.test.ts",
+  "exit_code": 1,
+  "failing_test": "declares each of the four with the value recorded in the typed export",
+  "target_test": "declares each of the four with the value recorded in the typed export",
+  "expected": "MOTION.durationPanel is a string like 220ms and --duration-panel is declared with that value",
+  "actual": "MOTION has no durationPanel; --duration-panel is not declared",
+  "verdict": "RED_EVIDENCE_OK",
+  "reason": "target_test_failed",
+  "failing_tests": [
+    "names four durations, one per motion the contract names",
+    "declares each of the four with the value recorded in the typed export",
+    "zeroes all four, and the two pre-existing ones, under reduced motion, with the blanket rule intact",
+    "fails a duration zeroed in the reduce block but absent from the normal block",
+    "agrees with the typed export in full, today"
+  ],
+  "tests": 9,
+  "pass": 4,
+  "fail": 5
+}

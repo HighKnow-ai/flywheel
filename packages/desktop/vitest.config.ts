@@ -15,10 +15,12 @@ export default defineConfig({
     // Vitest stubs `.css` imports to an empty module by default (perf optimisation — most tests
     // never need real stylesheet text). `theme/__tests__/contrast.test.ts`'s drift-check assertion
     // is the one test in this workspace that genuinely needs the real, shipped custom-property
-    // text (a `?raw` import of `styles/tokens.css`) rather than a stub, so this file alone opts
-    // back into real CSS processing.
+    // text (a `?raw` import of `styles/tokens.css`) rather than a stub, so these files alone opt
+    // back into real CSS processing. `styles/motion.css` joined in 08.1-13 for the same reason:
+    // `theme/__tests__/motion.test.ts` pins its durations, and a stubbed (empty) `?raw` import
+    // would make every "declared with this value" assertion vacuous.
     css: {
-      include: [/styles\/tokens\.css/],
+      include: [/styles\/tokens\.css/, /styles\/motion\.css/],
     },
   },
 });
