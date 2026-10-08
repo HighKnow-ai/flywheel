@@ -409,7 +409,7 @@ describe("epic roster liveness (board:changed)", () => {
   });
 });
 
-describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
+describe("FilterBar epic picker (01-18-PLAN.md Task 1, G-01-2; one disclosure since the 08.1-14 finish review)", () => {
   function renderFilterBar(projectId: string | undefined) {
     const queryClient = new QueryClient();
     return render(
@@ -453,7 +453,7 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
     renderFilterBar("proj-1");
 
     await screen.findByText(`${unordered[0].key} ${unordered[0].title}`);
-    const epicChips = document.getElementById("filter-epic");
+    const epicChips = document.getElementById("filter-epic-options");
     const labels = Array.from(epicChips?.querySelectorAll("button") ?? []).map((b) => b.textContent);
     expect(labels).toEqual([
       "No epic",
@@ -471,7 +471,7 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
     renderFilterBar("proj-1");
 
     await screen.findByText(`${THIRTEEN_EPICS[0].key} ${THIRTEEN_EPICS[0].title}`);
-    const epicChips = document.getElementById("filter-epic");
+    const epicChips = document.getElementById("filter-epic-options");
     const firstButton = epicChips?.querySelector("button");
     expect(firstButton?.textContent).toBe("No epic");
 
@@ -491,7 +491,7 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
     await waitFor(() => {
       expect(invokeCommandMock).toHaveBeenCalledWith("epic_list_all", { projectId: "proj-1" });
     });
-    const epicChips = document.getElementById("filter-epic");
+    const epicChips = document.getElementById("filter-epic-options");
     const buttons = Array.from(epicChips?.querySelectorAll("button") ?? []).map((b) => b.textContent);
     expect(buttons).toEqual(["No epic"]);
   });
@@ -508,6 +508,52 @@ describe("FilterBar epic chips (01-18-PLAN.md Task 1, G-01-2)", () => {
     expect(await screen.findByLabelText("Search items")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Backlog" })).toBeInTheDocument();
     expect(invokeCommandMock).not.toHaveBeenCalledWith("epic_list_all", expect.anything());
+  });
+
+  it("is one collapsed button by default: the epic chips are out of the accessibility tree until asked for", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster(THIRTEEN_EPICS));
+      return Promise.resolve(undefined);
+    });
+
+    renderFilterBar("proj-1");
+
+    await screen.findByText(`${THIRTEEN_EPICS[0].key} ${THIRTEEN_EPICS[0].title}`);
+    const trigger = screen.getByRole("button", { name: "Epic" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    // Thirteen epic chips plus "No epic" would be fourteen more bordered buttons in the bar.
+    expect(screen.queryByRole("button", { name: "No epic" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `${THIRTEEN_EPICS[0].key} ${THIRTEEN_EPICS[0].title}` })).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "No epic" })).toBeInTheDocument();
+    // The picker still lists EVERY epic in the project (G-01-2), not a subset.
+    for (const epic of THIRTEEN_EPICS) {
+      expect(screen.getByRole("button", { name: `${epic.key} ${epic.title}` })).toBeInTheDocument();
+    }
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "No epic" })).not.toBeInTheDocument();
+  });
+
+  it("says how many epics are selected on the collapsed button, so a hidden filter is never silent", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") return Promise.resolve(epicRoster(THIRTEEN_EPICS));
+      return Promise.resolve(undefined);
+    });
+
+    renderFilterBar("proj-1");
+
+    await screen.findByText(`${THIRTEEN_EPICS[0].key} ${THIRTEEN_EPICS[0].title}`);
+    act(() => {
+      useUiStore.getState().toggleEpic(THIRTEEN_EPICS[0].id);
+      useUiStore.getState().toggleEpic(null);
+    });
+    expect(screen.getByRole("button", { name: /^Epic \u00b7 2$/ })).toBeInTheDocument();
   });
 
   it("selecting an epic chip writes only to the filter draft", async () => {
