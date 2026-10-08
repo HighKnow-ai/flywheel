@@ -162,7 +162,7 @@
 
 
 - The legend's `meaning` strings are in a developer's voice. A published legend that the product treats as the contract for every mark still prints decision ids ("D-13", "D-46", "D-124"), and `recovery-needed` says it is "not a copy-paste slip, mirroring run-blocked/blocked-indicator's own shared-glyph precedent". 08.1-18 made the legend true (stale tints, the Dot clash, the accent claim, the selection rule, two missing roster marks) and swapped the em dashes the detector flagged for colons, but did not rewrite copy for a reader who has never seen the decision log: that is a copywriting pass, and the Copywriting Contract is authoritative.
-  status: open
+  status: resolved (08.1 finish-review closure, group five). Thirteen `meaning` strings were rewritten and `legend.test.tsx` now fails on any decision id, spec path, "precedent" or "copy-paste" in a mark's label or meaning.
   **Found during:** 08.1-18 (reading every `meaning` against what the product draws)
   **To fix:** one pass over `legend/marks.ts` that removes decision ids and design-history commentary from `meaning`, keeping what the mark MEANS to someone using the product. `legend.test.tsx` pins ids, glyphs and labels, not the prose, except `run-interrupted` ("normal", "stopped"), `proposal-pending`, `project-current`, `focus-ring` and the status meanings.
 
@@ -183,10 +183,34 @@
 
 - The real board's second project is `unreachable` and is a DUPLICATE registration: read off a copy of the fleet database, it has the same name (`threadfin`), the same key prefix (`THRE`) and the very same `repo_path` as the active project. The unreachable state's contract copy says Flywheel "expected threadfin at {path}, but the repository marker there no longer matches", and "Locate Project…" would open a folder picker to be pointed at the folder the active project already owns. The copy is fixed by the Copywriting Contract and a finish pass is not licence to rewrite it, so it is unchanged; it is accurate about what Flywheel found, but it does not help the user see that this entry is a stale twin.
   status: open
-  **Found during:** 08.1-19 (rendering the real unreachable state)
+  **PROGRESS (08.1 finish-review closure, group six):** the "Unreachable" eyebrow above the heading is deleted, and the real app is now proven (a rendered `App` test) to keep the project rail beside this surface, so the healthy project is one click away. "Remove Project" was DECLINED, not built: there is no removal command in the product (`project_register`, `project_list`, `project_reconcile`, `project_relocate` only), so a button would be a stub. It is a decision, below.
   **To fix:** an owner call and a contract change: either a second action or line for "this path already belongs to another project" (and, ideally, a way to remove the stale entry, which no surface offers today), or leave it. Also worth a board issue: how a second registration of the same path was ever accepted.
 
 - `FirstRun`'s confirm-the-key step does not focus its field when the folder picker returns, so the user must click into it or tab to the button. The field is the step's only input. It is a behaviour change, not a finish edit, and WebKit does not Tab to buttons by default (see `review/__tests__/browser/keyboard.browser.test.tsx`), so the first thing the user does after picking a folder is reach for the mouse.
   status: open
   **Found during:** 08.1-19
   **To fix:** `autoFocus` (or a ref and effect) on the prefix input when `pending` first becomes non-null, with a `FirstRun` test that the field holds focus; the ink ring is already in place for exactly that case.
+
+- **DECISION NEEDED: removing a project.** The unreachable surface offers only "Locate Project…", which has no answer for a repository deleted for good, and the stale twin above has no way out at all. The group-six finish reviewer asked for a secondary "Remove Project". It was not built because it is not a finish edit: it needs a core domain function, a Tauri command, an adapter wrapper, a confirmation, an event kind and a rail change, and first a choice. Option A, soft-hide: a `removed` status (`list_projects` filters it), nothing deleted, the marker file stays in the repository so re-registering the same folder re-adopts the project (D-15); cheap and reversible, but the project's epics, tasks, events and worktrees stay in the database. Option B, delete: cascade epics, tasks, criteria, events, runs and proposals; irreversible, needs the destructive confirmation the delete dialog models, and must say what happens to worktrees on disk and whether the key prefix is released. Leaning: A, because the event log is append-only by design and the marker makes re-adoption free.
+  status: open
+  **Found during:** 08.1-19 finish review
+  **To fix:** the owner picks A or B; then one plan: migration if any, `project_remove`, adapter, a `Remove Project` button on the plain control edge beside "Locate Project…" (never a second lead), a confirmation that names the project and its path, and a test that the rail drops it and a healthy project becomes current.
+
+- The review diff's tokenizer still runs although its colour is gone. 08.1's group-three closure deleted every `.token.*` rule (change is carried by the row tint and the gutter), so `highlight.ts`, the `refractor` grammars and the "Syntax highlighting skipped" notice now compute spans that nothing styles. It is harmless but it is dead weight: the `ReviewSurface` chunk is 160 kB.
+  status: open
+  **Found during:** 08.1 finish-review closure, group three
+  **To fix:** delete `highlight.ts`, drop the `tokens` prop and `markEdits` from `FileDiff.tsx`, remove the `refractor` dependency and the notice, and retire `highlight.test.ts` and the notice tests in `review-surface.test.tsx`, in one commit. Not done in the closure pass because the finding asked for the colour to go, not the machinery.
+
+- The placeholder role (`--text-placeholder`) reaches only `.session-field` (the composer and the launch sheet's two fields). `App.css` is not a group stylesheet, so the filter bar, quick add, the issues-lane input and the settings fields still show the engine's own placeholder grey (2.3:1 light, about 8.5:1 dark), i.e. the same unowned colour the finding was about.
+  status: open
+  **Found during:** 08.1 finish-review closure, group four
+  **To fix:** one `input::placeholder, textarea::placeholder { color: var(--text-placeholder) }` in `App.css` (plan 20 or the owner), and delete the group-scoped copy.
+
+- The feed's developer's-turn row is `--accent-text-rack` (brand), another instance of the open "brand text on run status, stage and speaker" call. The new developer's-turn capture shows it beside the agent's ink text.
+  status: open (folds into the existing owner question)
+  **Found during:** 08.1 finish-review closure, group four
+
+- `01-UI-SPEC.md`'s Copywriting Contract still gives the Done warning as "{checked}/{total} criteria unchecked. Mark Done anyway?". The product now prints "{key} · {n} of {total} criteria unchecked. Mark Done anyway?" at the group-six reviewer's instruction (the old line printed the checked count before the word "unchecked"). That document is deliberately unamended.
+  status: open
+  **Found during:** 08.1 finish-review closure, group six
+  **To fix:** an amendment line in `08.1-AMENDMENTS.md` (the finish reviewer proposed it, not the owner), or leave the contract text as history.
