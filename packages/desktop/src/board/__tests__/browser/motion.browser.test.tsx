@@ -179,9 +179,22 @@ describe(`motion, measured in WebKit, ${reduced ? "reduced-motion" : "default"} 
     expect(below.transitionProperty).toMatch(/transform/);
     expect(firstMs(below.transitionDuration)).toBe(reduced ? 0 : parseInt(MOTION.durationCollapse, 10));
 
-    const entering = getComputedStyle(wrapper("task:t-0")!);
-    expect(entering.animationName).toBe("row-enter");
-    expect(firstMs(entering.animationDuration)).toBe(reduced ? 0 : parseInt(MOTION.durationCollapse, 10));
+    // The new rows wipe in top-down, each taking an equal share of the collapse duration, so the
+    // whole group is revealed over exactly that duration (and over none of it under reduced motion).
+    const first = wrapper("task:t-0")!;
+    const last = wrapper("task:t-5")!;
+    const n = Number(first.style.getPropertyValue("--enter-n"));
+    expect(n, "the six task rows are the new rows").toBe(6);
+    expect(first.style.getPropertyValue("--enter-i")).toBe("0");
+    expect(last.style.getPropertyValue("--enter-i")).toBe("5");
+    const wholeGroup = reduced ? 0 : parseInt(MOTION.durationCollapse, 10);
+    for (const row of [first, last]) {
+      expect(getComputedStyle(row).animationName).toBe("row-enter");
+    }
+    expect(firstMs(getComputedStyle(first).animationDelay)).toBe(0);
+    const lastStyle = getComputedStyle(last);
+    expect(Math.abs(firstMs(lastStyle.animationDelay) + firstMs(lastStyle.animationDuration) - wholeGroup)).toBeLessThanOrEqual(1);
+    if (reduced) expect(firstMs(lastStyle.animationDelay), "no delay survives reduced motion").toBe(0);
   });
 
   it("actually moves the rows below, in the engine, when a group expands", async () => {

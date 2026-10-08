@@ -49,7 +49,14 @@ button:focus-visible {
  * overlay — the same `--row-surface-hover` token layered on top, rather than a second background
  * declaration fighting the inline one.
  */
-.board-row,
+.board-row {
+  /* The selection-move duration (08.1-UI-SPEC.md § Motion): moving selection or hover down the
+     rack changes exactly this wash, so this is where "you moved" is felt. */
+  transition:
+    box-shadow var(--duration-select, 120ms) var(--ease, ease),
+    background var(--duration-select, 120ms) var(--ease, ease);
+}
+
 .quick-add {
   transition:
     box-shadow var(--duration-settle, 180ms) var(--ease, ease),

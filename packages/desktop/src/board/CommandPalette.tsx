@@ -730,7 +730,9 @@ export function CommandPalette() {
         >
           <div
             ref={panelRef}
-            className="command-palette"
+            // `palette-settle` (motion.css): full opacity on the first frame, then an 8px
+            // transform-only settle. Mounts only while open, so there is no exit animation.
+            className="command-palette palette-settle"
             onKeyDown={handleKeyDown}
             style={{
               width: 560,

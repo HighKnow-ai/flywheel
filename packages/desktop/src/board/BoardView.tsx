@@ -214,6 +214,8 @@ function rosterEpicItem(id: string, key: string | undefined, title: string | und
  * index, so a row keeps its DOM node when a collapse shifts the rows around it. That is what lets
  * the rows below a collapse slide (the displacement transition) rather than swap content in place.
  */
+const NO_KEYS: ReadonlyMap<string, number> = new Map();
+
 function rackRowKey(row: RackRow): string {
   switch (row.kind) {
     case "band-header":
@@ -648,6 +650,28 @@ export function BoardView({
     return out;
   }, [groupingKey, groups, fetchedGroups, items, effectiveQuickAddOpen, pendingProposalsByEpicId]);
 
+  // Rows that are new to the rack since the last rows array, each with its order among them, so an
+  // expanding group reads as growing (`row-enter`, motion.css: a top-down wipe in which each row
+  // takes an equal share of the collapse duration). Derived from the rows array and not from what the virtualizer mounts:
+  // scrolling mounts rows that already existed and must not animate. The first populated rack and
+  // a rack that was empty animate nothing (the board loading is not a group opening).
+  // ponytail: a new row that is off-screen when its group opens plays the animation when it first
+  // scrolls into view, until the rows array next changes; harmless, and fixing it needs a timer.
+  const previousRowKeys = useRef<ReadonlySet<string>>(new Set());
+  const enteringRowKeys = useMemo(() => {
+    const previous = previousRowKeys.current;
+    if (previous.size === 0) return NO_KEYS;
+    const entering = new Map<string, number>();
+    for (const row of rows) {
+      const key = rackRowKey(row);
+      if (!previous.has(key)) entering.set(key, entering.size);
+    }
+    return entering;
+  }, [rows]);
+  useEffect(() => {
+    previousRowKeys.current = new Set(rows.map(rackRowKey));
+  }, [rows]);
+
   const selectableItems = useMemo(
     () => rows.filter((r): r is SelectableRow => r.kind === "task" || (r.kind === "epic-header" && r.item !== undefined)),
     [rows],
@@ -1011,7 +1035,9 @@ export function BoardView({
   const isEmptyWindow = items.length === 0 && issues.length === 0;
 
   return (
-    <div style={{ height: "100%", display: "flex" }}>
+    // `overflowX: clip`: the detail panel slides in from beyond the trailing edge (`panel-slide-in`,
+    // motion.css), and without this its off-screen start would flash a horizontal scrollbar.
+    <div style={{ height: "100%", display: "flex", overflowX: "clip" }}>
       <div style={{ flex: 1, minWidth: 0, position: "relative", display: "flex", flexDirection: "column" }}>
       <div
         role="group"
@@ -1099,6 +1125,8 @@ export function BoardView({
         <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = rows[virtualRow.index];
+            const enterOrder = enteringRowKeys.get(String(virtualRow.key));
+            const rowClass = enterOrder === undefined ? "displace-transition" : "displace-transition row-enter";
             const positionStyle: CSSProperties = {
               position: "absolute",
               top: 0,
@@ -1106,12 +1134,16 @@ export function BoardView({
               width: "100%",
               height: `${virtualRow.size}px`,
               transform: `translateY(${virtualRow.start}px)`,
+              ...(enterOrder === undefined
+                ? {}
+                : ({ "--enter-i": enterOrder, "--enter-n": enteringRowKeys.size } as CSSProperties)),
             };
+
 
             if (row.kind === "band-header") {
               const count = counts[BAND_COUNT_KEY[row.status]];
               return (
-                <div key={virtualRow.key} data-row-key={virtualRow.key} className="displace-transition" style={positionStyle}>
+                <div key={virtualRow.key} data-row-key={virtualRow.key} className={rowClass} style={positionStyle}>
                   <StatusBand
                     label={BAND_LABEL[row.status]}
                     count={count}
@@ -1128,7 +1160,7 @@ export function BoardView({
               const key = groupCollapseKey("epic", row.id);
               const epicItemId = row.item?.id;
               return (
-                <div key={virtualRow.key} data-row-key={virtualRow.key} className="displace-transition" style={positionStyle}>
+                <div key={virtualRow.key} data-row-key={virtualRow.key} className={rowClass} style={positionStyle}>
                   <EpicHeaderRow
                     epicId={row.id}
                     epicKey={row.epicKey}
@@ -1151,7 +1183,7 @@ export function BoardView({
 
             if (row.kind === "challenge") {
               return (
-                <div key={virtualRow.key} data-row-key={virtualRow.key} className="displace-transition" style={positionStyle}>
+                <div key={virtualRow.key} data-row-key={virtualRow.key} className={rowClass} style={positionStyle}>
                   <ChallengeRow proposal={row.proposal} epicLabel={row.epicLabel} />
                 </div>
               );
@@ -1159,7 +1191,7 @@ export function BoardView({
 
             if (row.kind === "quick-add") {
               return (
-                <div key={virtualRow.key} data-row-key={virtualRow.key} className="displace-transition" style={positionStyle}>
+                <div key={virtualRow.key} data-row-key={virtualRow.key} className={rowClass} style={positionStyle}>
                   <QuickAdd
                     // Mount-time focus is now the empty-board default only (G-01-4) — every
                     // on-demand open goes through `focusPending` below instead, since the row is
@@ -1195,7 +1227,7 @@ export function BoardView({
                 // `prefers-reduced-motion` zeroes `--duration-displace` (motion.css), so the
                 // state change still applies instantly rather than being removed.
                 data-row-key={virtualRow.key}
-                className="displace-transition"
+                className={rowClass}
                 style={positionStyle}
                 ref={(el) => {
                   if (el) rowElRefs.current.set(row.item.id, el);

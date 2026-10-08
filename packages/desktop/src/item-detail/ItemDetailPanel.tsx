@@ -145,6 +145,9 @@ export function ItemDetailPanel({
         <aside
           role="dialog"
           aria-label={`${item.key} detail`}
+          // `panel-slide-in` (motion.css): arrives from the trailing edge by transform only — width
+          // is never animated, since board rows re-evaluate a container query on every width frame.
+          className="panel-slide-in"
           onKeyDown={handlePanelKeyDown}
           style={{
             width: 480,

@@ -25,31 +25,64 @@
     color var(--duration-settle) var(--ease);
 }
 
+/**
+ * Row travel inside the one rack: a group expanding or collapsing, or a single row reordering,
+ * moves the rows below it. Plan 10 keyed rows by identity, so those rows keep their DOM nodes and
+ * this transition has something to move. It rides the group-collapse duration (08.1-13) — the
+ * contract names four motions and "rows travel" is the collapse motion, not a fifth.
+ * `--duration-displace` stays declared (it predates the phase) but nothing references it now.
+ */
 .displace-transition {
-  transition: transform var(--duration-displace) var(--ease);
+  transition: transform var(--duration-collapse) var(--ease);
 }
 
 /**
- * The running-session pulse (02-UI-SPEC.md "Motion Additions", plan 02-07 Task 3) — a slow,
- * subtle opacity pulse on the `Loader` glyph, the ONE place in this product a non-mechanical,
- * continuous animation is justified: it signals "a process is alive right now," not a state
- * change. `SessionSurface.tsx`'s own `usePrefersReducedMotion` check omits this class entirely
- * under reduced motion rather than relying on the blanket `animation-duration: 0s` rule below —
- * that rule alone would freeze the glyph at an arbitrary point in its cycle rather than at a
- * fully legible, static one.
+ * The three arrivals 08.1-UI-SPEC.md § Motion names. CSS only, never scripted: the blanket
+ * reduced-motion rule below collapses every one of them, including any declared inline. None of
+ * them touches opacity (the grammar is "a strip moves or it does not", never a fade) and none
+ * animates width or height (board rows declare a container query type; the rack's fixed-size
+ * virtualization has no per-row measurement to protect against a moving box).
  */
-@keyframes agent-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
+@keyframes panel-slide-in {
+  from {
+    transform: translateX(100%);
   }
 }
 
-.agent-pulse {
-  animation: agent-pulse 1.6s var(--ease) infinite;
+/* The item detail panel arrives from the trailing edge, a peer surface rather than a modal. */
+.panel-slide-in {
+  animation: panel-slide-in var(--duration-panel) var(--ease);
+}
+
+@keyframes palette-settle {
+  from {
+    transform: translateY(-8px);
+  }
+}
+
+/* The palette is at full opacity on its first frame and settles down 8px (the contract's cap). */
+.palette-settle {
+  animation: palette-settle var(--duration-palette) var(--ease);
+}
+
+@keyframes row-enter {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+}
+
+/**
+ * A row that is new to the rack reveals top-down as it arrives, so an expanding group reads as
+ * growing. BoardView numbers the new rows (`--enter-i` of `--enter-n`); each takes an equal share of
+ * the collapse duration, in order, so the group is revealed as one wipe. The rows below travel
+ * (`.displace-transition`) on the same duration, and the wipe front stays behind them: without the
+ * stagger every new row reveals at once while the row below is still travelling through it, and
+ * their text overprints for a couple of frames. Both the share and the delay derive from
+ * `--duration-collapse`, which the reduced-motion block zeroes, so no delay survives it.
+ */
+.row-enter {
+  animation: row-enter calc(var(--duration-collapse) / var(--enter-n, 1)) linear backwards;
+  animation-delay: calc(var(--duration-collapse) * var(--enter-i, 0) / var(--enter-n, 1));
 }
 
 @media (prefers-reduced-motion: reduce) {
