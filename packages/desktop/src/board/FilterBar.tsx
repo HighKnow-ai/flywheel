@@ -138,11 +138,11 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
           type="text"
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
-          placeholder="Search titles, bodies or a key like FLY-142…"
+          placeholder="Search title, body or key…"
           aria-label="Search items"
           aria-busy={isFetching}
           style={{
-            width: 320,
+            width: 240,
             padding: `var(--space-xs) ${isFetching ? "calc(var(--space-lg) + 4px)" : "var(--space-sm)"} var(--space-xs) calc(var(--space-lg) + 4px)`,
             background: "var(--surface-dominant)",
             color: "var(--text-primary-rack)",
