@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { TriageLane } from "../TriageLane";
 import { ROW_HEIGHT_BY_KIND } from "../BoardRow";
 import { resetUiState } from "../../state/uiStore";
 import { useCollapseStore } from "../collapseStore";
@@ -290,5 +291,114 @@ describe("challenge rows above the epic's tasks (D-08)", () => {
 
     await waitFor(() => expect(rackRow("challenge:p-1")).toBeNull());
     expect(rackRow("task:t-0")).toBeNull();
+  });
+});
+
+describe("answering a challenge where it is read (D-08)", () => {
+  const acceptCalls = () => invokeCommandMock.mock.calls.filter(([c]) => c === "authoring_proposal_accept");
+  const rejectCalls = () => invokeCommandMock.mock.calls.filter(([c]) => c === "authoring_proposal_reject");
+
+  async function challengeFor(title: string): Promise<HTMLElement> {
+    return (await screen.findByLabelText(new RegExp(`^Proposed task on FLY-1 Alpha: ${title}`))) as HTMLElement;
+  }
+
+  it("calls the existing accept mutation with the proposal id and nothing else", async () => {
+    world.proposals = [proposal("p-1", "Add a retry budget")];
+    world.tasks = [task("t-0", "Task 0")];
+    await renderExpandedAlpha();
+
+    fireEvent.click(within(await challengeFor("Add a retry budget")).getByRole("button", { name: /^Accept / }));
+
+    await waitFor(() => expect(acceptCalls()).toHaveLength(1));
+    expect(acceptCalls()[0]).toEqual(["authoring_proposal_accept", { proposalId: "p-1" }]);
+  });
+
+  it("shows the newly created task in the epic, and removes the accepted challenge, without a reload", async () => {
+    world.proposals = [proposal("p-1", "Add a retry budget")];
+    world.tasks = [task("t-0", "Task 0")];
+    await renderExpandedAlpha();
+
+    fireEvent.click(within(await challengeFor("Add a retry budget")).getByRole("button", { name: /^Accept / }));
+
+    await waitFor(() => expect(rackRow("task:new-p-1")).not.toBeNull());
+    expect(within(rackRow("task:new-p-1")!).getByText("Add a retry budget")).toBeInTheDocument();
+    await waitFor(() => expect(rackRow("challenge:p-1")).toBeNull());
+    expect(challengeKeys()).toEqual([]);
+    expect(rowKeys().indexOf("task:t-0")).toBeLessThan(rowKeys().indexOf("task:new-p-1"));
+  });
+
+  it("raises the epic's progress total by one, because the aggregate is invalidated too", async () => {
+    world.proposals = [proposal("p-1", "Add a retry budget")];
+    world.tasks = [task("t-0", "Task 0"), task("t-1", "Task 1"), task("t-2", "Task 2")];
+    const row = await renderExpandedAlpha();
+    await waitFor(() => expect(within(row).getByText("0 of 3")).toBeInTheDocument());
+    const aggregateCalls = () => invokeCommandMock.mock.calls.filter(([c]) => c === "board_epic_progress").length;
+    const before = aggregateCalls();
+
+    fireEvent.click(within(await challengeFor("Add a retry budget")).getByRole("button", { name: /^Accept / }));
+
+    await waitFor(() => expect(within(row).getByText("0 of 4")).toBeInTheDocument());
+    expect(aggregateCalls()).toBeGreaterThan(before);
+  });
+
+  it("calls the existing reject mutation and removes the row without creating a task", async () => {
+    world.proposals = [proposal("p-1", "Add a retry budget")];
+    world.tasks = [task("t-0", "Task 0")];
+    const row = await renderExpandedAlpha();
+    await waitFor(() => expect(within(row).getByText("0 of 1")).toBeInTheDocument());
+
+    fireEvent.click(within(await challengeFor("Add a retry budget")).getByRole("button", { name: /^Reject / }));
+
+    await waitFor(() => expect(rejectCalls()).toHaveLength(1));
+    expect(rejectCalls()[0]).toEqual(["authoring_proposal_reject", { proposalId: "p-1", reason: undefined }]);
+    await waitFor(() => expect(rackRow("challenge:p-1")).toBeNull());
+    expect(acceptCalls()).toHaveLength(0);
+    expect(rowKeys().filter((key) => key?.startsWith("task:"))).toEqual(["task:t-0"]);
+    expect(within(row).getByText("0 of 1")).toBeInTheDocument();
+  });
+
+  it("leaves the challenge on the board and surfaces the error when an accept fails", async () => {
+    world.proposals = [proposal("p-1", "Add a retry budget")];
+    world.tasks = [task("t-0", "Task 0")];
+    world.failAccept = true;
+    await renderExpandedAlpha();
+    const challenge = await challengeFor("Add a retry budget");
+
+    fireEvent.click(within(challenge).getByRole("button", { name: /^Accept / }));
+
+    expect(await within(challenge).findByRole("alert")).toHaveTextContent(/Could not accept/);
+    expect(acceptCalls()).toHaveLength(1);
+    expect(rackRow("challenge:p-1")).not.toBeNull();
+    expect(rowKeys().filter((key) => key?.startsWith("task:"))).toEqual(["task:t-0"]);
+    // Still decidable: the buttons come back, so the owner can retry or reject.
+    expect(within(challenge).getByRole("button", { name: /^Accept / })).toBeEnabled();
+  });
+
+  it("does not issue a second accept for two clicks in the same tick", async () => {
+    world.proposals = [proposal("p-1", "Add a retry budget")];
+    world.tasks = [task("t-0", "Task 0")];
+    await renderExpandedAlpha();
+    const accept = within(await challengeFor("Add a retry budget")).getByRole("button", { name: /^Accept / });
+
+    fireEvent.click(accept);
+    fireEvent.click(accept);
+
+    await waitFor(() => expect(acceptCalls()).toHaveLength(1));
+  });
+
+  it("leaves the triage lane working: it reads the same proposal and accepts through the same command", async () => {
+    world.proposals = [proposal("p-1", "Add a retry budget")];
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TriageLane projectId="proj-1" />
+      </QueryClientProvider>,
+    );
+
+    const lane = await screen.findByRole("region", { name: "Proposals" });
+    await waitFor(() => expect(within(lane).getByText("Add a retry budget")).toBeInTheDocument());
+    fireEvent.click(within(lane).getByRole("button", { name: "Accept" }));
+
+    await waitFor(() => expect(acceptCalls()).toHaveLength(1));
+    expect(acceptCalls()[0]).toEqual(["authoring_proposal_accept", { proposalId: "p-1" }]);
   });
 });
