@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "08.1"
 current_phase_name: "Visual polish: brand assets and confirmed motion (INSERTED)"
 status: executing
-stopped_at: Completed 08.1-10-PLAN.md
-last_updated: "2026-10-08T06:04:25.320Z"
+stopped_at: Completed 08.1-11-PLAN.md
+last_updated: "2026-10-08T06:41:38.019Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08.1 execution started
-state_head: 921da34e7efb31d9a701f1ed9cdc7dab19f7f3f6
+state_head: 58ffb2c9710bf3ad6996d704bf62e668d6892506
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 205
-  completed_plans: 195
+  completed_plans: 196
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
-Plan: 11 of 20
+Plan: 12 of 20
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08.1 execution started
 
@@ -257,6 +257,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08.1 P08 | 33 min | 3 tasks | 10 files |
 | Phase 08.1 P09 | 25 min | 3 tasks | 5 files |
 | Phase 08.1 P10 | 11 min | 3 tasks | 22 files |
+| Phase 08.1 P11 | 29 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -595,6 +596,8 @@ Recent decisions affecting current work:
 - [Phase 08.1]: A-06 (08.1-09): selection is a 2px neutral-ink left rule plus surface shift (D-12); a judgement that the side-border ban targets accent colours, NOT cleared by the detector; focused rule full ink, unfocused lighter (4.06/4.23 apart), built by plan 14
 - [Phase 08.1]: 08.1-10: group content for both lenses comes from the scoped board_list carrying the active filter and search; the board window only fills a group until its fetch lands
 - [Phase 08.1]: 08.1-10: grouping key defaults to epic; epics start collapsed, status bands start open; no keybinding for the toggle (A-02)
+- [Phase 08.1]: 08.1-11: change flags carry the task's epic id so the epic roll-up never depends on loaded rows — The 200-row window cannot supply the epic-to-task relationship; a roll-up over it would silently under-report live work
+- [Phase 08.1]: 08.1-11: a roster-built epic selection target refuses pickers and reordering; the detail panel hides Status when unknown — epic_list_all carries id, key and title only
 
 ### Pending Todos
 
@@ -656,6 +659,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-08T06:04:25.158Z
-Stopped at: Completed 08.1-10-PLAN.md
+Last session: 2026-10-08T06:41:37.851Z
+Stopped at: Completed 08.1-11-PLAN.md
 Resume file: None
