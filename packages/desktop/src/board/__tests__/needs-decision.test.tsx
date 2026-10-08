@@ -159,13 +159,14 @@ describe("ProjectRail second count badge (D-46)", () => {
     expect(screen.queryByTitle(/need.*a decision/)).not.toBeInTheDocument();
   });
 
-  it("renders two badges with different background colours when both counts are non-zero", async () => {
+  it("renders two figures in different data-channel colours when both counts are non-zero", async () => {
     renderRail(2, 3);
     const blockedBadge = await screen.findByTitle("2 tasks waiting on you");
     const recoveryBadge = await screen.findByTitle("3 tasks need a decision.");
     expect(blockedBadge).toBeInTheDocument();
     expect(recoveryBadge).toBeInTheDocument();
-    expect(getComputedStyle(blockedBadge).background).not.toBe(getComputedStyle(recoveryBadge).background);
+    // D-11: colour is a data channel, so the figures carry the colour and no fill (plan 08.1-14).
+    expect(getComputedStyle(blockedBadge).color).not.toBe(getComputedStyle(recoveryBadge).color);
   });
 
   it("renders the singular tooltip at exactly one task needing a decision", async () => {

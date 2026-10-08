@@ -51,10 +51,12 @@ function chipStyle(active: boolean): CSSProperties {
     display: "inline-flex",
     alignItems: "center",
     padding: "var(--space-xs) var(--space-sm)",
-    borderRadius: "var(--radius-chrome)",
-    border: `1px solid ${active ? "var(--accent-text-rack)" : "var(--divider)"}`,
+    // The edge comes from `.control-edge` (App.css: --border-control, 3:1) — never the 1.2:1
+    // hairline. A pressed chip is a CURRENT STATE, so it is marked neutrally like every other one
+    // (08.1-UI-SPEC § The brand rule): ink edge, ink text, semibold. The brand is not a state colour.
+    ...(active ? { border: "1px solid var(--text-primary-rack)", fontWeight: 600 } : {}),
     background: active ? "var(--surface-dominant)" : "var(--surface-secondary)",
-    color: active ? "var(--accent-text-rack)" : "var(--text-primary-rack)",
+    color: "var(--text-primary-rack)",
     cursor: "pointer",
     whiteSpace: "nowrap",
   };
@@ -106,7 +108,10 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
-        gap: "var(--space-sm)",
+        // Groups sit a step further apart than the chips inside a group, so the five dimensions read
+        // as five groups rather than one run of forty chips.
+        columnGap: "var(--space-md)",
+        rowGap: "var(--space-sm)",
         padding: "var(--space-sm) var(--space-md)",
         background: "var(--surface-secondary)",
         borderBottom: "1px solid var(--divider)",
@@ -126,7 +131,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
         />
         <input
           ref={inputRef}
-          className="type-body"
+          className="type-body control-edge"
           type="text"
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
@@ -136,8 +141,6 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
           style={{
             width: 320,
             padding: `var(--space-xs) ${isFetching ? "calc(var(--space-lg) + 4px)" : "var(--space-sm)"} var(--space-xs) calc(var(--space-lg) + 4px)`,
-            borderRadius: "var(--radius-chrome)",
-            border: "1px solid var(--divider)",
             background: "var(--surface-dominant)",
             color: "var(--text-primary-rack)",
           }}
@@ -153,7 +156,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
               width: 6,
               height: 6,
               borderRadius: "50%",
-              background: "var(--accent-text-rack)",
+              background: "var(--text-muted-rack)",
             }}
           />
         )}
@@ -170,7 +173,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
             <button
               key={mark.id}
               type="button"
-              className="type-label"
+              className="type-label control-edge"
               aria-pressed={selected}
               onClick={() => toggleStatus(value)}
               style={chipStyle(selected)}
@@ -189,7 +192,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
             <button
               key={mark.id}
               type="button"
-              className="type-label"
+              className="type-label control-edge"
               aria-pressed={selected}
               onClick={() => togglePriority(value)}
               style={chipStyle(selected)}
@@ -208,7 +211,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
             <button
               key={mark.id}
               type="button"
-              className="type-label"
+              className="type-label control-edge"
               aria-pressed={selected}
               onClick={() => toggleEstimate(value)}
               style={chipStyle(selected)}
@@ -225,7 +228,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
       <div id="filter-worktree" style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
         <button
           type="button"
-          className="type-label"
+          className="type-label control-edge"
           aria-pressed={filterDraft.hasWorktree}
           aria-label="Has worktree: only items with an active worktree, and epics with a task that has one"
           onClick={toggleHasWorktree}
@@ -239,7 +242,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
         <button
           key="no-epic"
           type="button"
-          className="type-label"
+          className="type-label control-edge"
           aria-pressed={filterDraft.epicIds.includes(null)}
           onClick={() => toggleEpic(null)}
           style={chipStyle(filterDraft.epicIds.includes(null))}
@@ -252,7 +255,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
             <button
               key={epicId}
               type="button"
-              className="type-label"
+              className="type-label control-edge"
               aria-pressed={selected}
               onClick={() => toggleEpic(epicId)}
               style={chipStyle(selected)}
@@ -267,7 +270,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
         <button
           key="unassigned"
           type="button"
-          className="type-label"
+          className="type-label control-edge"
           aria-pressed={filterDraft.assigneeIds.includes(null)}
           onClick={() => toggleAssignee(null)}
           style={chipStyle(filterDraft.assigneeIds.includes(null))}
@@ -280,7 +283,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
             <button
               key={actor.id}
               type="button"
-              className="type-label"
+              className="type-label control-edge"
               aria-pressed={selected}
               onClick={() => toggleAssignee(actor.id)}
               style={chipStyle(selected)}
@@ -294,15 +297,13 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
       {anyActive && (
         <button
           type="button"
-          className="type-label"
+          className="type-label control-edge"
           onClick={clearFilters}
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: "var(--space-xs)",
             padding: "var(--space-xs) var(--space-sm)",
-            borderRadius: "var(--radius-chrome)",
-            border: "1px solid var(--divider)",
             background: "transparent",
             color: "var(--text-primary-rack)",
             cursor: "pointer",

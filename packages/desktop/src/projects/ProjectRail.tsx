@@ -1,12 +1,18 @@
 /**
- * The persistent project switcher (01-UI-SPEC.md "Project switcher (left rail)"): rack chrome — a
- * narrow, receded rail on the left edge, present whenever ≥1 project is registered and absent
- * before the first registration (`App.tsx` renders `FirstRun` instead in that case; this
- * component never mounts with zero projects). Each entry shows the project's key prefix as its
- * glyph; hover/focus reveals the full name via the native title tooltip. The current project is
- * the ONE thing `accent` marks here — 01-UI-SPEC.md "Color & Token Roles" reserves it for exactly
- * one "loudest" element per view, and the current position in the rail is one of the few named
- * uses.
+ * The persistent project switcher (01-UI-SPEC.md "Project switcher (left rail)"), regrouped into
+ * three labelled sections (08.1 CONTEXT "Specific Ideas", adopted from the owner's reference):
+ * PROJECTS (the switcher itself, with its register affordance), FLEET (facts about the running
+ * fleet) and REVIEW QUEUE (what waits on the owner). Present whenever ≥1 project is registered and
+ * absent before the first registration (`App.tsx` renders `FirstRun` instead in that case; this
+ * component never mounts with zero projects). Each entry names the project and its key prefix.
+ * The current project is marked NEUTRALLY, by a surface shift (08.1-UI-SPEC.md § The brand rule,
+ * D-12): the brand carries progress, never the current position.
+ *
+ * FLEET and REVIEW QUEUE rows are READ-ONLY FACTS, not links. The comp's Mission Control, Agents,
+ * Worktrees, In review and Challenges rows imply destinations that do not exist, and a row that
+ * looks like a button and does nothing is worse than a plain number. "Challenges" is also
+ * deliberately absent: pending proposals never surface in this rail (D-46/D-82, pinned by
+ * `project-rail.test.tsx`'s source scan), so that comp row is not built.
  *
  * An unreachable project (D-16) renders a warning glyph *in addition to* its key glyph, plus the
  * literal word "Unreachable" — never a colour change alone (01-UI-SPEC.md "Accessibility").
@@ -32,15 +38,12 @@ import { useState, type CSSProperties } from "react";
 import { Plus, TriangleAlert } from "lucide-react";
 import logoUrl from "../assets/logo.svg";
 import type { Project } from "../board/useBoardQuery";
-import { useBlockedSummary, useRecoverySummary } from "../board/useBoardQuery";
+import { useBlockedSummary, useChangeFlags, useRecoverySummary } from "../board/useBoardQuery";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 
-// 01-UI-SPEC.md "Project switcher (left rail)": "collapsed width ~56–72px" — 72 (the upper
-// bound) is what gives the "Unreachable" label below an unreachable entry's icon enough measure
-// to wrap onto two short lines without touching the next entry (craft-floor "Type": run the real
-// copy and fix what overflows — a fixed 64px/40px square let that label overlap the entry below
-// it before this width/auto-height pass).
-const RAIL_WIDTH = 72;
+// The comp's rail is a labelled list, not an icon column (08.1-DIRECTION): wide enough for a project
+// name beside its key and for a section row's label beside its count.
+const RAIL_WIDTH = 184;
 const NOTICE_VISIBLE_MS = 4000;
 
 const railStyle: CSSProperties = {
@@ -48,44 +51,71 @@ const railStyle: CSSProperties = {
   flexShrink: 0,
   display: "flex",
   flexDirection: "column",
-  alignItems: "center",
-  gap: "var(--space-sm)",
-  padding: "var(--space-md) var(--space-xs)",
+  gap: "var(--space-lg)",
+  padding: "var(--space-md) var(--space-sm)",
   background: "var(--surface-secondary)",
   borderRight: "1px solid var(--divider)",
   height: "100%",
   overflowY: "auto",
 };
 
-const entryBaseStyle: CSSProperties = {
-  width: 60,
-  minHeight: 40,
-  borderRadius: "var(--radius-chrome)",
-  border: "1px solid var(--divider)",
-  background: "transparent",
-  color: "var(--text-primary-rack)",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 2,
-  cursor: "pointer",
-  position: "relative",
-  flexShrink: 0,
-  padding: "6px 2px",
+const sectionStyle: CSSProperties = { display: "flex", flexDirection: "column", gap: 2 };
+
+const sectionLabelStyle: CSSProperties = {
+  margin: 0,
+  padding: "0 var(--space-sm) var(--space-xs)",
+  fontWeight: 400,
+  fontStretch: "75%",
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+  color: "var(--text-muted-rack)",
 };
 
+// One row grammar for every entry in every section: 32px, the chrome radius, label left, a trailing
+// figure right. Rows are separated by space, not by rules or fills (D-10).
+const rowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "var(--space-sm)",
+  minHeight: 32,
+  padding: "var(--space-xs) var(--space-sm)",
+  borderRadius: "var(--radius-chrome)",
+  border: "none",
+  background: "transparent",
+  color: "var(--text-primary-rack)",
+  textAlign: "left",
+  position: "relative",
+};
+
+const entryStyle: CSSProperties = { ...rowStyle, width: "100%", cursor: "pointer" };
+
+// Neutral current-position mark, never the brand. The rail's own ground IS the selected-row surface
+// (both #f6f8fa / #0f0f0f), so shifting to that colour would draw nothing: the current entry lifts to
+// the page ground instead, with a hairline edge, and takes semibold. Not colour alone.
 const currentEntryStyle: CSSProperties = {
-  ...entryBaseStyle,
-  border: "1px solid var(--accent-nontext)",
-  color: "var(--accent-text-rack)",
-  background: "var(--row-surface-selected)",
+  ...entryStyle,
+  background: "var(--surface-dominant)",
+  boxShadow: "inset 0 0 0 1px var(--divider)",
+  fontWeight: 600,
 };
 
 export interface ProjectRailProps {
   projects: Project[];
   currentProjectId: string | undefined;
   onSelect: (project: Project) => void;
+}
+
+/** A labelled group of rows. `role="group"` named by its own label, so a screen reader hears the section. */
+function Section({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
+  return (
+    <div role="group" aria-labelledby={id} style={sectionStyle}>
+      <h2 id={id} className="type-label" style={sectionLabelStyle}>
+        {label}
+      </h2>
+      {children}
+    </div>
+  );
 }
 
 export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRailProps) {
@@ -121,6 +151,9 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   // exists to make at a glance.
   const recoverySummaryQuery = useRecoverySummary(currentProjectId);
   const recoveryCount = recoverySummaryQuery.data?.recoveryCount ?? 0;
+  // FLEET's worktree count: one change flag per task that has a worktree, the SAME query the board
+  // already holds (deduplicated by key). Absent until it lands — an unknown is not a zero.
+  const worktreeCount = useChangeFlags(currentProjectId).data?.length;
 
   if (projects.length === 0) {
     // Not present pre-first-registration — `App.tsx` renders `FirstRun` instead, but this guard
@@ -133,136 +166,118 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
       <img
         src={logoUrl}
         alt="Flywheel by HighKnow"
-        width={36}
-        height={36}
-        style={{ flexShrink: 0, marginBottom: "var(--space-sm)" }}
+        width={28}
+        height={28}
+        style={{ flexShrink: 0, margin: "0 var(--space-sm)" }}
       />
-      {projects.map((project) => {
-        const isCurrent = project.id === currentProjectId;
-        const isUnreachable = project.status === "unreachable";
-        return (
-          <button
-            key={project.id}
-            type="button"
-            title={project.name}
-            aria-label={isUnreachable ? `${project.name}, Unreachable` : project.name}
-            aria-current={isCurrent ? "true" : undefined}
-            onClick={() => onSelect(project)}
-            style={isCurrent ? currentEntryStyle : entryBaseStyle}
-          >
-            <span
-              className="type-label tabular-nums"
-              style={{ fontWeight: isCurrent ? 600 : 400, letterSpacing: "0.02em" }}
+      <Section id="rail-projects" label="Projects">
+        {projects.map((project) => {
+          const isCurrent = project.id === currentProjectId;
+          const isUnreachable = project.status === "unreachable";
+          return (
+            <button
+              key={project.id}
+              type="button"
+              className="type-body"
+              title={project.name}
+              aria-label={isUnreachable ? `${project.name}, Unreachable` : project.name}
+              aria-current={isCurrent ? "true" : undefined}
+              onClick={() => onSelect(project)}
+              style={{
+                ...(isCurrent ? currentEntryStyle : entryStyle),
+                color: isUnreachable ? "var(--text-muted-rack)" : "var(--text-primary-rack)",
+              }}
             >
-              {project.keyPrefix}
+              <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0, flex: 1 }}>
+                <span style={{ display: "flex", alignItems: "baseline", gap: "var(--space-xs)", minWidth: 0, maxWidth: "100%" }}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.name}</span>
+                  <span className="type-label tabular-nums" style={{ flexShrink: 0, color: "var(--text-muted-rack)" }}>
+                    {project.keyPrefix}
+                  </span>
+                </span>
+                {isUnreachable && (
+                  // The word AND a glyph, never a colour change alone (01-UI-SPEC.md "Accessibility").
+                  // Its own line, so the name is never truncated to make room for it.
+                  <span
+                    className="type-label"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--destructive-text-rack)" }}
+                  >
+                    <TriangleAlert size={12} strokeWidth={2} aria-hidden="true" />
+                    Unreachable
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          className="type-body"
+          aria-label="Register Project…"
+          title="Register Project…"
+          onClick={() => void registerProjectFlow()}
+          style={{ ...entryStyle, justifyContent: "flex-start", color: "var(--text-muted-rack)" }}
+        >
+          <Plus size={14} strokeWidth={2} aria-hidden="true" />
+          <span style={{ flex: 1 }}>Register Project…</span>
+        </button>
+      </Section>
+
+      <Section id="rail-fleet" label="Fleet">
+        {worktreeCount !== undefined && (
+          <div className="type-body" style={rowStyle}>
+            <span>Worktrees</span>
+            <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
+              {worktreeCount}
             </span>
-            {isCurrent && blockedCount > 0 && (
-              // A numeral, never a raw dot (D-37) — absent entirely at zero, never a visible "0".
-              <span
-                aria-hidden="true"
-                title={blockedCount === 1 ? "1 task waiting on you" : `${blockedCount} tasks waiting on you`}
-                className="type-micro tabular-nums"
-                style={{
-                  position: "absolute",
-                  top: -4,
-                  right: -4,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minWidth: 16,
-                  height: 16,
-                  padding: "0 3px",
-                  color: "var(--surface-dominant)",
-                  background: "var(--blocked-text-rack)",
-                  borderRadius: "50%",
-                  fontWeight: 600,
-                }}
-              >
-                {blockedCount}
-              </span>
-            )}
-            {isCurrent && recoveryCount > 0 && (
-              // A second, visually distinct badge (destructive-red family) — never merged with
-              // blockedCount above (D-46). Positioned at the opposite corner from the Blocked
-              // badge/Unreachable glyph so neither ever overlaps the other when both are present.
-              <span
-                aria-hidden="true"
-                title={
-                  recoveryCount === 1 ? "1 task needs a decision." : `${recoveryCount} tasks need a decision.`
-                }
-                className="type-micro tabular-nums"
-                style={{
-                  position: "absolute",
-                  bottom: -4,
-                  right: -4,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minWidth: 16,
-                  height: 16,
-                  padding: "0 3px",
-                  color: "var(--surface-dominant)",
-                  background: "var(--destructive-text-rack)",
-                  borderRadius: "50%",
-                  fontWeight: 600,
-                }}
-              >
-                {recoveryCount}
-              </span>
-            )}
-            {isUnreachable && (
-              <>
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    top: -4,
-                    right: -4,
-                    display: "flex",
-                    color: "var(--destructive-strip)",
-                    background: "var(--surface-secondary)",
-                    borderRadius: "50%",
-                  }}
-                >
-                  <TriangleAlert size={12} strokeWidth={2} />
-                </span>
-                <span
-                  className="type-micro"
-                  style={{
-                    color: "var(--destructive-strip)",
-                    lineHeight: 1.15,
-                    textAlign: "center",
-                    width: "100%",
-                    overflowWrap: "break-word",
-                  }}
-                >
-                  {/* A soft hyphen (U+00AD) at the syllable boundary — invisible to the
-                  accessible name (the button's own `aria-label` above already supplies the
-                  literal, unhyphenated word for assistive tech) and to sighted users unless the
-                  line actually breaks there — gives the ~60px column a clean two-line wrap
-                  instead of relying on browser auto-hyphenation, which headless/CI Chromium does
-                  not reliably support without a locale dictionary. */}
-                  Unreach&shy;able
-                </span>
-              </>
-            )}
-          </button>
-        );
-      })}
-      <button
-        type="button"
-        aria-label="Register Project…"
-        title="Register Project…"
-        onClick={() => void registerProjectFlow()}
-        style={entryBaseStyle}
-      >
-        <Plus size={18} strokeWidth={2} />
-      </button>
+          </div>
+        )}
+        {blockedCount > 0 && (
+          // A numeral, never a raw dot (D-37) — absent entirely at zero, never a visible "0". The
+          // blocked role is a data channel (D-11), so the figure takes the colour, not a fill.
+          <div className="type-body" style={rowStyle}>
+            <span>Blocked</span>
+            <span
+              aria-hidden="true"
+              title={blockedCount === 1 ? "1 task waiting on you" : `${blockedCount} tasks waiting on you`}
+              className="type-label tabular-nums"
+              style={{ color: "var(--blocked-text-rack)", fontWeight: 600 }}
+            >
+              {blockedCount}
+            </span>
+          </div>
+        )}
+      </Section>
+
+      <Section id="rail-review-queue" label="Review queue">
+        {recoveryCount > 0 ? (
+          // Never merged with the blocked count (D-46): different urgency, so a different row and a
+          // different data-channel role.
+          <div className="type-body" style={rowStyle}>
+            <span>Needs decision</span>
+            <span
+              aria-hidden="true"
+              title={
+                recoveryCount === 1 ? "1 task needs a decision." : `${recoveryCount} tasks need a decision.`
+              }
+              className="type-label tabular-nums"
+              style={{ color: "var(--destructive-text-rack)", fontWeight: 600 }}
+            >
+              {recoveryCount}
+            </span>
+          </div>
+        ) : (
+          <div className="type-body" style={{ ...rowStyle, color: "var(--text-muted-rack)" }}>
+            Nothing waiting
+          </div>
+        )}
+      </Section>
+
       {notice && (
         <div
           role="status"
-          className="type-micro"
-          style={{ color: "var(--text-muted-rack)", textAlign: "center", padding: "0 var(--space-xs)" }}
+          className="type-label"
+          style={{ color: "var(--text-muted-rack)", padding: "0 var(--space-sm)" }}
         >
           {notice}
         </div>
@@ -270,8 +285,8 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
       {registrationErrorNotice && (
         <div
           role="status"
-          className="type-micro"
-          style={{ color: "var(--destructive-strip)", textAlign: "center", padding: "0 var(--space-xs)" }}
+          className="type-label"
+          style={{ color: "var(--destructive-text-rack)", padding: "0 var(--space-sm)" }}
         >
           {registrationErrorNotice}
         </div>

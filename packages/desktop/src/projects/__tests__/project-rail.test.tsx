@@ -148,11 +148,14 @@ describe("project switching via the keyboard (⌘1-⌘9)", () => {
     render(<App />);
 
     // Defaults to the first registered project.
-    await screen.findByText("Alpha");
+    await screen.findAllByText("Alpha");
 
     fireEvent.keyDown(window, { key: "3", metaKey: true });
 
-    await waitFor(() => expect(screen.getByText("Charlie")).toBeInTheDocument());
-    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    // The rail now names every project, so the open board is read from the current-position mark.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Charlie" })).toHaveAttribute("aria-current", "true"),
+    );
+    expect(screen.getByRole("button", { name: "Alpha" })).not.toHaveAttribute("aria-current");
   });
 });

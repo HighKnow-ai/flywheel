@@ -62,7 +62,7 @@ export function QuickAdd({
   onCreate,
   placeholder = "Type a title, press Enter to create…",
   ariaLabel = "Quick add a task",
-  background = "var(--strip-backlog)",
+  background = "var(--surface-dominant)",
   autoFocus = false,
   focusPending = false,
   onFocusHandled,
@@ -121,20 +121,17 @@ export function QuickAdd({
     paddingLeft: indented ? "var(--space-xl)" : "var(--space-md)",
     background,
     borderBottom: "1px solid var(--divider)",
-    borderRadius: "var(--radius-strip)",
   };
 
   return (
     <div className="quick-add" style={rowStyle} data-row-height={ROW_HEIGHT_BY_KIND.task}>
       {indented && indentTarget && (
         <span
-          className="type-label"
+          className="type-label control-edge"
           style={{
             flexShrink: 0,
             marginRight: "var(--space-xs)",
             color: "var(--text-muted-strip)",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
             padding: "1px var(--space-xs)",
           }}
         >
@@ -142,11 +139,12 @@ export function QuickAdd({
         </span>
       )}
       <input
-        className="type-body"
+        // A text input: a visible 3:1 boundary and the chrome radius (08.1-UI-SPEC § Radius Language).
+        // The row around it is square and keeps only its hairline separator.
+        className="type-body control-edge"
         style={{
           width: "100%",
-          border: "none",
-          outline: "none",
+          padding: "2px var(--space-sm)",
           background: "transparent",
           color: "var(--text-primary-strip)",
         }}

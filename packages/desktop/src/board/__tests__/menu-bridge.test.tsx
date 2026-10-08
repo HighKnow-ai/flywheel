@@ -129,7 +129,8 @@ afterEach(() => {
  * `capturedMenuActionHandler` is populated before a test tries to call it. */
 async function renderApp() {
   render(<App />);
-  await screen.findByText("Flywheel");
+  // The project name is on screen twice since 08.1-14 (the rail row and the board's own heading).
+  await screen.findAllByText("Flywheel");
   await waitFor(() => expect(capturedMenuActionHandler).not.toBeNull());
 }
 
@@ -463,7 +464,7 @@ describe("useMenuLayerSync (G-01-1, Task 3)", () => {
 
     // Still mounted, still interactive — the rejected push degraded silently rather than
     // crashing the tree (a renderer with no native menu attached must still work).
-    expect(screen.getByText("Flywheel")).toBeInTheDocument();
+    expect(screen.getAllByText("Flywheel").length).toBeGreaterThan(0);
     expect(useUiStore.getState().detailItemId).toBe("1");
   });
 });
