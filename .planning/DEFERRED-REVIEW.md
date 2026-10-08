@@ -277,7 +277,19 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-11
   phase: "08.1 — Visual Polish (plan 14)"
   truth: "The shipped impeccable-finish-reviewer, run once against the approved comp and 08.1-UI-SPEC.md for surface group one (board and rail), raises nothing material that is not fixed or recorded."
-  status: open
+  status: "ran 2026-10-08, disposition fix, 8 material findings — each fixed, applied in part, or recorded (see update_08.1-14-closure). NOT re-reviewed: the fixes have had no second independent pass."
+  update_08.1-14-closure: |
+    The gate RAN. The independent reviewer returned `disposition: fix` with 8 material findings
+    against the board group as built (the component capture, not the app shell). The closure pass
+    is in 08.1-14-SUMMARY.md § Finish-review closure. Outcomes: 1 focus ring on click, FIXED;
+    2 brand fill on Accept, FIXED; 3 epic sub-label, FIXED (roster now carries status and branch);
+    4 selection weight, APPLIED AS FAR AS AA ALLOWS (the reviewer's 1.12 / 1.08 is not reachable,
+    ceiling 1.074 / 1.040, asserted in contrast.test.ts); 5 task tail, APPLIED IN PART (assignee
+    glyph; the criteria count and priority glyph are Phase 1 never-dropped fields, see D-REV-13);
+    6 filter bar, FIXED (one Epic button); 7 clipped No-epic count, FIXED; 8 FIXTURE tags, FIXED.
+    What this does NOT establish: that the fixed surface now passes the reviewer. It has not been
+    re-run. The orchestrator can spawn the reviewer again against the regenerated captures.
+    Also not reviewed, ever: the app shell (see D-REV-12).
   why_deferred: |
     The plan 14 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
     spawn the reviewer. It captured the surface (see below) and reviewed it itself against the
@@ -285,5 +297,43 @@ At Phase 11, with an installed, usable build:
     Captured, both schemes, in .impeccable/review/ (gitignored): board-group-built-{light,dark}-1440x900.png,
     board-group-built-{light,dark}-full.png and board-group-built-{light,dark}.html.
   risk_if_wrong: "Moderate. An independent reviewer may find fidelity gaps to the comp that the builder cannot see (the comp's lens toggle, the title block and the what-this-says paragraph are Phase 8.1 plan 10-11 surfaces and were not in this capture)."
-  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
+  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human. (Done once, 2026-10-08; a second pass over the fixes is the same call.)"
+
+- id: D-REV-12
+  phase: "08.1 — Visual Polish (plan 14 finish review)"
+  truth: "The board group, mounted inside the real app shell (App.tsx and BoardView, not a test page of components), matches the approved comp: the masthead, the threadfin / epics / tasks subhead, the Group by Epic / Status lens toggle, the summary line, and the filter bar in its real place above the rack."
+  status: unreviewed
+  why_deferred: |
+    BOTH built captures (board-group-built-{light,dark}-*.png) are the test-harness page
+    board/__tests__/browser/board-group.browser.test.tsx: the real rail, filter bar, epic header,
+    challenge, task, band, quick-add and issues-lane components, composed by hand over the real
+    board's exported data. They are not the app shell. So the independent reviewer could not see,
+    and nobody has visually checked: (1) the comp's masthead (a `Mission Control` heading and the
+    `threadfin . 13 epics . 906 tasks` subhead; the shipped source has no `Mission Control` heading
+    at all, so this may be a missing surface, not only an unreviewed one); (2) the Group by
+    Epic / Status lens toggle (A-02) as BoardView draws it; (3) BoardView's summary line;
+    (4) how the filter bar, toggle and summary stack above the rack at the real window size;
+    (5) the rack's own scroll container and virtualised rows (the capture lays rows out statically).
+    Mounting BoardView needs the Tauri bridge to answer board_list, the epic aggregate, the
+    proposal window and the forge flags with the real board's data and the three fixtures; the
+    capture's bridge answers five reads today.
+  risk_if_wrong: "Moderate. The group's parts were finished against the comp in isolation; the join between them (spacing between the toggle, the summary and the filter bar) and the masthead have never been compared to it."
+  automatable: "YES. Extend board-group.browser.test.tsx to mount BoardView (or App) over a fuller bridge, capture it, and send the capture to the finish reviewer. It needs no human; it needs the bridge widened."
+
+- id: D-REV-13
+  phase: "08.1 — Visual Polish (plan 14 finish review)"
+  truth: "A task row's tail should print nothing for a zero criteria count (0/0) or for no priority, as the finish reviewer asks, extending A-03's rule for the change cue."
+  status: needs-owner-decision
+  why_deferred: |
+    The reviewer found fourteen identical four-mark tails (estimate, assignee, 0/0, priority bars)
+    flattening the change cue. Plan 14's closure removed the unassigned glyph (not a contract field)
+    and stopped there. The other two are Phase 1 contract: 01-UI-SPEC § Row Anatomy lists the
+    priority glyph and the criteria checked/total as NEVER dropped at any supported width, and
+    D-08 keeps the count "visible wherever the item appears", with a State Inventory row
+    ("zero-one-many") naming it always visible. No 8.1 amendment lifts either, and A-03's rule
+    covers only the change cue. Printing nothing for them is therefore an amendment (an A-07), not
+    a finish edit.
+  risk_if_wrong: "Low. Cosmetic density, against a deliberate contract."
+  needs: "An owner call: amend Row Anatomy so a zero count and 'No priority' render nothing (the count would then be absent exactly when the Done warning cannot fire, D-08), or keep them as the contract has them."
+  automatable: "No. It is a design and contract decision. Once made, the edit and its tests are small."
 
