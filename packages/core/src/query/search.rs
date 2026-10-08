@@ -187,6 +187,7 @@ fn search_items_first_page(
                 ":assignee_json": binding.assignee_json,
                 ":priority_json": binding.priority_json,
                 ":estimate_json": binding.estimate_json,
+                ":has_worktree": binding.has_worktree,
                 ":limit": limit,
             },
             row_to_item,
@@ -233,6 +234,7 @@ fn search_items_next_page(
                 ":assignee_json": binding.assignee_json,
                 ":priority_json": binding.priority_json,
                 ":estimate_json": binding.estimate_json,
+                ":has_worktree": binding.has_worktree,
                 ":cursor_status": cursor.status_sort_key,
                 ":cursor_priority": cursor.priority_sort_key,
                 ":cursor_rank": &cursor.rank,
@@ -307,6 +309,7 @@ fn search_band_counts(
             ":assignee_json": binding.assignee_json,
             ":priority_json": binding.priority_json,
             ":estimate_json": binding.estimate_json,
+            ":has_worktree": binding.has_worktree,
         },
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
     )?;

@@ -385,6 +385,9 @@ fn has_worktree_composes_with_the_other_dimensions() {
     assert!(window.items.is_empty() && window.counts.total() == 0, "status AND has_worktree both apply");
 }
 
+/// A named parameter the statement declares but the call never binds is SQL `NULL` in rusqlite —
+/// it does NOT error. A missed bind site therefore silently means "unfiltered", which is why each
+/// of the six sites is asserted against the EXACT matching set rather than "it did not error".
 #[test]
 fn has_worktree_is_bound_at_all_six_named_parameter_sites() {
     let b = WtBoard::new();
@@ -393,21 +396,25 @@ fn has_worktree_is_bound_at_all_six_named_parameter_sites() {
         HashSet::from([b.epic_live.clone(), b.live_task.clone(), b.orphan_live.clone()]);
 
     // list x3: first page, cursored next page, band counts.
+    let all = list_board(&b.conn, &b.project_id, &f, 200, None).unwrap();
+    assert_eq!(ids(&all), want, "list first page binds the dimension");
+    assert_eq!(all.counts.total(), 3, "list band counts bind the dimension");
     let first = list_board(&b.conn, &b.project_id, &f, 1, None).unwrap();
     assert_eq!(first.items.len(), 1);
     let second = list_board(&b.conn, &b.project_id, &f, 200, Some(&cursor_after(&first))).unwrap();
     let mut seen = ids(&first);
     seen.extend(ids(&second));
-    assert_eq!(seen, want, "list: first page + cursored page cover exactly the matches");
-    assert_eq!(first.counts.total(), 3, "list: band counts bind the dimension");
+    assert_eq!(seen, want, "list cursored page binds the dimension");
 
     // search x3: first page, cursored next page, band counts.
+    let s_all = search_items(&b.conn, &b.project_id, "probe", &f, 200, None).unwrap();
+    assert_eq!(ids(&s_all), want, "search first page binds the dimension");
+    assert_eq!(s_all.counts.total(), 3, "search band counts bind the dimension");
     let s_first = search_items(&b.conn, &b.project_id, "probe", &f, 1, None).unwrap();
     assert_eq!(s_first.items.len(), 1);
     let s_second =
         search_items(&b.conn, &b.project_id, "probe", &f, 200, Some(&cursor_after(&s_first))).unwrap();
     let mut s_seen = ids(&s_first);
     s_seen.extend(ids(&s_second));
-    assert_eq!(s_seen, want, "search: first page + cursored page cover exactly the matches");
-    assert_eq!(s_first.counts.total(), 3, "search: band counts bind the dimension");
+    assert_eq!(s_seen, want, "search cursored page binds the dimension");
 }

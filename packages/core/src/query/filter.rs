@@ -59,7 +59,8 @@ pub struct BoardFilter {
 }
 
 /// The pre-serialised form of a `BoardFilter`, bound directly as named parameters
-/// (`:status_json`, `:epic_json`, `:assignee_json`, `:priority_json`, `:estimate_json`) into
+/// (`:status_json`, `:epic_json`, `:assignee_json`, `:priority_json`, `:estimate_json`,
+/// `:has_worktree`) into
 /// every query in this crate that includes `FILTER_WHERE`. `None` binds SQL `NULL` ("this
 /// dimension is unfiltered"); `Some(json)` binds the dimension's value set as a JSON array.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -118,4 +119,14 @@ pub const FILTER_WHERE: &str = concat!(
     " AND (:assignee_json IS NULL OR COALESCE(b.assignee_id, '') IN (SELECT value FROM json_each(:assignee_json)))",
     " AND (:priority_json IS NULL OR b.priority IN (SELECT value FROM json_each(:priority_json)))",
     " AND (:estimate_json IS NULL OR COALESCE(b.estimate, 0) IN (SELECT value FROM json_each(:estimate_json)))",
+    // D-17 / A-04. A task matches on its own active worktree (`worktrees.task_id` is UNIQUE, so
+    // that probe is an index seek). An epic can never own a worktree, so it matches when ANY
+    // child task has one. Keyed on `b.kind`, never on `b.epic_id`: an epic row's own `epic_id`
+    // is NULL, so it sits in the no-epic bucket. `wt.project_id` lets the child probe use the
+    // `(project_id, epic_id)` index on `tasks`.
+    " AND (:has_worktree IS NULL OR CASE b.kind",
+    "   WHEN 'epic' THEN EXISTS (SELECT 1 FROM tasks wt JOIN worktrees w ON w.task_id = wt.id",
+    "     WHERE wt.project_id = :project_id AND wt.epic_id = b.id AND w.status = 'active')",
+    "   ELSE EXISTS (SELECT 1 FROM worktrees w WHERE w.task_id = b.id AND w.status = 'active')",
+    " END)",
 );

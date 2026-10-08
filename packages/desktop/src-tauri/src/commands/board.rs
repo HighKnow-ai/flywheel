@@ -137,6 +137,10 @@ pub struct BoardFilterInput {
     pub assignee_ids: Option<Vec<Option<String>>>,
     pub priorities: Option<Vec<i64>>,
     pub estimates: Option<Vec<i64>>,
+    /// D-17: `Some(true)` restricts to rows with an active worktree (epics: any child task does,
+    /// amendment A-04). Absent and `Some(false)` both mean "unfiltered" — there is no "only rows
+    /// without a worktree" reading.
+    pub has_worktree: Option<bool>,
 }
 
 impl From<BoardFilterInput> for flywheel_core::query::filter::BoardFilter {
@@ -162,6 +166,7 @@ impl From<BoardFilterInput> for flywheel_core::query::filter::BoardFilter {
             }),
             priorities: input.priorities,
             estimates: input.estimates,
+            has_worktree: input.has_worktree.unwrap_or(false),
         }
     }
 }
