@@ -247,6 +247,20 @@ context to be answerable months later by someone who was not in the room:
   risk_if_wrong: "Moderate on the focus half — an accessibility obligation, and the reason it was fixed in-phase rather than queued. Low on the glyph half: cosmetic, and swapping a registry glyph is a one-line change."
   automatable: "MOSTLY. Ratio and computed-colour assertions: YES, specified for plan 14 (contrast.test.ts plus a BoardRow test). A WebKit painted-colour assertion that the focused and unfocused rule differ: YES, one test. Only 'does the Dot read at 12px' is human aesthetic judgment."
 
+- id: D-REV-10
+  phase: "08.1 — Visual Polish (plan 12)"
+  truth: "On the installed app, an expanded epic with an agent's challenge reads as the challenge first and the tasks after, the 48px row is legible (type label, title, Accept, Reject, and an error when a decision fails), and accepting one makes the task appear and the epic's total move."
+  status: open
+  why_deferred: |
+    Plan 12 built the challenge row and its accept and reject, and proved order, height, the
+    single rack, the existing mutation call, the board:changed refresh and the failed-accept
+    path in jsdom against a fake core. The real board has ZERO proposals (authoring_proposals
+    is empty), so nothing on it today renders a challenge row. The fake core's board:changed push
+    stands in for the Rust command's own emit (commands/authoring.rs), which is not re-proved by
+    this plan. How the row looks at 48px, with an error beside two buttons, is aesthetic.
+  risk_if_wrong: "Low to moderate. A cramped row or an error that squeezes the title is cosmetic; the accept path itself is the tray's own and is unchanged."
+  automatable: "MOSTLY. The visible-text and overflow checks (title truncates, buttons stay inside 48px) are one WebKit layout test once a proposal is staged: YES. A live accept against the real core needs a staged proposal, which Phase 11's drain can create: YES. Only 'does it read well' is human."
+
 ## Redemption protocol
 
 At Phase 11, with an installed, usable build:
