@@ -82,8 +82,21 @@ import {
 } from "../legend/marks";
 import type { Actor, BoardItem, EpicSummary } from "./useBoardQuery";
 
-/** The one constant row height every board row uses — see BoardView.tsx's virtualizer. */
-export const ROW_HEIGHT = 40;
+/** The four row kinds the rack renders (08.1 amendment A-03). */
+export type RowKind = "epic-header" | "challenge" | "task" | "band-header";
+
+/**
+ * Row height by row kind (A-03, D-13) — the rack's one source of row heights. The virtualizer's
+ * size function is a lookup into this table and nothing else: no per-row measurement, so the
+ * Performance Contract's fixed-size clause survives the nested model. Tests import this table
+ * rather than re-declaring a height.
+ */
+export const ROW_HEIGHT_BY_KIND: Record<RowKind, number> = {
+  "epic-header": 64,
+  challenge: 48,
+  task: 32,
+  "band-header": 28,
+};
 
 const STRIP_BACKGROUND: Record<string, string> = {
   backlog: "var(--strip-backlog)",

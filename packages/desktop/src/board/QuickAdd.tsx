@@ -9,7 +9,7 @@
  * it always has — this row never nests an issue under anything at creation time.
  */
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { ROW_HEIGHT } from "./BoardRow";
+import { ROW_HEIGHT_BY_KIND } from "./BoardRow";
 
 /** The epic (or, for a future nesting target, any item) a nested quick-add row would create
  * under — just enough to render the indent chip, never a full `BoardItem`. */
@@ -125,7 +125,7 @@ export function QuickAdd({
   };
 
   return (
-    <div className="quick-add" style={rowStyle} data-row-height={ROW_HEIGHT}>
+    <div className="quick-add" style={rowStyle} data-row-height={ROW_HEIGHT_BY_KIND.task}>
       {indented && indentTarget && (
         <span
           className="type-label"

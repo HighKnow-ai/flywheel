@@ -4,9 +4,9 @@
  * rack, grouped into bands, sticky stamped band headers carrying their counts, with the
  * workflow-less Issues lane rendered beneath them (D-07).
  *
- * Virtualization uses a single constant `estimateSize` (no `measureElement`) and overscan 8-12
- * rows (01-UI-SPEC.md "Performance Contract"). Band headers share the same fixed row height as
- * item rows so the whole rack stays one uniform virtualized list — no per-row height branching.
+ * Virtualization uses an O(1) `estimateSize` lookup on row kind (`ROW_HEIGHT_BY_KIND`, 08.1
+ * amendment A-03) — no `measureElement`, no per-row measurement — and overscan 8-12 rows
+ * (01-UI-SPEC.md "Performance Contract", restated in 08.1-UI-SPEC.md).
  *
  * Owns roving-focus keyboard selection over the list (01-UI-SPEC.md "Keyboard Map" — `j`/`k`,
  * Home/End, Enter/`o` to open detail, `s` to open the status picker) and the item detail panel /
@@ -35,7 +35,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { BoardRow, ROW_HEIGHT } from "./BoardRow";
+import { BoardRow, ROW_HEIGHT_BY_KIND, type RowKind } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
 import { IssuesLane } from "./IssuesLane";
 import { TriageLane } from "./TriageLane";
@@ -84,7 +84,7 @@ import {
 } from "./useBoardQuery";
 import type { Actor, BandCounts, BoardItem, BoardItemKind, EpicSummary, IssueItem } from "./useBoardQuery";
 
-const BAND_ORDER = ["backlog", "todo", "in_progress", "in_review", "done"] as const;
+export const BAND_ORDER = ["backlog", "todo", "in_progress", "in_review", "done"] as const;
 type BandStatus = (typeof BAND_ORDER)[number];
 
 const EMPTY_COLLAPSE: Record<string, boolean> = {};
@@ -106,9 +106,20 @@ const BAND_COUNT_KEY: Record<BandStatus, keyof BandCounts> = {
 };
 
 type RackRow =
-  | { kind: "header"; status: BandStatus }
+  | { kind: "band-header"; status: BandStatus }
   | { kind: "quick-add" }
-  | { kind: "item"; item: BoardItem; posInSet: number };
+  | { kind: "task"; item: BoardItem; posInSet: number };
+
+/** Mirrors the virtualizer's `overscan` below; exported so the volume fixture imports it. */
+export const RACK_OVERSCAN = 10;
+
+/**
+ * The virtualizer's size function (D-13, A-03): an O(1) lookup on row kind. No DOM read, no
+ * per-row measurement. The quick-add row is a text-entry row the height of a task.
+ */
+export function rackRowHeight(row: { kind: RowKind | "quick-add" }): number {
+  return ROW_HEIGHT_BY_KIND[row.kind === "quick-add" ? "task" : row.kind];
+}
 
 /** `Epic`/`Task`/`Issue` — the exact wording `DeleteConfirm`'s heading (Copywriting Contract)
  * requires, derived from a `BoardItemKind` rather than hand-typed at each call site. */
@@ -399,29 +410,29 @@ export function BoardView({
 
     const out: RackRow[] = [];
     for (const status of BAND_ORDER) {
-      out.push({ kind: "header", status });
+      out.push({ kind: "band-header", status });
       if (collapsedByStatus[status]) continue;
       // Quick-add lives at the top of Backlog — the band new work always enters (D-09).
       if (status === "backlog" && effectiveQuickAddOpen) {
         out.push({ kind: "quick-add" });
       }
       (byStatus.get(status) ?? []).forEach((item, index) => {
-        out.push({ kind: "item", item, posInSet: index + 1 });
+        out.push({ kind: "task", item, posInSet: index + 1 });
       });
     }
     return out;
   }, [items, collapsedByStatus, effectiveQuickAddOpen]);
 
   const selectableItems = useMemo(
-    () => rows.filter((r): r is { kind: "item"; item: BoardItem; posInSet: number } => r.kind === "item"),
+    () => rows.filter((r): r is { kind: "task"; item: BoardItem; posInSet: number } => r.kind === "task"),
     [rows],
   );
 
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 10,
+    estimateSize: (index) => rackRowHeight(rows[index]),
+    overscan: RACK_OVERSCAN,
   });
 
   // The quick-add row's index within `rows`, or `-1` when there is none (G-01-4). Derived rather
@@ -806,7 +817,7 @@ export function BoardView({
               transform: `translateY(${virtualRow.start}px)`,
             };
 
-            if (row.kind === "header") {
+            if (row.kind === "band-header") {
               const count = counts[BAND_COUNT_KEY[row.status]];
               return (
                 <div key={virtualRow.key} style={positionStyle}>

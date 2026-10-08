@@ -8,29 +8,38 @@
  * comfortably inside its overscan window, so a "row is not mounted yet" defect is structurally
  * unreachable under test below this volume.
  *
- * `MOUNTABLE_ROW_ESTIMATE` is not a bare literal: it is computed from three named local
- * constants, each mirroring a real value that lives in a different file. If any of those three
- * values changes, this estimate moves with it, and the suite's own self-check
+ * `MOUNTABLE_ROW_ESTIMATE` is not a bare literal: it is computed from the row-height lookup, the
+ * overscan and the band order, all IMPORTED from the files that own them (plan 08.1-10: this file
+ * used to re-declare them, so a height change left it asserting a stale constant). If any of
+ * those values changes, this estimate moves with it, and the suite's own self-check
  * (`quick-add-focus.test.tsx`'s `the_volume_fixture_exceeds_what_the_harness_can_mount`) fails
  * the moment `VOLUME_ROW_COUNT`'s margin over the estimate disappears — instead of the suite
  * quietly continuing to pass while no longer reaching the defect.
  */
+import { BAND_ORDER, RACK_OVERSCAN } from "../BoardView";
+import { ROW_HEIGHT_BY_KIND } from "../BoardRow";
 import type { BoardItem } from "../useBoardQuery";
 
 /** Mirrors `test/setup.ts`'s `HTMLElement.prototype.offsetHeight` stub — the jsdom viewport
- * height `@tanstack/virtual-core` measures the scroll container against. */
+ * height `@tanstack/virtual-core` measures the scroll container against. The one value here that
+ * cannot be imported (the setup file is a side-effect module). */
 const JSDOM_VIEWPORT_HEIGHT = 800;
 
-/** Mirrors `BoardRow.tsx` line 52 — `ROW_HEIGHT`, the one constant row height every row in the
- * rack (headers and items alike) uses. */
-const ROW_HEIGHT = 40;
+/** A task row's height, imported from the lookup the virtualizer itself sizes from. Rows in this
+ * fixture are tasks, and the quick-add row is sized as a task. */
+const TASK_HEIGHT = ROW_HEIGHT_BY_KIND.task;
 
-/** Mirrors `BoardView.tsx`'s `useVirtualizer({ overscan: 10 })` call. */
-const OVERSCAN = 10;
+/** The smallest height any row kind can take. The mountable estimate divides the viewport by this,
+ * so it is an upper bound on rows in view whichever kinds interleave (a viewport of band headers
+ * fits more rows than a viewport of tasks). */
+const SMALLEST_ROW_HEIGHT = Math.min(...Object.values(ROW_HEIGHT_BY_KIND));
 
-/** Mirrors `BoardView.tsx`'s `BAND_ORDER` — one header row per status band, always rendered even
- * when that band holds zero items ("Board list" spec), so it always costs a virtual row slot. */
-const BAND_HEADER_COUNT = 5;
+/** Imported from `BoardView.tsx`'s virtualizer call — never re-declared here. */
+const OVERSCAN = RACK_OVERSCAN;
+
+/** One header row per status band, always rendered even when that band holds zero items ("Board
+ * list" spec), so each always costs a virtual row slot. Imported from `BoardView.tsx`'s band order. */
+const BAND_HEADER_COUNT = BAND_ORDER.length;
 
 /** The board's own top-of-Backlog quick-add row — one more fixed row before any item, per
  * `BoardView.tsx`'s `rows` memo ("Quick-add lives at the top of Backlog"). */
@@ -38,18 +47,19 @@ const QUICK_ADD_ROW_COUNT = 1;
 
 /**
  * The number of virtual rows the jsdom test harness can mount at once: the rows that fit inside
- * the viewport, plus overscan on both ends. Computed from `JSDOM_VIEWPORT_HEIGHT`, `ROW_HEIGHT`
- * and `OVERSCAN` above — never written as a bare literal — so a change to any of the three moves
- * this estimate rather than silently leaving the fixture's margin unchecked.
+ * the viewport, plus overscan on both ends. Computed from the imported heights and overscan above
+ * — never written as a bare literal — so a change to any of them moves this estimate rather than
+ * silently leaving the fixture's margin unchecked.
  */
-export const MOUNTABLE_ROW_ESTIMATE = Math.ceil(JSDOM_VIEWPORT_HEIGHT / ROW_HEIGHT) + OVERSCAN * 2;
+export const MOUNTABLE_ROW_ESTIMATE = Math.ceil(JSDOM_VIEWPORT_HEIGHT / SMALLEST_ROW_HEIGHT) + OVERSCAN * 2;
 
 /**
  * The shared fixture size. Must stay comfortably above `MOUNTABLE_ROW_ESTIMATE` — enforced by
  * `quick-add-focus.test.tsx`'s `the_volume_fixture_exceeds_what_the_harness_can_mount`, never
- * trusted from this comment alone.
+ * trusted from this comment alone. Raised from 60 when the task row shrank from 40px to 32px
+ * (A-03): shorter rows put more of them in the viewport, so the same margin needs more rows.
  */
-export const VOLUME_ROW_COUNT = 60;
+export const VOLUME_ROW_COUNT = 100;
 
 /** Crockford's base32 alphabet (excludes I, L, O, U) — the same alphabet a real ULID uses. */
 const CROCKFORD_BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -91,13 +101,14 @@ export function buildVolumeItems(count: number = VOLUME_ROW_COUNT): BoardItem[] 
 }
 
 /**
- * A conservative estimate of the fixture's total virtualized row count once rendered by
- * `BoardView.tsx`: every band header (`BAND_HEADER_COUNT`), the quick-add row
- * (`QUICK_ADD_ROW_COUNT`), and every item row. Used only to clamp `DEEP_SCROLL_OFFSET` below the
- * fixture's actual scrollable height.
+ * The fixture's total scrollable height in pixels once rendered by `BoardView.tsx`: every band
+ * header at the band-header height, the quick-add row and every item row at the task height. Used
+ * only to clamp `DEEP_SCROLL_OFFSET` below the fixture's actual scrollable height.
  */
-function estimateTotalRowCount(itemCount: number): number {
-  return BAND_HEADER_COUNT + QUICK_ADD_ROW_COUNT + itemCount;
+function estimateTotalHeight(itemCount: number): number {
+  return (
+    BAND_HEADER_COUNT * ROW_HEIGHT_BY_KIND["band-header"] + (QUICK_ADD_ROW_COUNT + itemCount) * TASK_HEIGHT
+  );
 }
 
 /** How far past `MOUNTABLE_ROW_ESTIMATE` to scroll before treating a row as "genuinely
@@ -106,13 +117,13 @@ const DEEP_SCROLL_SAFETY_MARGIN_ROWS = 10;
 
 /**
  * A scroll offset far past the mounted window: `MOUNTABLE_ROW_ESTIMATE` rows plus a safety
- * margin, converted to pixels by `ROW_HEIGHT` — derived, never hard-coded — then clamped below
- * the fixture's total scrollable height (via `estimateTotalRowCount`) so the virtualizer is
- * never asked to scroll past its own content.
+ * margin, converted to pixels by the task height — derived, never hard-coded — then clamped below
+ * the fixture's total scrollable height so the virtualizer is never asked to scroll past its own
+ * content.
  */
 export const DEEP_SCROLL_OFFSET = Math.min(
-  (MOUNTABLE_ROW_ESTIMATE + DEEP_SCROLL_SAFETY_MARGIN_ROWS) * ROW_HEIGHT,
-  Math.max(0, estimateTotalRowCount(VOLUME_ROW_COUNT) * ROW_HEIGHT - JSDOM_VIEWPORT_HEIGHT),
+  (MOUNTABLE_ROW_ESTIMATE + DEEP_SCROLL_SAFETY_MARGIN_ROWS) * TASK_HEIGHT,
+  Math.max(0, estimateTotalHeight(VOLUME_ROW_COUNT) - JSDOM_VIEWPORT_HEIGHT),
 );
 
 /**

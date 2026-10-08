@@ -43,7 +43,7 @@ import { ProposalRow } from "../authoring/ProposalRow";
 import { useAcceptSubtreeForProject, useProjectProposals } from "../authoring/useAuthoringQuery";
 import type { AuthoringProposalDto } from "../adapters/tauri";
 import { useUiStore } from "../state/uiStore";
-import { ROW_HEIGHT } from "./BoardRow";
+import { ROW_HEIGHT_BY_KIND } from "./BoardRow";
 import { useCollapseStore } from "./collapseStore";
 import type { EpicSummary } from "./useBoardQuery";
 
@@ -135,7 +135,7 @@ export function TriageLane({ projectId, epicsById, onOpenSession }: TriageLanePr
     alignItems: "center",
     justifyContent: "space-between",
     gap: "var(--space-xs)",
-    height: ROW_HEIGHT,
+    height: ROW_HEIGHT_BY_KIND.task,
     padding: "0 var(--space-md)",
     background: "var(--surface-secondary)",
     color: "var(--text-primary-rack)",

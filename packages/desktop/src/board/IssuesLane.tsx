@@ -10,7 +10,7 @@ import type { CSSProperties } from "react";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { IssueItem } from "./useBoardQuery";
-import { ROW_HEIGHT } from "./BoardRow";
+import { ROW_HEIGHT_BY_KIND } from "./BoardRow";
 import { QuickAdd } from "./QuickAdd";
 
 const KIND_LABEL: Record<string, string> = {
@@ -43,7 +43,7 @@ export function IssuesLane({ issues, onCreateIssue, parentsById, onOpenParentPic
     display: "flex",
     alignItems: "center",
     gap: "var(--space-xs)",
-    height: ROW_HEIGHT,
+    height: ROW_HEIGHT_BY_KIND.task,
     padding: "0 var(--space-md)",
     background: "var(--surface-secondary)",
     color: "var(--text-primary-rack)",
@@ -54,7 +54,7 @@ export function IssuesLane({ issues, onCreateIssue, parentsById, onOpenParentPic
     display: "flex",
     alignItems: "center",
     gap: "var(--space-sm)",
-    height: ROW_HEIGHT,
+    height: ROW_HEIGHT_BY_KIND.task,
     padding: "0 var(--space-md)",
     background: "var(--surface-dominant)",
     color: "var(--text-primary-rack)",

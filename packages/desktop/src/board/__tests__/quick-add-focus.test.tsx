@@ -9,7 +9,7 @@
  * comfortably covers it) — this defect is structurally unreachable under test below this volume.
  * Two consecutive gaps in this phase (G-01-2 and G-01-4) had the same root shape: an assumption
  * that holds at small N and is false at volume. Every fixture in this repo other than this one is
- * small enough to hide both. A change to `BoardView.tsx`'s virtualization, to `ROW_HEIGHT`, to
+ * small enough to hide both. A change to `BoardView.tsx`'s virtualization, to `ROW_HEIGHT_BY_KIND`, to
  * `overscan`, or to `BAND_ORDER` should be re-checked here first.
  *
  * The lesson this suite exists to institutionalise: "the symptom stopped" is not "the contract
@@ -138,7 +138,7 @@ function bandHeader(label: string): HTMLElement {
 
 // This block runs first and proves the fixture's own precondition — hoisted into named cases of
 // its own rather than left as an assumption inside a behavioral case, so a regression in the
-// fixture (a `ROW_HEIGHT`/`overscan`/jsdom-viewport change eroding the margin, or the quick-add
+// fixture (a `ROW_HEIGHT_BY_KIND`/`overscan`/jsdom-viewport change eroding the margin, or the quick-add
 // row mounting after all) reports as its own named failure, not a confusing failure buried
 // inside a case that is really testing something else.
 describe("the shared volume fixture's own adequacy (Task 1)", () => {
