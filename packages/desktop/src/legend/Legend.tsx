@@ -4,6 +4,7 @@ import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import * as icons from "lucide-react";
 import { MARKS, type Mark, type MarkChannel } from "./marks";
+import "../styles/admin-surfaces.css";
 
 const CHANNEL_LABELS: Record<MarkChannel, string> = {
   "row-state": "Row state",
@@ -29,27 +30,29 @@ const SWATCH_BASE: CSSProperties = {
 };
 
 /**
- * Row-state marks map 1:1 onto a CSS token role — render the actual token as
- * the swatch background so the legend proves the real value, not a copy. The
- * focus mark has no background token of its own; it is rendered as a ring
- * instead, which is what it actually looks like in the product.
+ * Row-state marks map onto the CSS roles the board paints, so the legend proves the real value and not
+ * a copy. The selected surfaces are 1.07 and 1.04 against the ground, which no one can see in a 20px
+ * swatch, so the swatch also draws what the board draws to tell them apart: the 2px rule (A-06). A task
+ * row is the pattern: the focused rule is full ink on the selected surface, the unfocused one is the
+ * lighter rule on the idle surface.
  */
-const TOKEN_BY_MARK_ID: Record<string, string> = {
-  "row-surface": "var(--row-surface)",
-  "row-surface-hover": "var(--row-surface-hover)",
-  "row-surface-selected": "var(--row-surface-selected)",
-  "row-surface-selected-unfocused": "var(--row-surface-selected-unfocused)",
-  "strip-backlog": "var(--strip-backlog)",
-  "strip-todo": "var(--strip-todo)",
-  "strip-in-progress": "var(--strip-in-progress)",
-  "strip-in-review": "var(--strip-in-review)",
-  "strip-done": "var(--strip-done)",
+const ROW_STATE_SWATCH: Record<string, { surface: string; rule?: string }> = {
+  "row-surface": { surface: "var(--row-surface)" },
+  "row-surface-hover": { surface: "var(--row-surface-hover)" },
+  "row-surface-selected": { surface: "var(--row-surface-selected)", rule: "var(--selection-rule)" },
+  "row-surface-selected-unfocused": { surface: "var(--row-surface)", rule: "var(--selection-rule-unfocused)" },
 };
 
 function swatchStyle(mark: Mark): CSSProperties {
-  const token = TOKEN_BY_MARK_ID[mark.id];
-  if (token) {
-    return { ...SWATCH_BASE, background: token, border: "1px solid var(--divider)" };
+  const rowState = ROW_STATE_SWATCH[mark.id];
+  if (rowState) {
+    return {
+      ...SWATCH_BASE,
+      background: rowState.surface,
+      border: "1px solid var(--divider)",
+      // Rows are square; the swatch borrows the chrome radius only on the side that has no rule.
+      ...(rowState.rule ? { borderLeftWidth: 2, borderLeftColor: rowState.rule, borderRadius: 0 } : {}),
+    };
   }
 
   if (mark.channel === "focus") {
@@ -62,8 +65,8 @@ function swatchStyle(mark: Mark): CSSProperties {
     };
   }
 
-  // Marks with no dedicated background token (e.g. priority glyphs, which are ink drawn on the
-  // strip, not a distinct fill) — a neutral rack swatch so the glyph itself carries the meaning.
+  // Every other mark is drawn in ink on one neutral swatch: the glyph and the printed word carry the
+  // meaning. Status used to sit on a paper tint here; D-11 removed the tint channel.
   return {
     ...SWATCH_BASE,
     background: "var(--surface-secondary)",
@@ -72,27 +75,16 @@ function swatchStyle(mark: Mark): CSSProperties {
 }
 
 /**
- * Icon colour for a mark's swatch. Strip-tint swatches are light paper stock — the glyph must be
- * drawn in strip ink (`--text-primary-strip`), not the rack's light text colour, or it disappears
- * against the light background.
- */
-function glyphColor(mark: Mark): string | undefined {
-  return mark.id in TOKEN_BY_MARK_ID && mark.id.startsWith("strip-")
-    ? "var(--text-primary-strip)"
-    : undefined;
-}
-
-/**
  * Resolves a mark's `glyph` (a `lucide-react` export name, per the locked icon
  * decision — 01-UI-SPEC.md "Design System") to the real icon component.
  * Uniform 2px stroke, no fill — never a unicode/emoji stand-in.
  */
-type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; color?: string }>;
+type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
-function Glyph({ name, color }: { name: string; color?: string }) {
+function Glyph({ name }: { name: string }) {
   const Icon = (icons as unknown as Record<string, IconComponent>)[name];
   if (!Icon) return null;
-  return <Icon size={14} strokeWidth={2} color={color} />;
+  return <Icon size={14} strokeWidth={2} />;
 }
 
 export interface LegendProps {
@@ -118,30 +110,12 @@ export function Legend({ onClose }: LegendProps = {}) {
 
   const content = (
     <section
-      className="legend"
+      className={onClose ? "legend legend-dialog" : "legend"}
       aria-label="Legend"
       role={onClose ? "dialog" : undefined}
-      style={{
-        background: "var(--surface-secondary)",
-        color: "var(--text-primary-rack)",
-        padding: "var(--space-lg)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-lg)",
-        ...(onClose
-          ? {
-              maxWidth: 640,
-              maxHeight: "80vh",
-              overflowY: "auto",
-              borderRadius: "var(--radius-chrome)",
-              border: "1px solid var(--divider)",
-              boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
-            }
-          : {}),
-      }}
     >
       {onClose && (
-        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <header className="legend-header">
           <h1 className="type-heading" style={{ margin: 0 }}>
             Legend
           </h1>
@@ -149,41 +123,25 @@ export function Legend({ onClose }: LegendProps = {}) {
             type="button"
             aria-label="Close legend"
             onClick={onClose}
-            style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
+            className="type-label control-edge admin-action"
           >
             Close
           </button>
         </header>
       )}
       {channels.map((channel) => (
-        <div key={channel} style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+        <div key={channel} className="legend-channel">
           <h2 className="type-heading" style={{ margin: 0 }}>
             {CHANNEL_LABELS[channel]}
           </h2>
-          <ul
-            style={{
-              listStyle: "none",
-              margin: 0,
-              padding: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-xs)",
-            }}
-          >
+          <ul className="legend-list">
             {MARKS.filter((m) => m.channel === channel).map((mark) => (
-              <li
-                key={mark.id}
-                style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}
-              >
+              <li key={mark.id} className="legend-row">
                 <span aria-hidden="true" style={swatchStyle(mark)}>
-                  <Glyph name={mark.glyph} color={glyphColor(mark)} />
+                  <Glyph name={mark.glyph} />
                 </span>
-                <span className="type-body" style={{ minWidth: 160 }}>
-                  {mark.label}
-                </span>
-                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                  {mark.meaning}
-                </span>
+                <span className="type-body">{mark.label}</span>
+                <span className="type-label legend-meaning">{mark.meaning}</span>
               </li>
             ))}
           </ul>
@@ -208,19 +166,7 @@ export function Legend({ onClose }: LegendProps = {}) {
         onPointerDownOutside={onClose}
         asChild
       >
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1150,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.45)",
-          }}
-        >
-          {content}
-        </div>
+        <div className="legend-scrim">{content}</div>
       </DismissableLayer>
     </FocusScope>,
     document.body,

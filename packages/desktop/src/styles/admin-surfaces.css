@@ -3,4 +3,103 @@
  * authoring tray with its rows and amend editor, and the published legend. Group-scoped rules live here,
  * beside the group, the way `review/review.css` and `session/session.css` do; nothing for this group is
  * added to `App.css`.
+ *
+ * No comp was rendered for this group (plan 04 comped Mission Control, the item detail and the review
+ * surface). It is finished against 08.1-UI-SPEC.md directly: the token roles, the radius language, the type
+ * scale, the selection rule, the overlay rule and the motion contract. No literal colour, scrim or shadow
+ * appears below or in the group's components: `styles/tokens.css` is the one source.
+ *
+ * The brand carries progress and is never an action (owner decision 2026-10-08), so an action here is DRAWN:
+ * the 3:1 control edge (`control-edge`, App.css) on its own surface, never filled. A chosen VALUE is not an
+ * action and is not boxed in two pixels: it wears an ink edge, a 2px foot rule and a heavier weight.
  */
+
+/* --- The published legend ------------------------------------------------------------------------- */
+
+/* Embedded, the legend sits on the page ground. As an overlay it is a dialog (UI-SPEC § Overlay Rule):
+ * the per-mode scrim over a surface that carries the dialog shadow, and in dark the dialog-tier edge,
+ * because a shadow over a near-black ground tells no tier. Both are at full value on frame one. */
+.legend {
+  color: var(--text-primary-rack);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+}
+
+.legend-scrim {
+  align-items: center;
+  background: var(--scrim);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 1150;
+}
+
+.legend-dialog {
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-dialog);
+  border-radius: var(--radius-chrome);
+  box-shadow: var(--shadow-dialog);
+  max-height: 80vh;
+  max-width: 640px;
+  overflow-y: auto;
+}
+
+.legend-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.legend-channel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* A reference table: type and spacing carry it, and a hairline separates the rows, as it does the board's. */
+.legend-list {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.legend-row {
+  align-items: center;
+  border-bottom: 1px solid var(--divider);
+  display: grid;
+  gap: var(--space-sm) var(--space-md);
+  grid-template-columns: 20px 168px minmax(0, 1fr);
+  padding: var(--space-xs) 0;
+}
+
+.legend-meaning {
+  color: var(--text-muted-rack);
+}
+
+/* --- A drawn action ------------------------------------------------------------------------------- */
+
+/* An action is drawn, not filled. The edge comes from `control-edge` (App.css). */
+.admin-action {
+  background: transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-md);
+}
+
+.admin-action:disabled {
+  cursor: default;
+}
+
+/*
+ * Hover on a drawn action is the board row's quiet inset wash, not App.css's --divider wash: the divider is
+ * a decorative hairline and the wrong ground under text. The edge still goes to ink on hover (App.css).
+ */
+.admin-action:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}

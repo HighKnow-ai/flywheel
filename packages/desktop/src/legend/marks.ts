@@ -61,7 +61,8 @@ export const MARKS: Mark[] = [
     channel: "row-state",
     glyph: "SquareDot",
     label: "Selected row",
-    meaning: "This row is selected and the list holds keyboard focus.",
+    meaning:
+      "This row is selected and the list holds keyboard focus: a 2px ink rule on its leading edge and the faintest surface shift. The rule is what you see; the shift is 1.07 to 1 against the ground.",
   },
   {
     id: "row-surface-selected-unfocused",
@@ -69,7 +70,7 @@ export const MARKS: Mark[] = [
     glyph: "SquareMinus",
     label: "Selected, unfocused row",
     meaning:
-      "This row is selected but keyboard focus has moved elsewhere (e.g. the detail panel). A task row keeps only its lighter 2px rule; an epic row, which has no rule, keeps a fainter surface shift.",
+      "This row is selected but keyboard focus has moved elsewhere (e.g. the detail panel). A task row keeps only a lighter 2px rule on the idle surface; an epic row, which has no rule, keeps a fainter surface shift.",
   },
   {
     id: "focus-ring",
@@ -78,43 +79,42 @@ export const MARKS: Mark[] = [
     label: "Focus ring",
     meaning: "The element currently reachable by keyboard Tab order.",
   },
-  // Status glyphs (01-UI-SPEC.md "Row Anatomy" — shape carries the meaning, colour is a
-  // redundant second channel). `id` matches the strip-stock CSS token for the same state, so
-  // Legend.tsx can render the actual tint as the swatch background.
+  // Status glyphs (01-UI-SPEC.md "Row Anatomy"). Shape and the printed word carry the meaning and
+  // nothing else does: D-11 removed the paper tints, so colour is not even a redundant channel.
   {
-    id: "strip-backlog",
+    id: "status-backlog",
     channel: "status",
     glyph: "CircleDashed",
     label: "Backlog",
     meaning: "Not yet started — a dashed, empty circle.",
   },
   {
-    id: "strip-todo",
+    id: "status-todo",
     channel: "status",
     glyph: "Circle",
     label: "Todo",
     meaning: "Queued to start — an empty circle.",
   },
   {
-    id: "strip-in-progress",
+    id: "status-in-progress",
     channel: "status",
     glyph: "CircleDot",
     label: "In Progress",
-    meaning: "Actively being worked — a half-filled circle.",
+    meaning: "Actively being worked — a circle with a dot at its centre.",
   },
   {
-    id: "strip-in-review",
+    id: "status-in-review",
     channel: "status",
     glyph: "CircleEllipsis",
     label: "In Review",
-    meaning: "Awaiting review — a circle with an eye/dot mark.",
+    meaning: "Awaiting review — a circle with an ellipsis.",
   },
   {
-    id: "strip-done",
+    id: "status-done",
     channel: "status",
     glyph: "CircleCheckBig",
     label: "Done",
-    meaning: "Complete — a filled circle with a check mark.",
+    meaning: "Complete — a circle with a check mark.",
   },
   // Priority glyphs (01-UI-SPEC.md "Row Anatomy" — a stacked-bars icon whose filled-bar count
   // increases with priority level). `No priority` is keyed `0` in the keyboard map but SORTS
@@ -175,6 +175,24 @@ export const MARKS: Mark[] = [
     label: "Unknown epic",
     meaning:
       "This item names an epic Flywheel could not resolve from the project's roster — the internal id is never shown in its place.",
+  },
+  // The epic roster's two graphic marks (08.1 A-01, D-06). Neither is an icon on the roster itself, which
+  // draws a bar; the glyph is the legend's stand-in for it, as the estimate letters' `Ruler` is.
+  {
+    id: "epic-progress",
+    channel: "epic",
+    glyph: "ChartNoAxesGantt",
+    label: "Epic progress",
+    meaning:
+      "The bar and fraction on an epic row: tasks done over total, in the brand colour. An epic whose tasks carry no criteria prints \"no criteria yet\" instead of a percentage that would lie (D-06).",
+  },
+  {
+    id: "epic-distribution",
+    channel: "epic",
+    glyph: "ChartBarStacked",
+    label: "Task distribution",
+    meaning:
+      "The thin strip beside an epic's progress: its tasks split by status, one segment per status that has any, widest where there are most. The counts are printed under it.",
   },
   // Acceptance-criteria marks (BOARD-02, D-05/D-06/D-08). The checked/total badge is
   // structurally exempt from the row's progressive-disclosure ladder (01-UI-SPEC.md "Row
@@ -310,10 +328,10 @@ export const MARKS: Mark[] = [
   {
     id: "project-current",
     channel: "project",
-    glyph: "Dot",
+    glyph: "PanelLeft",
     label: "Current project",
     meaning:
-      "The project whose board is open — one of the few places the accent role marks the current position (01-UI-SPEC.md Color & Token Roles).",
+      "The project whose board is open. Its rail entry lifts to the page ground: the current position is a neutral surface shift, with no colour on it (08.1-UI-SPEC.md, D-12).",
   },
   {
     id: "project-unreachable",
@@ -477,7 +495,7 @@ export const MARKS_BY_ID: Record<string, Mark> = Object.fromEntries(
 
 /** `tasks.status` value -> the matching status Mark's id (see migration `0002_board_schema.sql`). */
 export function statusMarkId(status: string): string {
-  return `strip-${status.replace(/_/g, "-")}`;
+  return `status-${status.replace(/_/g, "-")}`;
 }
 
 /**
@@ -505,11 +523,11 @@ export function priorityMarkId(priority: number): string {
  */
 export const STATUS_MARKS: Mark[] = MARKS.filter((mark) => mark.channel === "status");
 
-/** A status Mark's id (`strip-in-progress`) -> the schema's `tasks.status`/`epics.status` value
+/** A status Mark's id (`status-in-progress`) -> the schema's `tasks.status`/`epics.status` value
  * (`in_progress`) — the exact inverse of `statusMarkId`, derived by string transform rather than
  * a second literal list of state names. */
 export function statusValueFromMarkId(markId: string): string {
-  return markId.replace(/^strip-/, "").replace(/-/g, "_");
+  return markId.replace(/^status-/, "").replace(/-/g, "_");
 }
 
 /**
