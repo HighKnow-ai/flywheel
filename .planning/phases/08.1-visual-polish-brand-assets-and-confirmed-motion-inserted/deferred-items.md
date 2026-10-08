@@ -103,3 +103,9 @@
   status: open
   **Found during:** 08.1-11
   **To fix:** if the owner wants it on both lenses, fetch the aggregate in both (one query) or derive `reviewable` from the list counts there.
+
+- Primary buttons across the product paint `--text-primary-rack` on an `--accent-nontext` fill: 3.05:1 in light and 4.42:1 in dark, both under the 4.5 text floor. Found while finishing `ChallengeRow`'s Accept button, which 08.1-14 fixed by adding the `--text-on-accent` role (`#ffffff`, 5.17:1 in both modes, asserted in `contrast.test.ts`). The same defect remains in six other files, each owned by a later finish plan: `launch-sheet/LaunchSheet.tsx:862` (17), `authoring/ProposalRow.tsx:370` and `authoring/ProposalAmendEditor.tsx:237` (18), `item-detail/ItemDetailPanel.tsx:244,263,282` and `item-detail/RunsSection.tsx:319` (15), `review/MergeConfirmSheet.tsx:377` (16).
+  status: open
+  **Found during:** 08.1-14
+  **Not fixed here, deliberately:** those files belong to plans 15-18's surface groups.
+  **To fix:** in each, `color: "var(--text-on-accent)"` on the filled button. One line each; the token already exists in both modes.
