@@ -256,7 +256,8 @@ describe("DoneWarning — never fires when there is nothing to warn about", () =
     render(<DoneWarning checked={2} total={3} onConfirm={onConfirm} onCancel={onCancel} />);
 
     const dialog = screen.getByRole("alertdialog");
-    expect(screen.getByText("2/3 criteria unchecked. Mark Done anyway?")).toBeInTheDocument();
+    // Two of three are checked, so ONE is unchecked, and the copy says so in words (the old "2/3" read as two).
+    expect(screen.getByText("1 of 3 criteria unchecked. Mark Done anyway?")).toBeInTheDocument();
 
     fireEvent.keyDown(dialog, { key: "Enter" });
     expect(onConfirm).toHaveBeenCalledTimes(1);

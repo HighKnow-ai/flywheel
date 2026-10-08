@@ -74,7 +74,10 @@ export function OrphanRecoveryModal() {
   const query = usePendingOrphans();
   const queryClient = useQueryClient();
   const [rows, setRows] = useState<OrphanRowState[] | null>(null);
-  const firstKillButtonRef = useRef<HTMLButtonElement>(null);
+  // Initial focus is the heading, never a Kill: this modal blocks the board and cannot be dismissed, so a button
+  // that kills a running agent must not be the thing one errant Enter lands on (`board/DeleteConfirm.tsx` focuses
+  // Cancel for the same reason; this dialog has no safe button, so the title takes it).
+  const headingRef = useRef<HTMLHeadingElement>(null);
   // The run ids currently in flight for a kill. A row's `killing` flag alone is not a sufficient
   // guard against two activations in one synchronous tick — React has not necessarily flushed the
   // re-render that replaces the Kill button with the "Killing…" label before a second `.click()`
@@ -163,7 +166,7 @@ export function OrphanRecoveryModal() {
       asChild
       onMountAutoFocus={(event) => {
         event.preventDefault();
-        firstKillButtonRef.current?.focus();
+        headingRef.current?.focus();
       }}
     >
       {/*
@@ -176,7 +179,7 @@ export function OrphanRecoveryModal() {
       */}
       <div role="alertdialog" aria-label={heading} className="confirm-scrim">
         <div className="confirm-dialog confirm-dialog-wide">
-          <h2 className="type-heading">
+          <h2 ref={headingRef} tabIndex={-1} className="type-heading confirm-heading">
             {heading}
           </h2>
 
@@ -196,9 +199,9 @@ export function OrphanRecoveryModal() {
               const { orphan } = row;
               const hasTask = isNonEmptyString(orphan.taskKey) || isNonEmptyString(orphan.taskTitle);
               const hasEpic = isNonEmptyString(orphan.epicKey) || isNonEmptyString(orphan.epicTitle);
-              const identityLine = orphan.externalSessionId
-                ? `Run · session ${orphan.externalSessionId}`
-                : "Run";
+              // A run with no session id has nothing to say here: the bare word "Run" dangled with no
+              // separator and no id after it, so the line is not printed at all.
+              const identityLine = orphan.externalSessionId ? `Run · session ${orphan.externalSessionId}` : null;
               const absolute = new Date(orphan.startedAt).toLocaleString();
 
               return (
@@ -271,12 +274,14 @@ export function OrphanRecoveryModal() {
 
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-sm)", minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-                      <span
-                        className="type-label"
-                        style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', color: "var(--text-muted-rack)" }}
-                      >
-                        {identityLine}
-                      </span>
+                      {identityLine && (
+                        <span
+                          className="type-label"
+                          style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', color: "var(--text-muted-rack)" }}
+                        >
+                          {identityLine}
+                        </span>
+                      )}
                       <time
                         className="type-label"
                         dateTime={orphan.startedAt}
@@ -298,7 +303,6 @@ export function OrphanRecoveryModal() {
                       </span>
                     ) : (
                       <button
-                        ref={index === 0 ? firstKillButtonRef : undefined}
                         type="button"
                         onClick={() => handleKill(orphan.runId)}
                         className="type-body control-edge confirm-action"

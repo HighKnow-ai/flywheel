@@ -11,6 +11,9 @@
  * (`pickers/StatusPicker.tsx`'s pattern) — `component_strategy: a-selfhost-radix`. Escape defaults
  * to cancel (T-01-25's explicit requirement); the destructive "Delete" button is never
  * `autoFocus`ed, so a stray Enter press while the dialog is opening lands on Cancel, not Delete.
+ * Cancel carries `autoFocus` itself as well as the scope's mount handler, because a reviewer found
+ * the dialog opening with focus on the scrim's own `tabindex="-1"` container, where Enter answers
+ * nothing: the attribute makes the first focus deterministic, and the scope then leaves it alone.
  */
 import { useRef, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
@@ -68,6 +71,7 @@ export function DeleteConfirm({ itemType, itemKey, title, onConfirm, onCancel }:
               <button
                 ref={cancelRef}
                 type="button"
+                autoFocus
                 className="type-body control-edge confirm-action"
                 onClick={onCancel}
               >

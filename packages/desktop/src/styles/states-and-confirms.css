@@ -53,12 +53,12 @@
   max-width: 60ch;
 }
 
-/* The word beside a warning glyph: the glyph never stands for the state on its own. */
-.state-flag {
-  align-items: center;
-  color: var(--destructive-text-rack);
-  display: inline-flex;
-  gap: var(--space-xs);
+/* The folder just picked: a path is read letter by letter, so it is mono, muted, and breaks anywhere. */
+.state-path {
+  color: var(--text-muted-rack);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  max-width: 60ch;
+  overflow-wrap: anywhere;
 }
 
 /* A failure the user caused or can retry. It names what failed in words; the colour is the data channel only. */
@@ -104,7 +104,28 @@
   padding: calc(var(--space-sm) - 1px) calc(var(--space-lg) - 1px);
 }
 
+/* The secondary action beside the lead, on the plain control edge: Back, never a second lead. */
+.state-actions {
+  align-items: center;
+  display: flex;
+  gap: var(--space-sm);
+}
+
 /* --- A field -------------------------------------------------------------------------------------- */
+
+/* A label above its field, left-aligned with it: the field is an input, and it says what it asks for. */
+.state-field-group {
+  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 240px;
+  text-align: left;
+}
+
+.state-field-group > label {
+  color: var(--text-muted-rack);
+}
 
 /*
  * The confirm-the-key field is the only control on its surface and holds focus for as long as the user types,
@@ -115,7 +136,7 @@
   background: transparent;
   color: var(--text-primary-rack);
   padding: var(--space-sm);
-  text-align: center;
+  text-align: left;
 }
 
 .state-field:focus-visible {
@@ -162,6 +183,11 @@
 
 .confirm-dialog > h2 {
   margin: 0;
+}
+
+/* The heading takes initial focus where a dialog has no safe button; it is read, not operated, so no ring. */
+.confirm-heading:focus {
+  outline: none;
 }
 
 .confirm-dialog > p {

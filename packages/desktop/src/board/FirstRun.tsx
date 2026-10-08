@@ -55,24 +55,46 @@ export function FirstRun() {
     return (
       <div className="first-run state-surface">
         <h1 className="state-heading">Register {pending.name}</h1>
+        {/* The folder the key is for: the screen asks for a permanent key, so it says which folder that is. */}
+        <p className="type-label state-path">{pending.repoPath}</p>
         <p className="type-body state-body">
           Confirm the project key — it becomes permanent once the first item is created.
         </p>
-        <input
-          className="type-body tabular-nums control-edge state-field"
-          value={keyPrefix}
-          onChange={(event) => setKeyPrefix(event.target.value.toUpperCase())}
-          maxLength={10}
-          aria-label="Project key prefix"
-        />
-        <button
-          type="button"
-          className="type-body control-edge state-action state-action-lead"
-          onClick={handleConfirm}
-          disabled={registerProject.isPending}
-        >
-          Register Project
-        </button>
+        <div className="state-field-group">
+          <label htmlFor="first-run-project-key" className="type-label">
+            Project key
+          </label>
+          <input
+            id="first-run-project-key"
+            className="type-body tabular-nums control-edge state-field"
+            value={keyPrefix}
+            onChange={(event) => setKeyPrefix(event.target.value.toUpperCase())}
+            maxLength={10}
+            aria-label="Project key prefix"
+          />
+        </div>
+        <div className="state-actions">
+          {/* Back is the plain edge: it changes the folder, it registers nothing. */}
+          <button
+            type="button"
+            className="type-body control-edge state-action"
+            onClick={() => {
+              registerProject.reset();
+              setPending(null);
+            }}
+            disabled={registerProject.isPending}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            className="type-body control-edge state-action state-action-lead"
+            onClick={handleConfirm}
+            disabled={registerProject.isPending}
+          >
+            Register Project
+          </button>
+        </div>
         {registerProject.isError && (
           <p role="alert" className="type-label state-error">
             Couldn't register this project — {(registerProject.error as Error).message}

@@ -297,13 +297,28 @@ describe("OrphanRecoveryModal — criterion 2 honesty (03-10 Task 3)", () => {
 });
 
 describe("OrphanRecoveryModal — focus (D-46)", () => {
-  it("puts focus on the first row's Kill button on mount, not on Kill All", async () => {
+  it("puts initial focus on the dialog's heading: never on a Kill, never on Kill All (08.1 closure)", async () => {
+    // The modal blocks the board and cannot be dismissed, so one errant Enter on a focused Kill would kill a
+    // running agent. The title takes the focus; every button is a deliberate Tab away.
     pendingOrphansMock.mockResolvedValue([makeOrphan({ runId: "run-1" }), makeOrphan({ runId: "run-2" })]);
     renderModal();
 
     const killButtons = await screen.findAllByRole("button", { name: "Kill" });
-    await waitFor(() => expect(killButtons[0]).toHaveFocus());
+    const heading = screen.getByRole("heading", { name: /found 2 agent processes/ });
+    await waitFor(() => expect(heading).toHaveFocus());
+    for (const kill of killButtons) expect(kill).not.toHaveFocus();
     expect(screen.getByRole("button", { name: "Kill All" })).not.toHaveFocus();
+  });
+
+  it("prints no dangling \"Run\" for a run with no session id, and still prints the session when there is one", async () => {
+    pendingOrphansMock.mockResolvedValue([
+      makeOrphan({ runId: "run-1", externalSessionId: "sess-1" }),
+      makeOrphan({ runId: "run-2", externalSessionId: null }),
+    ]);
+    renderModal();
+    await screen.findAllByRole("button", { name: "Kill" });
+    expect(screen.getByText("Run · session sess-1")).toBeInTheDocument();
+    expect(screen.queryByText("Run")).toBeNull();
   });
 });
 

@@ -9,9 +9,10 @@
  *
  * `App.tsx` renders this instead of `Board` whenever the currently selected project's
  * `status === "unreachable"` — selecting an unreachable entry in `ProjectRail.tsx` opens this
- * surface, not a board.
+ * surface, not a board. It fills the content area only: the project rail is rendered beside it by
+ * `App.tsx` in every state, so a healthy project stays one click away
+ * (`projects/__tests__/unreachable-in-app.test.tsx` renders the real app to prove it).
  */
-import { TriangleAlert } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invokeCommand, openFolderDialog } from "../adapters/tauri";
 import type { Project } from "../board/useBoardQuery";
@@ -49,13 +50,9 @@ export function ProjectUnreachable({ project }: { project: Project }) {
 
   return (
     <div className="project-unreachable state-surface">
-      {/* The glyph is paired with the literal word, the rail entry's own: the state never rests on a hue. */}
-      <span className="type-body state-flag">
-        <span aria-hidden="true" style={{ display: "inline-flex" }}>
-          <TriangleAlert size={20} strokeWidth={2} />
-        </span>
-        Unreachable
-      </span>
+      {/* No eyebrow above the heading: a kicker that only restates the line below it is banned outright by the craft
+          floor. The red "Unreachable" marker keeps its job where it is a data channel, the project's own rail entry,
+          which is on screen beside this surface (it replaces the board, not the window). */}
       <h1 className="state-heading">Can&rsquo;t find this project</h1>
       <p className="type-body state-body">
         Flywheel expected {project.name} at {project.repoPath}, but the repository marker there no

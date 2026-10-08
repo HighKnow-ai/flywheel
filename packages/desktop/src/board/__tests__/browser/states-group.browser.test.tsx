@@ -19,7 +19,7 @@
  * board underneath stays legible beneath the scrim; and that the blocking modal still blocks.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { commands, page, userEvent } from "vitest/browser";
 import data from "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
@@ -269,37 +269,60 @@ describe(`states and confirms group, built, ${scheme} scheme${reduced ? ", reduc
     expect(ring.outlineStyle).toBe("solid");
     expect(ring.outlineWidth).toBe("2px");
     expect(toHex(ring.outlineColor), "the ink rule, not the brand").toBe(PALETTE.selectionRule);
+    // The field says what it asks for, reads as an input (left-aligned) and the screen names the folder it is for.
+    const label = screen.getByText("Project key", { selector: "label" });
+    expect(label.getAttribute("for")).toBe(field.id);
+    expect(getComputedStyle(field).textAlign, "an input's value is left-aligned").toMatch(/^(left|start)$/);
+    expect(label.getBoundingClientRect().left, "the label and the field share a left edge").toBeCloseTo(field.getBoundingClientRect().left, 0);
+    const path = screen.getByText("/Users/dev/flywheel");
+    expect(ratio(toHex(getComputedStyle(path).color), ground), "the chosen path is legible").toBeGreaterThanOrEqual(4.5);
     field.blur();
     const confirm = screen.getByRole("button", { name: "Register Project" });
     expectDrawn(confirm, "Register Project", ground);
     expect(getComputedStyle(confirm).borderTopWidth).toBe("2px");
+    // Back is the secondary action, on the plain control edge, the same height as the lead.
+    const back = screen.getByRole("button", { name: "Back" });
+    expectDrawn(back, "Back", ground);
+    expect(getComputedStyle(back).borderTopWidth).toBe("1px");
+    expect(back.offsetHeight, "the lead and Back are the same height").toBe(confirm.offsetHeight);
     await userEvent.hover(screen.getByRole("heading", { name: "Register flywheel" }));
     await settle();
     await page.screenshot({ path: `${OUT}/states-group-built-${scheme}-first-run-confirm-1440x900.png` });
   });
 
-  it("unreachable: the real duplicate registration; the glyph is paired with the word; one 2px lead; the path is readable", async () => {
-    mountPage(<div style={{ width: WIDTH, height: 900 }}><ProjectUnreachable project={UNREACHABLE as Project} /></div>);
+  it("unreachable: beside its rail, no eyebrow, the heading first, one 2px lead, the path is readable", async () => {
+    // As App.tsx lays it out: the project rail on the left in every state, the surface in the content area.
+    mountPage(
+      <div className="rack-ground" style={{ display: "flex", width: WIDTH, height: 900 }}>
+        <ProjectRail projects={projects} currentProjectId={UNREACHABLE.id} onSelect={() => {}} />
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <ProjectUnreachable project={UNREACHABLE as Project} />
+        </div>
+      </div>,
+    );
     const ground = PALETTE.surfaceDominant;
     const surface = document.querySelector<HTMLElement>(".project-unreachable")!;
     expect(toHex(getComputedStyle(surface).backgroundColor)).toBe(ground);
 
-    // Glyph and the literal word, in the destructive text role (4.5:1), so it is never colour alone.
-    const flag = screen.getByText("Unreachable");
-    expect(flag.querySelector("svg"), "the glyph").toBeTruthy();
-    expect(flag.querySelector("svg")!.closest("[aria-hidden='true']"), "the glyph is decorative: the word names it").toBeTruthy();
-    expect(toHex(getComputedStyle(flag).color)).toBe(PALETTE.destructiveTextRack);
-    expect(ratio(toHex(getComputedStyle(flag).color), ground)).toBeGreaterThanOrEqual(4.5);
-    expect(getComputedStyle(flag).fontSize).toBe("13px");
+    // The rail is on screen with both projects: an unreachable project does not strand the healthy one.
+    const rail = screen.getByRole("navigation", { name: "Projects" });
+    expect(rail.getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(within(rail).getByRole("button", { name: "threadfin, Unreachable" })).toBeTruthy();
+    expect(within(rail).getAllByRole("button").length).toBeGreaterThanOrEqual(2);
+    expect(surface.getBoundingClientRect().left, "the surface fills the content area, not the window").toBeGreaterThanOrEqual(rail.getBoundingClientRect().right - 1);
 
+    // No eyebrow: the heading is the first thing on the surface. The marker keeps its job in the rail entry.
+    const heading = screen.getByRole("heading", { name: "Can’t find this project" });
+    expect(surface.firstElementChild).toBe(heading);
+    expect(within(surface).queryByText("Unreachable")).toBeNull();
     expect(getComputedStyle(screen.getByRole("heading", { name: "Can’t find this project" })).fontSize).toBe("20px");
     const body = screen.getByText(/Nothing was scanned or guessed automatically/);
     expect(body.textContent).toContain(REAL_REPO_PATH);
     expect(body.scrollWidth, "a long path wraps, it does not overflow").toBeLessThanOrEqual(body.clientWidth);
 
-    expectNoFilledButton(document.body, "unreachable");
     const locate = screen.getByRole("button", { name: "Locate Project…" });
-    expect(document.querySelectorAll("button"), "exactly one action").toHaveLength(1);
+    expect(within(surface).getAllByRole("button"), "one action on the surface").toHaveLength(1);
+    expectNoFilledButton(surface, "unreachable");
     expectDrawn(locate, "Locate Project…", ground);
     expect(getComputedStyle(locate).borderTopWidth).toBe("2px");
     expect(toHex(getComputedStyle(locate).borderTopColor)).toBe(PALETTE.selectionRule);
@@ -379,10 +402,31 @@ describe(`states and confirms group, built, ${scheme} scheme${reduced ? ", reduc
     mountPage(
       <>
         <BoardBackdrop />
-        <DoneWarning checked={1} total={3} onConfirm={() => {}} onCancel={() => {}} />
+      </>,
+    );
+    // The warning is anchored to the row it concerns, as BoardView hands it: the first real task row.
+    const row = document.querySelector<HTMLElement>(".board-row")!;
+    const at = row.getBoundingClientRect();
+    cleanup();
+    mountPage(
+      <>
+        <BoardBackdrop />
+        <DoneWarning
+          checked={1}
+          total={3}
+          itemKey="THRE-26"
+          anchorRect={{ top: at.top, left: at.left, bottom: at.bottom }}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+        />
       </>,
     );
     const warning = await screen.findByRole("alertdialog", { name: "Unchecked acceptance criteria" });
+    expect(warning.textContent).toContain("THRE-26 · 2 of 3 criteria unchecked. Mark Done anyway?");
+    const wr = warning.getBoundingClientRect();
+    const rowNow = document.querySelector<HTMLElement>(".board-row")!.getBoundingClientRect();
+    expect(wr.top, "the popover opens under its row, not at the bottom of the window").toBeGreaterThanOrEqual(rowNow.bottom);
+    expect(wr.top - rowNow.bottom, "and right under it").toBeLessThan(12);
     const w = getComputedStyle(warning);
     expect(toHex(w.borderTopColor)).toBe(PALETTE.borderPopover);
     expect(w.animationName).toBe("none");
@@ -428,7 +472,13 @@ describe(`states and confirms group, built, ${scheme} scheme${reduced ? ", reduc
       expectDrawn(k, "Kill", PALETTE.surfaceSecondary);
       expect(getComputedStyle(k).borderTopWidth).toBe("1px");
     }
-    await waitFor(() => expect(document.activeElement).toBe(kills[0]));
+    // Initial focus is the heading: one errant Enter must not kill a running agent.
+    const heading = within(dialog).getByRole("heading");
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    for (const k of kills) expect(document.activeElement).not.toBe(k);
+    // No dangling "Run": the third run has no session, so it prints no identity line at all.
+    expect(within(dialog).queryByText("Run")).toBeNull();
+    expect(within(dialog).getAllByText(/^Run · session /)).toHaveLength(2);
 
     const killAll = within(dialog).getByRole("button", { name: "Kill All" });
     const ks = getComputedStyle(killAll);

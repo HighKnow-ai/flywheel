@@ -777,7 +777,17 @@ export function BoardView({
     const checked = item?.criteriaChecked ?? 0;
     const total = item?.criteriaTotal ?? 0;
     if (status === "done" && total > 0 && checked < total) {
-      setPendingDone({ kind, id, status, checked, total });
+      // Anchored to the row it concerns, when that row is on screen (the same rect the pickers anchor to).
+      const rect = rowElRefs.current.get(id)?.getBoundingClientRect();
+      setPendingDone({
+        kind,
+        id,
+        status,
+        checked,
+        total,
+        key: item?.key,
+        anchorRect: rect ? { top: rect.top, left: rect.left, bottom: rect.bottom } : undefined,
+      });
       return;
     }
     setStatus.mutate({ kind, id, status });
@@ -1567,6 +1577,8 @@ export function BoardView({
         <DoneWarning
           checked={pendingDone.checked}
           total={pendingDone.total}
+          itemKey={pendingDone.key}
+          anchorRect={pendingDone.anchorRect}
           onConfirm={() => {
             setStatus.mutate({ kind: pendingDone.kind, id: pendingDone.id, status: pendingDone.status });
             setPendingDone(null);

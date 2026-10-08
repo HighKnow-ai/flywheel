@@ -85,6 +85,10 @@ export interface PendingDone {
   status: string;
   checked: number;
   total: number;
+  /** The item's key, so the warning names the task it is about. */
+  key?: string;
+  /** The row's viewport rectangle when the request was raised, so the warning opens under it. */
+  anchorRect?: { top: number; left: number; bottom: number };
 }
 
 /** What the review surface is open for: a task or an epic, plus its key and title for the header. */

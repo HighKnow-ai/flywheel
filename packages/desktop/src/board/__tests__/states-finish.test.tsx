@@ -108,9 +108,21 @@ describe("a destructive action is the destructive text role on an edge, icon-pai
     expect(orphan).toMatch(/confirm-action-destructive[\s\S]{0,600}<OctagonX\b/);
   });
 
-  it("the unreachable state's glyph is paired with the literal word, and the glyph is decorative", () => {
-    expect(unreachable).toMatch(/<TriangleAlert[\s\S]{0,80}\/>[\s\S]{0,40}<\/span>\s*Unreachable/);
-    expect(unreachable).toMatch(/aria-hidden="true"/);
+  it("the unreachable state has no eyebrow above its heading (craft floor line 27: no kicker, no brief earns it back)", () => {
+    // The marker kept its job where it is a data channel: the project's own rail entry, glyph and word.
+    expect(code(unreachable)).not.toMatch(/TriangleAlert|state-flag/);
+    expect(code(unreachable)).not.toMatch(/>\s*Unreachable\s*</);
+    expect(code(css)).not.toContain(".state-flag");
+    // The heading is the first element of the surface (a JSX comment may sit before it).
+    expect(code(unreachable)).toMatch(/className="project-unreachable state-surface">\s*(\{\/\*[\s\S]*?\*\/\}\s*)?<h1/);
+  });
+
+  it("DoneWarning names the task, says how many are unchecked in words, and is anchored to its row", () => {
+    expect(code(doneWarning)).toContain("criteria unchecked. Mark Done anyway?");
+    expect(code(doneWarning)).toMatch(/\{total - checked\} of \{total\} criteria unchecked/);
+    expect(code(doneWarning)).not.toMatch(/\{checked\}\/\{total\}/);
+    expect(code(doneWarning)).toMatch(/itemKey \? `\$\{itemKey\} · ` : ""/);
+    expect(code(doneWarning)).toMatch(/anchorRect\.bottom \+ 4/);
   });
 });
 
@@ -153,10 +165,15 @@ describe("nothing in the group animates, and the blocking layer still blocks", (
     expect(code(orphan)).not.toMatch(/DismissableLayer|onEscapeKeyDown|onPointerDownOutside|"Escape"|onKeyDown/);
   });
 
-  it("DeleteConfirm still defaults Escape and an outside click to cancel, and never autofocuses Delete", () => {
+  it("DeleteConfirm still defaults Escape and an outside click to cancel, focuses Cancel and never Delete", () => {
     expect(code(deleteConfirm)).toMatch(/onEscapeKeyDown/);
     expect(code(deleteConfirm)).toMatch(/onPointerDownOutside=\{onCancel\}/);
-    expect(code(deleteConfirm)).not.toMatch(/autoFocus/);
+    const buttons = code(deleteConfirm).match(/<button\b[\s\S]*?>/g) ?? [];
+    const cancel = buttons.find((b) => /ref=\{cancelRef\}/.test(b))!;
+    const del = buttons.find((b) => /confirm-action-destructive/.test(b))!;
+    expect(cancel, "the Cancel button").toBeTruthy();
+    expect(cancel).toMatch(/\bautoFocus\b/);
+    expect(del).not.toMatch(/autoFocus/);
   });
 });
 

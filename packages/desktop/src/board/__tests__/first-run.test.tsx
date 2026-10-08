@@ -6,16 +6,18 @@
  * since they register immediately with no confirmation step to edit it.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FirstRun, deriveKeyPrefix } from "../FirstRun";
 import { ProjectRail } from "../../projects/ProjectRail";
+
+const openFolderMock = vi.fn(() => Promise.resolve<string | null>(null));
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: () => Promise.resolve(undefined),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeMenuAction: () => Promise.resolve(() => {}),
-  openFolderDialog: () => Promise.resolve(null),
+  openFolderDialog: () => openFolderMock(),
 }));
 
 afterEach(cleanup);
@@ -68,6 +70,36 @@ describe("deriveKeyPrefix", () => {
       const prefix = deriveKeyPrefix(`/repos/${name}`);
       expect(isValidKeyPrefix(prefix)).toBe(true);
     }
+  });
+});
+
+/** 08.1 group-six closure: the confirm-the-key step must say what it is asking for, about which folder. */
+describe("the register step (08.1 closure)", () => {
+  async function reachRegisterStep() {
+    openFolderMock.mockResolvedValue("/Users/dev/repos/threadfin");
+    withClient(<FirstRun />);
+    fireEvent.click(screen.getByRole("button", { name: "Register Project…" }));
+    await screen.findByRole("heading", { name: "Register threadfin" });
+  }
+
+  it("labels the key field, so the value is an answer to a question and not a display", async () => {
+    await reachRegisterStep();
+    const label = screen.getByText("Project key", { selector: "label" });
+    expect(label).toHaveAttribute("for", "first-run-project-key");
+    expect(document.getElementById("first-run-project-key")).toBe(screen.getByRole("textbox", { name: "Project key prefix" }));
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("THRE");
+  });
+
+  it("prints the folder just picked, so the permanent key can be tied to something", async () => {
+    await reachRegisterStep();
+    expect(screen.getByText("/Users/dev/repos/threadfin")).toBeInTheDocument();
+  });
+
+  it("offers Back, which returns to the picker step without registering anything", async () => {
+    await reachRegisterStep();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "No projects yet" })).toBeInTheDocument());
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 });
 
