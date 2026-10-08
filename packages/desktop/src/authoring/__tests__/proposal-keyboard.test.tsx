@@ -89,9 +89,10 @@ describe("the proposal tray's keyboard region", () => {
     // appear. Waiting only on the button therefore leaves a window in which a key press lands while
     // `selectedId` is still null and every verb is gated off — a race this test lost reliably once
     // the suite grew enough to slow the effect flush. Wait for selection itself, which is what the
-    // test name actually claims. Selection is rendered as the row's focus-ring outline.
+    // test name actually claims. Selection is the row's neutral current-position mark (08.1 A-06), read here
+    // as `data-selected`; it used to be a focus-ring outline driven by this same prop.
     await waitFor(() =>
-      expect(screen.getByRole("group", { name: /^Proposed task:/ }).style.outline).not.toBe("none"),
+      expect(screen.getByRole("group", { name: /^Proposed task:/ })).toHaveAttribute("data-selected", "true"),
     );
 
     fireEvent.keyDown(window, { key: "a" });

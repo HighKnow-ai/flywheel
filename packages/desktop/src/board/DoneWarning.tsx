@@ -64,9 +64,9 @@ export function DoneWarning({ checked, total, onConfirm, onCancel }: DoneWarning
         padding: "var(--space-sm) var(--space-md)",
         background: "var(--surface-secondary)",
         color: "var(--text-primary-rack)",
-        border: "1px solid var(--divider)",
+        border: "1px solid var(--border-popover)",
         borderRadius: "var(--radius-chrome)",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+        boxShadow: "var(--shadow-popover)",
         outline: "none",
       }}
     >

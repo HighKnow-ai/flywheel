@@ -55,6 +55,7 @@ import {
 } from "../adapters/tauri";
 import { useProjects } from "../board/useBoardQuery";
 import { PermissionRulesTable } from "./PermissionRulesTable";
+import "../styles/admin-surfaces.css";
 
 /** The two credential-mode values the schema/commands accept (`commands/settings.rs`'s
  * `validate_mode`) — the exact labels 02-UI-SPEC.md's Copywriting Contract specifies. */
@@ -169,15 +170,7 @@ function SegmentedControl<T extends string>({
             role="radio"
             aria-checked={selected}
             onClick={() => onSelect(option.value)}
-            className="type-label"
-            style={{
-              padding: "var(--space-xs) var(--space-sm)",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              background: selected ? "var(--accent-nontext)" : "transparent",
-              color: selected ? "var(--text-primary-rack)" : "inherit",
-              cursor: "pointer",
-            }}
+            className="type-label control-edge admin-choice"
           >
             {option.label}
           </button>
@@ -240,15 +233,7 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
             saveMutation.reset();
             setReplacing(true);
           }}
-          className="type-label"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
-            color: "var(--text-primary-rack)",
-            padding: "var(--space-xs) var(--space-sm)",
-            cursor: "pointer",
-          }}
+          className="type-label control-edge admin-action"
         >
           Replace
         </button>
@@ -267,14 +252,7 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
         onBlur={commit}
         onKeyDown={handleKeyDown}
         placeholder="sk-ant-…"
-        className="type-body"
-        style={{
-          background: "var(--surface-dominant)",
-          border: "1px solid var(--divider)",
-          borderRadius: "var(--radius-chrome)",
-          color: "inherit",
-          padding: "var(--space-xs) var(--space-sm)",
-        }}
+        className="type-body control-edge admin-field"
       />
       {saveMutation.isError && (
         <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
@@ -346,15 +324,8 @@ function OpenCommandTemplateField({ surface, label }: { surface: WorktreeOpenSur
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={handleKeyDown}
-        className="type-body"
-        style={{
-          background: "var(--surface-dominant)",
-          border: "1px solid var(--divider)",
-          borderRadius: "var(--radius-chrome)",
-          color: "inherit",
-          padding: "var(--space-xs) var(--space-sm)",
-          fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
-        }}
+        className="type-body control-edge admin-field"
+        style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace' }}
       />
       <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
         {OPEN_COMMAND_HELP_TEXT}
@@ -405,39 +376,16 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-md)",
-          padding: "var(--space-md)",
-          borderBottom: "1px solid var(--divider)",
-        }}
-      >
-        <button
-          type="button"
-          onClick={onBack}
-          className="type-label"
-          style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
-        >
+      <header className="admin-header">
+        <button type="button" onClick={onBack} className="type-label admin-back">
           ← Board
         </button>
         <span className="type-heading">Settings</span>
       </header>
 
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: "auto",
-          padding: "var(--space-lg)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-lg)",
-        }}
-      >
-        <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+      <div className="admin-body">
+        <section className="admin-section">
+          <span className="type-body admin-section-label">
             Credential Path
           </span>
           {loading || !settings ? (
@@ -471,24 +419,15 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
         </section>
 
         {!loading && settings && projects.length > 0 && (
-          <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-            <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          <section className="admin-section">
+            <span className="type-body admin-section-label">
               Per-Project Override
             </span>
             <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-sm)",
-                maxHeight: 240,
-                overflowY: "auto",
-              }}
+              style={{ display: "flex", flexDirection: "column", maxHeight: 240, overflowY: "auto" }}
             >
               {settings.projectOverrides.map((override) => (
-                <div
-                  key={override.projectId}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-md)" }}
-                >
+                <div key={override.projectId} className="admin-row">
                   <span
                     className="type-body"
                     style={{
@@ -520,24 +459,15 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
         )}
 
         {!forgeOverridesQuery.isPending && forgeOverrides.length > 0 && (
-          <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-            <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          <section className="admin-section">
+            <span className="type-body admin-section-label">
               Forge Override
             </span>
             <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-sm)",
-                maxHeight: 240,
-                overflowY: "auto",
-              }}
+              style={{ display: "flex", flexDirection: "column", maxHeight: 240, overflowY: "auto" }}
             >
               {forgeOverrides.map((override) => (
-                <div
-                  key={override.projectId}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-md)" }}
-                >
+                <div key={override.projectId} className="admin-row">
                   <span
                     className="type-body"
                     style={{
@@ -567,16 +497,16 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
           </section>
         )}
 
-        <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
-          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        <section className="admin-section" style={{ gap: "var(--space-md)" }}>
+          <span className="type-body admin-section-label">
             Worktree Open Commands
           </span>
           <OpenCommandTemplateField surface="editor" label="Open in editor" />
           <OpenCommandTemplateField surface="terminal" label="Open in terminal" />
         </section>
 
-        <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        <section className="admin-section">
+          <span className="type-body admin-section-label">
             Permission Rules
           </span>
           <PermissionRulesTable projects={projects} loadingProjects={projectsQuery.isPending} />

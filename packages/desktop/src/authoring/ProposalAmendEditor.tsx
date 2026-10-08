@@ -18,6 +18,7 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import type { AuthoringProposalDto } from "../adapters/tauri";
 import { useAmendProposal } from "./useAuthoringQuery";
+import "../styles/admin-surfaces.css";
 
 /** Mirrors `domain::authoring_proposal::MAX_PROPOSAL_TITLE_LEN`. */
 const MAX_PROPOSAL_TITLE_LEN = 500;
@@ -140,14 +141,6 @@ export function ProposalAmendEditor({ agentRunId, proposal, onCancel, onSaved }:
     }
   }
 
-  const fieldStyle = {
-    background: "transparent",
-    border: "1px solid var(--divider)",
-    borderRadius: "var(--radius-chrome)",
-    color: "inherit",
-    padding: "var(--space-xs) var(--space-sm)",
-  } as const;
-
   return (
     <div
       role="group"
@@ -158,66 +151,60 @@ export function ProposalAmendEditor({ agentRunId, proposal, onCancel, onSaved }:
       {(kind === "task" || kind === "epic") && (
         <>
           <input
-            className="type-body"
+            className="type-body control-edge admin-field"
             aria-label="Title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             onKeyDown={handleFieldKeyDown}
-            style={fieldStyle}
             autoFocus
           />
           <input
-            className="type-label"
+            className="type-label control-edge admin-field"
             aria-label="Description"
             placeholder="Description (optional)…"
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             onKeyDown={handleFieldKeyDown}
-            style={fieldStyle}
           />
         </>
       )}
       {kind === "criterion" && (
         <>
           <input
-            className="type-body"
+            className="type-body control-edge admin-field"
             aria-label="Statement"
             value={statement}
             onChange={(event) => setStatement(event.target.value)}
             onKeyDown={handleFieldKeyDown}
-            style={fieldStyle}
             autoFocus
           />
           <input
-            className="type-label"
+            className="type-label control-edge admin-field"
             aria-label="Verification hint"
             placeholder="Verification hint (optional)…"
             value={verificationHint}
             onChange={(event) => setVerificationHint(event.target.value)}
             onKeyDown={handleFieldKeyDown}
-            style={fieldStyle}
           />
         </>
       )}
       {kind === "assumption" && (
         <>
           <input
-            className="type-body"
+            className="type-body control-edge admin-field"
             aria-label="Assumption"
             value={assumption}
             onChange={(event) => setAssumption(event.target.value)}
             onKeyDown={handleFieldKeyDown}
-            style={fieldStyle}
             autoFocus
           />
           <input
-            className="type-label"
+            className="type-label control-edge admin-field"
             aria-label="Answer"
             placeholder="Answer (optional)…"
             value={answer}
             onChange={(event) => setAnswer(event.target.value)}
             onKeyDown={handleFieldKeyDown}
-            style={fieldStyle}
           />
         </>
       )}
@@ -232,30 +219,14 @@ export function ProposalAmendEditor({ agentRunId, proposal, onCancel, onSaved }:
         <button
           type="button"
           onClick={() => void save()}
-          className="type-body"
-          style={{
-            background: "var(--accent-nontext)",
-            border: "none",
-            borderRadius: "var(--radius-chrome)",
-            color: "var(--text-primary-rack)",
-            padding: "var(--space-xs) var(--space-md)",
-            cursor: "pointer",
-          }}
+          className="type-body control-edge admin-action admin-action-lead"
         >
           Save
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="type-body"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
-            color: "var(--text-primary-rack)",
-            padding: "var(--space-xs) var(--space-md)",
-            cursor: "pointer",
-          }}
+          className="type-body control-edge admin-action"
         >
           Cancel
         </button>

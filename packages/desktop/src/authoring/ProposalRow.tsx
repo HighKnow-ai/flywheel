@@ -46,6 +46,7 @@ import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings, type FocusRegion, type UiLayer } from "../state/keyboard";
 import { useAcceptProposal, useRejectProposal } from "./useAuthoringQuery";
 import { ProposalAmendEditor } from "./ProposalAmendEditor";
+import "../styles/admin-surfaces.css";
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
@@ -303,28 +304,16 @@ export function ProposalRow({
       role="group"
       aria-label={`Proposed ${proposal.targetType}: ${title}`}
       onClick={onSelect}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-sm)",
-        padding: "var(--space-md)",
-        marginLeft: indented ? "var(--space-lg)" : 0,
-        borderRadius: "var(--radius-chrome)",
-        background: "var(--surface-secondary)",
-        outline: selected ? "2px solid var(--focus-ring)" : "none",
-        outlineOffset: -2,
-        color: "var(--text-primary-rack)",
-        minWidth: 0,
-      }}
+      className="proposal-row"
+      data-selected={selected ? "true" : "false"}
+      aria-current={selected ? "true" : undefined}
+      style={{ marginLeft: indented ? "var(--space-lg)" : 0 }}
     >
       <div style={{ display: "flex", alignItems: "baseline", gap: "var(--space-sm)", minWidth: 0 }}>
         <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--text-muted-rack)" }}>
           <Icon name={mark?.glyph ?? "FileClock"} />
         </span>
-        <span
-          className="type-label"
-          style={{ color: "var(--accent-text-rack)", textTransform: "uppercase", flexShrink: 0 }}
-        >
+        <span className="type-label" style={{ color: "var(--text-muted-rack)", textTransform: "uppercase", flexShrink: 0 }}>
           {proposal.targetType}
         </span>
         {proposal.verb !== "create" && (
@@ -365,16 +354,7 @@ export function ProposalRow({
               type="button"
               disabled={state.accepting || state.undecidable}
               onClick={() => void accept()}
-              className="type-body"
-              style={{
-                background: "var(--accent-nontext)",
-                border: "none",
-                borderRadius: "var(--radius-chrome)",
-                color: "var(--text-primary-rack)",
-                padding: "var(--space-xs) var(--space-md)",
-                cursor: state.accepting || state.undecidable ? "default" : "pointer",
-                opacity: state.accepting || state.undecidable ? 0.6 : 1,
-              }}
+              className="type-body control-edge admin-action"
             >
               Accept
             </button>
@@ -382,16 +362,7 @@ export function ProposalRow({
               type="button"
               disabled={state.rejecting}
               onClick={() => void reject()}
-              className="type-body"
-              style={{
-                background: "transparent",
-                border: "1px solid var(--divider)",
-                borderRadius: "var(--radius-chrome)",
-                color: "var(--text-primary-rack)",
-                padding: "var(--space-xs) var(--space-md)",
-                cursor: state.rejecting ? "default" : "pointer",
-                opacity: state.rejecting ? 0.6 : 1,
-              }}
+              className="type-body control-edge admin-action"
             >
               Reject
             </button>
@@ -399,15 +370,7 @@ export function ProposalRow({
               <button
                 type="button"
                 onClick={openEditor}
-                className="type-body"
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "var(--text-primary-rack)",
-                  padding: "var(--space-xs) var(--space-md)",
-                  cursor: "pointer",
-                }}
+                className="type-body control-edge admin-action"
               >
                 Amend
               </button>
@@ -418,16 +381,7 @@ export function ProposalRow({
                 disabled={acceptingSubtree}
                 onClick={onAcceptSubtree}
                 aria-label={`Accept task and its ${pendingChildCount} criteria`}
-                className="type-body"
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "var(--text-primary-rack)",
-                  padding: "var(--space-xs) var(--space-md)",
-                  cursor: acceptingSubtree ? "default" : "pointer",
-                  opacity: acceptingSubtree ? 0.6 : 1,
-                }}
+                className="type-body control-edge admin-action"
               >
                 {acceptingSubtree ? "Accepting…" : `Accept task and its ${pendingChildCount} criteria`}
               </button>
@@ -436,15 +390,7 @@ export function ProposalRow({
               <button
                 type="button"
                 onClick={openMerge}
-                className="type-body"
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "var(--text-primary-rack)",
-                  padding: "var(--space-xs) var(--space-md)",
-                  cursor: "pointer",
-                }}
+                className="type-body control-edge admin-action"
               >
                 Merge
               </button>
@@ -454,16 +400,7 @@ export function ProposalRow({
                 type="button"
                 disabled={state.deferring}
                 onClick={() => void defer()}
-                className="type-body"
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "var(--text-primary-rack)",
-                  padding: "var(--space-xs) var(--space-md)",
-                  cursor: state.deferring ? "default" : "pointer",
-                  opacity: state.deferring ? 0.6 : 1,
-                }}
+                className="type-body control-edge admin-action"
               >
                 {state.deferring ? "Deferring…" : "Defer"}
               </button>
@@ -475,14 +412,7 @@ export function ProposalRow({
               placeholder="tell the agent why, and it can try again"
               value={rejectReason}
               onChange={(event) => setRejectReason(event.target.value)}
-              className="type-label"
-              style={{
-                background: "transparent",
-                border: "1px solid var(--divider)",
-                borderRadius: "var(--radius-chrome)",
-                color: "inherit",
-                padding: "var(--space-xs) var(--space-sm)",
-              }}
+              className="type-label control-edge admin-field"
             />
           )}
         </div>

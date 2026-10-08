@@ -46,6 +46,7 @@ import {
   useProposalLimitNotices,
   useRejectProposalsBulk,
 } from "../authoring/useAuthoringQuery";
+import "../styles/admin-surfaces.css";
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
@@ -138,7 +139,6 @@ function MergeTargetPicker({
         gap: "var(--space-xs)",
         padding: "var(--space-sm)",
         marginTop: "var(--space-xs)",
-        background: "var(--surface-dominant)",
         border: "1px solid var(--divider)",
         borderRadius: "var(--radius-chrome)",
       }}
@@ -157,16 +157,7 @@ function MergeTargetPicker({
           type="button"
           disabled={pending}
           onClick={() => onChoose(candidate)}
-          className="type-body"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
-            color: "var(--text-primary-rack)",
-            padding: "var(--space-xs) var(--space-sm)",
-            textAlign: "left",
-            cursor: pending ? "default" : "pointer",
-          }}
+          className="type-body admin-option"
         >
           {candidate.label}
         </button>
@@ -174,14 +165,8 @@ function MergeTargetPicker({
       <button
         type="button"
         onClick={onCancel}
-        className="type-label"
-        style={{
-          alignSelf: "flex-start",
-          background: "transparent",
-          border: "none",
-          color: "var(--text-muted-rack)",
-          cursor: "pointer",
-        }}
+        className="type-label control-edge admin-action"
+        style={{ alignSelf: "flex-start" }}
       >
         Cancel
       </button>
@@ -198,8 +183,7 @@ function DuplicateAnnotation({ candidate }: { candidate: DuplicateCandidateDto }
       <button
         type="button"
         onClick={() => setRevealed((prev) => !prev)}
-        className="type-label"
-        style={{ background: "transparent", border: "none", color: "var(--accent-text-rack)", cursor: "pointer" }}
+        className="type-label admin-link"
       >
         {label}
       </button>
@@ -220,16 +204,7 @@ function LimitNoticeBanner({
   return (
     <div
       role="status"
-      className="type-label"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--space-xs)",
-        padding: "var(--space-sm) var(--space-md)",
-        background: "var(--surface-secondary)",
-        borderRadius: "var(--radius-chrome)",
-        color: "var(--text-primary-rack)",
-      }}
+      className="type-label admin-notice"
     >
       <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--text-muted-rack)" }}>
         <Icon name="TriangleAlert" />
@@ -417,7 +392,7 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
             aria-label={`Select "${title}" for a bulk action`}
             checked={selectedIds.has(proposal.id)}
             onChange={() => toggleSelected(proposal.id)}
-            style={{ marginTop: 4 }}
+            className="admin-check"
           />
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}>
@@ -432,8 +407,7 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
                   type="button"
                   aria-label="Jump to the turn that produced this proposal"
                   onClick={() => onOpenSession(proposal.agentRunId, proposal.epicId, logOffset)}
-                  className="type-label"
-                  style={{ background: "transparent", border: "none", color: "var(--accent-text-rack)", cursor: "pointer" }}
+                  className="type-label admin-link"
                 >
                   Jump to turn
                 </button>
@@ -495,21 +469,8 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-md)",
-          padding: "var(--space-md)",
-          borderBottom: "1px solid var(--divider)",
-        }}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          className="type-label"
-          style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
-        >
+      <header className="admin-header">
+        <button type="button" onClick={onClose} className="type-label admin-back">
           ← Board
         </button>
         <span className="type-heading">Triage</span>
@@ -519,15 +480,7 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
             type="button"
             aria-pressed={filter === "pending"}
             onClick={() => setFilter("pending")}
-            className="type-label"
-            style={{
-              background: filter === "pending" ? "var(--surface-secondary)" : "transparent",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: "pointer",
-            }}
+            className="type-label control-edge admin-choice"
           >
             Pending
           </button>
@@ -535,15 +488,7 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
             type="button"
             aria-pressed={filter === "deferred"}
             onClick={() => setFilter("deferred")}
-            className="type-label"
-            style={{
-              background: filter === "deferred" ? "var(--surface-secondary)" : "transparent",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: "pointer",
-            }}
+            className="type-label control-edge admin-choice"
           >
             Deferred
           </button>
@@ -554,16 +499,7 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
             type="button"
             disabled={bulkRejectDisabled}
             onClick={handleBulkReject}
-            className="type-label"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: bulkRejectDisabled ? "default" : "pointer",
-              opacity: bulkRejectDisabled ? 0.6 : 1,
-            }}
+            className="type-label control-edge admin-action"
           >
             Reject selected
           </button>
@@ -571,16 +507,7 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
             type="button"
             disabled={bulkDeferDisabled}
             onClick={handleBulkDefer}
-            className="type-label"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: bulkDeferDisabled ? "default" : "pointer",
-              opacity: bulkDeferDisabled ? 0.6 : 1,
-            }}
+            className="type-label control-edge admin-action"
           >
             Defer selected
           </button>

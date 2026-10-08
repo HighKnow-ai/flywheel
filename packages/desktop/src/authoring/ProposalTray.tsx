@@ -125,13 +125,13 @@ export function ProposalTray({ agentRunId }: ProposalTrayProps) {
     <div
       role="region"
       aria-label="Staged proposals"
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", minWidth: 0 }}
+      style={{ display: "flex", flexDirection: "column", minWidth: 0 }}
     >
-      <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+      <span className="type-label" style={{ color: "var(--text-muted-rack)", padding: "var(--space-sm) var(--space-md)" }}>
         {proposals.length} pending proposal{proposals.length === 1 ? "" : "s"}
       </span>
       {groups.map((group) => (
-        <div key={group.root.id} style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+        <div key={group.root.id} style={{ display: "flex", flexDirection: "column" }}>
           <ProposalRow
             agentRunId={agentRunId as string}
             proposal={group.root}
