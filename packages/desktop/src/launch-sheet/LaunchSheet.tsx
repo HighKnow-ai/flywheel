@@ -37,6 +37,7 @@ import {
   type TaskRosterEntryDto,
   type AssumptionEntryDto,
 } from "../adapters/tauri";
+import "../session/session.css";
 
 const MONO_FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -700,34 +701,13 @@ export function LaunchSheet({
         onPointerDownOutside={handleCancel}
         asChild
       >
-        <div
-          role="presentation"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1300,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.45)",
-          }}
-        >
+        <div role="presentation" className="launch-scrim">
           <div
             role="dialog"
             aria-label="Launch sheet"
             onKeyDown={handleDialogKeyDown}
-            style={{
-              width: 640,
-              maxHeight: "80vh",
-              display: "flex",
-              flexDirection: "column",
-              background: "var(--surface-secondary)",
-              color: "var(--text-primary-rack)",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
-              overflow: "hidden",
-            }}
+            className="launch-sheet"
+            style={{ width: 640, maxHeight: "80vh" }}
           >
             <header
               style={{
@@ -781,15 +761,7 @@ export function LaunchSheet({
                   value={instruction}
                   onChange={(event) => setInstruction(event.target.value)}
                   rows={3}
-                  className="type-body"
-                  style={{
-                    resize: "vertical",
-                    background: "var(--surface-dominant)",
-                    border: "1px solid var(--divider)",
-                    borderRadius: "var(--radius-chrome)",
-                    color: "inherit",
-                    padding: "var(--space-sm)",
-                  }}
+                  className="control-edge session-field launch-field type-body"
                 />
               )}
 
@@ -803,15 +775,7 @@ export function LaunchSheet({
                   value={instruction}
                   onChange={(event) => setInstruction(event.target.value)}
                   rows={3}
-                  className="type-body"
-                  style={{
-                    resize: "vertical",
-                    background: "var(--surface-dominant)",
-                    border: "1px solid var(--divider)",
-                    borderRadius: "var(--radius-chrome)",
-                    color: "inherit",
-                    padding: "var(--space-sm)",
-                  }}
+                  className="control-edge session-field launch-field type-body"
                 />
               )}
 
@@ -826,16 +790,7 @@ export function LaunchSheet({
                         role="radio"
                         aria-checked={selected}
                         onClick={() => setPermissionMode(option.value)}
-                        className="type-label"
-                        style={{
-                          flex: 1,
-                          padding: "var(--space-xs) var(--space-sm)",
-                          border: "1px solid var(--divider)",
-                          borderRadius: "var(--radius-chrome)",
-                          background: selected ? "var(--accent-nontext)" : "transparent",
-                          color: selected ? "var(--text-primary-rack)" : "inherit",
-                          cursor: "pointer",
-                        }}
+                        className="control-edge launch-mode type-label"
                       >
                         {option.label}
                       </button>
@@ -848,8 +803,7 @@ export function LaunchSheet({
                 <button
                   type="button"
                   onClick={handleCancel}
-                  className="type-body"
-                  style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
+                  className="control-edge session-action type-body"
                 >
                   Cancel
                 </button>
@@ -857,15 +811,7 @@ export function LaunchSheet({
                   type="button"
                   onClick={handleSubmit}
                   disabled={starting}
-                  className="type-body"
-                  style={{
-                    background: "var(--accent-nontext)",
-                    border: "none",
-                    borderRadius: "var(--radius-chrome)",
-                    color: "var(--text-primary-rack)",
-                    padding: "var(--space-xs) var(--space-md)",
-                    cursor: starting ? "default" : "pointer",
-                  }}
+                  className="control-edge session-action session-action-lead type-body"
                 >
                   {submitLabel}
                 </button>

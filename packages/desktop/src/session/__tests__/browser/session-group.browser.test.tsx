@@ -1,0 +1,322 @@
+/**
+ * The expensive gate's capture step for surface group four (08.1 plan 17, D-24): the live session
+ * surface mid-run (a feed, the pulse running, a permission request pending), the destructive-gate card,
+ * the finished run, and the launch sheet open over the session, as the REAL components paint them in
+ * WebKit at 1440x900 in whichever colour scheme the config selected. Written into `.impeccable/review/`
+ * as `session-group-built-<scheme>-{session,permission-destructive,finished,launch-sheet}-1440x900`.
+ *
+ * No comp exists for this group (plan 04 comped Mission Control, the item detail and the review surface),
+ * so these are reviewed against 08.1-UI-SPEC.md's contract, not an image.
+ *
+ * Content. The task is THRE-58, the real board's own task: its key, title, epic, branch, base and its three
+ * criteria come from `comp-data.json` (the 08.1-03 export). The real board has NO live run, so every feed
+ * row, the pending permission requests and the finished run's failure are FIXTURES, each labelled on the
+ * page. Nothing is seeded to make the surface look populated beyond that.
+ *
+ * What it pins that jsdom cannot: that no action paints the brand or a destructive fill, that every control
+ * draws a 3:1 boundary, that a lead and its neighbour are the same size, that the pulse is a real running
+ * animation (and is absent, not frozen, under reduced motion), that a text area wears the ink ring, and that
+ * the sheet's scrim, shadow and edge resolve to the per-mode roles.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { commands, page, userEvent } from "vitest/browser";
+import data from "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
+
+const T0 = Date.now() - 72_000; // the run started 72 seconds ago
+const at = (seconds: number) => new Date(T0 + seconds * 1000).toISOString();
+const FIXTURE_EVENTS = [
+  { runId: "run-1", seq: 0, at: at(0), raw: "a", type: "assistant_text", text: "FIXTURE: Reading how the dialog takes focus before I change the trap." },
+  { runId: "run-1", seq: 1, at: at(2), raw: "b", type: "tool_call", toolName: "Read", input: { file_path: "packages/desktop/src/board/CommandPalette.tsx" } },
+  { runId: "run-1", seq: 2, at: at(3), raw: "c", type: "tool_result", toolName: "Read", output: "FIXTURE: 812 lines" },
+  { runId: "run-1", seq: 3, at: at(6), raw: "d", type: "assistant_text", text: "FIXTURE: The palette already wraps itself in a FocusScope with trapped and loop, so the launch sheet and the merge sheet can copy that exact shape instead of a hand-rolled keydown handler. I will write the failing test first." },
+  { runId: "run-1", seq: 4, at: at(9), raw: "e", type: "tool_call", toolName: "Bash", input: { command: "npm --prefix packages/desktop run test -- src/launch-sheet" } },
+  { runId: "run-1", seq: 5, at: at(10), raw: "f", type: "system_notice", text: "FIXTURE: retrying request after a transient error" },
+];
+const FINISHED_EVENTS = [
+  ...FIXTURE_EVENTS.slice(0, 4),
+  { runId: "run-1", seq: 6, at: at(60), raw: "g", type: "session_closed", reason: "failed", result: { subtype: "error_max_turns" }, detail: "FIXTURE: the run stopped at its turn limit" },
+];
+
+const REQUESTS = {
+  routine: [{ id: "req-1", toolName: "Bash", inputPayload: '{"command":"npm --prefix packages/desktop run test"}', destructiveCategory: null }],
+  destructive: [{ id: "req-2", toolName: "Bash", inputPayload: '{"command":"git reset --hard"}', destructiveCategory: "hard-reset" }],
+};
+const world = { events: FIXTURE_EVENTS as Record<string, unknown>[], requests: REQUESTS.routine as unknown[] };
+
+vi.mock("../../../adapters/tauri", async (importOriginal) => {
+  const real = await importOriginal<Record<string, unknown>>();
+  const comp = (await import(
+    "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json"
+  )).default as unknown as {
+    criteria: { task_key: string; statement: string; verification_hint: string | null }[];
+  };
+  const packet = {
+    taskKey: "THRE-58",
+    taskTitle: "Wire up the focus trap #41",
+    taskDescription: null,
+    epicTitle: "Event log and outbox",
+    epicDescription: null,
+    criteria: comp.criteria.filter((c) => c.task_key === "THRE-58").map((c) => ({ statement: c.statement, verificationHint: c.verification_hint })),
+    summaries: [], // THRE-58 has no prior session: the real board's own state.
+    compaction: { total: 0, foldedCount: 0, verbatimCount: 0, foldedRange: null, verbatimRange: null, sentence: null },
+    decisions: [],
+    drift: [],
+    branch: "flywheel/thre-58-wire-up-the-focus-trap-41",
+    baseRef: "flywheel/epic/thre-10-event-log-and-outbox",
+    worktreePath: "/Users/dev/Flywheel/THRE/THRE-58",
+    diff: null,
+    renderedPrompt: "",
+  };
+  return {
+    ...real,
+    agentRunLogWindow: (_id: string, offset: number, limit: number) =>
+      Promise.resolve({ entries: world.events.slice(offset, offset + limit), offset, limit, total: world.events.length }),
+    agentRunRawWindow: () => Promise.resolve({ lines: [], offset: 0, limit: 50, total: 0 }),
+    subscribeAgentEvent: () => Promise.resolve(() => {}),
+    subscribeBoardChanged: () => Promise.resolve(() => {}),
+    pendingPermissionRequests: () => Promise.resolve(world.requests),
+    answerPermissionRequest: () => Promise.resolve(undefined),
+    stopAgentRun: () => Promise.resolve({ status: "interrupted", sidecarWarning: null }),
+    discardSession: () => Promise.resolve({ status: "interrupted", sidecarWarning: null }),
+    previewContextPacket: () => Promise.resolve(packet),
+    startAgentRun: () => new Promise(() => {}),
+  };
+});
+
+import tokensCss from "../../../styles/tokens.css?raw";
+import typeCss from "../../../styles/type.css?raw";
+import motionCss from "../../../styles/motion.css?raw";
+import appCss from "../../../App.css?raw";
+import sessionCss from "../../session.css?raw";
+import "../../../styles/tokens.css";
+import "../../../styles/type.css";
+import "../../../styles/motion.css";
+import "../../../App.css";
+import { SessionSurface } from "../../SessionSurface";
+import { LaunchSheet } from "../../../launch-sheet/LaunchSheet";
+import { resetUiState } from "../../../state/uiStore";
+import { LIGHT, DARK } from "../../../theme/tokens";
+import { contrastRatio } from "../../../theme/contrast";
+
+const scheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const PALETTE = scheme === "dark" ? DARK : LIGHT;
+const OUT = "../../../../../../.impeccable/review";
+const OUT_FROM_ROOT = "../../.impeccable/review";
+void data;
+
+const toHex = (computed: string): string => {
+  const m = computed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)!;
+  return "#" + [m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, "0")).join("");
+};
+const ratio = (a: string, b: string) => contrastRatio(a, b);
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+function mountSession(props: { status?: "running" | "completed" | "failed"; sheet?: boolean } = {}) {
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <div className="rack-ground" style={{ height: 900, width: 1440 }}>
+        <p className="type-label" style={{ position: "absolute", right: 24, bottom: 8, margin: 0, color: "var(--text-muted-rack)", zIndex: 1 }}>
+          FIXTURE: THRE-58 has no live run on the real board, so the feed, the requests and the failure are invented.
+        </p>
+        <SessionSurface agentRunId="run-1" taskId="t1" initialStatus={props.status ?? "running"} onBack={() => {}} />
+      </div>
+      {props.sheet && <LaunchSheet taskId="t1" onClose={() => {}} onStarted={() => {}} />}
+    </QueryClientProvider>,
+  );
+}
+
+async function writeHtml(name: string) {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${name}, ${scheme}</title>` +
+    `<style>${tokensCss}\n${typeCss}\n${motionCss}\n${appCss}\n${sessionCss}</style></head><body>${document.body.innerHTML}</body></html>`;
+  await commands.writeFile(`${OUT_FROM_ROOT}/${name}-${scheme}.html`, html);
+}
+
+/** A drawn action: a transparent ground, a 3:1 edge and 4.5:1 text, whatever surface it sits on. */
+function expectDrawn(button: HTMLElement, name: string, ground: string) {
+  const style = getComputedStyle(button);
+  expect(style.backgroundColor, `${name} must not be filled`).toBe("rgba(0, 0, 0, 0)");
+  expect(ratio(toHex(style.borderTopColor), ground), `${name}'s edge`).toBeGreaterThanOrEqual(3);
+  expect(ratio(toHex(style.color), ground), `${name}'s text`).toBeGreaterThanOrEqual(4.5);
+}
+
+beforeEach(() => {
+  resetUiState();
+  world.events = FIXTURE_EVENTS;
+  world.requests = REQUESTS.routine;
+});
+
+describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" : ""}`, () => {
+  it("the session mid-run: a real pulse, drawn header actions, one lead, a routine permission card", async () => {
+    mountSession();
+    const discard = await screen.findByRole("button", { name: "Discard" });
+    const stop = screen.getByRole("button", { name: "Stop" });
+    const viewRaw = screen.getByRole("button", { name: "View raw" });
+    const ground = PALETTE.surfaceDominant;
+    for (const [name, button] of [["Discard", discard], ["Stop", stop], ["View raw", viewRaw]] as const) expectDrawn(button, name, ground);
+
+    // One lead per header (2px ink), its neighbours on the 1px control edge, all the same size.
+    expect(getComputedStyle(discard).borderTopWidth).toBe("2px");
+    expect(toHex(getComputedStyle(discard).borderTopColor)).toBe(PALETTE.selectionRule);
+    expect(getComputedStyle(stop).borderTopWidth).toBe("1px");
+    expect(discard.offsetHeight, "the lead and its neighbour are the same height").toBe(stop.offsetHeight);
+
+    // The pulse: a real, infinite opacity animation, or (under reduced motion) no animation class at all.
+    const badge = screen.getByText("Running");
+    const glyph = badge.querySelector<HTMLElement>("[aria-hidden]")!;
+    if (reduced) {
+      expect(document.querySelector(".agent-pulse"), "omitted, not frozen").toBeNull();
+      expect(getComputedStyle(glyph).animationName).toBe("none");
+      expect(getComputedStyle(glyph).opacity).toBe("1");
+    } else {
+      const style = getComputedStyle(glyph);
+      expect(style.animationName).toBe("agent-pulse");
+      expect(style.animationIterationCount).toBe("infinite");
+      expect(glyph.getAnimations().length, "the engine is running it").toBeGreaterThan(0);
+    }
+
+    // The routine card: a 3:1 edge (not a fill, not a stripe), Allow the lead, Deny beside it.
+    const group = await screen.findByRole("group", { name: "Bash wants to:" });
+    const card = getComputedStyle(group);
+    expect(card.backgroundColor, "the card is not filled").toBe("rgba(0, 0, 0, 0)");
+    expect(card.borderLeftWidth).toBe(card.borderTopWidth);
+    expect(ratio(toHex(card.borderTopColor), ground), "the card's edge").toBeGreaterThanOrEqual(3);
+    const allow = screen.getByRole("button", { name: "Allow" });
+    const deny = screen.getByRole("button", { name: "Deny" });
+    expectDrawn(allow, "Allow", ground);
+    expectDrawn(deny, "Deny", ground);
+    expect(getComputedStyle(allow).borderTopWidth).toBe("2px");
+    expect(getComputedStyle(deny).borderTopWidth).toBe("1px");
+    expect(allow.offsetHeight).toBe(deny.offsetHeight);
+
+    await settle();
+    await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-session-1440x900.png` });
+    await writeHtml("session-group-built-session");
+
+    // A mouse click on a disclosure row leaves no ring: rings are :focus-visible only. After the capture,
+    // because the expanded row reserves its fixed 296px slot.
+    const toolRow = await screen.findByRole("button", { name: /Read · packages\/desktop/ });
+    await userEvent.click(toolRow);
+    expect(getComputedStyle(toolRow).outlineStyle, "a click must not leave a ring on a feed row").toBe("none");
+    await userEvent.hover(screen.getByText(/FIXTURE: THRE-58 has no live run/)); // park the pointer
+  });
+
+  it("the destructive gate: Deny leads in the destructive text role, the card edge is destructive, no fill", async () => {
+    world.requests = REQUESTS.destructive;
+    mountSession();
+    const group = await screen.findByRole("group", { name: "Bash wants to:" });
+    const ground = PALETTE.surfaceDominant;
+    const card = getComputedStyle(group);
+    expect(toHex(card.borderTopColor)).toBe(PALETTE.destructiveTextRack);
+    expect(card.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(card.borderLeftWidth, "no side stripe").toBe(card.borderTopWidth);
+    expect(screen.getByText("Destructive action — needs your OK")).toBeTruthy();
+    expect(group.querySelector("svg"), "paired with a glyph").toBeTruthy();
+
+    const deny = screen.getByRole("button", { name: "Deny" });
+    const allowOnce = screen.getByRole("button", { name: "Allow, just this once" });
+    const denyStyle = getComputedStyle(deny);
+    expect(denyStyle.backgroundColor, "the old destructive fill is gone").toBe("rgba(0, 0, 0, 0)");
+    expect(toHex(denyStyle.color)).toBe(PALETTE.destructiveTextRack);
+    expect(toHex(denyStyle.borderTopColor)).toBe(PALETTE.destructiveTextRack);
+    expect(denyStyle.borderTopWidth).toBe("2px");
+    expect(ratio(PALETTE.destructiveTextRack, ground), "Deny's text").toBeGreaterThanOrEqual(4.5);
+    expect(ratio(PALETTE.destructiveTextRack, PALETTE.surfaceSecondary), "Deny's text on the surface").toBeGreaterThanOrEqual(4.5);
+    expectDrawn(allowOnce, "Allow, just this once", ground);
+    expect(getComputedStyle(allowOnce).borderTopWidth).toBe("1px");
+    expect(deny.offsetHeight).toBe(allowOnce.offsetHeight);
+    expect(screen.queryByRole("button", { name: /from now on/i })).toBeNull();
+
+    // Hovered, Deny keeps its destructive edge and sits on the quiet inset wash. It used to take App.css's
+    // --divider wash, under which the destructive text role is 4.2:1 in dark (the detector's finding).
+    await userEvent.hover(deny);
+    const hovered = getComputedStyle(deny);
+    expect(toHex(hovered.borderTopColor), "the edge stays destructive while hovered").toBe(PALETTE.destructiveTextRack);
+    expect(hovered.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(hovered.boxShadow, "the inset wash is --row-surface-hover").toContain(
+      scheme === "dark" ? "rgb(12, 12, 12)" : "rgb(250, 251, 252)",
+    );
+    expect(ratio(PALETTE.destructiveTextRack, PALETTE.rowSurfaceHover), "Deny's text on its hovered paint").toBeGreaterThanOrEqual(4.5);
+    await userEvent.hover(screen.getByText(/FIXTURE: THRE-58 has no live run/)); // park the pointer
+
+    await settle();
+    await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-permission-destructive-1440x900.png` });
+    await writeHtml("session-group-permission-destructive");
+  });
+
+  it("the finished run: Review changes leads, the failure is a hairline notice, nothing pulses", async () => {
+    world.events = FINISHED_EVENTS;
+    world.requests = [];
+    mountSession({ status: "failed" });
+    const review = await screen.findByRole("button", { name: "Review changes" });
+    expectDrawn(review, "Review changes", PALETTE.surfaceDominant);
+    expect(getComputedStyle(review).borderTopWidth).toBe("2px");
+    expect(document.querySelector(".agent-pulse")).toBeNull();
+    const notice = (await screen.findByText(/This run ended in an error/)).parentElement as HTMLElement;
+    const style = getComputedStyle(notice);
+    expect(style.backgroundColor, "a notice has no fill").toBe("rgba(0, 0, 0, 0)");
+    expect(toHex(style.borderTopColor)).toBe(PALETTE.divider);
+
+    await settle();
+    await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-finished-1440x900.png` });
+    await writeHtml("session-group-finished");
+  });
+
+  it("the launch sheet: --scrim, --shadow-sheet, the sheet-tier edge, drawn controls, a lead, an ink ring", async () => {
+    mountSession({ sheet: true });
+    const dialog = await screen.findByRole("dialog", { name: "Launch sheet" });
+    await screen.findByText("Start Work on THRE-58");
+    const scrim = dialog.parentElement as HTMLElement;
+    expect(getComputedStyle(scrim).backgroundColor, "the scrim resolves from --scrim").toBe(
+      scheme === "dark" ? "rgba(0, 0, 0, 0.4)" : "rgba(31, 35, 40, 0.4)",
+    );
+    const sheet = getComputedStyle(dialog);
+    expect(sheet.boxShadow, "the sheet shadow resolves from --shadow-sheet").toContain(scheme === "dark" ? "rgba(0, 0, 0, 0.7)" : "rgba(31, 35, 40, 0.24)");
+    expect(toHex(sheet.borderTopColor), "the sheet tier's edge").toBe(PALETTE.borderSheet);
+    expect(ratio(PALETTE.borderSheet, PALETTE.surfaceSecondary)).toBeGreaterThanOrEqual(3);
+    expect(sheet.borderTopLeftRadius).toBe("6px");
+    // Frame one is at full value: no fade on mount.
+    expect(getComputedStyle(scrim).opacity).toBe("1");
+    expect(getComputedStyle(dialog).opacity).toBe("1");
+
+    const ground = PALETTE.surfaceSecondary;
+    const start = screen.getByRole("button", { name: "Start Work" });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expectDrawn(start, "Start Work", ground);
+    expectDrawn(cancel, "Cancel", ground);
+    expect(getComputedStyle(start).borderTopWidth).toBe("2px");
+    expect(toHex(getComputedStyle(start).borderTopColor)).toBe(PALETTE.selectionRule);
+    expect(getComputedStyle(cancel).borderTopWidth).toBe("1px");
+    expect(start.offsetHeight, "the lead and Cancel are the same height").toBe(cancel.offsetHeight);
+
+    // The mode choice: all four are drawn controls; the chosen one wears an ink edge, a 2px foot rule and weight 600.
+    const modes = screen.getAllByRole("radio");
+    expect(modes).toHaveLength(4);
+    for (const mode of modes) expectDrawn(mode, `mode ${mode.textContent}`, ground);
+    const chosen = modes.find((m) => m.getAttribute("aria-checked") === "true")!;
+    expect(chosen.textContent).toBe("Accept Edits");
+    expect(toHex(getComputedStyle(chosen).borderTopColor)).toBe(PALETTE.selectionRule);
+    expect(getComputedStyle(chosen).borderTopWidth, "a value, not a lead: 1px box").toBe("1px");
+    expect(getComputedStyle(chosen).boxShadow, "the 2px ink foot rule").toContain(scheme === "dark" ? "rgb(237, 237, 237)" : "rgb(31, 35, 40)");
+    expect(getComputedStyle(chosen).fontWeight).toBe("600");
+    const other = modes.find((m) => m !== chosen)!;
+    expect(getComputedStyle(other).fontWeight).toBe("400");
+    expect(toHex(getComputedStyle(other).borderTopColor)).toBe(PALETTE.borderControl);
+
+    // The instruction field: a 3:1 control boundary, and the ink ring (not the engine's system ring).
+    const field = screen.getByLabelText("Instruction") as HTMLTextAreaElement;
+    expect(ratio(toHex(getComputedStyle(field).borderTopColor), PALETTE.surfaceDominant)).toBeGreaterThanOrEqual(3);
+    field.focus();
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    const ring = getComputedStyle(field);
+    expect(ring.outlineStyle).toBe("solid");
+    expect(ring.outlineWidth).toBe("2px");
+    expect(toHex(ring.outlineColor), "the ink rule, not the brand and not the system ring").toBe(PALETTE.selectionRule);
+
+    await settle();
+    await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-launch-sheet-1440x900.png` });
+    await writeHtml("session-group-launch-sheet");
+  });
+});
