@@ -79,6 +79,7 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
   const toggleAssignee = useUiStore((state) => state.toggleAssignee);
   const togglePriority = useUiStore((state) => state.togglePriority);
   const toggleEstimate = useUiStore((state) => state.toggleEstimate);
+  const toggleHasWorktree = useUiStore((state) => state.toggleHasWorktree);
   const clearFilters = useUiStore((state) => state.clearFilters);
 
   const actorsQuery = useActors();
@@ -216,6 +217,22 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
             </button>
           );
         })}
+      </div>
+
+      {/* D-17 / amendment A-04: the core narrows (an epic matches when any child task has an active
+          worktree); this chip only writes the draft field. The accessible name says in words what
+          it narrows to, and begins with the visible label (WCAG label-in-name). */}
+      <div id="filter-worktree" style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+        <button
+          type="button"
+          className="type-label"
+          aria-pressed={filterDraft.hasWorktree}
+          aria-label="Has worktree: only items with an active worktree, and epics with a task that has one"
+          onClick={toggleHasWorktree}
+          style={chipStyle(filterDraft.hasWorktree)}
+        >
+          Has worktree
+        </button>
       </div>
 
       <div id="filter-epic" style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>

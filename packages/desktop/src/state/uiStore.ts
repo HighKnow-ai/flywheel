@@ -33,6 +33,9 @@ export interface BoardFilterDraft {
   assigneeIds: (string | null)[];
   priorities: number[];
   estimates: number[];
+  /** D-17: only items with an active worktree (epics: any child task has one, amendment A-04).
+   * `false` is "this dimension is unfiltered" — there is no "only without a worktree" reading. */
+  hasWorktree: boolean;
 }
 
 export const EMPTY_FILTER_DRAFT: BoardFilterDraft = {
@@ -41,6 +44,7 @@ export const EMPTY_FILTER_DRAFT: BoardFilterDraft = {
   assigneeIds: [],
   priorities: [],
   estimates: [],
+  hasWorktree: false,
 };
 
 /** True when at least one filter dimension carries a value — the renderer's own signal for which
@@ -53,7 +57,8 @@ export function isFilterDraftActive(filter: BoardFilterDraft): boolean {
     filter.epicIds.length > 0 ||
     filter.assigneeIds.length > 0 ||
     filter.priorities.length > 0 ||
-    filter.estimates.length > 0
+    filter.estimates.length > 0 ||
+    filter.hasWorktree
   );
 }
 
@@ -209,6 +214,7 @@ interface UiState {
   toggleAssignee: (assigneeId: string | null) => void;
   togglePriority: (priority: number) => void;
   toggleEstimate: (estimate: number) => void;
+  toggleHasWorktree: () => void;
   clearFilters: () => void;
   setSelectedItemId: (id: string | null) => void;
   setPaletteOpen: (open: boolean) => void;
@@ -311,6 +317,11 @@ export const useUiStore = create<UiState>((set) => ({
         ...state.filterDraft,
         estimates: toggleValue(state.filterDraft.estimates, estimate),
       },
+    })),
+
+  toggleHasWorktree: () =>
+    set((state) => ({
+      filterDraft: { ...state.filterDraft, hasWorktree: !state.filterDraft.hasWorktree },
     })),
 
   // Clears the search term too — "Clear Filters" (Copywriting Contract) is the one recovery

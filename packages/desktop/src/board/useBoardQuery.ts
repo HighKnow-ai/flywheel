@@ -177,6 +177,8 @@ export interface BoardFilterInput {
   assigneeIds?: (string | null)[];
   priorities?: number[];
   estimates?: number[];
+  /** Present (`true`) only while the has-worktree chip is on; ABSENT when off, never `false`. */
+  hasWorktree?: true;
 }
 
 /** Translate a `BoardFilterDraft` (uiStore's "empty array means unfiltered" convention) into the
@@ -205,6 +207,10 @@ export function toFilterInput(filter: BoardFilterDraft): BoardFilterInput | unde
   }
   if (filter.estimates.length > 0) {
     input.estimates = filter.estimates;
+    active = true;
+  }
+  if (filter.hasWorktree) {
+    input.hasWorktree = true;
     active = true;
   }
   return active ? input : undefined;
