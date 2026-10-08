@@ -1,73 +1,121 @@
 /**
- * Typed mirror of styles/tokens.css.
+ * Typed mirror of styles/tokens.css, one palette per supported mode.
  *
- * These constants exist so theme/__tests__/contrast.test.ts asserts contrast
- * ratios against the values the product actually ships, not against literals
- * re-typed into the test (01-UI-SPEC.md: "These ratios are not the proof — a
- * runnable assertion is"). If a value here drifts from tokens.css, the two
- * files disagree and nothing catches it automatically — keep them in lockstep
- * by hand until a build step generates one from the other.
+ * A colour role is a value PER MODE. `LIGHT` and `DARK` are both a `Palette`, so a role declared
+ * in one mode and not the other does not typecheck, and theme/__tests__/contrast.test.ts
+ * iterates `MODES` so a mode added here is asserted the moment it exists. The test also parses
+ * styles/tokens.css block by block and asserts each palette equals the block for its mode — a
+ * wrong dark value cannot hide behind a right light one. If a value here drifts from the
+ * stylesheet, that test names the role and the mode.
+ *
+ * Keys are the custom-property names in camelCase (`textPrimaryRack` -> `--text-primary-rack`).
+ * Token names were NOT renamed in the 08.1 re-theme; the `rack` suffix is semantic debt.
  */
 
-/** Rack (dark chrome) token roles. */
-export const RACK = {
-  surfaceDominant: "#171b22",
-  surfaceSecondary: "#1e232b",
-  divider: "#2c333e",
-  textPrimary: "#eef1f6",
-  textMuted: "#9aa4b5",
-  accentText: "#7d99ff",
-  accentNonText: "#3c64dd",
-} as const;
+export const MODES = ["light", "dark"] as const;
+export type Mode = (typeof MODES)[number];
 
-/** Strip stock (the content plane) — five workflow-state tints plus row-state overlays. */
-export const STRIP = {
-  backlog: "#e6e1d6",
-  todo: "#dfe4ea",
-  inProgress: "#efe6c8",
-  inReview: "#e6ddec",
-  done: "#dde9dc",
-  rowSurface: "rgba(23, 27, 34, 0)",
-  rowSurfaceHover: "rgba(60, 100, 221, 0.06)",
-  rowSurfaceSelected: "rgba(60, 100, 221, 0.14)",
-  rowSurfaceSelectedUnfocused: "rgba(74, 82, 97, 0.14)",
-  /**
-   * The reference strip-stock swatch 01-UI-SPEC.md's "Pinned brand, and the
-   * lifts it requires" table measures brand-accent (and destructive) text
-   * legibility against — a measurement-only reference distinct from the five
-   * per-status tints above, with no corresponding CSS custom property since
-   * nothing in the product renders it directly.
-   */
-  referenceStock: "#ddd6c6",
-} as const;
+export interface Palette {
+  /** Ground. */
+  surfaceDominant: string;
+  /** Surface. */
+  surfaceSecondary: string;
+  /** Region separator: a hairline, deliberately below 3:1. */
+  divider: string;
+  /** A control's visible boundary: at least 3:1 against ground and surface. */
+  borderControl: string;
+  textPrimaryRack: string;
+  textMutedRack: string;
+  /** Brand as TEXT. Equals the brand in light; lifted in dark. */
+  accentTextRack: string;
+  /** Brand as a fill or edge (the progress fill). */
+  accentNontext: string;
+  focusRing: string;
+  /** Done. */
+  successTextRack: string;
+  /** Failed. */
+  destructiveTextRack: string;
+  /** Blocked: an agent is waiting on the owner. */
+  blockedTextRack: string;
+  rowSurface: string;
+  rowSurfaceHover: string;
+  rowSurfaceSelected: string;
+  rowSurfaceSelectedUnfocused: string;
+  scrim: string;
+  shadowPopover: string;
+  shadowDialog: string;
+  shadowSheet: string;
+}
 
-/**
- * Agent signal vocabulary (02-UI-SPEC.md "Color Additions") — the four new colour roles Phase 2
- * introduces for the run-status/blocked signals. Only `blockedTextRack`/`blockedTextStrip` is a
- * pair; `successTextRack`/`destructiveTextRack` render on rack surfaces only in this phase. Kept
- * byte-identical to `styles/tokens.css`'s matching custom properties — asserted by
- * `theme/__tests__/contrast.test.ts`, not merely by convention.
- */
-export const AGENT = {
-  successTextRack: "#5fbf8e",
-  destructiveTextRack: "#d9776c",
-  blockedTextRack: "#dda845",
-  blockedTextStrip: "#7a4e19",
-} as const;
-
-/** Ink and accents on strip stock. */
-export const INK = {
-  textPrimary: "#1e232b",
-  textMuted: "#4a5261",
-  accentText: "#2d4fb8",
+export const LIGHT: Palette = {
+  surfaceDominant: "#ffffff",
+  surfaceSecondary: "#f6f8fa",
+  divider: "#d1d9e0",
+  borderControl: "#7a828c",
+  textPrimaryRack: "#1f2328",
+  textMutedRack: "#59636e",
+  accentTextRack: "#3c64dd",
+  accentNontext: "#3c64dd",
   focusRing: "#3c64dd",
-  destructive: "#9c351c",
-} as const;
+  successTextRack: "#1a7f37",
+  destructiveTextRack: "#cf222e",
+  blockedTextRack: "#9a6700",
+  rowSurface: "rgba(0, 0, 0, 0)",
+  rowSurfaceHover: "#fafbfc",
+  rowSurfaceSelected: "#f6f8fa",
+  rowSurfaceSelectedUnfocused: "#f8f9fb",
+  scrim: "rgba(31, 35, 40, 0.4)",
+  shadowPopover: "0 8px 24px rgba(31, 35, 40, 0.16)",
+  shadowDialog: "0 12px 32px rgba(31, 35, 40, 0.2)",
+  shadowSheet: "0 16px 48px rgba(31, 35, 40, 0.24)",
+};
+
+export const DARK: Palette = {
+  surfaceDominant: "#0a0a0a",
+  surfaceSecondary: "#0f0f0f",
+  divider: "#1f1f1f",
+  borderControl: "#707070",
+  textPrimaryRack: "#ededed",
+  textMutedRack: "#8b8b8b",
+  accentTextRack: "#5175e1",
+  accentNontext: "#3c64dd",
+  focusRing: "#3c64dd",
+  successTextRack: "#3fb950",
+  destructiveTextRack: "#f85149",
+  blockedTextRack: "#d29922",
+  rowSurface: "rgba(0, 0, 0, 0)",
+  rowSurfaceHover: "#0c0c0c",
+  rowSurfaceSelected: "#0f0f0f",
+  rowSurfaceSelectedUnfocused: "#0d0d0d",
+  scrim: "rgba(0, 0, 0, 0.6)",
+  shadowPopover: "0 8px 24px rgba(0, 0, 0, 0.6)",
+  shadowDialog: "0 12px 32px rgba(0, 0, 0, 0.65)",
+  shadowSheet: "0 16px 48px rgba(0, 0, 0, 0.7)",
+};
+
+export const PALETTES: Record<Mode, Palette> = { light: LIGHT, dark: DARK };
 
 /**
- * The single motion contract (01-UI-SPEC.md "Motion" — mechanical settle,
- * single-row displacement, never a fade). Exactly one easing curve across the
- * whole product.
+ * Custom properties that exist only as `var()` aliases in styles/tokens.css (D-11: one surface
+ * family, no second material). They carry no value of their own, so they are absent from
+ * `Palette`; the contrast test asserts each is still declared and still points at its target.
+ */
+export const ALIASES = {
+  stripBacklog: "surfaceDominant",
+  stripTodo: "surfaceDominant",
+  stripInProgress: "surfaceDominant",
+  stripInReview: "surfaceDominant",
+  stripDone: "surfaceDominant",
+  textPrimaryStrip: "textPrimaryRack",
+  textMutedStrip: "textMutedRack",
+  accentTextStrip: "accentTextRack",
+  destructiveStrip: "destructiveTextRack",
+  blockedTextStrip: "blockedTextRack",
+} as const satisfies Record<string, keyof Palette>;
+
+/**
+ * The single motion contract (mechanical settle, single-row displacement, never a fade).
+ * Exactly one easing curve across the whole product.
  */
 export const MOTION = {
   ease: "cubic-bezier(0.16, 1, 0.3, 1)",

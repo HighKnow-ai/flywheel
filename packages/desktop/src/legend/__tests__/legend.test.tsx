@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import * as icons from "lucide-react";
 import { MARKS } from "../marks";
 import { Legend } from "../Legend";
-import { STRIP } from "../../theme/tokens";
+import { MODES, PALETTES } from "../../theme/tokens";
 
 /**
  * The five strip tints are close in luminance by necessity, so the glyph and
@@ -13,13 +13,9 @@ import { STRIP } from "../../theme/tokens";
  * converging on the same value.
  */
 describe("row-state surfaces", () => {
-  it("are four pairwise-distinct values", () => {
-    const values = [
-      STRIP.rowSurface,
-      STRIP.rowSurfaceHover,
-      STRIP.rowSurfaceSelected,
-      STRIP.rowSurfaceSelectedUnfocused,
-    ];
+  it.each(MODES)("are four pairwise-distinct values in %s", (mode) => {
+    const p = PALETTES[mode];
+    const values = [p.rowSurface, p.rowSurfaceHover, p.rowSurfaceSelected, p.rowSurfaceSelectedUnfocused];
     expect(new Set(values).size).toBe(values.length);
   });
 });

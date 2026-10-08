@@ -79,7 +79,7 @@ const currentEntryStyle: CSSProperties = {
   ...entryBaseStyle,
   border: "1px solid var(--accent-nontext)",
   color: "var(--accent-text-rack)",
-  background: "rgba(60, 100, 221, 0.14)",
+  background: "var(--row-surface-selected)",
 };
 
 export interface ProjectRailProps {
