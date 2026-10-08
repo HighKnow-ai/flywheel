@@ -725,7 +725,7 @@ export function CommandPalette() {
             alignItems: "flex-start",
             justifyContent: "center",
             paddingTop: "12vh",
-            background: "rgba(0,0,0,0.45)",
+            background: "var(--scrim)",
           }}
         >
           <div
@@ -739,11 +739,14 @@ export function CommandPalette() {
               maxHeight: "60vh",
               display: "flex",
               flexDirection: "column",
-              background: "var(--surface-secondary)",
+              // The ground, not the secondary surface: the highlighted command is a surface shift, and on
+              // `--surface-secondary` that shift would equal the panel itself and draw nothing (the
+              // rail's trap in 08.1-14). The edge is the control boundary, the shadow the sheet tier.
+              background: "var(--surface-dominant)",
               color: "var(--text-primary-rack)",
-              border: "1px solid var(--divider)",
+              border: "1px solid var(--border-control)",
               borderRadius: "var(--radius-chrome)",
-              boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
+              boxShadow: "var(--shadow-sheet)",
               overflow: "hidden",
             }}
           >
@@ -768,7 +771,10 @@ export function CommandPalette() {
                 borderBottom: "1px solid var(--divider)",
                 background: "transparent",
                 color: "inherit",
-                outline: "none",
+                // No `outline: none`: it beat the global `input:focus-visible` ring, so a keyboard user
+                // saw no focus in the field they are typing in (08.1-14, deviation 4). The ring is inset,
+                // because the panel clips its children.
+                outlineOffset: -2,
               }}
             />
             <div role="listbox" aria-label="Commands" style={{ overflowY: "auto" }}>
@@ -788,7 +794,11 @@ export function CommandPalette() {
                   onClick={() => !command.disabled && command.run()}
                   style={{
                     padding: "var(--space-sm) var(--space-md)",
-                    background: index === activeIndex ? "var(--surface-dominant)" : "transparent",
+                    // The highlighted command reads like a selected task row (A-06): a neutral surface
+                    // shift and a 2px ink rule, never the brand. The palette's list always has the
+                    // keyboard (the input owns it), so it is the list-focused rule.
+                    background: index === activeIndex ? "var(--row-surface-selected)" : "transparent",
+                    borderLeft: index === activeIndex ? "2px solid var(--selection-rule)" : "2px solid transparent",
                     color: command.disabled ? "var(--text-muted-rack)" : "inherit",
                     cursor: command.disabled ? "default" : "pointer",
                     display: "flex",

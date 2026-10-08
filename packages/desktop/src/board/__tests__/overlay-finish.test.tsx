@@ -1,0 +1,65 @@
+/**
+ * 08.1 plan 15: the palette and the five pickers draw their boundary and elevation from the roles.
+ *
+ * Plan 07 measured that these six drew their visible edge from `--divider` (1.16 to 1.43 against the
+ * ground), a decorative hairline where a control needs 3:1, and that they hard-coded a black scrim and
+ * shadow that are wrong on a white ground. `theme/__tests__/contrast.test.ts` pins `--border-control`
+ * at 3:1 in both modes, so referencing it is what makes the edge real. The tier follows the UI-SPEC's
+ * overlay rule: a picker is a popover (shadow, no scrim); the palette is a sheet (scrim and shadow).
+ */
+import { describe, expect, it } from "vitest";
+import palette from "../CommandPalette.tsx?raw";
+import assignee from "../pickers/AssigneePicker.tsx?raw";
+import estimate from "../pickers/EstimatePicker.tsx?raw";
+import parent from "../pickers/ParentPicker.tsx?raw";
+import priority from "../pickers/PriorityPicker.tsx?raw";
+import status from "../pickers/StatusPicker.tsx?raw";
+
+const PICKERS = { assignee, estimate, parent, priority, status };
+
+/** Source with comment lines removed, so a comment explaining the old literal is not a finding. */
+const code = (source: string) => source.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
+
+describe("the five pickers are popovers", () => {
+  for (const [name, source] of Object.entries(PICKERS)) {
+    it(`${name}: control-boundary edge, popover shadow, no scrim, no literal`, () => {
+      const src = code(source);
+      expect(src).toContain('border: "1px solid var(--border-control)"');
+      expect(src).not.toContain("var(--divider)");
+      expect(src).toContain('boxShadow: "var(--shadow-popover)"');
+      expect(src).not.toContain("--scrim");
+      expect(src).not.toMatch(/rgba?\(|#[0-9a-fA-F]{6}/);
+    });
+
+    it(`${name}: the chosen item reads like a selected row (surface shift and a 2px rule)`, () => {
+      const src = code(source);
+      expect(src).toContain("var(--row-surface-selected)");
+      expect(src).toContain("2px solid var(--selection-rule)");
+      expect(src).not.toMatch(/--accent-nontext/);
+    });
+  }
+});
+
+describe("the command palette is a sheet", () => {
+  const src = code(palette);
+
+  it("draws the scrim and the sheet shadow from the per-mode roles", () => {
+    expect(src).toContain('background: "var(--scrim)"');
+    expect(src).toContain('boxShadow: "var(--shadow-sheet)"');
+    expect(src).not.toMatch(/rgba?\(|#[0-9a-fA-F]{6}/);
+  });
+
+  it("draws its panel edge from the control boundary", () => {
+    expect(src).toContain('border: "1px solid var(--border-control)"');
+  });
+
+  it("marks the highlighted command neutrally, never with the brand", () => {
+    expect(src).toContain("var(--row-surface-selected)");
+    expect(src).toContain("2px solid var(--selection-rule)");
+    expect(src).not.toMatch(/--accent-nontext|--accent-text/);
+  });
+
+  it("does not suppress the search field's keyboard focus ring", () => {
+    expect(src).not.toMatch(/outline:\s*"none"/);
+  });
+});
