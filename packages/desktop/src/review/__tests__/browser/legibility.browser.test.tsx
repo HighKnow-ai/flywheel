@@ -183,14 +183,14 @@ describe("UAT 1 — diff legibility at review width", () => {
 });
 
 describe("UAT 1 — the light/dark half of the item's wording", () => {
-  it("records that the product ships ONE palette, so there is no second theme to read the diff in", () => {
-    // The UAT item asks for "light AND dark themes". `styles/tokens.css` declares its tokens under
-    // a bare `:root` with no `prefers-color-scheme` block and no `[data-theme]` selector anywhere
-    // in the shipped stylesheets, and the diff's own colours are all `*-rack` roles — the dark
-    // chrome. The rack/strip split IS the product's one palette (01-UI-SPEC.md "The world"), not a
-    // light mode and a dark mode. This assertion exists so that fact is recorded by a test rather
-    // than asserted in prose, and so introducing a real second theme fails here and re-opens the
-    // item deliberately.
+  it("records that the product ships ONE token set in two modes, each read by its own run", () => {
+    // The UAT item asks for "light AND dark themes". Until Phase 8.1 plan 07 the product shipped
+    // one palette and this test recorded that fact, failing the day a second theme appeared so
+    // the item would be re-opened deliberately. Plan 07 is that day: `styles/tokens.css` now
+    // carries a dark colour-scheme block. The re-run the old wording demanded is the diff
+    // legibility test above, executed once per config — `test:browser` reads it in light,
+    // `test:browser:dark` in dark. What this keeps recording is the shape: exactly one
+    // scheme-switching rule, and no `[data-theme]` second mechanism for a mode to drift through.
     const sheets = Array.from(document.styleSheets).flatMap((sheet) => {
       try {
         return Array.from(sheet.cssRules).map((rule) => rule.cssText);
@@ -198,7 +198,7 @@ describe("UAT 1 — the light/dark half of the item's wording", () => {
         return [];
       }
     });
-    const themeSwitches = sheets.filter((text) => /prefers-color-scheme|\[data-theme/.test(text));
-    expect(themeSwitches, "a second theme now exists — UAT 1's light/dark reading must be re-run").toEqual([]);
+    expect(sheets.filter((text) => /prefers-color-scheme/.test(text)), "exactly one dark block").toHaveLength(1);
+    expect(sheets.filter((text) => /\[data-theme/.test(text)), "a second theme mechanism exists").toEqual([]);
   });
 });

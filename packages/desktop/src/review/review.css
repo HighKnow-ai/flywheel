@@ -17,8 +17,8 @@
   --diff-gutter-delete-background-color: color-mix(in srgb, var(--destructive-text-rack) 22%, var(--surface-dominant));
   --diff-gutter-insert-text-color: var(--text-primary-rack);
   --diff-gutter-delete-text-color: var(--text-primary-rack);
-  --diff-code-insert-background-color: color-mix(in srgb, var(--success-text-rack) 12%, transparent);
-  --diff-code-delete-background-color: color-mix(in srgb, var(--destructive-text-rack) 12%, transparent);
+  --diff-code-insert-background-color: color-mix(in srgb, var(--success-text-rack) 3%, transparent);
+  --diff-code-delete-background-color: color-mix(in srgb, var(--destructive-text-rack) 3%, transparent);
   --diff-code-insert-edit-background-color: transparent;
   --diff-code-delete-edit-background-color: transparent;
   --diff-code-insert-text-color: var(--text-primary-rack);
