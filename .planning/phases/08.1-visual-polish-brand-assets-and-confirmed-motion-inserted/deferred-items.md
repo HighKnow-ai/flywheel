@@ -108,4 +108,16 @@
   status: open
   **Found during:** 08.1-14
   **Not fixed here, deliberately:** those files belong to plans 15-18's surface groups.
-  **To fix:** in each, `color: "var(--text-on-accent)"` on the filled button. One line each; the token already exists in both modes.
+  **SUPERSEDED 2026-10-08 by an owner decision — do NOT follow the instruction struck through below.**
+  ~~To fix: in each, `color: "var(--text-on-accent)"` on the filled button.~~ That instruction kept the
+  brand fill and only compensated for its contrast, which contradicts what the independent finish
+  reviewer ruled for `ChallengeRow` (brand fill on an action violates the brand rule: "the brand
+  carries progress... It is never the brand") and what 08.1-14's closure actually shipped. Following
+  it would have left one neutral Accept button beside six brand-filled siblings.
+  **The owner was asked and decided: Flywheel has NO brand-filled primary buttons.**
+  **To fix (binding):** in each of the six files, REMOVE the `--accent-nontext` background and draw
+  the button with a `--border-control` edge on its own surface, exactly as 08.1-14 redrew
+  `ChallengeRow`'s Accept and Reject and as the approved comp draws `Answer`. This removes the AA
+  defect's cause rather than compensating for it, so no `--text-on-accent` is needed on these.
+  `--text-on-accent` itself stays declared for now; if nothing references it once plans 15-18 are
+  done, plan 20 should retire it the way plan 13 retired `--duration-displace`.
