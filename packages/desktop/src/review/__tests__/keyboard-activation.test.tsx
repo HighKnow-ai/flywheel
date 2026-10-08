@@ -10,7 +10,7 @@
  * so these assertions are behavioural (the mutation ran) rather than a source check.
  *
  * The adapter mock lists ONLY what the surface and the sheets may call; `invokeCommand` rejects any
- * unknown command, so a status write fails structurally (D-122).
+ * unknown command, so a status write fails structurally (D-122). Narrowed by A-08(a) (plan 08.1-21): the review tree may name exactly one status-moving command, `review_request_changes` (a task id, one named edge); no generic setter is reachable from it, and this mock still lists none.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -53,6 +53,8 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   gitFacts: () => Promise.resolve({ uncommitted: [] }),
   reviewMergePrecheck: () => Promise.resolve(readyPrecheck),
+  // The decline read (A-08(a), plan 08.1-21) is not under test here; it never resolves, so no decline UI renders.
+  reviewChangesRequestState: () => new Promise(() => {}),
   reviewMergeTask: (...args: unknown[]) => mergeMock(...args),
   forgeEpicRequestDraft: () => Promise.resolve(readyDraft),
   forgeOpenEpicRequest: (...args: unknown[]) => openMock(...args),

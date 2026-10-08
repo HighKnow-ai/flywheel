@@ -11,6 +11,7 @@
 import { vi } from "vitest";
 import type {
   AcceptanceCriterionDto,
+  ChangesRequestStateDto,
   EpicRequestPreviewDto,
   EpicTaskRollupRowDto,
   MergePreviewDto,
@@ -192,11 +193,14 @@ export const state: {
   criteria: ReviewCriterionStateDto[];
   rollup: EpicTaskRollupRowDto[];
   precheck: MergePreviewDto;
+  /** What the decline read returns (A-08(a)). Two of the three initial criteria are unchecked. */
+  changesRequest: ChangesRequestStateDto;
   longFile: boolean;
 } = {
   criteria: initialCriteria(),
   rollup: initialRollup(),
   precheck: READY_PRECHECK,
+  changesRequest: { state: "ready", uncheckedCount: 2 },
   longFile: false,
 };
 
@@ -204,6 +208,7 @@ export function resetState() {
   state.criteria = initialCriteria();
   state.rollup = initialRollup();
   state.precheck = READY_PRECHECK;
+  state.changesRequest = { state: "ready", uncheckedCount: 2 };
   state.longFile = false;
 }
 
@@ -211,6 +216,7 @@ export const spies = {
   mergeTask: vi.fn(),
   openEpicRequest: vi.fn(),
   check: vi.fn(),
+  requestChanges: vi.fn(),
   startAgentRun: vi.fn(),
   worktreeOpen: vi.fn(),
 };
@@ -219,6 +225,13 @@ export function resetSpies() {
   spies.mergeTask.mockReset().mockResolvedValue({ kind: "alreadyIntegrated" });
   spies.openEpicRequest.mockReset().mockResolvedValue({ kind: "pushedButNotOpened", branch: "flywheel/fly-7-integration" });
   spies.check.mockReset();
+  // A click flips the read to sent-back, as the real command does: the surface must show the board's
+  // answer after the write, not its own optimistic one.
+  spies.requestChanges.mockReset().mockImplementation(() => {
+    const count = state.changesRequest.state === "refused" ? 0 : state.changesRequest.uncheckedCount;
+    state.changesRequest = { state: "sentBack", uncheckedCount: count };
+    return Promise.resolve(count);
+  });
   // `MergeConfirmSheet` reads `run.id` off the result, so the stub returns the run, not its id.
   spies.startAgentRun.mockReset().mockResolvedValue({ id: "run-1" });
   spies.worktreeOpen.mockReset().mockResolvedValue(undefined);
@@ -257,6 +270,8 @@ export function adapterModule() {
     reviewEpicTaskRollup: () => Promise.resolve(state.rollup),
     reviewMergePrecheck: () => Promise.resolve(state.precheck),
     reviewMergeTask: (...args: unknown[]) => spies.mergeTask(...args),
+    reviewChangesRequestState: () => Promise.resolve(state.changesRequest),
+    reviewRequestChanges: (...args: unknown[]) => spies.requestChanges(...args),
     forgeEpicRequestDraft: () => Promise.resolve(READY_DRAFT),
     forgeOpenEpicRequest: (...args: unknown[]) => spies.openEpicRequest(...args),
     forgeRequestForEpic: () => Promise.resolve(null),

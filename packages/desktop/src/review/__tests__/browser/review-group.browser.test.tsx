@@ -15,7 +15,7 @@
  * that a click leaves no ring, and that the sheet's scrim and shadow resolve to the per-mode roles.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { commands, page, userEvent } from "vitest/browser";
 import data from "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
@@ -123,16 +123,49 @@ const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 300));
 beforeEach(() => {
   resetState();
   resetSpies();
+  // THRE-58's three seeded criteria are all unchecked, so a decline sends three back.
+  state.changesRequest = { state: "ready", uncheckedCount: 3 };
 });
 
 describe(`review group, built, ${scheme} scheme`, () => {
-  it("the surface: a drawn Merge, a ringless click, the A-06 selected file, a ruled selected line", async () => {
+  it("the surface: the decision pair at the foot of the criteria column, a ringless click, the A-06 selected file, a ruled selected line", async () => {
     mount();
-    const merge = await screen.findByRole("button", { name: "Merge" });
+    // A-08(a): Request changes then Merge, in a group after the rail, inside the criteria column. The title
+    // bar holds no action of its own any more.
+    const foot = await screen.findByRole("group", { name: "Review decision" });
+    const merge = within(foot).getByRole("button", { name: "Merge" });
+    const declineButton = within(foot).getByRole("button", { name: "Request changes" });
+    expect(document.querySelector("header")!.querySelectorAll("button:not([aria-pressed])").length, "only Back in the title bar").toBe(1);
+
+    const rail = screen.getByRole("complementary", { name: "Criteria rail" });
+    await waitFor(() => expect(rail.querySelectorAll("li").length).toBeGreaterThanOrEqual(3));
+    const column = foot.parentElement!.getBoundingClientRect();
+    const lastRow = Array.from(rail.querySelectorAll("li")).at(-1)!.getBoundingClientRect();
+    for (const [name, button] of [["Request changes", declineButton], ["Merge", merge]] as const) {
+      const box = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      expect(box.left, `${name} inside the column`).toBeGreaterThanOrEqual(column.left - 0.5);
+      expect(box.right, `${name} inside the column`).toBeLessThanOrEqual(column.right + 0.5);
+      expect(box.bottom, `${name} inside the column`).toBeLessThanOrEqual(column.bottom + 0.5);
+      expect(box.top, `${name} below the last criterion row`).toBeGreaterThanOrEqual(lastRow.bottom - 0.5);
+      expect(box.height, `${name}'s hit area`).toBeGreaterThanOrEqual(28);
+      expect(parseFloat(style.fontSize), `${name} is body-size, not the 11px label`).toBeGreaterThanOrEqual(13);
+    }
+
+    // Both drawn, neither filled, each clearing 3:1 edge and 4.5:1 text (WCAG 1.4.11 / 1.4.3).
     expectDrawn(merge, "Merge", PALETTE.surfaceDominant);
-    // A-07: Merge is the surface's one leading action, so it wears the 2px ink edge; the scope toggles do not.
+    expectDrawn(declineButton, "Request changes", PALETTE.surfaceDominant);
+    // A-07: Merge is the foot's one leading action, so it wears the 2px ink edge; Request changes is the
+    // 1px control-boundary secondary, and does not.
     expect(getComputedStyle(merge).borderTopWidth, "Merge's lead edge").toBe("2px");
     expect(toHex(getComputedStyle(merge).borderTopColor), "Merge's lead edge is ink").toBe(PALETTE.selectionRule);
+    expect(getComputedStyle(declineButton).borderTopWidth, "Request changes' hairline").toBe("1px");
+    expect(toHex(getComputedStyle(declineButton).borderTopColor), "Request changes' edge is --border-control").toBe(PALETTE.borderControl);
+    expect(toHex(getComputedStyle(merge).color), "Merge text is ink").toBe(PALETTE.textPrimaryRack);
+    expect(toHex(getComputedStyle(declineButton).color), "Request changes text is ink").toBe(PALETTE.textPrimaryRack);
+    expect(getComputedStyle(declineButton).fontWeight, "the secondary is regular weight").toBe("400");
+    expect(getComputedStyle(merge).fontWeight, "the lead is set apart by weight").toBe("600");
+
     // The caption is a block in the page's flow, never an overlay over the diff.
     expect(getComputedStyle(screen.getByTestId("fixture-caption")).position).toBe("static");
 
@@ -168,13 +201,24 @@ describe(`review group, built, ${scheme} scheme`, () => {
     expect(paintHex(effectiveBackground(selectedCode)), "not the library's pale yellow").toBe(PALETTE.rowSurfaceSelected);
 
     // The rail beside the diff: the three real criteria, unchecked, none ringed by the click above.
-    const rail = screen.getByRole("complementary", { name: "Criteria rail" });
     await waitFor(() => expect(rail.textContent).toContain("Tab and Shift+Tab cycle within the dialog"));
     expect(rail.querySelectorAll("[role=listitem], li").length).toBeGreaterThanOrEqual(3);
 
     await settle();
     await page.screenshot({ path: `${OUT}/review-group-built-${scheme}-surface-1440x900.png` });
     await writeHtml("review-group-built");
+
+    // The click is the act: the foot swaps the button for the board's answer and leaves Merge's edge alone.
+    await userEvent.click(declineButton);
+    await within(foot).findByText(/Sent back to the agent: 3 unchecked criteria\./);
+    expect(within(foot).queryByRole("button", { name: "Request changes" })).toBeNull();
+    expect(spies.requestChanges).toHaveBeenCalledTimes(1);
+    expect(spies.requestChanges.mock.calls[0]).toEqual(["t1"]);
+    expect(getComputedStyle(within(foot).getByRole("button", { name: "Merge" })).borderTopWidth, "Merge keeps its lead edge").toBe("2px");
+
+    await settle();
+    await page.screenshot({ path: `${OUT}/review-group-built-${scheme}-decision-sent-1440x900.png` });
+    await writeHtml("review-group-decision-sent");
   });
 
   it("the merge sheet: the per-mode scrim and shadow, a drawn confirm, a --border-control edge", async () => {

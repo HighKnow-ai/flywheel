@@ -6,7 +6,7 @@
  *
  * The adapter mock lists ONLY what the surface and the sheet may call. There is no status setter
  * in it, and `invokeCommand` rejects any command it does not know, so an attempt to move a board
- * item's status fails structurally rather than as a soft assertion (D-122).
+ * item's status fails structurally rather than as a soft assertion (D-122). Narrowed by A-08(a) (plan 08.1-21): the review tree may name exactly one status-moving command, `review_request_changes` (a task id, one named edge); no generic setter is reachable from it, and this mock still lists none.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -69,6 +69,8 @@ vi.mock("../../adapters/tauri", () => ({
     return Promise.resolve(precheck.current);
   },
   reviewMergeTask: (...args: unknown[]) => mergeMock(...args),
+  // The decline read (A-08(a), plan 08.1-21) is not under test here; it never resolves, so no decline UI renders.
+  reviewChangesRequestState: () => new Promise(() => {}),
 }));
 
 function ready(overrides: Partial<Extract<MergePreviewDto, { state: "ready" }>> = {}): MergePreviewDto {

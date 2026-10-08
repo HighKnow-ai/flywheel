@@ -165,7 +165,7 @@ describe("UAT 6 — the file list and the rail, keyboard only", () => {
 });
 
 describe("UAT 6 — Enter and Space really activate a focused button (CR-03)", () => {
-  it("opens the merge sheet with Enter on the header button, without also expanding a file", async () => {
+  it("opens the merge sheet with Enter on the foot's Merge button, without also expanding a file", async () => {
     renderSurface();
     await surfaceReady();
     const before = expandedFlags();
@@ -177,7 +177,7 @@ describe("UAT 6 — Enter and Space really activate a focused button (CR-03)", (
     expect(expandedFlags(), "Enter both activated the button and expanded a file").toBe(before);
   });
 
-  it("opens the merge sheet with Space on the header button, without also expanding a file", async () => {
+  it("opens the merge sheet with Space on the foot's Merge button, without also expanding a file", async () => {
     renderSurface();
     await surfaceReady();
     const before = expandedFlags();

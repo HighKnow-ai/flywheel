@@ -42,6 +42,8 @@ vi.mock("../../adapters/tauri", () => ({
       "diff --git a/src/lib.rs b/src/lib.rs\nindex 1111111..2222222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,3 +1,3 @@\n fn main() {\n-    let x = 1;\n+    let x = 2;\n }\n",
     ),
   reviewMergePrecheck: (...args: unknown[]) => precheckMock(...args),
+  // The decline read (A-08(a), plan 08.1-21) is not under test here; it never resolves, so no decline UI renders.
+  reviewChangesRequestState: () => new Promise(() => {}),
   reviewCriteriaState: (...args: unknown[]) => criteriaStateMock(...args),
   reviewEpicTaskRollup: () => Promise.resolve([]),
   criterionCheckWithAnchor: () => Promise.resolve(),

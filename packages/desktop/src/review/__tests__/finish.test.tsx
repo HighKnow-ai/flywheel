@@ -12,13 +12,14 @@
 import { describe, expect, it } from "vitest";
 import css from "../review.css?raw";
 import reviewSurface from "../ReviewSurface.tsx?raw";
+import decisionFoot from "../DecisionFoot.tsx?raw";
 import mergeSheet from "../MergeConfirmSheet.tsx?raw";
 import requestSheet from "../EpicRequestSheet.tsx?raw";
 import fileDiff from "../FileDiff.tsx?raw";
 import criteriaRail from "../CriteriaRail.tsx?raw";
 import criteriaList from "../../item-detail/AcceptanceCriteriaList.tsx?raw";
 
-const SOURCES = { reviewSurface, mergeSheet, requestSheet, fileDiff, criteriaRail };
+const SOURCES = { reviewSurface, decisionFoot, mergeSheet, requestSheet, fileDiff, criteriaRail };
 
 /** Comment lines out, so a doc comment may still say what the old code did. */
 const code = (text: string) =>
@@ -55,9 +56,35 @@ describe("the review group draws its actions, it does not fill them", () => {
 
   it("Merge, Open request and both confirm buttons carry the control edge and .review-action", () => {
     const drawn = (source: string) => (source.match(/control-edge review-action/g) ?? []).length;
-    expect(drawn(reviewSurface), "the header's Merge").toBe(1);
+    // A-08(a): Merge left the title bar for the foot of the criteria column, beside Request changes.
+    expect(drawn(reviewSurface), "the header no longer draws Merge").toBe(0);
+    expect(drawn(decisionFoot), "the foot's Merge").toBe(1);
     expect(drawn(mergeSheet), "the merge sheet's confirm").toBe(1);
     expect(drawn(requestSheet), "the request bar's and the request sheet's confirm").toBe(2);
+  });
+
+  it("Request changes is a hairline secondary: transparent, ink, regular weight, no lead edge", () => {
+    const body = rule(".review-secondary");
+    expect(body).toMatch(/background:\s*transparent/);
+    expect(body).toMatch(/color:\s*var\(--text-primary-rack\)/);
+    expect(body).toMatch(/font-weight:\s*400/);
+    // The edge is `.control-edge`'s 1px --border-control; this rule must not set a lead edge of its own.
+    expect(body).not.toMatch(/selection-rule/);
+    expect(body).not.toMatch(/border:\s*2px/);
+    expect(code(decisionFoot)).toContain("control-edge review-secondary");
+  });
+
+  it("the foot paints no brand, no destructive role and no literal colour on an action", () => {
+    expect(code(decisionFoot)).not.toMatch(/--accent|--destructive|--text-on-accent|rgba?\(|#[0-9a-fA-F]{6}/);
+    expect(code(decisionFoot)).not.toContain("dangerouslySetInnerHTML");
+  });
+
+  it("the foot's rules carry no transition and no animation (state changes are plain)", () => {
+    const rules = [...css.matchAll(/(^|\n)([^{}\n]*\.review-(?:decision|secondary)[^{}\n]*)\{([^}]*)\}/g)];
+    expect(rules.length, "no foot rule found in review.css").toBeGreaterThan(0);
+    for (const [, , selector, body] of rules) {
+      expect(body, `${selector.trim()} moves`).not.toMatch(/transition|animation/);
+    }
   });
 
   it("a destructive line is the destructive text role beside a glyph, not a fill", () => {

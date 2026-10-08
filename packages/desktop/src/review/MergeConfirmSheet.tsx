@@ -17,7 +17,8 @@
  * and no retry on a refusal caused by concurrency: a retry button there invites the race the guard
  * exists to prevent (D-144).
  *
- * This component writes no status (D-122): the adapter surface it imports has no status setter.
+ * This component writes no status (D-122): the adapter surface it imports has no status setter. (A-08(a)
+ * gave the review SURFACE one status edge of its own, Request changes; this sheet is unchanged by it.)
  */
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
