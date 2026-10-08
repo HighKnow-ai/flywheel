@@ -27,10 +27,11 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader } from "lucide-react";
+import { Loader, OctagonX } from "lucide-react";
 import { orphanKill, type PendingOrphanDto } from "../adapters/tauri";
 import { pendingOrphansQueryKey, usePendingOrphans } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
+import "../styles/states-and-confirms.css";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
@@ -68,26 +69,6 @@ interface OrphanRowState {
 function seedRows(orphans: PendingOrphanDto[]): OrphanRowState[] {
   return orphans.map((orphan) => ({ orphan, killing: false, failed: false, detail: null }));
 }
-
-const killButtonStyle: React.CSSProperties = {
-  background: "transparent",
-  border: "1px solid var(--divider)",
-  borderRadius: "var(--radius-chrome)",
-  color: "var(--text-primary-rack)",
-  padding: "var(--space-xs) var(--space-md)",
-  cursor: "pointer",
-};
-
-const killAllButtonStyle: React.CSSProperties = {
-  border: "1px solid var(--destructive-strip)",
-  background: "var(--destructive-strip)",
-  // `--text-primary-rack` measures 6.3:1 against `--destructive-strip`, well past AA — the same
-  // ratio note `DeleteConfirm.tsx`'s own "Delete" button carries.
-  color: "var(--text-primary-rack)",
-  borderRadius: "var(--radius-chrome)",
-  padding: "var(--space-xs) var(--space-md)",
-  cursor: "pointer",
-};
 
 export function OrphanRecoveryModal() {
   const query = usePendingOrphans();
@@ -193,34 +174,9 @@ export function OrphanRecoveryModal() {
         failed kill (`anyUnresolved` stays true, matching `PermissionRequestCard.tsx`'s own
         "cannot be dismissed without answering" precedent).
       */}
-      <div
-        role="alertdialog"
-        aria-label={heading}
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 1200,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "rgba(0,0,0,0.45)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-md)",
-            width: 560,
-            padding: "var(--space-lg)",
-            background: "var(--surface-secondary)",
-            color: "var(--text-primary-rack)",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
-          }}
-        >
-          <h2 className="type-heading" style={{ margin: 0 }}>
+      <div role="alertdialog" aria-label={heading} className="confirm-scrim">
+        <div className="confirm-dialog confirm-dialog-wide">
+          <h2 className="type-heading">
             {heading}
           </h2>
 
@@ -249,7 +205,15 @@ export function OrphanRecoveryModal() {
                 <div
                   key={orphan.runId}
                   role="listitem"
-                  style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0 }}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--space-xs)",
+                    minWidth: 0,
+                    // A hairline between runs, so each reads as its own: the list is the whole point of the dialog.
+                    borderBottom: index < rows.length - 1 ? "1px solid var(--divider)" : undefined,
+                    paddingBottom: index < rows.length - 1 ? "var(--space-md)" : undefined,
+                  }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
                     <span
@@ -337,8 +301,7 @@ export function OrphanRecoveryModal() {
                         ref={index === 0 ? firstKillButtonRef : undefined}
                         type="button"
                         onClick={() => handleKill(orphan.runId)}
-                        className="type-body"
-                        style={killButtonStyle}
+                        className="type-body control-edge confirm-action"
                       >
                         Kill
                       </button>
@@ -354,14 +317,14 @@ export function OrphanRecoveryModal() {
               type="button"
               disabled={!anyUnresolved}
               onClick={handleKillAll}
-              className="type-body"
-              style={{ ...killAllButtonStyle, opacity: anyUnresolved ? 1 : 0.6, cursor: anyUnresolved ? "pointer" : "default" }}
+              className="type-body control-edge confirm-action confirm-action-destructive"
             >
+              <OctagonX size={14} strokeWidth={2} aria-hidden="true" />
               Kill All
             </button>
           </div>
 
-          <p className="type-micro" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+          <p className="type-label" style={{ color: "var(--text-muted-rack)" }}>
             Every process above is spending tokens right now — Flywheel didn&apos;t start any of
             them this time.
           </p>
