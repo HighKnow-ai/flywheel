@@ -158,6 +158,19 @@
   border-left-color: var(--selection-rule);
 }
 
+/* App.css washes EVERY hovered button with --divider, which would erase the selected shift under a
+ * resting pointer. A row hovers like a board row (the inset wash) and keeps its selection. */
+.review-file:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+.review-file[data-focused="true"]:hover:not(:disabled),
+.review-scope[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--row-surface-selected);
+  box-shadow: none;
+}
+
 /* Overlay tiers (UI-SPEC § Overlay Rule): a sheet is the per-mode scrim over a surface that carries
  * the sheet shadow and a control-boundary edge. A dark panel on a dark scrim has no other edge. */
 .review-sheet-scrim {
@@ -180,6 +193,12 @@
   flex-direction: column;
   max-height: 80vh;
   overflow: hidden;
+}
+
+/* The title names two branches and wraps; the heading role's 1.25 leading is tight across two lines
+ * (the detector's tight-leading). The size stays on the locked scale. */
+.review-sheet-title {
+  line-height: 1.4;
 }
 
 /* A destructive line is the destructive TEXT role beside a glyph, so it never rests on hue. */

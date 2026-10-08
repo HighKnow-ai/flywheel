@@ -240,7 +240,7 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
         <div role="presentation" className="review-sheet-scrim">
           <div role="dialog" aria-label="Merge sheet" className="review-sheet" style={{ width: 560 }}>
             <header style={{ padding: "var(--space-md)", borderBottom: "1px solid var(--divider)", flexShrink: 0 }}>
-              <span className="type-heading" style={{ fontFamily: MONO_STACK, overflowWrap: "anywhere" }}>
+              <span className="type-heading review-sheet-title" style={{ fontFamily: MONO_STACK, overflowWrap: "anywhere" }}>
                 {result ? "Merge result" : preview ? `Merge ${preview.sourceBranch} → ${preview.targetBranch}` : "Merge"}
               </span>
             </header>

@@ -76,6 +76,12 @@ describe("the sheets draw their overlay from the per-mode roles", () => {
     expect(code(source)).toContain("review-sheet");
   });
 
+  it("a wrapping sheet title is set at 1.4 leading on the locked size", () => {
+    expect(rule(".review-sheet-title")).toMatch(/line-height:\s*1\.4/);
+    expect(mergeSheet).toContain("review-sheet-title");
+    expect(requestSheet).toContain("review-sheet-title");
+  });
+
   it("the scrim is --scrim, the sheet is --shadow-sheet on a --border-control edge", () => {
     expect(rule(".review-sheet-scrim")).toMatch(/background:\s*var\(--scrim\)/);
     expect(rule(".review-sheet")).toMatch(/box-shadow:\s*var\(--shadow-sheet\)/);

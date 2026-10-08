@@ -271,7 +271,7 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
         <div role="presentation" className="review-sheet-scrim">
           <div role="dialog" aria-label="Epic request sheet" className="review-sheet" style={{ width: 640 }}>
             <header style={{ padding: "var(--space-md)", borderBottom: "1px solid var(--divider)", flexShrink: 0 }}>
-              <span className="type-heading" style={{ fontFamily: MONO_STACK, overflowWrap: "anywhere" }}>
+              <span className="type-heading review-sheet-title" style={{ fontFamily: MONO_STACK, overflowWrap: "anywhere" }}>
                 {done
                   ? "Request result"
                   : draft
