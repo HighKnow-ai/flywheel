@@ -47,7 +47,7 @@ export const MARKS: Mark[] = [
     channel: "row-state",
     glyph: "Square",
     label: "Idle row",
-    meaning: "A row at rest — no hover, no selection.",
+    meaning: "A row at rest: no hover, no selection.",
   },
   {
     id: "row-surface-hover",
@@ -77,7 +77,8 @@ export const MARKS: Mark[] = [
     channel: "focus",
     glyph: "Focus",
     label: "Focus ring",
-    meaning: "The element currently reachable by keyboard Tab order.",
+    meaning:
+      "The element currently reachable by keyboard Tab order: a 2px ring in the brand colour. A text field that takes focus the moment it opens (the palette's search, a launch-sheet or amend field) wears the ink rule instead, so the brand is never a standing box around an input.",
   },
   // Status glyphs (01-UI-SPEC.md "Row Anatomy"). Shape and the printed word carry the meaning and
   // nothing else does: D-11 removed the paper tints, so colour is not even a redundant channel.
@@ -86,35 +87,35 @@ export const MARKS: Mark[] = [
     channel: "status",
     glyph: "CircleDashed",
     label: "Backlog",
-    meaning: "Not yet started — a dashed, empty circle.",
+    meaning: "Not yet started: a dashed, empty circle.",
   },
   {
     id: "status-todo",
     channel: "status",
     glyph: "Circle",
     label: "Todo",
-    meaning: "Queued to start — an empty circle.",
+    meaning: "Queued to start: an empty circle.",
   },
   {
     id: "status-in-progress",
     channel: "status",
     glyph: "CircleDot",
     label: "In Progress",
-    meaning: "Actively being worked — a circle with a dot at its centre.",
+    meaning: "Actively being worked: a circle with a dot at its centre.",
   },
   {
     id: "status-in-review",
     channel: "status",
     glyph: "CircleEllipsis",
     label: "In Review",
-    meaning: "Awaiting review — a circle with an ellipsis.",
+    meaning: "Awaiting review: a circle with an ellipsis.",
   },
   {
     id: "status-done",
     channel: "status",
     glyph: "CircleCheckBig",
     label: "Done",
-    meaning: "Complete — a circle with a check mark.",
+    meaning: "Complete: a circle with a check mark.",
   },
   // Priority glyphs (01-UI-SPEC.md "Row Anatomy" — a stacked-bars icon whose filled-bar count
   // increases with priority level). `No priority` is keyed `0` in the keyboard map but SORTS
@@ -125,14 +126,14 @@ export const MARKS: Mark[] = [
     channel: "priority",
     glyph: "SignalZero",
     label: "No priority",
-    meaning: "Unprioritised — keyed 0, but sorts last within its status band, not first.",
+    meaning: "Unprioritised: keyed 0, but sorts last within its status band, not first.",
   },
   {
     id: "priority-urgent",
     channel: "priority",
     glyph: "Signal",
     label: "Urgent",
-    meaning: "Highest priority — keyed 1, all bars filled.",
+    meaning: "Highest priority: keyed 1, all bars filled.",
   },
   {
     id: "priority-high",
@@ -153,7 +154,7 @@ export const MARKS: Mark[] = [
     channel: "priority",
     glyph: "SignalLow",
     label: "Low",
-    meaning: "Lowest declared priority — keyed 4, one bar filled.",
+    meaning: "Lowest declared priority: keyed 4, one bar filled.",
   },
   // The orphan-task pill (D-13, 01-UI-SPEC.md "Board list") — a task with no epic shows this
   // muted pill in the epic field slot, never a blank.
@@ -162,7 +163,7 @@ export const MARKS: Mark[] = [
     channel: "epic",
     glyph: "CircleSlash",
     label: "No epic",
-    meaning: "This task has no parent epic yet (D-13) — it may exist before its epic is known.",
+    meaning: "This task has no parent epic yet (D-13): it may exist before its epic is known.",
   },
   // Defence in depth (G-01-2, T-01-17-02): once the epic pill resolves against the project's
   // full roster (`useEpics()`), this outcome is reachable only while that roster query is
@@ -174,7 +175,7 @@ export const MARKS: Mark[] = [
     glyph: "CircleHelp",
     label: "Unknown epic",
     meaning:
-      "This item names an epic Flywheel could not resolve from the project's roster — the internal id is never shown in its place.",
+      "This item names an epic Flywheel could not resolve from the project's roster: the internal id is never shown in its place.",
   },
   // The epic roster's two graphic marks (08.1 A-01, D-06). Neither is an icon on the roster itself, which
   // draws a bar; the glyph is the legend's stand-in for it, as the estimate letters' `Ruler` is.
@@ -242,7 +243,7 @@ export const MARKS: Mark[] = [
     glyph: "History",
     label: "Evidence changed",
     meaning:
-      "The code this criterion was verified against has changed since — the check still stands, but it was made against older code.",
+      "The code this criterion was verified against has changed since: the check still stands, but it was made against older code.",
   },
   {
     id: "integrated",
@@ -261,21 +262,21 @@ export const MARKS: Mark[] = [
     channel: "estimate",
     glyph: "Ruler",
     label: "Small",
-    meaning: "S — small estimated effort. Never summed, averaged or converted to a point value.",
+    meaning: "S: small estimated effort. Never summed, averaged or converted to a point value.",
   },
   {
     id: "estimate-medium",
     channel: "estimate",
     glyph: "Ruler",
     label: "Medium",
-    meaning: "M — medium estimated effort.",
+    meaning: "M: medium estimated effort.",
   },
   {
     id: "estimate-large",
     channel: "estimate",
     glyph: "Ruler",
     label: "Large",
-    meaning: "L — large estimated effort.",
+    meaning: "L: large estimated effort.",
   },
   // Assignee marks (BOARD-06) — a human and an agent actor are peers in one actor model; the
   // badge distinguishes which is which without relying on colour alone (01-UI-SPEC.md Activity
@@ -323,7 +324,7 @@ export const MARKS: Mark[] = [
     channel: "project",
     glyph: "FolderGit2",
     label: "Project",
-    meaning: "One registered repository's board — the rail shows its key prefix as the real glyph.",
+    meaning: "One registered repository's board: the rail shows its key prefix as the real glyph.",
   },
   {
     id: "project-current",
@@ -339,7 +340,7 @@ export const MARKS: Mark[] = [
     glyph: "TriangleAlert",
     label: "Unreachable",
     meaning:
-      "This project's marker no longer matches its last known path (D-16) — paired with the literal word \"Unreachable,\" never a colour change alone.",
+      "This project's marker no longer matches its last known path (D-16): paired with the literal word \"Unreachable,\" never a colour change alone.",
   },
   // Agent run-status marks (02-UI-SPEC.md "Run Status", AGNT-06) — the five run states plus the
   // orthogonal blocked indicator that layers onto a task's existing five-state status glyph rather
@@ -379,7 +380,7 @@ export const MARKS: Mark[] = [
     glyph: "CircleSlash",
     label: "Interrupted",
     meaning:
-      "This run was stopped by the user — a normal, deliberate outcome, not an error (D-35).",
+      "This run was stopped by the user: a normal, deliberate outcome, not an error (D-35).",
   },
   {
     id: "blocked-indicator",
@@ -387,7 +388,7 @@ export const MARKS: Mark[] = [
     glyph: "ShieldAlert",
     label: "Blocked",
     meaning:
-      "An orthogonal signal layered on the row's existing five-state status glyph — a blocked task is still visibly at its real workflow status, not a sixth state.",
+      "An orthogonal signal layered on the row's existing five-state status glyph: a blocked task is still visibly at its real workflow status, not a sixth state.",
   },
   {
     id: "worktree-missing",
@@ -409,7 +410,7 @@ export const MARKS: Mark[] = [
     glyph: "TriangleAlert",
     label: "Needs Decision",
     meaning:
-      "A previous session left something on this task for you to decide (D-46). Deliberately the same glyph as worktree-missing above — this row pill is a rollup of that same underlying fact, not a copy-paste slip, mirroring run-blocked/blocked-indicator's own shared-glyph precedent.",
+      "A previous session left something on this task for you to decide (D-46). Deliberately the same glyph as worktree-missing above: this row pill is a rollup of that same underlying fact, not a copy-paste slip, mirroring run-blocked/blocked-indicator's own shared-glyph precedent.",
   },
   {
     id: "ci-failed",
@@ -417,7 +418,7 @@ export const MARKS: Mark[] = [
     glyph: "CircleX",
     label: "CI failed",
     meaning:
-      "A red build on this task's branch (D-124) — visible on the row so a backlog being drained by agents doesn't need every task opened to spot one. Never changes the status column (D-122's forward-only rule).",
+      "A red build on this task's branch (D-124): visible on the row so a backlog being drained by agents doesn't need every task opened to spot one. Never changes the status column (D-122's forward-only rule).",
   },
   // Phase 8.1 plan 01 (D-15): the board row's graded change annotation — how much real work sits
   // behind a task's worktree. Deliberately NOT alert-shaped: neither is a fifth pill beside
@@ -431,7 +432,7 @@ export const MARKS: Mark[] = [
     glyph: "Triangle",
     label: "Commits ahead",
     meaning:
-      "This task's branch has commits its epic's integration branch does not — real work waiting to be reviewed. The number is the count; a task with no worktree, or one level with its base, shows nothing.",
+      "This task's branch has commits its epic's integration branch does not: real work waiting to be reviewed. The number is the count; a task with no worktree, or one level with its base, shows nothing.",
   },
   {
     id: "change-dirty",
@@ -439,7 +440,7 @@ export const MARKS: Mark[] = [
     glyph: "Dot",
     label: "Uncommitted changes",
     meaning:
-      "This task's worktree has changes that are not committed yet. Shown only when there are some — absence means a clean tree or no worktree.",
+      "This task's worktree has changes that are not committed yet. Shown only when there are some: absence means a clean tree or no worktree.",
   },
   {
     id: "destructive-gate",
@@ -447,7 +448,7 @@ export const MARKS: Mark[] = [
     glyph: "OctagonAlert",
     label: "Destructive",
     meaning:
-      "This tool call would destroy work; it needs an explicit answer and cannot be granted standing permission (D-56, D-57). A stop-sign shape, categorically different from the ShieldAlert shield used everywhere else in this product's permission vocabulary — the shape itself is part of the signal.",
+      "This tool call would destroy work; it needs an explicit answer and cannot be granted standing permission (D-56, D-57). A stop-sign shape, categorically different from the ShieldAlert shield used everywhere else in this product's permission vocabulary: the shape itself is part of the signal.",
   },
   // D-88 (plan 05-03): the three-stage authoring machine's own marks, plus the tray's
   // proposal-pending mark. A proposal waiting on a decision burns no money (D-46: only money
@@ -458,7 +459,7 @@ export const MARKS: Mark[] = [
     channel: "agent",
     glyph: "MessageCircleQuestion",
     label: "Challenge",
-    meaning: "The agent is challenging the framing — it has no tool to stage a proposal yet (D-88).",
+    meaning: "The agent is challenging the framing: it has no tool to stage a proposal yet (D-88).",
   },
   {
     id: "authoring-stage-decompose",
@@ -480,7 +481,7 @@ export const MARKS: Mark[] = [
     glyph: "FileClock",
     label: "Pending proposal",
     meaning:
-      "A staged proposal awaiting your accept/reject/amend decision — not a blocked state (D-46: only money burning blocks).",
+      "A staged proposal awaiting your accept/reject/amend decision: not a blocked state (D-46: only money burning blocks).",
   },
 ];
 

@@ -202,6 +202,12 @@
   gap: var(--space-md);
   justify-content: space-between;
   min-height: 32px;
+  padding: var(--space-xs) 0;
+}
+
+/* The section's own hairline closes the list; a second one under the last row would double it. */
+.admin-row:last-child {
+  border-bottom: 0;
 }
 
 /* --- Fields --------------------------------------------------------------------------------------- */
@@ -276,6 +282,7 @@
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr) 72px 88px 80px;
   min-height: 32px;
+  padding: var(--space-xs) 0;
 }
 
 .admin-table-head {
@@ -328,4 +335,9 @@
 
 .admin-option:disabled {
   cursor: default;
+}
+
+/* The reject-reason field is a sentence, not a column: it need not run the width of a 1440px triage row. */
+.proposal-row .admin-field {
+  max-width: 420px;
 }

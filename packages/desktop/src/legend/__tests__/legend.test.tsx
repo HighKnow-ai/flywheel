@@ -212,6 +212,12 @@ describe("the legend tells the truth about the world 08.1 built", () => {
     expect(current?.meaning).toMatch(/neutral|page ground|lift/i);
   });
 
+  it("says what the focus ring is in the brand colour, and where the ink rule stands in for it", () => {
+    const focus = MARKS.find((m) => m.id === "focus-ring");
+    expect(focus?.meaning).toMatch(/brand/i);
+    expect(focus?.meaning).toMatch(/ink/i);
+  });
+
   it("draws the selection rule on the selected-row swatches, because the two surfaces are 1.011 apart (A-06(b))", () => {
     render(<Legend />);
     const swatch = (label: string) => rowFor(label).querySelector("[aria-hidden]") as HTMLElement;

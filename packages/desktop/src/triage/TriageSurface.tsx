@@ -395,33 +395,37 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
             className="admin-check"
           />
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}>
-              <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                From session {proposal.agentRunId.slice(0, 8)}
-              </span>
-              <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                For {epicLabel}
-              </span>
-              {logOffset !== null && (
-                <button
-                  type="button"
-                  aria-label="Jump to the turn that produced this proposal"
-                  onClick={() => onOpenSession(proposal.agentRunId, proposal.epicId, logOffset)}
-                  className="type-label admin-link"
-                >
-                  Jump to turn
-                </button>
-              )}
-            </div>
+            {/* Indented to the row's own content edge (its 2px rule and its padding), so the provenance, the
+                rationale and the row read as one column. */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", paddingLeft: "calc(var(--space-md) + 2px)" }}>
+              <div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}>
+                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                  From session {proposal.agentRunId.slice(0, 8)}
+                </span>
+                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                  For {epicLabel}
+                </span>
+                {logOffset !== null && (
+                  <button
+                    type="button"
+                    aria-label="Jump to the turn that produced this proposal"
+                    onClick={() => onOpenSession(proposal.agentRunId, proposal.epicId, logOffset)}
+                    className="type-label admin-link"
+                  >
+                    Jump to turn
+                  </button>
+                )}
+              </div>
 
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                Rationale
-              </span>
-              <span className="type-body">{proposal.rationale ?? "No rationale given."}</span>
-            </div>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                  Rationale
+                </span>
+                <span className="type-body">{proposal.rationale ?? "No rationale given."}</span>
+              </div>
 
-            {proposal.duplicateCandidate && <DuplicateAnnotation candidate={proposal.duplicateCandidate} />}
+              {proposal.duplicateCandidate && <DuplicateAnnotation candidate={proposal.duplicateCandidate} />}
+            </div>
 
             <ProposalRow
               agentRunId={proposal.agentRunId}
