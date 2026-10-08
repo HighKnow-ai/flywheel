@@ -151,6 +151,24 @@ export function rackRowHeight(row: { kind: RowKind | "quick-add" }): number {
   return ROW_HEIGHT_BY_KIND[row.kind === "quick-add" ? "task" : row.kind];
 }
 
+/**
+ * A row's stable identity (RESEARCH Pattern 8): the virtualizer keys rows by this instead of by
+ * index, so a row keeps its DOM node when a collapse shifts the rows around it. That is what lets
+ * the rows below a collapse slide (the displacement transition) rather than swap content in place.
+ */
+function rackRowKey(row: RackRow): string {
+  switch (row.kind) {
+    case "band-header":
+      return `band:${row.status}`;
+    case "epic-header":
+      return `epic:${row.id ?? "none"}`;
+    case "quick-add":
+      return "quick-add";
+    case "task":
+      return `task:${row.item.id}`;
+  }
+}
+
 /** `Epic`/`Task`/`Issue` — the exact wording `DeleteConfirm`'s heading (Copywriting Contract)
  * requires, derived from a `BoardItemKind` rather than hand-typed at each call site. */
 function itemTypeLabel(kind: BoardItemKind): "Epic" | "Task" {
@@ -536,6 +554,7 @@ export function BoardView({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: (index) => rackRowHeight(rows[index]),
+    getItemKey: (index) => rackRowKey(rows[index]),
     overscan: RACK_OVERSCAN,
   });
 
@@ -963,7 +982,7 @@ export function BoardView({
             if (row.kind === "band-header") {
               const count = counts[BAND_COUNT_KEY[row.status]];
               return (
-                <div key={virtualRow.key} style={positionStyle}>
+                <div key={virtualRow.key} data-row-key={virtualRow.key} className="displace-transition" style={positionStyle}>
                   <StatusBand
                     label={BAND_LABEL[row.status]}
                     count={count}
@@ -979,7 +998,7 @@ export function BoardView({
             if (row.kind === "epic-header") {
               const key = groupCollapseKey("epic", row.id);
               return (
-                <div key={virtualRow.key} style={positionStyle}>
+                <div key={virtualRow.key} data-row-key={virtualRow.key} className="displace-transition" style={positionStyle}>
                   <StatusBand
                     label={row.label}
                     count={row.count}
@@ -992,7 +1011,7 @@ export function BoardView({
 
             if (row.kind === "quick-add") {
               return (
-                <div key={virtualRow.key} style={positionStyle}>
+                <div key={virtualRow.key} data-row-key={virtualRow.key} className="displace-transition" style={positionStyle}>
                   <QuickAdd
                     // Mount-time focus is now the empty-board default only (G-01-4) — every
                     // on-demand open goes through `focusPending` below instead, since the row is
@@ -1027,6 +1046,7 @@ export function BoardView({
                 // the rack keeps its position, since a swap moves at most two adjacent rows.
                 // `prefers-reduced-motion` zeroes `--duration-displace` (motion.css), so the
                 // state change still applies instantly rather than being removed.
+                data-row-key={virtualRow.key}
                 className="displace-transition"
                 style={positionStyle}
                 ref={(el) => {
