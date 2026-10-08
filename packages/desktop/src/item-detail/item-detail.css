@@ -16,6 +16,74 @@
   border-left: 1px solid var(--divider);
 }
 
+/*
+ * The title is the panel's one focal point, and the locked 11/13/15 scale cannot make it bigger. It gets its
+ * emphasis from what surrounds it instead: semibold (the heading role), a tighter tracking as the comp sets it,
+ * no field chrome at rest (a standing underline made it read as a form input, not a heading), and the panel's
+ * 24px gap above and below it. The control edge appears under it on hover and focus, so it is still findable
+ * as an editable field (a plain colour change, no motion).
+ */
+.detail-title {
+  background: transparent;
+  color: inherit;
+  border: none;
+  border-bottom: 1px solid transparent;
+  padding: var(--space-xs) 0;
+  letter-spacing: -0.01em;
+  width: 100%;
+}
+
+.detail-title:hover,
+.detail-title:focus {
+  border-bottom-color: var(--border-control);
+}
+
+/*
+ * The property grid, in the body face: a muted label and its value, one row each (the comp's `.props`).
+ * It is also how the Worktree and Changes rows of the sections below are drawn, so every fact about the item
+ * reads the same way. A row exists only when it has a value.
+ */
+.detail-props {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  row-gap: var(--space-sm);
+  align-items: center;
+  margin: 0;
+}
+
+.detail-props dt {
+  color: var(--text-muted-rack);
+}
+
+.detail-props dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+/*
+ * A value that can be changed: its value and a caret, with no box. A box is what an ACTION wears
+ * (`control-edge`), so the two are told apart by the edge alone, with no fill and no brand spent on either
+ * (owner, 2026-10-08: no fills; 08.1-15 closure, finding 3).
+ */
+.detail-value-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.detail-value-control:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* The panel's own actions share one row; a kind with none (an issue) leaves no gap behind. */
 .detail-actions {
   display: flex;
@@ -33,6 +101,16 @@
   color: var(--text-primary-rack);
   padding: var(--space-xs) var(--space-md);
   cursor: pointer;
+}
+
+/*
+ * The one leading action of a section wears the selection rule's device, a 2px ink edge, over the same
+ * control edge every other action has at 1px. Padding gives the extra pixel back, so a leading action and
+ * its neighbours are the same size. Ink, not brand: the brand carries progress and is never an action.
+ */
+.detail-action.detail-action-lead {
+  border: 2px solid var(--selection-rule);
+  padding: calc(var(--space-xs) - 1px) calc(var(--space-md) - 1px);
 }
 
 /*
@@ -103,4 +181,47 @@
 .run-row + .run-row {
   border-top: 1px solid var(--divider);
   padding-top: var(--space-sm);
+}
+
+/*
+ * A criterion's edit affordance is hover or keyboard, not standing ornament (08.1-15 closure, finding 8).
+ * It stays in the DOM and the tab order, so a keyboard user reaches it (it appears on focus) and so do
+ * `e` and a click on the row text; opacity, not display, keeps it focusable. No transition: it is a
+ * state, not a movement.
+ */
+.criterion-edit {
+  opacity: 0;
+}
+
+.criterion-row:hover .criterion-edit,
+.criterion-row:focus-within .criterion-edit,
+.criteria-list .criterion-row[data-focused="true"] .criterion-edit,
+.criterion-edit:focus-visible {
+  opacity: 1;
+}
+
+/*
+ * A value that must stay inside its column: one line, ellipsised, shrinkable. `min-width: 0` is what lets a
+ * flex or grid child go below its content width; without it the value pushes past the panel's padding box
+ * (08.1-15 closure, finding 1). `-left` truncates from the start (direction: rtl) so the meaningful tail of a
+ * path stays visible. The text sits in a `bdi` (left-to-right, isolated) inside that right-to-left box;
+ * `unicode-bidi: plaintext` on the box itself clipped BOTH ends in WebKit.
+ */
+.detail-clip {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-clip-left {
+  direction: rtl;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-muted-rack);
+  cursor: pointer;
 }

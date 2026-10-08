@@ -1,7 +1,8 @@
 /**
- * The git-truth section (Phase 7 plan 07-01, LINK-02/LINK-09) — branch, ahead/behind against the
+ * The git-truth section (Phase 7 plan 07-01, LINK-02/LINK-09) — ahead/behind against the
  * integration target (with the age of the fetch it was measured against, D-116), the commit
- * window, and uncommitted changes. Reads through `useGitFacts` (`board/useBoardQuery.ts`),
+ * window, and uncommitted changes. The branch is the Worktree row's (`WorktreeSummary.tsx`), not repeated here
+ * (08.1-15 closure, finding 6): ahead/behind is drawn as the comp's "Changes" property row. Reads through `useGitFacts` (`board/useBoardQuery.ts`),
  * refreshed by the scheduler's own tick (D-113/D-114) through the same `board:changed`
  * subscription every other live section in this panel already uses — no polling interval, no
  * second push channel.
@@ -124,17 +125,11 @@ export function GitFactsSection({ taskId }: GitFactsSectionProps) {
       aria-label="Git truth"
       style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0 }}
     >
-      <span
-        className="type-body"
-        style={{ fontFamily: MONO_STACK, color: "var(--text-primary-rack)" }}
-      >
-        {facts.branch}
-      </span>
-
       {hasComparison ? (
-        <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
-          {aheadBehindLine}
-        </p>
+        <dl className="detail-props">
+          <dt className="type-body">Changes</dt>
+          <dd className="type-body">{aheadBehindLine}</dd>
+        </dl>
       ) : (
         <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
           Comparison target <span style={{ fontFamily: MONO_STACK }}>{facts.targetRef}</span> is

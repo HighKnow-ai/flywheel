@@ -73,7 +73,7 @@ function installTauriBridge() {
     agent_runs_for_task: [RUN],
     agent_run_pending_permissions: [],
     task_session_summaries: [],
-    worktree_summary: { branch: "flywheel/thre-58-wire-up-the-focus-trap-41", path: "/Users/dev/flywheel/thre-58", status: "active" },
+    worktree_summary: { branch: "flywheel/thre-58-wire-up-the-focus-trap-41", path: "/Users/cymarechal/orca/workspaces/HighKnow-harness/threadfin/.flywheel/worktrees/thre-58-wire-up-the-focus-trap-41", status: "active" },
     project_list: [],
     board_change_flags: [],
     board_blocked_summary: { blockedTaskIds: [], blockedCount: 0 },
@@ -97,7 +97,10 @@ function Page() {
         run is a FIXTURE, because the real board has no agent runs today.
       </p>
       <ItemDetailPanel
-        item={{ id: TASK.id, kind: "task", key: TASK.key, title: TASK.title, status: TASK.status, projectId: TASK.project_id }}
+        item={{
+          id: TASK.id, kind: "task", key: TASK.key, title: TASK.title, status: TASK.status, projectId: TASK.project_id,
+          priority: (TASK as unknown as { priority: number }).priority, estimate: (TASK as unknown as { estimate: number }).estimate,
+        }}
         onClose={() => {}} onUpdateTitle={() => {}} onSetStatus={() => {}} onStartWork={() => {}} onReview={() => {}}
         trapped={false}
       />
@@ -150,6 +153,55 @@ describe(`item detail group, built, ${scheme} scheme`, () => {
       expect(ratio(toHex(style.color), PALETTE.surfaceDominant), `${name}'s text`).toBeGreaterThanOrEqual(4.5);
     }
 
+    // 08.1-15 closure, finding 1: nothing in the panel paints past its padding box. The worktree path used to
+    // be cut mid-glyph at the panel's right edge because the branch refused to shrink.
+    const panelBox = panel.getBoundingClientRect();
+    const pad = parseFloat(getComputedStyle(panel).paddingRight);
+    for (const value of Array.from(panel.querySelectorAll<HTMLElement>(".detail-clip"))) {
+      expect(value.getBoundingClientRect().right, `${value.textContent} must stay inside the panel's padding box`).toBeLessThanOrEqual(
+        panelBox.right - pad + 0.5,
+      );
+      expect(value.scrollWidth > value.clientWidth ? getComputedStyle(value).textOverflow : "ellipsis", "a clipped value ellipsises").toBe("ellipsis");
+    }
+    expect(panel.querySelectorAll(".detail-clip").length, "the branch and the path").toBe(2);
+    // The path clips at its START and keeps its tail: the isolated text overflows to the LEFT of its box and its
+    // right edge is the box's right edge. (`unicode-bidi: plaintext` clipped both ends in WebKit, so the
+    // meaningful end of the path, the task, was the part lost.)
+    const pathButton = within(panel).getByRole("button", { name: "Copy worktree path" });
+    const pathText = pathButton.querySelector("bdi") as HTMLElement;
+    expect(pathText.getBoundingClientRect().left, "the long path overflows at its start").toBeLessThan(pathButton.getBoundingClientRect().left);
+    expect(Math.abs(pathText.getBoundingClientRect().right - pathButton.getBoundingClientRect().right), "and its tail is on screen").toBeLessThanOrEqual(1);
+
+    // Finding 6: the panel's one family. No system monospace stack in the worktree rows or the property grid.
+    for (const el of Array.from(panel.querySelectorAll<HTMLElement>(".detail-props, .detail-props *"))) {
+      expect(getComputedStyle(el).fontFamily, "a second font family in the property rows").not.toMatch(/mono/i);
+    }
+    const props = panel.querySelector(".detail-props") as HTMLElement;
+    expect(within(props).getByText("Priority").nextElementSibling?.textContent).toBe("No priority");
+
+    // Finding 3: a value is not a box, an action is. The status value has no edge; the lead action has the 2px ink edge.
+    const statusValue = within(panel).getByRole("button", { name: /in progress/i });
+    expect(getComputedStyle(statusValue).borderTopWidth, "the status value is unboxed").toBe("0px");
+    const lead = within(panel).getByRole("button", { name: "Start Work" });
+    expect(getComputedStyle(lead).borderTopWidth).toBe("2px");
+    expect(toHex(getComputedStyle(lead).borderTopColor), "the lead's edge is the ink rule, not the brand").toBe(PALETTE.selectionRule);
+    expect(getComputedStyle(within(panel).getByRole("button", { name: "Review" })).borderTopWidth, "secondary actions keep the hairline").toBe("1px");
+    expect(lead.getBoundingClientRect().height, "the lead is the same size as its neighbour").toBeCloseTo(
+      within(panel).getByRole("button", { name: "Review" }).getBoundingClientRect().height, 0,
+    );
+
+    // Finding 2: eight identical events read as one row with a count, and no actor-kind enum or per-row glyph.
+    const trail = within(panel).getByRole("list", { name: "Activity trail" });
+    expect(within(trail).getAllByRole("listitem")).toHaveLength(1);
+    expect(trail.textContent).toContain("×8");
+    expect(trail.textContent).not.toMatch(/Human/);
+    expect(trail.querySelector("svg")).toBeNull();
+
+    // Finding 8: the pencils are not standing ornament; hover reveals one.
+    const pencils = Array.from(panel.querySelectorAll<HTMLElement>(".criterion-edit"));
+    expect(pencils).toHaveLength(3);
+    for (const p of pencils) expect(getComputedStyle(p).opacity, "hidden at rest").toBe("0");
+
     // Mouse: a click moves the cursor and paints no ring. Keyboard: the ring appears on the cursor row.
     const list = within(panel).getByRole("list", { name: "Criteria" });
     const first = within(panel).getByRole("listitem", { name: /Tab and Shift\+Tab/ });
@@ -181,9 +233,14 @@ describe(`item detail group, built, ${scheme} scheme`, () => {
     const menu = await screen.findByRole("menu", { name: "Set status" });
     const style = getComputedStyle(menu);
     expect(ratio(toHex(style.borderTopColor), PALETTE.surfaceDominant), "the picker's edge is the control boundary").toBeGreaterThanOrEqual(3);
+    expect(toHex(style.borderTopColor), "the popover's edge is the popover tier's").toBe(PALETTE.borderPopover);
     expect(style.boxShadow, "the popover shadow resolves from the role").toContain(scheme === "dark" ? "rgba(0, 0, 0, 0.6)" : "rgba(31, 35, 40, 0.16)");
     expect(document.querySelector('[role="dialog"][aria-label="Command palette"]'), "a popover dims nothing").toBeNull();
     const chosen = within(menu).getByRole("menuitemradio", { checked: true });
+    expect(
+      chosen.getBoundingClientRect().left - menu.getBoundingClientRect().left,
+      "the chosen item's rule is inset from the popover's edge",
+    ).toBeGreaterThanOrEqual(6);
     expect(toHex(getComputedStyle(chosen).borderLeftColor), "the chosen item carries the 2px ink rule").toBe(PALETTE.selectionRule);
     expect(getComputedStyle(chosen).borderLeftWidth).toBe("2px");
 
@@ -202,7 +259,7 @@ describe(`item detail group, built, ${scheme} scheme`, () => {
     const panel = document.querySelector(".command-palette") as HTMLElement;
     const style = getComputedStyle(panel);
     expect(style.boxShadow).toContain(scheme === "dark" ? "rgba(0, 0, 0, 0.7)" : "rgba(31, 35, 40, 0.24)");
-    expect(ratio(toHex(style.borderTopColor), PALETTE.surfaceDominant), "the palette's edge is the control boundary").toBeGreaterThanOrEqual(3);
+    
     const selected = await waitFor(() => {
       const option = within(panel).getAllByRole("option").find((o) => o.getAttribute("aria-selected") === "true");
       expect(option).toBeTruthy();
@@ -214,7 +271,19 @@ describe(`item detail group, built, ${scheme} scheme`, () => {
     expect(ratio(toHex(optionStyle.color), PALETTE.rowSurfaceSelected), "its text on that surface").toBeGreaterThanOrEqual(4.5);
     // The search field is focused and keeps its ring (it used to be suppressed).
     const input = within(panel).getByRole("textbox", { name: "Command search" });
-    expect(getComputedStyle(input).outlineStyle, "the palette's search field rings under keyboard focus").toBe("solid");
+    const ring = getComputedStyle(input);
+    expect(ring.outlineStyle, "the palette's search field rings under keyboard focus").toBe("solid");
+    // 08.1-15 closure, finding 5: the ring is ink, not the brand, and sits inside the dialog edge, not on it.
+    expect(toHex(ring.outlineColor), "the search ring is the ink rule").toBe(PALETTE.selectionRule);
+    expect(Number.parseFloat(ring.outlineOffset), "inset past the dialog's own edge").toBeLessThanOrEqual(-4);
+    // Findings 7 and 8: section headers stand over their commands; the highlighted rule sits inside the edge.
+    for (const header of ["Navigation", "Project", "Create"]) expect(within(panel).getByText(header)).toBeTruthy();
+    expect(within(panel).queryAllByText("Selected item").length, "once, as a header, not on every row").toBeLessThanOrEqual(1);
+    expect(
+      selected.getBoundingClientRect().left - panel.getBoundingClientRect().left,
+      "the 2px rule is inset from the dialog's edge",
+    ).toBeGreaterThanOrEqual(6);
+    expect(toHex(style.borderTopColor), "the sheet's edge is the sheet tier's").toBe(PALETTE.borderSheet);
 
     await settle();
     await page.screenshot({ path: `${OUT}/detail-group-built-${scheme}-palette-1440x900.png` });

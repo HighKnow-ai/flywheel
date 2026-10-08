@@ -582,6 +582,9 @@ export function AcceptanceCriteriaList({
               {!editing && (
                 <button
                   type="button"
+                  // Revealed by row hover or keyboard focus (item-detail.css), never standing ornament: three
+                  // persistent pencils beside three rows said "editable" three times (08.1-15 closure, finding 8).
+                  className="criterion-edit"
                   aria-label={`Edit criterion "${criterion.statement}"`}
                   onClick={(event) => {
                     event.stopPropagation();

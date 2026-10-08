@@ -1535,6 +1535,10 @@ export function BoardView({
               // Empty for an epic reached from the roster, whose status is not known here.
               status: selectedItem.status || undefined,
               projectId,
+              // A roster epic is a placeholder with no rank, and its priority/estimate are not known (see
+              // `rosterEpicItem`): print them only for a loaded row, never the placeholder's `0`.
+              priority: selectedItem.rank ? selectedItem.priority : undefined,
+              estimate: selectedItem.rank ? selectedItem.estimate : undefined,
             } satisfies DetailItem
           }
           onClose={() => setDetailItemId(null)}

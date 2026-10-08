@@ -108,11 +108,13 @@ describe("GitFactsSection", () => {
     expect(line.textContent).toMatch(/as of \d+m ago/i);
   });
 
-  it("renders the branch row with an empty commit list, not an error, when there are no commits", async () => {
+  it("renders the Changes row with an empty commit list, not an error, when there are no commits", async () => {
     gitFactsMock.mockResolvedValue(baseFacts({ commits: [] }));
     renderSection();
 
-    expect(await screen.findByText("flywheel/fly-42-add-git-facts")).toBeInTheDocument();
+    expect(await screen.findByText("Changes")).toBeInTheDocument();
+    // The branch is the Worktree row's, not repeated in this section.
+    expect(screen.queryByText("flywheel/fly-42-add-git-facts")).not.toBeInTheDocument();
     expect(screen.queryByText(/earlier commits/i)).not.toBeInTheDocument();
   });
 
@@ -236,7 +238,7 @@ describe("GitFactsSection", () => {
     gitFactsMock.mockResolvedValue(baseFacts({ uncommitted: [] }));
     renderSection();
 
-    await screen.findByText("flywheel/fly-42-add-git-facts");
+    await screen.findByText("Changes");
     expect(screen.queryByText("Modified")).not.toBeInTheDocument();
     expect(screen.queryByText("Untracked")).not.toBeInTheDocument();
   });

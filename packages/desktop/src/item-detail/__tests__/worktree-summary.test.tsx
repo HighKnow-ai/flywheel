@@ -19,6 +19,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorktreeSummary } from "../WorktreeSummary";
 import type { WorktreeSummaryDto } from "../../adapters/tauri";
+import detailCss from "../item-detail.css?raw";
 
 const worktreeSummaryMock = vi.fn();
 const worktreeRecreateMock = vi.fn();
@@ -65,15 +66,17 @@ describe("WorktreeSummary", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders the branch and path, both in the Mono role", async () => {
+  it("renders the branch and path as property rows in the body face, not the system monospace stack", async () => {
     const summary: WorktreeSummaryDto = { branch: "flywheel/fly-42", path: "/Users/cyril/Flywheel/proj/FLY-42", status: "active" };
     worktreeSummaryMock.mockResolvedValue(summary);
     renderSummary();
 
     const branchNode = await screen.findByText("flywheel/fly-42");
-    const pathNode = screen.getByText("/Users/cyril/Flywheel/proj/FLY-42");
-    expect(branchNode.style.fontFamily).toMatch(/ui-monospace/);
-    expect(pathNode.style.fontFamily).toMatch(/ui-monospace/);
+    const pathNode = screen.getByText("/Users/cyril/Flywheel/proj/FLY-42").closest("button") as HTMLElement;
+    expect(branchNode.style.fontFamily).toBe("");
+    expect(pathNode.style.fontFamily).toBe("");
+    expect(screen.getByText("Worktree")).toBeInTheDocument();
+    expect(screen.getByText("Path")).toBeInTheDocument();
   });
 
   it("renders a long path with left-truncation styling and never wraps to a second row", async () => {
@@ -81,15 +84,22 @@ describe("WorktreeSummary", () => {
     worktreeSummaryMock.mockResolvedValue(summary);
     renderSummary();
 
-    const pathNode = await screen.findByText(LONG_PATH);
+    const pathNode = (await screen.findByText(LONG_PATH)).closest("button") as HTMLElement;
     // The full string stays in the DOM (jsdom performs no layout/visual truncation) — the
     // left-truncation contract is proven by the CSS declarations themselves.
-    expect(pathNode.style.direction).toBe("rtl");
-    expect(pathNode.style.textAlign).toBe("left");
-    expect(pathNode.style.textOverflow).toBe("ellipsis");
-    expect(pathNode.style.whiteSpace).toBe("nowrap");
+    expect(pathNode.className).toContain("detail-clip-left");
+    const rule = (selector: string) => {
+      const at = detailCss.indexOf(`${selector} {`);
+      return at === -1 ? "" : detailCss.slice(at, detailCss.indexOf("}", at));
+    };
+    expect(rule(".detail-clip-left")).toMatch(/direction:\s*rtl/);
+    expect(rule(".detail-clip-left")).toMatch(/text-align:\s*left/);
+    expect(rule(".detail-clip")).toMatch(/text-overflow:\s*ellipsis/);
+    expect(rule(".detail-clip")).toMatch(/white-space:\s*nowrap/);
+    expect(rule(".detail-clip")).toMatch(/min-width:\s*0/);
     // "project and task segments still present" — the tail of the path is what a left-truncation
     // preserves; asserting the full text is present is the DOM-level proof available under jsdom.
+    expect(pathNode.querySelector("bdi"), "the path is an isolated LTR run inside the RTL box").not.toBeNull();
     expect(pathNode.textContent).toContain("threadfin-project/FLY-42-add-worktree-summary");
   });
 

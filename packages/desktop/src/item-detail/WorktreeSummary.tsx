@@ -7,10 +7,8 @@
  * header even when their own list is empty.
  *
  * Reads through `useWorktreeSummary` (`board/useBoardQuery.ts`, plan 02-07 Task 1). Renders one
- * line: the branch name and the absolute path, both in the Mono role (the local `MONO_STACK`
- * constant `session/FeedRow.tsx`/`session/SessionSurface.tsx`/`session/RawLogView.tsx`/
- * `session/PermissionRequestCard.tsx` each already declare their own copy of — this file follows
- * that same established per-file convention rather than extracting a fifth shared constant).
+ * rows: the branch name and the absolute path, in the body face. (They were Mono, the system monospace
+ * stack; 08.1-15 closure, finding 6, moved them into the panel's one family, as the approved comp prints them.)
  *
  * The path truncates from the LEFT (`direction: rtl` + `text-align: left` is the standard CSS
  * technique for this — the browser ellipsizes the leading characters while the trailing ones,
@@ -69,8 +67,6 @@ import {
 } from "../adapters/tauri";
 import { WorktreeRemovalDialog } from "./WorktreeRemovalDialog";
 
-const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-
 /** The shared text-style tertiary-action button treatment — Remove Worktree's own existing
  * inline style, factored out so the two new D-130 actions (Open in editor / Open in terminal)
  * render identically rather than duplicating the object literal three times. */
@@ -101,8 +97,7 @@ const bannerActionButtonStyle = {
 
 /**
  * D-45's missing-worktree decision banner. Exists only here (this component is not reused
- * anywhere else) — following this file's own `MONO_STACK` precedent of a per-file constant rather
- * than extracting a shared module for a single call site.
+ * anywhere else) — kept local rather than extracting a shared module for a single call site.
  *
  * The two actions carry IDENTICAL visual treatment (same border/background/text colour) —
  * `03-UI-SPEC.md` is explicit this is a genuine either/or, not a safe-default/destructive pair, so
@@ -312,55 +307,53 @@ export function WorktreeSummary({ taskId }: WorktreeSummaryProps) {
   return (
     <section
       aria-label="Worktree"
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0 }}
+      style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", minWidth: 0 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-        {hasBranch ? (
-          <span
-            className="type-body"
-            style={{ fontFamily: MONO_STACK, flexShrink: 0, color: "var(--text-primary-rack)" }}
-          >
-            {summary.branch}
-          </span>
-        ) : (
-          <span className="type-label" style={{ color: "var(--text-muted-rack)", flexShrink: 0 }}>
-            Branch unavailable
-          </span>
-        )}
+      {/* Two property rows in the body face (the panel's one family; the branch and path were set in the system
+          monospace stack, a second family). Each value sits in a `minmax(0, 1fr)` column and ellipsises
+          within it: the branch from the right, the path from the LEFT so the meaningful tail stays. A
+          `flex-shrink: 0` on the branch used to push the path past the panel's padding box (08.1-15 closure,
+          finding 1). */}
+      <dl className="detail-props">
+        <dt className="type-body">Worktree</dt>
+        <dd>
+          {hasBranch ? (
+            <span
+              className="type-body tabular-nums detail-clip"
+              title={summary.branch as string}
+              style={{ color: "var(--text-primary-rack)" }}
+            >
+              {summary.branch}
+            </span>
+          ) : (
+            <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+              Branch unavailable
+            </span>
+          )}
+        </dd>
 
-        {hasPath ? (
-          <button
-            type="button"
-            onClick={() => void copyToClipboard(summary.path as string)}
-            aria-label="Copy worktree path"
-            title={summary.path as string}
-            className="type-body"
-            style={{
-              fontFamily: MONO_STACK,
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              margin: 0,
-              color: "var(--text-muted-rack)",
-              cursor: "pointer",
-              minWidth: 0,
-              maxWidth: "100%",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              direction: "rtl",
-              textAlign: "left",
-              unicodeBidi: "plaintext",
-            }}
-          >
-            {summary.path}
-          </button>
-        ) : (
-          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-            Path unavailable
-          </span>
-        )}
-      </div>
+        <dt className="type-body">Path</dt>
+        <dd>
+          {hasPath ? (
+            <button
+              type="button"
+              onClick={() => void copyToClipboard(summary.path as string)}
+              aria-label="Copy worktree path"
+              title={summary.path as string}
+              className="type-body tabular-nums detail-clip detail-clip-left"
+            >
+              {/* `bdi` isolates the path as left-to-right text inside the right-to-left box, so the ellipsis lands at
+                  the START and the meaningful tail stays. `unicode-bidi: plaintext` on the box did not do this in
+                  WebKit: it clipped both ends. */}
+              <bdi>{summary.path}</bdi>
+            </button>
+          ) : (
+            <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+              Path unavailable
+            </span>
+          )}
+        </dd>
+      </dl>
 
       {violatesSingleton && (
         <span role="alert" className="type-label" style={{ color: "var(--destructive-text-rack)" }}>

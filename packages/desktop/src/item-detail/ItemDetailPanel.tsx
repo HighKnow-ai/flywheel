@@ -28,7 +28,8 @@ import { useRef, useState, type KeyboardEvent } from "react";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { StatusPicker } from "../board/pickers/StatusPicker";
-import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
+import { ChevronDown } from "lucide-react";
+import { estimateLetter, MARKS_BY_ID, priorityMarkId, statusMarkId } from "../legend/marks";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
 import { ActivityTrail } from "./ActivityTrail";
 import { ForgeSection } from "./ForgeSection";
@@ -48,6 +49,12 @@ export interface DetailItem {
   status?: string;
   /** Needed by the acceptance-criteria list to create a criterion against the right project. */
   projectId?: string;
+  /** The item's priority (0-4, keyed as the keyboard map). `undefined` means NOT KNOWN (an epic
+   * reached from the roster carries none), which prints no row; `0` is the fact "No priority". */
+  priority?: number;
+  /** S/M/L as the stored ordinal 1-3. `null`/`undefined` is "no estimate set": no row, never a
+   * placeholder (the board row prints no badge for it either, D-12). */
+  estimate?: number | null;
 }
 
 export interface ItemDetailPanelProps {
@@ -108,6 +115,11 @@ export function ItemDetailPanel({
   const isIssue = item.kind === "issue";
   const isTask = item.kind === "task";
   const statusMark = item.status ? MARKS_BY_ID[statusMarkId(item.status)] : undefined;
+  // Printed only where there is a value to print. The panel receives no other property (assignee, epic and the
+  // worktree facts have their own sections), and an unknown value prints nothing rather than a dash.
+  const priorityMark = item.priority === undefined ? undefined : MARKS_BY_ID[priorityMarkId(item.priority)];
+  const estimate = estimateLetter(item.estimate);
+  const hasProps = (!isIssue && !!item.status) || !!priorityMark || !!estimate;
 
   function commitTitle() {
     const trimmed = titleDraft.trim();
@@ -156,88 +168,111 @@ export function ItemDetailPanel({
             height: "100%",
             display: "flex",
             flexDirection: "column",
-            gap: "var(--space-md)",
+            gap: "var(--space-lg)",
             padding: "var(--space-lg)",
             overflowY: "auto",
           }}
         >
-          <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
-              {item.key}
-            </span>
-            <button
-              type="button"
-              aria-label="Close detail panel"
-              onClick={onClose}
-              style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
-            >
-              Close
-            </button>
-          </header>
-
-          <input
-            className="type-heading"
-            aria-label="Title"
-            value={titleDraft}
-            onChange={(event) => setTitleDraft(event.target.value)}
-            onBlur={commitTitle}
-            onKeyDown={handleTitleKeyDown}
-            style={{
-              background: "transparent",
-              border: "none",
-              borderBottom: "1px solid var(--border-control)",
-              color: "inherit",
-              padding: "var(--space-xs) 0",
-            }}
-          />
-
-          {!isIssue && item.status && (
-            <div style={{ position: "relative", display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
-              <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                Status
+          {/* The key and the title are one unit (tight), set well apart from the rest (the panel's gap):
+              spacing is the title's focal device, since the locked 11/13/15 scale cannot grow it. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+            <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
+                {item.key}
               </span>
               <button
-                ref={statusButtonRef}
                 type="button"
-                onClick={() => {
-                  const rect = statusButtonRef.current?.getBoundingClientRect();
-                  if (rect) {
-                    setStatusPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
-                  }
-                  setStatusPickerOpen(true);
-                }}
-                className="type-body control-edge"
-                style={{
-                  background: "transparent",
-                  color: "inherit",
-                  padding: "var(--space-xs) var(--space-sm)",
-                  cursor: "pointer",
-                }}
+                aria-label="Close detail panel"
+                onClick={onClose}
+                style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
               >
-                {statusMark?.label ?? item.status}
+                Close
               </button>
-              {statusPickerOpen && item.status && statusPickerAnchor && (
-                <StatusPicker
-                  currentStatus={item.status}
-                  anchorRect={statusPickerAnchor}
-                  onSelect={(status) => {
-                    onSetStatus?.(status);
-                    setStatusPickerOpen(false);
-                  }}
-                  onClose={() => setStatusPickerOpen(false)}
-                />
+            </header>
+
+            <input
+              className="type-heading detail-title"
+              aria-label="Title"
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={handleTitleKeyDown}
+            />
+          </div>
+
+          {hasProps && (
+            <dl className="detail-props">
+              {!isIssue && item.status && (
+                <>
+                  <dt className="type-body">Status</dt>
+                  <dd className="type-body" style={{ position: "relative" }}>
+                    {/* A VALUE, not an action: no box. A value plus its caret is how a field that can be changed
+                        reads, so it cannot be mistaken for the drawn verbs beneath (08.1-15 closure, finding 3). */}
+                    <button
+                      ref={statusButtonRef}
+                      type="button"
+                      aria-haspopup="menu"
+                      onClick={() => {
+                        const rect = statusButtonRef.current?.getBoundingClientRect();
+                        if (rect) {
+                          setStatusPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
+                        }
+                        setStatusPickerOpen(true);
+                      }}
+                      className="type-body detail-value-control"
+                    >
+                      {statusMark?.label ?? item.status}
+                      <ChevronDown size={12} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    {statusPickerOpen && item.status && statusPickerAnchor && (
+                      <StatusPicker
+                        currentStatus={item.status}
+                        anchorRect={statusPickerAnchor}
+                        onSelect={(status) => {
+                          onSetStatus?.(status);
+                          setStatusPickerOpen(false);
+                        }}
+                        onClose={() => setStatusPickerOpen(false)}
+                      />
+                    )}
+                  </dd>
+                </>
               )}
-            </div>
+              {priorityMark && (
+                <>
+                  <dt className="type-body">Priority</dt>
+                  <dd className="type-body">{priorityMark.label}</dd>
+                </>
+              )}
+              {estimate && (
+                <>
+                  <dt className="type-body">Estimate</dt>
+                  <dd className="type-body tabular-nums">{estimate}</dd>
+                </>
+              )}
+            </dl>
           )}
 
           <div className="detail-actions">
+            {/* One leading action per section carries the 2px ink edge (the selection rule's device); the rest stay
+                on the hairline control edge. A task leads with Start Work, an epic with Continue Shaping. */}
             {item.kind === "task" && (
               <button
                 type="button"
                 onClick={onStartWork}
-                className="type-body control-edge detail-action"
+                className="type-body control-edge detail-action detail-action-lead"
               >
                 Start Work
+              </button>
+            )}
+
+            {item.kind === "epic" && (
+              <button
+                type="button"
+                onClick={onContinueShaping}
+                className="type-body control-edge detail-action detail-action-lead"
+              >
+                Continue Shaping
               </button>
             )}
 
@@ -248,16 +283,6 @@ export function ItemDetailPanel({
                 className="type-body control-edge detail-action"
               >
                 Review
-              </button>
-            )}
-
-            {item.kind === "epic" && (
-              <button
-                type="button"
-                onClick={onContinueShaping}
-                className="type-body control-edge detail-action"
-              >
-                Continue Shaping
               </button>
             )}
           </div>

@@ -315,7 +315,8 @@ function RunRow({
               event.stopPropagation();
               onOpenRun(run.id);
             }}
-            className="type-body control-edge detail-action"
+            // The Runs section's one leading action: the 2px ink edge (item-detail.css), as Start Work has.
+            className="type-body control-edge detail-action detail-action-lead"
             style={{ marginLeft: "auto" }}
           >
             {isTerminal ? "View" : "Watch Live"}
