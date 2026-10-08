@@ -246,6 +246,7 @@ context to be answerable months later by someone who was not in the room:
     small glyph; whether it reads at 12px is a perceptual question.
   risk_if_wrong: "Moderate on the focus half — an accessibility obligation, and the reason it was fixed in-phase rather than queued. Low on the glyph half: cosmetic, and swapping a registry glyph is a one-line change."
   automatable: "MOSTLY. Ratio and computed-colour assertions: YES, specified for plan 14 (contrast.test.ts plus a BoardRow test). A WebKit painted-colour assertion that the focused and unfocused rule differ: YES, one test. Only 'does the Dot read at 12px' is human aesthetic judgment."
+  update_08.1-14: "The automatable half is DONE, not deferred: contrast.test.ts (rule roles 3:1 on every row surface, focused vs unfocused >= 3:1), selection-rule.test.tsx (the BoardRow branch) and legibility.browser.test.tsx (painted in WebKit, both schemes) all pass. What remains human is only the Dot-at-12px read."
 
 - id: D-REV-10
   phase: "08.1 — Visual Polish (plan 12)"
@@ -272,3 +273,17 @@ At Phase 11, with an installed, usable build:
 3. Only what survives both steps reaches the owner, in ONE pass.
 4. Items whose `status` is `contradicted-by-measurement` or needs a decision are
    owner questions, not tests — group them separately and ask them as decisions.
+
+- id: D-REV-11
+  phase: "08.1 — Visual Polish (plan 14)"
+  truth: "The shipped impeccable-finish-reviewer, run once against the approved comp and 08.1-UI-SPEC.md for surface group one (board and rail), raises nothing material that is not fixed or recorded."
+  status: open
+  why_deferred: |
+    The plan 14 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
+    spawn the reviewer. It captured the surface (see below) and reviewed it itself against the
+    reviewer's own check list, which is NOT the independent pass D-24 asks for.
+    Captured, both schemes, in .impeccable/review/ (gitignored): board-group-built-{light,dark}-1440x900.png,
+    board-group-built-{light,dark}-full.png and board-group-built-{light,dark}.html.
+  risk_if_wrong: "Moderate. An independent reviewer may find fidelity gaps to the comp that the builder cannot see (the comp's lens toggle, the title block and the what-this-says paragraph are Phase 8.1 plan 10-11 surfaces and were not in this capture)."
+  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
+
