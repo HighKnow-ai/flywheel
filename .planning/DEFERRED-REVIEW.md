@@ -234,6 +234,19 @@ context to be answerable months later by someone who was not in the room:
   risk_if_wrong: "Cosmetic, and currently unobservable. An unreadable roll-up would blunt criterion 2's payoff but cannot lose data."
   automatable: "No for the layout judgment (human aesthetic). But it is NOT ASKABLE AT ALL until D-REV-04 is seeded — redeem D-REV-04 first, then ask D-REV-07 and D-REV-08 in the same sitting."
 
+- id: D-REV-09
+  phase: "08.1 — Visual Polish (plan 09)"
+  truth: "On the installed app, a selected row with list focus (full-ink 2px rule) and one that has lost focus (lighter 2px rule) read as different at a glance, and the `Dot` uncommitted-changes glyph is legible at 12px beside a status glyph."
+  status: open
+  why_deferred: |
+    Plan 09 specified the focus clause (A-06(b)) and changed the change-cue glyphs (A-05);
+    plan 14 builds the rule. The two selected surfaces measure 1.011 / 1.014 apart, so the
+    rule carries the distinction, and the rule pair measures 4.06 / 4.23 apart. Those are
+    computed ratios, not an observation of the painted app. `lucide-react`'s `Dot` is a
+    small glyph; whether it reads at 12px is a perceptual question.
+  risk_if_wrong: "Moderate on the focus half — an accessibility obligation, and the reason it was fixed in-phase rather than queued. Low on the glyph half: cosmetic, and swapping a registry glyph is a one-line change."
+  automatable: "MOSTLY. Ratio and computed-colour assertions: YES, specified for plan 14 (contrast.test.ts plus a BoardRow test). A WebKit painted-colour assertion that the focused and unfocused rule differ: YES, one test. Only 'does the Dot read at 12px' is human aesthetic judgment."
+
 ## Redemption protocol
 
 At Phase 11, with an installed, usable build:
