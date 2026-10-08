@@ -18,6 +18,13 @@
 //! with its current-revision criteria counted out. It takes the id and nothing else and spawns no
 //! git, so it is safe under the database lock.
 //!
+//! Phase 8.1 plan 21 (A-08(a)) adds `review_changes_request_state` (read) and
+//! `review_request_changes` (write): the review surface's decline path. The write takes a task id
+//! and nothing else, so the renderer cannot author the reason the agent reads; it moves a task's
+//! status by exactly one named edge and takes no status argument. That narrows the review tree's
+//! old "writes no status" claim to "writes no status except this one edge" -- the merge commands'
+//! own claim, further down, is unchanged. Both are thin over `flywheel_core::domain::task`.
+//!
 //! The review commands are async so the git call runs off the main thread. Each reads the board into
 //! an opaque inputs value under the database lock (`review_target_inputs`, `criteria_with_anchors`,
 //! `plan_merge_inputs`), releases the lock, and only then runs the git half
@@ -491,4 +498,97 @@ pub fn review_merge_task(
         MergeOutcome::AlreadyIntegrated => MergeOutcomeDto::AlreadyIntegrated,
         MergeOutcome::Conflicted { files } => MergeOutcomeDto::Conflicted { files },
     })
+}
+
+/// What the review surface may offer for a task right now (A-08(a)). `ready` and `sentBack` carry
+/// the number of unchecked criteria a decline sends (or has sent); `refused` carries a named
+/// category (`notInFlight`, `integrated`, `noCriteria`, `nothingUnchecked`) the surface speaks in
+/// its own words.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "state")]
+pub enum ChangesRequestStateDto {
+    #[serde(rename = "ready", rename_all = "camelCase")]
+    Ready { unchecked_count: usize },
+    #[serde(rename = "sentBack", rename_all = "camelCase")]
+    SentBack { unchecked_count: usize },
+    #[serde(rename = "refused")]
+    Refused { category: String },
+}
+
+/// Map the core's state onto the wire shape. Pure, so it is testable without a `State` extractor.
+pub(crate) fn changes_request_state_dto(
+    state: flywheel_core::domain::task::ChangesRequestState,
+) -> ChangesRequestStateDto {
+    let _ = state;
+    ChangesRequestStateDto::Refused { category: String::new() }
+}
+
+/// Map the core's outcome onto the command's result: a count, or the packed error
+/// `refused:<category>` / `failed:<context>`. Raw error text never crosses (`ipc_error`).
+pub(crate) fn request_changes_result(
+    outcome: anyhow::Result<flywheel_core::domain::task::ChangesRequestOutcome>,
+) -> Result<usize, String> {
+    let _ = outcome;
+    Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flywheel_core::domain::task::{
+        ChangesRequestOutcome, ChangesRequestRefusal, ChangesRequestState, UncheckedCriterion,
+    };
+
+    fn two() -> Vec<UncheckedCriterion> {
+        vec![
+            UncheckedCriterion { id: "a".into(), statement: "First".into() },
+            UncheckedCriterion { id: "b".into(), statement: "Second".into() },
+        ]
+    }
+
+    #[test]
+    fn changes_request_state_maps_ready_and_sent_back_with_the_unchecked_count() {
+        let ready = serde_json::to_value(changes_request_state_dto(ChangesRequestState::Ready(two()))).unwrap();
+        assert_eq!(ready, serde_json::json!({ "state": "ready", "uncheckedCount": 2 }));
+        let sent = serde_json::to_value(changes_request_state_dto(ChangesRequestState::SentBack(two()))).unwrap();
+        assert_eq!(sent, serde_json::json!({ "state": "sentBack", "uncheckedCount": 2 }));
+    }
+
+    #[test]
+    fn changes_request_state_maps_each_refusal_to_its_camel_case_category() {
+        for (why, want) in [
+            (ChangesRequestRefusal::NotInFlight, "notInFlight"),
+            (ChangesRequestRefusal::Integrated, "integrated"),
+            (ChangesRequestRefusal::NoCriteria, "noCriteria"),
+            (ChangesRequestRefusal::NothingUnchecked, "nothingUnchecked"),
+        ] {
+            let v = serde_json::to_value(changes_request_state_dto(ChangesRequestState::Refused(why))).unwrap();
+            assert_eq!(v, serde_json::json!({ "state": "refused", "category": want }));
+        }
+    }
+
+    #[test]
+    fn changes_request_write_maps_a_requested_outcome_to_its_count() {
+        assert_eq!(request_changes_result(Ok(ChangesRequestOutcome::Requested { count: 3 })), Ok(3));
+    }
+
+    #[test]
+    fn changes_request_write_packs_refusals_as_refused_category() {
+        assert_eq!(
+            request_changes_result(Ok(ChangesRequestOutcome::Refused(ChangesRequestRefusal::NoCriteria))),
+            Err("refused:noCriteria".to_string())
+        );
+        assert_eq!(
+            request_changes_result(Ok(ChangesRequestOutcome::AlreadySentBack)),
+            Err("refused:alreadySentBack".to_string())
+        );
+    }
+
+    #[test]
+    fn changes_request_write_never_returns_raw_error_text() {
+        let err = request_changes_result(Err(anyhow::anyhow!("no such file /Users/someone/secret.db")))
+            .unwrap_err();
+        assert_eq!(err, "failed:review_request_changes:write");
+        assert!(!err.contains("/Users"));
+    }
 }

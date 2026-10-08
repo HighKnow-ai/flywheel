@@ -495,6 +495,57 @@ describe("LaunchSheet — drift warnings (plan 04-12 Task 3)", () => {
   });
 });
 
+describe("LaunchSheet — a reviewer's decline (A-08(a), plan 08.1-21)", () => {
+  const LEAD = "A reviewer sent this task back. These acceptance criteria are still unchecked:";
+  const STATEMENT = "Closing the dialog returns focus to the element that held it before it opened.";
+
+  it("shows the lead sentence verbatim and each statement, after Warnings and before Epic", async () => {
+    previewMock.mockReset().mockResolvedValue(
+      makePacket({
+        drift: [{ kind: "StaleSinceLastSummary", sentence: "Something drifted." }],
+        reviewFeedback: { lead: LEAD, statements: [STATEMENT, "Initial focus lands on the first focusable control."] },
+      }),
+    );
+    startMock.mockReset();
+    renderSheet();
+
+    await waitFor(() => expect(screen.getByText(LEAD)).toBeInTheDocument());
+    expect(screen.getByText(STATEMENT)).toBeInTheDocument();
+    expect(screen.getByText("Initial focus lands on the first focusable control.")).toBeInTheDocument();
+
+    const warnings = screen.getByText("Warnings");
+    const feedback = screen.getByText("Review feedback");
+    const epic = screen.getByText("Epic");
+    expect(warnings.compareDocumentPosition(feedback) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(feedback.compareDocumentPosition(epic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders no Review feedback label when the field is null or absent", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket({ reviewFeedback: null }));
+    startMock.mockReset();
+    const { unmount } = renderSheet();
+    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    expect(screen.queryByText("Review feedback")).not.toBeInTheDocument();
+    unmount();
+
+    previewMock.mockReset().mockResolvedValue(makePacket());
+    renderSheet();
+    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    expect(screen.queryByText("Review feedback")).not.toBeInTheDocument();
+  });
+
+  it("renders statements through the React text path, never as markup", async () => {
+    previewMock.mockReset().mockResolvedValue(
+      makePacket({ reviewFeedback: { lead: LEAD, statements: ["<img src=x onerror=alert(1)>"] } }),
+    );
+    startMock.mockReset();
+    const { container } = renderSheet();
+    await waitFor(() => expect(screen.getByText(LEAD)).toBeInTheDocument());
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeInTheDocument();
+  });
+});
+
 describe("LaunchSheet — the epic-authoring variant (D-91, plan 05-10 Task 1(c))", () => {
   function renderAuthoringSheet(authoring: { projectId: string; epicId: string | null }) {
     const queryClient = new QueryClient();

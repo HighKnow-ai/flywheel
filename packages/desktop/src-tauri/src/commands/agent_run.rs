@@ -219,6 +219,16 @@ impl From<flywheel_core::drift::DriftWarning> for DriftWarningDto {
     }
 }
 
+/// A reviewer's decline as the launch sheet shows it (A-08(a)): the lead sentence is the core's
+/// own constant and the statements are the core's own unchecked list, so the preview says exactly
+/// what the prompt's `## Review Feedback` section says.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFeedbackDto {
+    pub lead: String,
+    pub statements: Vec<String>,
+}
+
 /// The launch sheet's read-only briefing (D-27/D-28) — the packet's structured fields AND the
 /// rendered prompt string, so the sheet displays exactly the text that will be sent rather than
 /// re-deriving its own rendering in TypeScript (one renderer, in Rust, used by both the preview
@@ -250,6 +260,9 @@ pub struct ContextPacketDto {
     /// `rendered_prompt` was rendered from — one Rust-side computation (`packet_extras_for`), two
     /// renderings of the identical data, never two different derivations of "did anything drift."
     pub drift: Vec<DriftWarningDto>,
+    /// `Some` only while a reviewer's decline is pending (A-08(a)) -- the developer-facing half
+    /// of the prompt's `## Review Feedback` section, from the same packet field.
+    pub review_feedback: Option<ReviewFeedbackDto>,
     pub branch: String,
     pub base_ref: String,
     pub worktree_path: String,
@@ -310,6 +323,7 @@ impl From<ContextPacket> for ContextPacketDto {
             compaction,
             decisions,
             drift,
+            review_feedback: None,
             branch: packet.worktree.branch,
             base_ref: packet.worktree.base_ref,
             worktree_path: packet.worktree.path,
@@ -2984,6 +2998,75 @@ mod tests {
                     run_2.prompt
                 );
             }
+        });
+    }
+    // ---- A-08(a): a reviewer's decline reaches the agent and the preview identically ----------
+
+    /// THRE-58's first two seeded statements, a task `in_progress` (the real board's state), one
+    /// criterion checked, then declined: the sent-back reason is the one unchecked statement.
+    fn declined_task(conn: &mut Connection, actor: &str, project_id: &str, task_id: &str) -> String {
+        let unchecked = "Closing the dialog returns focus to the element that held it before it opened.";
+        let checked = flywheel_core::domain::acceptance_criterion::create_criterion(
+            conn, project_id, actor, "task", task_id, "Tab and Shift+Tab cycle within the dialog.", None,
+        )
+        .expect("create_criterion");
+        flywheel_core::domain::acceptance_criterion::create_criterion(
+            conn, project_id, actor, "task", task_id, unchecked, None,
+        )
+        .expect("create_criterion");
+        flywheel_core::domain::acceptance_criterion::toggle_criterion(conn, actor, &checked.id)
+            .expect("toggle_criterion");
+        flywheel_core::domain::task::set_task_status(conn, actor, task_id, "in_progress").expect("status");
+        flywheel_core::domain::task::request_changes(conn, actor, task_id).expect("request_changes");
+        unchecked.to_string()
+    }
+
+    #[test]
+    fn changes_request_preview_carries_the_same_lead_and_statements_as_the_prompt() {
+        let (mut conn, task_id) = seeded_conn_with_task(false);
+        let actor = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+        let project_id: String = conn
+            .query_row("SELECT project_id FROM tasks WHERE id = ?1", [&task_id], |r| r.get(0))
+            .unwrap();
+        let unchecked = declined_task(&mut conn, &actor, &project_id, &task_id);
+
+        let dto = build_preview_dto(&conn, &task_id).expect("preview");
+
+        let feedback = dto.review_feedback.expect("a declined task previews its feedback");
+        assert_eq!(feedback.lead, flywheel_core::context_packet::REVIEW_FEEDBACK_LEAD);
+        assert_eq!(feedback.statements, vec![unchecked.clone()]);
+        assert!(dto.rendered_prompt.contains("## Review Feedback"), "{}", dto.rendered_prompt);
+        assert!(dto.rendered_prompt.contains(&feedback.lead));
+        assert!(dto.rendered_prompt.contains(&format!("- {unchecked}")));
+    }
+
+    #[test]
+    fn changes_request_preview_for_a_never_declined_task_has_no_feedback_and_no_heading() {
+        let (conn, task_id) = seeded_conn_with_task(false);
+        let dto = build_preview_dto(&conn, &task_id).expect("preview");
+        assert!(dto.review_feedback.is_none());
+        assert!(!dto.rendered_prompt.contains("Review Feedback"));
+    }
+
+    #[test]
+    fn changes_request_relaunch_puts_the_section_in_the_prompt_without_drift_or_recovery() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, actor, project_id, task_id, _repo) = seeded_git_conn_with_task();
+            let unchecked = declined_task(&mut conn, &actor, &project_id, &task_id);
+
+            let run = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor)
+                .expect("the declined task relaunches");
+
+            assert!(run.prompt.contains("## Review Feedback"), "{}", run.prompt);
+            assert!(run.prompt.contains(&format!("- {unchecked}")));
+            assert_eq!(run.drift_event_count, 0, "the decline never travels as drift");
+            let drift_events: i64 = conn
+                .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'drift.detected'", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(drift_events, 0);
+            let recovery =
+                flywheel_core::query::recovery::recovery_task_ids_for_project(&conn, &project_id).unwrap();
+            assert!(!recovery.contains(&task_id), "a decline must not raise the Needs Decision signal");
         });
     }
 }
