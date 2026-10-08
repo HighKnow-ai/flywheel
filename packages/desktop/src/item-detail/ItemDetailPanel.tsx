@@ -190,7 +190,7 @@ export function ItemDetailPanel({
             }}
           />
 
-          {!isIssue && (
+          {!isIssue && item.status && (
             <div style={{ position: "relative", display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
               <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
                 Status

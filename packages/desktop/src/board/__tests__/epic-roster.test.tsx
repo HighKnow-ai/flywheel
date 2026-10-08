@@ -1109,7 +1109,7 @@ describe("epic header row (D-05, D-06)", () => {
     const list = screen.getByRole("list", { name: "Board" });
     fireEvent.keyDown(list, { key: "Enter" });
     expect(useUiStore.getState().detailItemId).toBe("epic-a");
-    useUiStore.getState().setDetailItemId(null);
+    act(() => useUiStore.getState().setDetailItemId(null));
 
     fireEvent.keyDown(list, { key: "r" });
     await waitFor(() => expect(useUiStore.getState().launchSheetAuthoringHandoff).toEqual({ epicId: "epic-a" }));

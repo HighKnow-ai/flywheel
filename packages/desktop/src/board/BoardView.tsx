@@ -37,6 +37,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Keyboard
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { BoardRow, ROW_HEIGHT_BY_KIND, type RowKind } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
+import { EpicHeaderRow } from "./EpicHeaderRow";
 import { IssuesLane } from "./IssuesLane";
 import { TriageLane } from "./TriageLane";
 import { useProjectProposals } from "../authoring/useAuthoringQuery";
@@ -88,6 +89,7 @@ import {
   useSetTaskEpic,
   useUpdateItem,
 } from "./useBoardQuery";
+import type { EpicProgressDto } from "../adapters/tauri";
 import type {
   Actor,
   BandCounts,
@@ -122,10 +124,24 @@ const BAND_COUNT_KEY: Record<BandStatus, keyof BandCounts> = {
 
 type RackRow =
   | { kind: "band-header"; status: BandStatus }
-  /** An epic (or, with `id: null`, the no-epic bucket) in the epic lens. `count` is the aggregate's. */
-  | { kind: "epic-header"; id: string | null; label: string; count: number | undefined }
+  /**
+   * An epic (or, with `id: null`, the no-epic bucket) in the epic lens. `progress` is the
+   * aggregate's. `item` is the epic's selection target, keyed by its id (the no-epic bucket has
+   * none); it is built from the roster, so its status and priority are not known.
+   */
+  | {
+      kind: "epic-header";
+      id: string | null;
+      epicKey?: string;
+      title: string;
+      progress: EpicProgressDto | undefined;
+      item?: BoardItem;
+    }
   | { kind: "quick-add" }
   | { kind: "task"; item: BoardItem; posInSet: number; setSize: number | undefined };
+
+/** The rows keyboard selection can land on: tasks, and epic headers that have a target. */
+type SelectableRow = Extract<RackRow, { kind: "task" }> | (Extract<RackRow, { kind: "epic-header" }> & { item: BoardItem });
 
 /** One group of the active lens: a status band or an epic, with where its rows come from. */
 interface RackGroup {
@@ -134,6 +150,10 @@ interface RackGroup {
   label: string;
   /** The header's count — from the list command's counts or the aggregate, never loaded rows. */
   count: number | undefined;
+  /** Epic lens only: the roster's key and title, and the aggregate's figures for this epic. */
+  epicKey?: string;
+  title?: string;
+  progress?: EpicProgressDto;
   collapsed: boolean;
   scope: GroupScope;
   /** The row count its scoped fetch expects (see `useGroupItems`). */
@@ -149,6 +169,40 @@ export const RACK_OVERSCAN = 10;
  */
 export function rackRowHeight(row: { kind: RowKind | "quick-add" }): number {
   return ROW_HEIGHT_BY_KIND[row.kind === "quick-add" ? "task" : row.kind];
+}
+
+/** This epic's aggregate. Once the aggregate has landed, an epic it omits has no tasks: a true zero. */
+function progressFor(progress: EpicProgressDto[] | undefined, epicId: string | null): EpicProgressDto | undefined {
+  if (!progress) return undefined;
+  return (
+    progress.find((p) => p.epicId === epicId) ?? {
+      epicId,
+      byStatus: [],
+      total: 0,
+      done: 0,
+      agentsRunning: 0,
+      agentsBlocked: 0,
+      criteria: null,
+    }
+  );
+}
+
+/**
+ * An epic header's selection target, built from the roster. Status comes from the board window when
+ * the epic happens to be in it and is empty otherwise; priority and rank are not known, so the
+ * pickers and reordering refuse a roster epic (see `openPickerFor`).
+ */
+function rosterEpicItem(id: string, key: string | undefined, title: string | undefined, window: BoardItem[]): BoardItem {
+  return {
+    id,
+    kind: "epic",
+    key: key ?? "",
+    title: title ?? "",
+    status: window.find((i) => i.id === id)?.status ?? "",
+    rank: "",
+    priority: 0,
+    epicId: null,
+  };
 }
 
 /**
@@ -485,6 +539,9 @@ export function BoardView({
       return {
         id: epic.id,
         label: `${epic.key} ${epic.title}`,
+        epicKey: epic.key,
+        title: epic.title,
+        progress: progressFor(progress, epic.id),
         count: total,
         collapsed: collapsedOf(epic.id),
         scope: { kind: "epic", epicId: epic.id },
@@ -496,6 +553,8 @@ export function BoardView({
       out.push({
         id: null,
         label: "No epic",
+        title: "No epic",
+        progress: progressFor(progress, null),
         count: noEpicTasks,
         collapsed: collapsedOf(null),
         scope: { kind: "epic", epicId: null },
@@ -522,7 +581,14 @@ export function BoardView({
       out.push(
         groupingKey === "status"
           ? { kind: "band-header", status: group.id as BandStatus }
-          : { kind: "epic-header", id: group.id, label: group.label, count: group.count },
+          : {
+              kind: "epic-header",
+              id: group.id,
+              epicKey: group.epicKey,
+              title: group.title ?? group.label,
+              progress: group.progress,
+              item: group.id ? rosterEpicItem(group.id, group.epicKey, group.title, items) : undefined,
+            },
       );
       if (group.collapsed) return;
       if (groupingKey === "status" && group.id === "backlog" && effectiveQuickAddOpen) {
@@ -546,7 +612,7 @@ export function BoardView({
   }, [groupingKey, groups, fetchedGroups, items, effectiveQuickAddOpen]);
 
   const selectableItems = useMemo(
-    () => rows.filter((r): r is Extract<RackRow, { kind: "task" }> => r.kind === "task"),
+    () => rows.filter((r): r is SelectableRow => r.kind === "task" || (r.kind === "epic-header" && r.item !== undefined)),
     [rows],
   );
 
@@ -647,12 +713,18 @@ export function BoardView({
     setStatus.mutate({ kind, id, status });
   }
 
+  /** A selection target built from the roster knows no status or priority to edit from the rack. */
+  function isRosterEpic(id: string) {
+    return selectableItems.some((r) => r.kind === "epic-header" && r.item.id === id);
+  }
+
   /** Opens any of the four row-level pickers (status/priority/estimate/assignee) for `id`,
    * anchored to that row's real screen coordinates (`StatusPicker.tsx`'s doc comment explains
    * why a portal positioned from `getBoundingClientRect()` is required rather than CSS
    * `position: absolute` inside the row). Opening issues no command — only a selection made
    * inside the picker does. */
   function openPickerFor(kind: PickerKind, id: string) {
+    if (isRosterEpic(id)) return;
     const el = rowElRefs.current.get(id);
     if (el) {
       const rect = el.getBoundingClientRect();
@@ -665,7 +737,7 @@ export function BoardView({
    * its priority band and leaves the selection on the moved item (the mutation changes `rank`,
    * never `id`, so `selectedId` needs no update). */
   function reorderSelected(direction: "up" | "down") {
-    if (!selectedId || !selectedItem) return;
+    if (!selectedId || !selectedItem || isRosterEpic(selectedId)) return;
     reorderItem.mutate({ kind: selectedItem.kind ?? "task", id: selectedId, direction });
   }
 
@@ -997,13 +1069,23 @@ export function BoardView({
 
             if (row.kind === "epic-header") {
               const key = groupCollapseKey("epic", row.id);
+              const epicItemId = row.item?.id;
               return (
                 <div key={virtualRow.key} data-row-key={virtualRow.key} className="displace-transition" style={positionStyle}>
-                  <StatusBand
-                    label={row.label}
-                    count={row.count}
+                  <EpicHeaderRow
+                    epicId={row.id}
+                    epicKey={row.epicKey}
+                    title={row.title}
+                    progress={row.progress}
+                    pendingProposalCount={
+                      row.id && proposalsQuery.data ? (pendingProposalCountByEpicId[row.id] ?? 0) : undefined
+                    }
                     collapsed={collapsedByStatus[key] ?? true}
+                    selected={epicItemId !== undefined && epicItemId === selectedId}
+                    focused={epicItemId !== undefined && epicItemId === selectedId && listFocused}
                     onToggleCollapsed={() => toggleCollapsed(projectId ?? "", key, true)}
+                    onSelect={epicItemId ? () => setSelectedId(epicItemId) : undefined}
+                    onOpenDetail={epicItemId ? () => setDetailItemId(epicItemId) : undefined}
                   />
                 </div>
               );
@@ -1341,7 +1423,8 @@ export function BoardView({
               kind: selectedItem.kind ?? "task",
               key: selectedItem.key,
               title: selectedItem.title,
-              status: selectedItem.status,
+              // Empty for an epic reached from the roster, whose status is not known here.
+              status: selectedItem.status || undefined,
               projectId,
             } satisfies DetailItem
           }

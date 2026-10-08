@@ -216,13 +216,17 @@ function mockLensBoard(opts: {
   });
 }
 
-/** The rack's group headers only: the Issues and Triage lanes below it also carry `aria-expanded`. */
+/**
+ * The rack's group headers only: the Issues and Triage lanes below it also carry `aria-expanded`.
+ * A status band is its own header; an epic's header is the disclosure button inside its row, named
+ * "Expand/Collapse KEY Title" (clicking it bubbles to the row, which toggles).
+ */
 function groupHeaders(): HTMLElement[] {
-  return Array.from(document.querySelectorAll<HTMLElement>(".status-band"));
+  return Array.from(document.querySelectorAll<HTMLElement>(".status-band, .epic-header-row button[aria-expanded]"));
 }
 
 function groupHeader(label: RegExp): HTMLElement {
-  const match = groupHeaders().find((el) => label.test(el.textContent ?? ""));
+  const match = groupHeaders().find((el) => label.test(`${el.getAttribute("aria-label") ?? ""}${el.textContent ?? ""}`));
   if (!match) throw new Error(`No group header matching ${label}`);
   return match;
 }
@@ -259,9 +263,16 @@ describe("the grouping lens (D-07, A-02)", () => {
     renderBoard([], EMPTY_COUNTS);
 
     await waitFor(() => expect(groupHeaders()).toHaveLength(3));
-    expect(groupHeaders().map((el) => el.textContent)).toEqual(["FLY-1 Alpha3", "FLY-2 Beta2", "No epic5"]);
+    expect(groupHeaders().map((el) => el.getAttribute("aria-label"))).toEqual([
+      "Expand FLY-1 Alpha",
+      "Expand FLY-2 Beta",
+      "Expand No epic",
+    ]);
+    // Every figure is the aggregate's, not a count of loaded rows.
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".epic-header-row"));
+    expect(rows.map((row) => within(row).getByText(/^0 of \d+$/).textContent)).toEqual(["0 of 3", "0 of 2", "0 of 5"]);
     // Collapsed by default: nothing is loaded, and every number above is still the aggregate's.
-    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.queryAllByRole("listitem").filter((el) => !el.classList.contains("epic-header-row"))).toHaveLength(0);
   });
 
   it("expands an epic in place from one scoped fetch, and leaves the epic rows of the no-epic bucket out", async () => {

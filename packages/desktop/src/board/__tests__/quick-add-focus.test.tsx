@@ -705,7 +705,7 @@ describe("quick-add on the epic lens, where the first group is not the backlog b
     });
     renderVolumeBoard([]);
 
-    fireEvent.click(await screen.findByText("FLY-1 Alpha")); // expand the epic
+    fireEvent.click(await screen.findByRole("button", { name: "Expand FLY-1 Alpha" })); // expand the epic
     await screen.findByText("Backlog task 0");
 
     const container = boardContainer();
