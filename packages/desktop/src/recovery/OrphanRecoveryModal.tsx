@@ -22,6 +22,14 @@
  * but a failed kill row stays mounted with PERMANENT failure copy — there is no retry affordance,
  * because a process Flywheel could not kill needs a human at a terminal, not a second press of the
  * same button (03-UI-SPEC.md "in-flight and failure, per row").
+ *
+ * A-08(b) (08.1-AMENDMENTS.md): the modal gained a second KIND of answer, `Leave them running`. Before it,
+ * killing was the only answer on offer, so a developer who wanted to keep three live sessions had no way out
+ * of the application. D-46 is untouched: its contract is that the overlay cannot be dismissed WITHOUT
+ * ANSWERING, and "keep these" is an answer. It is one explicit button press and nothing else — still no
+ * Escape binding, no scrim click, no close button, and the focus trap is unchanged. It dismisses the rows for
+ * this session only; the launch classification re-runs on the next launch, so a still-running orphan is
+ * offered again then. Recording the choice would need a new table and a decision about when it expires.
  */
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -138,6 +146,13 @@ export function OrphanRecoveryModal() {
     void killOne(runId);
   }
 
+  // A-08(b): the non-destructive answer. Emptying the rows unmounts the modal through the same early return a
+  // finished set of kills uses, and `rows` is never re-seeded, so it stays gone for this session. Kills already
+  // in flight finish in the background (`killOne` maps over an empty list harmlessly).
+  function handleLeave() {
+    setRows([]);
+  }
+
   function handleKillAll() {
     const targets = (rows ?? []).filter((row) => !row.killing && !row.failed && !killingRef.current.has(row.orphan.runId));
     for (const target of targets) {
@@ -176,6 +191,9 @@ export function OrphanRecoveryModal() {
         early return above), and never before — even when every remaining row is a permanently
         failed kill (`anyUnresolved` stays true, matching `PermissionRequestCard.tsx`'s own
         "cannot be dismissed without answering" precedent).
+        A-08(b): "empty" is now reached two ways — every row killed, or the one explicit `Leave them running`
+        press. That adds a second ANSWER, not a dismissal route: D-46's "not dismissible without answering"
+        still holds, and no Escape, scrim click or close button was added.
       */}
       <div role="alertdialog" aria-label={heading} className="confirm-scrim">
         <div className="confirm-dialog confirm-dialog-wide">
@@ -316,7 +334,10 @@ export function OrphanRecoveryModal() {
             })}
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div className="confirm-actions">
+            <button type="button" onClick={handleLeave} className="type-body control-edge confirm-action">
+              Leave them running
+            </button>
             <button
               type="button"
               disabled={!anyUnresolved}

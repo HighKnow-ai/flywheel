@@ -184,6 +184,58 @@ describe("OrphanRecoveryModal — undismissable (T-03-10-01, D-46)", () => {
   });
 });
 
+describe("OrphanRecoveryModal — Leave them running (A-08(b))", () => {
+  it("dismisses the modal and kills nothing, from one explicit press", async () => {
+    pendingOrphansMock.mockResolvedValue([makeOrphan(), makeOrphan({ runId: "run-2", pid: 4343 })]);
+    renderModal();
+
+    await screen.findByRole("alertdialog");
+    fireEvent.click(screen.getByRole("button", { name: "Leave them running" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(orphanKillMock).not.toHaveBeenCalled();
+  });
+
+  it("sits on the hairline to the left of Kill All", async () => {
+    pendingOrphansMock.mockResolvedValue([makeOrphan()]);
+    renderModal();
+
+    const leave = await screen.findByRole("button", { name: "Leave them running" });
+    const killAll = screen.getByRole("button", { name: "Kill All" });
+    expect(leave.compareDocumentPosition(killAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(leave.parentElement).toBe(killAll.parentElement);
+  });
+
+  it("stays gone for the session: a later re-read of the orphan list does not bring the modal back", async () => {
+    pendingOrphansMock.mockResolvedValue([makeOrphan()]);
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OrphanRecoveryModal />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("alertdialog");
+    fireEvent.click(screen.getByRole("button", { name: "Leave them running" }));
+    await queryClient.invalidateQueries({ queryKey: ["pending-orphans"] });
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("adds an answer, not an escape route: Escape and a scrim click still do nothing, and no close word appears", async () => {
+    pendingOrphansMock.mockResolvedValue([makeOrphan()]);
+    renderModal();
+
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.click(dialog);
+
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /close|dismiss|cancel|continue/i })).not.toBeInTheDocument();
+    expect(orphanKillMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("OrphanRecoveryModal — kill in flight and outcomes", () => {
   it("shows a transient 'Killing…' label in place of the Kill button while a kill is in flight", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);

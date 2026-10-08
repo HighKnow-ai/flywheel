@@ -490,6 +490,13 @@ describe(`states and confirms group, built, ${scheme} scheme${reduced ? ", reduc
     expect(killAll.querySelector("svg"), "the icon pairs with the word").toBeTruthy();
     expect(killAll.offsetHeight).toBe(kills[0].offsetHeight);
 
+    // A-08(b): the non-destructive answer sits to the LEFT of Kill All, drawn as an ordinary control, never destructive.
+    const leave = within(dialog).getByRole("button", { name: "Leave them running" });
+    expectDrawn(leave, "Leave them running", PALETTE.surfaceSecondary);
+    expect(leave.getBoundingClientRect().right, "left of Kill All").toBeLessThan(killAll.getBoundingClientRect().left);
+    expect(toHex(getComputedStyle(leave).color), "not the destructive role").not.toBe(PALETTE.destructiveTextRack);
+    expect(document.activeElement, "never the initial focus").not.toBe(leave);
+
     // The footnote is on the locked scale (11px), not the 10px micro role, and is legible.
     const note = within(dialog).getByText(/spending tokens right now/);
     expect(getComputedStyle(note).fontSize).toBe("11px");
