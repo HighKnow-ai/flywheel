@@ -61,12 +61,6 @@
   gap: var(--space-xs);
 }
 
-/* The actual path the project was last seen at: the one thing the user may need to read out or compare. */
-.state-path {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  overflow-wrap: anywhere;
-}
-
 /* A failure the user caused or can retry. It names what failed in words; the colour is the data channel only. */
 .state-error {
   color: var(--destructive-text-rack);
