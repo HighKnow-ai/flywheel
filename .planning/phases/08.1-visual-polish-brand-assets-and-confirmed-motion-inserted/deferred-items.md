@@ -60,3 +60,15 @@
   **Found during:** 08.1-07 (running both browser arms)
   **Not fixed here, deliberately:** the screenshots are Phase 8 UAT evidence of the OLD palette, and changing where tests write is a test-infrastructure decision beyond a token plan. 08.1-07 restored them with `git checkout` after every run and never staged them.
   **To fix:** write the screenshots to the gitignored `.vitest/` output directory, or key the filename by scheme, in a later test-infrastructure pass.
+
+- Epic header rows are not selectable in the epic lens, so the epic detail panel and `continue-shaping` cannot be reached from the keyboard map there (they remain reachable in the status lens and the palette).
+  status: open
+  **Found during:** 08.1-10
+  **Not fixed here, deliberately:** the epic header is plan 11's `EpicHeaderRow`; making a placeholder header selectable would be built twice.
+  **To fix:** plan 11 gives `EpicHeaderRow` a selection target keyed by the epic's id.
+
+- Under an active filter the epic lens lists every roster epic with the aggregate's unfiltered count; only the rows inside are filtered. Amendment A-04's "13 epics narrow to 5" under the has-worktree chip is not realised as header narrowing.
+  status: open
+  **Found during:** 08.1-10
+  **Not fixed here, deliberately:** the aggregate is board-wide by plan 05's design, and hiding headers from loaded rows would be a second filter implementation (D-03).
+  **To fix:** a filter-aware aggregate in the core, or a core-side "epics matching this filter" read.
