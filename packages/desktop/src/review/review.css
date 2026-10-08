@@ -12,7 +12,16 @@
   --diff-background-color: transparent;
   --diff-text-color: var(--text-primary-rack);
   --diff-font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --diff-selection-background-color: var(--row-surface-selected);
+  /* Text selection (a drag over code): a neutral grey wash, not the library's pale blue, which is
+   * illegible under dark ink. */
+  --diff-selection-background-color: color-mix(in srgb, var(--text-primary-rack) 18%, var(--surface-dominant));
+  /* A SELECTED line (the gutter click that anchors evidence) reads as a board row's selection does
+   * (A-06): the surface shift, plus the 2px ink rule on the gutter below. The library's default is a
+   * pale yellow, which put every syntax role at 2.4-4.1:1 in dark (08.1-16 measured it). */
+  --diff-gutter-selected-background-color: var(--row-surface-selected);
+  --diff-code-selected-background-color: var(--row-surface-selected);
+  --diff-gutter-selected-text-color: var(--text-primary-rack);
+  --diff-code-selected-text-color: var(--text-primary-rack);
   --diff-gutter-insert-background-color: color-mix(in srgb, var(--success-text-rack) 22%, var(--surface-dominant));
   --diff-gutter-delete-background-color: color-mix(in srgb, var(--destructive-text-rack) 22%, var(--surface-dominant));
   --diff-gutter-insert-text-color: var(--text-primary-rack);
@@ -75,6 +84,11 @@
   color: var(--destructive-text-rack);
 }
 
+/* The 2px rule of a selected line (A-06); an inset shadow so the gutter does not reflow. */
+.review-diff .diff-gutter-selected {
+  box-shadow: inset 2px 0 0 var(--selection-rule);
+}
+
 /* Selectable lines: the gutter is the click target (D-139). */
 .review-diff .diff-gutter {
   cursor: pointer;
@@ -88,4 +102,97 @@
   color: var(--text-muted-rack);
   background: var(--row-surface);
   border-left: 2px solid var(--accent-text-rack);
+}
+
+/*
+ * Finish pass (08.1 plan 16). The brand carries progress and is never an action (owner decision
+ * 2026-10-08): an action is DRAWN with the 3:1 control edge (`control-edge`, App.css) on its own
+ * surface, never filled. Ink on the brand fill was 3.05 / 4.42:1, under the 4.5 text floor.
+ */
+.review-action {
+  background: transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  font-weight: 600;
+  padding: var(--space-xs) var(--space-md);
+}
+
+.review-action:disabled {
+  color: var(--text-muted-rack);
+  cursor: default;
+  font-weight: 400;
+}
+
+/* A scope toggle's pressed state is a surface shift AND a weight step, never colour alone. */
+.review-scope {
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.review-scope[aria-pressed="true"] {
+  background: var(--row-surface-selected);
+  font-weight: 600;
+}
+
+/* A changed-file row selects like a board row (A-06): surface shift plus the 2px ink rule, square.
+ * The rule is transparent at rest so nothing reflows. */
+.review-file {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--divider);
+  border-left: 2px solid transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  text-align: left;
+  width: 100%;
+}
+
+.review-file[data-focused="true"] {
+  background: var(--row-surface-selected);
+  border-left-color: var(--selection-rule);
+}
+
+/* Overlay tiers (UI-SPEC § Overlay Rule): a sheet is the per-mode scrim over a surface that carries
+ * the sheet shadow and a control-boundary edge. A dark panel on a dark scrim has no other edge. */
+.review-sheet-scrim {
+  align-items: center;
+  background: var(--scrim);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 1300;
+}
+
+.review-sheet {
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-chrome);
+  box-shadow: var(--shadow-sheet);
+  color: var(--text-primary-rack);
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  overflow: hidden;
+}
+
+/* A destructive line is the destructive TEXT role beside a glyph, so it never rests on hue. */
+.review-warn {
+  align-items: baseline;
+  color: var(--destructive-text-rack);
+  display: flex;
+  gap: var(--space-xs);
+  margin: 0;
+}
+
+.review-warn > svg {
+  flex-shrink: 0;
+  position: relative;
+  top: 2px;
 }

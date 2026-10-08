@@ -307,20 +307,8 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
                   setFocusedPath(file.path);
                   toggle(file.path);
                 }}
-                className="type-label"
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: "var(--space-sm)",
-                  width: "100%",
-                  textAlign: "left",
-                  background: focusedPath === file.path ? "var(--row-surface-selected)" : "transparent",
-                  border: "none",
-                  borderBottom: "1px solid var(--divider)",
-                  color: "var(--text-primary-rack)",
-                  cursor: "pointer",
-                  padding: "var(--space-xs) var(--space-md)",
-                }}
+                className="type-label review-file"
+                data-focused={focusedPath === file.path}
               >
                 <span style={{ fontFamily: MONO_STACK, color: "var(--accent-text-rack)", width: "1.5ch" }}>
                   {file.status}
@@ -371,22 +359,14 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
           {scope === "epic" ? "Epic review" : "Task review"}
         </span>
         {canToggle && (
-          <span role="group" aria-label="Review scope" style={{ display: "inline-flex", gap: 2 }}>
+          <span role="group" aria-label="Review scope" style={{ display: "inline-flex", gap: "var(--space-xs)" }}>
             {(["task", "epic"] as const).map((option) => (
               <button
                 key={option}
                 type="button"
                 aria-pressed={scope === option}
                 onClick={() => switchScope(option)}
-                className="type-label"
-                style={{
-                  background: scope === option ? "var(--row-surface-selected)" : "transparent",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "inherit",
-                  padding: "var(--space-xs) var(--space-sm)",
-                  cursor: "pointer",
-                }}
+                className="type-label control-edge review-scope"
               >
                 {option === "task" ? "This task" : "Whole epic"}
               </button>
@@ -403,16 +383,8 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
           <button
             type="button"
             onClick={() => setMergeOpen(true)}
-            className="type-label"
-            style={{
-              marginLeft: target?.state === "resolved" ? 0 : "auto",
-              background: "var(--accent-nontext)",
-              border: "none",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: "pointer",
-            }}
+            className="type-label control-edge review-action"
+            style={{ marginLeft: target?.state === "resolved" ? 0 : "auto" }}
           >
             Merge
           </button>

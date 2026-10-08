@@ -32,6 +32,7 @@ import "../../../styles/motion.css";
 import "../../../App.css";
 import { ReviewSurface } from "../../ReviewSurface";
 import { effectiveBackground, effectiveForeground, paintedContrast, toHex } from "./paint";
+import reviewCss from "../../review.css?raw";
 import { PATCHES, resetSpies, resetState } from "./review-fixture";
 
 /** WCAG 2.2 AA for normal-size text. The diff renders at 12px, which is not "large text" under
@@ -179,6 +180,46 @@ describe("UAT 1 — diff legibility at review width", () => {
     // The only remaining human question is aesthetic ("does this tint fight the token colour for
     // ME"), and it is answerable from an image rather than from driving the app.
     await page.screenshot({ path: "../../../../../../.planning/phases/08-review-and-merge-inside-flywheel/uat-screenshots/uat-01-review-diff-1440x900.png" });
+  });
+});
+
+describe("08.1-16 — every syntax role against every row paint, measured in the engine", () => {
+  // The roles are READ from review.css, so a role added there is measured here without an edit.
+  const ROLES = [...new Set([...reviewCss.matchAll(/\.review-diff \.token\.([a-z-]+)/g)].map((m) => m[1]))];
+  const KINDS = ["insert", "delete", "normal"] as const;
+
+  it("keeps every role in review.css at 4.5:1 on added, removed, unchanged and selected rows, and the gutter text on its tint", () => {
+    expect(ROLES.length, "the role list was not read from review.css").toBeGreaterThanOrEqual(15);
+    const host = document.createElement("div");
+    host.className = "rack-ground";
+    const row = (kind: string, extra: string) =>
+      `<tr class="diff-line"><td class="diff-gutter diff-gutter-${kind}${extra}">12</td>` +
+      `<td class="diff-code diff-code-${kind}${extra}">${ROLES.map((r) => `<span class="token ${r}">x</span>`).join("")}</td></tr>`;
+    host.innerHTML =
+      `<table class="diff review-diff diff-unified"><tbody>` +
+      KINDS.flatMap((kind) => [row(kind, ""), row(kind, " diff-code-selected diff-gutter-selected")]).join("") +
+      `</tbody></table>`;
+    document.body.append(host);
+
+    const measured: string[] = [];
+    const failures: string[] = [];
+    for (const tr of host.querySelectorAll("tr")) {
+      const gutter = tr.querySelector("td.diff-gutter") as HTMLElement;
+      const label = `${/diff-gutter-(insert|delete|normal)/.exec(gutter.className)![1]}${/selected/.test(gutter.className) ? "+selected" : ""}`;
+      const gutterRatio = paintedContrast(gutter);
+      measured.push(`  ${label.padEnd(16)} gutter ${gutterRatio.toFixed(2)}:1 on ${toHex(effectiveBackground(gutter))}`);
+      if (gutterRatio < AA_NORMAL) failures.push(`${label} gutter = ${gutterRatio.toFixed(2)}:1`);
+      for (const span of tr.querySelectorAll<HTMLElement>(".token")) {
+        const ratio = paintedContrast(span);
+        const role = tokenRoles(span).join(".");
+        if (ratio < AA_NORMAL) failures.push(`${label}/${role} = ${ratio.toFixed(2)}:1 on ${toHex(effectiveBackground(span))}`);
+        measured.push(`  ${label.padEnd(16)} ${role.padEnd(12)} ${ratio.toFixed(2)}:1`);
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log(`08.1-16 painted contrast, ${ROLES.length} roles x 6 row paints:\n${measured.sort().join("\n")}`);
+    host.remove();
+    expect(failures, "roles or gutter text below AA on their painted row").toEqual([]);
   });
 });
 

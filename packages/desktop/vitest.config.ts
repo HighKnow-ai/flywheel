@@ -23,8 +23,9 @@ export default defineConfig({
     // :focus-visible rule there, and an empty `?raw` would make that assertion vacuous too.
     // `item-detail/item-detail.css` joined in 08.1-15 for the same reason:
     // `item-detail/__tests__/finish.test.tsx` pins the criteria list's :focus-visible ring.
+    // `review/review.css` joined in 08.1-16: `review/__tests__/finish.test.tsx` pins the sheet and action rules.
     css: {
-      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/],
+      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/, /review\/review\.css/],
     },
   },
 });
