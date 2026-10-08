@@ -267,6 +267,22 @@ describe("challenge rows above the epic's tasks (D-08)", () => {
     expect(reject).toHaveTextContent("Reject");
   });
 
+  it("draws Accept and Reject alike, on the control edge, with no brand fill (the brand is not an action colour)", async () => {
+    world.proposals = [proposal("p-1", "Challenge the retry budget")];
+    world.tasks = [task("t-0", "Task 0")];
+
+    await renderExpandedAlpha();
+
+    const challenge = await screen.findByLabelText(/^Proposed task on FLY-1 Alpha: Challenge the retry budget/);
+    const accept = within(challenge).getByRole("button", { name: /^Accept / });
+    const reject = within(challenge).getByRole("button", { name: /^Reject / });
+    expect(accept.getAttribute("style")).not.toContain("--accent");
+    expect(accept.getAttribute("style")).not.toContain("--text-on-accent");
+    expect(accept.style.background).toBe("transparent");
+    expect(accept.style.border).toContain("var(--border-control)");
+    expect(accept.getAttribute("style")).toBe(reject.getAttribute("style"));
+  });
+
   it("keeps challenge rows in the one rack: the same rows container as the epic header, one board", async () => {
     world.proposals = [proposal("p-1", "Challenge the retry budget")];
     world.tasks = [task("t-0", "Task 0")];

@@ -40,8 +40,9 @@ const buttonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-// Ink on the brand fill is 3.05 in light; --text-on-accent is 5.17 in both modes.
-const acceptStyle: CSSProperties = { ...buttonStyle, background: "var(--accent-nontext)", color: "var(--text-on-accent)", border: "none" };
+// Accept and Reject are drawn alike: a --border-control edge on the row surface, as every other
+// control on the page is. The brand is not an action colour (08.1-UI-SPEC § The brand rule, "No new
+// one is added by this phase"), so Accept carries no fill; its name and position say what it does.
 
 export function ChallengeRow({ proposal, epicLabel }: ChallengeRowProps) {
   const title = payloadTitle(proposal);
@@ -110,7 +111,7 @@ export function ChallengeRow({ proposal, epicLabel }: ChallengeRowProps) {
         disabled={deciding}
         onClick={() => void decide("accept")}
         aria-label={`Accept "${title}" on ${epicLabel}`}
-        style={{ ...acceptStyle, opacity: deciding ? 0.6 : 1 }}
+        style={{ ...buttonStyle, opacity: deciding ? 0.6 : 1 }}
       >
         Accept
       </button>
