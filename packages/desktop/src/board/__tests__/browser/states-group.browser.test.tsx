@@ -228,9 +228,24 @@ describe(`states and confirms group, built, ${scheme} scheme${reduced ? ", reduc
   it("first run: the mark, a 20px heading, one 2px ink lead, nothing filled; the confirm step's field wears the ink ring", async () => {
     mountPage(<div style={{ width: WIDTH, height: 900 }}><FirstRun /></div>);
     const ground = PALETTE.surfaceDominant;
+    // A-08(c): the mark is ink (the text role, via a mask), not the 64px brand-filled tile.
     const mark = screen.getByRole("img", { name: /flywheel/i });
-    expect(mark.tagName).toBe("IMG");
-    await waitFor(() => expect((mark as HTMLImageElement).naturalWidth, "the mark must really load").toBeGreaterThan(0));
+    const markStyle = getComputedStyle(mark);
+    expect(toHex(markStyle.backgroundColor), "the glyph is drawn in --text-primary-rack").toBe(PALETTE.textPrimaryRack);
+    expect(toHex(markStyle.backgroundColor)).not.toBe(PALETTE.accentNontext);
+    expect(ratio(toHex(markStyle.backgroundColor), PALETTE.surfaceDominant)).toBeGreaterThanOrEqual(4.5);
+    expect(`${markStyle.maskImage}${markStyle.webkitMaskImage}`, "the glyph mask is applied").toMatch(/logo-glyph/);
+    expect([mark.offsetWidth, mark.offsetHeight]).toEqual([64, 64]);
+    // The rendered pixels carry no brand: nothing in the first-run surface paints --accent-nontext.
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>(".first-run, .first-run *"))) {
+      const cs = getComputedStyle(el);
+      for (const prop of [cs.backgroundColor, cs.borderTopColor, cs.color, cs.boxShadow]) {
+        if (prop.includes("rgb")) expect(prop.includes("60, 100, 221"), `${el.tagName}.${el.className} paints the brand`).toBe(false);
+      }
+    }
+    // The mask's file really resolves: a mask whose URL 404s paints nothing, and a passing suite would not say so.
+    const maskUrl = (markStyle.maskImage || markStyle.webkitMaskImage).match(/url\("?([^")]+)"?\)/)![1];
+    expect((await fetch(maskUrl)).ok, "the glyph asset loads").toBe(true);
 
     const surface = document.querySelector<HTMLElement>(".first-run")!;
     expect(toHex(getComputedStyle(surface).backgroundColor)).toBe(ground);

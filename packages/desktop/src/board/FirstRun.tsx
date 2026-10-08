@@ -10,7 +10,7 @@
  */
 import { useState } from "react";
 import { openFolderDialog } from "../adapters/tauri";
-import logoUrl from "../assets/logo.svg";
+import glyphUrl from "../assets/logo-glyph.svg";
 import { useRegisterProject } from "./useBoardQuery";
 import "../styles/states-and-confirms.css";
 
@@ -106,8 +106,15 @@ export function FirstRun() {
 
   return (
     <div className="first-run state-surface">
-      {/* Image element, never inline markup: a static SVG loaded as an image cannot execute script. */}
-      <img src={logoUrl} alt="Flywheel by HighKnow" width={64} height={64} />
+      {/* A-08(c): the mark is drawn in ink, not the 64px brand-filled tile. A CSS mask over a glyph-only asset, so
+          `--text-primary-rack` colours it in both schemes (an <img> cannot read the page's tokens). Still a
+          reference to a static file, never inline markup (T-08.1-05). */}
+      <span
+        role="img"
+        aria-label="Flywheel by HighKnow"
+        className="first-run-mark"
+        style={{ maskImage: `url(${glyphUrl})`, WebkitMaskImage: `url(${glyphUrl})` }}
+      />
       <h1 className="state-heading">No projects yet</h1>
       <p className="type-body state-body">
         Register a local git repository to see its board. Flywheel never touches board content in

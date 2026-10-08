@@ -103,15 +103,16 @@ describe("the register step (08.1 closure)", () => {
   });
 });
 
-/** SC2 / D-22: the brand mark is on screen in the two surfaces entitled to it, as an <img> with an
- * accessible name — never injected as raw SVG markup (T-08.1-05). */
+/** SC2 / D-22: the brand mark is on screen in the two surfaces entitled to it, with an accessible name — never
+ * injected as raw SVG markup (T-08.1-05). A-08(c): first-run draws it in ink through a CSS mask (a role="img"
+ * span); the rail keeps the <img> of the tiled mark. */
 describe("the brand mark", () => {
   it("renders on the first-run empty state as a named image, ahead of the heading", () => {
     const { container } = withClient(<FirstRun />);
     const mark = screen.getByRole("img", { name: /flywheel/i });
-    expect(mark.tagName).toBe("IMG");
-    expect(mark.getAttribute("alt")).toBeTruthy();
-    expect(mark.getAttribute("src")).toBeTruthy();
+    expect(mark.classList.contains("first-run-mark")).toBe(true);
+    expect(mark.getAttribute("aria-label")).toBeTruthy();
+    expect(mark.style.maskImage || mark.style.webkitMaskImage, "the glyph is referenced by URL").toMatch(/url\(/);
     expect(container.querySelector("svg")).toBeNull();
     const heading = screen.getByRole("heading", { name: "No projects yet" });
     expect(mark.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -136,8 +137,8 @@ describe("the brand mark", () => {
 
   it("is not rendered through raw HTML injection in either surface", () => {
     const { container } = withClient(<FirstRun />);
-    // An <img> carries the mark by reference; injected markup would surface as an <svg> subtree.
-    expect(container.querySelector("img")).not.toBeNull();
+    // The mark is carried by reference (a mask URL); injected markup would surface as an <svg> subtree.
+    expect(container.querySelector(".first-run-mark")).not.toBeNull();
     expect(container.querySelector("svg")).toBeNull();
   });
 });

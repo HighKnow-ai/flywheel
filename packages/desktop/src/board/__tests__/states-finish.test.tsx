@@ -17,6 +17,7 @@
 import { describe, expect, it } from "vitest";
 import css from "../../styles/states-and-confirms.css?raw";
 import firstRun from "../FirstRun.tsx?raw";
+import glyph from "../../assets/logo-glyph.svg?raw";
 import unreachable from "../../projects/ProjectUnreachable.tsx?raw";
 import register from "../../projects/RegisterProjectFlow.tsx?raw";
 import deleteConfirm from "../DeleteConfirm.tsx?raw";
@@ -177,9 +178,19 @@ describe("nothing in the group animates, and the blocking layer still blocks", (
   });
 });
 
-describe("the brand mark stays an image, and the copy stays the contract's", () => {
-  it("renders the mark as an <img> and never through raw HTML (T-08.1-54)", () => {
-    expect(code(firstRun)).toMatch(/<img src=\{logoUrl\}/);
+describe("the brand mark stays a reference, and the copy stays the contract's", () => {
+  it("A-08(c): first-run draws the mark in ink, with no brand fill anywhere in its markup, style or glyph asset", () => {
+    expect(code(firstRun)).not.toMatch(/--accent|--text-on-accent|logo\.svg/);
+    const mark = css.match(/(^|\n)\.first-run-mark\s*\{([^}]*)\}/)?.[2] ?? "";
+    expect(mark).toMatch(/background-color:\s*var\(--text-primary-rack\)/);
+    expect(mark).not.toMatch(/accent|hsl\(|#[0-9a-f]{3,6}/i);
+    // The glyph asset is the shape only: the rounded brand tile (a blue rect) is gone.
+    expect(glyph).not.toMatch(/<rect|hsl\(|#3c64dd/i);
+    expect(glyph).toContain("<path");
+  });
+
+  it("renders the mark by reference and never through raw HTML (T-08.1-54)", () => {
+    expect(code(firstRun)).toMatch(/maskImage: `url\(\$\{glyphUrl\}\)`/);
     expect(code(firstRun)).not.toContain("dangerouslySetInnerHTML");
   });
 

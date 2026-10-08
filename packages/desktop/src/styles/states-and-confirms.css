@@ -41,6 +41,21 @@
   margin: 0;
 }
 
+/* The first-run mark, in ink: the glyph is a mask and the colour is the text role, so it follows both schemes. */
+.first-run-mark {
+  background-color: var(--text-primary-rack);
+  display: block;
+  flex-shrink: 0;
+  height: 64px;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  width: 64px;
+}
+
 .state-heading {
   font-family: var(--font-family);
   font-size: 20px;
