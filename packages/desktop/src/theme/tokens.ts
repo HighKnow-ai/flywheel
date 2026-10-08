@@ -121,4 +121,10 @@ export const MOTION = {
   ease: "cubic-bezier(0.16, 1, 0.3, 1)",
   durationSettle: "180ms",
   durationDisplace: "220ms",
+  // The four motions the contract names (08.1-UI-SPEC.md § Motion, D-21). `motion.test.ts` pins
+  // these to the stylesheet block by block, so a confirmed number cannot quietly drift back.
+  durationPanel: "220ms",
+  durationCollapse: "180ms",
+  durationPalette: "140ms",
+  durationSelect: "120ms",
 } as const;

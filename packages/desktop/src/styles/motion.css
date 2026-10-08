@@ -11,6 +11,12 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-settle: 180ms;
   --duration-displace: 220ms;
+  /* The four motions 08.1-UI-SPEC.md § Motion names (D-21). Starting numbers from the contract;
+     the owner's confirmed values are recorded in that table and pinned by theme/__tests__/motion.test.ts. */
+  --duration-panel: 220ms;
+  --duration-collapse: 180ms;
+  --duration-palette: 140ms;
+  --duration-select: 120ms;
 }
 
 .settle-transition {
@@ -50,6 +56,10 @@
   :root {
     --duration-settle: 0s;
     --duration-displace: 0s;
+    --duration-panel: 0s;
+    --duration-collapse: 0s;
+    --duration-palette: 0s;
+    --duration-select: 0s;
   }
 
   * {
