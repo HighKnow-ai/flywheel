@@ -1044,6 +1044,75 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
   });
 });
 
+describe("08.1 group-four finish-review closure (behaviour)", () => {
+  it("prints no meter figures while there are none, and prints them once they exist", async () => {
+    mockCombinedReads({ events: [{ runId: "run-1", seq: 0, at: "2026-01-01T00:00:00.000Z", raw: "hi", type: "assistant_text", text: "hi" }] });
+    const { unmount } = renderSurface();
+    await screen.findByText("hi");
+    expect(screen.getByLabelText("Elapsed time")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Tokens in")).toBeNull();
+    expect(screen.queryByLabelText("Tokens out")).toBeNull();
+    expect(screen.queryByLabelText("Cost")).toBeNull();
+    expect(document.body.textContent).not.toContain("—");
+    unmount();
+  });
+
+  it("the running tool call, and only that one, wears the live caret; a finished run's call does not", async () => {
+    mockCombinedReads({ events: [makeToolCall(0, "Read", { file_path: "a.ts" }), makeToolResult(1, "Read", "ok"), makeToolCall(2, "Bash", { command: "npm test" })] });
+    const running = renderSurface();
+    const bash = await screen.findByRole("button", { name: /Bash · npm test/ });
+    expect(bash).toHaveAttribute("data-live", "true");
+    expect(bash.querySelector(".feed-caret.agent-pulse")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Read · a.ts/ })).not.toHaveAttribute("data-live");
+    running.unmount();
+
+    mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="failed" />
+      </QueryClientProvider>,
+    );
+    const ended = await screen.findByRole("button", { name: /Bash · npm test/ });
+    expect(ended).not.toHaveAttribute("data-live");
+    expect(ended.querySelector(".feed-caret")).toBeNull();
+  });
+
+  it("under reduced motion the live caret is a plain mark: present, never animated", async () => {
+    mockMatchMedia(true);
+    mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
+    renderSurface();
+    const bash = await screen.findByRole("button", { name: /Bash · npm test/ });
+    expect(bash.querySelector(".feed-caret")).not.toBeNull();
+    expect(bash.querySelector(".agent-pulse")).toBeNull();
+    // @ts-expect-error test-only cleanup of the global override installed above
+    delete window.matchMedia;
+  });
+
+  it("every state has a floor: waiting on the agent, waiting on the developer, the run's end", async () => {
+    mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
+    const a = renderSurface();
+    expect(await screen.findByText("Waiting on the agent.")).toBeInTheDocument();
+    a.unmount();
+
+    mockCombinedReads({});
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="completed" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText(/This run has ended\./)).toBeInTheDocument();
+  });
+
+  it("while running, Stop leads and Discard sits on the plain edge", async () => {
+    mockCombinedReads({});
+    renderSurface();
+    const stop = await screen.findByRole("button", { name: "Stop" });
+    const discard = screen.getByRole("button", { name: "Discard" });
+    expect(stop.className).toContain("session-action-lead");
+    expect(discard.className).not.toContain("session-action-lead");
+  });
+});
+
 describe("review offer (08-04, D-133)", () => {
   function renderOffer(status: "running" | "blocked" | "completed" | "failed" | "interrupted", taskId: string | null) {
     mockCombinedReads({});

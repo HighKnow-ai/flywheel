@@ -39,6 +39,17 @@ const FINISHED_EVENTS = [
   { runId: "run-1", seq: 6, at: at(60), raw: "g", type: "session_closed", reason: "failed", result: { subtype: "error_max_turns" }, detail: "FIXTURE: the run stopped at its turn limit" },
 ];
 
+const SUCCEEDED_EVENTS = [
+  ...FIXTURE_EVENTS.slice(0, 4),
+  { runId: "run-1", seq: 6, at: at(61), raw: "g", type: "session_closed", reason: "completed", result: { subtype: "success" } },
+];
+// A conversation with the developer's own turn in it (an authoring run). FIXTURE: the real board has none.
+const DEVELOPER_TURN_EVENTS = [
+  { runId: "run-1", seq: 0, at: at(0), raw: "a", type: "assistant_text", text: "FIXTURE: Before I decompose this: what must stay true if the outbox is replayed twice?" },
+  { runId: "run-1", seq: 1, at: at(20), raw: "b", type: "developer_turn", text: "FIXTURE: Replaying must be idempotent, the second pass writes nothing.", origin: "developer", turnId: "t-1" },
+  { runId: "run-1", seq: 2, at: at(24), raw: "c", type: "assistant_text", text: "FIXTURE: Understood. Then each task needs a criterion that names the replay." },
+];
+
 const REQUESTS = {
   routine: [{ id: "req-1", toolName: "Bash", inputPayload: '{"command":"npm --prefix packages/desktop run test"}', destructiveCategory: null }],
   destructive: [{ id: "req-2", toolName: "Bash", inputPayload: '{"command":"git reset --hard"}', destructiveCategory: "hard-reset" }],
@@ -82,6 +93,11 @@ vi.mock("../../../adapters/tauri", async (importOriginal) => {
     discardSession: () => Promise.resolve({ status: "interrupted", sidecarWarning: null }),
     previewContextPacket: () => Promise.resolve(packet),
     startAgentRun: () => new Promise(() => {}),
+    // The authoring run's own reads and writes (the developer's-turn capture).
+    authoringProposalsForRun: () => Promise.resolve([]),
+    authoringStageAdvance: () => Promise.resolve(undefined),
+    authoringStageReturn: () => Promise.resolve(undefined),
+    sendAuthoringTurn: () => Promise.resolve(undefined),
   };
 });
 
@@ -114,14 +130,23 @@ const toHex = (computed: string): string => {
 const ratio = (a: string, b: string) => contrastRatio(a, b);
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 300));
 
-function mountSession(props: { status?: "running" | "completed" | "failed"; sheet?: boolean } = {}) {
+function mountSession(props: { status?: "running" | "completed" | "failed"; sheet?: boolean; authoring?: boolean } = {}) {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <div className="rack-ground" style={{ height: 900, width: 1440 }}>
-        <p className="type-label" style={{ position: "absolute", right: 24, bottom: 8, margin: 0, color: "var(--text-muted-rack)", zIndex: 1 }}>
+      <div className="rack-ground" style={{ height: 900, width: 1440, display: "flex", flexDirection: "column" }}>
+        {/* In flow, above the surface: it used to sit absolutely at the bottom-right, stranded on the blank ground. */}
+        <p className="type-label" data-testid="fixture-caption" style={{ margin: 0, padding: "var(--space-xs) var(--space-md)", color: "var(--text-muted-rack)", borderBottom: "1px solid var(--divider)" }}>
           FIXTURE: THRE-58 has no live run on the real board, so the feed, the requests and the failure are invented.
         </p>
-        <SessionSurface agentRunId="run-1" taskId="t1" initialStatus={props.status ?? "running"} onBack={() => {}} />
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <SessionSurface
+            agentRunId="run-1"
+            taskId={props.authoring ? null : "t1"}
+            initialStatus={props.status ?? "running"}
+            authoringStage={props.authoring ? "challenge" : null}
+            onBack={() => {}}
+          />
+        </div>
       </div>
       {props.sheet && <LaunchSheet taskId="t1" onClose={() => {}} onStarted={() => {}} />}
     </QueryClientProvider>,
@@ -157,11 +182,28 @@ describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" :
     const ground = PALETTE.surfaceDominant;
     for (const [name, button] of [["Discard", discard], ["Stop", stop], ["View raw", viewRaw]] as const) expectDrawn(button, name, ground);
 
-    // One lead per header (2px ink), its neighbours on the 1px control edge, all the same size.
-    expect(getComputedStyle(discard).borderTopWidth).toBe("2px");
-    expect(toHex(getComputedStyle(discard).borderTopColor)).toBe(PALETTE.selectionRule);
-    expect(getComputedStyle(stop).borderTopWidth).toBe("1px");
+    // One lead per header (2px ink), its neighbours on the 1px control edge, all the same size. While a run
+    // is live the lead is STOP, the one action a running session offers; Discard is the most destructive
+    // control on the page and sits on the plain edge.
+    expect(getComputedStyle(stop).borderTopWidth, "Stop leads a live run").toBe("2px");
+    expect(toHex(getComputedStyle(stop).borderTopColor)).toBe(PALETTE.selectionRule);
+    expect(getComputedStyle(discard).borderTopWidth, "Discard never leads a live run").toBe("1px");
+    expect(toHex(getComputedStyle(discard).borderTopColor)).toBe(PALETTE.borderControl);
     expect(discard.offsetHeight, "the lead and its neighbour are the same height").toBe(stop.offsetHeight);
+
+    // The meter prints figures or nothing: a running session has no totals yet, so no dashes and no bare words.
+    expect(document.body.textContent).not.toMatch(/—\s*in|—\s*out/);
+    expect(screen.queryByLabelText("Tokens in")).toBeNull();
+
+    // The transcript sits on the floor, not at the top of blank ground, and the page ends on a bar.
+    const scroll = screen.getByTestId("session-feed-scroll");
+    const content = scroll.firstElementChild as HTMLElement;
+    const gap = scroll.getBoundingClientRect().bottom - content.getBoundingClientRect().bottom;
+    expect(gap, "the newest content is on the floor (one gutter of padding above the bar)").toBeLessThan(24);
+    const floor = document.querySelector<HTMLElement>(".session-floor")!;
+    await waitFor(() => expect(floor.textContent).toBe("Waiting on you: answer the permission request above."));
+    expect(Math.abs(floor.getBoundingClientRect().bottom - 900), "the bar is the page's floor").toBeLessThan(2);
+    expect(getComputedStyle(screen.getByTestId("fixture-caption")).position).toBe("static");
 
     // The pulse: a real, infinite opacity animation, or (under reduced motion) no animation class at all.
     const badge = screen.getByText("Running");
@@ -177,6 +219,19 @@ describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" :
       expect(glyph.getAnimations().length, "the engine is running it").toBeGreaterThan(0);
     }
 
+    // The live mark: the call in flight carries a caret that pulses where the work is (and is a plain mark under
+    // reduced motion), not only the glyph at the far top-left.
+    const live = await screen.findByRole("button", { name: /Bash · npm --prefix/ });
+    const caret = live.querySelector<HTMLElement>(".feed-caret")!;
+    expect(caret, "the running tool row carries the caret").toBeTruthy();
+    if (reduced) {
+      expect(getComputedStyle(caret).animationName).toBe("none");
+    } else {
+      expect(getComputedStyle(caret).animationName).toBe("agent-pulse");
+      expect(caret.getAnimations().length).toBeGreaterThan(0);
+    }
+    expect(screen.getByRole("button", { name: /Read · packages\/desktop/ }).querySelector(".feed-caret"), "a finished call is not live").toBeNull();
+
     // The routine card: a 3:1 edge (not a fill, not a stripe), Allow the lead, Deny beside it.
     const group = await screen.findByRole("group", { name: "Bash wants to:" });
     const card = getComputedStyle(group);
@@ -186,10 +241,19 @@ describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" :
     const allow = screen.getByRole("button", { name: "Allow" });
     const deny = screen.getByRole("button", { name: "Deny" });
     expectDrawn(allow, "Allow", ground);
-    expectDrawn(deny, "Deny", ground);
     expect(getComputedStyle(allow).borderTopWidth).toBe("2px");
-    expect(getComputedStyle(deny).borderTopWidth).toBe("1px");
-    expect(allow.offsetHeight).toBe(deny.offsetHeight);
+    // Deny is the secondary answer: text and a caret, no box. It used to be a 1px box beside a 2px box.
+    const denyStyle = getComputedStyle(deny);
+    expect(denyStyle.borderTopWidth, "Deny has no box").toBe("0px");
+    expect(denyStyle.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(ratio(toHex(denyStyle.color), ground), "Deny's text").toBeGreaterThanOrEqual(4.5);
+    expect(deny.textContent).toBe("Deny›");
+    // The permanent grant is below a gutter, and its scope is carried by weight, not an underline.
+    const grant = screen.getByRole("button", { name: "Allow this tool for this project from now on" });
+    expect(grant.getBoundingClientRect().top - deny.getBoundingClientRect().bottom, "a gutter before the permanent grant").toBeGreaterThanOrEqual(12);
+    expect(getComputedStyle(grant).textDecorationLine).toBe("none");
+    expect(getComputedStyle(grant.querySelector("strong")!).fontWeight).toBe("600");
+    expect(ratio(toHex(getComputedStyle(grant).color), ground), "the grant's text").toBeGreaterThanOrEqual(4.5);
 
     await settle();
     await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-session-1440x900.png` });
@@ -264,6 +328,45 @@ describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" :
     await writeHtml("session-group-finished");
   });
 
+  it("the succeeded run: the terminal state a run is meant to reach, with its floor and Review changes", async () => {
+    world.events = SUCCEEDED_EVENTS;
+    world.requests = [];
+    mountSession({ status: "completed" });
+    const review = await screen.findByRole("button", { name: "Review changes" });
+    expectDrawn(review, "Review changes", PALETTE.surfaceDominant);
+    expect(getComputedStyle(review).borderTopWidth).toBe("2px");
+    expect(document.querySelector(".agent-pulse"), "nothing pulses once the run has ended").toBeNull();
+    expect(document.querySelector(".feed-caret")).toBeNull();
+    await screen.findByText("Completed", { selector: "span, p, div" });
+    expect(document.querySelector(".session-floor")?.textContent).toMatch(/^This run has ended\./);
+    // The notice for success is plain: no destructive role anywhere on the page.
+    expect(document.querySelector("[style*='destructive']")).toBeNull();
+
+    await settle();
+    await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-succeeded-1440x900.png` });
+    await writeHtml("session-group-succeeded");
+  });
+
+  it("the developer's turn: an authoring run with the composer as its floor, the developer's own words in the feed", async () => {
+    world.events = DEVELOPER_TURN_EVENTS;
+    world.requests = [];
+    mountSession({ authoring: true });
+    const composer = await screen.findByRole("textbox", { name: "Message" });
+    await screen.findByText(/Replaying must be idempotent/);
+    const send = screen.getByRole("button", { name: "Send" });
+    expectDrawn(send, "Send", PALETTE.surfaceDominant);
+    expect(getComputedStyle(send).borderTopWidth, "Send is the composer's lead").toBe("2px");
+    // The composer is the floor of this state, so there is no second bar under it.
+    expect(document.querySelector(".session-floor")).toBeNull();
+    const field = getComputedStyle(composer);
+    expect(ratio(toHex(field.borderTopColor), PALETTE.surfaceDominant), "the composer's boundary").toBeGreaterThanOrEqual(3);
+    expect(Math.abs(send.closest("div")!.parentElement!.getBoundingClientRect().bottom - 900), "the composer is on the page's floor").toBeLessThan(2);
+
+    await settle();
+    await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-developer-turn-1440x900.png` });
+    await writeHtml("session-group-developer-turn");
+  });
+
   it("the launch sheet: --scrim, --shadow-sheet, the sheet-tier edge, drawn controls, a lead, an ink ring", async () => {
     mountSession({ sheet: true });
     const dialog = await screen.findByRole("dialog", { name: "Launch sheet" });
@@ -307,6 +410,13 @@ describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" :
 
     // The instruction field: a 3:1 control boundary, and the ink ring (not the engine's system ring).
     const field = screen.getByLabelText("Instruction") as HTMLTextAreaElement;
+    // The placeholder is a role a step below muted: not the engine's unowned grey (about 8.5:1 in dark, which
+    // made the dark sheet look as if a prompt were already typed), and the same ratio in both schemes.
+    const placeholder = toHex(getComputedStyle(field, "::placeholder").color);
+    expect(placeholder, "the placeholder is --text-placeholder").toBe(PALETTE.textPlaceholder);
+    const placeholderRatio = ratio(placeholder, PALETTE.surfaceDominant);
+    expect(placeholderRatio).toBeLessThan(ratio(PALETTE.textMutedRack, PALETTE.surfaceDominant));
+    expect(placeholderRatio).toBeGreaterThanOrEqual(4.5);
     expect(ratio(toHex(getComputedStyle(field).borderTopColor), PALETTE.surfaceDominant)).toBeGreaterThanOrEqual(3);
     field.focus();
     await waitFor(() => expect(document.activeElement).toBe(field));

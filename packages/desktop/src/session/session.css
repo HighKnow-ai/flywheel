@@ -95,6 +95,21 @@
   box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
 }
 
+/* The live mark on the running tool row: a block caret in the muted ink, never the brand. */
+.feed-caret {
+  color: var(--text-primary-rack);
+  flex-shrink: 0;
+}
+
+/* The floor: a persistent hairline bar under the transcript, one line, so the page always ends on something. */
+.session-floor {
+  border-top: 1px solid var(--divider);
+  color: var(--text-muted-rack);
+  flex-shrink: 0;
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+}
+
 /* A notice in the feed (a failed run, an unconfirmed stop, a log that may be incomplete). A hairline
  * defines it; it has no fill, because the surface family is one and colour is a data channel only. */
 .session-notice {
@@ -120,6 +135,11 @@
   resize: vertical;
 }
 
+/* The engine's own placeholder is an unowned grey (2.3:1 light, about 8.5:1 dark). It is a role now. */
+.session-field::placeholder {
+  color: var(--text-placeholder);
+}
+
 .session-field:focus-visible {
   outline: 2px solid var(--selection-rule);
   outline-offset: 1px;
@@ -142,6 +162,43 @@
   max-width: 100%;
   min-width: 0;
   padding: var(--space-md);
+}
+
+/*
+ * The secondary answer: text and a caret, no box. A quiet inset wash on hover, like a rail row; no motion.
+ * `strong` inside it is the scope of a permanent grant, told by weight.
+ */
+.session-text-action {
+  align-items: baseline;
+  background: transparent;
+  border: none;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  display: inline-flex;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.session-text-action:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+.session-text-action:disabled {
+  color: var(--text-muted-rack);
+  cursor: default;
+}
+
+.session-text-action strong {
+  font-weight: 600;
+}
+
+/* A gutter before the permanent grant: a hairline and a full step of space, so it is never one slip away
+ * from Allow or Deny. */
+.session-grant {
+  border-top: 1px solid var(--divider);
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
 }
 
 .session-card.session-card-destructive {

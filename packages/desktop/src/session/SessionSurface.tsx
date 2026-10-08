@@ -49,7 +49,7 @@ import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
-import { FeedRow, feedRowEstimateSize, useExpandedRows, type FeedRowData } from "./FeedRow";
+import { FeedRow, feedRowEstimateSize, prefersReducedMotion, useExpandedRows, type FeedRowData } from "./FeedRow";
 import { RawLogView } from "./RawLogView";
 import "./session.css";
 
@@ -100,15 +100,6 @@ function Icon({ name, size = 14 }: { name: string; size?: number }) {
   const Component = (icons as unknown as Record<string, IconComponent>)[name];
   if (!Component) return null;
   return <Component size={size} strokeWidth={2} />;
-}
-
-/** Whether the OS reports a reduced-motion preference — checked once at mount (no acceptance
- * criterion in this plan requires reacting to the preference changing mid-session). Guarded for
- * an environment with no `matchMedia` at all (this project's own jsdom test environment does not
- * implement it by default; a test asserting the reduced-motion path installs its own mock first). */
-function prefersReducedMotion(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /** The glyph-and-word run-status badge (02-UI-SPEC.md "Run Status", plan 02-07 Task 3) — never
@@ -163,12 +154,12 @@ function formatElapsed(startIso: string | undefined, nowMs: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function formatCount(value: number | undefined): string {
-  return value === undefined ? "—" : value.toLocaleString();
+function formatCount(value: number): string {
+  return value.toLocaleString();
 }
 
-function formatCostUsd(value: number | undefined): string {
-  return value === undefined ? "—" : `$${value.toFixed(4)}`;
+function formatCostUsd(value: number): string {
+  return `$${value.toFixed(4)}`;
 }
 
 /** Re-renders once a second while `enabled` — the status strip's own elapsed-time ticker. Its
@@ -214,15 +205,24 @@ function StatusStrip({
       <span className="type-label tabular-nums" aria-label="Elapsed time">
         {formatElapsed(startedAt, now)}
       </span>
-      <span className="type-label tabular-nums" aria-label="Tokens in">
-        {formatCount(tokensIn)} in
-      </span>
-      <span className="type-label tabular-nums" aria-label="Tokens out">
-        {formatCount(tokensOut)} out
-      </span>
-      <span className="type-label tabular-nums" aria-label="Cost">
-        {formatCostUsd(costUsd)}
-      </span>
+      {/* Figures or nothing. The backend reports totals once, on the terminal `result`, so for the whole
+          of a running session there is nothing to print; three dashes beside two bare words read as
+          broken data, not as absent data (08.1-17 closure). The meter grows when the figures exist. */}
+      {tokensIn !== undefined && (
+        <span className="type-label tabular-nums" aria-label="Tokens in">
+          {formatCount(tokensIn)} in
+        </span>
+      )}
+      {tokensOut !== undefined && (
+        <span className="type-label tabular-nums" aria-label="Tokens out">
+          {formatCount(tokensOut)} out
+        </span>
+      )}
+      {costUsd !== undefined && (
+        <span className="type-label tabular-nums" aria-label="Cost">
+          {formatCostUsd(costUsd)}
+        </span>
+      )}
     </div>
   );
 }
@@ -1052,6 +1052,13 @@ export function SessionSurface({
   const feedRows = useMemo(() => buildFeedRows(entries), [entries]);
   const terminalInfo = useMemo(() => findTerminalInfo(entries), [entries]);
   const showStartingPulse = feedRows.length === 0 && !terminalInfo;
+  // The call in flight: the newest tool call that has no result yet, while the run is running. A notice
+  // after it (a retry) does not end it. A call left unpaired in a finished or blocked run is not live, so
+  // it never pulses.
+  const liveRowKey =
+    status === "running"
+      ? ([...feedRows].reverse().find((r) => r.kind === "tool_call" && r.output === undefined)?.key ?? null)
+      : null;
 
   const rowVirtualizer = useVirtualizer({
     count: feedRows.length,
@@ -1136,28 +1143,27 @@ export function SessionSurface({
         </button>
 
         {showStop && (
+          // While a run is live the lead is Stop, the one action a running session offers. It was on Discard,
+          // the most destructive control on the page (08.1-17 closure). An authoring run's lead is Advance.
           <button
             type="button"
             onClick={handleStop}
             disabled={stopping || discarding}
-            className="control-edge session-action type-label"
+            className={`control-edge session-action type-label${stage ? "" : " session-action-lead"}`}
           >
             {stopping ? "Stopping…" : "Stop"}
           </button>
         )}
 
         {showStop && (
-          // D-67: the flagship verb, beside Stop — never a modifier folded into it. Drawn with the
-          // same 2px ink lead edge the launch sheet's own primary action (`LaunchSheet.tsx`'s "Start
-          // Work" button) wears, so the control this hands off TO and the control that starts this
-          // hand-off read as one visual family. Not filled: the brand carries progress, never an action.
+          // D-67: the flagship verb, beside Stop — never a modifier folded into it. Never the lead while a
+          // run is live: it ends the session and starts another, so it sits on the plain control edge and
+          // Stop leads. Not filled: the brand carries progress, never an action.
           <button
             type="button"
             onClick={handleDiscard}
             disabled={stopping || discarding}
-            // One lead per header: an authoring run's lead is Advance (the stage controls), so
-            // Discard stays on the plain control edge there.
-            className={`control-edge session-action type-label${stage ? "" : " session-action-lead"}`}
+            className="control-edge session-action type-label"
           >
             {discarding ? "Discarding…" : "Discard"}
           </button>
@@ -1189,8 +1195,12 @@ export function SessionSurface({
           ref={parentRef}
           onScroll={handleScroll}
           data-testid="session-feed-scroll"
-          style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}
+          // A transcript sits on the floor like a terminal's: the newest row at the bottom edge, growing upward.
+          // `margin-top: auto` on the one child (not `justify-content: flex-end`) so a transcript taller than
+          // the pane still scrolls from its top. The first 30 seconds of a run are a few rows, not a blank page.
+          style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)", display: "flex", flexDirection: "column" }}
         >
+          <div style={{ marginTop: "auto", flexShrink: 0 }}>
           {persistenceFailed && (
             <PersistenceFailureBanner
               text={persistenceFailureText ?? "Flywheel could not write this session's log — the transcript below may be incomplete."}
@@ -1224,7 +1234,7 @@ export function SessionSurface({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} />
+                  <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} live={row.key === liveRowKey} />
                 </div>
               );
             })}
@@ -1241,11 +1251,23 @@ export function SessionSurface({
           )}
 
           <div ref={tailRef} />
+          </div>
         </div>
       )}
       {/* SHAPE-01 (plan 05-12): the same condition Stop/Discard already gate on — an authoring
           run (`stage` non-null) that has not yet reached a terminal status. */}
       {stage && showStop && <AuthoringComposer agentRunId={agentRunId} />}
+      {/* Every state has a floor. A developer's turn has the composer above; every other state has this line,
+          so the surface never ends in blank ground (08.1-17 closure). It states who the run is waiting on. */}
+      {!(stage && showStop) && (
+        <p role="status" className="session-floor type-label">
+          {!showStop
+            ? "This run has ended. Nothing more will be added to this transcript."
+            : pendingRequests.length > 0
+              ? "Waiting on you: answer the permission request above."
+              : "Waiting on the agent."}
+        </p>
+      )}
       </div>
       {(authoringStage || hasStagedProposals) && (
         // D-88: the proposal tray mounts for every authoring run (unchanged, byte-identical

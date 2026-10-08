@@ -30,6 +30,8 @@ export interface Palette {
   borderSheet: string;
   textPrimaryRack: string;
   textMutedRack: string;
+  /** A field's placeholder: a step below muted, AA on every surface in both modes. */
+  textPlaceholder: string;
   /** Brand as TEXT. Equals the brand in light; lifted in dark. */
   accentTextRack: string;
   /** Brand as a fill or edge (the progress fill). */
@@ -67,6 +69,7 @@ export const LIGHT: Palette = {
   borderSheet: "#7a828c",
   textPrimaryRack: "#1f2328",
   textMutedRack: "#59636e",
+  textPlaceholder: "#68727d",
   accentTextRack: "#3c64dd",
   accentNontext: "#3c64dd",
   focusRing: "#3c64dd",
@@ -96,6 +99,7 @@ export const DARK: Palette = {
   borderSheet: "#a6a6a6",
   textPrimaryRack: "#ededed",
   textMutedRack: "#8b8b8b",
+  textPlaceholder: "#7c7c7c",
   accentTextRack: "#5175e1",
   accentNontext: "#3c64dd",
   focusRing: "#5175e1",

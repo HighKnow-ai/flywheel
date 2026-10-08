@@ -62,6 +62,18 @@ export interface FeedRowProps {
   /** Only meaningful for a `tool_call` row — ignored by every other kind. */
   expanded: boolean;
   onToggleExpand: () => void;
+  /** Only meaningful for a `tool_call` row: this is the call the agent is running right now. It carries
+   * the live mark, so the eye finds life where the work is and not only in the header chrome. */
+  live?: boolean;
+}
+
+/** Whether the OS reports a reduced-motion preference — checked once at mount (no acceptance
+ * criterion requires reacting to the preference changing mid-session). Guarded for an environment
+ * with no `matchMedia` at all (this project's own jsdom test environment does not implement it by
+ * default; a test asserting the reduced-motion path installs its own mock first). */
+export function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function stringifyPayload(value: unknown): string {
@@ -80,7 +92,17 @@ function stringifyPayload(value: unknown): string {
  * own internal scroll is what absorbs a long payload, never the row's own reserved slot. */
 const EXPANDED_SUBBLOCK_MAX_HEIGHT = 240;
 
-function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowData, { kind: "tool_call" }>; expanded: boolean; onToggleExpand: () => void }) {
+function ToolCallRow({
+  row,
+  expanded,
+  onToggleExpand,
+  live,
+}: {
+  row: Extract<FeedRowData, { kind: "tool_call" }>;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  live: boolean;
+}) {
   const target = toolCallTarget(row.input);
   return (
     <div role="listitem" style={{ padding: "var(--space-xs) 0", minWidth: 0 }}>
@@ -89,6 +111,7 @@ function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowDa
         onClick={onToggleExpand}
         aria-expanded={expanded}
         className="feed-disclosure type-body tabular-nums"
+        data-live={live ? "true" : undefined}
         style={{
           display: "flex",
           alignItems: "center",
@@ -111,6 +134,14 @@ function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowDa
           {row.toolName}
           {target ? ` · ${target}` : ""}
         </span>
+        {/* The live mark: a block caret after the call, the terminal's own "it is working here". It is the
+            running-session pulse (the one scoped opacity animation) moved to where the work is; under reduced
+            motion the class is omitted, so the caret is a plain, fully legible mark and never frozen mid-cycle. */}
+        {live && (
+          <span aria-hidden="true" className={prefersReducedMotion() ? "feed-caret" : "feed-caret agent-pulse"}>
+            ▍
+          </span>
+        )}
       </button>
 
       {expanded && (
@@ -274,7 +305,7 @@ function ExpandableTextRow({
   );
 }
 
-export function FeedRow({ row, expanded, onToggleExpand }: FeedRowProps) {
+export function FeedRow({ row, expanded, onToggleExpand, live = false }: FeedRowProps) {
   switch (row.kind) {
     case "assistant_text":
       return (
@@ -320,7 +351,7 @@ export function FeedRow({ row, expanded, onToggleExpand }: FeedRowProps) {
     case "git_lock_exhausted":
       return null;
     case "tool_call":
-      return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} />;
+      return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} live={live} />;
     case "raw":
       return (
         <ExpandableTextRow

@@ -21,6 +21,7 @@ type Role = keyof Palette;
 const TEXT_ROLES: Role[] = [
   "textPrimaryRack",
   "textMutedRack",
+  "textPlaceholder",
   "accentTextRack",
   "successTextRack",
   "destructiveTextRack",
@@ -233,6 +234,19 @@ for (const mode of MODES) {
       const surface = bandAtGap(p.surfaceDominant, p.textPrimaryRack, REVIEWER_BAND_TARGET[mode]);
       const worst = Math.min(...TEXT_ROLES.map((role) => contrastRatio(p[role], surface)));
       expect(worst, `${mode}: worst text role on ${surface}, the reviewer's target band`).toBeLessThan(AA_TEXT);
+    });
+
+    // 08.1-17 closure: the dark placeholder was about 8.5:1 against light's 2.3:1, so a dark field looked
+    // already typed in. The role is a step below muted in BOTH modes and the two modes sit within 0.1 of
+    // each other on the ground: matched on ratio, which is what the eye reads, not on hex distance.
+    it("the placeholder is a step below muted, and the two modes agree on its ratio", () => {
+      const onGround = (role: Role) => contrastRatio(p[role], p.surfaceDominant);
+      expect(onGround("textPlaceholder"), `${mode}: placeholder is quieter than muted`).toBeLessThan(onGround("textMutedRack"));
+      const other = PALETTES[mode === "light" ? "dark" : "light"];
+      expect(
+        Math.abs(onGround("textPlaceholder") - contrastRatio(other.textPlaceholder, other.surfaceDominant)),
+        "light and dark placeholders differ in ratio",
+      ).toBeLessThan(0.3);
     });
 
     it("the four row-state surfaces are pairwise distinct", () => {

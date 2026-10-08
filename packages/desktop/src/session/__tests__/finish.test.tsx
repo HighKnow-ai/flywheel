@@ -78,8 +78,8 @@ describe("the session group draws its actions, it does not fill them", () => {
     const drawn = (source: string) => (source.match(/control-edge session-action/g) ?? []).length;
     // Return, Advance, View raw, Stop, Discard, Review changes, Send.
     expect(drawn(surface)).toBe(7);
-    // Deny, Allow-just-this-once, Allow, Deny.
-    expect(drawn(card)).toBe(4);
+    // Deny and Allow-just-this-once (destructive), Allow (routine). The routine Deny is a text action.
+    expect(drawn(card)).toBe(3);
     // Cancel and the submit.
     expect(drawn(launchSheet)).toBe(2);
   });
@@ -89,6 +89,44 @@ describe("the session group draws its actions, it does not fill them", () => {
     expect(lead(card)).toBe(2); // one per variant, exactly one visible at a time
     expect(card).toMatch(/session-action-lead session-action-destructive[^"]*"\s*>\s*Deny/);
     expect(card).toMatch(/session-action session-action-lead type-body"\s*>\s*Allow\s*</);
+  });
+});
+
+describe("08.1 group-four finish-review closure", () => {
+  it("while a run is live the lead is Stop, never Discard (an authoring run's lead is Advance)", () => {
+    expect(surface).toMatch(/onClick=\{handleStop\}[\s\S]{0,200}session-action type-label\$\{stage \? "" : " session-action-lead"\}/);
+    const discard = surface.match(/onClick=\{handleDiscard\}[\s\S]{0,260}?>/)![0];
+    expect(discard).toContain('className="control-edge session-action type-label"');
+    expect(discard).not.toContain("session-action-lead");
+  });
+
+  it("the routine card ranks Allow (a box and a lead), Deny (text and a caret), then the permanent grant below a gutter", () => {
+    expect(code(card)).toMatch(/className="session-text-action type-body"\s*>\s*Deny/);
+    expect(code(card)).toContain('className="session-grant"');
+    expect(rule(".session-grant")).toMatch(/border-top:\s*1px solid var\(--divider\)/);
+    // The scope is carried by weight on the words, not by an underline.
+    expect(code(card)).toContain("<strong>for this project</strong>");
+    expect(code(card)).not.toMatch(/textDecoration/);
+    expect(rule(".session-text-action strong")).toMatch(/font-weight:\s*600/);
+    // A text action has no box and no fill.
+    const body = rule(".session-text-action");
+    expect(body).toMatch(/border:\s*none/);
+    expect(body).toMatch(/background:\s*transparent/);
+  });
+
+  it("the placeholder is a role, in the stylesheet (the engine's own was an unowned grey)", () => {
+    expect(rule(".session-field::placeholder")).toMatch(/color:\s*var\(--text-placeholder\)/);
+  });
+
+  it("the live row carries a caret that keeps the reduced-motion rule, and the meter never prints a bare dash", () => {
+    expect(code(feedRow)).toMatch(/prefersReducedMotion\(\) \? "feed-caret" : "feed-caret agent-pulse"/);
+    expect(code(surface)).not.toMatch(/"—"/);
+  });
+
+  it("the transcript sits on the floor and the page ends on a bar", () => {
+    expect(code(surface)).toMatch(/marginTop: "auto", flexShrink: 0/);
+    expect(code(surface)).toContain('className="session-floor type-label"');
+    expect(rule(".session-floor")).toMatch(/border-top:\s*1px solid var\(--divider\)/);
   });
 });
 
@@ -165,6 +203,7 @@ describe("focus rings", () => {
 describe("the two things this group must not lose", () => {
   it("SessionSurface still omits the pulse class under reduced motion rather than freezing the glyph", () => {
     expect(surface).toMatch(/const pulsing = status === "running" && !prefersReducedMotion\(\)/);
+    expect(feedRow).toMatch(/export function prefersReducedMotion/);
     expect(surface).toMatch(/className=\{pulsing \? "agent-pulse" : undefined\}/);
   });
 

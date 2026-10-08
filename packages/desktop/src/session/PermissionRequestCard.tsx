@@ -345,13 +345,16 @@ function PermissionRequestRow({
               >
                 Allow
               </button>
+              {/* Deny is the secondary answer: text and a caret, no box (the "← Board" / disclosure device). It was a
+                  1px box beside a 2px box, so the two read as interchangeable (08.1-17 closure). */}
               <button
                 type="button"
                 disabled={state.answering}
                 onClick={() => void answer("deny")}
-                className="control-edge session-action type-body"
+                className="session-text-action type-body"
               >
                 Deny
+                <span aria-hidden="true">›</span>
               </button>
             </>
           )}
@@ -359,25 +362,20 @@ function PermissionRequestRow({
         {/* The tertiary allow-always action is conditionally ABSENT from the destructive variant —
             not rendered-and-disabled — so it can never regress back in for a destructive category
             (D-57). `disabled` is never used to hide it; the whole button is omitted from the tree. */}
+        {/* The permanent grant is the highest-consequence answer, so it is the furthest from the two quick ones: it
+            sits below a hairline gutter, and its scope is carried by weight on the words, not by an underline. */}
         {!isDestructive && (
-          <button
-            type="button"
-            disabled={state.answering}
-            onClick={() => void answer("allow_always")}
-            className="type-label"
-            style={{
-              alignSelf: "flex-start",
-              background: "transparent",
-              border: "none",
-              color: "var(--text-muted-rack)",
-              textDecoration: "underline",
-              padding: 0,
-              cursor: state.answering ? "default" : "pointer",
-              opacity: state.answering ? 0.6 : 1,
-            }}
-          >
-            Allow this tool for this project from now on
-          </button>
+          <div className="session-grant">
+            <button
+              type="button"
+              disabled={state.answering}
+              onClick={() => void answer("allow_always")}
+              className="session-text-action type-label"
+            >
+              Allow this tool <strong>for this project</strong> from now on
+              <span aria-hidden="true">›</span>
+            </button>
+          </div>
         )}
       </div>
 

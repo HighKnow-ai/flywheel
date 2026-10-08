@@ -40,6 +40,12 @@
   /* --- Text --- */
   --text-primary-rack: #1f2328;
   --text-muted-rack: #59636e;
+  /*
+   * A field's placeholder: a step below muted, and AA (4.56 worst case) in BOTH modes. The engine's own
+   * placeholder was an unowned grey, 2.3:1 on white and about 8.5:1 in dark, so the dark launch sheet
+   * looked as if a prompt were already typed (08.1-17 closure). Matched on ratio, not on hex distance.
+   */
+  --text-placeholder: #68727d;
 
   /* --- Brand. Light needs NO text lift: the pinned hue is 5.17 / 4.86 on ground / surface. --- */
   --accent-text-rack: #3c64dd;
@@ -130,6 +136,7 @@
 
     --text-primary-rack: #ededed;
     --text-muted-rack: #8b8b8b;
+    --text-placeholder: #7c7c7c;
 
     /*
      * Dark brand text lift. The pinned #3c64dd is 3.83 / 3.71 here: fine for the progress fill
