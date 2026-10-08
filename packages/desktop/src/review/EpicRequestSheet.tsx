@@ -22,6 +22,7 @@ import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useRegionBindings } from "../state/keyboard";
 import * as adapter from "../adapters/tauri";
+import "./review.css";
 import type { EpicRequestBlockerDto, EpicRequestOutcomeDto, ForgeRequestDto } from "../adapters/tauri";
 import { useEpicRequest, useEpicRequestDraft } from "./useReviewQuery";
 
@@ -115,15 +116,7 @@ export function EpicRequestBar({ epicId, onOpen }: { epicId: string; onOpen: () 
       <button
         type="button"
         onClick={onOpen}
-        className="type-label"
-        style={{
-          background: "var(--accent-nontext)",
-          border: "none",
-          borderRadius: "var(--radius-chrome)",
-          color: "var(--text-primary-rack)",
-          padding: "var(--space-xs) var(--space-md)",
-          cursor: "pointer",
-        }}
+        className="type-label control-edge review-action"
       >
         Open request
       </button>
@@ -275,34 +268,8 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
         onPointerDownOutside={handleCancel}
         asChild
       >
-        <div
-          role="presentation"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1300,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.45)",
-          }}
-        >
-          <div
-            role="dialog"
-            aria-label="Epic request sheet"
-            style={{
-              width: 640,
-              maxHeight: "80vh",
-              display: "flex",
-              flexDirection: "column",
-              background: "var(--surface-secondary)",
-              color: "var(--text-primary-rack)",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
-              overflow: "hidden",
-            }}
-          >
+        <div role="presentation" className="review-sheet-scrim">
+          <div role="dialog" aria-label="Epic request sheet" className="review-sheet" style={{ width: 640 }}>
             <header style={{ padding: "var(--space-md)", borderBottom: "1px solid var(--divider)", flexShrink: 0 }}>
               <span className="type-heading" style={{ fontFamily: MONO_STACK, overflowWrap: "anywhere" }}>
                 {done
@@ -402,15 +369,7 @@ export function EpicRequestSheet({ epicId, onClose }: EpicRequestSheetProps) {
                     type="button"
                     onClick={handleConfirm}
                     disabled={!draft}
-                    className="type-body"
-                    style={{
-                      background: "var(--accent-nontext)",
-                      border: "none",
-                      borderRadius: "var(--radius-chrome)",
-                      color: "var(--text-primary-rack)",
-                      padding: "var(--space-xs) var(--space-md)",
-                      cursor: draft ? "pointer" : "default",
-                    }}
+                    className="type-body control-edge review-action"
                   >
                     Open request
                   </button>

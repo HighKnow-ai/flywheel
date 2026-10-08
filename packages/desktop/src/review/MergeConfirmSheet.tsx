@@ -23,8 +23,10 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
+import { TriangleAlert } from "lucide-react";
 import { useGitFacts } from "../board/useBoardQuery";
 import * as adapter from "../adapters/tauri";
+import "./review.css";
 import type { MergePreviewDto, ReviewMergeOutcomeDto } from "../adapters/tauri";
 import { useMergePrecheck, useReviewCriteriaState } from "./useReviewQuery";
 
@@ -115,8 +117,11 @@ function ResultBody({ result }: { result: Result }) {
   const n = outcome.files.length;
   return (
     <div role="alert">
-      <p className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
-        Merge aborted — {n} {n === 1 ? "conflict" : "conflicts"}, nothing changed.
+      <p className="type-body review-warn">
+        <TriangleAlert size={14} strokeWidth={2} aria-hidden="true" />
+        <span>
+          Merge aborted — {n} {n === 1 ? "conflict" : "conflicts"}, nothing changed.
+        </span>
       </p>
       <ul style={{ margin: 0, paddingLeft: "var(--space-lg)", fontFamily: MONO_STACK }}>
         {outcome.files.map((path) => (
@@ -232,34 +237,8 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
         onPointerDownOutside={handleCancel}
         asChild
       >
-        <div
-          role="presentation"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1300,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.45)",
-          }}
-        >
-          <div
-            role="dialog"
-            aria-label="Merge sheet"
-            style={{
-              width: 560,
-              maxHeight: "80vh",
-              display: "flex",
-              flexDirection: "column",
-              background: "var(--surface-secondary)",
-              color: "var(--text-primary-rack)",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
-              overflow: "hidden",
-            }}
-          >
+        <div role="presentation" className="review-sheet-scrim">
+          <div role="dialog" aria-label="Merge sheet" className="review-sheet" style={{ width: 560 }}>
             <header style={{ padding: "var(--space-md)", borderBottom: "1px solid var(--divider)", flexShrink: 0 }}>
               <span className="type-heading" style={{ fontFamily: MONO_STACK, overflowWrap: "anywhere" }}>
                 {result ? "Merge result" : preview ? `Merge ${preview.sourceBranch} → ${preview.targetBranch}` : "Merge"}
@@ -317,9 +296,12 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
                   )}
                   {preview.conflictedFiles.length > 0 && (
                     <div>
-                      <p className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
-                        Will conflict in {preview.conflictedFiles.length}{" "}
-                        {preview.conflictedFiles.length === 1 ? "file" : "files"}:
+                      <p className="type-body review-warn">
+                        <TriangleAlert size={14} strokeWidth={2} aria-hidden="true" />
+                        <span>
+                          Will conflict in {preview.conflictedFiles.length}{" "}
+                          {preview.conflictedFiles.length === 1 ? "file" : "files"}:
+                        </span>
                       </p>
                       <ul style={{ margin: 0, paddingLeft: "var(--space-lg)", fontFamily: MONO_STACK }}>
                         {preview.conflictedFiles.map((path) => (
@@ -372,15 +354,7 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
                     type="button"
                     onClick={handleConfirm}
                     disabled={!preview}
-                    className="type-body"
-                    style={{
-                      background: "var(--accent-nontext)",
-                      border: "none",
-                      borderRadius: "var(--radius-chrome)",
-                      color: "var(--text-primary-rack)",
-                      padding: "var(--space-xs) var(--space-md)",
-                      cursor: preview ? "pointer" : "default",
-                    }}
+                    className="type-body control-edge review-action"
                   >
                     Merge
                   </button>
