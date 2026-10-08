@@ -85,6 +85,35 @@
   animation-delay: calc(var(--duration-collapse) * var(--enter-i, 0) / var(--enter-n, 1));
 }
 
+/**
+ * The running-session pulse (02-UI-SPEC.md "Motion Additions", plan 02-07 Task 3): a slow, subtle
+ * opacity pulse on the `Loader` glyph, the ONE place in this product a non-mechanical, continuous
+ * animation is justified. It signals "a process is alive right now", not a state change, so it is the
+ * scoped exception to "never a fade" (08.1-UI-SPEC.md § Motion, "The one carve-out"). Keep it scoped:
+ * opacity on that glyph only, never on a surface, an overlay or a row.
+ *
+ * Restored in 08.1-17. Plan 08.1-13 removed this block while it was rewriting the displacement
+ * utility, so for a while the class was applied and animated nothing: the jsdom suite stubs
+ * stylesheets, so it could not see that. `theme/__tests__/motion.test.ts` now reads this file.
+ *
+ * Under reduced motion the components that carry it (`SessionSurface`, `RunsSection`,
+ * `OrphanRecoveryModal`) omit the class entirely rather than relying on the blanket zero rule below,
+ * which alone would freeze the glyph at an arbitrary point in its cycle instead of a fully legible one.
+ */
+@keyframes agent-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.agent-pulse {
+  animation: agent-pulse 1.6s var(--ease) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-settle: 0s;

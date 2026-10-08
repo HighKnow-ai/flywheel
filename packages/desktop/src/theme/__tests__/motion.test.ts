@@ -117,6 +117,22 @@ describe("motion durations", () => {
     expect("durationDisplace" in MOTION).toBe(false);
   });
 
+  it("keeps the running-session pulse, the one scoped fade, defined and scoped", () => {
+    // 08.1-13 deleted this block by accident and the suite stayed green, because jsdom stubs
+    // stylesheets and the component tests only look for the class name. Read the real file.
+    const css = motionCssSource.replace(/\/\*[\s\S]*?\*\//g, "");
+    const keyframes = css.match(/@keyframes\s+agent-pulse\s*\{([\s\S]*?\})\s*\}/);
+    expect(keyframes, "@keyframes agent-pulse").not.toBeNull();
+    // Opacity and nothing else: the pulse is a fade by design, so it must not also move or resize.
+    const props = new Set(Array.from(keyframes![1].matchAll(/([a-z-]+)\s*:/g), (m) => m[1]));
+    expect(Array.from(props)).toEqual(["opacity"]);
+    expect(css).toMatch(/\.agent-pulse\s*\{[^}]*animation:\s*agent-pulse\s+[^;]*infinite/);
+    // It stays the only fade: no other keyframes block touches opacity.
+    const others = Array.from(css.matchAll(/@keyframes\s+([a-z-]+)\s*\{([\s\S]*?\})\s*\}/g)).filter((m) => m[1] !== "agent-pulse");
+    expect(others.length).toBeGreaterThan(0);
+    for (const [, name, body] of others) expect(body, `@keyframes ${name}`).not.toMatch(/opacity/);
+  });
+
   it("agrees with the typed export in full, today", () => {
     expect(driftErrors(motionCssSource)).toEqual([]);
   });
