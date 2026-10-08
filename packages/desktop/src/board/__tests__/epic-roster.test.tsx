@@ -1191,3 +1191,35 @@ describe("epic change roll-up (D-18)", () => {
     expect(row).toHaveAccessibleName(/uncommitted changes/);
   });
 });
+
+describe("the computed summary line (D-09)", () => {
+  const summary = () => document.querySelector<HTMLElement>("[data-summary-line]");
+
+  it("opens the epic roster with a read of the board, computed from the aggregates and the pending proposals", async () => {
+    renderRoster({
+      epics: [ALPHA, BETA],
+      proposals: ["epic-a", "epic-a"],
+      aggregate: [
+        epicDto("epic-a", { total: 5, agentsRunning: 2, byStatus: [{ status: "in_review", count: 3 }], criteria: null }),
+        epicDto("epic-b", { total: 6, agentsRunning: 1, byStatus: [{ status: "in_review", count: 4 }], criteria: { checked: 1, total: 2 } }),
+        epicDto(null, { total: 9, byStatus: [{ status: "in_review", count: 9 }], criteria: null }),
+      ],
+    });
+
+    await waitFor(() => expect(summary()).not.toBeNull());
+    await waitFor(() => expect(summary()?.textContent).toContain("2 decisions pending"));
+    // The no-epic bucket's reviewable items count; it is not an epic, so it is not "an epic with no criteria".
+    expect(summary()?.textContent).toContain("16 items ready to review");
+    expect(summary()?.textContent).toContain("3 agents running");
+    expect(summary()?.textContent).toContain("1 epic has no criteria yet");
+  });
+
+  it("renders no line before the aggregate lands, and none on the status lens", async () => {
+    renderRoster({ aggregate: [epicDto("epic-a", { total: 1 })] });
+    expect(summary()).toBeNull();
+    await waitFor(() => expect(summary()).not.toBeNull());
+
+    act(() => useUiStore.getState().setGroupingKey("status"));
+    expect(summary()).toBeNull();
+  });
+});
