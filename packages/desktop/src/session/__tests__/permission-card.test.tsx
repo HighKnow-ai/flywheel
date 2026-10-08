@@ -274,14 +274,15 @@ describe("destructive", () => {
     expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
   });
 
-  it("swaps button emphasis: Deny carries the destructive strip background, Allow does not", () => {
+  it("swaps button emphasis: Deny is the destructive lead, Allow is not", () => {
     const request = destructiveRequest("hard-reset", "git reset --hard");
     render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
 
     const deny = screen.getByRole("button", { name: "Deny" });
     const allow = screen.getByRole("button", { name: "Allow, just this once" });
-    expect(deny.style.background).toContain("var(--destructive-strip)");
-    expect(allow.style.background).not.toContain("var(--destructive-strip)");
+    expect(deny.className).toContain("session-action-destructive");
+    expect(allow.className).not.toContain("session-action-destructive");
+    expect(allow.className).not.toContain("session-action-lead");
   });
 
   it("Allow's accessible name reads 'Allow, just this once' on the destructive variant", () => {
@@ -292,18 +293,22 @@ describe("destructive", () => {
     expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument();
   });
 
-  it("reverses the reflex: the filled button on the destructive variant carries Deny, the filled button on the routine variant carries Allow", () => {
+  it("reverses the reflex: the lead on the destructive variant is Deny, the lead on the routine variant is Allow", () => {
+    // No button here is filled any more (owner decision 2026-10-08): the lead is the one with the
+    // 2px edge, and `finish.test.tsx` pins that class against the real stylesheet.
     const { unmount } = render(
       <PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={vi.fn()} />,
     );
-    const routineFilled = screen.getByRole("button", { name: "Allow" });
-    expect(routineFilled.style.background).toBe("var(--accent-nontext)");
+    const routineLead = screen.getByRole("button", { name: "Allow" });
+    expect(routineLead.className).toContain("session-action-lead");
+    expect(screen.getByRole("button", { name: "Deny" }).className).not.toContain("session-action-lead");
     unmount();
 
     const request = destructiveRequest("hard-reset", "git reset --hard");
     render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
-    const destructiveFilled = screen.getByRole("button", { name: "Deny" });
-    expect(destructiveFilled.style.background).toContain("var(--destructive-strip)");
+    const destructiveLead = screen.getByRole("button", { name: "Deny" });
+    expect(destructiveLead.className).toContain("session-action-lead");
+    expect(screen.getByRole("button", { name: "Allow, just this once" }).className).not.toContain("session-action-lead");
   });
 
   it("pressing d resolves through the shared binding table on the destructive variant; Shift+A is inert", () => {

@@ -51,6 +51,7 @@ import { useUiStore } from "../state/uiStore";
 import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
 import { FeedRow, feedRowEstimateSize, useExpandedRows, type FeedRowData } from "./FeedRow";
 import { RawLogView } from "./RawLogView";
+import "./session.css";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -335,15 +336,7 @@ function AuthoringStageControls({
           onClick={onReturn}
           disabled={returning}
           aria-label={`Return to ${previous}`}
-          className="type-label"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
-            color: "var(--text-primary-rack)",
-            padding: "var(--space-xs) var(--space-sm)",
-            cursor: returning ? "default" : "pointer",
-          }}
+          className="control-edge session-action type-label"
         >
           ← {AUTHORING_STAGE_LABELS[previous]}
         </button>
@@ -354,16 +347,7 @@ function AuthoringStageControls({
         disabled={advancing || !next}
         aria-label={next ? `Advance to ${next}` : "Advance (already at the last stage)"}
         title={ADVANCE_STAGE_GLOSS}
-        className="type-label"
-        style={{
-          background: next ? "var(--accent-nontext)" : "transparent",
-          border: next ? "none" : "1px solid var(--divider)",
-          borderRadius: "var(--radius-chrome)",
-          color: "var(--text-primary-rack)",
-          padding: "var(--space-xs) var(--space-md)",
-          cursor: advancing || !next ? "default" : "pointer",
-          opacity: !next ? 0.6 : 1,
-        }}
+        className={`control-edge session-action type-label${next ? " session-action-lead" : ""}`}
       >
         {advancing ? "Advancing…" : next ? `Advance to ${next}` : "At last stage"}
       </button>
@@ -446,16 +430,7 @@ function AuthoringComposer({ agentRunId }: { agentRunId: string }) {
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={handleKeyDown}
         rows={3}
-        className="type-body"
-        style={{
-          background: "transparent",
-          border: "1px solid var(--divider)",
-          borderRadius: "var(--radius-chrome)",
-          color: "inherit",
-          padding: "var(--space-xs) var(--space-sm)",
-          resize: "vertical",
-          fontFamily: "inherit",
-        }}
+        className="control-edge session-field type-body"
       />
       {error && (
         <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
@@ -467,15 +442,7 @@ function AuthoringComposer({ agentRunId }: { agentRunId: string }) {
           type="button"
           onClick={handleSend}
           disabled={sending}
-          className="type-body"
-          style={{
-            background: "var(--accent-nontext)",
-            border: "none",
-            borderRadius: "var(--radius-chrome)",
-            color: "var(--text-primary-rack)",
-            padding: "var(--space-xs) var(--space-md)",
-            cursor: sending ? "default" : "pointer",
-          }}
+          className="control-edge session-action session-action-lead type-body"
         >
           {sending ? "Sending…" : "Send"}
         </button>
@@ -704,12 +671,8 @@ function TerminalRow({ info, isAuthoring }: { info: TerminalInfo; isAuthoring: b
     return (
       <div
         role="listitem"
-        style={{
-          marginTop: "var(--space-sm)",
-          padding: "var(--space-sm) var(--space-md)",
-          background: "var(--surface-secondary)",
-          borderRadius: "var(--radius-chrome)",
-        }}
+        className="session-notice"
+        style={{ marginTop: "var(--space-sm)" }}
       >
         <p className="type-body" style={{ margin: 0, color: "var(--text-primary-rack)" }}>
           {FAILED_RUN_GLOSS}
@@ -771,12 +734,8 @@ function StopWarningNotice({ warning }: { warning: string }) {
   return (
     <div
       role="listitem"
-      style={{
-        marginTop: "var(--space-sm)",
-        padding: "var(--space-sm) var(--space-md)",
-        background: "var(--surface-secondary)",
-        borderRadius: "var(--radius-chrome)",
-      }}
+      className="session-notice"
+      style={{ marginTop: "var(--space-sm)" }}
     >
       <p
         className="type-body"
@@ -813,12 +772,8 @@ function PersistenceFailureBanner({ text }: { text: string }) {
   return (
     <div
       role="listitem"
-      style={{
-        marginBottom: "var(--space-sm)",
-        padding: "var(--space-sm) var(--space-md)",
-        background: "var(--surface-secondary)",
-        borderRadius: "var(--radius-chrome)",
-      }}
+      className="session-notice"
+      style={{ marginBottom: "var(--space-sm)" }}
     >
       <p
         className="type-body"
@@ -1150,21 +1105,8 @@ export function SessionSurface({
         color: "var(--text-primary-rack)",
       }}
     >
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-md)",
-          padding: "var(--space-md)",
-          borderBottom: "1px solid var(--divider)",
-        }}
-      >
-        <button
-          type="button"
-          onClick={onBack}
-          className="type-label"
-          style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
-        >
+      <header className="session-header">
+        <button type="button" onClick={onBack} className="session-back type-label">
           ← Board
         </button>
         <span className="type-heading">Session</span>
@@ -1188,15 +1130,7 @@ export function SessionSurface({
         <button
           type="button"
           onClick={() => setRawViewOpen((prev) => !prev)}
-          className="type-label"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
-            color: "var(--text-primary-rack)",
-            padding: "var(--space-xs) var(--space-md)",
-            cursor: "pointer",
-          }}
+          className="control-edge session-action type-label"
         >
           {rawViewOpen ? "View structured" : "View raw"}
         </button>
@@ -1206,38 +1140,24 @@ export function SessionSurface({
             type="button"
             onClick={handleStop}
             disabled={stopping || discarding}
-            className="type-label"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: stopping || discarding ? "default" : "pointer",
-            }}
+            className="control-edge session-action type-label"
           >
             {stopping ? "Stopping…" : "Stop"}
           </button>
         )}
 
         {showStop && (
-          // D-67: the flagship verb, beside Stop — never a modifier folded into it. Styled with
-          // the same filled-accent treatment the launch sheet's own primary action
-          // (`LaunchSheet.tsx`'s "Start Work" button) uses, so the control this hands off TO and
-          // the control that starts this hand-off read as one visual family.
+          // D-67: the flagship verb, beside Stop — never a modifier folded into it. Drawn with the
+          // same 2px ink lead edge the launch sheet's own primary action (`LaunchSheet.tsx`'s "Start
+          // Work" button) wears, so the control this hands off TO and the control that starts this
+          // hand-off read as one visual family. Not filled: the brand carries progress, never an action.
           <button
             type="button"
             onClick={handleDiscard}
             disabled={stopping || discarding}
-            className="type-label"
-            style={{
-              background: "var(--accent-nontext)",
-              border: "none",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: stopping || discarding ? "default" : "pointer",
-            }}
+            // One lead per header: an authoring run's lead is Advance (the stage controls), so
+            // Discard stays on the plain control edge there.
+            className={`control-edge session-action type-label${stage ? "" : " session-action-lead"}`}
           >
             {discarding ? "Discarding…" : "Discard"}
           </button>
@@ -1250,15 +1170,7 @@ export function SessionSurface({
           <button
             type="button"
             onClick={() => setReviewSurface({ scope: "task", itemId: taskId, label: "This task" })}
-            className="type-label"
-            style={{
-              background: "var(--accent-nontext)",
-              border: "none",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: "pointer",
-            }}
+            className="control-edge session-action session-action-lead type-label"
           >
             Review changes
           </button>

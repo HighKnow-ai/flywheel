@@ -25,6 +25,7 @@ import { useRef, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
 import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
+import "./session.css";
 
 export type PermissionRequestCardVariant = "feed" | "compact";
 
@@ -260,18 +261,7 @@ function PermissionRequestRow({
     <div
       role="group"
       aria-label={`${request.toolName} wants to:`}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-sm)",
-        padding: "var(--space-md)",
-        borderRadius: "var(--radius-chrome)",
-        borderLeft: isDestructive ? "4px solid var(--destructive-text-rack)" : undefined,
-        background: "var(--surface-secondary)",
-        color: "var(--text-primary-rack)",
-        maxWidth: "100%",
-        minWidth: 0,
-      }}
+      className={`session-card${isDestructive ? " session-card-destructive" : ""}`}
     >
       {isDestructive && (
         <span className="type-heading" style={{ color: "var(--destructive-text-rack)" }}>
@@ -332,20 +322,7 @@ function PermissionRequestRow({
                 type="button"
                 disabled={state.answering}
                 onClick={() => void answer("deny")}
-                className="type-body"
-                style={{
-                  border: "1px solid var(--destructive-strip)",
-                  background: "var(--destructive-strip)",
-                  // `--text-primary-strip` (dark ink, meant for strip PAPER stock) measures only
-                  // 2.2:1 against `--destructive-strip` — `--text-primary-rack` (the light rack
-                  // text token) measures 6.3:1 here instead, well past AA. Same reasoning
-                  // `DeleteConfirm.tsx`'s own "Delete" button carries; reused verbatim.
-                  color: "var(--text-primary-rack)",
-                  borderRadius: "var(--radius-chrome)",
-                  padding: "var(--space-xs) var(--space-md)",
-                  cursor: state.answering ? "default" : "pointer",
-                  opacity: state.answering ? 0.6 : 1,
-                }}
+                className="control-edge session-action session-action-lead session-action-destructive type-body"
               >
                 Deny
               </button>
@@ -353,16 +330,7 @@ function PermissionRequestRow({
                 type="button"
                 disabled={state.answering}
                 onClick={() => void answer("allow")}
-                className="type-body"
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "var(--text-primary-rack)",
-                  padding: "var(--space-xs) var(--space-md)",
-                  cursor: state.answering ? "default" : "pointer",
-                  opacity: state.answering ? 0.6 : 1,
-                }}
+                className="control-edge session-action type-body"
               >
                 Allow, just this once
               </button>
@@ -373,16 +341,7 @@ function PermissionRequestRow({
                 type="button"
                 disabled={state.answering}
                 onClick={() => void answer("allow")}
-                className="type-body"
-                style={{
-                  background: "var(--accent-nontext)",
-                  border: "none",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "var(--text-primary-rack)",
-                  padding: "var(--space-xs) var(--space-md)",
-                  cursor: state.answering ? "default" : "pointer",
-                  opacity: state.answering ? 0.6 : 1,
-                }}
+                className="control-edge session-action session-action-lead type-body"
               >
                 Allow
               </button>
@@ -390,16 +349,7 @@ function PermissionRequestRow({
                 type="button"
                 disabled={state.answering}
                 onClick={() => void answer("deny")}
-                className="type-body"
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "var(--text-primary-rack)",
-                  padding: "var(--space-xs) var(--space-md)",
-                  cursor: state.answering ? "default" : "pointer",
-                  opacity: state.answering ? 0.6 : 1,
-                }}
+                className="control-edge session-action type-body"
               >
                 Deny
               </button>

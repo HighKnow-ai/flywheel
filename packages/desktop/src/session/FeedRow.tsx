@@ -12,6 +12,7 @@
  * discipline that governs status/priority glyphs.
  */
 import { useState } from "react";
+import "./session.css";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -87,7 +88,7 @@ function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowDa
         type="button"
         onClick={onToggleExpand}
         aria-expanded={expanded}
-        className="type-body tabular-nums"
+        className="feed-disclosure type-body tabular-nums"
         style={{
           display: "flex",
           alignItems: "center",
@@ -223,6 +224,7 @@ function ExpandableTextRow({
             onClick={onToggleExpand}
             aria-expanded={showExpanded}
             aria-label={showExpanded ? "Collapse full text" : "Expand full text"}
+            className="feed-disclosure"
             style={{
               flexShrink: 0,
               display: "inline-block",

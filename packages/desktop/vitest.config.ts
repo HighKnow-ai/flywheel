@@ -24,8 +24,10 @@ export default defineConfig({
     // `item-detail/item-detail.css` joined in 08.1-15 for the same reason:
     // `item-detail/__tests__/finish.test.tsx` pins the criteria list's :focus-visible ring.
     // `review/review.css` joined in 08.1-16: `review/__tests__/finish.test.tsx` pins the sheet and action rules.
+    // `session/session.css` joined in 08.1-17: `session/__tests__/finish.test.tsx` pins the group's action,
+    // card, field and launch-sheet rules, and an empty `?raw` would make every one of them vacuous.
     css: {
-      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/, /review\/review\.css/],
+      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/, /review\/review\.css/, /session\/session\.css/],
     },
   },
 });

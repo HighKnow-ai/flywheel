@@ -1,0 +1,204 @@
+/*
+ * Surface group four (08.1 plan 17): the live session surface, its feed, its permission card and its
+ * raw log, and the launch sheet that starts one. Group-scoped rules live here, beside the group, the way
+ * `review/review.css` does for group three; nothing for this group is added to `App.css`.
+ *
+ * No comp was rendered for this group (plan 04 comped Mission Control, the item detail and the review
+ * surface). It is finished against 08.1-UI-SPEC.md directly: the token roles, the radius language, the
+ * type scale, the selection rule, the overlay rule and the motion contract. No literal colour, scrim or
+ * shadow appears below or in the group's components: `styles/tokens.css` is the one source.
+ *
+ * The brand carries progress and is never an action (owner decision 2026-10-08), so an action here is
+ * DRAWN: the 3:1 control edge (`control-edge`, App.css) on its own surface, never filled. The one leading
+ * action of a section wears a 2px ink edge, the device the item-detail panel and the review surface use.
+ */
+
+/* --- The session header --------------------------------------------------------------------------- */
+
+.session-header {
+  align-items: center;
+  border-bottom: 1px solid var(--divider);
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-md);
+}
+
+/* "← Board" is navigation, not a command: type with a quiet inset wash on hover, like a rail row. */
+.session-back {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.session-back:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/* An action is drawn, not filled. */
+.session-action {
+  background: transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-md);
+}
+
+.session-action:disabled {
+  cursor: default;
+}
+
+/*
+ * Hover on a drawn action is the board row's quiet inset wash, not App.css's --divider wash. The divider
+ * is a decorative hairline, and it is the wrong ground under coloured text: the destructive text role on
+ * it is 4.2:1 in dark (the detector found it), under the 4.5 floor; on the row-surface-hover role it is
+ * well over. The edge still goes to ink on hover (App.css), except on the destructive lead below.
+ */
+.session-action:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/*
+ * The one leading action of a section: a 2px ink edge over the 1px control edge its neighbours have.
+ * Padding gives the extra pixel back, so a lead and its neighbours are the same size. Ink, not brand.
+ */
+.session-action.session-action-lead {
+  border: 2px solid var(--selection-rule);
+  font-weight: 600;
+  padding: calc(var(--space-xs) - 1px) calc(var(--space-md) - 1px);
+}
+
+/*
+ * The lead of a DESTRUCTIVE gate is drawn in the destructive text role, never filled: that role is
+ * asserted 4.5:1 on every surface in both modes (contrast.test.ts), where the old fill was 2.95 / 2.86.
+ */
+.session-action.session-action-lead.session-action-destructive {
+  border-color: var(--destructive-text-rack);
+  color: var(--destructive-text-rack);
+}
+
+/* App.css sends a hovered control's edge to ink; the destructive gate keeps its own at the moment of click. */
+.session-action.session-action-destructive:hover:not(:disabled) {
+  border-color: var(--destructive-text-rack);
+}
+
+/* --- The feed ------------------------------------------------------------------------------------- */
+
+/*
+ * A feed row that discloses (a tool call, a long message) hovers like a board row: the inset wash, with
+ * the row's own transparent ground left alone. Motion on hover is a static colour change only.
+ */
+.feed-disclosure:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/* A notice in the feed (a failed run, an unconfirmed stop, a log that may be incomplete). A hairline
+ * defines it; it has no fill, because the surface family is one and colour is a data channel only. */
+.session-notice {
+  background: transparent;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-chrome);
+  padding: var(--space-sm) var(--space-md);
+}
+
+/* --- The composer and the launch sheet's fields --------------------------------------------------- */
+
+/*
+ * A text area draws its boundary from the control role. `textarea` has no entry in App.css's focus rule,
+ * so it used to fall through to the engine's own system-blue ring, a colour no token owns. The ring is
+ * the ink rule (the device the palette's always-on field uses): the launch sheet's field is focused the
+ * moment the sheet opens, so a standing brand box there would spend the brand on an input.
+ */
+.session-field {
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  padding: var(--space-xs) var(--space-sm);
+  resize: vertical;
+}
+
+.session-field:focus-visible {
+  outline: 2px solid var(--selection-rule);
+  outline-offset: 1px;
+}
+
+/* --- The permission request card ------------------------------------------------------------------ */
+
+/*
+ * The card gates an action behind a human answer. It is bounded by a 3:1 edge, not a fill and not a
+ * side stripe. A destructive card swaps that edge for the destructive text role; it is also told apart by
+ * its heading and its octagon glyph, so it never rests on hue.
+ */
+.session-card {
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-chrome);
+  color: var(--text-primary-rack);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-width: 100%;
+  min-width: 0;
+  padding: var(--space-md);
+}
+
+.session-card.session-card-destructive {
+  border-color: var(--destructive-text-rack);
+}
+
+/* --- The launch sheet ----------------------------------------------------------------------------- */
+
+/* A sheet (UI-SPEC § Overlay Rule): the per-mode scrim over a surface carrying the sheet shadow, and in
+ * dark the sheet edge, because a shadow over a near-black ground tells no tier. At full value on frame one. */
+.launch-scrim {
+  align-items: center;
+  background: var(--scrim);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 1300;
+}
+
+.launch-sheet {
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-sheet);
+  border-radius: var(--radius-chrome);
+  box-shadow: var(--shadow-sheet);
+  color: var(--text-primary-rack);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.launch-field {
+  background: var(--surface-dominant);
+}
+
+/*
+ * The permission-mode choice is a set of drawn controls, one chosen. The chosen one is told by an ink edge,
+ * a 2px ink rule along its foot and a heavier weight, i.e. the selection rule's device (A-06) turned to suit
+ * a value: the choice is a value, so it is NOT boxed in 2px, which is how the one lead action beside it is
+ * told. It is also NOT told by a surface shift: the selected-row surface is calibrated against the ground,
+ * and on the sheet's own surface it differs by less than 1.01, i.e. nothing.
+ */
+.launch-mode {
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  flex: 1;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.launch-mode[aria-checked="true"] {
+  border-color: var(--selection-rule);
+  box-shadow: inset 0 -2px 0 var(--selection-rule);
+  font-weight: 600;
+}
+
+/* App.css washes every hovered button with --divider; the chosen mode keeps a quiet ground. */
+.launch-mode[aria-checked="true"]:hover:not(:disabled) {
+  background: transparent;
+}
