@@ -354,3 +354,26 @@ At Phase 11, with an installed, usable build:
     against a component page, not the app shell (see D-REV-12 for the same gap on group one).
   risk_if_wrong: "Moderate. The comp's property grid (Status, Priority, Estimate, Worktree, Changes as label/value rows) is not a feature of this panel: the panel has a Status control only, so a fidelity finding there would be a missing surface, not a finish edit."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
+
+- id: D-REV-15
+  phase: "08.1 — Visual Polish (plan 16)"
+  truth: "The shipped impeccable-finish-reviewer, run once against the approved review comp and 08.1-UI-SPEC.md for surface group three (the review surface, the criteria rail, the file diff, the merge confirm sheet, the epic request sheet), raises nothing material that is not fixed or recorded."
+  status: unreviewed
+  why_deferred: |
+    The plan 16 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
+    spawn the reviewer; the same limit as D-REV-11 and D-REV-14. It captured the group in WebKit in
+    both schemes at 1440x900 and reviewed the captures itself, which is NOT the independent pass D-24
+    asks for. Captured in .impeccable/review/ (gitignored):
+    review-group-built-{light,dark}-surface-1440x900.png,
+    review-group-built-{light,dark}-merge-sheet-1440x900.png,
+    review-group-built-{light,dark}-merge-conflict-1440x900.png, and the rendered HTML beside them
+    (review-group-built-*.html, review-group-merge-sheet-*.html, review-group-merge-conflict-*.html).
+    Regenerate with `npm run test:browser` and `npm run test:browser:dark`. Compare against
+    review-light.png / review-dark.png. The content is the real THRE-58's seeded criteria and the real
+    README.md diff, plus the comp's FIXTURE CriteriaRail.tsx diff and a FIXTURE conflicted precheck.
+    It is a component page, not the app shell. Known, deliberate differences from the comp: the comp
+    draws the primary "Merge into epic" as an ink FILL; the owner's 2026-10-08 decision (no filled
+    primary buttons) governs, so it is drawn with a control edge. The comp's page header (title,
+    commit ref) and its "Request changes" button are not features of this surface.
+  risk_if_wrong: "Moderate. The join between the three panes and the file-list row (a long path wraps its extension onto a second line at the 30 percent column) has only been judged by its builder."
+  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."

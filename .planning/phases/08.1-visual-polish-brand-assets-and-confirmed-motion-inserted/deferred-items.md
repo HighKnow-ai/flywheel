@@ -122,9 +122,21 @@
   `--text-on-accent` itself stays declared for now; if nothing references it once plans 15-18 are
   done, plan 20 should retire it the way plan 13 retired `--duration-displace`.
   **PROGRESS 2026-10-08 (08.1-15):** four of the six are redrawn: `item-detail/ItemDetailPanel.tsx` (Start Work, Review, Continue Shaping) and `item-detail/RunsSection.tsx` (Watch Live) now use `control-edge` with a transparent ground, pinned by `item-detail/__tests__/finish.test.tsx` and measured in WebKit. Still open: `launch-sheet/LaunchSheet.tsx` (17), `authoring/ProposalRow.tsx` and `authoring/ProposalAmendEditor.tsx` (18), `review/MergeConfirmSheet.tsx` (16).
+  **PROGRESS 2026-10-08 (08.1-16):** `review/MergeConfirmSheet.tsx` is redrawn (control edge, transparent ground), and so are the three sibling brand fills in the same group that the register did not list: `review/ReviewSurface.tsx` (header Merge) and `review/EpicRequestSheet.tsx` (the bar's and the sheet's Open request). Pinned by `review/__tests__/finish.test.tsx` and measured in WebKit by `review-group.browser.test.tsx`. Still open: `LaunchSheet` (17), `ProposalRow` and `ProposalAmendEditor` (18).
 
 - Destructive confirmation buttons paint `--text-primary-rack` on a `--destructive-strip` FILL: 2.95:1 in light (`#1f2328` on `#cf222e`) and 2.86:1 in dark (`#ededed` on `#f85149`), both under the 4.5 text floor. Found finishing `WorktreeRemovalDialog`'s Remove (08.1-15), which now draws it as the destructive text role on its own surface, a `--destructive-text-rack` edge, no fill (that pair is 5.03 / 5.72 on `--surface-secondary`, asserted in `contrast.test.ts`). Four siblings still carry the fill, each with a stale comment claiming "6.3:1" (the retired palette's figure): `board/DeleteConfirm.tsx:111` (19), `recovery/OrphanRecoveryModal.tsx:82` (19), `session/PermissionRequestCard.tsx:337` (17, the Deny button). The destructive fill was not named in the owner's primary-button decision (that decision is about the BRAND fill), so this is a separate AA defect with the same shape.
   status: open
   **Found during:** 08.1-15
   **Not fixed here, deliberately:** those files belong to plans 17 and 19's surface groups.
   **To fix:** the same redraw as 08.1-15: `background: "transparent"`, `color` and `borderColor` of `var(--destructive-text-rack)`, the `control-edge` class for the edge and radius, and delete the "6.3:1" comment. `item-detail/__tests__/finish.test.tsx` shows the assertion shape.
+
+- App.css washes EVERY hovered button with `--divider` (`button:hover:not(:disabled) { background: var(--divider) }`, line 186), which overrides any button that carries its own ground or selected surface: a resting pointer erased the selected shift on the review surface's changed-file rows until `.review-file` and the pressed scope toggle re-asserted it. Any other selected-state button (and any "drawn" action that should stay transparent under hover) has the same exposure.
+  status: open
+  **Found during:** 08.1-16
+  **Not fixed here, deliberately:** it is a global rule in a file this plan does not own; the hover wash on a drawn action is the product's existing convention, and the three affected controls in the review group are handled locally.
+  **To fix:** scope the global rule to buttons without a `.control-edge` or a selected state (or move to the inset-wash pattern the board rows use), in the pass that owns `App.css`.
+
+- A changed-file row in the review surface's 30 percent file list wraps a long path mid-extension (`CriteriaRail` / `.tsx`). The row prints the full path with `overflow-wrap: anywhere`; a filename-first row with the directory muted would read better, but that is a change to what the row prints and its tests find rows by full path.
+  status: open
+  **Found during:** 08.1-16 (capture review)
+  **To fix:** print basename in the primary role and the directory in the muted role, keeping the full path as the accessible name.
