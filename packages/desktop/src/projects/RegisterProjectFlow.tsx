@@ -85,7 +85,7 @@ export function useRegisterProjectFlow(onRegistered?: (result: RegisterProjectRe
  * timeout. Mirrors `FirstRun.tsx`'s own inline `registerProject.isError` copy
  * ("Couldn't register this project — {message}") — the caller renders the returned string in
  * whatever container fits its surface (a fixed toast in `CommandPalette.tsx`, an inline notice in
- * `ProjectRail.tsx`/`App.tsx`), styled with `type-label` and `var(--destructive-strip)` the same
+ * `ProjectRail.tsx`/`App.tsx`), styled with `type-label` and the destructive text role (`--destructive-text-rack`, as `.state-error` does) the same
  * way `FirstRun.tsx` already does, so there is exactly one error idiom, not a second one invented
  * per call site.
  */

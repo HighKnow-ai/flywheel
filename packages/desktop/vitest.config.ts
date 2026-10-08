@@ -28,8 +28,10 @@ export default defineConfig({
     // card, field and launch-sheet rules, and an empty `?raw` would make every one of them vacuous.
     // `styles/admin-surfaces.css` joined in 08.1-18 for the same reason: `legend/__tests__/legend.test.tsx` and
     // `settings/__tests__/finish.test.tsx` pin the legend's overlay tier and the group's action, choice and row rules.
+    // `styles/states-and-confirms.css` joined in 08.1-19 for the same reason: `board/__tests__/states-finish.test.tsx`
+    // pins the group's drawn actions, destructive text role and dialog tier, and an empty `?raw` would make them vacuous.
     css: {
-      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/, /review\/review\.css/, /session\/session\.css/, /styles\/admin-surfaces\.css/],
+      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/, /review\/review\.css/, /session\/session\.css/, /styles\/admin-surfaces\.css/, /styles\/states-and-confirms\.css/],
     },
   },
 });
