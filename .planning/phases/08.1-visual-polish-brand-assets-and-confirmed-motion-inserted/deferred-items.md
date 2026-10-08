@@ -127,7 +127,7 @@
   **PROGRESS 2026-10-08 (08.1-18):** the last two are redrawn: `authoring/ProposalRow.tsx` (Accept, now a control edge on the row surface like `board/ChallengeRow.tsx`'s) and `authoring/ProposalAmendEditor.tsx` (Save, the one 2px ink lead in the editor), and so is `settings/SettingsSurface.tsx`'s chosen segment (an ink edge and a 2px foot rule, the `.launch-mode` device turned to suit a value; no weight change, so a chosen segment does not push its neighbour). The triage surface's Pending/Deferred toggle, which painted `--surface-secondary` on the pressed one (invisible on the page ground), takes the same device. **Nothing under `src/` consumes `--text-on-accent` or `--destructive-strip` any more** (grepped, non-test, non-token), so plan 20 can retire `--text-on-accent` as 08.1-14 said it would.
 
 - Destructive confirmation buttons paint `--text-primary-rack` on a `--destructive-strip` FILL: 2.95:1 in light (`#1f2328` on `#cf222e`) and 2.86:1 in dark (`#ededed` on `#f85149`), both under the 4.5 text floor. Found finishing `WorktreeRemovalDialog`'s Remove (08.1-15), which now draws it as the destructive text role on its own surface, a `--destructive-text-rack` edge, no fill (that pair is 5.03 / 5.72 on `--surface-secondary`, asserted in `contrast.test.ts`). Four siblings still carry the fill, each with a stale comment claiming "6.3:1" (the retired palette's figure): `board/DeleteConfirm.tsx:111` (19), `recovery/OrphanRecoveryModal.tsx:82` (19), `session/PermissionRequestCard.tsx:337` (17, the Deny button). The destructive fill was not named in the owner's primary-button decision (that decision is about the BRAND fill), so this is a separate AA defect with the same shape.
-  status: partially resolved (08.1-17: `session/PermissionRequestCard.tsx`'s Deny is redrawn, and the stale "6.3:1" comment with it; `board/DeleteConfirm.tsx` and `recovery/OrphanRecoveryModal.tsx` remain, plan 19)
+  status: resolved (08.1-17: `session/PermissionRequestCard.tsx`'s Deny; 08.1-19: `board/DeleteConfirm.tsx`'s Delete and `recovery/OrphanRecoveryModal.tsx`'s Kill All, both now the destructive text role on a 2px edge with an icon, no fill, measured in WebKit)
   **Found during:** 08.1-15
   **Not fixed here, deliberately:** those files belong to plans 17 and 19's surface groups.
   **To fix:** the same redraw as 08.1-15: `background: "transparent"`, `color` and `borderColor` of `var(--destructive-text-rack)`, the `control-edge` class for the edge and radius, and delete the "6.3:1" comment. `item-detail/__tests__/finish.test.tsx` shows the assertion shape.
@@ -156,6 +156,7 @@
 
 - `type-micro` (10px) is still the role of a system notice in the feed (`FeedRow`, the "retrying request" line), and the detector reports `tiny-text` on every capture that carries one. `02-UI-SPEC.md` § Typography Additions names the role, it is unamended, and `session-surface.test.tsx` pins the class. The locked 08.1 scale is 11/12/13/14/15/20.
   status: open
+  **PROGRESS 2026-10-08 (08.1-19):** `OrphanRecoveryModal`'s footnote ("Every process above is spending tokens right now...") was the one `type-micro` in group six and is `type-label` (11px, on the locked scale) now: a warning about spend should not be the smallest text in a blocking dialog. That is one usage moved onto the scale, not a ruling on the role; the open owner call and `AssigneePicker` are unchanged.
   **Found during:** 08.1-17 (rendered-HTML detector run)
   **To fix:** an owner call whether the 10px micro role survives; if not, `type-micro` becomes `type-label` here and in `AssigneePicker` and `OrphanRecoveryModal`, and the one test line changes.
 
@@ -168,8 +169,24 @@
 - The global `input:focus-visible` ring is still the brand (`--focus-ring`) for ordinary inputs outside the groups finished so far: `QuickAdd`, `FilterBar`, the criteria composer in `item-detail/AcceptanceCriteriaList.tsx`, the title field. 08.1-18 closed it for its own group (`.admin-field` takes the ink rule: settings, the reject-reason field and the amend editor, whose first field is focused the moment it opens) and for the palette, the session fields and the launch sheet before it. Keyboard focus on a button stays the brand ring (the brand rule's use 3), so this is only about inputs that hold focus for a long time or take it on open.
   status: open
   **Found during:** 08.1-15, still open after 08.1-18
+  **PROGRESS 2026-10-08 (08.1-19):** closed for group six too: `FirstRun`'s confirm-the-key field is `control-edge state-field` with a 2px ink `:focus-visible` ring (`styles/states-and-confirms.css`), asserted in `board/__tests__/states-finish.test.tsx` and measured in WebKit. Still open, unchanged: `QuickAdd`, `FilterBar`, the criteria composer and the title field, and the global rule in `App.css` (plan 20 or the owner).
   **Not fixed here, deliberately:** `App.css` is group one's file and plan 20 owns it. **To fix:** either `input:focus-visible { outline-color: var(--selection-rule) }` globally and delete the three local overrides, or leave it as a documented split (brand for transient focus, ink for standing focus). Needs the owner's preference.
 
 - `board/DoneWarning.tsx` was finished by 08.1-18 (the orchestrator named it in this group's overlay components) although `08.1-19-PLAN.md` lists it. Its shadow was a literal `0 8px 24px rgba(0,0,0,0.35)` and its edge the divider; it now draws `--shadow-popover` and `--border-popover`, asserted in `settings/__tests__/finish.test.tsx` and measured in WebKit by `admin-group.browser.test.tsx`. Plan 19 should treat it as already on its tier and finish only what is left (spacing, type).
-  status: resolved (08.1-18)
+  status: resolved (08.1-18, and confirmed unchanged by 08.1-19: it stays inline on the popover tier)
   **Found during:** 08.1-18
+
+- `--destructive-strip` is still consumed as a TEXT or EDGE colour in four places, so plan 20 must not delete the alias on the strength of 08.1-18's "nothing consumes it" (that was true of FILLS only): `App.tsx:172` (the registration-error notice), `board/CommandPalette.tsx:626`, and `board/BoardRow.tsx:387,388,415,416` (a colour and a 1px edge). It is `var(--destructive-text-rack)`, so every use is AA; this is naming debt, not a defect. 08.1-19 moved `FirstRun`, `ProjectUnreachable` and `RegisterProjectFlow`'s comment off it.
+  status: open
+  **Found during:** 08.1-19
+  **To fix:** in plan 20 (or later), point those four files at `--destructive-text-rack` and then delete the alias, in one commit with its tokens test. `--text-on-accent` has no consumer and can be retired as planned.
+
+- The real board's second project is `unreachable` and is a DUPLICATE registration: read off a copy of the fleet database, it has the same name (`threadfin`), the same key prefix (`THRE`) and the very same `repo_path` as the active project. The unreachable state's contract copy says Flywheel "expected threadfin at {path}, but the repository marker there no longer matches", and "Locate Project…" would open a folder picker to be pointed at the folder the active project already owns. The copy is fixed by the Copywriting Contract and a finish pass is not licence to rewrite it, so it is unchanged; it is accurate about what Flywheel found, but it does not help the user see that this entry is a stale twin.
+  status: open
+  **Found during:** 08.1-19 (rendering the real unreachable state)
+  **To fix:** an owner call and a contract change: either a second action or line for "this path already belongs to another project" (and, ideally, a way to remove the stale entry, which no surface offers today), or leave it. Also worth a board issue: how a second registration of the same path was ever accepted.
+
+- `FirstRun`'s confirm-the-key step does not focus its field when the folder picker returns, so the user must click into it or tab to the button. The field is the step's only input. It is a behaviour change, not a finish edit, and WebKit does not Tab to buttons by default (see `review/__tests__/browser/keyboard.browser.test.tsx`), so the first thing the user does after picking a folder is reach for the mouse.
+  status: open
+  **Found during:** 08.1-19
+  **To fix:** `autoFocus` (or a ref and effect) on the prefix input when `pending` first becomes non-null, with a `FirstRun` test that the field holds focus; the ink ring is already in place for exactly that case.

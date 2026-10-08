@@ -428,3 +428,27 @@ At Phase 11, with an installed, usable build:
     itself was not touched), and whether the wall of drawn buttons on every triage row is too heavy.
   risk_if_wrong: "Moderate. The reviewer may find that a triage row's six drawn actions plus a reject-reason field read as a wall; that the chosen segment (an ink edge and a 2px foot rule, no weight change) is too quiet next to its neighbours at a glance; or that the legend's developer-voice copy is a problem (recorded in deferred-items.md). The first two were judged by their builder only."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
+
+- id: D-REV-18
+  phase: "08.1 — Visual Polish (plan 19)"
+  truth: "The shipped impeccable-finish-reviewer, run once against 08.1-UI-SPEC.md's contract (NO comp was rendered for this group) for surface group six (the first-run state, the unreachable project, the registration flow, and the delete, done-warning and orphan-recovery confirmations), raises nothing material that is not fixed or recorded."
+  status: unreviewed
+  why_deferred: |
+    The plan 19 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
+    spawn the reviewer; the same limit as D-REV-11 and D-REV-14 to D-REV-17. It captured the group in WebKit
+    in both schemes at 1440x900 and looked at the captures itself, which is NOT the independent pass D-24 asks
+    for. THE REVIEWER MUST BE TOLD that no comp exists for these surfaces and that it is reviewing against the
+    contract (colour and token roles, radius language, type scale, motion contract, the overlay rule, the state
+    inventory), not against an image. Captured in .impeccable/review/ (gitignored):
+    states-group-built-{light,dark}-first-run-1440x900.png, -first-run-confirm-, -unreachable-,
+    -delete-confirm- (over the real board), -done-warning- (over the real board) and -recovery- (over the real
+    board), plus rendered HTML beside each (states-group-built-*.html). Regenerate with `npm run test:browser`
+    and `npm run test:browser:dark`, then `git checkout --` the Phase 8 UAT screenshot directory. The unreachable
+    project and the board behind both confirmations are the real board's own; the real board has no live orphan,
+    so the three recovery runs are FIXTURES, each labelled in its title. They are component pages, not the app shell.
+    ALSO FOR THE REVIEWER: whether a 2px destructive edge plus icon reads as the section's lead without a fill
+    (Delete and Kill All were red fills and are now text and edge only), whether the first-run and unreachable
+    states are too sparse at 1440x900 with nothing but a heading, a paragraph and one button, and whether the
+    unreachable copy is true for the real duplicate registration (see deferred-items.md).
+  risk_if_wrong: "Moderate. The reviewer may find that a destructive action without a fill under-signals at a glance on a delete confirmation, or that the full-window states look unfinished at that size. Both were judged by their builder only. The scrim, the dialog tier and the blocking layer are measured in WebKit, not judged."
+  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
