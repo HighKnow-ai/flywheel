@@ -922,7 +922,7 @@ owner actually wants to look at all day — wearing its own mark and moving the 
 contract says it moves.
 **Requirements**: TBD (none mapped — the five success criteria below plus `08.1-CONTEXT.md` D-01…D-25 are the contract)
 **Depends on:** Phase 8
-**Plans:** 11/20 plans executed
+**Plans:** 12/20 plans executed
 
 Plans:
 **Wave 1**
@@ -959,7 +959,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
-- [ ] 08.1-12-PLAN.md — Challenges render inline above an epic's tasks; accepting creates a task in place [D-08]
+- [x] 08.1-12-PLAN.md — Challenges render inline above an epic's tasks; accepting creates a task in place [D-08]
 
 **Wave 9** *(blocked on Wave 8 completion)*
 
@@ -1177,7 +1177,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
-| 8.1 Visual polish: brand assets and confirmed motion | 11/20 | In Progress|  |
+| 8.1 Visual polish: brand assets and confirmed motion | 12/20 | In Progress|  |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
