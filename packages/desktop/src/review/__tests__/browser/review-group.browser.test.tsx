@@ -92,11 +92,14 @@ const ratio = (a: string, b: string) => contrastRatio(a, b);
 function mount() {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <div className="rack-ground" style={{ height: 900, width: 1440 }}>
-        <p className="type-label" style={{ position: "absolute", right: 24, bottom: 8, margin: 0, color: "var(--text-muted-rack)", zIndex: 1 }}>
+      <div className="rack-ground" style={{ height: 900, width: 1440, display: "flex", flexDirection: "column" }}>
+        {/* In flow, above the surface: an absolutely-positioned caption sat on top of the last code line. */}
+        <p className="type-label" data-testid="fixture-caption" style={{ margin: 0, padding: "var(--space-xs) var(--space-md)", color: "var(--text-muted-rack)", borderBottom: "1px solid var(--divider)" }}>
           FIXTURE diff: a real commit of this repository stands in for a task with something to review.
         </p>
-        <ReviewSurface scope="task" itemId="t1" label="THRE-58 Wire up the focus trap #41" onBack={() => {}} />
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <ReviewSurface scope="task" itemId="t1" label="THRE-58 Wire up the focus trap #41" onBack={() => {}} />
+        </div>
       </div>
     </QueryClientProvider>,
   );
@@ -127,6 +130,11 @@ describe(`review group, built, ${scheme} scheme`, () => {
     mount();
     const merge = await screen.findByRole("button", { name: "Merge" });
     expectDrawn(merge, "Merge", PALETTE.surfaceDominant);
+    // A-07: Merge is the surface's one leading action, so it wears the 2px ink edge; the scope toggles do not.
+    expect(getComputedStyle(merge).borderTopWidth, "Merge's lead edge").toBe("2px");
+    expect(toHex(getComputedStyle(merge).borderTopColor), "Merge's lead edge is ink").toBe(PALETTE.selectionRule);
+    // The caption is a block in the page's flow, never an overlay over the diff.
+    expect(getComputedStyle(screen.getByTestId("fixture-caption")).position).toBe("static");
 
     const nav = await screen.findByRole("navigation", { name: "Changed files" });
     const fileButton = await waitFor(() => {
@@ -186,6 +194,7 @@ describe(`review group, built, ${scheme} scheme`, () => {
       return b!;
     });
     expectDrawn(confirm, "the confirm Merge", PALETTE.surfaceSecondary);
+    expect(getComputedStyle(confirm).borderTopWidth, "the confirm is the sheet's lead").toBe("2px");
     expect(dialog.textContent).toMatch(/3 commits, 5 files, into FLY-7's integration branch\./);
 
     await settle();
@@ -205,6 +214,12 @@ describe(`review group, built, ${scheme} scheme`, () => {
     });
     expect(warn.querySelector("svg"), "the destructive line is paired with a glyph").toBeTruthy();
     expect(toHex(getComputedStyle(warn).color)).toBe(PALETTE.destructiveTextRack);
+    // The files are the changed-file list's own rows (mono, hairline-separated), not engine disc bullets.
+    const list = dialog.querySelector<HTMLElement>(".review-conflicts")!;
+    expect(getComputedStyle(list).listStyleType, "no disc bullets").toBe("none");
+    expect(getComputedStyle(list.querySelector("li")!).borderBottomWidth, "a hairline under each file").toBe("1px");
+    // The lead says what it will do: a predicted conflict makes it an attempt, not a merge.
+    expect(dialog.querySelector("button.review-action")?.textContent).toBe("Attempt merge");
     expect(getComputedStyle(warn).backgroundColor, "destructive is text, never a fill").toBe("rgba(0, 0, 0, 0)");
     expect(ratio(PALETTE.destructiveTextRack, PALETTE.surfaceSecondary)).toBeGreaterThanOrEqual(4.5);
 

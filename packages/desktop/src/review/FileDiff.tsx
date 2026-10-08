@@ -180,9 +180,9 @@ export function FileDiff({ patch, path, selection = null, onSelectChange, anchor
           onClick={() => setShown((n) => n + HUNK_CHUNK)}
           style={{
             background: "transparent",
-            border: "1px solid var(--divider)",
+            border: "1px solid var(--border-control)",
             borderRadius: "var(--radius-chrome)",
-            color: "var(--accent-text-rack)",
+            color: "var(--text-primary-rack)",
             cursor: "pointer",
             margin: "var(--space-sm) var(--space-md)",
             padding: "var(--space-xs) var(--space-md)",

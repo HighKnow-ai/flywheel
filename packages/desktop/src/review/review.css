@@ -1,12 +1,11 @@
 /*
  * The review diff's colours (Phase 8 plan 08-01). `react-diff-view`'s own structural stylesheet
- * is imported in FileDiff.tsx; this file points its custom properties and the Prism token classes
- * at the project's design-token roles. No hex literals here — `styles/tokens.css` is the one
+ * is imported in FileDiff.tsx; this file points its custom properties at the project's design-token
+ * roles. No hex literals here — `styles/tokens.css` is the one
  * source of colour.
  *
- * Invariant: the row tint is the only paint behind code glyphs, and a word-level edit is marked
- * rather than filled, because two stacked signal-hue layers put every token role below AA
- * (G-08-1).
+ * Invariant: the row tint is the only paint behind code glyphs, and a word-level edit is neither
+ * filled nor marked, because two stacked signal-hue layers put the code below AA (G-08-1).
  */
 .review-diff {
   --diff-background-color: transparent;
@@ -36,52 +35,30 @@
   --diff-code-delete-edit-text-color: var(--text-primary-rack);
   --diff-omit-gutter-line-color: var(--divider);
   font-size: 12px;
+  /* Grows to the widest line, never narrower than the pane (see the note on wrapping below). */
+  min-width: 100%;
+  width: max-content;
 }
 
-/* A word-level edit is marked, not filled: the full-strength hue sits at the inline box's bottom
- * edge, never behind the glyphs, so it costs no contrast. Three classes outrank react-diff-view's
- * own two-class rule without !important. */
-.review-diff .diff-code-insert .diff-code-edit {
-  box-shadow: inset 0 -2px 0 var(--success-text-rack);
+/* One element and one class, so it outranks the library's `.diff { table-layout: fixed }` whichever
+ * stylesheet is read last. Fixed layout would clip a long line instead of letting the pane scroll. */
+table.review-diff {
+  table-layout: auto;
 }
 
-.review-diff .diff-code-delete .diff-code-edit {
-  box-shadow: inset 0 -2px 0 var(--destructive-text-rack);
-}
-
-.review-diff .token.comment,
-.review-diff .token.prolog,
-.review-diff .token.doctype,
-.review-diff .token.cdata,
-.review-diff .token.punctuation {
-  color: var(--text-muted-rack);
-}
-
-.review-diff .token.keyword,
-.review-diff .token.selector,
-.review-diff .token.tag,
-.review-diff .token.atrule {
-  color: var(--accent-text-rack);
-}
-
-.review-diff .token.string,
-.review-diff .token.char,
-.review-diff .token.attr-value,
-.review-diff .token.inserted {
-  color: var(--success-text-rack);
-}
-
-.review-diff .token.number,
-.review-diff .token.boolean,
-.review-diff .token.constant,
-.review-diff .token.symbol,
-.review-diff .token.function,
-.review-diff .token.class-name {
-  color: var(--blocked-text-rack);
-}
-
-.review-diff .token.deleted {
-  color: var(--destructive-text-rack);
+/*
+ * Change is carried by the row tint and the +/- gutter, and by nothing else. Code is not recoloured
+ * (the status palette would then mean both "this line was added" and "this is a string"), and a
+ * word-level edit is not underlined (the 2px weight belongs to --selection-rule, the current-position
+ * mark). Both were removed in the 08.1 group-three finish-review closure; finish.test.tsx pins it.
+ *
+ * Code does not wrap. A mid-token break reads as a different token, so a long line scrolls the pane
+ * sideways instead; the table grows to its widest line and never narrower than the pane.
+ */
+.review-diff .diff-code {
+  overflow-wrap: normal;
+  white-space: pre;
+  word-break: normal;
 }
 
 /* The 2px rule of a selected line (A-06); an inset shadow so the gutter does not reflow. */
@@ -114,13 +91,30 @@
   color: var(--text-primary-rack);
   cursor: pointer;
   font-weight: 600;
-  padding: var(--space-xs) var(--space-md);
+}
+
+/*
+ * The one leading action of a section wears the 2px ink edge (A-07's device, as `admin-action-lead` and
+ * `session-action-lead` draw it): Merge in the surface, the confirm in the merge sheet, Open request in
+ * the epic bar and its sheet. Padding gives the extra pixel back, so it is the same size as the plain
+ * 1px-edged controls beside it. Ink, not brand. Two classes so the order of the stylesheets never
+ * decides which edge wins over `.control-edge`.
+ */
+.control-edge.review-action {
+  border: 2px solid var(--selection-rule);
+  padding: calc(var(--space-xs) - 1px) calc(var(--space-md) - 1px);
 }
 
 .review-action:disabled {
   color: var(--text-muted-rack);
   cursor: default;
   font-weight: 400;
+}
+
+/* A disabled lead has nothing to lead with: it goes back to the plain control edge. */
+.control-edge.review-action:disabled {
+  border: 1px solid var(--border-control);
+  padding: var(--space-xs) var(--space-md);
 }
 
 /* A scope toggle's pressed state is a surface shift AND a weight step, never colour alone. */
@@ -199,6 +193,21 @@
  * (the detector's tight-leading). The size stays on the locked scale. */
 .review-sheet-title {
   line-height: 1.4;
+}
+
+/* A list of files (the predicted or the actual conflict) is the same object as the changed-file list:
+ * mono rows under hairlines, not the engine's disc bullets. */
+.review-conflicts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.review-conflicts > li {
+  border-bottom: 1px solid var(--divider);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+  padding: var(--space-xs) 0;
 }
 
 /* A destructive line is the destructive TEXT role beside a glyph, so it never rests on hue. */

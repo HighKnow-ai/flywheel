@@ -32,7 +32,6 @@ import "../../../styles/motion.css";
 import "../../../App.css";
 import { ReviewSurface } from "../../ReviewSurface";
 import { effectiveBackground, effectiveForeground, paintedContrast, toHex } from "./paint";
-import reviewCss from "../../review.css?raw";
 import { PATCHES, resetSpies, resetState } from "./review-fixture";
 
 /** WCAG 2.2 AA for normal-size text. The diff renders at 12px, which is not "large text" under
@@ -87,49 +86,43 @@ beforeEach(() => {
 });
 
 describe("UAT 1 — diff legibility at review width", () => {
-  it("keeps every syntax-token colour at AA against the row it is painted on, tinted or not", async () => {
+  it("paints no syntax hue: every token leaf is the code's own ink, so change is the row tint and the gutter alone", async () => {
     renderSurface();
     await expandEveryFile();
 
-    // Grouped so a failure names the role and the row kind, not just "something is low".
-    const worst = new Map<string, { ratio: number; fg: string; bg: string; sample: string }>();
-    for (const leaf of tokenLeaves()) {
-      const kind = rowKind(leaf);
-      if (kind === "other") continue;
-      const ratio = paintedContrast(leaf);
-      for (const role of tokenRoles(leaf)) {
-        const key = `${kind}/${role}`;
-        const current = worst.get(key);
-        if (!current || ratio < current.ratio) {
-          worst.set(key, {
-            ratio,
-            fg: toHex(effectiveForeground(leaf)),
-            bg: toHex(effectiveBackground(leaf)),
-            sample: (leaf.textContent ?? "").trim().slice(0, 24),
-          });
-        }
-      }
-    }
+    // Tokens are still produced (the tokenizer is unchanged), so the spans exist; what 08.1's group-three
+    // closure removed is their colour. Status hues mean "added" / "removed" and nothing else.
+    const leaves = tokenLeaves();
+    expect(leaves.length, "no tokenized diff rows were measured - the fixture or the tokenizer is broken").toBeGreaterThan(40);
+    const recoloured = leaves
+      .filter((leaf) => toHex(effectiveForeground(leaf)) !== toHex(effectiveForeground(leaf.closest("td.diff-code") as Element)))
+      .map((leaf) => `${tokenRoles(leaf).join(".")} paints ${toHex(effectiveForeground(leaf))} on ${rowKind(leaf)}`);
+    expect(recoloured, "token spans repaint the code").toEqual([]);
 
-    expect(worst.size, "no tokenized diff rows were measured — the fixture or the tokenizer is broken").toBeGreaterThan(5);
-    // Printed on every run, pass or fail: the measurement is the artifact, not just the verdict.
-    // eslint-disable-next-line no-console
-    console.log(
-      "UAT-1 painted contrast (role/row -> ratio):\n" +
-        [...worst.entries()]
-          .sort((a, b) => a[1].ratio - b[1].ratio)
-          .map(([key, m]) => `  ${key.padEnd(34)} ${m.ratio.toFixed(2)}:1  on ${m.bg}  e.g. ${JSON.stringify(m.sample)}`)
-          .join("\n"),
-    );
-
-    const failures = [...worst.entries()].filter(([, m]) => m.ratio < AA_NORMAL);
-    expect(
-      failures.map(([key, m]) => `${key} = ${m.ratio.toFixed(2)}:1 on ${m.bg}`),
-      "token colours below AA on their painted row",
-    ).toEqual([]);
+    // And the code itself stays at AA on every row paint it can sit on.
+    const failures = leaves
+      .filter((leaf) => rowKind(leaf) !== "other" && paintedContrast(leaf) < AA_NORMAL)
+      .map((leaf) => `${rowKind(leaf)} = ${paintedContrast(leaf).toFixed(2)}:1`);
+    expect(failures, "code below AA on its painted row").toEqual([]);
   });
 
-  it("marks a word-level edit without painting a second signal-hue layer behind its glyphs (G-08-1)", async () => {
+  it("does not wrap code: a long line scrolls the pane sideways and no token breaks mid-word", async () => {
+    renderSurface();
+    await expandEveryFile();
+    const cells = Array.from(document.querySelectorAll<HTMLElement>(".review-diff td.diff-code"));
+    expect(cells.length).toBeGreaterThan(10);
+    for (const cell of cells) {
+      const style = getComputedStyle(cell);
+      expect(style.whiteSpace, "code must not wrap").toBe("pre");
+      expect(style.wordBreak, "code must not break mid-token").toBe("normal");
+    }
+    // The table is at least the pane wide and grows past it for a long line, so the pane (overflow: auto) scrolls.
+    const table = document.querySelector<HTMLElement>("table.review-diff")!;
+    expect(table.getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(getComputedStyle(table).tableLayout).toBe("auto");
+  });
+
+  it("does not mark a word-level edit: the 2px weight is the selection rule's, and the row tint carries the change (G-08-1)", async () => {
     renderSurface();
     await expandEveryFile();
 
@@ -139,19 +132,15 @@ describe("UAT 1 — diff legibility at review width", () => {
     expect(insertEdits.length, "the fixture produced no added-row edit spans").toBeGreaterThan(0);
     expect(deleteEdits.length, "the fixture produced no removed-row edit spans").toBeGreaterThan(0);
 
-    // An edit span adds no paint of its own: what resolves behind it is its row's tint, byte for byte.
+    // An edit span adds no paint and no mark of its own: what resolves behind it is its row's tint, byte for byte.
     const rowPaint = (edit: HTMLElement) => toHex(effectiveBackground(edit.closest("td.diff-code") as Element));
     const stacked = [...insertEdits, ...deleteEdits]
       .filter((edit) => toHex(effectiveBackground(edit)) !== rowPaint(edit))
       .map((edit) => `${edit.closest("td.diff-code")?.className} edit paints ${toHex(effectiveBackground(edit))} over row ${rowPaint(edit)}`);
     expect(stacked, "edit spans paint their own background behind glyphs").toEqual([]);
-
-    // The signal moved, it was not deleted: a mark that is present and differs by row kind.
-    const insertMark = getComputedStyle(insertEdits[0]).boxShadow;
-    const deleteMark = getComputedStyle(deleteEdits[0]).boxShadow;
-    expect(insertMark, "added-row edit is unmarked").not.toBe("none");
-    expect(deleteMark, "removed-row edit is unmarked").not.toBe("none");
-    expect(insertMark, "added and removed edit marks are identical").not.toBe(deleteMark);
+    for (const edit of [...insertEdits, ...deleteEdits]) {
+      expect(getComputedStyle(edit).boxShadow, "an edit span carries an underline").toBe("none");
+    }
   });
 
   it("paints an added and a removed row as distinguishable from an unchanged one", async () => {
@@ -183,18 +172,15 @@ describe("UAT 1 — diff legibility at review width", () => {
   });
 });
 
-describe("08.1-16 — every syntax role against every row paint, measured in the engine", () => {
-  // The roles are READ from review.css, so a role added there is measured here without an edit.
-  const ROLES = [...new Set([...reviewCss.matchAll(/\.review-diff \.token\.([a-z-]+)/g)].map((m) => m[1]))];
+describe("08.1-16 - code and gutter text against every row paint, measured in the engine", () => {
   const KINDS = ["insert", "delete", "normal"] as const;
 
-  it("keeps every role in review.css at 4.5:1 on added, removed, unchanged and selected rows, and the gutter text on its tint", () => {
-    expect(ROLES.length, "the role list was not read from review.css").toBeGreaterThanOrEqual(15);
+  it("keeps the code at 4.5:1 on added, removed, unchanged and selected rows, and the gutter text on its tint", () => {
     const host = document.createElement("div");
     host.className = "rack-ground";
     const row = (kind: string, extra: string) =>
       `<tr class="diff-line"><td class="diff-gutter diff-gutter-${kind}${extra}">12</td>` +
-      `<td class="diff-code diff-code-${kind}${extra}">${ROLES.map((r) => `<span class="token ${r}">x</span>`).join("")}</td></tr>`;
+      `<td class="diff-code diff-code-${kind}${extra}"><span>x</span></td></tr>`;
     host.innerHTML =
       `<table class="diff review-diff diff-unified"><tbody>` +
       KINDS.flatMap((kind) => [row(kind, ""), row(kind, " diff-code-selected diff-gutter-selected")]).join("") +
@@ -207,19 +193,16 @@ describe("08.1-16 — every syntax role against every row paint, measured in the
       const gutter = tr.querySelector("td.diff-gutter") as HTMLElement;
       const label = `${/diff-gutter-(insert|delete|normal)/.exec(gutter.className)![1]}${/selected/.test(gutter.className) ? "+selected" : ""}`;
       const gutterRatio = paintedContrast(gutter);
-      measured.push(`  ${label.padEnd(16)} gutter ${gutterRatio.toFixed(2)}:1 on ${toHex(effectiveBackground(gutter))}`);
+      const code = tr.querySelector("span") as HTMLElement;
+      const codeRatio = paintedContrast(code);
+      measured.push(`  ${label.padEnd(16)} gutter ${gutterRatio.toFixed(2)}:1 on ${toHex(effectiveBackground(gutter))}, code ${codeRatio.toFixed(2)}:1`);
       if (gutterRatio < AA_NORMAL) failures.push(`${label} gutter = ${gutterRatio.toFixed(2)}:1`);
-      for (const span of tr.querySelectorAll<HTMLElement>(".token")) {
-        const ratio = paintedContrast(span);
-        const role = tokenRoles(span).join(".");
-        if (ratio < AA_NORMAL) failures.push(`${label}/${role} = ${ratio.toFixed(2)}:1 on ${toHex(effectiveBackground(span))}`);
-        measured.push(`  ${label.padEnd(16)} ${role.padEnd(12)} ${ratio.toFixed(2)}:1`);
-      }
+      if (codeRatio < AA_NORMAL) failures.push(`${label} code = ${codeRatio.toFixed(2)}:1`);
     }
     // eslint-disable-next-line no-console
-    console.log(`08.1-16 painted contrast, ${ROLES.length} roles x 6 row paints:\n${measured.sort().join("\n")}`);
+    console.log(`08.1-16 painted contrast, 6 row paints:\n${measured.sort().join("\n")}`);
     host.remove();
-    expect(failures, "roles or gutter text below AA on their painted row").toEqual([]);
+    expect(failures, "code or gutter text below AA on its painted row").toEqual([]);
   });
 });
 

@@ -573,7 +573,7 @@ export function AcceptanceCriteriaList({
                     borderRadius: "var(--radius-chrome)",
                     flexShrink: 0,
                     cursor: "pointer",
-                    color: "var(--accent-text-rack)",
+                    color: "var(--text-primary-rack)",
                   }}
                 >
                   Check against selection

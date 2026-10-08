@@ -219,7 +219,8 @@ describe("UAT 6 — Enter and Space really activate a focused button (CR-03)", (
     await surfaceReady();
     await activateByKey("Merge", "{Enter}");
     const sheet = await screen.findByRole("dialog", { name: "Merge sheet" });
-    await activateByKey("Merge", "{Enter}", sheet);
+    // With a conflict predicted the sheet's lead says what it will do: it attempts the merge.
+    await activateByKey("Attempt merge", "{Enter}", sheet);
 
     // Scoped to the sheet: both paths also appear in the file list behind it.
     await waitFor(() => {

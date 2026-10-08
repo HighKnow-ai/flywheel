@@ -16,6 +16,7 @@ import mergeSheet from "../MergeConfirmSheet.tsx?raw";
 import requestSheet from "../EpicRequestSheet.tsx?raw";
 import fileDiff from "../FileDiff.tsx?raw";
 import criteriaRail from "../CriteriaRail.tsx?raw";
+import criteriaList from "../../item-detail/AcceptanceCriteriaList.tsx?raw";
 
 const SOURCES = { reviewSurface, mergeSheet, requestSheet, fileDiff, criteriaRail };
 
@@ -63,6 +64,53 @@ describe("the review group draws its actions, it does not fill them", () => {
     expect(rule(".review-warn")).toMatch(/color:\s*var\(--destructive-text-rack\)/);
     expect(code(mergeSheet)).toContain("review-warn");
     expect(code(mergeSheet)).toContain("TriangleAlert");
+  });
+});
+
+describe("08.1 group-three finish-review closure: what was removed stays removed", () => {
+  it("the diff carries no syntax colouring: review.css declares no .token rule", () => {
+    expect(code(css)).not.toMatch(/\.token\b/);
+    expect(code(fileDiff)).not.toMatch(/accent-text-rack|success-text-rack|blocked-text-rack/);
+  });
+
+  it("a word-level edit is not underlined: no rule styles .diff-code-edit with a shadow", () => {
+    expect(code(css)).not.toMatch(/diff-code-edit\s*\{/);
+    expect(code(css)).not.toMatch(/inset 0 -2px/);
+  });
+
+  it("code does not wrap, and the diff scrolls sideways instead", () => {
+    const body = rule(".review-diff .diff-code");
+    expect(body).toMatch(/white-space:\s*pre\b/);
+    expect(body).toMatch(/word-break:\s*normal/);
+    expect(body).not.toMatch(/break-all|anywhere/);
+    expect(rule(".review-diff")).toMatch(/width:\s*max-content/);
+  });
+
+  it("no action label and no status letter is the brand (D-12 lists four sites, none of them these)", () => {
+    expect(code(reviewSurface)).not.toMatch(/accent-text-rack/);
+    expect(code(mergeSheet)).not.toMatch(/accent-text-rack/);
+    expect(code(fileDiff)).not.toMatch(/accent-text-rack/);
+    expect(code(criteriaList)).not.toMatch(/"var\(--accent-text-rack\)"/);
+    expect(code(reviewSurface)).toMatch(/color: "var\(--text-muted-rack\)", width: "1\.5ch"/);
+  });
+
+  it("the leading action wears the 2px ink edge (A-07), in the surface and in both sheets", () => {
+    const lead = rule(".control-edge.review-action");
+    expect(lead).toMatch(/border:\s*2px solid var\(--selection-rule\)/);
+    expect(lead).toMatch(/padding:\s*calc\(var\(--space-xs\) - 1px\)/);
+    // The scope toggles are not leads.
+    expect(rule(".review-scope")).not.toMatch(/selection-rule/);
+  });
+
+  it("a conflict's files are mono hairline rows, not the engine's disc bullets", () => {
+    expect(rule(".review-conflicts")).toMatch(/list-style:\s*none/);
+    expect(rule(".review-conflicts > li")).toMatch(/border-bottom:\s*1px solid var\(--divider\)/);
+    expect(code(mergeSheet)).not.toMatch(/paddingLeft: "var\(--space-lg\)"/);
+    expect((code(mergeSheet).match(/className="review-conflicts"/g) ?? []).length).toBe(2);
+  });
+
+  it("with a conflict predicted the lead is an attempt, not a merge", () => {
+    expect(code(mergeSheet)).toContain('"Attempt merge"');
   });
 });
 

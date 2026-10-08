@@ -310,7 +310,7 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
                 className="type-label review-file"
                 data-focused={focusedPath === file.path}
               >
-                <span style={{ fontFamily: MONO_STACK, color: "var(--accent-text-rack)", width: "1.5ch" }}>
+                <span style={{ fontFamily: MONO_STACK, color: "var(--text-muted-rack)", width: "1.5ch" }}>
                   {file.status}
                 </span>
                 <span style={{ fontFamily: MONO_STACK, flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>

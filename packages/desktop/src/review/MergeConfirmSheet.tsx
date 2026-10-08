@@ -123,7 +123,7 @@ function ResultBody({ result }: { result: Result }) {
           Merge aborted — {n} {n === 1 ? "conflict" : "conflicts"}, nothing changed.
         </span>
       </p>
-      <ul style={{ margin: 0, paddingLeft: "var(--space-lg)", fontFamily: MONO_STACK }}>
+      <ul className="review-conflicts">
         {outcome.files.map((path) => (
           <li key={path} className="type-label">
             {path}
@@ -146,7 +146,7 @@ function ConflictExits({
   const style = {
     background: "transparent",
     border: "none",
-    color: "var(--accent-text-rack)",
+    color: "var(--text-primary-rack)",
     textDecoration: "underline",
     padding: 0,
     cursor: "pointer",
@@ -303,7 +303,7 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
                           {preview.conflictedFiles.length === 1 ? "file" : "files"}:
                         </span>
                       </p>
-                      <ul style={{ margin: 0, paddingLeft: "var(--space-lg)", fontFamily: MONO_STACK }}>
+                      <ul className="review-conflicts">
                         {preview.conflictedFiles.map((path) => (
                           <li key={path} className="type-label">
                             {path}
@@ -356,7 +356,9 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
                     disabled={!preview}
                     className="type-body control-edge review-action"
                   >
-                    Merge
+                    {/* The lead says what it will do: with a conflict predicted, the merge runs, stops at the
+                        conflict and changes nothing, so it is an attempt, not a merge. */}
+                    {preview && preview.conflictedFiles.length > 0 ? "Attempt merge" : "Merge"}
                   </button>
                 </>
               )}
