@@ -129,39 +129,51 @@ function MergeTargetPicker({
   onChoose: (candidate: MergeCandidate) => void;
   onCancel: () => void;
 }) {
+  // A board of hundreds cannot be a column of full-width rows: the picker is a column the width of a field, with
+  // a filter, and its list scrolls inside it. Filtering narrows what is shown; it never picks a target (D-101).
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+  const shown = needle ? candidates.filter((c) => c.label.toLowerCase().includes(needle)) : candidates;
+
   return (
-    <div
-      role="group"
-      aria-label="Choose a merge target"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-xs)",
-        padding: "var(--space-sm)",
-        marginTop: "var(--space-xs)",
-        border: "1px solid var(--divider)",
-        borderRadius: "var(--radius-chrome)",
-      }}
-    >
+    <div role="group" aria-label="Choose a merge target" className="merge-picker">
       <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
         Merge into…
       </span>
+      {candidates.length > 0 && (
+        <input
+          type="text"
+          autoFocus
+          aria-label="Filter merge targets"
+          placeholder="Filter by key or title"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className="type-label control-edge admin-field"
+        />
+      )}
       {candidates.length === 0 && (
         <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
           No open tasks or epics to merge into yet.
         </span>
       )}
-      {candidates.map((candidate) => (
-        <button
-          key={`${candidate.kind}-${candidate.id}`}
-          type="button"
-          disabled={pending}
-          onClick={() => onChoose(candidate)}
-          className="type-body admin-option"
-        >
-          {candidate.label}
-        </button>
-      ))}
+      {candidates.length > 0 && shown.length === 0 && (
+        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          Nothing matches “{query.trim()}”.
+        </span>
+      )}
+      <div className="merge-picker-list">
+        {shown.map((candidate) => (
+          <button
+            key={`${candidate.kind}-${candidate.id}`}
+            type="button"
+            disabled={pending}
+            onClick={() => onChoose(candidate)}
+            className="type-body admin-option"
+          >
+            {candidate.label}
+          </button>
+        ))}
+      </div>
       <button
         type="button"
         onClick={onCancel}
@@ -370,20 +382,33 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
   const bulkRejectDisabled = selectedIds.size === 0;
   const bulkDeferDisabled = selectedIds.size === 0 || filter !== "pending";
 
-  function renderRow(proposal: AuthoringProposalDto, indented: boolean, pendingChildCount: number) {
+  function renderRow(
+    proposal: AuthoringProposalDto,
+    root: AuthoringProposalDto | null,
+    pendingChildCount: number,
+  ) {
+    const indented = root !== null;
     const epic = proposal.epicId ? epicsById[proposal.epicId] : undefined;
     const epicLabel = epic ? `${epic.key} ${epic.title}` : "a new epic";
     const logOffset = proposal.originLogOffset;
     const title = payloadTitle(proposal);
+    // Provenance is printed once per subtree, on its root: a child that came from the same session, for the same
+    // epic, turn and reasoning says nothing new by saying it again, and repeated verbatim the only sign of the
+    // subtree was a 24px indent. A child still states whatever differs from its root.
+    // The session decides it: a drafted child's own `epicId` is not its root's (a criterion has no epic of its own).
+    const showSession = !root || root.agentRunId !== proposal.agentRunId;
+    const showJump = logOffset !== null && (!root || root.originLogOffset !== logOffset);
+    const showRationale = !root || (root.rationale ?? "") !== (proposal.rationale ?? "");
+    const showProvenance = showSession || showJump || showRationale || Boolean(proposal.duplicateCandidate);
 
     return (
       <div
         key={proposal.id}
+        className={indented ? "proposal-child" : undefined}
         style={{
           display: "flex",
           flexDirection: "column",
           gap: "var(--space-xs)",
-          marginLeft: indented ? "var(--space-lg)" : 0,
         }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-sm)" }}>
@@ -397,35 +422,45 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", flex: 1, minWidth: 0 }}>
             {/* Indented to the row's own content edge (its 2px rule and its padding), so the provenance, the
                 rationale and the row read as one column. */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", paddingLeft: "calc(var(--space-md) + 2px)" }}>
-              <div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}>
-                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                  From session {proposal.agentRunId.slice(0, 8)}
-                </span>
-                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                  For {epicLabel}
-                </span>
-                {logOffset !== null && (
-                  <button
-                    type="button"
-                    aria-label="Jump to the turn that produced this proposal"
-                    onClick={() => onOpenSession(proposal.agentRunId, proposal.epicId, logOffset)}
-                    className="type-label admin-link"
-                  >
-                    Jump to turn
-                  </button>
+            {showProvenance && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", paddingLeft: "calc(var(--space-md) + 2px)" }}>
+                {(showSession || showJump) && (
+                  <div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}>
+                    {showSession && (
+                      <>
+                        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                          From session {proposal.agentRunId.slice(0, 8)}
+                        </span>
+                        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                          For {epicLabel}
+                        </span>
+                      </>
+                    )}
+                    {showJump && (
+                      <button
+                        type="button"
+                        aria-label="Jump to the turn that produced this proposal"
+                        onClick={() => onOpenSession(proposal.agentRunId, proposal.epicId, logOffset)}
+                        className="type-label admin-link"
+                      >
+                        Jump to turn
+                      </button>
+                    )}
+                  </div>
                 )}
-              </div>
 
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                  Rationale
-                </span>
-                <span className="type-body">{proposal.rationale ?? "No rationale given."}</span>
-              </div>
+                {showRationale && (
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                      Rationale
+                    </span>
+                    <span className="type-body">{proposal.rationale ?? "No rationale given."}</span>
+                  </div>
+                )}
 
-              {proposal.duplicateCandidate && <DuplicateAnnotation candidate={proposal.duplicateCandidate} />}
-            </div>
+                {proposal.duplicateCandidate && <DuplicateAnnotation candidate={proposal.duplicateCandidate} />}
+              </div>
+            )}
 
             <ProposalRow
               agentRunId={proposal.agentRunId}
@@ -518,9 +553,10 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
         </span>
       </header>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}>
+      {/* The same body the settings surface has: one column, one gutter, so a row, a notice and a picker end on one edge. */}
+      <div className="admin-body">
         {limitNotices.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", marginBottom: "var(--space-md)" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
             {limitNotices.map((notice) => (
               <LimitNoticeBanner
                 key={notice.agentRunId}
@@ -540,8 +576,8 @@ export function TriageSurface({ projectId, epicsById, onOpenSession, onClose }: 
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
             {groups.map((group) => (
               <div key={group.root.id} style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
-                {renderRow(group.root, false, group.children.length)}
-                {group.children.map((child) => renderRow(child, true, 0))}
+                {renderRow(group.root, null, group.children.length)}
+                {group.children.map((child) => renderRow(child, group.root, 0))}
               </div>
             ))}
           </div>

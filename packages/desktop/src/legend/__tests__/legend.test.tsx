@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import * as icons from "lucide-react";
 import { MARKS } from "../marks";
 import { Legend } from "../Legend";
@@ -63,10 +63,9 @@ describe("MARKS registry", () => {
 describe("agent channel", () => {
   const agentMarks = MARKS.filter((m) => m.channel === "agent");
 
-  it("has exactly seventeen entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md/08.1-01-PLAN.md specify", () => {
+  it("has exactly sixteen entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md/08.1-01-PLAN.md specify", () => {
     const expected = [
       { id: "run-running", glyph: "Loader", label: "Running" },
-      { id: "run-blocked", glyph: "ShieldAlert", label: "Blocked" },
       { id: "run-completed", glyph: "CircleCheckBig", label: "Completed" },
       { id: "run-failed", glyph: "CircleX", label: "Failed" },
       { id: "run-interrupted", glyph: "CircleSlash", label: "Interrupted" },
@@ -83,7 +82,7 @@ describe("agent channel", () => {
       { id: "authoring-stage-criteria", glyph: "ListChecks", label: "Criteria" },
       { id: "proposal-pending", glyph: "FileClock", label: "Pending proposal" },
     ];
-    expect(agentMarks).toHaveLength(17);
+    expect(agentMarks).toHaveLength(16);
     for (const exp of expected) {
       const mark = agentMarks.find((m) => m.id === exp.id);
       expect(mark, `missing agent mark "${exp.id}"`).toBeDefined();
@@ -259,9 +258,97 @@ describe("the legend tells the truth about the world 08.1 built", () => {
       estimate: 3,
       assignee: 4,
       project: 3,
-      agent: 17,
+      agent: 16,
     });
-    expect(MARKS).toHaveLength(53);
+    expect(MARKS).toHaveLength(52);
+  });
+});
+
+/**
+ * 08.1 group-five finish-review closure. The legend is the published contract, so it may not publish two rows
+ * that cannot be told apart, a swatch that is not the mark, or an argument with a reviewer.
+ */
+describe("the legend can be used to tell its marks apart (08.1 finish-review closure)", () => {
+  it("publishes no two marks under one heading with the same printed label", () => {
+    // Per channel: "Medium" is both a priority and an estimate, under two headings and two different glyphs.
+    // Two rows titled "Blocked" under Agent, wearing one shield, were the defect.
+    const seen = new Map<string, string>();
+    const clashes: string[] = [];
+    for (const mark of MARKS) {
+      const key = `${mark.channel}/${mark.label.toLowerCase()}`;
+      if (seen.has(key)) clashes.push(`${mark.id} and ${seen.get(key)} are both "${mark.label}"`);
+      seen.set(key, mark.id);
+    }
+    expect(clashes).toEqual([]);
+  });
+
+  it("carries one Blocked mark with both contexts, not two rows with the same word and the same shield", () => {
+    const blocked = MARKS.filter((m) => m.label === "Blocked");
+    expect(blocked.map((m) => m.id)).toEqual(["blocked-indicator"]);
+    expect(blocked[0].meaning).toMatch(/run/i);
+    expect(blocked[0].meaning).toMatch(/task row/i);
+    expect(MARKS.find((m) => m.id === "run-blocked")).toBeUndefined();
+  });
+
+  it("gives No epic and No evidence different glyphs, because both can sit on one task row", () => {
+    const glyph = (id: string) => MARKS.find((m) => m.id === id)?.glyph;
+    expect(glyph("epic-pill-none")).not.toBe(glyph("criterion-no-evidence"));
+  });
+
+  it("states what a mark means and nothing else: no decision id, no design history, no argument with a reviewer", () => {
+    const offenders = MARKS.filter((m) =>
+      /\b[DAG]-\d+\b|UI-SPEC|copy-paste|precedent|\bplan \d|ShieldAlert|PLAN\.md/i.test(m.meaning + " " + m.label),
+    ).map((m) => m.id);
+    expect(offenders).toEqual([]);
+  });
+
+  it("draws a swatch as the row draws the mark: the estimate letter, the triangle with its count, the fraction", () => {
+    render(<Legend />);
+    const swatch = (label: string) => rowFor(label).querySelector("[aria-hidden]") as HTMLElement;
+    // The estimate rows by id, because "Medium" is also a priority.
+    const estimateRows = screen.getAllByRole("listitem").filter((r) => /^[SML]:/.test(r.querySelector(".legend-meaning")?.textContent ?? ""));
+    expect(estimateRows.map((r) => (r.querySelector("[aria-hidden]") as HTMLElement).textContent)).toEqual(["S", "M", "L"]);
+    for (const row of estimateRows) expect(row.querySelector("[aria-hidden] svg"), "no icon on the row").toBeNull();
+    expect(swatch("Commits ahead").querySelector("svg")).not.toBeNull();
+    expect(swatch("Commits ahead").textContent).toBe("3");
+    expect(swatch("Criteria checked/total").textContent).toBe("2/5");
+    expect(swatch("Criteria checked/total").querySelector("svg")).toBeNull();
+    // A mark with no sample is still its glyph.
+    expect(swatch("Backlog").querySelector("svg")).not.toBeNull();
+  });
+});
+
+describe("the legend is navigable (08.1 finish-review closure)", () => {
+  it("opens with an index of every channel, as links and not list items", () => {
+    render(<Legend />);
+    const nav = screen.getByRole("navigation", { name: "Legend channels" });
+    const channels = new Set(MARKS.map((m) => m.channel));
+    expect(channels.size).toBe(10);
+    expect(nav.querySelectorAll("a")).toHaveLength(10);
+    expect(within(nav).queryAllByRole("listitem")).toHaveLength(0);
+    for (const a of Array.from(nav.querySelectorAll("a"))) {
+      expect(document.getElementById(a.getAttribute("href")!.slice(1)), a.textContent ?? "").not.toBeNull();
+    }
+  });
+
+  it("gives the embedded form the title the dialog has, and only the dialog a Close", () => {
+    const { unmount } = render(<Legend />);
+    expect(screen.getByRole("heading", { level: 1, name: "Legend" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close legend" })).toBeNull();
+    unmount();
+    render(<Legend onClose={() => {}} />);
+    expect(screen.getByRole("heading", { level: 1, name: "Legend" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close legend" })).toBeInTheDocument();
+  });
+
+  it("keeps the channel heading in view while its rows scroll, on the surface it sits on", () => {
+    const body = rule(".legend-channel > h2");
+    expect(body).toMatch(/position:\s*sticky/);
+    expect(body).toMatch(/top:\s*0/);
+    expect(body).toMatch(/background:\s*var\(--legend-ground\)/);
+    expect(rule(".legend-dialog")).toMatch(/--legend-ground:\s*var\(--surface-secondary\)/);
+    // Inside the dialog's own scroll the heading cancels its padding, or it would hang 24px below the top.
+    expect(rule(".legend-dialog .legend-channel > h2")).toMatch(/top:\s*calc\(var\(--space-lg\) \* -1\)/);
   });
 });
 

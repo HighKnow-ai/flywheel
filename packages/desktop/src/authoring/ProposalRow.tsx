@@ -350,13 +350,16 @@ export function ProposalRow({
       {!editing && (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
           <div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}>
+            {/* One lead per row: the subtree accept where there is one (it is the larger decision), else Accept.
+                With a subtree on offer the bare Accept says what it does, "task only": two buttons that begin
+                "Accept" at one weight were the hazard (08.1 group-five finish review). */}
             <button
               type="button"
               disabled={state.accepting || state.undecidable}
               onClick={() => void accept()}
-              className="type-body control-edge admin-action"
+              className={`type-body control-edge admin-action${canAcceptSubtree ? "" : " admin-action-lead"}`}
             >
-              Accept
+              {canAcceptSubtree ? "Accept task only" : "Accept"}
             </button>
             <button
               type="button"
@@ -381,7 +384,7 @@ export function ProposalRow({
                 disabled={acceptingSubtree}
                 onClick={onAcceptSubtree}
                 aria-label={`Accept task and its ${pendingChildCount} criteria`}
-                className="type-body control-edge admin-action"
+                className="type-body control-edge admin-action admin-action-lead"
               >
                 {acceptingSubtree ? "Accepting…" : `Accept task and its ${pendingChildCount} criteria`}
               </button>

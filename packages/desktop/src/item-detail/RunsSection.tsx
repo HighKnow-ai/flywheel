@@ -68,7 +68,7 @@ function isRunStatus(value: string): value is RunStatus {
  * never a second hand-typed glyph. */
 const RUN_STATUS_MARK_ID: Record<RunStatus, string> = {
   running: "run-running",
-  blocked: "run-blocked",
+  blocked: "blocked-indicator",
   completed: "run-completed",
   failed: "run-failed",
   interrupted: "run-interrupted",

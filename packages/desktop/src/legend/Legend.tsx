@@ -43,7 +43,26 @@ const ROW_STATE_SWATCH: Record<string, { surface: string; rule?: string }> = {
   "row-surface-selected-unfocused": { surface: "var(--row-surface)", rule: "var(--selection-rule-unfocused)" },
 };
 
+/** The mark as the row actually draws it, when that is more than the bare glyph. */
+function sampleStyle(mark: Mark): CSSProperties | null {
+  const sample = mark.sample;
+  if (!sample) return null;
+  return {
+    ...SWATCH_BASE,
+    width: "auto",
+    minWidth: 20,
+    gap: 2,
+    padding: "0 var(--space-xs)",
+    background: sample.boxed ? "transparent" : "var(--surface-secondary)",
+    border: sample.boxed ? "1px solid var(--border-control)" : "1px solid var(--divider)",
+    borderRadius: sample.boxed ? "var(--radius-mark)" : "var(--radius-chrome)",
+    color: sample.boxed || !sample.glyph ? "var(--text-muted-rack)" : "var(--text-primary-rack)",
+  };
+}
+
 function swatchStyle(mark: Mark): CSSProperties {
+  const drawn = sampleStyle(mark);
+  if (drawn) return drawn;
   const rowState = ROW_STATE_SWATCH[mark.id];
   if (rowState) {
     return {
@@ -114,11 +133,12 @@ export function Legend({ onClose }: LegendProps = {}) {
       aria-label="Legend"
       role={onClose ? "dialog" : undefined}
     >
-      {onClose && (
-        <header className="legend-header">
-          <h1 className="type-heading" style={{ margin: 0 }}>
-            Legend
-          </h1>
+      {/* The embedded form has the same title the dialog has. Only the dialog has something to close. */}
+      <header className="legend-header">
+        <h1 className="type-heading" style={{ margin: 0 }}>
+          Legend
+        </h1>
+        {onClose && (
           <button
             type="button"
             aria-label="Close legend"
@@ -127,10 +147,26 @@ export function Legend({ onClose }: LegendProps = {}) {
           >
             Close
           </button>
-        </header>
-      )}
+        )}
+      </header>
+      {/* One screen of marks per channel, ten channels: an index, so no mark is a long scroll away. Links, not a
+          list, so the registry's rows stay the only list items on the surface. */}
+      <nav aria-label="Legend channels" className="legend-index type-label">
+        {channels.map((channel) => (
+          <a
+            key={channel}
+            href={`#legend-channel-${channel}`}
+            onClick={(event) => {
+              event.preventDefault();
+              document.getElementById(`legend-channel-${channel}`)?.scrollIntoView?.({ block: "start" });
+            }}
+          >
+            {CHANNEL_LABELS[channel]}
+          </a>
+        ))}
+      </nav>
       {channels.map((channel) => (
-        <div key={channel} className="legend-channel">
+        <div key={channel} id={`legend-channel-${channel}`} className="legend-channel">
           <h2 className="type-heading" style={{ margin: 0 }}>
             {CHANNEL_LABELS[channel]}
           </h2>
@@ -138,7 +174,8 @@ export function Legend({ onClose }: LegendProps = {}) {
             {MARKS.filter((m) => m.channel === channel).map((mark) => (
               <li key={mark.id} className="legend-row">
                 <span aria-hidden="true" style={swatchStyle(mark)}>
-                  <Glyph name={mark.glyph} />
+                  {(mark.sample?.glyph ?? true) && <Glyph name={mark.glyph} />}
+                  {mark.sample && <span className="type-label tabular-nums">{mark.sample.text}</span>}
                 </span>
                 <span className="type-body">{mark.label}</span>
                 <span className="type-label legend-meaning">{mark.meaning}</span>

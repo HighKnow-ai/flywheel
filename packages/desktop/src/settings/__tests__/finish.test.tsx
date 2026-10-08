@@ -78,8 +78,16 @@ describe("the admin group draws its actions, it does not fill them", () => {
 
   it("the amend editor's Save is the one lead; Accept, Reject and the rest of the tray stay on the plain edge", () => {
     expect(editor.match(/admin-action-lead/g)).toHaveLength(1);
-    expect(row).not.toMatch(/admin-action-lead/);
     expect(code(row)).not.toMatch(/border:\s*"/);
+  });
+
+  it("a proposal row has one lead: the subtree accept where there is one, else Accept (08.1 group-five closure)", () => {
+    // Two sites, never both on screen: the subtree accept, and the bare Accept only when there is no subtree.
+    expect(row.match(/admin-action-lead/g)).toHaveLength(2);
+    expect(row).toMatch(/\$\{canAcceptSubtree \? "" : " admin-action-lead"\}/);
+    expect(row).toMatch(/admin-action admin-action-lead"\s*>\s*\{acceptingSubtree/);
+    // With a subtree on offer the bare Accept says what it accepts.
+    expect(row).toContain('canAcceptSubtree ? "Accept task only" : "Accept"');
   });
 
   it("every button in the group is control-edged, or is navigation, a link or a menu row", () => {
@@ -90,6 +98,39 @@ describe("the admin group draws its actions, it does not fill them", () => {
         expect(button, `${name}: a button with no drawn class`).toMatch(/control-edge|admin-back|admin-link|admin-option/);
       }
     }
+  });
+});
+
+describe("08.1 group-five finish-review closure: the settings table, the checkboxes, the merge picker, the subtree", () => {
+  it("the rules table is a column capped at 900px, not a band across the window", () => {
+    expect(rule(".admin-table")).toMatch(/max-width:\s*900px/);
+  });
+
+  it("a bulk-selection box is a drawn square, not the engine's circle", () => {
+    const body = rule(".admin-check");
+    expect(body).toMatch(/appearance:\s*none/);
+    expect(body).toMatch(/border:\s*1px solid var\(--border-control\)/);
+    expect(body).toMatch(/border-radius:\s*var\(--radius-mark\)/);
+    expect(rule(".admin-check:checked::after")).toMatch(/border:\s*solid var\(--text-primary-rack\)/);
+  });
+
+  it("the merge picker is a 420px column with a filter and a scrolling list", () => {
+    expect(rule(".merge-picker")).toMatch(/max-width:\s*420px/);
+    expect(rule(".merge-picker-list")).toMatch(/max-height:\s*240px/);
+    expect(rule(".merge-picker-list")).toMatch(/overflow-y:\s*auto/);
+    expect(code(triage)).toContain('aria-label="Filter merge targets"');
+  });
+
+  it("the triage body is the settings body, and a proposal row cannot outgrow its column", () => {
+    expect(code(triage)).toContain('className="admin-body"');
+    expect(rule(".proposal-row")).toMatch(/max-width:\s*100%/);
+    expect(rule(".proposal-row")).toMatch(/box-sizing:\s*border-box/);
+  });
+
+  it("a drafted child sits under its root by a 1px divider edge and an indent", () => {
+    const body = rule(".proposal-child");
+    expect(body).toMatch(/border-left:\s*1px solid var\(--divider\)/);
+    expect(body).toMatch(/margin-left:\s*var\(--space-lg\)/);
   });
 });
 

@@ -194,6 +194,48 @@ describe("TriageSurface", () => {
     );
   });
 
+  it("the merge picker filters what it shows and never picks a target by itself", async () => {
+    setupMocks({ pending: [makeProposal({ epicId: "epic-1" })] });
+    renderSurface();
+    fireEvent.click(await screen.findByRole("button", { name: "Merge" }));
+    const picker = await screen.findByRole("group", { name: "Choose a merge target" });
+    const filter = within(picker).getByRole("textbox", { name: "Filter merge targets" });
+    expect(within(picker).getByRole("button", { name: /FLY-1 Real epic/ })).toBeInTheDocument();
+
+    fireEvent.change(filter, { target: { value: "nothing like it" } });
+    expect(within(picker).queryByRole("button", { name: /FLY-1 Real epic/ })).toBeNull();
+    expect(within(picker).getByText(/Nothing matches/)).toBeInTheDocument();
+
+    fireEvent.change(filter, { target: { value: "fly-1" } });
+    expect(within(picker).getByRole("button", { name: /FLY-1 Real epic/ })).toBeInTheDocument();
+    expect(invokeCommandMock.mock.calls.filter(([c]) => c === "authoring_proposal_merge")).toHaveLength(0);
+  });
+
+  it("prints a subtree's provenance once, on its root, and a child says only what differs", async () => {
+    setupMocks({
+      pending: [
+        makeProposal({ id: "root", payload: { kind: "task", title: "Root task" }, rationale: "Shared reason", originLogOffset: 4 }),
+        makeProposal({ id: "c1", parentProposalId: "root", position: "a0", targetType: "criterion", payload: { kind: "criterion", statement: "Child one" }, rationale: "Shared reason", originLogOffset: 4 }),
+        makeProposal({ id: "c2", parentProposalId: "root", position: "a1", targetType: "criterion", payload: { kind: "criterion", statement: "Child two" }, rationale: "Its own reason", originLogOffset: 4 }),
+      ],
+    });
+    renderSurface();
+    await screen.findByText("Root task");
+    expect(screen.getAllByText(/From session run-abc1/)).toHaveLength(1);
+    expect(screen.getAllByText(/^For a new epic$/)).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Jump to the turn that produced this proposal" })).toHaveLength(1);
+    // The rationale is printed for the root and for the one child whose reasoning differs, not for the repeat.
+    expect(screen.getAllByText("Shared reason")).toHaveLength(1);
+    expect(screen.getAllByText("Its own reason")).toHaveLength(1);
+    // The subtree accept leads and the bare Accept says what it accepts.
+    const root = screen.getByRole("group", { name: /^Proposed task: Root task/ });
+    expect(within(root).getByRole("button", { name: "Accept task only" })).toBeInTheDocument();
+    expect(within(root).getByRole("button", { name: "Accept task and its 2 criteria" }).className).toContain("admin-action-lead");
+    expect(within(root).getByRole("button", { name: "Accept task only" }).className).not.toContain("admin-action-lead");
+    const child = screen.getByRole("group", { name: /^Proposed criterion: Child one/ });
+    expect(within(child).getByRole("button", { name: "Accept" }).className, "a row with no subtree leads with Accept").toContain("admin-action-lead");
+  });
+
   it("choosing defer calls the defer mutation once, even under two synchronous activations", async () => {
     setupMocks({ pending: [makeProposal()] });
     invokeCommandMock.mockImplementation((command: string) => {

@@ -173,11 +173,12 @@ const FIXTURE_NOTE =
 function mount(node: React.ReactNode) {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <div className="rack-ground" style={{ height: 900, width: 1440, position: "relative", overflow: "hidden" }}>
-        {node}
-        <p className="type-label" style={{ position: "absolute", right: 24, bottom: 8, margin: 0, color: "var(--text-muted-rack)", zIndex: 1 }}>
+      <div className="rack-ground" style={{ height: 900, width: 1440, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {/* In flow, above the surface: an absolutely-positioned note sat on top of the last row in every capture. */}
+        <p className="type-label" style={{ margin: 0, padding: "var(--space-xs) var(--space-md)", color: "var(--text-muted-rack)", borderBottom: "1px solid var(--divider)" }}>
           {FIXTURE_NOTE}
         </p>
+        <div style={{ flex: 1, minHeight: 0, position: "relative" }}>{node}</div>
       </div>
     </QueryClientProvider>,
   );
@@ -274,6 +275,11 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     const revokes = within(table).getAllByRole("button", { name: "Revoke" });
     expect(revokes).toHaveLength(RULES.length);
     for (const r of revokes) expectDrawn(r, "Revoke", ground);
+    // A column, not a band: the table is capped, so "Edit" and "allow" are a few columns apart and not ~950px.
+    expect(table.getBoundingClientRect().width, "the rules table is capped at 900px").toBeLessThanOrEqual(900);
+    const editRow = rows.find((r) => r.textContent?.includes("Edit"))!;
+    const cells = Array.from(editRow.children) as HTMLElement[];
+    expect(cells[2].getBoundingClientRect().left - cells[1].getBoundingClientRect().left, "Tool to Decision").toBeLessThan(560);
     // The long tool name sits in its own cell and does not push Revoke off the row.
     expect(revokes[2].getBoundingClientRect().right).toBeLessThanOrEqual(rows[3].getBoundingClientRect().right);
 
@@ -327,10 +333,29 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     expect(toHex(getComputedStyle(rowsNow[0]).borderBottomColor)).toBe(PALETTE.divider);
     expect(first.borderTopLeftRadius, "rows are square").toBe("0px");
 
-    // The row's actions: drawn, none a lead, the type label is muted and not brand.
-    const accept = within(rowsNow[0]).getByRole("button", { name: "Accept" });
-    expectDrawn(accept, "Accept", PALETTE.rowSurfaceSelected);
+    // The row's actions: drawn; the subtree accept is the one lead (2px ink) and the bare Accept says "task only".
+    const accept = within(rowsNow[0]).getByRole("button", { name: "Accept task only" });
+    expectDrawn(accept, "Accept task only", PALETTE.rowSurfaceSelected);
     expect(getComputedStyle(accept).borderTopWidth).toBe("1px");
+    const subtree = within(rowsNow[0]).getByRole("button", { name: "Accept task and its 2 criteria" });
+    expectDrawn(subtree, "Accept task and its 2 criteria", PALETTE.rowSurfaceSelected);
+    expect(getComputedStyle(subtree).borderTopWidth, "the subtree accept leads").toBe("2px");
+    expect(toHex(getComputedStyle(subtree).borderTopColor)).toBe(PALETTE.selectionRule);
+    expect(subtree.offsetHeight, "the lead and its neighbour are the same height").toBe(accept.offsetHeight);
+    expect(within(rowsNow[0]).getAllByRole("button").filter((b) => getComputedStyle(b).borderTopWidth === "2px")).toHaveLength(1);
+
+    // The selected band stays inside the body's column: a row, the notice and the picker end on one edge.
+    const bodyEl = document.querySelector<HTMLElement>(".admin-body")!;
+    const bodyRect = bodyEl.getBoundingClientRect();
+    const padRight = parseFloat(getComputedStyle(bodyEl).paddingRight);
+    const edge = bodyRect.right - padRight - (bodyEl.offsetWidth - bodyEl.clientWidth);
+    for (const r of rowsNow) expect(r.getBoundingClientRect().right, "a proposal row ends inside the body's content column").toBeLessThanOrEqual(edge + 0.5);
+    expect(screen.getByRole("status").getBoundingClientRect().right).toBeLessThanOrEqual(edge + 0.5);
+    // Provenance is printed once per subtree: three rows of one subtree, one "From session" line.
+    expect(screen.getAllByText(/^From session/).length, "one per subtree, not one per row").toBeLessThan(rowsNow.length);
+    // A drafted child is a visible part of its subtree: a divider edge, not only an indent.
+    const childWrapper = rowsNow[1].closest(".proposal-child") as HTMLElement;
+    expect(getComputedStyle(childWrapper).borderLeftWidth).toBe("1px");
     const typeLabel = within(rowsNow[0]).getByText("task");
     expect(toHex(getComputedStyle(typeLabel).color)).toBe(PALETTE.textMutedRack);
 
@@ -349,6 +374,11 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     expect(toHex(getComputedStyle(dup).color)).toBe(PALETTE.textPrimaryRack);
     const check = screen.getAllByRole("checkbox")[0];
     expect(getComputedStyle(check).accentColor).toBe(rgbOf(PALETTE.textPrimaryRack));
+    // A square, not a circle: a mark radius on a 14px box, boundary at 3:1.
+    const box = getComputedStyle(check);
+    expect(box.width).toBe(box.height);
+    expect(parseFloat(box.borderTopLeftRadius), "square, not round").toBeLessThanOrEqual(3);
+    expect(ratio(toHex(box.borderTopColor), PALETTE.surfaceDominant)).toBeGreaterThanOrEqual(3);
 
     // The limit notice is hairline-bounded and has no fill.
     const notice = screen.getByRole("status");
@@ -366,6 +396,11 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     const picker = await screen.findByRole("group", { name: "Choose a merge target" });
     const options = within(picker).getAllByRole("button");
     expect(options.length).toBeGreaterThan(2);
+    // A column the width of a field, with a filter and a list that scrolls inside it.
+    expect(picker.getBoundingClientRect().width, "the picker is capped").toBeLessThanOrEqual(420);
+    const filter = within(picker).getByRole("textbox", { name: "Filter merge targets" });
+    expect(ratio(toHex(getComputedStyle(filter).borderTopColor), PALETTE.surfaceDominant)).toBeGreaterThanOrEqual(3);
+    expect(picker.querySelector<HTMLElement>(".merge-picker-list")!.getBoundingClientRect().height).toBeLessThanOrEqual(240);
     const option = options.find((o) => /THRE-6/.test(o.textContent ?? ""))!;
     expect(getComputedStyle(option).borderTopWidth).toBe("0px");
     expect(getComputedStyle(option).backgroundColor).toBe(TRANSPARENT);
@@ -391,9 +426,9 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     // A drafted criterion nests under its task by indentation alone.
     const criterion = screen.getAllByRole("group", { name: /^Proposed criterion:/ })[0];
     expect(criterion.getBoundingClientRect().left).toBeGreaterThan(groupRow.getBoundingClientRect().left);
-    const accept = within(groupRow).getByRole("button", { name: "Accept" });
+    const accept = within(groupRow).getByRole("button", { name: "Accept task only" });
     const reject = within(groupRow).getByRole("button", { name: "Reject" });
-    expectDrawn(accept, "Accept", PALETTE.rowSurfaceSelected);
+    expectDrawn(accept, "Accept task only", PALETTE.rowSurfaceSelected);
     expectDrawn(reject, "Reject", PALETTE.rowSurfaceSelected);
     expect(accept.offsetHeight).toBe(reject.offsetHeight);
     // The reject-reason field: a 3:1 boundary.
@@ -430,7 +465,9 @@ describe(`admin group, built, ${scheme} scheme`, () => {
         <Legend />
       </div>,
     );
-    const row = (label: string) => screen.getAllByRole("listitem").find((r) => r.textContent?.startsWith(label))!;
+    // By the printed label: a swatch's own text ("3", "2/5") comes first in a row's textContent.
+    const row = (label: string) =>
+      screen.getAllByRole("listitem").find((r) => r.querySelector(".type-body")?.textContent === label)!;
     const svgClass = (label: string) => row(label).querySelector("svg")!.getAttribute("class") ?? "";
 
     // The marks A-05 changed, and the mark that used to share a glyph with one of them.
@@ -458,6 +495,20 @@ describe(`admin group, built, ${scheme} scheme`, () => {
 
     // Rows are hairline-separated.
     expect(toHex(getComputedStyle(row("Idle row")).borderBottomColor)).toBe(PALETTE.divider);
+
+    // A swatch is the mark as the row draws it: the triangle with its count, the estimate letter, the fraction.
+    expect(swatch("Commits ahead").textContent).toBe("3");
+    expect(swatch("Commits ahead").querySelector("svg")).toBeTruthy();
+    expect(swatch("Criteria checked/total").textContent).toBe("2/5");
+    // The page has the title the dialog has, and an index of the ten channels.
+    expect(screen.getByRole("heading", { level: 1, name: "Legend" })).toBeTruthy();
+    expect(within(screen.getByRole("navigation", { name: "Legend channels" })).getAllByRole("link")).toHaveLength(10);
+    // Two rows titled "Blocked" are one row now.
+    expect(screen.getAllByRole("listitem").filter((r) => r.querySelector(".type-body")?.textContent === "Blocked")).toHaveLength(1);
+    // A channel heading is sticky and sits on the page's own ground, so a row never shows through it.
+    const heading = document.querySelector<HTMLElement>(".legend-channel > h2")!;
+    expect(getComputedStyle(heading).position).toBe("sticky");
+    expect(toHex(getComputedStyle(heading).backgroundColor)).toBe(PALETTE.surfaceDominant);
 
     await settle();
     await page.screenshot({ path: `${OUT}/admin-group-built-${scheme}-legend-1440x900.png` });
@@ -487,6 +538,18 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     expect(getComputedStyle(scrim).animationName).toBe("none");
     expect(getComputedStyle(dialog).animationName).toBe("none");
     expectDrawn(screen.getByRole("button", { name: "Close legend" }), "Close", PALETTE.surfaceSecondary);
+    // In the dialog the sticky heading paints the dialog's own surface, and it stays at the dialog's top while the list scrolls.
+    const heading = dialog.querySelector<HTMLElement>(".legend-channel > h2")!;
+    expect(toHex(getComputedStyle(heading).backgroundColor)).toBe(PALETTE.surfaceSecondary);
+    // Scroll into the middle of the Criteria channel (seven rows, with channels after it, so the dialog can scroll
+    // past its top): its heading is the one pinned at the dialog's top.
+    const longest = dialog.querySelector<HTMLElement>("#legend-channel-criteria")!;
+    dialog.scrollTop += longest.getBoundingClientRect().top - dialog.getBoundingClientRect().top + 100;
+    await settle();
+    const pinned = longest.querySelector<HTMLElement>("h2")!.getBoundingClientRect().top - dialog.getBoundingClientRect().top;
+    const sticky = Math.abs(pinned) < 4 ? [longest] : [];
+    expect(sticky.length, "a channel heading is pinned at the dialog's top once the list has scrolled").toBeGreaterThanOrEqual(1);
+    dialog.scrollTop = 0;
 
     await settle();
     await page.screenshot({ path: `${OUT}/admin-group-built-${scheme}-legend-dialog-1440x900.png` });

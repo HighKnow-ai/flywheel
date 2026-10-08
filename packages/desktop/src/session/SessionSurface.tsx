@@ -76,7 +76,7 @@ function isRunStatus(value: unknown): value is RunStatus {
  * plan 02-03) — the run-status badge's own glyph/label source, never a second hand-typed list. */
 const RUN_STATUS_MARK_ID: Record<RunStatus, string> = {
   running: "run-running",
-  blocked: "run-blocked",
+  blocked: "blocked-indicator",
   completed: "run-completed",
   failed: "run-failed",
   interrupted: "run-interrupted",

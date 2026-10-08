@@ -39,6 +39,13 @@ export interface Mark {
   label: string;
   /** What the mark means, for the legend's descriptive text. */
   meaning: string;
+  /**
+   * How the product actually draws the mark when that is more than the bare glyph: the legend's swatch
+   * must be the mark as it renders on the row, or it teaches the wrong thing. `glyph: false` means the
+   * row draws the text alone (the estimate letter, the criteria fraction); `boxed` is the estimate
+   * badge's 1px control-edged box.
+   */
+  sample?: { text: string; glyph: boolean; boxed?: boolean };
 }
 
 export const MARKS: Mark[] = [
@@ -163,7 +170,7 @@ export const MARKS: Mark[] = [
     channel: "epic",
     glyph: "CircleSlash",
     label: "No epic",
-    meaning: "This task has no parent epic yet (D-13): it may exist before its epic is known.",
+    meaning: "This task has no parent epic yet: it may exist before its epic is known.",
   },
   // Defence in depth (G-01-2, T-01-17-02): once the epic pill resolves against the project's
   // full roster (`useEpics()`), this outcome is reachable only while that roster query is
@@ -185,7 +192,7 @@ export const MARKS: Mark[] = [
     glyph: "ChartNoAxesGantt",
     label: "Epic progress",
     meaning:
-      "The bar and fraction on an epic row: tasks done over total, in the brand colour. An epic whose tasks carry no criteria prints \"no criteria yet\" instead of a percentage that would lie (D-06).",
+      "The bar and fraction on an epic row: tasks done over total, in the brand colour. An epic whose tasks carry no criteria prints \"no criteria yet\" instead of a percentage that would lie.",
   },
   {
     id: "epic-distribution",
@@ -218,7 +225,9 @@ export const MARKS: Mark[] = [
     glyph: "ListChecks",
     label: "Criteria checked/total",
     meaning:
-      "How many of this item's acceptance criteria are checked, out of its total. Visible wherever the item appears (D-08); an item with none shows 0/0.",
+      "How many of this item's acceptance criteria are checked, out of its total. Visible wherever the item appears; an item with none shows 0/0.",
+    // The row prints the fraction alone.
+    sample: { text: "2/5", glyph: false },
   },
   // Review marks (Phase 8, D-139/D-140/D-141). The first three annotate a CHECKED criterion's
   // evidence; the fourth is rendered by plan 08-07 (the legend rule runs one way — an entry ahead
@@ -226,7 +235,8 @@ export const MARKS: Mark[] = [
   {
     id: "criterion-no-evidence",
     channel: "criteria",
-    glyph: "CircleSlash",
+    // Not CircleSlash: "No epic" wears that on the same task row, and "No evidence" is a link to code that is absent.
+    glyph: "Unlink",
     label: "No evidence",
     meaning: "This criterion was checked without pointing at any code.",
   },
@@ -263,6 +273,8 @@ export const MARKS: Mark[] = [
     glyph: "Ruler",
     label: "Small",
     meaning: "S: small estimated effort. Never summed, averaged or converted to a point value.",
+    // The row draws the letter in a 1px control-edged box, with no icon.
+    sample: { text: "S", glyph: false, boxed: true },
   },
   {
     id: "estimate-medium",
@@ -270,6 +282,7 @@ export const MARKS: Mark[] = [
     glyph: "Ruler",
     label: "Medium",
     meaning: "M: medium estimated effort.",
+    sample: { text: "M", glyph: false, boxed: true },
   },
   {
     id: "estimate-large",
@@ -277,6 +290,7 @@ export const MARKS: Mark[] = [
     glyph: "Ruler",
     label: "Large",
     meaning: "L: large estimated effort.",
+    sample: { text: "L", glyph: false, boxed: true },
   },
   // Assignee marks (BOARD-06) — a human and an agent actor are peers in one actor model; the
   // badge distinguishes which is which without relying on colour alone (01-UI-SPEC.md Activity
@@ -332,7 +346,7 @@ export const MARKS: Mark[] = [
     glyph: "PanelLeft",
     label: "Current project",
     meaning:
-      "The project whose board is open. Its rail entry lifts to the page ground: the current position is a neutral surface shift, with no colour on it (08.1-UI-SPEC.md, D-12).",
+      "The project whose board is open. Its rail entry lifts to the page ground: the current position is a neutral surface shift, with no colour on it.",
   },
   {
     id: "project-unreachable",
@@ -340,7 +354,7 @@ export const MARKS: Mark[] = [
     glyph: "TriangleAlert",
     label: "Unreachable",
     meaning:
-      "This project's marker no longer matches its last known path (D-16): paired with the literal word \"Unreachable,\" never a colour change alone.",
+      "This project's marker no longer matches its last known path: paired with the literal word \"Unreachable,\" never a colour change alone.",
   },
   // Agent run-status marks (02-UI-SPEC.md "Run Status", AGNT-06) — the five run states plus the
   // orthogonal blocked indicator that layers onto a task's existing five-state status glyph rather
@@ -352,13 +366,6 @@ export const MARKS: Mark[] = [
     glyph: "Loader",
     label: "Running",
     meaning: "This run is a live process right now.",
-  },
-  {
-    id: "run-blocked",
-    channel: "agent",
-    glyph: "ShieldAlert",
-    label: "Blocked",
-    meaning: "This run is waiting on a permission answer from the user.",
   },
   {
     id: "run-completed",
@@ -380,29 +387,32 @@ export const MARKS: Mark[] = [
     glyph: "CircleSlash",
     label: "Interrupted",
     meaning:
-      "This run was stopped by the user: a normal, deliberate outcome, not an error (D-35).",
+      "This run was stopped by the user: a normal, deliberate outcome, not an error.",
   },
+  // One mark for both places it is drawn: the run's status word and the task row's pill. They are the same
+  // fact (an agent is waiting on a permission answer), so the legend carries one entry with both contexts,
+  // not two rows titled "Blocked" that cannot be told apart.
   {
     id: "blocked-indicator",
     channel: "agent",
     glyph: "ShieldAlert",
     label: "Blocked",
     meaning:
-      "An orthogonal signal layered on the row's existing five-state status glyph: a blocked task is still visibly at its real workflow status, not a sixth state.",
+      "An agent is waiting on a permission answer from you. On a run it is the run's status; on a task row it is a pill layered over the task's workflow status, which stays visible: a blocked task is still at its real status, not a sixth state.",
   },
   {
     id: "worktree-missing",
     channel: "agent",
     glyph: "TriangleAlert",
     label: "Missing",
-    meaning: "The worktree Flywheel recorded for this task is not on disk (D-45).",
+    meaning: "The worktree Flywheel recorded for this task is not on disk.",
   },
   {
     id: "run-abandoned",
     channel: "agent",
     glyph: "Unplug",
     label: "Abandoned",
-    meaning: "Flywheel was not running to supervise this session; it did not reach a clean end (D-49).",
+    meaning: "Flywheel was not running to supervise this session; it did not reach a clean end.",
   },
   {
     id: "recovery-needed",
@@ -410,7 +420,7 @@ export const MARKS: Mark[] = [
     glyph: "TriangleAlert",
     label: "Needs Decision",
     meaning:
-      "A previous session left something on this task for you to decide (D-46). Deliberately the same glyph as worktree-missing above: this row pill is a rollup of that same underlying fact, not a copy-paste slip, mirroring run-blocked/blocked-indicator's own shared-glyph precedent.",
+      "A previous session left something on this task for you to decide.",
   },
   {
     id: "ci-failed",
@@ -418,7 +428,7 @@ export const MARKS: Mark[] = [
     glyph: "CircleX",
     label: "CI failed",
     meaning:
-      "A red build on this task's branch (D-124): visible on the row so a backlog being drained by agents doesn't need every task opened to spot one. Never changes the status column (D-122's forward-only rule).",
+      "A red build on this task's branch: visible on the row so a backlog being drained by agents doesn't need every task opened to spot one. It never changes the task's status.",
   },
   // Phase 8.1 plan 01 (D-15): the board row's graded change annotation — how much real work sits
   // behind a task's worktree. Deliberately NOT alert-shaped: neither is a fifth pill beside
@@ -433,6 +443,8 @@ export const MARKS: Mark[] = [
     label: "Commits ahead",
     meaning:
       "This task's branch has commits its epic's integration branch does not: real work waiting to be reviewed. The number is the count; a task with no worktree, or one level with its base, shows nothing.",
+    // The row draws the triangle and the count together.
+    sample: { text: "3", glyph: true },
   },
   {
     id: "change-dirty",
@@ -448,7 +460,7 @@ export const MARKS: Mark[] = [
     glyph: "OctagonAlert",
     label: "Destructive",
     meaning:
-      "This tool call would destroy work; it needs an explicit answer and cannot be granted standing permission (D-56, D-57). A stop-sign shape, categorically different from the ShieldAlert shield used everywhere else in this product's permission vocabulary: the shape itself is part of the signal.",
+      "This tool call would destroy work; it needs an explicit answer and cannot be granted standing permission. A stop-sign shape, categorically different from the shield used everywhere else in this product's permission vocabulary: the shape itself is part of the signal.",
   },
   // D-88 (plan 05-03): the three-stage authoring machine's own marks, plus the tray's
   // proposal-pending mark. A proposal waiting on a decision burns no money (D-46: only money
@@ -459,7 +471,7 @@ export const MARKS: Mark[] = [
     channel: "agent",
     glyph: "MessageCircleQuestion",
     label: "Challenge",
-    meaning: "The agent is challenging the framing: it has no tool to stage a proposal yet (D-88).",
+    meaning: "The agent is challenging the framing: it has no tool to stage a proposal yet.",
   },
   {
     id: "authoring-stage-decompose",
@@ -481,7 +493,7 @@ export const MARKS: Mark[] = [
     glyph: "FileClock",
     label: "Pending proposal",
     meaning:
-      "A staged proposal awaiting your accept/reject/amend decision: not a blocked state (D-46: only money burning blocks).",
+      "A staged proposal awaiting your accept/reject/amend decision. It is not a blocked state: only a run that is spending money blocks.",
   },
 ];
 
