@@ -395,6 +395,7 @@
 .proposal-child {
   border-left: 1px solid var(--divider);
   margin-left: var(--space-lg);
+  padding-left: var(--space-sm);
 }
 
 /* The merge target picker: a column the width of a field, a filter, and a list that scrolls inside it. On a
