@@ -62,7 +62,8 @@
   **To fix:** write the screenshots to the gitignored `.vitest/` output directory, or key the filename by scheme, in a later test-infrastructure pass.
 
 - Epic header rows are not selectable in the epic lens, so the epic detail panel and `continue-shaping` cannot be reached from the keyboard map there (they remain reachable in the status lens and the palette).
-  status: open
+  status: resolved
+  **Resolved by:** 08.1-11 — `EpicHeaderRow` is a selection target keyed by the epic's id (click, `j`/`k`, Enter/`o` for detail, `r` for continue-shaping), proved in `epic-roster.test.tsx`.
   **Found during:** 08.1-10
   **Not fixed here, deliberately:** the epic header is plan 11's `EpicHeaderRow`; making a placeholder header selectable would be built twice.
   **To fix:** plan 11 gives `EpicHeaderRow` a selection target keyed by the epic's id.
@@ -85,3 +86,20 @@
   plus a command plus a hook, which would change that plan's character from render to data. Closing
   this properly wants its own small plan. Raised to the owner at the wave 6/7 boundary; left open
   pending his call so that neither the gap nor the decision it contradicts is silently absorbed.
+
+- An epic reached from the epic lens knows no status or priority: the roster (`epic_list_all`) carries only id, key and title. The status, priority, estimate and assignee pickers and reordering refuse such an epic (`BoardView.isRosterEpic`), and the detail panel hides its Status control when no status is known. The epic's status is used only when the epic happens to be in the 200-row board window.
+  status: open
+  **Found during:** 08.1-11
+  **Not fixed here, deliberately:** carrying status and priority on the roster is a Rust DTO change in a plan that is otherwise render-only, and the detail panel is not this plan's surface.
+  **To fix:** add status (and priority) to `EpicSummary` / `epic_list_all`, then build the selection target from them and drop `isRosterEpic`.
+
+- The summary line's "agents blocked, and for how long" clause is implemented and tested in `summaryLine`, but the board feeds it no duration: no fetched aggregate carries a blocked-since (`board_blocked_summary` returns ids and a count only). Today it prints "N agents blocked" with no duration, which is true but less than D-09 asks.
+  status: open
+  **Found during:** 08.1-11
+  **Not fixed here, deliberately:** a clause that needs data nobody fetched is a new query (plan 11, Task 3).
+  **To fix:** add a longest-blocked age to `board_blocked_summary`, pass it as `blockedForMs` in `BoardView.summaryText`.
+
+- The summary line shows in the epic lens only. It reads the epic aggregate, which the status lens deliberately never fetches (plan 10), so the status lens opens without it.
+  status: open
+  **Found during:** 08.1-11
+  **To fix:** if the owner wants it on both lenses, fetch the aggregate in both (one query) or derive `reviewable` from the list counts there.
