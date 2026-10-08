@@ -22,7 +22,8 @@
 import type { CSSProperties } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
-import type { EpicProgressDto } from "../adapters/tauri";
+import { Icon } from "./BoardRow";
+import type { ChangeFlagDto, EpicProgressDto } from "../adapters/tauri";
 
 /** Display order of the distribution strip: finished work first, so the strip reads as a fill. */
 const STRIP_ORDER = ["done", "in_review", "in_progress", "todo", "backlog"] as const;
@@ -42,6 +43,30 @@ const SEGMENT_FILL: Record<string, string> = {
 const statusLabel = (status: string) => MARKS_BY_ID[statusMarkId(status)]?.label ?? status;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+/** What an epic's child tasks say together: summed measurable commits ahead, and any dirty tree. */
+export interface EpicChange {
+  ahead: number;
+  dirty: boolean;
+}
+
+/**
+ * Rolls the board-wide change flags up per epic (D-18) — a reduction over the one map the board
+ * already fetched, never a query per epic. A flag whose base could not be resolved (`ahead: null`)
+ * contributes nothing to the sum, so an epic whose children are all unmeasurable and clean renders
+ * nothing rather than a zero it never measured. Keyed by the flag's epic; `null` is the no-epic bucket.
+ */
+export function rollUpChangeFlags(flags: readonly ChangeFlagDto[]): Map<string | null, EpicChange> {
+  const byEpic = new Map<string | null, EpicChange>();
+  for (const flag of flags) {
+    const key = flag.epicId ?? null;
+    const change = byEpic.get(key) ?? { ahead: 0, dirty: false };
+    change.ahead += flag.ahead ?? 0;
+    change.dirty ||= flag.dirty;
+    byEpic.set(key, change);
+  }
+  return byEpic;
+}
+
 export interface EpicHeaderRowProps {
   /** The epic's id, or `null` for the "No epic" bucket (which has no selection target). */
   epicId: string | null;
@@ -52,6 +77,8 @@ export interface EpicHeaderRowProps {
   progress?: EpicProgressDto;
   /** `undefined` until the proposal window lands; `0` is a measured zero. */
   pendingProposalCount?: number;
+  /** The rolled-up change signal for this epic; `undefined` when no child task has a worktree. */
+  change?: EpicChange;
   collapsed: boolean;
   selected?: boolean;
   focused?: boolean;
@@ -66,6 +93,7 @@ export function EpicHeaderRow({
   title,
   progress,
   pendingProposalCount,
+  change,
   collapsed,
   selected = false,
   focused = false,
@@ -88,6 +116,11 @@ export function EpicHeaderRow({
   if (pendingProposalCount !== undefined) {
     parts.push(plural(pendingProposalCount, "proposal waiting", "proposals waiting"));
   }
+  const aheadCount = change?.ahead ?? 0;
+  const aheadLabel = plural(aheadCount, "commit ahead", "commits ahead");
+  const isDirty = change?.dirty ?? false;
+  if (aheadCount > 0) parts.push(`${aheadLabel} across its tasks`);
+  if (isDirty) parts.push("uncommitted changes");
   const accessibleName = [name, ...parts].join(", ");
 
   const surface = focused
@@ -98,7 +131,7 @@ export function EpicHeaderRow({
 
   const rowStyle: CSSProperties = {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) 220px 150px 56px 56px",
+    gridTemplateColumns: "minmax(0, 1fr) 220px 150px 56px 56px 56px",
     columnGap: "var(--space-md)",
     alignItems: "center",
     height: "100%",
@@ -250,6 +283,31 @@ export function EpicHeaderRow({
             <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
               proposals
             </span>
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "var(--space-xs)" }} data-slot="change">
+        {aheadCount > 0 && (
+          <span
+            role="img"
+            aria-label={aheadLabel}
+            title={MARKS_BY_ID["change-ahead"]?.meaning}
+            className="type-label tabular-nums"
+            style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--text-muted-rack)" }}
+          >
+            <Icon name={MARKS_BY_ID["change-ahead"]?.glyph ?? "Triangle"} size={12} />
+            {aheadCount}
+          </span>
+        )}
+        {isDirty && (
+          <span
+            role="img"
+            aria-label="uncommitted changes"
+            title={MARKS_BY_ID["change-dirty"]?.meaning}
+            style={{ display: "inline-flex", alignItems: "center", color: "var(--text-muted-rack)" }}
+          >
+            <Icon name={MARKS_BY_ID["change-dirty"]?.glyph ?? "Dot"} size={12} />
           </span>
         )}
       </div>

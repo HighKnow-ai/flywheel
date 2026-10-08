@@ -1233,6 +1233,8 @@ export async function boardForgeFlags(projectId: string): Promise<ForgeFlagDto[]
  */
 export interface ChangeFlagDto {
   taskId: string;
+  /** The task's epic (`null` = no epic), so the board can roll flags up per epic. */
+  epicId: string | null;
   ahead: number | null;
   dirty: boolean;
 }

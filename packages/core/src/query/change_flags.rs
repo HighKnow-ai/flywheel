@@ -26,15 +26,18 @@ use rusqlite::{params, Connection};
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangeFlagInput {
     pub task_id: String,
+    pub epic_id: Option<String>,
     pub path: String,
     pub branch: String,
     pub base: Option<String>,
 }
 
-/// One task's change state. `ahead: None` is cannot-measure, `Some(0)` is level.
+/// One task's change state. `ahead: None` is cannot-measure, `Some(0)` is level. `epic_id` is the
+/// task's epic, so the board can roll the flags up per epic without holding every task row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangeFlag {
     pub task_id: String,
+    pub epic_id: Option<String>,
     pub ahead: Option<u32>,
     pub dirty: bool,
 }
@@ -49,7 +52,7 @@ pub fn change_flag_inputs(
 ) -> anyhow::Result<Vec<ChangeFlagInput>> {
     let mut stmt = conn
         .prepare(
-            "SELECT w.task_id, w.path, w.branch, e.integration_branch, p.default_branch
+            "SELECT w.task_id, w.path, w.branch, e.integration_branch, p.default_branch, t.epic_id
              FROM worktrees w
              JOIN tasks t ON t.id = w.task_id
              JOIN projects p ON p.id = w.project_id
@@ -65,6 +68,7 @@ pub fn change_flag_inputs(
             let default_branch: String = row.get(4)?;
             Ok(ChangeFlagInput {
                 task_id: row.get(0)?,
+                epic_id: row.get(5)?,
                 path: row.get(1)?,
                 branch: row.get(2)?,
                 base: Some(integration.unwrap_or(default_branch)),
@@ -90,7 +94,7 @@ pub fn finish_change_flags(inputs: Vec<ChangeFlagInput>) -> anyhow::Result<Vec<C
             None => None,
         };
         let dirty = !crate::domain::worktree::porcelain_entries(path)?.is_empty();
-        flags.push(ChangeFlag { task_id: input.task_id, ahead, dirty });
+        flags.push(ChangeFlag { task_id: input.task_id, epic_id: input.epic_id, ahead, dirty });
     }
     Ok(flags)
 }

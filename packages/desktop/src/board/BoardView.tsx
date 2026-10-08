@@ -37,7 +37,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Keyboard
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { BoardRow, ROW_HEIGHT_BY_KIND, type RowKind } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
-import { EpicHeaderRow } from "./EpicHeaderRow";
+import { EpicHeaderRow, rollUpChangeFlags } from "./EpicHeaderRow";
 import { IssuesLane } from "./IssuesLane";
 import { TriageLane } from "./TriageLane";
 import { useProjectProposals } from "../authoring/useAuthoringQuery";
@@ -479,6 +479,8 @@ export function BoardView({
     () => new Map((changeFlagsQuery.data ?? []).map((flag) => [flag.taskId, flag])),
     [changeFlagsQuery.data],
   );
+  // The same map, reduced per epic for the roster (D-18) — no second query.
+  const changeByEpicId = useMemo(() => rollUpChangeFlags(changeFlagsQuery.data ?? []), [changeFlagsQuery.data]);
 
   // D-82's epic-row pending-proposal count (plan 05-08 Task 3) — derived client-side from the
   // SAME project-scoped proposal window `TriageLane.tsx` reads through `useProjectProposals`
@@ -1080,6 +1082,7 @@ export function BoardView({
                     pendingProposalCount={
                       row.id && proposalsQuery.data ? (pendingProposalCountByEpicId[row.id] ?? 0) : undefined
                     }
+                    change={changeByEpicId.get(row.id)}
                     collapsed={collapsedByStatus[key] ?? true}
                     selected={epicItemId !== undefined && epicItemId === selectedId}
                     focused={epicItemId !== undefined && epicItemId === selectedId && listFocused}

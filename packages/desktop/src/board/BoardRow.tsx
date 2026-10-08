@@ -108,7 +108,7 @@ const STRIP_BACKGROUND: Record<string, string> = {
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
-function Icon({ name, size = 14 }: { name: string; size?: number }) {
+export function Icon({ name, size = 14 }: { name: string; size?: number }) {
   const Component = (icons as unknown as Record<string, IconComponent>)[name];
   if (!Component) return null;
   return <Component size={size} strokeWidth={2} />;

@@ -22,13 +22,14 @@ use crate::state::AppState;
 #[serde(rename_all = "camelCase")]
 pub struct ChangeFlagDto {
     pub task_id: String,
+    pub epic_id: Option<String>,
     pub ahead: Option<u32>,
     pub dirty: bool,
 }
 
 impl From<flywheel_core::query::change_flags::ChangeFlag> for ChangeFlagDto {
     fn from(flag: flywheel_core::query::change_flags::ChangeFlag) -> Self {
-        Self { task_id: flag.task_id, ahead: flag.ahead, dirty: flag.dirty }
+        Self { task_id: flag.task_id, epic_id: flag.epic_id, ahead: flag.ahead, dirty: flag.dirty }
     }
 }
 
