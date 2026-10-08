@@ -1127,6 +1127,7 @@ export function BoardView({
             const row = rows[virtualRow.index];
             const enterOrder = enteringRowKeys.get(String(virtualRow.key));
             const rowClass = enterOrder === undefined ? "displace-transition" : "displace-transition row-enter";
+            const epicRowClass = `${rowClass} epic-header-cell`;
             const positionStyle: CSSProperties = {
               position: "absolute",
               top: 0,
@@ -1160,7 +1161,7 @@ export function BoardView({
               const key = groupCollapseKey("epic", row.id);
               const epicItemId = row.item?.id;
               return (
-                <div key={virtualRow.key} data-row-key={virtualRow.key} className={rowClass} style={positionStyle}>
+                <div key={virtualRow.key} data-row-key={virtualRow.key} className={epicRowClass} style={positionStyle}>
                   <EpicHeaderRow
                     epicId={row.id}
                     epicKey={row.epicKey}
@@ -1247,6 +1248,7 @@ export function BoardView({
                   ciFailed={ciFailedTaskIds.has(row.item.id)}
                   changeFlag={changeFlagsByTaskId.get(row.item.id)}
                   pendingProposalCount={pendingProposalCountByEpicId[row.item.id] ?? 0}
+                  hideEpicPill={groupingKey === "epic"}
                   onSelect={() => setSelectedId(row.item.id)}
                   onOpenDetail={() => {
                     setSelectedId(row.item.id);
@@ -1365,12 +1367,10 @@ export function BoardView({
             {emptyState.ctaLabel && emptyState.onCta && (
               <button
                 type="button"
-                className="type-body"
+                className="type-body control-edge"
                 onClick={emptyState.onCta}
                 style={{
                   padding: "var(--space-xs) var(--space-md)",
-                  borderRadius: "var(--radius-chrome)",
-                  border: "1px solid var(--divider)",
                   background: "var(--surface-dominant)",
                   color: "var(--accent-text-rack)",
                   cursor: "pointer",

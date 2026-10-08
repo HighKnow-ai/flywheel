@@ -49,7 +49,7 @@ const escapeRe = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "
 const LEGACY_NAMES = [
   "--accent-nontext", "--accent-text-rack", "--accent-text-strip", "--blocked-text-rack",
   "--blocked-text-strip", "--destructive-strip", "--destructive-text-rack", "--divider",
-  "--focus-ring", "--radius-chrome", "--radius-strip", "--row-surface", "--row-surface-hover",
+  "--focus-ring", "--radius-chrome", "--row-surface", "--row-surface-hover",
   "--row-surface-selected", "--row-surface-selected-unfocused", "--space-2xl", "--space-3xl",
   "--space-lg", "--space-md", "--space-sm", "--space-xl", "--space-xs", "--strip-backlog",
   "--strip-done", "--strip-in-progress", "--strip-in-review", "--strip-todo",
@@ -152,6 +152,37 @@ for (const mode of MODES) {
         expect(ratio, `${mode}: divider on ${surface}`).toBeLessThan(NON_TEXT);
       }
       expect(p.borderControl).not.toBe(p.divider);
+    });
+
+    it("text on a brand fill clears 4.5:1 against the brand fill", () => {
+      expect(contrastRatio(p.textOnAccent, p.accentNontext), `${mode}: textOnAccent on accentNontext`).toBeGreaterThanOrEqual(AA_TEXT);
+    });
+
+    // A-06(b). The legend test below only proves the four row-state HEX STRINGS differ; the two
+    // selected surfaces are 1.011 (light) / 1.014 (dark) apart, which no eye separates. These are
+    // the assertions that the selected-but-unfocused obligation is PERCEPTIBLE, not merely distinct.
+    it("both selection rules are visible on every row surface (3:1)", () => {
+      for (const role of ["selectionRule", "selectionRuleUnfocused"] as const) {
+        for (const surface of SURFACES) {
+          expect(
+            contrastRatio(p[role], p[surface]),
+            `${mode}: ${role} ${p[role]} on ${surface} ${p[surface]}`,
+          ).toBeGreaterThanOrEqual(NON_TEXT);
+        }
+      }
+    });
+
+    it("the focused rule is told apart from the unfocused rule by at least 3:1", () => {
+      expect(
+        contrastRatio(p.selectionRule, p.selectionRuleUnfocused),
+        `${mode}: focused vs unfocused selection rule`,
+      ).toBeGreaterThanOrEqual(NON_TEXT);
+    });
+
+    it("the rule, not the surface, carries the focus distinction (the surfaces are within 1.05)", () => {
+      // Pins WHY the rule roles exist: if someone widens the surface gap this stays true and
+      // merely becomes redundant; if they close the rule gap the test above fails.
+      expect(contrastRatio(p.rowSurfaceSelected, p.rowSurfaceSelectedUnfocused)).toBeLessThan(1.05);
     });
 
     it("the four row-state surfaces are pairwise distinct", () => {

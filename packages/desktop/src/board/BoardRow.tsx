@@ -98,14 +98,6 @@ export const ROW_HEIGHT_BY_KIND: Record<RowKind, number> = {
   "band-header": 28,
 };
 
-const STRIP_BACKGROUND: Record<string, string> = {
-  backlog: "var(--strip-backlog)",
-  todo: "var(--strip-todo)",
-  in_progress: "var(--strip-in-progress)",
-  in_review: "var(--strip-in-review)",
-  done: "var(--strip-done)",
-};
-
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
 export function Icon({ name, size = 14 }: { name: string; size?: number }) {
@@ -162,6 +154,10 @@ export interface BoardRowProps {
    * row to carry it — that is D-82's own reason the triage lane exists). Absent (not a visible
    * zero) when `0`/`undefined`. */
   pendingProposalCount?: number;
+  /** Drops the epic pill. In the epic lens the row sits under its epic's header, which already says
+   * which epic it is, so the pill would repeat that on every line (08.1-14 finish pass). The status
+   * lens keeps it: there a row's epic is real information. */
+  hideEpicPill?: boolean;
   onSelect?: () => void;
   onOpenDetail?: () => void;
   onOpenStatusPicker?: () => void;
@@ -195,6 +191,7 @@ export function BoardRow({
   ciFailed = false,
   changeFlag,
   pendingProposalCount = 0,
+  hideEpicPill = false,
   onSelect,
   onOpenDetail,
   onOpenStatusPicker,
@@ -291,15 +288,21 @@ export function BoardRow({
     onOpenAssigneePicker?.();
   }
 
-  // 01-UI-SPEC.md Accessibility: `row-surface-selected` vs. `row-surface-selected-unfocused`
-  // must be simultaneously distinguishable from each other and from the idle/hover states — a
-  // selected-but-blurred row (e.g. after Escape from the detail panel) must not look identical
-  // to a focused-and-selected row.
+  // A-06: selection is a surface shift PLUS a 2px left rule, and the rule carries the focus
+  // distinction because the two selected surfaces are only 1.011 / 1.014 apart. Full ink while the
+  // list has focus, the lighter control tone once it has lost it; idle and hover reserve the same
+  // 2px transparent so a row changing state never reflows its content. One branch, extended
+  // (not a second): `selectionOverlay` and `selectionRule` move together.
   const selectionOverlay = focused
     ? "var(--row-surface-selected)"
     : selected
       ? "var(--row-surface-selected-unfocused)"
       : "var(--row-surface)";
+  const selectionRule = focused
+    ? "var(--selection-rule)"
+    : selected
+      ? "var(--selection-rule-unfocused)"
+      : "transparent";
 
   const rowStyle: CSSProperties = {
     position: "relative",
@@ -308,12 +311,16 @@ export function BoardRow({
     gap: "var(--space-sm)",
     height: "100%",
     padding: `0 var(--space-md)`,
-    background: `linear-gradient(${selectionOverlay}, ${selectionOverlay}), ${STRIP_BACKGROUND[item.status] ?? "var(--strip-backlog)"}`,
+    // One surface family (D-11): the per-status paper tints are gone, so the row's only background
+    // is the selection overlay over the rack's own ground. Rows are square (no radius).
+    background: selectionOverlay,
     color: "var(--text-primary-strip)",
     borderBottom: "1px solid var(--divider)",
-    borderRadius: "var(--radius-strip)",
+    borderLeft: `2px solid ${selectionRule}`,
+    // The keyboard-focus ring is inset past the 2px rule (-4, not -2): at -2 it would paint over the
+    // rule and the focused row would show blue where A-06 says full ink.
     outline: focused ? "2px solid var(--focus-ring)" : "none",
-    outlineOffset: -2,
+    outlineOffset: -4,
   };
 
   return (
@@ -346,7 +353,7 @@ export function BoardRow({
           aria-label={`${blockedMark?.label ?? "Blocked"}. Press to view the pending request.`}
           title={blockedMark?.meaning}
           onClick={handleBlockedPillClick}
-          className="type-micro"
+          className="type-label"
           style={{
             display: "inline-flex",
             flexShrink: 0,
@@ -372,7 +379,7 @@ export function BoardRow({
           aria-label={`${recoveryMark?.label ?? "Needs Decision"}. Press to view.`}
           title={recoveryMark?.meaning}
           onClick={handleRecoveryPillClick}
-          className="type-micro"
+          className="type-label"
           style={{
             display: "inline-flex",
             flexShrink: 0,
@@ -400,7 +407,7 @@ export function BoardRow({
           aria-label={`${ciFailedMark?.label ?? "CI failed"}. Press to view.`}
           title={ciFailedMark?.meaning}
           onClick={handleCiFailedPillClick}
-          className="type-micro"
+          className="type-label"
           style={{
             display: "inline-flex",
             flexShrink: 0,
@@ -420,13 +427,15 @@ export function BoardRow({
       {aheadCount > 0 && (
         // D-15's graded annotation: a mark plus the count, named for a screen reader — never colour
         // alone. No `field-*` class (same truncation exemption as the pills above), and not a
-        // `role="button"` pill: it is information, not an alert, so it takes the neutral muted role.
+        // `role="button"` pill: it is information, not an alert. The count takes the brand TEXT role
+        // (DIRECTION s2: commits-ahead is the one data channel the brand carries besides progress);
+        // the glyph and the accessible name stay, so meaning never rests on colour.
         <span
           role="img"
           aria-label={aheadLabel}
           title={changeAheadMark?.meaning}
-          className="type-micro tabular-nums"
-          style={{ display: "inline-flex", flexShrink: 0, alignItems: "center", gap: 2, color: "var(--text-muted-strip)" }}
+          className="type-label tabular-nums"
+          style={{ display: "inline-flex", flexShrink: 0, alignItems: "center", gap: 2, color: "var(--accent-text-rack)" }}
         >
           <Icon name={changeAheadMark?.glyph ?? "Triangle"} size={12} />
           {aheadCount}
@@ -464,7 +473,7 @@ export function BoardRow({
       {estimateMark && (
         <span
           role="button"
-          className="field-estimate type-micro tabular-nums"
+          className="field-estimate type-label tabular-nums"
           aria-label={`Estimate: ${estimateMark.label}. Press to change.`}
           title={estimateMark.meaning}
           onClick={handleEstimateBadgeClick}
@@ -473,8 +482,8 @@ export function BoardRow({
             minWidth: 20,
             textAlign: "center",
             color: "var(--text-muted-strip)",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
+            border: "1px solid var(--border-control)",
+            borderRadius: "var(--radius-mark)",
             padding: "1px var(--space-xs)",
             cursor: "pointer",
           }}
@@ -482,7 +491,7 @@ export function BoardRow({
           {estimateLetter(item.estimate)}
         </span>
       )}
-      {!isEpic && (
+      {!isEpic && !hideEpicPill && (
         <span
           className="field-epic-pill type-label"
           style={{ flexShrink: 0, color: "var(--text-muted-strip)" }}

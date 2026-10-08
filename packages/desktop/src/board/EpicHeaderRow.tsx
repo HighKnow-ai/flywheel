@@ -130,9 +130,9 @@ export function EpicHeaderRow({
       : "var(--row-surface)";
 
   const rowStyle: CSSProperties = {
+    // The column template lives in App.css (`.epic-header-row`), because a container query cannot
+    // rewrite an inline style: the ladder sheds the distribution strip as the rack narrows.
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) 220px 150px 56px 56px 56px",
-    columnGap: "var(--space-md)",
     alignItems: "center",
     height: "100%",
     padding: "0 var(--space-md)",
@@ -205,7 +205,7 @@ export function EpicHeaderRow({
                 style={{
                   flex: 1,
                   height: 6,
-                  borderRadius: "var(--radius-mark, 3px)",
+                  borderRadius: "var(--radius-mark)",
                   overflow: "hidden",
                   background: mix(9),
                 }}
@@ -223,7 +223,7 @@ export function EpicHeaderRow({
         )}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0 }}>
+      <div className="field-epic-distribution" style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0 }}>
         {progress && (
           <>
             <div
@@ -233,7 +233,7 @@ export function EpicHeaderRow({
                 display: "flex",
                 height: 6,
                 gap: 1,
-                borderRadius: "var(--radius-mark, 3px)",
+                borderRadius: "var(--radius-mark)",
                 overflow: "hidden",
                 background: "var(--surface-dominant)",
               }}
@@ -294,7 +294,7 @@ export function EpicHeaderRow({
             aria-label={aheadLabel}
             title={MARKS_BY_ID["change-ahead"]?.meaning}
             className="type-label tabular-nums"
-            style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--text-muted-rack)" }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--accent-text-rack)" }}
           >
             <Icon name={MARKS_BY_ID["change-ahead"]?.glyph ?? "Triangle"} size={12} />
             {aheadCount}

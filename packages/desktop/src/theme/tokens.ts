@@ -31,6 +31,8 @@ export interface Palette {
   /** Brand as a fill or edge (the progress fill). */
   accentNontext: string;
   focusRing: string;
+  /** Text on a brand fill (a primary button). */
+  textOnAccent: string;
   /** Done. */
   successTextRack: string;
   /** Failed. */
@@ -41,6 +43,10 @@ export interface Palette {
   rowSurfaceHover: string;
   rowSurfaceSelected: string;
   rowSurfaceSelectedUnfocused: string;
+  /** The 2px rule on a selected task row while the list has focus (A-06b). */
+  selectionRule: string;
+  /** The same rule once the list has lost focus: lighter, so focus is visible in the rule alone. */
+  selectionRuleUnfocused: string;
   scrim: string;
   shadowPopover: string;
   shadowDialog: string;
@@ -57,6 +63,7 @@ export const LIGHT: Palette = {
   accentTextRack: "#3c64dd",
   accentNontext: "#3c64dd",
   focusRing: "#3c64dd",
+  textOnAccent: "#ffffff",
   successTextRack: "#1a7f37",
   destructiveTextRack: "#cf222e",
   blockedTextRack: "#9a6700",
@@ -64,6 +71,8 @@ export const LIGHT: Palette = {
   rowSurfaceHover: "#fafbfc",
   rowSurfaceSelected: "#f6f8fa",
   rowSurfaceSelectedUnfocused: "#f8f9fb",
+  selectionRule: "#1f2328",
+  selectionRuleUnfocused: "#7a828c",
   scrim: "rgba(31, 35, 40, 0.4)",
   shadowPopover: "0 8px 24px rgba(31, 35, 40, 0.16)",
   shadowDialog: "0 12px 32px rgba(31, 35, 40, 0.2)",
@@ -80,6 +89,7 @@ export const DARK: Palette = {
   accentTextRack: "#5175e1",
   accentNontext: "#3c64dd",
   focusRing: "#3c64dd",
+  textOnAccent: "#ffffff",
   successTextRack: "#3fb950",
   destructiveTextRack: "#f85149",
   blockedTextRack: "#d29922",
@@ -87,6 +97,8 @@ export const DARK: Palette = {
   rowSurfaceHover: "#0c0c0c",
   rowSurfaceSelected: "#0f0f0f",
   rowSurfaceSelectedUnfocused: "#0d0d0d",
+  selectionRule: "#ededed",
+  selectionRuleUnfocused: "#707070",
   scrim: "rgba(0, 0, 0, 0.6)",
   shadowPopover: "0 8px 24px rgba(0, 0, 0, 0.6)",
   shadowDialog: "0 12px 32px rgba(0, 0, 0, 0.65)",

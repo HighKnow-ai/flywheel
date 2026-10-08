@@ -25,7 +25,7 @@ import { BoardRow } from "../../BoardRow";
 import type { BoardItem } from "../../useBoardQuery";
 import { contrastRatio } from "../../../theme/contrast";
 import { PALETTES, type Mode } from "../../../theme/tokens";
-import { effectiveBackground, paintedContrast, toHex } from "../../../review/__tests__/browser/paint";
+import { effectiveBackground, paintedContrast, parseColor, toHex } from "../../../review/__tests__/browser/paint";
 
 const AA_TEXT = 4.5;
 const NON_TEXT = 3;
@@ -108,3 +108,43 @@ describe(`board row legibility, painted, ${mode} scheme`, () => {
     expect(paintedContrast(dirty!), `${mode}: uncommitted-changes glyph`).toBeGreaterThanOrEqual(NON_TEXT);
   });
 });
+
+describe(`selection rule, painted, ${mode} scheme (A-06)`, () => {
+  /** What the engine actually resolved for one row state: the rule's colour and the surface under it. */
+  function paintedRule(props: { selected?: boolean; focused?: boolean }) {
+    const { unmount } = render(
+      <div className="rack-ground" style={{ width: 1000 }}>
+        <div style={{ height: 32 }}>
+          <BoardRow item={ITEM} {...props} />
+        </div>
+      </div>,
+    );
+    const row = screen.getByRole("listitem");
+    const style = getComputedStyle(row);
+    const painted = {
+      rule: toHex(parseColor(style.borderLeftColor)),
+      width: style.borderLeftWidth,
+      surface: toHex(effectiveBackground(row)),
+    };
+    unmount();
+    return painted;
+  }
+
+  it("shows a different, visible rule for idle, selected-unfocused and selected-focused, all 2px", () => {
+    const idle = paintedRule({});
+    const unfocused = paintedRule({ selected: true });
+    const focused = paintedRule({ selected: true, focused: true });
+
+    for (const [name, state] of [["idle", idle], ["unfocused", unfocused], ["focused", focused]] as const) {
+      expect(state.width, `${mode}: ${name} rule width, so a row changing state never reflows`).toBe("2px");
+    }
+    // The surfaces alone cannot carry this (1.011 / 1.014 apart): the RULES must, as painted.
+    expect(contrastRatio(focused.rule, unfocused.rule), `${mode}: focused vs unfocused rule`).toBeGreaterThanOrEqual(NON_TEXT);
+    expect(contrastRatio(focused.rule, focused.surface), `${mode}: focused rule on its surface`).toBeGreaterThanOrEqual(NON_TEXT);
+    expect(contrastRatio(unfocused.rule, unfocused.surface), `${mode}: unfocused rule on its surface`).toBeGreaterThanOrEqual(NON_TEXT);
+    // Idle's rule is the same transparent 2px, so it paints as the ground itself.
+    expect(idle.rule).not.toBe(focused.rule);
+    expect(idle.rule).not.toBe(unfocused.rule);
+  });
+});
+

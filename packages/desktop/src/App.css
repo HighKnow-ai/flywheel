@@ -1,9 +1,8 @@
 /*
- * Reset + the rack ground. The Flight Progress Strips world (01-UI-SPEC.md
- * "Selected Direction") lands here: the boot window reads as the dark chrome
- * frame described in "First viewport." Board surfaces (rail, strips, panel,
- * palette) land starting in plan 01-03; this plan authors only the ground and
- * the theme foundation every later surface consumes.
+ * Reset + the rack ground, and the app shell's shared rules. The world is Mission Control
+ * (08.1-UI-SPEC.md "Selected Direction"): one near-neutral surface family in light and dark,
+ * hairline rules, no fills, type and spacing carrying the hierarchy. The Flight Progress Strips
+ * world this file was first written for is retired (D-10).
  */
 * {
   box-sizing: border-box;
@@ -44,16 +43,41 @@ button:focus-visible {
 }
 
 /*
- * Board row / quick-add hover (01-UI-SPEC.md Row Anatomy row states). Rows set their status tint
- * via an inline `background` (dynamic per status), so the hover wash is an inset box-shadow
- * overlay — the same `--row-surface-hover` token layered on top, rather than a second background
- * declaration fighting the inline one.
+ * A control's visible edge (WCAG 1.4.11, 3:1): inputs, chips and buttons draw it from
+ * --border-control, never from --divider (1.16 to 1.43, a decorative hairline that separates
+ * regions and rows only). The chrome radius is the contract's radius for controls. A pressed or
+ * selected state may override `border-color` inline; the focus ring follows this radius.
+ */
+.control-edge {
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-chrome);
+}
+
+/* Hover on a control: the edge goes to ink, a plain static colour change (no motion on hover). */
+button.control-edge:hover:not(:disabled) {
+  border-color: var(--text-primary-rack);
+}
+
+/*
+ * A rail row hovers like a board row: the same inset wash, because the rows set `background`
+ * inline and a plain `background` rule here would lose to it. The current entry keeps its own mark.
+ */
+.project-rail button:not([aria-current]):hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/*
+ * Board row hover (01-UI-SPEC.md Row Anatomy row states). The row's own background is the
+ * selection overlay set inline, so the hover wash is an inset box-shadow layered on top — the same
+ * `--row-surface-hover` token, rather than a second background declaration fighting the inline one.
  */
 .board-row {
   /* The selection-move duration (08.1-UI-SPEC.md § Motion): moving selection or hover down the
-     rack changes exactly this wash, so this is where "you moved" is felt. */
+     rack changes exactly this wash and the 2px rule's colour, so this is where "you moved" is
+     felt. */
   transition:
     box-shadow var(--duration-select, 120ms) var(--ease, ease),
+    border-left-color var(--duration-select, 120ms) var(--ease, ease),
     background var(--duration-select, 120ms) var(--ease, ease);
 }
 
@@ -96,6 +120,39 @@ button:focus-visible {
 @container board-row (max-width: 420px) {
   .field-estimate {
     display: none;
+  }
+}
+
+/*
+ * The epic roster header is a grid, so unlike a task row it cannot shed a field by hiding it
+ * inside a fixed template. Its wrapper is the container; the ladder rewrites the template. A
+ * FIELD (the distribution strip, the progress column's width) gives way as the rack narrows,
+ * and the title keeps the slack; a SIGNAL (agents, proposals, the change cue) never does — the
+ * same field-versus-signal convention as the `.field-*` rules above.
+ */
+.epic-header-cell {
+  container-type: inline-size;
+  container-name: epic-header;
+}
+
+.epic-header-row {
+  grid-template-columns: minmax(0, 1fr) 220px 150px 56px 56px 56px;
+  column-gap: var(--space-md);
+}
+
+@container epic-header (max-width: 900px) {
+  .field-epic-distribution {
+    display: none;
+  }
+
+  .epic-header-row {
+    grid-template-columns: minmax(0, 1fr) 220px 56px 56px 56px;
+  }
+}
+
+@container epic-header (max-width: 640px) {
+  .epic-header-row {
+    grid-template-columns: minmax(0, 1fr) 140px 56px 56px 56px;
   }
 }
 

@@ -34,6 +34,8 @@
   --accent-text-rack: #3c64dd;
   --accent-nontext: #3c64dd;
   --focus-ring: #3c64dd;
+  /* Text on a brand FILL (a primary button): 5.17 on the brand. Ink on the brand is 3.05. */
+  --text-on-accent: #ffffff;
 
   /* --- Data channels (D-11): done, failed, blocked. All AA on both surfaces. --- */
   --success-text-rack: #1a7f37;
@@ -50,6 +52,15 @@
   --row-surface-hover: #fafbfc;
   --row-surface-selected: #f6f8fa;
   --row-surface-selected-unfocused: #f8f9fb;
+
+  /*
+   * The 2px rule on a selected task row (A-06). The two selected surfaces above are 1.011 apart,
+   * so the RULE carries focus: full ink while the list has focus, the lighter control tone once it
+   * has lost it (4.06 apart). Separate roles from --text-primary-rack and --border-control on
+   * purpose: a later change to control borders must not silently move selection.
+   */
+  --selection-rule: #1f2328;
+  --selection-rule-unfocused: #7a828c;
 
   /* --- Overlays: scrim and the three elevation shadows --- */
   --scrim: rgba(31, 35, 40, 0.4);
@@ -69,8 +80,8 @@
   --destructive-strip: var(--destructive-text-rack);
   --blocked-text-strip: var(--blocked-text-rack);
 
-  /* --- Radius language (chrome rounds more openly than printed rows) --- */
-  --radius-strip: 2px;
+  /* --- Radius language (rows are square; marks 3px; chrome 6px) --- */
+  --radius-mark: 3px;
   --radius-chrome: 6px;
 
   /* --- Spacing scale (structural, locked) --- */
@@ -105,6 +116,7 @@
     --accent-text-rack: #5175e1;
     --accent-nontext: #3c64dd;
     --focus-ring: #3c64dd;
+    --text-on-accent: #ffffff;
 
     --success-text-rack: #3fb950;
     --destructive-text-rack: #f85149;
@@ -114,6 +126,9 @@
     --row-surface-hover: #0c0c0c;
     --row-surface-selected: #0f0f0f;
     --row-surface-selected-unfocused: #0d0d0d;
+
+    --selection-rule: #ededed;
+    --selection-rule-unfocused: #707070;
 
     --scrim: rgba(0, 0, 0, 0.6);
     --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.6);

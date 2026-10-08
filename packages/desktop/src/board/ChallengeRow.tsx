@@ -32,7 +32,7 @@ const truncate: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", 
 
 const buttonStyle: CSSProperties = {
   flexShrink: 0,
-  border: "1px solid var(--divider)",
+  border: "1px solid var(--border-control)",
   borderRadius: "var(--radius-chrome)",
   background: "transparent",
   color: "var(--text-primary-rack)",
@@ -40,7 +40,8 @@ const buttonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-const acceptStyle: CSSProperties = { ...buttonStyle, background: "var(--accent-nontext)", border: "none" };
+// Ink on the brand fill is 3.05 in light; --text-on-accent is 5.17 in both modes.
+const acceptStyle: CSSProperties = { ...buttonStyle, background: "var(--accent-nontext)", color: "var(--text-on-accent)", border: "none" };
 
 export function ChallengeRow({ proposal, epicLabel }: ChallengeRowProps) {
   const title = payloadTitle(proposal);
@@ -87,7 +88,7 @@ export function ChallengeRow({ proposal, epicLabel }: ChallengeRowProps) {
       <span aria-hidden="true" style={{ display: "inline-flex", flexShrink: 0, color: "var(--text-muted-rack)" }}>
         <Icon name={mark?.glyph ?? "FileClock"} />
       </span>
-      <span className="type-label" style={{ flexShrink: 0, color: "var(--accent-text-rack)", textTransform: "uppercase" }}>
+      <span className="type-label" style={{ flexShrink: 0, color: "var(--text-muted-rack)", textTransform: "uppercase" }}>
         {proposal.targetType}
       </span>
       {proposal.verb !== "create" && (
