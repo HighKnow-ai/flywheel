@@ -54,3 +54,9 @@
   **Impact:** cosmetic reporting only — no product behaviour and no gate depends on it. Phase
   completion is decided by ROADMAP success criteria and the verifier, not by this bar.
   **To fix:** report upstream to @opengsd/gsd-core, or pin a corrected local copy.
+
+- The browser arm regenerates tracked Phase 8 evidence on every run. `src/review/__tests__/browser/legibility.browser.test.tsx` and its neighbour write fixed-path PNGs into `.planning/phases/08-review-and-merge-inside-flywheel/uat-screenshots/` (`uat-01-review-diff-1440x900.png`, `uat-02-epic-rail-1440x900.png`). Any `test:browser` or `test:browser:dark` run therefore modifies two tracked files, and the dark run overwrites the light images.
+  status: open
+  **Found during:** 08.1-07 (running both browser arms)
+  **Not fixed here, deliberately:** the screenshots are Phase 8 UAT evidence of the OLD palette, and changing where tests write is a test-infrastructure decision beyond a token plan. 08.1-07 restored them with `git checkout` after every run and never staged them.
+  **To fix:** write the screenshots to the gitignored `.vitest/` output directory, or key the filename by scheme, in a later test-infrastructure pass.

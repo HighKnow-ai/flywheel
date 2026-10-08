@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "08.1"
 current_phase_name: "Visual polish: brand assets and confirmed motion (INSERTED)"
 status: executing
-stopped_at: Completed 08.1-06-PLAN.md
-last_updated: "2026-10-08T03:59:37.148Z"
+stopped_at: Completed 08.1-07-PLAN.md
+last_updated: "2026-10-08T04:12:31.725Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08.1 execution started
-state_head: c292a23a9fd23dd73b8a83284937aca3b057a525
+state_head: 4489f6c4b4cbd6eeb64003036f951c67ea5cc4f8
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 205
-  completed_plans: 191
+  completed_plans: 192
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
-Plan: 7 of 20
+Plan: 8 of 20
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08.1 execution started
 
@@ -253,6 +253,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08.1 P04 | 35 min | 3 tasks | 12 files |
 | Phase 08.1 P05 | 34 min | 3 tasks | 10 files |
 | Phase 08.1 P06 | 25 min | 3 tasks | 1 files |
+| Phase 08.1 P07 | 8 min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -583,6 +584,8 @@ Recent decisions affecting current work:
 - [Phase 08.1]: A-01 approved 2026-10-08: epic roster is the home surface (amends 01-UI-SPEC IA + Surface Inventory)
 - [Phase 08.1]: A-02 approved 2026-10-08: grouping toggle epic/status closes Open Decision 9; no keybinding granted
 - [Phase 08.1]: A-03 approved in full 2026-10-08: change-cue slot + four row-kind heights; Performance Contract intact
+- [Phase 08.1]: 08.1-07: dark brand text lift pinned at #5175e1 (4.55 on #0f0f0f), derived by search; light mode carries no lift
+- [Phase 08.1]: 08.1-07: row-state surfaces are opaque and no darker than the surface role so every text and data-channel role stays AA; the 2px selection rule carries selection
 
 ### Pending Todos
 
@@ -644,6 +647,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-08T03:59:36.978Z
-Stopped at: Completed 08.1-06-PLAN.md
+Last session: 2026-10-08T04:12:31.551Z
+Stopped at: Completed 08.1-07-PLAN.md
 Resume file: None
