@@ -154,6 +154,17 @@ export interface DriftWarningDto {
 }
 
 /**
+ * A reviewer's decline as the launch sheet shows it (A-08(a), plan 08.1-21) — mirrors
+ * `commands/agent_run.rs`'s `ReviewFeedbackDto`. `lead` is the exact sentence the prompt's
+ * `## Review Feedback` section opens with, and `statements` are the still-unchecked criteria it
+ * lists: composed once, in Rust, rendered verbatim here.
+ */
+export interface ReviewFeedbackDto {
+  lead: string;
+  statements: string[];
+}
+
+/**
  * The launch sheet's read-only briefing (D-27/D-28, plan 02-04): the assembled context packet's
  * structured fields plus the exact prompt string `agent_run_start` would send for an empty
  * instruction — one Rust-side renderer, so the sheet never shows a briefing that differs from
@@ -177,6 +188,10 @@ export interface ContextPacketDto {
   /** Every fired drift warning (D-72 through D-75, plan 04-12 Task 3) — the developer-facing half
    * of the same warnings the agent's own rendered prompt carries. Empty when nothing drifted. */
   drift: DriftWarningDto[];
+  /** Present only while a reviewer's decline is pending (A-08(a)). Optional rather than
+   * `| null` so every existing fixture that predates the field still type-checks; Rust always
+   * sends it (`null` when absent). */
+  reviewFeedback?: ReviewFeedbackDto | null;
   branch: string;
   baseRef: string;
   worktreePath: string;
@@ -1529,4 +1544,28 @@ export async function reviewMergePrecheck(taskId: string): Promise<MergePreviewD
  * `eventNotRecorded`. Thin wrapper over `review_merge_task`. */
 export async function reviewMergeTask(taskId: string): Promise<ReviewMergeOutcomeDto> {
   return invokeCommand<ReviewMergeOutcomeDto>("review_merge_task", { taskId });
+}
+
+/** What the review surface may offer for a task — mirrors `commands::review::ChangesRequestStateDto`.
+ * `ready` and `sentBack` carry the unchecked-criteria count; a refusal carries a named category so
+ * the surface can say why in its own voice (A-08(a)). */
+export type ChangesRequestStateDto =
+  | { state: "ready"; uncheckedCount: number }
+  | { state: "sentBack"; uncheckedCount: number }
+  | { state: "refused"; category: "notInFlight" | "integrated" | "noCriteria" | "nothingUnchecked" };
+
+/** Read whether a decline is offered for a task (A-08(a)). Read-only; takes a task id and nothing
+ * else. Thin wrapper over `review_changes_request_state`. */
+export async function reviewChangesRequestState(taskId: string): Promise<ChangesRequestStateDto> {
+  return invokeCommand<ChangesRequestStateDto>("review_changes_request_state", { taskId });
+}
+
+/** Send a task back to its agent with its unchecked criteria as the reason (A-08(a)). Takes a task
+ * id and NOTHING else — the reason is derived in the Rust core from the board, so no text from this
+ * process can reach the agent through it (T-08.1-58). Resolves to the number of criteria sent back;
+ * rejects with `refused:<category>` (including `refused:alreadySentBack`) or `failed:<context>`.
+ * It moves status by exactly one named edge and is the only status-moving command the review tree
+ * may name. Thin wrapper over `review_request_changes`. */
+export async function reviewRequestChanges(taskId: string): Promise<number> {
+  return invokeCommand<number>("review_request_changes", { taskId });
 }

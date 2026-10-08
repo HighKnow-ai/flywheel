@@ -224,6 +224,8 @@ fn main() {
             commands::review::criterion_check_with_anchor,
             commands::review::review_merge_precheck,
             commands::review::review_merge_task,
+            commands::review::review_changes_request_state,
+            commands::review::review_request_changes,
             commands::review::review_epic_task_rollup,
         ])
         .build(tauri::generate_context!())

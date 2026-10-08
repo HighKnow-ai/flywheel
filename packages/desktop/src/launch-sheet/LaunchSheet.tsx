@@ -33,6 +33,7 @@ import {
   type DriftWarningDto,
   type EpicContextPacketDto,
   type RejectedSetDto,
+  type ReviewFeedbackDto,
   type SessionSummaryDto,
   type TaskRosterEntryDto,
   type AssumptionEntryDto,
@@ -275,6 +276,32 @@ function DriftWarningSection({ drift }: { drift: DriftWarningDto[] }) {
   );
 }
 
+/** A reviewer's decline (A-08(a)): the lead sentence and the still-unchecked criteria, exactly as
+ * the prompt's `## Review Feedback` section carries them for the agent — the lead is the core's own
+ * constant, delivered in the DTO, never worded here (T-02-21). Placed after Warnings and before the
+ * epic section, the order `render_prompt` uses. Plain ink, no colour role of its own, and rendered
+ * through React's text path only. Omitted when the packet carries no feedback. */
+function ReviewFeedbackSection({ feedback }: { feedback: ReviewFeedbackDto | null | undefined }) {
+  if (!feedback) return null;
+  return (
+    <section>
+      <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        Review feedback
+      </div>
+      <p className="type-body" style={{ margin: 0 }}>
+        {feedback.lead}
+      </p>
+      <ul style={{ margin: 0, paddingLeft: "var(--space-md)" }}>
+        {feedback.statements.map((statement, index) => (
+          <li key={index} className="type-body">
+            {statement}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** The read-what-you-need line ending both `render_prompt`'s Diff So Far section and this one —
  * verbatim, so the developer reads exactly the instruction the agent is given. */
 const DIFF_READ_INVITATION =
@@ -350,6 +377,7 @@ function PacketBody({ packet }: { packet: ContextPacketDto }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
       <DriftWarningSection drift={packet.drift} />
+      <ReviewFeedbackSection feedback={packet.reviewFeedback} />
 
       {packet.epicTitle && (
         <section>

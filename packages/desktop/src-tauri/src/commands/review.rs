@@ -519,8 +519,12 @@ pub enum ChangesRequestStateDto {
 pub(crate) fn changes_request_state_dto(
     state: flywheel_core::domain::task::ChangesRequestState,
 ) -> ChangesRequestStateDto {
-    let _ = state;
-    ChangesRequestStateDto::Refused { category: String::new() }
+    use flywheel_core::domain::task::ChangesRequestState as S;
+    match state {
+        S::Ready(unchecked) => ChangesRequestStateDto::Ready { unchecked_count: unchecked.len() },
+        S::SentBack(unchecked) => ChangesRequestStateDto::SentBack { unchecked_count: unchecked.len() },
+        S::Refused(why) => ChangesRequestStateDto::Refused { category: why.category().to_string() },
+    }
 }
 
 /// Map the core's outcome onto the command's result: a count, or the packed error
@@ -528,8 +532,53 @@ pub(crate) fn changes_request_state_dto(
 pub(crate) fn request_changes_result(
     outcome: anyhow::Result<flywheel_core::domain::task::ChangesRequestOutcome>,
 ) -> Result<usize, String> {
-    let _ = outcome;
-    Ok(0)
+    use flywheel_core::domain::task::ChangesRequestOutcome as O;
+    match outcome {
+        Ok(O::Requested { count }) => Ok(count),
+        Ok(O::AlreadySentBack) => Err("refused:alreadySentBack".to_string()),
+        Ok(O::Refused(why)) => Err(format!("refused:{}", why.category())),
+        Err(e) => Err(ipc_error("review_request_changes:write", e)),
+    }
+}
+
+/// What the review surface may offer for a task: ready, already sent back, or refused with a named
+/// category (A-08(a)). Read-only. Spawns no git, so holding the database lock for the whole call
+/// is safe.
+#[tauri::command]
+pub fn review_changes_request_state(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<ChangesRequestStateDto, String> {
+    let conn = state.db.lock().map_err(|e| ipc_error("review_changes_request_state:lock", e))?;
+    flywheel_core::domain::task::changes_request_state(&conn, &task_id)
+        .map(changes_request_state_dto)
+        .map_err(|e| ipc_error("review_changes_request_state:read", e))
+}
+
+/// Send a task back to its agent with its unchecked criteria as the reason (A-08(a)). Takes a task
+/// id and nothing else: the reason is derived in the core from the board, so the renderer cannot
+/// author the text the agent reads. This command moves a task's status by exactly one named edge
+/// (to `in_progress`) and takes no status argument; that narrows the review tree's old "writes no
+/// status" claim, while the merge command's own "writes no status column" stays true. It issues no
+/// SQL of its own. Resolves the actor server-side and emits `board:changed` after the lock is
+/// released. Errors are `refused:<category>` (a core refusal, or `alreadySentBack`) or
+/// `failed:<context>`.
+#[tauri::command]
+pub fn review_request_changes(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+) -> Result<usize, String> {
+    let mut conn = state.db.lock().map_err(|e| ipc_error("review_request_changes:lock", e))?;
+    let outcome = flywheel_core::domain::actor::local_human_actor_id(&conn).and_then(|actor_id| {
+        flywheel_core::domain::task::request_changes(&mut conn, &actor_id, &task_id)
+    });
+    drop(conn);
+    let result = request_changes_result(outcome);
+    if result.is_ok() {
+        app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+    }
+    result
 }
 
 #[cfg(test)]

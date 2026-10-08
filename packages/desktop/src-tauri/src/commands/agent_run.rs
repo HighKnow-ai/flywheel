@@ -323,7 +323,12 @@ impl From<ContextPacket> for ContextPacketDto {
             compaction,
             decisions,
             drift,
-            review_feedback: None,
+            // One Rust-side sentence feeds both renderings: the core's constant for the lead and
+            // the core's own unchecked list, exactly as `render_prompt` reads them.
+            review_feedback: packet.review_feedback.map(|f| ReviewFeedbackDto {
+                lead: flywheel_core::context_packet::REVIEW_FEEDBACK_LEAD.to_string(),
+                statements: f.statements,
+            }),
             branch: packet.worktree.branch,
             base_ref: packet.worktree.base_ref,
             worktree_path: packet.worktree.path,
