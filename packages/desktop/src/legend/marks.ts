@@ -404,12 +404,13 @@ export const MARKS: Mark[] = [
   // Phase 8.1 plan 01 (D-15): the board row's graded change annotation — how much real work sits
   // behind a task's worktree. Deliberately NOT alert-shaped: neither is a fifth pill beside
   // Blocked / Needs Decision / CI failed, and neither uses an alert colour. Outline icons from the
-  // locked icon library, per this registry's rule; if the direction round wants a filled shape
-  // instead, that is a registry-rule amendment owned by plan 09 under D-03.
+  // locked icon library, per this registry's rule. Glyphs settled by amendment A-05 (08.1-09,
+  // 2026-10-08): `Triangle` + count and `Dot` — outline-only rule upheld, filled glyphs declined.
+  // `Circle` was the Todo status glyph in the same row; `Dot` is not used by any status mark.
   {
     id: "change-ahead",
     channel: "agent",
-    glyph: "GitCommitVertical",
+    glyph: "Triangle",
     label: "Commits ahead",
     meaning:
       "This task's branch has commits its epic's integration branch does not — real work waiting to be reviewed. The number is the count; a task with no worktree, or one level with its base, shows nothing.",
@@ -417,7 +418,7 @@ export const MARKS: Mark[] = [
   {
     id: "change-dirty",
     channel: "agent",
-    glyph: "Circle",
+    glyph: "Dot",
     label: "Uncommitted changes",
     meaning:
       "This task's worktree has changes that are not committed yet. Shown only when there are some — absence means a clean tree or no worktree.",

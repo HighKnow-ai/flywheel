@@ -415,7 +415,7 @@ export function BoardRow({
           className="type-micro tabular-nums"
           style={{ display: "inline-flex", flexShrink: 0, alignItems: "center", gap: 2, color: "var(--text-muted-strip)" }}
         >
-          <Icon name={changeAheadMark?.glyph ?? "GitCommitVertical"} size={12} />
+          <Icon name={changeAheadMark?.glyph ?? "Triangle"} size={12} />
           {aheadCount}
         </span>
       )}
@@ -426,7 +426,7 @@ export function BoardRow({
           title={changeDirtyMark?.meaning}
           style={{ display: "inline-flex", flexShrink: 0, alignItems: "center", color: "var(--text-muted-strip)" }}
         >
-          <Icon name={changeDirtyMark?.glyph ?? "Circle"} size={12} />
+          <Icon name={changeDirtyMark?.glyph ?? "Dot"} size={12} />
         </span>
       )}
       <span
