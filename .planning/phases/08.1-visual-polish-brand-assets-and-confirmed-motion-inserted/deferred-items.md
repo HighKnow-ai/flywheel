@@ -72,3 +72,16 @@
   **Found during:** 08.1-10
   **Not fixed here, deliberately:** the aggregate is board-wide by plan 05's design, and hiding headers from loaded rows would be a second filter implementation (D-03).
   **To fix:** a filter-aware aggregate in the core, or a core-side "epics matching this filter" read.
+  **ESCALATED by the orchestrator 2026-10-08 — this contradicts a decision the owner actually took.**
+  A-04 was a `blocking-human` gate. The owner was shown all three readings with their verified
+  real-board consequences and chose `any-child` precisely so the roster would narrow from 13 epics to
+  5 with grouping intact; he explicitly rejected `always` because it "would leave 8 of the 13 as
+  empty shells". As shipped, the epic lens under the chip renders every epic header with its
+  unfiltered count, which is behaviourally `always` — the option he declined. The core SQL clause
+  itself is correct (verified against the live database: 5 distinct epics own the 5 active
+  worktrees); the gap is that the epic lens does not consult it for headers.
+  **No plan owns this.** Plan 11 is frontend-only (EpicHeaderRow, summaryLine, BoardView, BoardRow)
+  and already carries a low-confidence 100k estimate; a filter-aware core aggregate is a Rust query
+  plus a command plus a hook, which would change that plan's character from render to data. Closing
+  this properly wants its own small plan. Raised to the owner at the wave 6/7 boundary; left open
+  pending his call so that neither the gap nor the decision it contradicts is silently absorbed.
