@@ -1126,3 +1126,68 @@ describe("epic header row (D-05, D-06)", () => {
     expect(useUiStore.getState().selectedItemId).toBe("epic-b");
   });
 });
+
+describe("epic change roll-up (D-18)", () => {
+  const flag = (taskId: string, ahead: number | null, dirty: boolean, epicId: string | null = "epic-a") => ({
+    taskId,
+    epicId,
+    ahead,
+    dirty,
+  });
+  const AGG = [epicDto("epic-a", { total: 5 })];
+
+  it("sums the commits ahead of the epic's child tasks", async () => {
+    renderRoster({ aggregate: AGG, changeFlags: [flag("t1", 3, false), flag("t2", 2, false), flag("t9", 7, false, "epic-b")] });
+
+    const row = await epicRow("Alpha");
+    expect(await within(row).findByLabelText("5 commits ahead")).toHaveTextContent("5");
+  });
+
+  it("shows the uncommitted-changes mark once however many child tasks are dirty", async () => {
+    renderRoster({ aggregate: AGG, changeFlags: [flag("t1", 0, true), flag("t2", 0, true), flag("t3", 0, true)] });
+
+    const row = await epicRow("Alpha");
+    await within(row).findByLabelText("uncommitted changes");
+    expect(within(row).getAllByLabelText("uncommitted changes")).toHaveLength(1);
+  });
+
+  it("renders nothing, not a zero, when every child task is unmeasurable and clean", async () => {
+    renderRoster({ aggregate: AGG, changeFlags: [flag("t1", null, false), flag("t2", null, false)] });
+
+    const row = await epicRow("Alpha");
+    await waitFor(() => expect(invokeCommandMock.mock.calls.some(([c]) => c === "board_change_flags")).toBe(true));
+    expect(within(row).queryByLabelText(/commits? ahead/)).not.toBeInTheDocument();
+    expect(within(row).queryByLabelText("uncommitted changes")).not.toBeInTheDocument();
+    expect(row.querySelector('[data-slot="change"]')?.textContent).toBe("");
+  });
+
+  it("renders no change signal for an epic with no child task that has a worktree", async () => {
+    renderRoster({ aggregate: AGG, changeFlags: [flag("t9", 4, true, "epic-b")] });
+
+    const row = await epicRow("Alpha");
+    await waitFor(() => expect(invokeCommandMock.mock.calls.some(([c]) => c === "board_change_flags")).toBe(true));
+    expect(within(row).queryByLabelText(/commits? ahead/)).not.toBeInTheDocument();
+    expect(within(row).queryByLabelText("uncommitted changes")).not.toBeInTheDocument();
+  });
+
+  it("keeps the roll-up out of the slot that holds the proposal count", async () => {
+    renderRoster({ aggregate: AGG, proposals: ["epic-a", "epic-a"], changeFlags: [flag("t1", 5, true)] });
+
+    const row = await epicRow("Alpha");
+    const change = (await within(row).findByLabelText("5 commits ahead")).closest("[data-slot]") as HTMLElement;
+    const proposals = (await within(row).findByLabelText("2 proposals waiting")).closest("[data-slot]") as HTMLElement;
+    expect(change).toHaveAttribute("data-slot", "change");
+    expect(proposals).toHaveAttribute("data-slot", "proposals");
+    expect(change).not.toBe(proposals);
+    expect(change.contains(proposals)).toBe(false);
+    expect(proposals.contains(change)).toBe(false);
+  });
+
+  it("names the rolled-up figure in words in the row's accessible name", async () => {
+    renderRoster({ aggregate: AGG, changeFlags: [flag("t1", 5, true)] });
+
+    const row = await epicRow("Alpha");
+    await waitFor(() => expect(row).toHaveAccessibleName(/5 commits ahead/));
+    expect(row).toHaveAccessibleName(/uncommitted changes/);
+  });
+});

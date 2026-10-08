@@ -242,3 +242,15 @@ fn the_limit_caps_the_sweep() {
     let inputs = change_flag_inputs(&f.conn, &f.project_id, 1).expect("inputs");
     assert_eq!(inputs.len(), 1);
 }
+
+#[test]
+fn a_flag_names_the_epic_its_task_belongs_to_so_the_board_can_roll_it_up() {
+    let mut f = setup();
+    let epic = f.epic(None, false);
+    let (in_epic, _a) = f.task_with_worktree(Some(&epic), "in-epic", "main", "active");
+    let (loose, _b) = f.task_with_worktree(None, "loose", "main", "active");
+
+    let flags = f.flags();
+    assert_eq!(flag_for(&flags, &in_epic).epic_id.as_deref(), Some(epic.as_str()));
+    assert_eq!(flag_for(&flags, &loose).epic_id, None);
+}
