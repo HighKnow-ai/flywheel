@@ -38,6 +38,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { BoardRow, ROW_HEIGHT_BY_KIND, type RowKind } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
 import { EpicHeaderRow, rollUpChangeFlags } from "./EpicHeaderRow";
+import { summaryLine } from "./summaryLine";
 import { IssuesLane } from "./IssuesLane";
 import { TriageLane } from "./TriageLane";
 import { useProjectProposals } from "../authoring/useAuthoringQuery";
@@ -496,6 +497,21 @@ export function BoardView({
     }
     return counts;
   }, [proposalsQuery.data]);
+
+  // D-09's "what this says" line: a fixed rule set over aggregates already fetched above — no query
+  // of its own, no agent. It reads the epic aggregate, so it belongs to the epic lens, and it waits
+  // for that aggregate rather than print a read of a board it has not seen.
+  const summaryText = useMemo(() => {
+    if (groupingKey !== "epic" || !progress) return null;
+    return summaryLine({
+      decisionsPending: (proposalsQuery.data?.counts.pending ?? 0) + recoveryTaskIds.size,
+      reviewable: progress.reduce((sum, p) => sum + (p.byStatus.find((s) => s.status === "in_review")?.count ?? 0), 0),
+      agentsBlocked: blockedSummaryQuery.data?.blockedCount ?? 0,
+      buildsFailing: ciFailedTaskIds.size,
+      agentsRunning: progress.reduce((sum, p) => sum + p.agentsRunning, 0),
+      epicsWithoutCriteria: progress.filter((p) => p.epicId !== null && p.criteria === null).length,
+    });
+  }, [groupingKey, progress, proposalsQuery.data, recoveryTaskIds, blockedSummaryQuery.data, ciFailedTaskIds]);
 
   // Item id -> {key, title, kind} for both epics and tasks — `IssuesLane.tsx` looks an issue's
   // `epicId`/`taskId` up against this map to render its parent button (G-01-EPIC-ASSIGN, plan
@@ -1016,6 +1032,26 @@ export function BoardView({
           </button>
         ))}
       </div>
+      {summaryText && (
+        <p
+          data-summary-line
+          className="type-body"
+          title={summaryText}
+          style={{
+            flex: "none",
+            margin: 0,
+            padding: "var(--space-sm) var(--space-md)",
+            borderBottom: "1px solid var(--divider)",
+            background: "var(--surface-dominant)",
+            color: "var(--text-primary-rack)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {summaryText}
+        </p>
+      )}
       {epicRosterNotice && (
         <div
           role="status"

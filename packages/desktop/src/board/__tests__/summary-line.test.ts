@@ -3,9 +3,9 @@
  * pure function of already-fetched aggregates — a fixed rule set, so it costs nothing, is the same
  * for the same input, and cannot say anything the numbers do not. No component is rendered here.
  */
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { summaryLine, type BoardAggregates } from "../summaryLine";
+import source from "../summaryLine.ts?raw";
 
 const QUIET: BoardAggregates = {
   decisionsPending: 0,
@@ -74,7 +74,6 @@ describe("summaryLine (D-09)", () => {
 
   it("does no input or output: plain objects in, a string out, and nothing imported", () => {
     expect(typeof summaryLine({ ...QUIET, decisionsPending: 1 })).toBe("string");
-    const source = readFileSync(new URL("../summaryLine.ts", import.meta.url), "utf8");
     expect(source).not.toMatch(/^\s*import\s/m);
   });
 });
