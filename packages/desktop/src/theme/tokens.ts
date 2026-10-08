@@ -24,6 +24,10 @@ export interface Palette {
   divider: string;
   /** A control's visible boundary: at least 3:1 against ground and surface. */
   borderControl: string;
+  /** An overlay's own edge, per tier. Light: the control boundary. Dark: a lighter edge per tier. */
+  borderPopover: string;
+  borderDialog: string;
+  borderSheet: string;
   textPrimaryRack: string;
   textMutedRack: string;
   /** Brand as TEXT. Equals the brand in light; lifted in dark. */
@@ -58,6 +62,9 @@ export const LIGHT: Palette = {
   surfaceSecondary: "#f6f8fa",
   divider: "#d1d9e0",
   borderControl: "#7a828c",
+  borderPopover: "#7a828c",
+  borderDialog: "#7a828c",
+  borderSheet: "#7a828c",
   textPrimaryRack: "#1f2328",
   textMutedRack: "#59636e",
   accentTextRack: "#3c64dd",
@@ -82,13 +89,16 @@ export const LIGHT: Palette = {
 export const DARK: Palette = {
   surfaceDominant: "#0a0a0a",
   surfaceSecondary: "#0f0f0f",
-  divider: "#1f1f1f",
+  divider: "#2c2c2c",
   borderControl: "#707070",
+  borderPopover: "#7a7a7a",
+  borderDialog: "#909090",
+  borderSheet: "#a6a6a6",
   textPrimaryRack: "#ededed",
   textMutedRack: "#8b8b8b",
   accentTextRack: "#5175e1",
   accentNontext: "#3c64dd",
-  focusRing: "#3c64dd",
+  focusRing: "#5175e1",
   textOnAccent: "#ffffff",
   successTextRack: "#3fb950",
   destructiveTextRack: "#f85149",
@@ -99,7 +109,7 @@ export const DARK: Palette = {
   rowSurfaceSelectedUnfocused: "#0e0e0e",
   selectionRule: "#ededed",
   selectionRuleUnfocused: "#707070",
-  scrim: "rgba(0, 0, 0, 0.6)",
+  scrim: "rgba(0, 0, 0, 0.4)",
   shadowPopover: "0 8px 24px rgba(0, 0, 0, 0.6)",
   shadowDialog: "0 12px 32px rgba(0, 0, 0, 0.65)",
   shadowSheet: "0 16px 48px rgba(0, 0, 0, 0.7)",

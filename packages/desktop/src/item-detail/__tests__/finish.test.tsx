@@ -121,6 +121,7 @@ describe("the group declares no literal colour, scrim or shadow", () => {
   it("the removal dialog's scrim and shadow are the per-mode roles, and Remove is not a fill", () => {
     expect(removalDialogSource).toContain('background: "var(--scrim)"');
     expect(removalDialogSource).toContain('boxShadow: "var(--shadow-dialog)"');
+    expect(removalDialogSource).toContain('border: "1px solid var(--border-dialog)"');
     const destructive = removalDialogSource.match(/const destructiveButtonStyle[\s\S]*?\n\};/)?.[0] ?? "";
     expect(destructive).toContain('background: "transparent"');
     expect(destructive).toContain('color: "var(--destructive-text-rack)"');

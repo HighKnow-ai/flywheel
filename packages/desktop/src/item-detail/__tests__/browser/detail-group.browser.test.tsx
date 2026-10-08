@@ -198,7 +198,7 @@ describe(`item detail group, built, ${scheme} scheme`, () => {
     useUiStore.getState().setPaletteOpen(true);
     const dialog = await screen.findByRole("dialog", { name: "Command palette" });
     // Frame one: full opacity, full scrim (UI-SPEC § Motion). The scrim resolves from the role.
-    expect(getComputedStyle(dialog).backgroundColor).toBe(scheme === "dark" ? "rgba(0, 0, 0, 0.6)" : "rgba(31, 35, 40, 0.4)");
+    expect(getComputedStyle(dialog).backgroundColor).toBe(scheme === "dark" ? "rgba(0, 0, 0, 0.4)" : "rgba(31, 35, 40, 0.4)");
     const panel = document.querySelector(".command-palette") as HTMLElement;
     const style = getComputedStyle(panel);
     expect(style.boxShadow).toContain(scheme === "dark" ? "rgba(0, 0, 0, 0.7)" : "rgba(31, 35, 40, 0.24)");

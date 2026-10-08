@@ -8,6 +8,7 @@
  * overlay rule: a picker is a popover (shadow, no scrim); the palette is a sheet (scrim and shadow).
  */
 import { describe, expect, it } from "vitest";
+import appCss from "../../App.css?raw";
 import palette from "../CommandPalette.tsx?raw";
 import assignee from "../pickers/AssigneePicker.tsx?raw";
 import estimate from "../pickers/EstimatePicker.tsx?raw";
@@ -24,7 +25,7 @@ describe("the five pickers are popovers", () => {
   for (const [name, source] of Object.entries(PICKERS)) {
     it(`${name}: control-boundary edge, popover shadow, no scrim, no literal`, () => {
       const src = code(source);
-      expect(src).toContain('border: "1px solid var(--border-control)"');
+      expect(src).toContain('border: "1px solid var(--border-popover)"');
       expect(src).not.toContain("var(--divider)");
       expect(src).toContain('boxShadow: "var(--shadow-popover)"');
       expect(src).not.toContain("--scrim");
@@ -49,8 +50,17 @@ describe("the command palette is a sheet", () => {
     expect(src).not.toMatch(/rgba?\(|#[0-9a-fA-F]{6}/);
   });
 
-  it("draws its panel edge from the control boundary", () => {
-    expect(src).toContain('border: "1px solid var(--border-control)"');
+  it("draws its panel edge from the sheet tier's edge role (lighter per tier in dark)", () => {
+    expect(src).toContain('border: "1px solid var(--border-sheet)"');
+  });
+
+  it("rings its always-focused search field with the ink rule, inset off the dialog edge, never the brand", () => {
+    expect(src).toContain("command-palette-search");
+    expect(src).not.toMatch(/outlineOffset/);
+    const rule = appCss.match(/\.command-palette-search:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(rule, "no :focus-visible rule for the palette search field").toContain("var(--selection-rule)");
+    expect(rule).not.toContain("--focus-ring");
+    expect(Number(rule.match(/outline-offset:\s*(-\d+)px/)?.[1]), "the ring must sit inside the dialog edge").toBeLessThanOrEqual(-4);
   });
 
   it("marks the highlighted command neutrally, never with the brand", () => {

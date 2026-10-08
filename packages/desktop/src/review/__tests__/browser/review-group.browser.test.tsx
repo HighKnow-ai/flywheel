@@ -175,7 +175,7 @@ describe(`review group, built, ${scheme} scheme`, () => {
     const dialog = await screen.findByRole("dialog", { name: "Merge sheet" });
     const scrim = dialog.parentElement as HTMLElement;
     expect(getComputedStyle(scrim).backgroundColor, "the scrim resolves from --scrim").toBe(
-      scheme === "dark" ? "rgba(0, 0, 0, 0.6)" : "rgba(31, 35, 40, 0.4)",
+      scheme === "dark" ? "rgba(0, 0, 0, 0.4)" : "rgba(31, 35, 40, 0.4)",
     );
     const style = getComputedStyle(dialog);
     expect(style.boxShadow, "the sheet shadow resolves from --shadow-sheet").toContain(scheme === "dark" ? "rgba(0, 0, 0, 0.7)" : "rgba(31, 35, 40, 0.24)");

@@ -185,7 +185,7 @@
 
 .review-sheet {
   background: var(--surface-secondary);
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border-sheet);
   border-radius: var(--radius-chrome);
   box-shadow: var(--shadow-sheet);
   color: var(--text-primary-rack);

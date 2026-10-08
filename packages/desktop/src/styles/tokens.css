@@ -11,8 +11,11 @@
  * is a data channel only, so there is no second material).
  *
  * Mode selection: the light values sit in the root block; the dark block re-declares EVERY
- * mirrored name, including values that happen to match, so the drift check can compare a mode
- * against its own block and nothing else. The contrast test owns every number here.
+ * mirrored name, so the drift check can compare a mode against its own block and nothing else.
+ * A name declared with the SAME value in both blocks is allowed only where the sameness is the
+ * design (the pinned brand fill, text on it, the transparent rest state); contrast.test.ts keeps
+ * that list and fails on any other, because a value written twice and changed in neither is how
+ * --focus-ring shipped unauthored for dark. The contrast test owns every number here.
  */
 
 :root {
@@ -25,6 +28,14 @@
   --divider: #d1d9e0;
   /* A control's visible boundary (inputs, pickers, buttons): 3.89 / 3.65 on ground / surface. */
   --border-control: #7a828c;
+  /*
+   * An overlay's own edge, per tier (UI-SPEC § Overlay Rule). Light says the tier with the shadow
+   * below, so all three edges are the control boundary. Dark cannot (a shadow over a near-black
+   * ground is invisible), so dark says it with edge LIGHTNESS: each tier a step lighter.
+   */
+  --border-popover: #7a828c;
+  --border-dialog: #7a828c;
+  --border-sheet: #7a828c;
 
   /* --- Text --- */
   --text-primary-rack: #1f2328;
@@ -104,10 +115,18 @@
   :root {
     --surface-dominant: #0a0a0a;
     --surface-secondary: #0f0f0f;
-    /* 1.20 / 1.16 on ground / surface. Hairline only. */
-    --divider: #1f1f1f;
+    /*
+     * 1.42 / 1.37 on ground / surface: the weight the light hairline has (1.43 / 1.34). It was #1f1f1f
+     * (1.20 / 1.16), which is the same rule at about half the perceptual strength (08.1-15 closure).
+     * Still a hairline, still under 3:1.
+     */
+    --divider: #2c2c2c;
     /* 4.00 / 3.87 on ground / surface. */
     --border-control: #707070;
+    /* Tier by edge lightness: popover < dialog < sheet, every one clear of the 3:1 control floor. */
+    --border-popover: #7a7a7a;
+    --border-dialog: #909090;
+    --border-sheet: #a6a6a6;
 
     --text-primary-rack: #ededed;
     --text-muted-rack: #8b8b8b;
@@ -121,7 +140,12 @@
      */
     --accent-text-rack: #5175e1;
     --accent-nontext: #3c64dd;
-    --focus-ring: #3c64dd;
+    /*
+     * The ring was declared #3c64dd here as well, identical to light: written twice, authored once. Every
+     * other brand role shifts per mode, so this one takes the lifted step (4.55 on the worst surface,
+     * 3:1 asked for). Overlay controls that sit flush on a dialog edge do not use it; they use the ink rule.
+     */
+    --focus-ring: #5175e1;
     --text-on-accent: #ffffff;
 
     --success-text-rack: #3fb950;
@@ -136,7 +160,8 @@
     --selection-rule: #ededed;
     --selection-rule-unfocused: #707070;
 
-    --scrim: rgba(0, 0, 0, 0.6);
+    /* 0.4, not 0.6: over a near-black ground 0.6 erases the board the modal sits over (08.1-15 closure). */
+    --scrim: rgba(0, 0, 0, 0.4);
     --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.6);
     --shadow-dialog: 0 12px 32px rgba(0, 0, 0, 0.65);
     --shadow-sheet: 0 16px 48px rgba(0, 0, 0, 0.7);

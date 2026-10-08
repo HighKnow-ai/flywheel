@@ -744,7 +744,7 @@ export function CommandPalette() {
               // rail's trap in 08.1-14). The edge is the control boundary, the shadow the sheet tier.
               background: "var(--surface-dominant)",
               color: "var(--text-primary-rack)",
-              border: "1px solid var(--border-control)",
+              border: "1px solid var(--border-sheet)",
               borderRadius: "var(--radius-chrome)",
               boxShadow: "var(--shadow-sheet)",
               overflow: "hidden",
@@ -760,7 +760,7 @@ export function CommandPalette() {
               // being unmounted, the restore silently no-ops, leaving focus on `<body>`.
               // `FocusScope`'s own default mount behavior (`focusFirst` over the container's
               // tabbable candidates) already lands focus here, correctly, after that capture.
-              className="type-body"
+              className="type-body command-palette-search"
               aria-label="Command search"
               placeholder="Type a command…"
               value={query}
@@ -772,9 +772,8 @@ export function CommandPalette() {
                 background: "transparent",
                 color: "inherit",
                 // No `outline: none`: it beat the global `input:focus-visible` ring, so a keyboard user
-                // saw no focus in the field they are typing in (08.1-14, deviation 4). The ring is inset,
-                // because the panel clips its children.
-                outlineOffset: -2,
+                // saw no focus in the field they are typing in (08.1-14, deviation 4). The ring itself is
+                // `.command-palette-search:focus-visible` in App.css (ink, inset past the panel edge).
               }}
             />
             <div role="listbox" aria-label="Commands" style={{ overflowY: "auto" }}>

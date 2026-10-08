@@ -28,7 +28,7 @@ const TEXT_ROLES: Role[] = [
 ];
 
 /** Roles that paint a fill or an edge. Each must clear 3:1 (WCAG 1.4.11). */
-const NON_TEXT_ROLES: Role[] = ["accentNontext", "focusRing", "borderControl"];
+const NON_TEXT_ROLES: Role[] = ["accentNontext", "focusRing", "borderControl", "borderPopover", "borderDialog", "borderSheet"];
 
 /** Every opaque ground a row's text can land on. `rowSurface` is transparent, so it is the ground. */
 const SURFACES: Role[] = [
@@ -167,7 +167,7 @@ for (const mode of MODES) {
     });
 
     it("the divider is a decorative hairline, deliberately NOT a control boundary", () => {
-      // Measured (ground / surface): light 1.43 / 1.34, dark 1.20 / 1.16. A region separator,
+      // Measured (ground / surface): light 1.43 / 1.34, dark 1.42 / 1.37. A region separator,
       // not an interactive edge — which is exactly why `borderControl` exists as its own role.
       // Do not "fix" this hairline up to 3:1: that would turn every rule in the product into a
       // heavy line. It must stay visible at all and must not be what a control draws its edge from.
@@ -241,6 +241,81 @@ for (const mode of MODES) {
     });
   });
 }
+
+/**
+ * 08.1-15 finish review, findings 4 and 5: the dark world was missing three things the light world
+ * has, and one token had been "authored" by copying it. These are the runnable form of each.
+ */
+describe("dark carries what light carries (08.1-15 closure)", () => {
+  const { light, dark } = PALETTES;
+
+  it("the dark hairline has the light hairline's weight on the ground (it was 1.20 against 1.43)", () => {
+    const l = contrastRatio(light.divider, light.surfaceDominant);
+    const d = contrastRatio(dark.divider, dark.surfaceDominant);
+    expect(d, `dark divider ${dark.divider} on the ground`).toBeGreaterThanOrEqual(l - 0.05);
+  });
+
+  it("dark says the overlay tier with edge lightness: popover < dialog < sheet, each lighter than the last", () => {
+    const edge = (role: Role) => contrastRatio(dark[role], dark.surfaceDominant);
+    expect(edge("borderPopover")).toBeGreaterThan(edge("borderControl") - 1e-9);
+    expect(edge("borderDialog")).toBeGreaterThan(edge("borderPopover"));
+    expect(edge("borderSheet")).toBeGreaterThan(edge("borderDialog"));
+  });
+
+  it("the dark shadows cannot carry the tier (so the edge must): the three sit within a hair of each other", () => {
+    const alpha = (shadow: string) => Number(shadow.match(/rgba\(0, 0, 0, ([\d.]+)\)/)?.[1]);
+    expect(alpha(dark.shadowSheet) - alpha(dark.shadowPopover)).toBeLessThan(0.15);
+  });
+
+  it("the dark scrim leaves the board readable behind a modal (0.6 over near-black erased it)", () => {
+    const alpha = Number(dark.scrim.match(/([\d.]+)\)$/)?.[1]);
+    expect(alpha).toBeLessThanOrEqual(0.4);
+    expect(alpha).toBe(Number(light.scrim.match(/([\d.]+)\)$/)?.[1]));
+  });
+});
+
+/**
+ * Roles whose value is the SAME in both modes because that is the design, each with the reason.
+ * Everything else must differ. The list is asserted to be true (an entry that has since diverged
+ * fails), so it cannot rot into a blanket exemption. `--focus-ring` shipped identical in both blocks:
+ * written twice, authored once.
+ */
+const SAME_BY_DESIGN: Partial<Record<Role, string>> = {
+  accentNontext: "the pinned brand fill (progress); the dark lift applies to brand TEXT only",
+  textOnAccent: "white on the pinned brand fill, 5.17:1 in either mode",
+  rowSurface: "the transparent rest state",
+};
+
+describe("no token is declared identically in both modes unless that is the design", () => {
+  const roles = Object.keys(PALETTES.light) as Role[];
+
+  it("the typed palettes", () => {
+    const same = roles.filter((r) => PALETTES.light[r] === PALETTES.dark[r] && !(r in SAME_BY_DESIGN));
+    expect(same, `declared identically in LIGHT and DARK, i.e. not authored for dark: ${same.join(", ")}`).toEqual([]);
+  });
+
+  it("the stylesheet's two blocks, for every name both declare (not only the mirrored roles)", () => {
+    const light = declarations("light", tokensCssSource);
+    const dark = declarations("dark", tokensCssSource);
+    const allowed = new Set(Object.keys(SAME_BY_DESIGN).map(toProp));
+    const same = [...dark.keys()].filter((name) => light.get(name) === dark.get(name) && !allowed.has(name));
+    expect(same, `declared with one value in both blocks: ${same.join(", ")}`).toEqual([]);
+  });
+
+  it("the exemptions are true (an entry that has diverged must be deleted)", () => {
+    for (const role of Object.keys(SAME_BY_DESIGN) as Role[]) {
+      expect(PALETTES.light[role], `${role} is listed as same-by-design but differs`).toBe(PALETTES.dark[role]);
+    }
+  });
+
+  it("would have caught the original --focus-ring (identical in both blocks)", () => {
+    const regressed = tokensCssSource.replace(/(--focus-ring:\s*)#5175e1/, "$1#3c64dd");
+    expect(regressed).not.toBe(tokensCssSource);
+    const light = declarations("light", regressed);
+    const dark = declarations("dark", regressed);
+    expect(light.get("--focus-ring")).toBe(dark.get("--focus-ring"));
+  });
+});
 
 describe("brand lift", () => {
   const worstSurface = (p: Palette): string =>

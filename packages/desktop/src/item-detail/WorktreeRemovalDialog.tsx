@@ -303,7 +303,7 @@ export function WorktreeRemovalDialog({ taskId, onClose }: WorktreeRemovalDialog
               padding: "var(--space-lg)",
               background: "var(--surface-secondary)",
               color: "var(--text-primary-rack)",
-              border: "1px solid var(--border-control)",
+              border: "1px solid var(--border-dialog)",
               borderRadius: "var(--radius-chrome)",
               boxShadow: "var(--shadow-dialog)",
             }}

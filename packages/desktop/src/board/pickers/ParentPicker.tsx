@@ -112,7 +112,7 @@ export function ParentPicker({
             overflowY: "auto",
             background: "var(--surface-dominant)",
             color: "var(--text-primary-rack)",
-            border: "1px solid var(--border-control)",
+            border: "1px solid var(--border-popover)",
             borderRadius: "var(--radius-chrome)",
             padding: "var(--space-xs)",
             boxShadow: "var(--shadow-popover)",

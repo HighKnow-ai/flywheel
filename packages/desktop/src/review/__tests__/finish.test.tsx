@@ -82,10 +82,10 @@ describe("the sheets draw their overlay from the per-mode roles", () => {
     expect(requestSheet).toContain("review-sheet-title");
   });
 
-  it("the scrim is --scrim, the sheet is --shadow-sheet on a --border-control edge", () => {
+  it("the scrim is --scrim, the sheet is --shadow-sheet on a --border-sheet edge", () => {
     expect(rule(".review-sheet-scrim")).toMatch(/background:\s*var\(--scrim\)/);
     expect(rule(".review-sheet")).toMatch(/box-shadow:\s*var\(--shadow-sheet\)/);
-    expect(rule(".review-sheet")).toMatch(/border:\s*1px solid var\(--border-control\)/);
+    expect(rule(".review-sheet")).toMatch(/border:\s*1px solid var\(--border-sheet\)/);
   });
 });
 
