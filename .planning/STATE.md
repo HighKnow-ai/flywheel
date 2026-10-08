@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "08.1"
 current_phase_name: "Visual polish: brand assets and confirmed motion (INSERTED)"
 status: executing
-stopped_at: Completed 08.1-13-PLAN.md
-last_updated: "2026-10-08T07:47:57.014Z"
+stopped_at: Completed 08.1-14-PLAN.md
+last_updated: "2026-10-08T08:04:45.058Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08.1 execution started
-state_head: 64b3ee8719ea007b915133b06d470eac57040115
+state_head: b72e9450e7ecc96d66b2a37552501bac380868a3
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 205
-  completed_plans: 198
+  completed_plans: 199
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
-Plan: 14 of 20
+Plan: 15 of 20
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08.1 execution started
 
@@ -260,6 +260,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08.1 P11 | 29 min | 3 tasks | 13 files |
 | Phase 08.1 P12 | 22 min | 2 tasks | 7 files |
 | Phase 08.1 P13 | 30 min | 3 tasks | 16 files |
+| Phase 08.1 P14 | 55 min | 3 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -603,6 +604,8 @@ Recent decisions affecting current work:
 - [Phase 08.1]: 08.1-12: challenge rows render in the epic lens only, for epic-bound proposals; Accept/Reject only (Amend, Merge, Defer, subtree stay in tray and triage lane)
 - [Phase 08.1]: 08.1-13: owner confirmed motion durations unchanged on 2026-10-08 (panel 220, collapse 180, palette 140, select 120; one easing) after watching comps/motion.html — SC4 cites an observation. Easing is front-loaded (90% of travel at 73/59/46/40ms); palette 8px settle and selection-as-row-wash are implementer judgement, accepted.
 - [Phase 08.1]: 08.1-13: row reorder follows collapse (180ms); --duration-displace retired — Owner: a declared-but-unreferenced constant is the kind of dead value someone later fixes by wiring it back up.
+- [Phase 08.1]: 08.1-14: selection focus ring inset to -4px so it does not paint over the 2px A-06 rule; --text-on-accent added (ink on brand fill is 3.05/4.42:1) — Both found by measurement; the rule and the ring must both be visible on a focused row
+- [Phase 08.1]: 08.1-14: rail Fleet/Review queue rows are read-only facts; Challenges omitted (D-46/D-82 keeps proposals out of the rail) — The comp's destinations do not exist; the existing source-scan test pins D-82
 
 ### Pending Todos
 
@@ -664,6 +667,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-08T07:47:56.845Z
-Stopped at: Completed 08.1-13-PLAN.md
+Last session: 2026-10-08T08:04:44.885Z
+Stopped at: Completed 08.1-14-PLAN.md
 Resume file: None
