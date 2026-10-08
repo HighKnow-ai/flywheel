@@ -4,13 +4,15 @@ import * as icons from "lucide-react";
 import { MARKS } from "../marks";
 import { Legend } from "../Legend";
 import { MODES, PALETTES } from "../../theme/tokens";
+import marksSource from "../marks.ts?raw";
+import legendSource from "../Legend.tsx?raw";
+import adminCss from "../../styles/admin-surfaces.css?raw";
 
 /**
- * The five strip tints are close in luminance by necessity, so the glyph and
- * the printed word are load-bearing rather than decorative (01-UI-SPEC.md
- * "Honest risk"). This test is what keeps a later simplification from
- * removing them, and what keeps the four row-state surfaces from silently
- * converging on the same value.
+ * The glyph and the printed word carry every status, because colour is no longer even a redundant
+ * channel (D-11 removed the paper tints). This test is what keeps the four row-state surfaces from
+ * silently converging on the same value; the selection rule that actually tells two of them apart is
+ * pinned further down.
  */
 describe("row-state surfaces", () => {
   it.each(MODES)("are four pairwise-distinct values in %s", (mode) => {
@@ -147,4 +149,136 @@ describe("Legend surface", () => {
       expect(row, `legend row for "${id}" not found`).toBeDefined();
     },
   );
+});
+
+/** Comment lines out, so a doc comment may still say what the old code did. */
+const code = (text: string) =>
+  text
+    .split("\n")
+    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join("\n");
+
+/** One rule's declaration block in the group stylesheet, by its exact selector. */
+function rule(selector: string): string {
+  const escaped = selector.replace(/[.[\]":()-]/g, "\\$&");
+  const match = adminCss.match(new RegExp(`(^|\\n)${escaped}\\s*\\{([^}]*)\\}`));
+  expect(match, `${selector} is not declared in admin-surfaces.css`).toBeTruthy();
+  return match![2];
+}
+
+const rowFor = (label: string) => {
+  const row = screen.getAllByRole("listitem").find((r) => r.textContent?.includes(label));
+  expect(row, `legend row "${label}" not found`).toBeDefined();
+  return row as HTMLElement;
+};
+
+/**
+ * 08.1 plan 18. The legend is the published contract for every mark in the product, so it is allowed
+ * to say only what the product draws. D-11 removed the tint channel; A-05 changed two glyphs; A-06 made
+ * the 2px rule, not the surface, the thing that tells a selected row from an unfocused one.
+ */
+describe("the legend tells the truth about the world 08.1 built", () => {
+  it("retires the paper tint: no strip-stock id, no strip token and no strip ink anywhere in the registry or the surface", () => {
+    expect(code(marksSource)).not.toMatch(/strip-/);
+    expect(code(legendSource)).not.toMatch(/--strip-|--text-primary-strip/);
+    expect(MARKS.filter((m) => m.channel === "status").map((m) => m.id)).toEqual([
+      "status-backlog",
+      "status-todo",
+      "status-in-progress",
+      "status-in-review",
+      "status-done",
+    ]);
+  });
+
+  it("describes no outline-only glyph as filled", () => {
+    for (const mark of MARKS.filter((m) => m.channel === "status")) {
+      expect(mark.meaning, `${mark.id} says "filled" of an outline glyph`).not.toMatch(/\bfilled\b/i);
+    }
+  });
+
+  it("gives the commits-ahead and dirty cues the glyphs A-05 approved, and gives them to nothing else", () => {
+    const glyph = (id: string) => MARKS.find((m) => m.id === id)?.glyph;
+    expect(glyph("change-ahead")).toBe("Triangle");
+    expect(glyph("change-dirty")).toBe("Dot");
+    for (const g of ["Triangle", "Dot"]) {
+      const users = MARKS.filter((m) => m.glyph === g).map((m) => m.id);
+      expect(users, `the ${g} glyph must mean one thing`).toHaveLength(1);
+    }
+  });
+
+  it("no longer claims the accent marks the current project (D-12: the brand carries progress, never position)", () => {
+    const current = MARKS.find((m) => m.id === "project-current");
+    expect(current?.meaning).not.toMatch(/accent|brand|blue/i);
+    expect(current?.meaning).toMatch(/neutral|page ground|lift/i);
+  });
+
+  it("draws the selection rule on the selected-row swatches, because the two surfaces are 1.011 apart (A-06(b))", () => {
+    render(<Legend />);
+    const swatch = (label: string) => rowFor(label).querySelector("[aria-hidden]") as HTMLElement;
+    const focused = swatch("Selected row");
+    const unfocused = swatch("Selected, unfocused row");
+    const idle = swatch("Idle row");
+    expect(focused.style.borderLeftWidth).toBe("2px");
+    expect(focused.style.borderLeftColor).toBe("var(--selection-rule)");
+    expect(unfocused.style.borderLeftWidth).toBe("2px");
+    expect(unfocused.style.borderLeftColor).toBe("var(--selection-rule-unfocused)");
+    expect(idle.style.borderLeftColor).not.toMatch(/selection-rule/);
+  });
+
+  it("paints no status swatch in a tint: a status glyph sits on the same neutral swatch as a priority glyph", () => {
+    render(<Legend />);
+    const bg = (label: string) => (rowFor(label).querySelector("[aria-hidden]") as HTMLElement).style.background;
+    expect(bg("In Progress")).toBe(bg("Urgent"));
+    expect(bg("Done")).toBe(bg("Urgent"));
+  });
+
+  it("defines the epic roster's two graphic marks, the progress fill and the task-distribution strip", () => {
+    render(<Legend />);
+    expect(MARKS.find((m) => m.id === "epic-progress")?.channel).toBe("epic");
+    expect(MARKS.find((m) => m.id === "epic-distribution")?.channel).toBe("epic");
+    expect(rowFor("Epic progress").textContent).toMatch(/tasks done/i);
+    expect(rowFor("Task distribution").textContent).toMatch(/status/i);
+  });
+
+  it("pins the registry by exact per-channel count, so removing or adding a mark is one change with its count", () => {
+    const counts: Record<string, number> = {};
+    for (const mark of MARKS) counts[mark.channel] = (counts[mark.channel] ?? 0) + 1;
+    expect(counts).toEqual({
+      "row-state": 4,
+      focus: 1,
+      status: 5,
+      priority: 5,
+      epic: 4,
+      criteria: 7,
+      estimate: 3,
+      assignee: 4,
+      project: 3,
+      agent: 17,
+    });
+    expect(MARKS).toHaveLength(53);
+  });
+});
+
+describe("the legend overlay is a dialog on the dialog tier (UI-SPEC § Overlay Rule)", () => {
+  it("draws its scrim, shadow and edge from the roles, never a literal, and holds no inline colour", () => {
+    expect(code(legendSource)).not.toMatch(/rgba?\(|#[0-9a-fA-F]{6}/);
+    expect(rule(".legend-scrim")).toMatch(/background:\s*var\(--scrim\)/);
+    const dialog = rule(".legend-dialog");
+    expect(dialog).toMatch(/box-shadow:\s*var\(--shadow-dialog\)/);
+    expect(dialog).toMatch(/border:\s*1px solid var\(--border-dialog\)/);
+    expect(dialog).toMatch(/border-radius:\s*var\(--radius-chrome\)/);
+    expect(dialog).not.toMatch(/--border-(popover|sheet)|--shadow-(popover|sheet)/);
+  });
+
+  it("opens at full value on the first frame: no opacity, no animation, no transition on the scrim or the dialog", () => {
+    expect(rule(".legend-scrim")).not.toMatch(/opacity|animation|transition/);
+    expect(rule(".legend-dialog")).not.toMatch(/opacity|animation|transition/);
+  });
+
+  it("mounts the scrim and the dialog with those classes", () => {
+    render(<Legend onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: "Legend" });
+    expect(dialog.className).toContain("legend-dialog");
+    expect(dialog.parentElement?.className).toContain("legend-scrim");
+  });
 });

@@ -1,0 +1,6 @@
+/*
+ * Surface group five (08.1 plan 18): settings and its permission-rules table, the triage surface, the
+ * authoring tray with its rows and amend editor, and the published legend. Group-scoped rules live here,
+ * beside the group, the way `review/review.css` and `session/session.css` do; nothing for this group is
+ * added to `App.css`.
+ */

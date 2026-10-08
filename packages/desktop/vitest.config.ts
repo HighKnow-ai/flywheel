@@ -26,8 +26,10 @@ export default defineConfig({
     // `review/review.css` joined in 08.1-16: `review/__tests__/finish.test.tsx` pins the sheet and action rules.
     // `session/session.css` joined in 08.1-17: `session/__tests__/finish.test.tsx` pins the group's action,
     // card, field and launch-sheet rules, and an empty `?raw` would make every one of them vacuous.
+    // `styles/admin-surfaces.css` joined in 08.1-18 for the same reason: `legend/__tests__/legend.test.tsx` and
+    // `settings/__tests__/finish.test.tsx` pin the legend's overlay tier and the group's action, choice and row rules.
     css: {
-      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/, /review\/review\.css/, /session\/session\.css/],
+      include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/, /review\/review\.css/, /session\/session\.css/, /styles\/admin-surfaces\.css/],
     },
   },
 });
