@@ -255,6 +255,21 @@
   font-weight: 600;
 }
 
+/*
+ * Bypass Permissions switches the permission card off, so its label is the destructive TEXT role (A-08(c)),
+ * the device Deny uses: a text colour only, never a fill, and the edge and selection rule stay the same as
+ * its neighbours'. App.css's --divider hover wash takes the destructive text role to 4.2:1 in dark, so an
+ * unchosen one hovers on the quiet inset wash instead (asserted 4.5:1 in both schemes).
+ */
+.launch-mode.launch-mode-destructive {
+  color: var(--destructive-text-rack);
+}
+
+.launch-mode.launch-mode-destructive[aria-checked="false"]:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
 /* App.css washes every hovered button with --divider; the chosen mode keeps a quiet ground. */
 .launch-mode[aria-checked="true"]:hover:not(:disabled) {
   background: transparent;

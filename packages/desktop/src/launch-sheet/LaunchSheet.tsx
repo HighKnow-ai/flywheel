@@ -51,6 +51,12 @@ const PERMISSION_MODE_OPTIONS: readonly { value: string; label: string }[] = [
   { value: "bypassPermissions", label: "Bypass Permissions" },
 ];
 
+/** A-08(c): the one mode that switches the permission card off. Its label takes the destructive TEXT role
+ * (the device `Deny` uses; no fill), and choosing it prints what it does, in the register of the rest of the
+ * sheet: factual, no scolding. */
+const BYPASS_MODE = "bypassPermissions";
+const BYPASS_CONSEQUENCE = "The agent won't ask before editing files or running commands this run.";
+
 const DEFAULT_PERMISSION_MODE = PERMISSION_MODE_OPTIONS[0].value;
 
 const INSTRUCTION_PLACEHOLDER = "Anything else the agent should know for this run? (optional)";
@@ -790,13 +796,19 @@ export function LaunchSheet({
                         role="radio"
                         aria-checked={selected}
                         onClick={() => setPermissionMode(option.value)}
-                        className="control-edge launch-mode type-label"
+                        className={`control-edge launch-mode type-label${option.value === BYPASS_MODE ? " launch-mode-destructive" : ""}`}
                       >
                         {option.label}
                       </button>
                     );
                   })}
                 </div>
+              )}
+
+              {!isAuthoring && permissionMode === BYPASS_MODE && (
+                <p role="status" className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+                  {BYPASS_CONSEQUENCE}
+                </p>
               )}
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-sm)" }}>

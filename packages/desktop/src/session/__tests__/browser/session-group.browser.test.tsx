@@ -19,7 +19,7 @@
  * the sheet's scrim, shadow and edge resolve to the per-mode roles.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { commands, page, userEvent } from "vitest/browser";
 import data from "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
@@ -407,6 +407,23 @@ describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" :
     const other = modes.find((m) => m !== chosen)!;
     expect(getComputedStyle(other).fontWeight).toBe("400");
     expect(toHex(getComputedStyle(other).borderTopColor)).toBe(PALETTE.borderControl);
+
+    // A-08(c): Bypass Permissions alone is the destructive TEXT role (no fill, same edge as its neighbours), 4.5:1
+    // in this scheme, and choosing it prints what it does.
+    const bypass = modes.find((m) => m.textContent === "Bypass Permissions")!;
+    expect(toHex(getComputedStyle(bypass).color), "Bypass's label").toBe(PALETTE.destructiveTextRack);
+    expect(ratio(PALETTE.destructiveTextRack, ground), "Bypass's label on the sheet").toBeGreaterThanOrEqual(4.5);
+    expect(getComputedStyle(bypass).backgroundColor, "text role only, no fill").toBe("rgba(0, 0, 0, 0)");
+    expect(toHex(getComputedStyle(bypass).borderTopColor), "the edge stays a control edge").toBe(PALETTE.borderControl);
+    for (const m of modes.filter((x) => x !== bypass)) expect(toHex(getComputedStyle(m).color), m.textContent!).not.toBe(PALETTE.destructiveTextRack);
+    expect(screen.queryByText(/won't ask before editing files/)).toBeNull();
+    fireEvent.click(bypass);
+    const consequence = await screen.findByText(/won't ask before editing files or running commands/);
+    expect(ratio(toHex(getComputedStyle(consequence).color), ground), "the consequence line").toBeGreaterThanOrEqual(4.5);
+    expect(consequence.getBoundingClientRect().height, "one line").toBeLessThanOrEqual(parseFloat(getComputedStyle(consequence).lineHeight) * 1.5);
+    expect(toHex(getComputedStyle(bypass).borderTopColor), "chosen: the ink rule").toBe(PALETTE.selectionRule);
+    expect(ratio(PALETTE.destructiveTextRack, PALETTE.rowSurfaceHover), "Bypass's label on its hover wash").toBeGreaterThanOrEqual(4.5);
+    fireEvent.click(modes.find((m) => m.textContent === "Accept Edits")!);
 
     // The instruction field: a 3:1 control boundary, and the ink ring (not the engine's system ring).
     const field = screen.getByLabelText("Instruction") as HTMLTextAreaElement;

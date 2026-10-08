@@ -187,6 +187,25 @@ describe("the launch sheet is a sheet on the per-mode overlay roles", () => {
   });
 });
 
+describe("A-08(c): Bypass Permissions is the destructive text role, never a fill", () => {
+  it("the stylesheet gives it the destructive text colour and no background, border or brand", () => {
+    const body = rule(".launch-mode.launch-mode-destructive");
+    expect(body).toMatch(/color:\s*var\(--destructive-text-rack\)/);
+    expect(body).not.toMatch(/background|border|accent|destructive-strip/);
+  });
+
+  it("an unchosen one hovers on the quiet inset wash, not App.css's --divider (4.2:1 in dark)", () => {
+    const hover = rule('.launch-mode.launch-mode-destructive[aria-checked="false"]:hover:not(:disabled)');
+    expect(hover).toMatch(/background:\s*transparent/);
+    expect(hover).toMatch(/box-shadow:\s*inset 0 0 0 1000px var\(--row-surface-hover\)/);
+  });
+
+  it("the sheet applies the class to the bypass mode only, and prints the consequence line for it", () => {
+    expect(code(launchSheet)).toMatch(/option\.value === BYPASS_MODE \? " launch-mode-destructive"/);
+    expect(code(launchSheet)).toMatch(/permissionMode === BYPASS_MODE &&/);
+  });
+});
+
 describe("focus rings", () => {
   it("no component drives a ring from a prop", () => {
     for (const [name, source] of Object.entries(SOURCES)) {

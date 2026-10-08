@@ -160,6 +160,26 @@ describe("LaunchSheet", () => {
     expect(startMock).toHaveBeenCalledWith("task-1", value, "");
   });
 
+  it("A-08(c): Bypass Permissions alone is marked destructive, and alone prints what it does once chosen", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket());
+    renderSheet();
+    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+
+    const consequence = /won't ask before editing files or running commands/;
+    const marked = screen.getAllByRole("radio").filter((r) => r.classList.contains("launch-mode-destructive"));
+    expect(marked.map((r) => r.textContent)).toEqual(["Bypass Permissions"]);
+    expect(screen.queryByText(consequence)).not.toBeInTheDocument();
+
+    for (const label of ["Plan", "Ask Every Time"]) {
+      fireEvent.click(screen.getByRole("radio", { name: label }));
+      expect(screen.queryByText(consequence)).not.toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole("radio", { name: "Bypass Permissions" }));
+    expect(screen.getByText(consequence)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Accept Edits" }));
+    expect(screen.queryByText(consequence)).not.toBeInTheDocument();
+  });
+
   it("Cancel leaves the start command uncalled", async () => {
     previewMock.mockReset().mockResolvedValue(makePacket());
     startMock.mockReset();
