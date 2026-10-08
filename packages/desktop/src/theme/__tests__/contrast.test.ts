@@ -69,6 +69,11 @@ function driftErrors(mode: Mode, css: string): string[] {
   return errors;
 }
 
+/** Role-set parity across modes. RED stub: accepts anything, as the single-block world did. */
+function roleSetErrors(_palettes: Record<string, object>): string[] {
+  return [];
+}
+
 describe("relativeLuminance", () => {
   it("is 1 for white", () => {
     expect(relativeLuminance("#ffffff")).toBe(1);
@@ -184,5 +189,43 @@ describe("token names", () => {
 describe("typed mirror drift", () => {
   it.each(MODES)("the %s palette equals the stylesheet", (mode) => {
     expect(driftErrors(mode, tokensCssSource)).toEqual([]);
+  });
+});
+
+/**
+ * RESEARCH Pitfall 3: with the same property declared in two blocks, a check that matches against
+ * the whole file passes whenever EITHER block carries the mirrored value. These cases corrupt
+ * the stylesheet's dark block alone and demand rejection, for every role.
+ */
+const DARK_BLOCK_START = /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{/;
+
+/** `css` with one declaration inside the dark block rewritten (or removed when `value` is null). */
+function withDarkDeclaration(css: string, role: Role, value: string | null): string {
+  const at = css.search(DARK_BLOCK_START);
+  expect(at, "styles/tokens.css has no dark colour-scheme block").toBeGreaterThan(-1);
+  const declaration = new RegExp(`${escapeRe(toProp(role))}:\\s*${escapeRe(PALETTES.dark[role])}\\s*;`);
+  const tail = css.slice(at);
+  expect(tail, `dark block does not declare ${toProp(role)}`).toMatch(declaration);
+  return css.slice(0, at) + tail.replace(declaration, () => (value === null ? "" : `${toProp(role)}: ${value};`));
+}
+
+describe("block-aware drift check (a wrong dark value cannot hide behind a right light one)", () => {
+  const roles = Object.keys(PALETTES.dark) as Role[];
+
+  it.each(roles)("a wrong dark value for %s is rejected, and light is unaffected", (role) => {
+    const corrupted = withDarkDeclaration(tokensCssSource, role, "#010203");
+    expect(driftErrors("dark", corrupted), `dark ${role} drift went undetected`).not.toEqual([]);
+    expect(driftErrors("light", corrupted)).toEqual([]);
+  });
+
+  it.each(roles)("a dark block that omits %s is rejected", (role) => {
+    const corrupted = withDarkDeclaration(tokensCssSource, role, null);
+    expect(driftErrors("dark", corrupted), `omitted dark ${role} went undetected`).not.toEqual([]);
+  });
+
+  it("a role present in one mode's mirror but missing from the other is rejected", () => {
+    const { textMutedRack: _dropped, ...darkMissingOne } = PALETTES.dark;
+    expect(roleSetErrors({ light: PALETTES.light, dark: darkMissingOne })).not.toEqual([]);
+    expect(roleSetErrors({ light: PALETTES.light, dark: PALETTES.dark })).toEqual([]);
   });
 });
