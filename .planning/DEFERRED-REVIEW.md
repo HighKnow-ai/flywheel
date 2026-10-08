@@ -378,3 +378,26 @@ At Phase 11, with an installed, usable build:
     commit ref) and its "Request changes" button are not features of this surface.
   risk_if_wrong: "Moderate. The join between the three panes and the file-list row (a long path wraps its extension onto a second line at the 30 percent column) has only been judged by its builder."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
+
+- id: D-REV-16
+  phase: "08.1 — Visual Polish (plan 17)"
+  truth: "The shipped impeccable-finish-reviewer, run once against 08.1-UI-SPEC.md's contract (NO comp was rendered for this group) for surface group four (the live session surface, its feed, the permission request card, the raw log, the launch sheet), raises nothing material that is not fixed or recorded."
+  status: unreviewed
+  why_deferred: |
+    The plan 17 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
+    spawn the reviewer; the same limit as D-REV-11, D-REV-14 and D-REV-15. It captured the group in WebKit
+    in both schemes at 1440x900 and reviewed the captures itself, which is NOT the independent pass D-24
+    asks for. THE REVIEWER MUST BE TOLD that no comp exists for these surfaces and that it is reviewing
+    against the contract (colour and token roles, radius language, type scale, motion contract, the
+    selection rule, the overlay rule, the state inventory), not against an image. Captured in
+    .impeccable/review/ (gitignored): session-group-built-{light,dark}-session-1440x900.png (running, a feed,
+    the pulse, a routine permission request pending), session-group-built-{light,dark}-permission-destructive-1440x900.png,
+    session-group-built-{light,dark}-finished-1440x900.png (a failed run, Review changes leading) and
+    session-group-built-{light,dark}-launch-sheet-1440x900.png (the launch sheet open over the session), plus
+    the rendered HTML beside each (session-group-*.html). Regenerate with `npm run test:browser` and
+    `npm run test:browser:dark`, then `git checkout --` the Phase 8 UAT screenshot directory. The content is a
+    component page: THRE-58's real key, title, epic, branch, base and three criteria from comp-data.json, but
+    the real board has NO live run, so every feed row, both permission requests and the failed run's detail
+    are FIXTURES, each labelled on the page. Not the app shell (see D-REV-12 for the same gap on group one).
+  risk_if_wrong: "Moderate. The reviewer may find that the header (a back link, a title, a status, a cost strip and up to four actions in one row) reads as crowded; that the three ink-bordered controls in the open launch sheet (the focused field, the chosen mode, Start Work) compete; or that the 10px system-notice role is too small. The first two were judged by their builder only."
+  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."

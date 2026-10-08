@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "08.1"
 current_phase_name: "Visual polish: brand assets and confirmed motion (INSERTED)"
 status: executing
-stopped_at: Completed 08.1-16-PLAN.md
-last_updated: "2026-10-08T09:25:12.990Z"
+stopped_at: Completed 08.1-17-PLAN.md
+last_updated: "2026-10-08T09:59:12.373Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08.1 execution started
-state_head: 427defe3860beadc932002e9e5497e298693ea5c
+state_head: 6ed9e56e5aa53d62d24cffbd41c03ddff0af9908
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 205
-  completed_plans: 201
+  completed_plans: 202
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
-Plan: 17 of 20
+Plan: 18 of 20
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08.1 execution started
 
@@ -263,6 +263,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08.1 P14 | 55 min | 3 tasks | 19 files |
 | Phase 08.1 P15 | 45 min | 3 tasks | 17 files |
 | Phase 08.1 P16 | 4 min | 3 tasks | 8 files |
+| Phase 08.1 P17 | 14 min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -610,6 +611,8 @@ Recent decisions affecting current work:
 - [Phase 08.1]: 08.1-14: rail Fleet/Review queue rows are read-only facts; Challenges omitted (D-46/D-82 keeps proposals out of the rail) — The comp's destinations do not exist; the existing source-scan test pins D-82
 - [Phase 08.1]: 08.1-15: no brand-filled buttons in the detail group; destructive Remove drawn as destructive text with no fill (ink on the fill was 2.95:1 light / 2.86:1 dark)
 - [Phase 08.1]: 08.1-16: no brand-filled actions in the review group; selected diff line reads as A-06 not the library's yellow (2.4:1 in dark)
+- [Phase 08.1]: 08.1-17: no brand or destructive fills in the session group; one 2px ink lead per section; destructive gate Deny drawn in the destructive text role on an edge — Owner decision 2026-10-08; the destructive fill measured 2.95/2.86:1
+- [Phase 08.1]: 08.1-17: the running-session pulse restored in motion.css (08.1-13 had deleted it) and pinned by a stylesheet-reading test — jsdom stubs CSS, so a class applied to nothing stayed green
 
 ### Pending Todos
 
@@ -671,6 +674,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-08T09:25:12.810Z
-Stopped at: Completed 08.1-16-PLAN.md
+Last session: 2026-10-08T09:59:12.204Z
+Stopped at: Completed 08.1-17-PLAN.md
 Resume file: None

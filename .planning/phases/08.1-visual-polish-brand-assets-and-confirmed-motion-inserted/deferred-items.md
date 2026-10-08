@@ -123,9 +123,10 @@
   done, plan 20 should retire it the way plan 13 retired `--duration-displace`.
   **PROGRESS 2026-10-08 (08.1-15):** four of the six are redrawn: `item-detail/ItemDetailPanel.tsx` (Start Work, Review, Continue Shaping) and `item-detail/RunsSection.tsx` (Watch Live) now use `control-edge` with a transparent ground, pinned by `item-detail/__tests__/finish.test.tsx` and measured in WebKit. Still open: `launch-sheet/LaunchSheet.tsx` (17), `authoring/ProposalRow.tsx` and `authoring/ProposalAmendEditor.tsx` (18), `review/MergeConfirmSheet.tsx` (16).
   **PROGRESS 2026-10-08 (08.1-16):** `review/MergeConfirmSheet.tsx` is redrawn (control edge, transparent ground), and so are the three sibling brand fills in the same group that the register did not list: `review/ReviewSurface.tsx` (header Merge) and `review/EpicRequestSheet.tsx` (the bar's and the sheet's Open request). Pinned by `review/__tests__/finish.test.tsx` and measured in WebKit by `review-group.browser.test.tsx`. Still open: `LaunchSheet` (17), `ProposalRow` and `ProposalAmendEditor` (18).
+  **PROGRESS 2026-10-08 (08.1-17):** `launch-sheet/LaunchSheet.tsx` (Start Work) is redrawn (a 2px ink lead edge, transparent ground), and so are the five sibling brand fills in group four that the register did not list: `session/SessionSurface.tsx` (Discard, Review changes, Advance, Send) and `session/PermissionRequestCard.tsx` (Allow); plus the launch sheet's CHOSEN permission-mode segment, which painted ink on `--accent-nontext` (the same defect). Pinned by `session/__tests__/finish.test.tsx` and measured in WebKit by `session-group.browser.test.tsx`. Still open: `ProposalRow` and `ProposalAmendEditor` (18). **Also for plan 18:** `settings/SettingsSurface.tsx:177` has the same shape (the chosen segment is ink on `--accent-nontext`); `.launch-mode[aria-checked="true"]` in `session/session.css` is the device (an ink edge, a 2px foot rule, weight 600; no fill, and no surface shift, which is invisible on a sheet's own surface).
 
 - Destructive confirmation buttons paint `--text-primary-rack` on a `--destructive-strip` FILL: 2.95:1 in light (`#1f2328` on `#cf222e`) and 2.86:1 in dark (`#ededed` on `#f85149`), both under the 4.5 text floor. Found finishing `WorktreeRemovalDialog`'s Remove (08.1-15), which now draws it as the destructive text role on its own surface, a `--destructive-text-rack` edge, no fill (that pair is 5.03 / 5.72 on `--surface-secondary`, asserted in `contrast.test.ts`). Four siblings still carry the fill, each with a stale comment claiming "6.3:1" (the retired palette's figure): `board/DeleteConfirm.tsx:111` (19), `recovery/OrphanRecoveryModal.tsx:82` (19), `session/PermissionRequestCard.tsx:337` (17, the Deny button). The destructive fill was not named in the owner's primary-button decision (that decision is about the BRAND fill), so this is a separate AA defect with the same shape.
-  status: open
+  status: partially resolved (08.1-17: `session/PermissionRequestCard.tsx`'s Deny is redrawn, and the stale "6.3:1" comment with it; `board/DeleteConfirm.tsx` and `recovery/OrphanRecoveryModal.tsx` remain, plan 19)
   **Found during:** 08.1-15
   **Not fixed here, deliberately:** those files belong to plans 17 and 19's surface groups.
   **To fix:** the same redraw as 08.1-15: `background: "transparent"`, `color` and `borderColor` of `var(--destructive-text-rack)`, the `control-edge` class for the edge and radius, and delete the "6.3:1" comment. `item-detail/__tests__/finish.test.tsx` shows the assertion shape.
@@ -140,3 +141,20 @@
   status: open
   **Found during:** 08.1-16 (capture review)
   **To fix:** print basename in the primary role and the directory in the muted role, keeping the full path as the accessible name.
+
+- The running-session pulse had been deleted. Plan 08.1-13, rewriting the displacement utility, removed `@keyframes agent-pulse` and `.agent-pulse` from `styles/motion.css`, so `SessionSurface`, `RunsSection` and `OrphanRecoveryModal` applied a class that animated nothing. The jsdom suite could not see it: vitest stubs stylesheets, and the component tests assert only the class name.
+  status: resolved (08.1-17, commit 531a3ab)
+  **Found during:** 08.1-17 (the binding note said the pulse must stay scoped; the CSS was not there to scope)
+  **Resolution:** restored as it was (opacity 1 to 0.45, 1.6s, the single easing curve, infinite), still the one scoped fade. `theme/__tests__/motion.test.ts` now reads the real file and asserts the keyframes exist, touch opacity only, and that no other keyframes block does. `session-group.browser.test.tsx` asserts in WebKit that the glyph's computed animation is `agent-pulse`, infinite, with a live animation on the engine, and that under the reduced-motion arm the class is absent and the glyph sits at opacity 1.
+
+- Brand text on a data channel that the brand rule does not list. `--accent-text-rack` colours the running status (`RUN_STATUS_COLOR.running`), the current authoring stage (`AuthoringStageIndicator`) and the developer's own words in the feed (`developer_turn`). 08.1-UI-SPEC.md § The brand rule lists exactly four places the brand may appear and none is a run status, a stage or a speaker class; the first two come from `02-UI-SPEC.md`'s Run Status table, which the UI-SPEC says is authoritative and unamended.
+  status: needs-owner-decision
+  **Found during:** 08.1-17
+  **Not fixed here, deliberately:** the three are published roles with tests behind them (the legend marks, `feed-row.test.tsx`), and recolouring a status is a contract change, not a finish edit. The running glyph also carries its own word and the pulse, so meaning does not rest on hue.
+  **To fix:** an amendment either adding "run status and the live stage" and "the developer's own turn" to the brand list, or moving them to ink with weight. Cheap once decided.
+
+- `type-micro` (10px) is still the role of a system notice in the feed (`FeedRow`, the "retrying request" line), and the detector reports `tiny-text` on every capture that carries one. `02-UI-SPEC.md` § Typography Additions names the role, it is unamended, and `session-surface.test.tsx` pins the class. The locked 08.1 scale is 11/12/13/14/15/20.
+  status: open
+  **Found during:** 08.1-17 (rendered-HTML detector run)
+  **To fix:** an owner call whether the 10px micro role survives; if not, `type-micro` becomes `type-label` here and in `AssigneePicker` and `OrphanRecoveryModal`, and the one test line changes.
+
