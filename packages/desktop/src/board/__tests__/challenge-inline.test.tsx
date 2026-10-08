@@ -247,7 +247,7 @@ describe("challenge rows above the epic's tasks (D-08)", () => {
 
     await renderExpandedAlpha();
 
-    await waitFor(() => expect(rackRow("challenge:p-1")).not.toBeNull());
+    await waitFor(() => expect(rackRow("task:t-0")).not.toBeNull());
     expect(rackRow("challenge:p-1")!.style.height).toBe(`${ROW_HEIGHT_BY_KIND.challenge}px`);
     expect(rackRow("task:t-0")!.style.height).toBe(`${ROW_HEIGHT_BY_KIND.task}px`);
   });
@@ -272,7 +272,7 @@ describe("challenge rows above the epic's tasks (D-08)", () => {
 
     await renderExpandedAlpha();
 
-    await waitFor(() => expect(rackRow("challenge:p-1")).not.toBeNull());
+    await waitFor(() => expect(rackRow("task:t-0")).not.toBeNull());
     expect(document.querySelectorAll(".board-view")).toHaveLength(1);
     expect(document.querySelectorAll('[role="list"]')).toHaveLength(1);
     expect(rackRow("challenge:p-1")!.parentElement).toBe(rackRow("epic:epic-a")!.parentElement);

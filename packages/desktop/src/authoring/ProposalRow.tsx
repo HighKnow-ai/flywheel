@@ -74,7 +74,7 @@ function undecidableReason(proposal: AuthoringProposalDto): string {
   return `The ${proposal.targetType} this proposal targets no longer exists.`;
 }
 
-function payloadTitle(proposal: AuthoringProposalDto): string {
+export function payloadTitle(proposal: AuthoringProposalDto): string {
   const { payload } = proposal;
   if (typeof payload.title === "string") return payload.title;
   if (typeof payload.statement === "string") return payload.statement;

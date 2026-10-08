@@ -38,6 +38,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { BoardRow, ROW_HEIGHT_BY_KIND, type RowKind } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
 import { EpicHeaderRow, rollUpChangeFlags } from "./EpicHeaderRow";
+import { ChallengeRow } from "./ChallengeRow";
 import { summaryLine } from "./summaryLine";
 import { IssuesLane } from "./IssuesLane";
 import { TriageLane } from "./TriageLane";
@@ -90,7 +91,7 @@ import {
   useSetTaskEpic,
   useUpdateItem,
 } from "./useBoardQuery";
-import type { EpicProgressDto } from "../adapters/tauri";
+import type { AuthoringProposalDto, EpicProgressDto } from "../adapters/tauri";
 import type {
   Actor,
   BandCounts,
@@ -138,6 +139,8 @@ type RackRow =
       progress: EpicProgressDto | undefined;
       item?: BoardItem;
     }
+  /** An open proposal on an expanded epic (D-08), read before the epic's tasks. */
+  | { kind: "challenge"; proposal: AuthoringProposalDto; epicLabel: string }
   | { kind: "quick-add" }
   | { kind: "task"; item: BoardItem; posInSet: number; setSize: number | undefined };
 
@@ -217,6 +220,8 @@ function rackRowKey(row: RackRow): string {
       return `band:${row.status}`;
     case "epic-header":
       return `epic:${row.id ?? "none"}`;
+    case "challenge":
+      return `challenge:${row.proposal.id}`;
     case "quick-add":
       return "quick-add";
     case "task":
@@ -489,14 +494,20 @@ export function BoardView({
   // cached read, never a second network round trip). Never joins `blockedTaskIds`/`recoveryTaskIds`
   // above or `board_blocked_summary` (T-05-08's own rule: a pending proposal burns no money, D-46).
   const proposalsQuery = useProjectProposals(projectId);
-  const pendingProposalCountByEpicId = useMemo(() => {
-    const counts: Record<string, number> = {};
+  const pendingProposalsByEpicId = useMemo(() => {
+    const byEpic: Record<string, AuthoringProposalDto[]> = {};
     for (const proposal of proposalsQuery.data?.proposals ?? []) {
       if (!proposal.epicId) continue;
-      counts[proposal.epicId] = (counts[proposal.epicId] ?? 0) + 1;
+      (byEpic[proposal.epicId] ??= []).push(proposal);
     }
-    return counts;
+    return byEpic;
   }, [proposalsQuery.data]);
+  // The count on an epic's header and the challenge rows under it are the same list, so they cannot
+  // disagree (D-08).
+  const pendingProposalCountByEpicId = useMemo(
+    () => Object.fromEntries(Object.entries(pendingProposalsByEpicId).map(([id, list]) => [id, list.length])),
+    [pendingProposalsByEpicId],
+  );
 
   // D-09's "what this says" line: a fixed rule set over aggregates already fetched above — no query
   // of its own, no agent. It reads the epic aggregate, so it belongs to the epic lens, and it waits
@@ -612,6 +623,14 @@ export function BoardView({
       if (groupingKey === "status" && group.id === "backlog" && effectiveQuickAddOpen) {
         out.push({ kind: "quick-add" });
       }
+      // D-08: an epic's open challenges are read before its tasks — answering one may change what
+      // the tasks are. They are rows of this same array, so the size function covers them and there
+      // is still one virtualizer. An epic with none emits nothing: the absence is the information.
+      if (groupingKey === "epic" && group.id) {
+        for (const proposal of pendingProposalsByEpicId[group.id] ?? []) {
+          out.push({ kind: "challenge", proposal, epicLabel: group.label });
+        }
+      }
       // Until a group's scoped fetch lands, show what the board window already holds for it, so
       // an expanded group never blanks (01-UI-SPEC.md "State Inventory": no re-skeleton).
       const content =
@@ -627,7 +646,7 @@ export function BoardView({
       });
     });
     return out;
-  }, [groupingKey, groups, fetchedGroups, items, effectiveQuickAddOpen]);
+  }, [groupingKey, groups, fetchedGroups, items, effectiveQuickAddOpen, pendingProposalsByEpicId]);
 
   const selectableItems = useMemo(
     () => rows.filter((r): r is SelectableRow => r.kind === "task" || (r.kind === "epic-header" && r.item !== undefined)),
@@ -1126,6 +1145,14 @@ export function BoardView({
                     onSelect={epicItemId ? () => setSelectedId(epicItemId) : undefined}
                     onOpenDetail={epicItemId ? () => setDetailItemId(epicItemId) : undefined}
                   />
+                </div>
+              );
+            }
+
+            if (row.kind === "challenge") {
+              return (
+                <div key={virtualRow.key} data-row-key={virtualRow.key} className="displace-transition" style={positionStyle}>
+                  <ChallengeRow proposal={row.proposal} epicLabel={row.epicLabel} />
                 </div>
               );
             }
