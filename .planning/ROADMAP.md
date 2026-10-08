@@ -922,7 +922,7 @@ owner actually wants to look at all day — wearing its own mark and moving the 
 contract says it moves.
 **Requirements**: TBD (none mapped — the five success criteria below plus `08.1-CONTEXT.md` D-01…D-25 are the contract)
 **Depends on:** Phase 8
-**Plans:** 17/20 plans executed
+**Plans:** 18/20 plans executed
 
 Plans:
 **Wave 1**
@@ -971,7 +971,7 @@ Plans:
 - [x] 08.1-15-PLAN.md — Finish group 2: the item detail panel and its sections, the palette, the five pickers [D-24, D-25]
 - [x] 08.1-16-PLAN.md — Finish group 3: the review surface, the criteria rail, the diff's re-derived tints, the two sheets [D-24, D-25]
 - [x] 08.1-17-PLAN.md — Finish group 4: the live session surface and the launch sheet [D-24, D-25]
-- [ ] 08.1-18-PLAN.md — Finish group 5: settings, triage, the authoring tray, and an accurate legend [D-24, D-25]
+- [x] 08.1-18-PLAN.md — Finish group 5: settings, triage, the authoring tray, and an accurate legend [D-24, D-25]
 - [ ] 08.1-19-PLAN.md — Finish group 6: the empty and broken states, and the three confirmations [D-24, D-25]
 
 **Wave 11** *(blocked on Wave 10 completion)*
@@ -1177,7 +1177,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
-| 8.1 Visual polish: brand assets and confirmed motion | 17/20 | In Progress|  |
+| 8.1 Visual polish: brand assets and confirmed motion | 18/20 | In Progress|  |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |

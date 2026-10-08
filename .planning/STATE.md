@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "08.1"
 current_phase_name: "Visual polish: brand assets and confirmed motion (INSERTED)"
 status: executing
-stopped_at: Completed 08.1-17-PLAN.md
-last_updated: "2026-10-08T09:59:12.373Z"
+stopped_at: Completed 08.1-18-PLAN.md
+last_updated: "2026-10-08T10:20:34.529Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08.1 execution started
-state_head: 6ed9e56e5aa53d62d24cffbd41c03ddff0af9908
+state_head: d1d6f5df87479b5d6c96eea7339379ab18c36cd7
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 205
-  completed_plans: 202
+  completed_plans: 203
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
-Plan: 18 of 20
+Plan: 19 of 20
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08.1 execution started
 
@@ -264,6 +264,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08.1 P15 | 45 min | 3 tasks | 17 files |
 | Phase 08.1 P16 | 4 min | 3 tasks | 8 files |
 | Phase 08.1 P17 | 14 min | 2 tasks | 11 files |
+| Phase 08.1 P18 | 24 min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -613,6 +614,8 @@ Recent decisions affecting current work:
 - [Phase 08.1]: 08.1-16: no brand-filled actions in the review group; selected diff line reads as A-06 not the library's yellow (2.4:1 in dark)
 - [Phase 08.1]: 08.1-17: no brand or destructive fills in the session group; one 2px ink lead per section; destructive gate Deny drawn in the destructive text role on an edge — Owner decision 2026-10-08; the destructive fill measured 2.95/2.86:1
 - [Phase 08.1]: 08.1-17: the running-session pulse restored in motion.css (08.1-13 had deleted it) and pinned by a stylesheet-reading test — jsdom stubs CSS, so a class applied to nothing stayed green
+- [Phase 08.1]: 08.1-18: the legend's five 'tint' entries are the five status marks; ids renamed strip-* to status-*, tint removed from the swatches and ink, entries kept — Deleting them would delete the status vocabulary the board reads; what was stale was the id prefix, the swatch tint and the strip ink.
+- [Phase 08.1]: 08.1-18: a proposal row's selection is the neutral 2px ink selection rule on --row-surface-selected, not a focus ring; no lead action on a row, Save is the one lead in the editor — selected is the j/k cursor and true after a click; the row is not focusable so :focus-visible has nothing to attach to; the board's ChallengeRow, the same object, has no lead.
 
 ### Pending Todos
 
@@ -674,6 +677,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-08T09:59:12.204Z
-Stopped at: Completed 08.1-17-PLAN.md
+Last session: 2026-10-08T10:20:34.353Z
+Stopped at: Completed 08.1-18-PLAN.md
 Resume file: None

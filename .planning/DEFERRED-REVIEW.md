@@ -401,3 +401,30 @@ At Phase 11, with an installed, usable build:
     are FIXTURES, each labelled on the page. Not the app shell (see D-REV-12 for the same gap on group one).
   risk_if_wrong: "Moderate. The reviewer may find that the header (a back link, a title, a status, a cost strip and up to four actions in one row) reads as crowded; that the three ink-bordered controls in the open launch sheet (the focused field, the chosen mode, Start Work) compete; or that the 10px system-notice role is too small. The first two were judged by their builder only."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
+
+- id: D-REV-17
+  phase: "08.1 — Visual Polish (plan 18)"
+  truth: "The shipped impeccable-finish-reviewer, run once against 08.1-UI-SPEC.md's contract (NO comp was rendered for this group) for surface group five (settings and its permission-rules table, the triage surface, the authoring tray with its rows and amend editor, the published legend, and the done warning's overlay tier), raises nothing material that is not fixed or recorded."
+  status: unreviewed
+  why_deferred: |
+    The plan 18 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
+    spawn the reviewer; the same limit as D-REV-11, D-REV-14, D-REV-15 and D-REV-16. It captured the group
+    in WebKit in both schemes at 1440x900 and reviewed the captures itself, which is NOT the independent pass
+    D-24 asks for. THE REVIEWER MUST BE TOLD that no comp exists for these surfaces and that it is reviewing
+    against the contract (colour and token roles, radius language, type scale, motion contract, the
+    selection rule, the overlay rule, the state inventory), not against an image. Captured in
+    .impeccable/review/ (gitignored): admin-group-built-{light,dark}-settings-1440x900.png (a populated
+    permission-rules table), admin-group-built-{light,dark}-triage-1440x900.png and
+    admin-group-built-{light,dark}-triage-merge-1440x900.png (the merge picker open),
+    admin-group-built-{light,dark}-tray-1440x900.png (the tray with the amend editor open),
+    admin-group-built-{light,dark}-legend-1440x900.png (embedded) and
+    admin-group-built-{light,dark}-legend-dialog-1440x900.png (the overlay), plus the rendered HTML beside
+    each (admin-group-built-*.html). Regenerate with `npm run test:browser` and `npm run test:browser:dark`,
+    then `git checkout --` the Phase 8 UAT screenshot directory. The project and the epics are the real
+    board's (threadfin, THRE); the real board holds NO authoring proposals and NO permission rules, so every
+    proposal and every rule is a FIXTURE, labelled on the page. They are component pages, not the app shell.
+    ALSO FOR THE REVIEWER: whether the proposal row, which is the board's challenge row's twin, reads as the
+    same object in the tray and the triage surface (the tray rows were restyled to match; the challenge row
+    itself was not touched), and whether the wall of drawn buttons on every triage row is too heavy.
+  risk_if_wrong: "Moderate. The reviewer may find that a triage row's six drawn actions plus a reject-reason field read as a wall; that the chosen segment (an ink edge and a 2px foot rule, no weight change) is too quiet next to its neighbours at a glance; or that the legend's developer-voice copy is a problem (recorded in deferred-items.md). The first two were judged by their builder only."
+  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human."
