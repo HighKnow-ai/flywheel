@@ -39,13 +39,17 @@ impl From<flywheel_core::domain::epic::Epic> for EpicDto {
 }
 
 /// The three fields the epic pill, the filter chips and the `ParentPicker` option lists consume
-/// (G-01-2) — the narrow DTO `epic_list_all` returns, deliberately not the full `EpicDto`.
+/// (G-01-2), plus the two the roster header's sub-label reads (08.1-14 finish review) — the narrow
+/// DTO `epic_list_all` returns, deliberately not the full `EpicDto`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpicSummaryDto {
     pub id: String,
     pub key: String,
     pub title: String,
+    pub status: String,
+    /// `null` until the epic's integration branch is first cut (D-25).
+    pub integration_branch: Option<String>,
 }
 
 impl From<flywheel_core::domain::epic::EpicSummary> for EpicSummaryDto {
@@ -54,6 +58,8 @@ impl From<flywheel_core::domain::epic::EpicSummary> for EpicSummaryDto {
             id: summary.id,
             key: summary.key,
             title: summary.title,
+            status: summary.status,
+            integration_branch: summary.integration_branch,
         }
     }
 }

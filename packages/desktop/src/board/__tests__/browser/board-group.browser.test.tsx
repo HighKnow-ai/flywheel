@@ -127,6 +127,9 @@ function Page() {
               <Sized kind="epic-header">
                 <EpicHeaderRow
                   epicId={epic.id} epicKey={epic.key} title={epic.title} progress={progressFor(epic.id)}
+                  status={epic.status}
+                  // The exported board records no integration branch for any epic (none has been cut).
+                  integrationBranch={null}
                   pendingProposalCount={epic.id === expanded.id ? 3 : 0}
                   change={epic.id === expanded.id ? fixtureChange : undefined}
                   collapsed={epic.id !== expanded.id} onToggleCollapsed={noop}
@@ -224,6 +227,8 @@ describe(`board group one, built, ${scheme} scheme`, () => {
     for (const label of ["Projects", "Fleet", "Review queue"]) expect(root.textContent).toContain(label);
     expect(root.querySelectorAll(".epic-header-row").length).toBe(epics.length + 1);
     expect(root.querySelectorAll('[role="listitem"].board-row').length).toBeGreaterThan(10);
+    // Finding 3: the comp's full sub-label, read off the roster.
+    expect(root.textContent).toContain("THRE-4 \u00b7 backlog \u00b7 no integration branch yet");
     // 08.1-14 finish review, finding 7: a count is never clipped. Every distribution label, including the
     // "No epic" bucket's three-digit one, shows all of its text (it wraps; it does not ellipsize).
     const labels = Array.from(root.querySelectorAll<HTMLElement>('[data-slot="distribution-label"]'));

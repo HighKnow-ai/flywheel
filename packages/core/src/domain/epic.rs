@@ -29,13 +29,20 @@ pub struct Epic {
     pub priority: i64,
 }
 
-/// The project's full epic roster (BOARD-06, G-01-2): `id`, `key` and `title` only — the three
-/// fields the epic pill, the filter chips and the picker options consume.
+/// The project's full epic roster (BOARD-06, G-01-2): the three fields the epic pill, the filter
+/// chips and the picker options consume (`id`, `key`, `title`), plus the two the roster header's
+/// sub-label reads (`status`, `integration_branch`; 08.1-14 finish review). Still deliberately not
+/// the full epic row: no description, rank or priority.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EpicSummary {
     pub id: String,
     pub key: String,
     pub title: String,
+    /// The epic's own workflow status, as the board stores it.
+    pub status: String,
+    /// `None` until an agent first runs against the epic (D-25 cuts the branch lazily) — which is a
+    /// fact the header says in words ("no integration branch yet"), never a blank.
+    pub integration_branch: Option<String>,
 }
 
 /// [`list_epics`]'s ceiling (D-87, plan 05-04, closing `01-SECURITY.md` AR-01-04): five hundred
@@ -83,7 +90,7 @@ pub struct EpicRoster {
 /// (T-01-01/T-01-23) — this function contains no `format!`.
 pub fn list_epics(conn: &Connection, project_id: &str) -> anyhow::Result<EpicRoster> {
     let sql: String = [
-        "SELECT b.id, b.key, b.title FROM epics b WHERE b.project_id = ?1 ",
+        "SELECT b.id, b.key, b.title, b.status, b.integration_branch FROM epics b WHERE b.project_id = ?1 ",
         crate::query::ORDER_BY,
         " LIMIT ?2",
     ]
@@ -95,6 +102,8 @@ pub fn list_epics(conn: &Connection, project_id: &str) -> anyhow::Result<EpicRos
                 id: row.get(0)?,
                 key: row.get(1)?,
                 title: row.get(2)?,
+                status: row.get(3)?,
+                integration_branch: row.get(4)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>();

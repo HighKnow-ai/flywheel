@@ -137,6 +137,9 @@ type RackRow =
       epicKey?: string;
       title: string;
       progress: EpicProgressDto | undefined;
+      /** The roster's own status and integration branch, for the header's sub-label. */
+      status?: string;
+      integrationBranch?: string | null;
       item?: BoardItem;
     }
   /** An open proposal on an expanded epic (D-08), read before the epic's tasks. */
@@ -158,6 +161,8 @@ interface RackGroup {
   epicKey?: string;
   title?: string;
   progress?: EpicProgressDto;
+  status?: string;
+  integrationBranch?: string | null;
   collapsed: boolean;
   scope: GroupScope;
   /** The row count its scoped fetch expects (see `useGroupItems`). */
@@ -572,6 +577,8 @@ export function BoardView({
         label: `${epic.key} ${epic.title}`,
         epicKey: epic.key,
         title: epic.title,
+        status: epic.status,
+        integrationBranch: epic.integrationBranch,
         progress: progressFor(progress, epic.id),
         count: total,
         collapsed: collapsedOf(epic.id),
@@ -618,6 +625,8 @@ export function BoardView({
               epicKey: group.epicKey,
               title: group.title ?? group.label,
               progress: group.progress,
+              status: group.status,
+              integrationBranch: group.integrationBranch,
               item: group.id ? rosterEpicItem(group.id, group.epicKey, group.title, items) : undefined,
             },
       );
@@ -1167,6 +1176,8 @@ export function BoardView({
                     epicKey={row.epicKey}
                     title={row.title}
                     progress={row.progress}
+                    status={row.status}
+                    integrationBranch={row.integrationBranch}
                     pendingProposalCount={
                       row.id && proposalsQuery.data ? (pendingProposalCountByEpicId[row.id] ?? 0) : undefined
                     }

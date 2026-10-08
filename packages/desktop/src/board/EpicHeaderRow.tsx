@@ -75,6 +75,12 @@ export interface EpicHeaderRowProps {
   title: string;
   /** The aggregate for this epic; `undefined` until it lands. */
   progress?: EpicProgressDto;
+  /** The epic's own status, from the roster. `undefined` means "not known": the sub-label then names
+   * no status instead of guessing one. */
+  status?: string;
+  /** `null` means no integration branch has been cut yet (D-25) and says so; `undefined` means "not
+   * known" and says nothing. */
+  integrationBranch?: string | null;
   /** `undefined` until the proposal window lands; `0` is a measured zero. */
   pendingProposalCount?: number;
   /** The rolled-up change signal for this epic; `undefined` when no child task has a worktree. */
@@ -92,6 +98,8 @@ export function EpicHeaderRow({
   epicKey,
   title,
   progress,
+  status,
+  integrationBranch,
   pendingProposalCount,
   change,
   collapsed,
@@ -102,6 +110,14 @@ export function EpicHeaderRow({
   onOpenDetail,
 }: EpicHeaderRowProps) {
   const name = epicKey ? `${epicKey} ${title}` : title;
+  // The comp's sub-label: `THRE-4 · backlog · no integration branch yet`. Each part appears only when
+  // it is KNOWN (08.1-14 finish review): the roster supplies status and the branch, and an unknown is
+  // left out, never filled in. `null` is a known absence and is said in words.
+  const statusWord = status ? statusLabel(status).toLowerCase() : undefined;
+  const branchWord = integrationBranch === undefined ? undefined : (integrationBranch ?? "no integration branch yet");
+  const subLabel = epicKey
+    ? [epicKey, statusWord, branchWord].filter((part): part is string => Boolean(part)).join(" \u00b7 ")
+    : "Tasks without an epic";
   const counts = new Map((progress?.byStatus ?? []).map((s) => [s.status, s.count]));
   const total = progress?.total ?? 0;
   const done = progress?.done ?? 0;
@@ -121,7 +137,11 @@ export function EpicHeaderRow({
   const isDirty = change?.dirty ?? false;
   if (aheadCount > 0) parts.push(`${aheadLabel} across its tasks`);
   if (isDirty) parts.push("uncommitted changes");
-  const accessibleName = [name, ...parts].join(", ");
+  // The visible sub-label is not read out by itself (the row's name replaces its content), so what it
+  // adds is named here: the status, and the branch when there is one.
+  const accessibleName = [name, statusWord, integrationBranch ? `integration branch ${integrationBranch}` : undefined, ...parts]
+    .filter((part): part is string => Boolean(part))
+    .join(", ");
 
   const surface = focused
     ? "var(--row-surface-selected)"
@@ -187,7 +207,7 @@ export function EpicHeaderRow({
             {title}
           </div>
           <div className="type-label" style={{ ...truncate, color: "var(--text-muted-rack)" }}>
-            {epicKey ?? "Tasks without an epic"}
+            {subLabel}
           </div>
         </div>
       </div>

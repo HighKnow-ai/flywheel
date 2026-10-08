@@ -62,16 +62,16 @@ pub fn list_epics_page(
 
     let sql: String = match cursor {
         None => [
-            "SELECT b.id, b.key, b.title FROM (",
-            "SELECT id, key, title, status, rank, priority FROM epics WHERE project_id = :project_id",
+            "SELECT b.id, b.key, b.title, b.status, b.integration_branch FROM (",
+            "SELECT id, key, title, status, rank, priority, integration_branch FROM epics WHERE project_id = :project_id",
             ") b ",
             super::ORDER_BY,
             " LIMIT :limit",
         ]
         .concat(),
         Some(_) => [
-            "SELECT b.id, b.key, b.title FROM (",
-            "SELECT id, key, title, status, rank, priority FROM epics WHERE project_id = :project_id",
+            "SELECT b.id, b.key, b.title, b.status, b.integration_branch FROM (",
+            "SELECT id, key, title, status, rank, priority, integration_branch FROM epics WHERE project_id = :project_id",
             ") b WHERE ",
             super::CURSOR_WHERE,
             " ",
@@ -83,7 +83,13 @@ pub fn list_epics_page(
 
     let mut stmt = conn.prepare(&sql)?;
     let row_mapper = |row: &rusqlite::Row| {
-        Ok(EpicSummary { id: row.get(0)?, key: row.get(1)?, title: row.get(2)? })
+        Ok(EpicSummary {
+            id: row.get(0)?,
+            key: row.get(1)?,
+            title: row.get(2)?,
+            status: row.get(3)?,
+            integration_branch: row.get(4)?,
+        })
     };
 
     let rows = match cursor {

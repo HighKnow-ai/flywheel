@@ -374,3 +374,26 @@ fn agent_epic_page_clamps_a_huge_limit_request_to_max_limit() {
         "a 10,000,000-row request must clamp to MAX_LIMIT, never reach the database as-is"
     );
 }
+
+/// 08.1-14 finish review (finding 3): the roster header's sub-label is `KEY . status . branch`, so the
+/// roster carries each epic's own status and its integration branch. `None` is a fact (D-25 cuts the
+/// branch lazily), not a gap, and must reach the renderer as exactly that.
+#[test]
+fn roster_carries_each_epics_status_and_integration_branch() {
+    let (conn, actor_id, project) = seeded_project();
+    let cut = insert_epic_with(&conn, &project.id, &actor_id, "in_progress", 0, "a0", "FLY-1", "Has a branch");
+    let uncut = insert_epic_with(&conn, &project.id, &actor_id, "backlog", 0, "a1", "FLY-2", "No branch yet");
+    conn.execute(
+        "UPDATE epics SET integration_branch = ?1 WHERE id = ?2",
+        params!["epic/FLY-1-has-a-branch", cut],
+    )
+    .expect("set integration_branch");
+
+    let roster = core::domain::epic::list_epics(&conn, &project.id).expect("list_epics should succeed");
+    let by_id = |id: &str| roster.epics.iter().find(|e| e.id == id).expect("epic in roster");
+
+    assert_eq!(by_id(&cut).status, "in_progress");
+    assert_eq!(by_id(&cut).integration_branch.as_deref(), Some("epic/FLY-1-has-a-branch"));
+    assert_eq!(by_id(&uncut).status, "backlog");
+    assert_eq!(by_id(&uncut).integration_branch, None, "an epic never run against has no branch, and says None");
+}

@@ -47,8 +47,10 @@ vi.mock("../../adapters/tauri", () => ({
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
-const ALPHA = { id: "epic-a", key: "FLY-1", title: "Alpha" };
-const BETA = { id: "epic-b", key: "FLY-2", title: "Beta" };
+// The roster carries each epic's status and integration branch (08.1-14 finish review): Alpha has had
+// no branch cut yet (D-25), Beta has one.
+const ALPHA = { id: "epic-a", key: "FLY-1", title: "Alpha", status: "in_progress", integrationBranch: null };
+const BETA = { id: "epic-b", key: "FLY-2", title: "Beta", status: "backlog", integrationBranch: "epic/FLY-2-beta" };
 
 interface Proposal {
   id: string;
@@ -281,6 +283,17 @@ describe("challenge rows above the epic's tasks (D-08)", () => {
     expect(accept.style.background).toBe("transparent");
     expect(accept.style.border).toContain("var(--border-control)");
     expect(accept.getAttribute("style")).toBe(reject.getAttribute("style"));
+  });
+
+  it("reads each epic header's sub-label off the roster: key, status, and the branch or its absence in words", async () => {
+    renderBoard();
+    const alpha = await epicRow("Alpha");
+    const beta = await epicRow("Beta");
+    expect(within(alpha).getByText("FLY-1 \u00b7 in progress \u00b7 no integration branch yet")).toBeInTheDocument();
+    expect(within(beta).getByText("FLY-2 \u00b7 backlog \u00b7 epic/FLY-2-beta")).toBeInTheDocument();
+    // The row's own name replaces its text for a screen reader, so the status is named there too.
+    expect(alpha).toHaveAccessibleName(/^FLY-1 Alpha, in progress, /);
+    expect(beta).toHaveAccessibleName(/^FLY-2 Beta, backlog, integration branch epic\/FLY-2-beta, /);
   });
 
   it("keeps challenge rows in the one rack: the same rows container as the epic header, one board", async () => {

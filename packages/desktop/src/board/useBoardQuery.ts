@@ -92,6 +92,12 @@ export interface EpicSummary {
   id: string;
   key: string;
   title: string;
+  /** The epic's own workflow status (08.1-14 finish review: the roster header's sub-label). Optional so
+   * a caller built before the roster carried it still type-checks; absent means "not known", and the
+   * header then prints no status rather than a guess. */
+  status?: string;
+  /** `null` is a fact (no branch has been cut yet, D-25); `undefined` is "not known". */
+  integrationBranch?: string | null;
 }
 
 /** `epic_list_all`'s wire shape (D-16, D-87, plan 05-04): the roster page, up to the core's
