@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "08.1"
 current_phase_name: "Visual polish: brand assets and confirmed motion (INSERTED)"
 status: executing
-stopped_at: Completed 08.1-12-PLAN.md
-last_updated: "2026-10-08T07:15:34.143Z"
+stopped_at: Completed 08.1-13-PLAN.md
+last_updated: "2026-10-08T07:47:57.014Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08.1 execution started
-state_head: a176e6c53b56dcab78975bcf2baca8f231d177a8
+state_head: 64b3ee8719ea007b915133b06d470eac57040115
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 205
-  completed_plans: 197
+  completed_plans: 198
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
-Plan: 13 of 20
+Plan: 14 of 20
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08.1 execution started
 
@@ -259,6 +259,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08.1 P10 | 11 min | 3 tasks | 22 files |
 | Phase 08.1 P11 | 29 min | 3 tasks | 13 files |
 | Phase 08.1 P12 | 22 min | 2 tasks | 7 files |
+| Phase 08.1 P13 | 30 min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -600,6 +601,8 @@ Recent decisions affecting current work:
 - [Phase 08.1]: 08.1-11: change flags carry the task's epic id so the epic roll-up never depends on loaded rows — The 200-row window cannot supply the epic-to-task relationship; a roll-up over it would silently under-report live work
 - [Phase 08.1]: 08.1-11: a roster-built epic selection target refuses pickers and reordering; the detail panel hides Status when unknown — epic_list_all carries id, key and title only
 - [Phase 08.1]: 08.1-12: challenge rows render in the epic lens only, for epic-bound proposals; Accept/Reject only (Amend, Merge, Defer, subtree stay in tray and triage lane)
+- [Phase 08.1]: 08.1-13: owner confirmed motion durations unchanged on 2026-10-08 (panel 220, collapse 180, palette 140, select 120; one easing) after watching comps/motion.html — SC4 cites an observation. Easing is front-loaded (90% of travel at 73/59/46/40ms); palette 8px settle and selection-as-row-wash are implementer judgement, accepted.
+- [Phase 08.1]: 08.1-13: row reorder follows collapse (180ms); --duration-displace retired — Owner: a declared-but-unreferenced constant is the kind of dead value someone later fixes by wiring it back up.
 
 ### Pending Todos
 
@@ -661,6 +664,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-08T07:15:33.966Z
-Stopped at: Completed 08.1-12-PLAN.md
+Last session: 2026-10-08T07:47:56.845Z
+Stopped at: Completed 08.1-13-PLAN.md
 Resume file: None
