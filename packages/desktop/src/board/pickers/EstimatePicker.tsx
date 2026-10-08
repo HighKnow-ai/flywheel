@@ -79,7 +79,8 @@ export function EstimatePicker({ currentEstimate, onSelect, onClose, anchorRect 
             color: "var(--text-primary-rack)",
             border: "1px solid var(--border-popover)",
             borderRadius: "var(--radius-chrome)",
-            padding: "var(--space-xs)",
+            // Inset by the item gutter: a chosen item's 2px rule sits inside the popover edge, not on it (08.1-15 closure, finding 8).
+            padding: "var(--space-sm)",
             boxShadow: "var(--shadow-popover)",
           }}
         >

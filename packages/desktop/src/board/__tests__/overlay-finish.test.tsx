@@ -32,6 +32,10 @@ describe("the five pickers are popovers", () => {
       expect(src).not.toMatch(/rgba?\(|#[0-9a-fA-F]{6}/);
     });
 
+    it(`${name}: the popover is padded so the chosen item's rule sits inside its edge, not on it`, () => {
+      expect(code(source)).toContain('padding: "var(--space-sm)"');
+    });
+
     it(`${name}: the chosen item reads like a selected row (surface shift and a 2px rule)`, () => {
       const src = code(source);
       expect(src).toContain("var(--row-surface-selected)");
@@ -61,6 +65,10 @@ describe("the command palette is a sheet", () => {
     expect(rule, "no :focus-visible rule for the palette search field").toContain("var(--selection-rule)");
     expect(rule).not.toContain("--focus-ring");
     expect(Number(rule.match(/outline-offset:\s*(-\d+)px/)?.[1]), "the ring must sit inside the dialog edge").toBeLessThanOrEqual(-4);
+  });
+
+  it("insets the list so the highlighted command's 2px rule sits inside the dialog edge", () => {
+    expect(src).toMatch(/role="listbox"[\s\S]{0,160}padding: "var\(--space-sm\)"/);
   });
 
   it("marks the highlighted command neutrally, never with the brand", () => {

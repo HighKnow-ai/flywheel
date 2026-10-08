@@ -17,7 +17,7 @@
  * each render. `switch-project` is excluded from the fixed generator entirely; it only ever
  * appears as the per-project runtime entries below.
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
@@ -89,6 +89,20 @@ const TASK_ONLY_ACTION_IDS = new Set<ActionId>(["open-epic-picker"]);
  * inverse of `TASK_ONLY_ACTION_IDS` above. The palette disables these when a task is selected. */
 const EPIC_ONLY_ACTION_IDS = new Set<ActionId>(["continue-shaping"]);
 
+/**
+ * The order the palette's sections appear in. A command carries its own `group`, but the generated list
+ * visits the fixed binding table in table order, so one group's commands are not contiguous in it; sorting
+ * by this (stable, so each group keeps the table's own order) is what lets a section header stand over its
+ * commands, instead of every row repeating its group in a right-hand column (08.1-15 closure, finding 7).
+ * A group not named here sorts last.
+ */
+const GROUP_ORDER = ["Git", "Navigation", "Project", "Create", "Selected item", "Filter", "Reference", "Session"];
+
+const groupRank = (group: string): number => {
+  const at = GROUP_ORDER.indexOf(group);
+  return at === -1 ? GROUP_ORDER.length : at;
+};
+
 interface Command {
   id: string;
   label: string;
@@ -149,7 +163,13 @@ export function CommandPalette() {
   const items = boardQuery.data?.items ?? [];
   const actorsQuery = useActors();
   const actors = actorsQuery.data ?? [];
-  const selectedItem = items.find((item) => item.id === selectedItemId);
+  // The item "Selected item" commands act on: the list's selection, or, with the detail panel open and no row
+  // selected, the item the panel is showing. The palette opens OVER that panel by design, so without this
+  // fallback "Open selected item" read disabled over an open item while its siblings did not (08.1-15 closure,
+  // finding 7). `selectedItemId` still wins whenever it is set.
+  const detailItemId = useUiStore((state) => state.detailItemId);
+  const targetItemId = selectedItemId ?? detailItemId;
+  const selectedItem = items.find((item) => item.id === targetItemId);
 
   // D-127/D-128 (Phase 7 plan 07-05): the git identifier round trip. `enabled` inside the hook
   // stays false for ordinary text, so typing a search term spends no IPC call (T-07-05-05) — read
@@ -218,7 +238,7 @@ export function CommandPalette() {
         setSelectedItemId(boundarySelectionId(items, "last"));
         break;
       case "open-detail":
-        if (selectedItemId) setDetailItemId(selectedItemId);
+        if (targetItemId) setDetailItemId(targetItemId);
         break;
       case "open-status-picker":
         if (selectedItem) setOverlay("status");
@@ -539,9 +559,11 @@ export function CommandPalette() {
       out.push({
         id,
         label,
-        group: "Selected item",
+        // Moving the selection and jumping to either end act on the LIST, so they need no selected item and sit
+        // with Navigation. What remains under "Selected item" all shares one precondition and so one look.
+        group: SELECTION_INDEPENDENT_ACTION_IDS.has(id) ? "Navigation" : "Selected item",
         disabled:
-          (!selectedItemId && !SELECTION_INDEPENDENT_ACTION_IDS.has(id)) ||
+          (!targetItemId && !SELECTION_INDEPENDENT_ACTION_IDS.has(id)) ||
           (TASK_ONLY_ACTION_IDS.has(id) && (selectedItem?.kind ?? "task") === "epic") ||
           (EPIC_ONLY_ACTION_IDS.has(id) && (selectedItem?.kind ?? "task") === "task"),
         run: () => {
@@ -553,13 +575,15 @@ export function CommandPalette() {
 
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, items, selectedItemId, selectedItem, effectiveProjectId]);
+  }, [projects, items, targetItemId, selectedItem, effectiveProjectId]);
 
   const filtered = useMemo(() => {
     // The identity entry never passes `fuzzyMatches` against the raw hash/branch the user typed
     // (its label carries the resolved item's key and title, not the pasted string) — it is
     // positioned ahead of the fuzzy-filtered list by position, not by a sort comparator.
-    const result = commands.filter((command) => fuzzyMatches(query, command.label));
+    const result = commands
+      .filter((command) => fuzzyMatches(query, command.label))
+      .sort((a, b) => groupRank(a.group) - groupRank(b.group));
     for (let i = identityEntries.length - 1; i >= 0; i -= 1) {
       result.unshift(identityEntries[i]);
     }
@@ -776,40 +800,59 @@ export function CommandPalette() {
                 // `.command-palette-search:focus-visible` in App.css (ink, inset past the panel edge).
               }}
             />
-            <div role="listbox" aria-label="Commands" style={{ overflowY: "auto" }}>
+            {/* The list is inset by the row's own gutter, so a highlighted row's 2px rule sits inside the dialog's
+                edge instead of reading as a thicker edge (08.1-15 closure, finding 8). */}
+            <div
+              role="listbox"
+              aria-label="Commands"
+              style={{ overflowY: "auto", padding: "var(--space-sm)" }}
+            >
               {filtered.length === 0 && (
                 <div className="type-body" style={{ padding: "var(--space-md)", color: "var(--text-muted-rack)" }}>
                   No matching commands or items
                 </div>
               )}
               {filtered.map((command, index) => (
-                <div
-                  key={command.id}
-                  role="option"
-                  aria-selected={index === activeIndex}
-                  aria-disabled={command.disabled}
-                  className="type-body"
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => !command.disabled && command.run()}
-                  style={{
-                    padding: "var(--space-sm) var(--space-md)",
-                    // The highlighted command reads like a selected task row (A-06): a neutral surface
-                    // shift and a 2px ink rule, never the brand. The palette's list always has the
-                    // keyboard (the input owns it), so it is the list-focused rule.
-                    background: index === activeIndex ? "var(--row-surface-selected)" : "transparent",
-                    borderLeft: index === activeIndex ? "2px solid var(--selection-rule)" : "2px solid transparent",
-                    color: command.disabled ? "var(--text-muted-rack)" : "inherit",
-                    cursor: command.disabled ? "default" : "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <span>{command.label}</span>
-                  <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                    {command.group}
-                  </span>
-                </div>
+                <Fragment key={command.id}>
+                  {/* A section header where the group changes. Decorative (the group is also each row's
+                      accessible context through `aria-description`), so it is hidden from the listbox. */}
+                  {(index === 0 || filtered[index - 1].group !== command.group) && (
+                    <div
+                      aria-hidden="true"
+                      className="type-label"
+                      style={{
+                        padding: "var(--space-sm) var(--space-sm) var(--space-xs)",
+                        marginTop: index === 0 ? 0 : "var(--space-xs)",
+                        borderTop: index === 0 ? "none" : "1px solid var(--divider)",
+                        color: "var(--text-muted-rack)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {command.group}
+                    </div>
+                  )}
+                  <div
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    aria-disabled={command.disabled}
+                    aria-description={command.group}
+                    className="type-body"
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => !command.disabled && command.run()}
+                    style={{
+                      padding: "var(--space-sm) var(--space-sm)",
+                      // The highlighted command reads like a selected task row (A-06): a neutral surface
+                      // shift and a 2px ink rule, never the brand. The palette's list always has the
+                      // keyboard (the input owns it), so it is the list-focused rule.
+                      background: index === activeIndex ? "var(--row-surface-selected)" : "transparent",
+                      borderLeft: index === activeIndex ? "2px solid var(--selection-rule)" : "2px solid transparent",
+                      color: command.disabled ? "var(--text-muted-rack)" : "inherit",
+                      cursor: command.disabled ? "default" : "pointer",
+                    }}
+                  >
+                    {command.label}
+                  </div>
+                </Fragment>
               ))}
             </div>
           </div>
