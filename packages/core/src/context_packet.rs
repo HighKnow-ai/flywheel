@@ -16,6 +16,10 @@
 //! `integration_branch` if one exists, or exactly the name `ensure_epic_integration_branch` would
 //! cut later (`branch::epic_integration_branch_name`) — never cutting it here.
 //!
+//! `review_feedback` (A-08(a)) is read the same way — from the criteria and the event log, live, at
+//! assembly — so purity, determinism and the omit-the-heading rule are unchanged: a task that was
+//! never declined assembles and renders exactly as it did before.
+//!
 //! One bounded exception to "no git call" (D-142, plan 08-02): when a checked criterion carries an
 //! anchor, its staleness is derived by the review module's read-only `git` queries (rev-parse,
 //! cat-file, diff, rev-list) so the agent reads the same verdict the review rail shows. Nothing is
@@ -375,6 +379,12 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         }
     };
 
+    // A-08(a): the reason a reviewer sent this task back, read live from the unchecked criteria.
+    let review_feedback = crate::domain::task::pending_changes_request(conn, task_id)?
+        .map(|unchecked| ReviewFeedback {
+            statements: unchecked.into_iter().map(|c| c.statement).collect(),
+        });
+
     Ok(ContextPacket {
         task_key,
         task_title,
@@ -386,7 +396,7 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         decisions,
         diff: None,
         drift: Vec::new(),
-        review_feedback: None,
+        review_feedback,
         worktree,
     })
 }
@@ -539,6 +549,19 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
         for warning in &packet.drift {
             out.push_str("- ");
             out.push_str(&warning.sentence);
+            out.push('\n');
+        }
+    }
+
+    // A reviewer's decline (A-08(a)): after Warnings, before Epic Context, omitted entirely when
+    // absent. The lead sentence is the constant the launch sheet's preview also renders.
+    if let Some(feedback) = &packet.review_feedback {
+        out.push_str("\n## Review Feedback\n\n");
+        out.push_str(REVIEW_FEEDBACK_LEAD);
+        out.push_str("\n\n");
+        for statement in &feedback.statements {
+            out.push_str("- ");
+            out.push_str(statement);
             out.push('\n');
         }
     }

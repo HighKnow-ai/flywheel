@@ -541,29 +541,142 @@ pub enum ChangesRequestOutcome {
     Refused(ChangesRequestRefusal),
 }
 
-/// The live unchecked list when a decline is pending, else `None`.
+/// Every current criterion of a task as `(criterion, checked)`, in the same rank-then-id order
+/// `context_packet::CRITERIA_SQL` uses, so the reason reads in the order the agent's own
+/// Acceptance Criteria section does. Current revisions only (`superseded_at IS NULL`) — the same
+/// predicate `forge::transitions` uses for its unmet count.
+fn current_criteria(conn: &Connection, task_id: &str) -> anyhow::Result<Vec<(UncheckedCriterion, bool)>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, statement, checked FROM acceptance_criteria \
+         WHERE parent_type = 'task' AND parent_id = ?1 AND superseded_at IS NULL \
+         ORDER BY rank ASC, id ASC",
+    )?;
+    let rows = stmt
+        .query_map(params![task_id], |row| {
+            Ok((
+                UncheckedCriterion { id: row.get(0)?, statement: row.get(1)? },
+                row.get::<_, i64>(2)? != 0,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the task's current acceptance criteria")?;
+    Ok(rows)
+}
+
+/// Is a decline the newest word on the task? True when its newest `task.changes_requested` event
+/// is later (by `sequence`) than its newest move to `in_review` — a re-submission, by a human or
+/// by the forge's own `None -> open` edge, clears the marker.
+fn decline_is_newest(conn: &Connection, task_id: &str) -> anyhow::Result<bool> {
+    let newest: Option<String> = conn
+        .query_row(
+            "SELECT event_type FROM events WHERE task_id = ?1 AND ( event_type = ?2 OR \
+             (event_type = 'task.status_changed' AND json_extract(payload, '$.after') = 'in_review') ) \
+             ORDER BY sequence DESC LIMIT 1",
+            params![task_id, EVENT_CHANGES_REQUESTED],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("failed to read the task's decline marker")?;
+    Ok(newest.as_deref() == Some(EVENT_CHANGES_REQUESTED))
+}
+
+/// The live unchecked list when a decline is pending, else `None`. Pending means the decline is
+/// the newest word on the task AND some current criterion is still unchecked. Carries no status
+/// gate: a declined task later demoted to Todo still briefs its next session with the reason.
 pub fn pending_changes_request(
-    _conn: &Connection,
-    _task_id: &str,
+    conn: &Connection,
+    task_id: &str,
 ) -> anyhow::Result<Option<Vec<UncheckedCriterion>>> {
-    Ok(None)
+    if !decline_is_newest(conn, task_id)? {
+        return Ok(None);
+    }
+    let unchecked: Vec<UncheckedCriterion> =
+        current_criteria(conn, task_id)?.into_iter().filter(|(_, checked)| !checked).map(|(c, _)| c).collect();
+    Ok((!unchecked.is_empty()).then_some(unchecked))
 }
 
-/// Derive what the surface may offer for `task_id`.
-pub fn changes_request_state(
-    _conn: &Connection,
-    _task_id: &str,
-) -> anyhow::Result<ChangesRequestState> {
-    Ok(ChangesRequestState::Refused(ChangesRequestRefusal::NotInFlight))
+/// Derive what the surface may offer for `task_id`. Precedence: not in flight, integrated (a
+/// recorded event, a board read — no git), no criteria, sent back, nothing unchecked, ready.
+pub fn changes_request_state(conn: &Connection, task_id: &str) -> anyhow::Result<ChangesRequestState> {
+    let status: String = conn
+        .query_row("SELECT status FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
+        .with_context(|| format!("task {task_id:?} not found"))?;
+    if status != "in_progress" && status != "in_review" {
+        return Ok(ChangesRequestState::Refused(ChangesRequestRefusal::NotInFlight));
+    }
+    if crate::merge::integrated_merge_commit(conn, task_id)?.is_some() {
+        return Ok(ChangesRequestState::Refused(ChangesRequestRefusal::Integrated));
+    }
+    let criteria = current_criteria(conn, task_id)?;
+    if criteria.is_empty() {
+        return Ok(ChangesRequestState::Refused(ChangesRequestRefusal::NoCriteria));
+    }
+    let unchecked: Vec<UncheckedCriterion> =
+        criteria.into_iter().filter(|(_, checked)| !checked).map(|(c, _)| c).collect();
+    if unchecked.is_empty() {
+        return Ok(ChangesRequestState::Refused(ChangesRequestRefusal::NothingUnchecked));
+    }
+    if decline_is_newest(conn, task_id)? {
+        return Ok(ChangesRequestState::SentBack(unchecked));
+    }
+    Ok(ChangesRequestState::Ready(unchecked))
 }
 
-/// Decline a task's work: send its unchecked criteria back to the agent.
+/// Decline a task's work: send its unchecked criteria back to the agent (A-08(a)). One
+/// transaction. The state is re-derived inside it, so a stale `Ready` on screen cannot record a
+/// decline the board no longer supports, and a double click is `AlreadySentBack`. On a real
+/// decline the status moves to `in_progress` through [`set_task_status_in_tx`] (D-03: the one
+/// status implementation; a task already `in_progress` is that writer's documented no-op) and one
+/// `task.changes_requested` event is appended beside it. The command accepts no reason text: the
+/// reason is the unchecked criteria, read live at briefing time.
 pub fn request_changes(
-    _conn: &mut Connection,
-    _actor_id: &str,
-    _task_id: &str,
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
 ) -> anyhow::Result<ChangesRequestOutcome> {
-    Ok(ChangesRequestOutcome::Refused(ChangesRequestRefusal::NotInFlight))
+    let tx = conn.transaction()?;
+    let unchecked = match changes_request_state(&tx, task_id)? {
+        ChangesRequestState::Refused(why) => return Ok(ChangesRequestOutcome::Refused(why)),
+        ChangesRequestState::SentBack(_) => return Ok(ChangesRequestOutcome::AlreadySentBack),
+        ChangesRequestState::Ready(unchecked) => unchecked,
+    };
+
+    let (project_id, epic_id, from_status): (String, Option<String>, String) = tx
+        .query_row(
+            "SELECT project_id, epic_id, status FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    set_task_status_in_tx(&tx, actor_id, task_id, "in_progress")?;
+
+    let count = unchecked.len();
+    let noun = if count == 1 { "criterion" } else { "criteria" };
+    let payload = serde_json::json!({
+        "unchecked_count": count,
+        "criterion_ids": unchecked.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+        "from_status": from_status,
+        "label": format!("Requested changes: {count} acceptance {noun} unchecked"),
+    });
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id.as_deref(),
+        actor_id,
+        EVENT_CHANGES_REQUESTED,
+        &payload,
+        &Utc::now().to_rfc3339(),
+    )?;
+
+    tx.commit().context("failed to commit request_changes transaction")?;
+    Ok(ChangesRequestOutcome::Requested { count })
 }
 
 /// Move a task up or down by one position within its `(project_id, status, priority)` band
