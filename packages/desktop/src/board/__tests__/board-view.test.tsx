@@ -11,9 +11,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BoardView } from "../BoardView";
+import { BoardView, rackRowHeight } from "../BoardView";
+import { ROW_HEIGHT_BY_KIND } from "../BoardRow";
 import { resetUiState } from "../../state/uiStore";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
+import { buildVolumeItems, MOUNTABLE_ROW_ESTIMATE, VOLUME_ROW_COUNT } from "./volume";
 
 const invokeCommandMock = vi.fn();
 
@@ -112,5 +114,55 @@ describe("BoardView", () => {
 
     expect(await screen.findByText("FLY-1 Parent epic")).toBeInTheDocument();
     expect(screen.queryByText("epic-1")).not.toBeInTheDocument();
+  });
+
+  describe("row kinds and the height lookup (D-13, A-03)", () => {
+    it("declares the four contract heights in one lookup keyed by row kind", () => {
+      expect(ROW_HEIGHT_BY_KIND).toEqual({
+        "epic-header": 64,
+        challenge: 48,
+        task: 32,
+        "band-header": 28,
+      });
+    });
+
+    it("renders a band header and a task at the heights the lookup records for their kinds", () => {
+      const items: BoardItem[] = [
+        { id: "1", key: "FLY-1", title: "First task", status: "backlog", rank: "80", priority: 0, epicId: null },
+      ];
+      renderBoard(items, { ...EMPTY_COUNTS, backlog: 1 });
+
+      const band = screen.getByText("Backlog").closest(".status-band")?.parentElement;
+      const task = screen.getByText("First task").closest(".displace-transition");
+      expect(band?.style.height).toBe(`${ROW_HEIGHT_BY_KIND["band-header"]}px`);
+      expect(task?.getAttribute("style")).toContain(`height: ${ROW_HEIGHT_BY_KIND.task}px`);
+    });
+
+    it("sizes all four kinds, and the quick-add row as a task, by lookup alone", () => {
+      const task = { kind: "task" } as never;
+      expect(rackRowHeight({ kind: "band-header" } as never)).toBe(28);
+      expect(rackRowHeight({ kind: "epic-header" } as never)).toBe(64);
+      expect(rackRowHeight({ kind: "challenge" } as never)).toBe(48);
+      expect(rackRowHeight(task)).toBe(32);
+      expect(rackRowHeight({ kind: "quick-add" } as never)).toBe(32);
+    });
+
+    it("sizes a row without reading the DOM, and returns the same value on a second call", () => {
+      const rect = vi.spyOn(Element.prototype, "getBoundingClientRect");
+      const row = { kind: "epic-header" } as never;
+      expect(rackRowHeight(row)).toBe(rackRowHeight(row));
+      expect(rect).not.toHaveBeenCalled();
+      rect.mockRestore();
+    });
+
+    it("mounts only the window the viewport and overscan allow at volume", () => {
+      const items = buildVolumeItems();
+      renderBoard(items, { ...EMPTY_COUNTS, backlog: items.length });
+
+      const mounted = screen.getAllByRole("listitem").length;
+      expect(VOLUME_ROW_COUNT).toBeGreaterThan(MOUNTABLE_ROW_ESTIMATE);
+      expect(mounted).toBeLessThanOrEqual(MOUNTABLE_ROW_ESTIMATE);
+      expect(mounted).toBeGreaterThanOrEqual(Math.floor(800 / ROW_HEIGHT_BY_KIND.task));
+    });
   });
 });
