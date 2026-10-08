@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "08.1"
 current_phase_name: "Visual polish: brand assets and confirmed motion (INSERTED)"
 status: executing
-stopped_at: Completed 08.1-07-PLAN.md
-last_updated: "2026-10-08T04:12:31.725Z"
+stopped_at: Completed 08.1-08-PLAN.md
+last_updated: "2026-10-08T05:29:16.797Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 08.1 execution started
-state_head: 4489f6c4b4cbd6eeb64003036f951c67ea5cc4f8
+state_head: ce1071b6a647141538bd5ee220e2b3dabd019aa6
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 205
-  completed_plans: 192
+  completed_plans: 193
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
-Plan: 8 of 20
+Plan: 9 of 20
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08.1 execution started
 
@@ -254,6 +254,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08.1 P05 | 34 min | 3 tasks | 10 files |
 | Phase 08.1 P06 | 25 min | 3 tasks | 1 files |
 | Phase 08.1 P07 | 8 min | 3 tasks | 12 files |
+| Phase 08.1 P08 | 33 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -586,6 +587,8 @@ Recent decisions affecting current work:
 - [Phase 08.1]: A-03 approved in full 2026-10-08: change-cue slot + four row-kind heights; Performance Contract intact
 - [Phase 08.1]: 08.1-07: dark brand text lift pinned at #5175e1 (4.55 on #0f0f0f), derived by search; light mode carries no lift
 - [Phase 08.1]: 08.1-07: row-state surfaces are opaque and no darker than the surface role so every text and data-channel role stays AA; the 2px selection rule carries selection
+- [Phase 08.1]: A-04: an epic row matches the has-worktree filter when ANY child task has an active worktree (owner, 2026-10-08); commits-ahead and dirty stay annotation-only, not filter dimensions — Keeps the epic roster's grouping under the chip (13 epics to 5 on the real board); git facts have no column and filtering them needs a deferred migration
+- [Phase 08.1]: An unbound rusqlite named parameter is NULL, not an error: a missed bind site silently means unfiltered, so bind-site tests must assert the exact result set — Found by mutation-testing the six has_worktree bind sites
 
 ### Pending Todos
 
@@ -647,6 +650,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-08T04:12:31.551Z
-Stopped at: Completed 08.1-07-PLAN.md
+Last session: 2026-10-08T05:29:16.630Z
+Stopped at: Completed 08.1-08-PLAN.md
 Resume file: None
