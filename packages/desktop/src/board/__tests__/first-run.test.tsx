@@ -104,8 +104,9 @@ describe("the register step (08.1 closure)", () => {
 });
 
 /** SC2 / D-22: the brand mark is on screen in the two surfaces entitled to it, with an accessible name — never
- * injected as raw SVG markup (T-08.1-05). A-08(c): first-run draws it in ink through a CSS mask (a role="img"
- * span); the rail keeps the <img> of the tiled mark. */
+ * injected as raw SVG markup (T-08.1-05). A-08(c): BOTH surfaces draw it in ink through a CSS mask (a
+ * role="img" span). The owner declined a fifth permitted brand use for an identity mark, so the rail follows
+ * first-run rather than keeping the brand-filled tile first-run dropped. */
 describe("the brand mark", () => {
   it("renders on the first-run empty state as a named image, ahead of the heading", () => {
     const { container } = withClient(<FirstRun />);
@@ -131,8 +132,30 @@ describe("the brand mark", () => {
     const rail = screen.getByRole("navigation", { name: "Projects" });
     const mark = screen.getByRole("img", { name: /flywheel/i });
     expect(rail).toContainElement(mark);
-    expect(mark.tagName).toBe("IMG");
-    expect(mark.getAttribute("src")).toBeTruthy();
+    // A-08(c): ink via a mask, not the brand-filled <img> tile. An <img> cannot read the page's tokens,
+    // which is exactly why the fill survived here after first-run dropped it.
+    expect(mark.classList.contains("rail-mark")).toBe(true);
+    expect(mark.style.maskImage || mark.style.webkitMaskImage, "the glyph is referenced by URL").toMatch(/url\(/);
+    expect(mark.tagName).not.toBe("IMG");
+  });
+
+  it("paints no brand fill in either surface", () => {
+    const { container: firstRun } = withClient(<FirstRun />);
+    expect(firstRun.innerHTML).not.toMatch(/--accent/);
+    cleanup();
+    const { container: railContainer } = withClient(
+      <ProjectRail
+        projects={[
+          { id: "p1", keyPrefix: "FLY", name: "Flywheel", repoPath: "/r", defaultBranch: "main", status: "active" },
+        ]}
+        currentProjectId="p1"
+        onSelect={() => {}}
+      />,
+    );
+    expect(railContainer.innerHTML).not.toMatch(/--accent/);
+    // Not a blanket no-<svg> check here: the rail legitimately renders lucide icons (Plus,
+    // TriangleAlert). The guarantee is that the MARK is carried by reference, never injected markup.
+    expect(railContainer.querySelector(".rail-mark svg")).toBeNull();
   });
 
   it("is not rendered through raw HTML injection in either surface", () => {

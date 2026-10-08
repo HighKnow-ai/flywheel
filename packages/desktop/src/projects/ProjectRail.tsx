@@ -36,7 +36,7 @@
  */
 import { useState, type CSSProperties } from "react";
 import { Plus, TriangleAlert } from "lucide-react";
-import logoUrl from "../assets/logo.svg";
+import glyphUrl from "../assets/logo-glyph.svg";
 import type { Project } from "../board/useBoardQuery";
 import { useBlockedSummary, useChangeFlags, useRecoverySummary } from "../board/useBoardQuery";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
@@ -164,12 +164,20 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
 
   return (
     <nav aria-label="Projects" className="project-rail" style={railStyle}>
-      <img
-        src={logoUrl}
-        alt="Flywheel by HighKnow"
-        width={28}
-        height={28}
-        style={{ flexShrink: 0, margin: "0 var(--space-sm)" }}
+      {/* A-08(c): ink, not the brand-filled tile. The owner declined a fifth permitted brand use for an
+          identity mark, so the rail follows FirstRun rather than keeping the fill it dropped. A CSS mask
+          over the glyph-only asset lets `--text-primary-rack` colour it in both schemes; an <img> cannot
+          read the page's tokens. Still a static file reference, never inline markup (T-08.1-05). */}
+      <span
+        role="img"
+        aria-label="Flywheel by HighKnow"
+        className="rail-mark"
+        style={{
+          maskImage: `url(${glyphUrl})`,
+          WebkitMaskImage: `url(${glyphUrl})`,
+          flexShrink: 0,
+          margin: "0 var(--space-sm)",
+        }}
       />
       <Section id="rail-projects" label="Projects">
         {projects.map((project) => {

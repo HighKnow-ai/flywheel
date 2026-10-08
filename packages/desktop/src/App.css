@@ -202,3 +202,19 @@ button:disabled {
   opacity: 0.6;
   cursor: default;
 }
+
+/* A-08(c): the rail's identity mark is ink, not the brand-filled tile. The owner declined a fifth
+   permitted brand use for an identity mark, so the rail follows FirstRun. It lives here rather than
+   in states-and-confirms.css because App.css is the sheet the rail actually loads. */
+.rail-mark {
+  background-color: var(--text-primary-rack);
+  display: block;
+  height: 28px;
+  width: 28px;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+}
