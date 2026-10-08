@@ -12,6 +12,7 @@ import { BoardView } from "../BoardView";
 import { showStatusBands } from "./lens";
 import { FilterBar } from "../FilterBar";
 import { resetUiState, useUiStore } from "../../state/uiStore";
+import { useCollapseStore } from "../collapseStore";
 import {
   bandHeaderTotal,
   epicHeaderTotal,
@@ -56,6 +57,9 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
   boardEpicProgress: (projectId: string) => invokeCommandMock("board_epic_progress", { projectId }),
+  boardChangeFlags: (projectId: string) => invokeCommandMock("board_change_flags", { projectId }),
+  authoringProposalsPending: (projectId: string) => invokeCommandMock("authoring_proposals_pending", { projectId }),
+  authoringRunForEpic: (epicId: string) => invokeCommandMock("authoring_run_for_epic", { epicId }),
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
@@ -919,5 +923,206 @@ describe("useEpicProgress (D-05/D-06, D-16)", () => {
     invokeCommandMock.mockClear();
     renderHook(() => useEpicProgress(undefined), { wrapper: hookWrapper(new QueryClient()) });
     expect(invokeCommandMock.mock.calls.filter(([c]) => c === "board_epic_progress")).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The epic header row (08.1-11, D-05/D-06/D-18): the roster is the home surface, and every number
+// on an epic row comes from the board-wide aggregate, never from the rows that happen to be loaded.
+// ---------------------------------------------------------------------------------------------
+
+const ALPHA = { id: "epic-a", key: "FLY-1", title: "Alpha" };
+const BETA = { id: "epic-b", key: "FLY-2", title: "Beta" };
+
+function epicDto(epicId: string | null, over: Partial<EpicProgressDto> = {}): EpicProgressDto {
+  return { epicId, byStatus: [], total: 0, done: 0, agentsRunning: 0, agentsBlocked: 0, criteria: null, ...over };
+}
+
+function pendingProposals(epicIds: string[]) {
+  const proposals = epicIds.map((epicId, i) => ({
+    id: `p-${i}`, agentRunId: "run-1", epicId, verb: "create", targetType: "task", targetId: null,
+    parentProposalId: null, position: String(i), payload: { kind: "task", title: `Proposed ${i}` },
+    status: "pending", createdBy: "agent", createdAt: "2026-10-08T00:00:00Z", rationale: null,
+    originLogOffset: null, duplicateOf: null, duplicateScore: null, duplicateCandidate: null,
+  }));
+  return { proposals, counts: { pending: proposals.length, accepted: 0, rejected: 0, merged: 0, deferred: 0 } };
+}
+
+interface RosterFixture {
+  epics?: EpicSummary[];
+  aggregate: EpicProgressDto[];
+  proposals?: string[];
+  changeFlags?: { taskId: string; epicId: string | null; ahead: number | null; dirty: boolean }[];
+  byEpic?: Record<string, BoardItem[]>;
+}
+
+function renderRoster(fx: RosterFixture, windowItems: BoardItem[] = []) {
+  resetUiState();
+  useCollapseStore.setState({ collapsedByProject: {} });
+  const epics = fx.epics ?? [ALPHA];
+  invokeCommandMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+    if (command === "actor_list") return Promise.resolve([]);
+    if (command === "epic_list_all") return Promise.resolve(epicRoster(epics));
+    if (command === "board_epic_progress") return Promise.resolve(fx.aggregate);
+    if (command === "authoring_proposals_pending") return Promise.resolve(pendingProposals(fx.proposals ?? []));
+    if (command === "board_change_flags") return Promise.resolve(fx.changeFlags ?? []);
+    if (command === "authoring_run_for_epic") return Promise.resolve(null);
+    if (command === "board_list") {
+      const filter = (args?.filter ?? {}) as { epicIds?: (string | null)[] };
+      return Promise.resolve({
+        items: filter.epicIds ? (fx.byEpic?.[String(filter.epicIds[0])] ?? []) : [],
+        issues: [],
+        counts: EMPTY_COUNTS,
+      });
+    }
+    return Promise.resolve(undefined);
+  });
+  return renderBoard(windowItems, "proj-1");
+}
+
+/** The epic header row for a title, once the roster and the aggregate have both landed. */
+async function epicRow(title: string): Promise<HTMLElement> {
+  const el = await screen.findByLabelText(new RegExp(`^FLY-\\d+ ${title},`));
+  return el as HTMLElement;
+}
+
+describe("epic header row (D-05, D-06)", () => {
+  it("draws a 12-of-60 epic at 20 percent and prints the figure", async () => {
+    renderRoster({ aggregate: [epicDto("epic-a", { total: 60, done: 12 })] });
+
+    const row = await epicRow("Alpha");
+    const bar = within(row).getByRole("progressbar");
+    expect(bar).toHaveAttribute("aria-valuenow", "20");
+    expect(bar).toHaveAccessibleName(/12 of 60 tasks done/);
+    expect(within(row).getByText("12 of 60")).toBeInTheDocument();
+  });
+
+  it("prints the criteria position as a finer second figure where criteria exist", async () => {
+    renderRoster({ aggregate: [epicDto("epic-a", { total: 60, done: 12, criteria: { checked: 1, total: 3 } })] });
+
+    const row = await epicRow("Alpha");
+    expect(within(row).getByText("12 of 60")).toBeInTheDocument();
+    expect(within(row).getByText("1 of 3 criteria")).toBeInTheDocument();
+    expect(within(row).queryByText("no criteria yet")).not.toBeInTheDocument();
+  });
+
+  it("says 'no criteria yet' in words for an epic without criteria, and renders no percentage at all", async () => {
+    renderRoster({ aggregate: [epicDto("epic-a", { total: 60, done: 0, criteria: null })] });
+
+    const row = await epicRow("Alpha");
+    expect(within(row).getByText("no criteria yet")).toBeInTheDocument();
+    expect(within(row).queryByText(/criteria$/)).not.toBeInTheDocument();
+    expect(row.textContent).not.toContain("%");
+  });
+
+  it("prints a true statement, never a figure, while the aggregate has not landed", async () => {
+    resetUiState();
+    useCollapseStore.setState({ collapsedByProject: {} });
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "epic_list_all") return Promise.resolve(epicRoster([ALPHA]));
+      if (command === "board_epic_progress") return new Promise(() => {}); // never lands
+      if (command === "actor_list") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+    renderBoard([], "proj-1");
+
+    const row = await screen.findByLabelText(/^FLY-1 Alpha/);
+    expect(within(row).queryByText("no criteria yet")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("counts the agents running on the epic, with a name that says what the number counts", async () => {
+    renderRoster({ aggregate: [epicDto("epic-a", { total: 5, agentsRunning: 2 })] });
+
+    const row = await epicRow("Alpha");
+    const agents = within(row).getByLabelText("2 agents running");
+    expect(agents).toHaveTextContent("2");
+  });
+
+  it("counts the proposals waiting on the owner in their own slot, named for what they count", async () => {
+    renderRoster({ aggregate: [epicDto("epic-a", { total: 5 })], proposals: ["epic-a", "epic-a", "epic-a", "epic-a", "epic-b"] });
+
+    const row = await epicRow("Alpha");
+    const proposals = await within(row).findByLabelText("4 proposals waiting");
+    expect(proposals).toHaveTextContent("4");
+    expect(proposals.closest("[data-slot]")).toHaveAttribute("data-slot", "proposals");
+  });
+
+  it("draws one distribution segment per status present, proportional to the aggregate, each labelled", async () => {
+    renderRoster({
+      aggregate: [
+        epicDto("epic-a", {
+          total: 46,
+          done: 15,
+          byStatus: [
+            { status: "backlog", count: 14 },
+            { status: "todo", count: 15 },
+            { status: "in_progress", count: 16 },
+            { status: "in_review", count: 0 },
+            { status: "done", count: 15 },
+          ],
+        }),
+      ],
+    });
+
+    const row = await epicRow("Alpha");
+    const strip = within(row).getByRole("group", { name: /task distribution/i });
+    const segments = within(strip).getAllByRole("img");
+    expect(segments.map((s) => s.getAttribute("aria-label"))).toEqual([
+      "15 Done",
+      "16 In Progress",
+      "15 Todo",
+      "14 Backlog",
+    ]);
+    expect(segments.map((s) => (s as HTMLElement).style.flexGrow)).toEqual(["15", "16", "15", "14"]);
+  });
+
+  it("reads every number from the aggregate even when fewer of the epic's task rows are loaded than it has tasks", async () => {
+    const loaded: BoardItem[] = [
+      { id: "t1", key: "FLY-11", title: "Loaded one", status: "todo", rank: "1", priority: 0, epicId: "epic-a", kind: "task" },
+      { id: "t2", key: "FLY-12", title: "Loaded two", status: "todo", rank: "2", priority: 0, epicId: "epic-a", kind: "task" },
+    ];
+    renderRoster(
+      { aggregate: [epicDto("epic-a", { total: 60, done: 12 })], byEpic: { "epic-a": loaded } },
+      loaded,
+    );
+
+    const row = await epicRow("Alpha");
+    fireEvent.click(within(row).getByRole("button", { name: /expand/i }));
+    await screen.findByText("Loaded two");
+
+    // The fixture only works if the loaded rows really are fewer than the epic's total.
+    const loadedRows = screen.getAllByText(/^Loaded /);
+    expect(loadedRows).toHaveLength(2);
+    expect(loadedRows.length).toBeLessThan(60);
+    expect(within(await epicRow("Alpha")).getByText("12 of 60")).toBeInTheDocument();
+  });
+
+  it("is a selection target keyed by the epic's id, reaching detail and continue-shaping from the keyboard", async () => {
+    renderRoster({ aggregate: [epicDto("epic-a", { total: 5 })] });
+
+    const row = await epicRow("Alpha");
+    fireEvent.click(row);
+    expect(useUiStore.getState().selectedItemId).toBe("epic-a");
+    expect(row).toHaveAttribute("aria-selected", "true");
+
+    const list = screen.getByRole("list", { name: "Board" });
+    fireEvent.keyDown(list, { key: "Enter" });
+    expect(useUiStore.getState().detailItemId).toBe("epic-a");
+    useUiStore.getState().setDetailItemId(null);
+
+    fireEvent.keyDown(list, { key: "r" });
+    await waitFor(() => expect(useUiStore.getState().launchSheetAuthoringHandoff).toEqual({ epicId: "epic-a" }));
+  });
+
+  it("moves selection onto an epic header with j and k", async () => {
+    renderRoster({ epics: [ALPHA, BETA], aggregate: [epicDto("epic-a", { total: 1 }), epicDto("epic-b", { total: 1 })] });
+    await epicRow("Beta");
+    const list = screen.getByRole("list", { name: "Board" });
+
+    fireEvent.keyDown(list, { key: "j" });
+    expect(useUiStore.getState().selectedItemId).toBe("epic-a");
+    fireEvent.keyDown(list, { key: "j" });
+    expect(useUiStore.getState().selectedItemId).toBe("epic-b");
   });
 });
