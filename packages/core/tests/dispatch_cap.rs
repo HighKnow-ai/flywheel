@@ -23,11 +23,11 @@ fn count(conn: &Connection, sql: &str) -> i64 {
     conn.query_row(sql, [], |r| r.get(0)).unwrap()
 }
 
-fn write_raw_setting(conn: &Connection, value: &str) {
+fn write_raw_setting(conn: &Connection, actor: &str, value: &str) {
     conn.execute(
-        "INSERT INTO settings (key, value, updated_by, updated_at) VALUES ('dispatch_max_parallel', ?1, 'x', 'now')
+        "INSERT INTO settings (key, value, updated_by, updated_at) VALUES ('dispatch_max_parallel', ?1, ?2, 'now')
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![value],
+        params![value, actor],
     )
     .unwrap();
 }
@@ -76,16 +76,16 @@ fn a_refusal_on_a_fresh_database_stores_no_row_at_all() {
 
 #[test]
 fn a_malformed_stored_value_reads_back_as_the_default_instead_of_failing() {
-    let (conn, _actor, _project) = common::seeded_project();
+    let (conn, actor, _project) = common::seeded_project();
     for bad in ["not a number", "", "3.5", "-1", "0", "99", "9", " 4", "4294967296"] {
-        write_raw_setting(&conn, bad);
+        write_raw_setting(&conn, &actor, bad);
         assert_eq!(
             dispatch_max_parallel(&conn).unwrap(),
             DEFAULT_DISPATCH_MAX_PARALLEL,
             "stored {bad:?} must read as the default"
         );
     }
-    write_raw_setting(&conn, "6");
+    write_raw_setting(&conn, &actor, "6");
     assert_eq!(dispatch_max_parallel(&conn).unwrap(), 6, "a good value still reads back");
 }
 

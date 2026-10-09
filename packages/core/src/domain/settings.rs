@@ -13,6 +13,10 @@
 //! itself is its own audit record for the global scope. The PER-PROJECT override
 //! (`projects.credential_mode`) DOES have a natural project stream — `set_project_credential_mode`
 //! appends a real event there, following this crate's usual transactional-outbox shape exactly.
+//!
+//! `dispatch_max_parallel` (D-159) follows the global rule too: one number covering concurrent agent
+//! sessions across every project, so it has no project stream and writes no `events` row;
+//! `settings.updated_by`/`updated_at` are its audit record.
 
 use anyhow::Context;
 use chrono::Utc;
@@ -21,6 +25,15 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use crate::domain::event::{append_event, next_sequence};
 
 const SETTING_GLOBAL_CREDENTIAL_MODE: &str = "global_credential_mode";
+const SETTING_DISPATCH_MAX_PARALLEL: &str = "dispatch_max_parallel";
+
+/// How many agent sessions the dispatcher may keep running at once when Settings has never said.
+pub const DEFAULT_DISPATCH_MAX_PARALLEL: u32 = 3;
+/// The smallest cap that still lets the dispatcher run anything.
+pub const DISPATCH_MAX_PARALLEL_MIN: u32 = 1;
+/// A judgement, not a measurement: the public report that anchors it saw failures at 13-way
+/// parallelism without spawn staggering, a different configuration from this one.
+pub const DISPATCH_MAX_PARALLEL_MAX: u32 = 8;
 
 /// D-39's default when no setting row exists yet — a fresh install rides the developer's own
 /// `claude login` session until Settings says otherwise.
@@ -96,6 +109,38 @@ pub fn set_global_credential_mode(
     upsert_setting(&tx, SETTING_GLOBAL_CREDENTIAL_MODE, mode, actor_id, &now)?;
     tx.commit()
         .context("failed to commit set_global_credential_mode transaction")?;
+    Ok(())
+}
+
+/// The global cap on concurrently running agent sessions (D-159). An absent, unparseable or
+/// out-of-range stored value reads as [`DEFAULT_DISPATCH_MAX_PARALLEL`] — `settings.value` is a
+/// shared TEXT column with no CHECK, and the dispatcher tick reads this, so a bad row must degrade
+/// rather than fail.
+pub fn dispatch_max_parallel(conn: &Connection) -> anyhow::Result<u32> {
+    let stored = read_setting(conn, SETTING_DISPATCH_MAX_PARALLEL)?;
+    Ok(stored
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .filter(|n| (DISPATCH_MAX_PARALLEL_MIN..=DISPATCH_MAX_PARALLEL_MAX).contains(n))
+        .unwrap_or(DEFAULT_DISPATCH_MAX_PARALLEL))
+}
+
+/// Set the global parallel cap. The command handler validates first; this refuses again for the
+/// same reason [`set_global_credential_mode`] does. Writes one `settings` row and no event.
+pub fn set_dispatch_max_parallel(
+    conn: &mut Connection,
+    actor_id: &str,
+    value: u32,
+) -> anyhow::Result<()> {
+    if !(DISPATCH_MAX_PARALLEL_MIN..=DISPATCH_MAX_PARALLEL_MAX).contains(&value) {
+        return Err(anyhow::anyhow!(
+            "parallel agent cap must be between {DISPATCH_MAX_PARALLEL_MIN} and {DISPATCH_MAX_PARALLEL_MAX}, got {value}"
+        ));
+    }
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    upsert_setting(&tx, SETTING_DISPATCH_MAX_PARALLEL, &value.to_string(), actor_id, &now)?;
+    tx.commit()
+        .context("failed to commit set_dispatch_max_parallel transaction")?;
     Ok(())
 }
 

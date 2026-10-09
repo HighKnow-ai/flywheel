@@ -183,6 +183,7 @@ fn main() {
             commands::agent_run::orphan_kill,
             commands::settings::settings_get,
             commands::settings::settings_set_credential_mode,
+            commands::settings::settings_set_dispatch_max_parallel,
             commands::settings::settings_store_api_key,
             commands::settings::settings_clear_api_key,
             commands::settings::backend_capability_probe,
