@@ -6,8 +6,8 @@
  * length — only with row kind and expand state — which is the fixed-size virtualization contract
  * 02-UI-SPEC.md's "Performance Contract Additions" requires.
  */
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   FeedRow,
   FEED_ROW_HEIGHT,
@@ -17,6 +17,12 @@ import {
   isRowExpandable,
   type FeedRowData,
 } from "../FeedRow";
+
+// The widen call goes through the single adapter module; the verdict is whatever it resolves.
+const widenFileSetMock = vi.fn();
+vi.mock("../../adapters/tauri", () => ({
+  widenFileSet: (taskId: string, entry: string) => widenFileSetMock(taskId, entry),
+}));
 
 function longText(markerNearEnd = false): string {
   const filler = "a".repeat(FEED_ROW_TRUNCATION_THRESHOLD + 50);
@@ -151,5 +157,78 @@ describe("git lock-retry transient row and the git-lock-exhaustion no-render cas
     const row: FeedRowData = { kind: "git_lock_exhausted", key: "k1" };
     expect(feedRowEstimateSize(row, false)).toBe(FEED_ROW_HEIGHT);
     expect(feedRowEstimateSize(row, true)).toBe(FEED_ROW_HEIGHT);
+  });
+});
+
+describe("FeedRow scope_denied (D-153)", () => {
+  const inside: FeedRowData = { kind: "scope_denied", key: "s1", path: "src/b.rs", tool: "Write", outsideWorktree: false };
+  const outside: FeedRowData = { kind: "scope_denied", key: "s2", path: "/Users/x/.claude/notes.md", tool: "Write", outsideWorktree: true };
+  const noop = () => {};
+  const accepted = { status: "accepted", entries: ["src/a/", "src/b.rs"], refusal: null, collidingPath: null, otherTaskKey: null, markerError: null };
+
+  it("renders its own row kind carrying the refused path, never the raw row", () => {
+    const { container } = render(<FeedRow row={inside} expanded={false} onToggleExpand={noop} taskId="T1" />);
+    expect(screen.getByText(/src\/b\.rs/)).toBeInTheDocument();
+    expect(container.querySelector('[data-kind="scope_denied"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("scope_denied");
+  });
+
+  it("widens to the refused path with exactly one call", async () => {
+    widenFileSetMock.mockReset().mockResolvedValue(accepted);
+    render(<FeedRow row={inside} expanded={false} onToggleExpand={noop} taskId="T1" />);
+    fireEvent.click(screen.getByRole("button", { name: /widen/i }));
+    await waitFor(() => expect(screen.getByText(/widened/i)).toBeInTheDocument());
+    expect(widenFileSetMock).toHaveBeenCalledTimes(1);
+    expect(widenFileSetMock).toHaveBeenCalledWith("T1", "src/b.rs");
+  });
+
+  it("disables the action while in flight, so a second click makes no second call", async () => {
+    let resolve: (v: unknown) => void = () => {};
+    widenFileSetMock.mockReset().mockReturnValue(new Promise((r) => (resolve = r)));
+    render(<FeedRow row={inside} expanded={false} onToggleExpand={noop} taskId="T1" />);
+    const button = screen.getByRole("button", { name: /widen/i });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(widenFileSetMock).toHaveBeenCalledTimes(1);
+    resolve(accepted);
+    await waitFor(() => expect(screen.getByRole("button", { name: /widen/i })).not.toBeDisabled());
+  });
+
+  it("shows the refusal text the command returned and keeps the row", async () => {
+    widenFileSetMock.mockReset().mockResolvedValue({
+      status: "refused", entries: [], refusal: "src/b.rs overlaps src/b/, which FLY-7 is running against",
+      collidingPath: "src/b/", otherTaskKey: "FLY-7", markerError: null,
+    });
+    const { container } = render(<FeedRow row={inside} expanded={false} onToggleExpand={noop} taskId="T1" />);
+    fireEvent.click(screen.getByRole("button", { name: /widen/i }));
+    await waitFor(() => expect(screen.getByText(/FLY-7 is running against/)).toBeInTheDocument());
+    expect(container.querySelector('[data-kind="scope_denied"]')).not.toBeNull();
+    expect(screen.queryByText(/^widened$/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the row in place, marked widened, after an accepted widen", async () => {
+    widenFileSetMock.mockReset().mockResolvedValue(accepted);
+    const { container } = render(<FeedRow row={inside} expanded={false} onToggleExpand={noop} taskId="T1" />);
+    fireEvent.click(screen.getByRole("button", { name: /widen/i }));
+    await waitFor(() => expect(container.querySelector('[data-widened="true"]')).not.toBeNull());
+    expect(screen.getByText(/src\/b\.rs/)).toBeInTheDocument();
+  });
+
+  it("says a partial widen (database wider, scope file not rewritten) plainly", async () => {
+    widenFileSetMock.mockReset().mockResolvedValue({ ...accepted, status: "marker_not_rewritten", markerError: "disk full" });
+    render(<FeedRow row={inside} expanded={false} onToggleExpand={noop} taskId="T1" />);
+    fireEvent.click(screen.getByRole("button", { name: /widen/i }));
+    await waitFor(() => expect(screen.getByText(/disk full/)).toBeInTheDocument());
+  });
+
+  it("words an outside-the-worktree denial differently and offers no widen", () => {
+    const { container: a } = render(<FeedRow row={inside} expanded={false} onToggleExpand={noop} taskId="T1" />);
+    const insideText = a.textContent;
+    const { container: b } = render(<FeedRow row={outside} expanded={false} onToggleExpand={noop} taskId="T1" />);
+    expect(b.textContent).not.toBe(insideText);
+    expect(b.textContent).toMatch(/outside the repository/i);
+    expect(b.textContent).not.toContain("/Users/x");
+    expect(b.querySelector("button")).toBeNull();
   });
 });
