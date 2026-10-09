@@ -5,7 +5,7 @@
 //! renderer claim, T-01-04), map core errors through [`ipc_error`], emit `board:changed` after a
 //! successful mutation.
 //!
-//! **`task_file_set_set` is a human-only command** in the `advance_stage` family (T-09-01-08): there
+//! **`task_file_set_set` and `task_file_set_widen` are human-only commands** in the `advance_stage` family (T-09-01-08): there
 //! is no MCP tool for it and no agent-reachable caller, so an agent can never widen its own scope.
 //! It accepts neither a worktree path nor an absolute path — an entry is a repo-relative string that
 //! `flywheel_core::file_set::parse_entry` either accepts as-is or REFUSES with a named cause; nothing
@@ -118,6 +118,116 @@ pub fn task_file_set_set(
     let stored = set_task_file_set(&mut conn, &task_id, &entries, &actor_id)?;
     app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
     Ok(stored)
+}
+
+/// The outcome of a widen, projected for the wire. The renderer renders this and decides nothing:
+/// `status` is `accepted`, `refused` or `marker_not_rewritten`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidenResultDto {
+    pub status: String,
+    /// The task's full declared set after an accepted (or partially accepted) widen.
+    pub entries: Vec<String>,
+    /// A refusal's reason in words, ready to display.
+    pub refusal: Option<String>,
+    /// The other task's entry the candidate collided with.
+    pub colliding_path: Option<String>,
+    pub other_task_key: Option<String>,
+    /// Set when the widen committed but the enforcement marker could not be rewritten.
+    pub marker_error: Option<String>,
+}
+
+/// The longest entry string a widen accepts. `parse_entry` has no length bound of its own.
+const MAX_ENTRY_CHARS: usize = 1024;
+
+pub(crate) fn widen_task_file_set(
+    conn: &mut Connection,
+    task_id: &str,
+    entry: &str,
+    actor_id: &str,
+) -> Result<WidenResultDto, String> {
+    use flywheel_core::domain::file_set::{widen_file_set, WidenOutcome, WidenRefusal};
+
+    validate_task_id(task_id)?;
+    if entry.chars().count() > MAX_ENTRY_CHARS {
+        return Err(format!("a file-set entry holds at most {MAX_ENTRY_CHARS} characters"));
+    }
+    let dto = |status: &str| WidenResultDto {
+        status: status.to_string(),
+        entries: Vec::new(),
+        refusal: None,
+        colliding_path: None,
+        other_task_key: None,
+        marker_error: None,
+    };
+    match widen_file_set(conn, task_id, entry, actor_id)
+        .map_err(|e| ipc_error("task_file_set_widen:widen", e))?
+    {
+        WidenOutcome::Accepted { entries } => Ok(WidenResultDto { entries, ..dto("accepted") }),
+        WidenOutcome::MarkerNotRewritten { entries, error } => Ok(WidenResultDto {
+            entries,
+            marker_error: Some(error),
+            ..dto("marker_not_rewritten")
+        }),
+        WidenOutcome::Refused(WidenRefusal::InvalidEntry { entry, cause }) => Ok(WidenResultDto {
+            refusal: Some(format!("file-set entry {entry:?} refused: {cause}")),
+            ..dto("refused")
+        }),
+        WidenOutcome::Refused(WidenRefusal::Collision { entry, colliding_path, other_task_key, .. }) => {
+            Ok(WidenResultDto {
+                refusal: Some(format!(
+                    "{entry} overlaps {colliding_path}, which {other_task_key} is running against"
+                )),
+                colliding_path: Some(colliding_path),
+                other_task_key: Some(other_task_key),
+                ..dto("refused")
+            })
+        }
+    }
+}
+
+/// Widen a task's declared file-set by one entry, live; takes effect on the agent's next tool call.
+/// Refused when the entry overlaps any in-flight task's set. Human-only — see this module's doc
+/// comment: no MCP tool, no agent-reachable caller, actor resolved here.
+#[tauri::command]
+pub fn task_file_set_widen(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+    entry: String,
+) -> Result<WidenResultDto, String> {
+    let mut conn = state.db.lock().map_err(|e| ipc_error("task_file_set_widen:lock", e))?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+        .map_err(|e| ipc_error("task_file_set_widen:actor", e))?;
+    let result = widen_task_file_set(&mut conn, &task_id, &entry, &actor_id)?;
+    if result.status != "refused" {
+        app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+    }
+    Ok(result)
+}
+
+/// One task's refusal count for the board badge. Tasks with none are not sent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeFlagDto {
+    pub task_id: String,
+    pub count: i64,
+}
+
+/// The server-side cap on one board sweep of refusal counts.
+const SCOPE_FLAGS_WINDOW: i64 = 1000;
+
+/// Per-task scope-refusal counts for one project, read once per board read. Read-only: a project
+/// id in and nothing else; the window is capped here.
+#[tauri::command]
+pub fn board_scope_flags(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<Vec<ScopeFlagDto>, String> {
+    let conn = state.db.lock().map_err(|e| ipc_error("board_scope_flags:lock", e))?;
+    let counts = flywheel_core::query::scope::scope_denied_counts(&conn, &project_id, SCOPE_FLAGS_WINDOW)
+        .map_err(|e| ipc_error("board_scope_flags:read", e))?;
+    Ok(counts.into_iter().map(|c| ScopeFlagDto { task_id: c.task_id, count: c.count }).collect())
 }
 
 #[cfg(test)]
@@ -306,5 +416,74 @@ mod tests {
         assert!(!signature.contains("actor"), "no renderer-supplied actor: {signature}");
         assert!(!signature.contains("worktree"), "no worktree path: {signature}");
         assert!(!signature.contains("path"), "no path argument: {signature}");
+    }
+
+    #[test]
+    fn a_widen_with_no_collision_is_accepted_and_returns_the_new_set() {
+        let (mut conn, actor, task_id) = seeded();
+        set_task_file_set(&mut conn, &task_id, &strings(&["a/"]), &actor).unwrap();
+        let r = widen_task_file_set(&mut conn, &task_id, "b.rs", &actor).unwrap();
+        assert_eq!(r.status, "accepted");
+        assert_eq!(r.entries, vec!["a/".to_string(), "b.rs".to_string()]);
+        assert!(r.refusal.is_none());
+    }
+
+    #[test]
+    fn a_glob_widen_is_a_refusal_the_renderer_can_show_not_an_ipc_error() {
+        let (mut conn, actor, task_id) = seeded();
+        let r = widen_task_file_set(&mut conn, &task_id, "src/*.rs", &actor).unwrap();
+        assert_eq!(r.status, "refused");
+        assert!(r.refusal.unwrap().contains("glob"));
+    }
+
+    #[test]
+    fn a_malformed_task_id_and_an_oversized_entry_are_refused_before_the_database() {
+        let (mut conn, actor, task_id) = seeded();
+        assert!(widen_task_file_set(&mut conn, "../x", "a.rs", &actor).unwrap_err().contains("task id"));
+        let long = "a".repeat(MAX_ENTRY_CHARS + 1);
+        assert!(widen_task_file_set(&mut conn, &task_id, &long, &actor).is_err());
+    }
+
+    #[test]
+    fn the_widen_handler_accepts_no_actor_and_no_path_argument() {
+        let source = include_str!("file_set.rs");
+        let code: Vec<&str> = source.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
+        let start = code
+            .iter()
+            .position(|l| l.trim_start().starts_with("pub fn task_file_set_widen("))
+            .expect("the task_file_set_widen command handler must exist");
+        let mut signature = String::new();
+        for line in &code[start..] {
+            signature.push_str(line);
+            signature.push(' ');
+            if line.contains('{') {
+                break;
+            }
+        }
+        assert!(!signature.contains("actor"), "no renderer-supplied actor: {signature}");
+        assert!(!signature.contains("marker"), "no marker path: {signature}");
+        assert!(!signature.contains("worktree"), "no worktree path: {signature}");
+    }
+
+    #[test]
+    fn the_scope_flags_handler_accepts_a_project_id_and_nothing_else() {
+        let source = include_str!("file_set.rs");
+        let code: Vec<&str> = source.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
+        let start = code
+            .iter()
+            .position(|l| l.trim_start().starts_with("pub fn board_scope_flags("))
+            .expect("the board_scope_flags command handler must exist");
+        let mut signature = String::new();
+        for line in &code[start..] {
+            signature.push_str(line);
+            signature.push(' ');
+            if line.contains('{') {
+                break;
+            }
+        }
+        assert!(signature.contains("project_id"));
+        for banned in ["path", "task_id", "limit", "actor"] {
+            assert!(!signature.contains(banned), "no {banned} argument: {signature}");
+        }
     }
 }

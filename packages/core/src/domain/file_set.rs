@@ -387,12 +387,113 @@ pub enum WidenOutcome {
     MarkerNotRewritten { entries: Vec<String>, error: String },
 }
 
-/// Widen `task_id`'s declared set by one entry, live.
+/// Widen `task_id`'s declared set by one entry, live (D-152).
+///
+/// The order is the point. The entry is validated by the same `parse_entry` the declare path uses.
+/// Then, **inside the write transaction** (taken `IMMEDIATE`, so the write lock is held before the
+/// re-check reads), the candidate is compared against every other in-flight task's declared set; a
+/// check made before the transaction would be a race. Only after the commit is the run's scope
+/// marker rewritten: the hook reads it fresh on every call, so that rewrite IS "takes effect on the
+/// next tool call". A rewrite failure after a commit is returned, never swallowed.
+///
+/// A widen of an entry the set already holds writes nothing but still rewrites the marker, so
+/// retrying after [`WidenOutcome::MarkerNotRewritten`] repairs the marker.
 pub fn widen_file_set(
-    _conn: &mut Connection,
-    _task_id: &str,
-    _raw_entry: &str,
-    _actor_id: &str,
+    conn: &mut Connection,
+    task_id: &str,
+    raw_entry: &str,
+    actor_id: &str,
 ) -> anyhow::Result<WidenOutcome> {
-    Err(anyhow!("widen_file_set is not implemented"))
+    use rusqlite::{OptionalExtension, TransactionBehavior};
+
+    let candidate = match parse_entry(raw_entry) {
+        Ok(entry) => entry,
+        Err(refusal) => {
+            return Ok(WidenOutcome::Refused(WidenRefusal::InvalidEntry {
+                entry: raw_entry.to_string(),
+                cause: refusal.to_string(),
+            }))
+        }
+    };
+
+    let (project_id, epic_id, repo_path): (String, Option<String>, String) = conn
+        .query_row(
+            "SELECT t.project_id, t.epic_id, p.repo_path FROM tasks t
+               JOIN projects p ON p.id = t.project_id WHERE t.id = ?1",
+            params![task_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+    // A subprocess: done before the write lock is taken, as `approve_plan` does.
+    let fold_case = repo_is_case_insensitive(std::path::Path::new(&repo_path));
+    let now = Utc::now().to_rfc3339();
+
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let before = list_entries_for_task(&tx, task_id)?;
+    if !before.contains(&candidate) {
+        for (other_id, other_entries) in crate::dispatch::in_flight_declared_sets(&tx, &project_id)? {
+            if other_id == task_id {
+                continue;
+            }
+            let found = crate::file_set::collisions(std::slice::from_ref(&candidate), &other_entries, fold_case);
+            if let Some(hit) = found.first() {
+                let other_task_key: String = tx
+                    .query_row("SELECT key FROM tasks WHERE id = ?1", params![other_id], |r| r.get(0))
+                    .optional()?
+                    .unwrap_or_default();
+                // Dropping `tx` rolls back; nothing was written yet.
+                return Ok(WidenOutcome::Refused(WidenRefusal::Collision {
+                    entry: entry_path(&candidate).to_string(),
+                    colliding_path: entry_path(hit.second).to_string(),
+                    other_task_id: other_id,
+                    other_task_key,
+                }));
+            }
+        }
+        tx.execute(
+            "INSERT INTO task_file_set_entries (id, task_id, form, path, created_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![new_id(), task_id, entry_form(&candidate), entry_path(&candidate), actor_id, now],
+        )
+        .with_context(|| format!("failed to store widened entry {:?}", entry_path(&candidate)))?;
+        let mut after = before.clone();
+        after.push(candidate.clone());
+        let payload = serde_json::json!({
+            "field": "file_set",
+            "before": entry_strings(&before),
+            "after": entry_strings(&after),
+            "label": format!("Widened the declared file-set to include {}", entry_path(&candidate)),
+        });
+        let sequence = next_sequence(&tx, &project_id, "local")?;
+        append_event(
+            &tx, &project_id, "local", sequence, "task", task_id, Some(task_id),
+            epic_id.as_deref(), actor_id, EVENT_FILE_SET_WIDENED, &payload, &now,
+        )?;
+    }
+    tx.commit().context("failed to commit widen_file_set transaction")?;
+
+    let entries = entry_strings(&list_entries_for_task(conn, task_id)?);
+    match rewrite_live_markers(conn, task_id) {
+        Ok(()) => Ok(WidenOutcome::Accepted { entries }),
+        Err(error) => Ok(WidenOutcome::MarkerNotRewritten { entries, error }),
+    }
+}
+
+/// Re-arm the scope marker of every live run of `task_id` from the stored rows. A task with no live
+/// run has no marker to rewrite: its next run arms from the same rows.
+fn rewrite_live_markers(conn: &Connection, task_id: &str) -> Result<(), String> {
+    let run_ids: Vec<String> = conn
+        .prepare("SELECT id FROM agent_runs WHERE task_id = ?1 AND status IN ('running', 'blocked')")
+        .and_then(|mut stmt| stmt.query_map(params![task_id], |r| r.get(0))?.collect())
+        .map_err(|e| format!("could not list the task's live runs: {e}"))?;
+    if run_ids.is_empty() {
+        return Ok(());
+    }
+    let worktree = crate::domain::worktree::worktree_for_task(conn, task_id)
+        .map_err(|e| format!("{e:#}"))?
+        .ok_or_else(|| "the task has a live run but no worktree".to_string())?;
+    for run_id in run_ids {
+        arm_scope_marker(conn, &run_id, task_id, std::path::Path::new(&worktree.path))?;
+    }
+    Ok(())
 }

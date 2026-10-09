@@ -325,3 +325,21 @@ fn a_committed_widen_whose_marker_cannot_be_rewritten_is_reported_not_swallowed(
         assert_eq!(paths(&fx.conn, &a.task_id), vec!["src/a/", "docs/n.md"], "the database half did commit");
     });
 }
+
+/// T-09-06-02: the widen is human-only. No sidecar source (the MCP permission server, the adapters,
+/// the hooks) may name it, so no agent-reachable tool can call it.
+#[test]
+fn no_sidecar_source_exposes_a_widen_tool() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("sidecar/src");
+    let mut seen = 0;
+    for entry in std::fs::read_dir(&src).expect("packages/sidecar/src") {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|e| e.to_str()) != Some("ts") {
+            continue;
+        }
+        seen += 1;
+        let text = std::fs::read_to_string(&path).unwrap().to_lowercase();
+        assert!(!text.contains("file_set_widen") && !text.contains("filesetwiden"), "{path:?} names the widen");
+    }
+    assert!(seen > 0, "the gate must read at least one source file");
+}

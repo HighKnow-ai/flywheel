@@ -157,6 +157,8 @@ fn main() {
             commands::events::events_since_cursor,
             commands::file_set::task_file_set_get,
             commands::file_set::task_file_set_set,
+            commands::file_set::task_file_set_widen,
+            commands::file_set::board_scope_flags,
             commands::menu::menu_set_action_enabled,
             commands::agent_run::agent_run_preview,
             commands::agent_run::agent_run_start,
