@@ -38,6 +38,13 @@
  * sidecar-written stdout line contains the value" at the same time — the equality check happens
  * entirely inside this process, never crossing back out as anything but a boolean.
  *
+ * **Limit-line mode** (plan 09-05, AGNT-05): `FLYWHEEL_FAKE_RATE_LIMIT=<json>` emits one
+ * `rate_limit_event` whose `rate_limit_info` is that JSON object, right after the assistant line, so
+ * a test can drive any tier through the real stream path. `FLYWHEEL_FAKE_ASSISTANT_ERROR=<code>`
+ * emits one assistant message carrying that wire error code (the second place a hard limit may
+ * surface). Every shape a test passes here for a hard limit is CONSTRUCTED from the documented
+ * shape; no hard limit has ever been observed live in this project.
+ *
  * **Usage block** (G-02-4, plan 02-18): both of this script's `result` lines carry a `usage`
  * object in the real CLI's own field shape (`input_tokens`, `cache_creation_input_tokens`,
  * `cache_read_input_tokens`, `output_tokens`) — the same shape measured live against claude
@@ -116,6 +123,18 @@ printLine({
     content: [{ type: "text", text: "Hello from the fake CLI." }],
   },
 });
+
+if (process.env.FLYWHEEL_FAKE_RATE_LIMIT) {
+  printLine({ type: "rate_limit_event", rate_limit_info: JSON.parse(process.env.FLYWHEEL_FAKE_RATE_LIMIT) });
+}
+if (process.env.FLYWHEEL_FAKE_ASSISTANT_ERROR) {
+  printLine({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "limit reached" }] },
+    is_api_error_message: true,
+    error: process.env.FLYWHEEL_FAKE_ASSISTANT_ERROR,
+  });
+}
 
 if (CALL_PERMISSION === 1) {
   await callPermissionToolOnce("first");

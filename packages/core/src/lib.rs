@@ -21,6 +21,7 @@ pub mod git_hooks;
 pub mod git_identity;
 pub mod git_retry;
 pub mod ids;
+pub mod limit_gate;
 pub mod marker;
 pub mod merge;
 pub mod proc;

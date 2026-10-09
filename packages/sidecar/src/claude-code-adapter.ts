@@ -23,6 +23,7 @@ import {
   CapabilityUnsupportedError,
   defaultResumeSession,
   type ProposalCreatedEvent,
+  type RateLimitTier,
   type StartAuthoringSessionOptions,
   type StartSessionOptions,
   type SummaryReportedEvent,
@@ -577,6 +578,11 @@ type ClaudeStreamEvent =
   | ClaudeStreamResult
   | ClaudeStreamRateLimit
   | Record<string, unknown>;
+
+/** Plan 09-05 (AGNT-05): STUB for the RED step — inert on purpose. */
+export function rateLimitTier(_status: unknown): RateLimitTier | undefined {
+  return undefined;
+}
 
 /** Read one optional numeric field out of a usage-shaped object, returning `undefined` for a
  * missing or non-numeric value rather than coercing it to zero — used four times over

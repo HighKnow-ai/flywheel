@@ -44,7 +44,21 @@ export interface AssistantTextEvent extends AgentEventBase {
    * {@link isApiErrorMessage}. Absent entirely — never a present-but-empty string — when the
    * backend's own envelope declared none. */
   errorCode?: string;
+  /** Plan 09-05 (AGNT-05): present, and always `"rejected"`, only when {@link errorCode} names a rate
+   * limit — the backend's documented error enum carries that value, and a hard limit may arrive on
+   * an assistant message rather than as a {@link RateLimitEvent}. The same normalised interpretation
+   * {@link RateLimitEvent.tier} carries, so the supervisor reads one field and never the backend's
+   * own error text. */
+  rateLimitTier?: RateLimitTier;
 }
+
+/**
+ * The normalised reading of "may this account keep being sent requests" (plan 09-05): `open` (the
+ * backend said the request was allowed), `warning` (allowed, but the backend flagged the account as
+ * approaching a limit) or `rejected` (the backend refused). Derived at the adapter seam so no
+ * supervisor code reads backend wire text.
+ */
+export type RateLimitTier = "open" | "warning" | "rejected";
 
 /**
  * Task 3, plan 05-12: the backend restating a turn the Rust core has already recorded (Task 2's
@@ -388,6 +402,11 @@ export interface RateLimitEvent extends AgentEventBase {
   surpassedThreshold?: number;
   resetsAt?: number;
   isUsingOverage?: boolean;
+  /** Plan 09-05: the normalised interpretation of {@link status}, computed by `rateLimitTier` from the
+   * top-level status field and nothing else. Absent when the wire carried no status, or one this
+   * adapter does not recognise — an unrecognised status is never concluded to mean either "go" or
+   * "stop". */
+  tier?: RateLimitTier;
 }
 
 /**
