@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 08.1 (Visual polish: brand assets and confirmed motion (INSERTED)) — EXECUTING
-Plan: 20 of 20
+Plan: 20 of 21 (08.1-21 complete; 08.1-20 is the closing plan, now wave 12, depends on 21)
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 08.1 execution started
 
