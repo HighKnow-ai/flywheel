@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../../styles/tokens.css";
 import "../../styles/type.css";
 import "../../App.css";
+import "../../session/session.css";
 import { EpicHeaderRow } from "../../board/EpicHeaderRow";
 import { CAP_KEY, GATE_KEY, dispatchPlanKey, planningRunKey } from "../queries";
 import type { DispatchPlanDto, GateDto } from "../../adapters/tauri";
@@ -109,5 +110,42 @@ describe("the dispatch cell in a real epic row", () => {
   it("gives way before the title does when the rack is narrow", () => {
     const { cell } = mountRow(running, open, 600);
     expect(cell === null || getComputedStyle(cell).display === "none").toBe(true);
+  });
+});
+
+describe("the wave plan sheet in WebKit", () => {
+  it("keeps its dialog inside the viewport with Approve reachable, however many tasks the plan has", async () => {
+    const { WavePlanSheet } = await import("../WavePlanSheet");
+    const many: DispatchPlanDto = {
+      ...running,
+      status: "draft",
+      edgesFrozen: false,
+      tasks: Array.from({ length: 40 }, (_, i) => ({
+        taskId: `t${i}`,
+        taskKey: `FLY-${i}`,
+        title: `Task number ${i} with a reasonably long title to wrap`,
+        wave: (i % 4) + 1,
+        state: "planned",
+        rationale: null,
+        attention: null,
+        entries: ["packages/core/src/domain/some/long/path/file.rs", "docs/"],
+      })),
+      edges: [],
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+    queryClient.setQueryData(dispatchPlanKey("epic-1"), many);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WavePlanSheet epicId="epic-1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const approve = Array.from(document.querySelectorAll("button")).find((b) => b.textContent === "Approve and start") as HTMLElement;
+    const d = dialog.getBoundingClientRect();
+    const a = approve.getBoundingClientRect();
+    expect(d.top).toBeGreaterThanOrEqual(0);
+    expect(d.bottom).toBeLessThanOrEqual(window.innerHeight + 0.5);
+    expect(a.bottom).toBeLessThanOrEqual(d.bottom + 0.5);
+    expect(a.top).toBeGreaterThanOrEqual(d.top);
   });
 });

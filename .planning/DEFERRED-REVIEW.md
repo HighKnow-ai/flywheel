@@ -319,6 +319,22 @@ context to be answerable months later by someone who was not in the room:
   risk_if_wrong: "Moderate. A run that blocks on a prompt shows as a pending permission request and holds a slot until the user answers or stops it; it writes nothing and stores no plan. Worst case the pass is unusable until the permission mode or the pre-approved list is widened, and the fix is a one-line argv change."
   automatable: "PARTLY. Whether the installed CLI pre-approves its read tools in `default` mode is YES: run the real binary once with the exact argv `buildClaudeArgv` produces for a planning launch and a read-only prompt, assert no permission request arrives (the `real-claude-argv` test is the precedent). A model's obedience to the prompt is the Phase 11 drain."
 
+- id: D-REV-36
+  phase: "09 — Planned Fan-Out (plan 09, PLAN-07, D-149, D-157, D-161, D-162)"
+  truth: "In the installed app, the wave plan sheet, the epic row's dispatch cell and the gate line read well and can be used end to end: Plan fan-out, a window with 'Planning in progress', the draft appearing, editing a path and a wave, Approve and start, Pause/Resume/Stop, and a paused or warning gate showing its reason and action."
+  status: open
+  why_deferred: |
+    Physical: there is no WebDriver for WKWebView, and the layout and wording are a human aesthetic judgement.
+    What IS proven: every component's behaviour in jsdom against fixture DTOs (including the single-call and
+    disabled-while-in-flight cases), the cell fitting the 64px epic row in real WebKit for a running plan with an
+    open, paused and warning gate, the cell hiding at a narrow rack, and the Rust DTO changes over a migrated
+    database; and the sheet staying inside a 1440x900 viewport with Approve reachable for a 40-task plan, in WebKit.
+    NOT shown: how the sheet and the row LOOK, a real click path through the packaged app, and a real planning run
+    (D-REV-35). The surface was built from CONTEXT.md and RESEARCH.md with no UI design contract for
+    this phase, so the layout is the plan's own and open to revision here.
+  risk_if_wrong: "Low to moderate. A cramped or confusing layout does not lose work; the worst case is a gate reason clipped to two lines (the full text is in the DOM and in a measured cell) or the sheet needing a second pass."
+  automatable: "PARTLY. The no-clipping and reachability half is already a WebKit test (dispatch-layout.browser.test.tsx). The click path through the packaged app and the judgement of how it looks are not."
+
 ## Redemption protocol
 
 At Phase 11, with an installed, usable build:
