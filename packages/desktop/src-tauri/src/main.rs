@@ -171,6 +171,7 @@ fn main() {
             commands::dispatch::dispatch_gate_resume_now,
             commands::dispatch::dispatch_advance_now,
             commands::dispatch::dispatch_plan_generate,
+            commands::dispatch::dispatch_planning_run,
             commands::menu::menu_set_action_enabled,
             commands::agent_run::agent_run_preview,
             commands::agent_run::agent_run_start,

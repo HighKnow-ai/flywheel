@@ -164,8 +164,20 @@ pub fn insert_edge_in_tx(
 /// waves and written nowhere, so the review sheet can show the colliding paths while the user can
 /// still fix a wrong one. It is the same computation approval runs (`edges_for_plan`), so what the
 /// sheet shows and what approval freezes cannot disagree about the rule.
-pub fn preview_edges(_conn: &Connection, _plan_id: &str) -> anyhow::Result<Vec<DispatchEdge>> {
-    Ok(Vec::new())
+pub fn preview_edges(conn: &Connection, plan_id: &str) -> anyhow::Result<Vec<DispatchEdge>> {
+    let repo_path: String = conn
+        .query_row(
+            "SELECT pr.repo_path FROM dispatch_plans p
+               JOIN epics e ON e.id = p.epic_id JOIN projects pr ON pr.id = e.project_id
+              WHERE p.id = ?1",
+            params![plan_id],
+            |r| r.get(0),
+        )
+        .with_context(|| format!("plan {plan_id:?} not found"))?;
+    let fold_case = crate::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&repo_path));
+    let mut tasks = planned_tasks(conn, plan_id)?;
+    normalise_waves(&mut tasks);
+    Ok(edges_for_plan(&tasks, fold_case))
 }
 
 /// Approve a draft plan. Case-folding is read from the epic's repository (`core.ignorecase`)

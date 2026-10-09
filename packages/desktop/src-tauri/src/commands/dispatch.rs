@@ -18,6 +18,7 @@
 //! must never read as a reviewed merge: Phase 8's per-task review gate is not mandatory during
 //! fan-out (D-156), and the audit trail says so.
 
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -90,8 +91,15 @@ fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDt
     let plan = flywheel_core::domain::dispatch_plan::read_plan(conn, plan_id)
         .map_err(|e| ipc_error("dispatch_plan_get:read", e))?
         .ok_or_else(|| format!("plan {plan_id:?} not found"))?;
-    let edges = flywheel_core::domain::dispatch_plan::read_edges(conn, plan_id)
-        .map_err(|e| ipc_error("dispatch_plan_get:edges", e))?;
+    // A draft has no frozen edges yet, so it shows what approval WOULD freeze (computed by the same
+    // core code, written nowhere); every other status shows the rows that were acted on.
+    let edges_frozen = plan.status != "draft";
+    let edges = if edges_frozen {
+        flywheel_core::domain::dispatch_plan::read_edges(conn, plan_id)
+    } else {
+        flywheel_core::domain::dispatch_plan::preview_edges(conn, plan_id)
+    }
+    .map_err(|e| ipc_error("dispatch_plan_get:edges", e))?;
     let mut tasks = Vec::with_capacity(plan.tasks.len());
     for t in plan.tasks {
         let (task_key, title): (String, String) = conn
@@ -104,6 +112,12 @@ fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDt
         } else {
             None
         };
+        // Read from the stored rows, never from the marker file (09-01).
+        let entries = flywheel_core::domain::file_set::list_entries_for_task(conn, &t.task_id)
+            .map_err(|e| ipc_error("dispatch_plan_get:entries", e))?
+            .iter()
+            .map(|e| flywheel_core::file_set::entry_path(e).to_string())
+            .collect();
         tasks.push(DispatchTaskDto {
             task_id: t.task_id,
             task_key,
@@ -112,7 +126,7 @@ fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDt
             state: t.state,
             rationale: t.rationale,
             attention,
-            entries: Vec::new(),
+            entries,
         });
     }
     Ok(DispatchPlanDto {
@@ -121,7 +135,7 @@ fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDt
         status: plan.status,
         wave_cursor: plan.wave_cursor,
         tasks,
-        edges_frozen: true,
+        edges_frozen,
         edges: edges
             .into_iter()
             .map(|e| DispatchEdgeDto {
@@ -574,10 +588,31 @@ pub(crate) fn start_planning_run(state: &AppState, epic_id: &str) -> Result<Plan
 /// The epic's running planning run, if any: the window between "Generate" and the first valid
 /// submission, in which a run exists and no plan row does.
 pub(crate) fn planning_run_for_epic(
-    _conn: &rusqlite::Connection,
-    _epic_id: &str,
+    conn: &rusqlite::Connection,
+    epic_id: &str,
 ) -> Result<Option<PlanningRunDto>, String> {
-    Ok(None)
+    // The same shape `check_can_plan` refuses a second run on: epic-scoped, no task, no stage.
+    let run_id: Option<String> = conn
+        .query_row(
+            "SELECT id FROM agent_runs
+              WHERE epic_id = ?1 AND task_id IS NULL AND authoring_stage IS NULL
+                AND status IN ('running', 'blocked')
+              ORDER BY started_at DESC LIMIT 1",
+            [epic_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| ipc_error("dispatch_planning_run:read", e))?;
+    Ok(run_id.map(|run_id| PlanningRunDto { run_id, epic_id: epic_id.to_string() }))
+}
+
+/// Is a planning run in progress for this epic? The window between Generate and the first valid
+/// submission has a run and no plan row, so the plan read alone cannot show it. Read-only.
+#[tauri::command]
+pub fn dispatch_planning_run(state: State<AppState>, epic_id: String) -> Result<Option<PlanningRunDto>, String> {
+    validate_id("epic", &epic_id)?;
+    let conn = state.db.lock().map_err(|e| ipc_error("dispatch_planning_run:lock", e))?;
+    planning_run_for_epic(&conn, &epic_id)
 }
 
 /// Ask for a fan-out plan on an epic: a short, read-only agent run reads the repository as it is NOW
