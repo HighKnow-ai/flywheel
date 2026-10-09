@@ -323,8 +323,8 @@ describe("the review tree has no generic status writer (D-122, narrowed by A-08(
     fireEvent.click(within(foot).getByRole("button", { name: "Request changes" }));
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     expect(commandsSeen.filter((c) => /status/.test(c))).toEqual([]);
-    expect(commandsSeen.every((c) => ["criterion_list", "review_criteria_state", "criterion_revisions"].includes(c))).toBe(
-      true,
-    );
+    // Reads only. `epic_list_all` is the scope toggle's roster read, which the strict mock rejects (harmlessly).
+    const allowed = ["criterion_list", "review_criteria_state", "criterion_revisions", "epic_list_all"];
+    expect(commandsSeen.filter((c) => !allowed.includes(c))).toEqual([]);
   });
 });

@@ -13,6 +13,9 @@
  * sibling of the diff — is what consumes it; the diff reports gutter clicks up and renders the
  * highlight and anchor badges back down. Like `item-detail/GitFactsSection.tsx`, the file list renders nothing at all while its read is
  * in flight — absence is the design, not a placeholder.
+ *
+ * The review decision (A-08(a), plan 08.1-21) is `DecisionFoot`, at the foot of the criteria column:
+ * Request changes beside Merge, where the attestation completes. The title bar holds no action.
  */
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
@@ -22,6 +25,7 @@ import { useEpics } from "../board/useBoardQuery";
 import { nextSelectionId, useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import { CriteriaRail, useCheckAgainstSelection } from "./CriteriaRail";
+import { DecisionFoot } from "./DecisionFoot";
 import { EpicRequestBar, EpicRequestSheet } from "./EpicRequestSheet";
 import { FileDiff, type AnchorBadge } from "./FileDiff";
 import { MergeConfirmSheet } from "./MergeConfirmSheet";
@@ -379,16 +383,6 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
             {integrated ? `merged: ${(target.head ?? "").slice(0, 7)} against its first parent` : `${target.head} → ${target.base}`}
           </span>
         )}
-        {mergeOffered && (
-          <button
-            type="button"
-            onClick={() => setMergeOpen(true)}
-            className="type-label control-edge review-action"
-            style={{ marginLeft: target?.state === "resolved" ? 0 : "auto" }}
-          >
-            Merge
-          </button>
-        )}
       </header>
       {isTask && !integrated && mergePrecheck.data?.state === "refused" && (
         <MergeRefusalNote category={mergePrecheck.data.category} />
@@ -415,6 +409,17 @@ export function ReviewSurface({ scope, itemId, label, fromTask, onBack, onOpenSe
             onCheck={checkAgainstSelection}
             onFocusChange={setFocusedCriterionId}
           />
+          {/* A-08(a): the decision sits where the attestation completes, after the rail. Task scope
+              only (the epic's action is its request bar), never for a task that has landed. Merge's
+              offer is `mergeOffered`, the one expression the `m` binding reads too. */}
+          {isTask && !integrated && (
+            <DecisionFoot
+              taskId={itemId}
+              mergeOffered={mergeOffered}
+              declineEnabled={target?.state === "resolved"}
+              onMerge={() => setMergeOpen(true)}
+            />
+          )}
         </div>
         <nav
           aria-label="Changed files"

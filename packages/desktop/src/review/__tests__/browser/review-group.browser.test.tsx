@@ -72,7 +72,7 @@ import "../../../styles/type.css";
 import "../../../styles/motion.css";
 import "../../../App.css";
 import { ReviewSurface } from "../../ReviewSurface";
-import { CONFLICTED_PRECHECK, resetSpies, resetState, state } from "./review-fixture";
+import { CONFLICTED_PRECHECK, resetSpies, resetState, spies, state } from "./review-fixture";
 import { LIGHT, DARK } from "../../../theme/tokens";
 import { contrastRatio } from "../../../theme/contrast";
 import { effectiveBackground, toHex as paintHex } from "./paint";
@@ -134,13 +134,18 @@ describe(`review group, built, ${scheme} scheme`, () => {
     // bar holds no action of its own any more.
     const foot = await screen.findByRole("group", { name: "Review decision" });
     const merge = within(foot).getByRole("button", { name: "Merge" });
-    const declineButton = within(foot).getByRole("button", { name: "Request changes" });
+    // The foot renders as soon as Merge is offered, but Request changes waits on its own
+    // `reviewChangesRequestState` read — so it arrives a tick later. findByRole, not getByRole.
+    const declineButton = await within(foot).findByRole("button", { name: "Request changes" });
     expect(document.querySelector("header")!.querySelectorAll("button:not([aria-pressed])").length, "only Back in the title bar").toBe(1);
 
     const rail = screen.getByRole("complementary", { name: "Criteria rail" });
-    await waitFor(() => expect(rail.querySelectorAll("li").length).toBeGreaterThanOrEqual(3));
+    // AcceptanceCriteriaList draws its rows as role="listitem" divs, not <li>; the literal <li> in
+    // CriteriaRail belongs to the epic-scope rollup, which task scope never renders.
+    const criterionRows = () => rail.querySelectorAll('[role="listitem"]');
+    await waitFor(() => expect(criterionRows().length).toBeGreaterThanOrEqual(3));
     const column = foot.parentElement!.getBoundingClientRect();
-    const lastRow = Array.from(rail.querySelectorAll("li")).at(-1)!.getBoundingClientRect();
+    const lastRow = Array.from(criterionRows()).at(-1)!.getBoundingClientRect();
     for (const [name, button] of [["Request changes", declineButton], ["Merge", merge]] as const) {
       const box = button.getBoundingClientRect();
       const style = getComputedStyle(button);

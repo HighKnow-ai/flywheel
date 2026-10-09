@@ -117,6 +117,50 @@ table.review-diff {
   padding: var(--space-xs) var(--space-md);
 }
 
+/*
+ * The review decision (A-08(a), plan 08.1-21): the foot of the criteria column. Request changes is the
+ * hairline secondary: the 1px `--border-control` edge from `.control-edge`, a transparent ground, ink
+ * text at regular weight. It has no lead edge and no fill, and is neither brand nor destructive coloured:
+ * a decline is reversible. Merge beside it keeps `.control-edge.review-action` (the 2px ink edge, bold).
+ * State changes in the foot are plain: nothing here transitions or animates (UI-SPEC § Motion).
+ */
+.review-decision {
+  border-top: 1px solid var(--divider);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+}
+
+.review-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.review-decision-note {
+  color: var(--text-muted-rack);
+  margin: 0;
+}
+
+.review-decision-alert {
+  color: var(--destructive-text-rack);
+  margin: 0;
+}
+
+.review-secondary {
+  background: transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  font-weight: 400;
+  padding: var(--space-xs) var(--space-md);
+}
+
+.review-secondary:disabled {
+  color: var(--text-muted-rack);
+  cursor: default;
+}
+
 /* A scope toggle's pressed state is a surface shift AND a weight step, never colour alone. */
 .review-scope {
   background: transparent;

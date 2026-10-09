@@ -4,15 +4,17 @@
  * `staleTime: 0`. No polling interval — the push-then-invalidate channel is the only refresh path.
  */
 import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   forgeEpicRequestDraft,
   forgeRequestForEpic,
+  reviewChangesRequestState,
   reviewEpicTaskRollup,
   reviewCriteriaState,
   reviewFilePatch,
   reviewFiles,
   reviewMergePrecheck,
+  reviewRequestChanges,
   subscribeBoardChanged,
   type ReviewScopeDto,
 } from "../adapters/tauri";
@@ -159,6 +161,52 @@ export function useMergePrecheck(taskId: string | undefined, enabled: boolean) {
     queryFn: () => reviewMergePrecheck(taskId as string),
     enabled: active,
     staleTime: 0,
+  });
+}
+
+export function changesRequestQueryKey(taskId: string) {
+  return ["review-changes-request", taskId] as const;
+}
+
+/** Whether a decline is offered for the task, already sent back, or refused by a named category
+ * (A-08(a)). A read in the exact shape of `useMergePrecheck`: board-changed invalidates its own key,
+ * `staleTime: 0`. `enabled` is whether anything is showing it. */
+export function useChangesRequest(taskId: string | undefined, enabled: boolean) {
+  const queryClient = useQueryClient();
+  const active = enabled && Boolean(taskId);
+
+  useEffect(() => {
+    if (!active || !taskId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: changesRequestQueryKey(taskId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [active, taskId, queryClient]);
+
+  return useQuery({
+    queryKey: taskId ? changesRequestQueryKey(taskId) : (["review-changes-request", "none"] as const),
+    queryFn: () => reviewChangesRequestState(taskId as string),
+    enabled: active,
+    staleTime: 0,
+  });
+}
+
+/** Send the task back (A-08(a)). The mutation takes no input but the task id it was built with, so
+ * nothing the surface holds can become the reason. It re-reads the decline state on settle whether
+ * the write succeeded or was refused: the surface shows the board's answer, never its own. */
+export function useRequestChanges(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => reviewRequestChanges(taskId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: changesRequestQueryKey(taskId) }),
   });
 }
 
