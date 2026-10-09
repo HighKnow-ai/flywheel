@@ -64,7 +64,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Agents File Their Own Backlog** - Agents propose what they learn into a triage lane that nothing escapes without a human (completed 2026-10-02)
 - [x] **Phase 7: The Board Tells The Git Truth** - Answer "where does this task actually stand in git and on the forge?" without a terminal (completed 2026-10-05)
 - [x] **Phase 8: Review And Merge Inside Flywheel** - Review an agent's diff against its acceptance criteria and land it in-app (completed 2026-10-07)
-- [ ] **Phase 8.1: Visual polish: brand assets and confirmed motion** (INSERTED) - A bolder, more modern direction; Flywheel wears its own mark and moves the way its contract says it moves
+- [x] **Phase 8.1: Visual polish: brand assets and confirmed motion** (INSERTED) - A bolder, more modern direction; Flywheel wears its own mark and moves the way its contract says it moves
 - [ ] **Phase 9: Planned Fan-Out That Does Not Collide** - Turn one epic into several agents at once, bounded by real file-set disjointness
 - [ ] **Phase 10: Fleet Supervision Across Every Project** - Answer "what is every agent everywhere doing, and what needs me?" in one glance
 - [ ] **Phase 11: Ship It** - Install Flywheel like any Mac app; another developer builds it from source
@@ -1190,7 +1190,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
-| 8.1 Visual polish: brand assets and confirmed motion | 21/21 | In Progress|  |
+| 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |

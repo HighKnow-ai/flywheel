@@ -246,3 +246,22 @@
   **Not fixed here, deliberately:** the owner's standing preference is to ship and drain bugs with
   Flywheel itself rather than widen a closing phase. Each is a real defect with a named cause and
   file, which is what makes it drainable.
+
+- `gsd_run query phase.complete 08.1` and `query verification.status` both refuse a phase whose
+  number contains a dot. `08.1-VERIFICATION.md` exists with `status: passed` and the same frontmatter
+  keys as `08-VERIFICATION.md`, which the same verb detects (it returns `stale` for phase 08, i.e. it
+  found and read it). For 08.1 the verb returns `missing`. Probed: renaming the file to
+  `8.1-VERIFICATION.md` or `08-VERIFICATION.md` does not help, and neither does an absolute path or
+  the dotted `verification.status` form — so it is not the filename or the argument shape, it is the
+  dotted phase number.
+  status: open
+  **Found during:** the 08.1 phase close
+  **Impact:** bookkeeping only. No product behaviour and no gate depends on it. The ROADMAP checkbox
+  and progress row were set by hand instead, and STATE updated directly.
+  **Not fixed here, deliberately:** the defect is in the shared global tool at
+  `~/.claude/gsd-core/bin/gsd-tools.cjs` (@opengsd/gsd-core 1.13.0), not this repository. Patching a
+  shared binary would change behaviour for every project on this machine.
+  **Related:** the same family as the `state.update-progress` miscalculation recorded above. This
+  project is likely the first to use an inserted dotted phase number, so both are probably unexercised
+  paths rather than regressions.
+  **To fix:** report upstream to @opengsd/gsd-core, or pin a corrected local copy.
