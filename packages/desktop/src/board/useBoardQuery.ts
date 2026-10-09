@@ -18,6 +18,7 @@ import {
   authoringRunForEpic,
   blockedSummary,
   boardChangeFlags,
+  boardScopeFlags,
   boardEpicProgress,
   boardForgeFlags,
   boardRecoverySummary,
@@ -1154,6 +1155,46 @@ export function useChangeFlags(projectId: string | undefined) {
     queryFn: () => boardChangeFlags(projectId as string),
     enabled: Boolean(projectId),
     staleTime: 5000,
+  });
+}
+
+/** `useScopeFlags`'s query key, keyed by `projectId` (Phase 9 plan 06, D-153). */
+export function scopeFlagsQueryKey(projectId: string | undefined) {
+  return ["scope-flags", projectId] as const;
+}
+
+/**
+ * Every task in `projectId` with at least one scope refusal, with its count (D-153) — feeds the
+ * `BoardRow` badge. Structural sibling of [`useForgeFlags`]: ONE project-wide read for the board,
+ * invalidated on `subscribeBoardChanged` (a refusal emits one), never polled. The read is one
+ * grouped, indexed aggregate that spawns nothing, so unlike [`useChangeFlags`] it needs no
+ * coalescing window. A task with no refusal is absent from the data. `undefined` disables it.
+ */
+export function useScopeFlags(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    subscribeBoardChanged(() =>
+      queryClient.invalidateQueries({ queryKey: scopeFlagsQueryKey(projectId) }),
+    ).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [projectId, queryClient]);
+
+  return useQuery({
+    queryKey: scopeFlagsQueryKey(projectId),
+    queryFn: () => boardScopeFlags(projectId as string),
+    enabled: Boolean(projectId),
   });
 }
 

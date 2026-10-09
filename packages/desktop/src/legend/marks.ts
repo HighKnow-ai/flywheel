@@ -454,6 +454,17 @@ export const MARKS: Mark[] = [
     meaning:
       "This task's worktree has changes that are not committed yet. Shown only when there are some: absence means a clean tree or no worktree.",
   },
+  // D-153 (phase 09): how many times the scope hook refused this task's agent a write outside its
+  // declared file-set. A count, graded like the change cues: absent for a task with none.
+  {
+    id: "scope-denied",
+    channel: "agent",
+    glyph: "ShieldBan",
+    label: "Scope refusals",
+    meaning:
+      "How many times the scope hook refused this task's agent a write outside its declared files. The number is the count; a task with no refusals shows nothing. A high count means the declared files and the work disagree: widen the set from the session, or fix the plan.",
+    sample: { text: "3", glyph: true },
+  },
   {
     id: "destructive-gate",
     channel: "agent",

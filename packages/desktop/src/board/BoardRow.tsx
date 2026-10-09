@@ -147,6 +147,11 @@ export interface BoardRowProps {
    * status glyph — a count and/or a mark, each with an accessible name — and nothing at all when the
    * prop is absent (no worktree), `ahead` is `0` or `null`, and the tree is clean. */
   changeFlag?: { ahead: number | null; dirty: boolean };
+  /** How many times the scope hook refused this task's agent a write outside its declared set (D-153,
+   * phase 09) — `BoardView`'s `useScopeFlags(projectId)` read, one id-keyed map for the whole board,
+   * never a per-row query of its own. Absent from the map for a task with no refusals, and then
+   * nothing renders: no badge, no placeholder, no zero. */
+  scopeDenied?: number;
   /** How many pending authoring proposals target this epic (D-82, plan 05-08 Task 3) — computed
    * client-side by `BoardView` from the same project-scoped proposal window `TriageLane.tsx`
    * reads, never a per-row query of its own (mirrors `blocked`/`needsDecision` above). Ignored for
@@ -190,6 +195,7 @@ export function BoardRow({
   needsDecision = false,
   ciFailed = false,
   changeFlag,
+  scopeDenied = 0,
   pendingProposalCount = 0,
   hideEpicPill = false,
   onSelect,
@@ -208,6 +214,7 @@ export function BoardRow({
   const ciFailedMark = MARKS_BY_ID["ci-failed"];
   const changeAheadMark = MARKS_BY_ID["change-ahead"];
   const changeDirtyMark = MARKS_BY_ID["change-dirty"];
+  const scopeDeniedMark = MARKS_BY_ID["scope-denied"];
   const priorityMark = MARKS_BY_ID[priorityMarkId(item.priority)];
   const epicMark = MARKS_BY_ID["epic-pill-none"];
   // Defence in depth (G-01-2, T-01-17-02): once `epicsById` is the project's full roster
@@ -242,12 +249,13 @@ export function BoardRow({
   const aheadCount = changeFlag?.ahead ?? 0;
   const aheadLabel = aheadCount === 1 ? "1 commit ahead" : `${aheadCount} commits ahead`;
   const isDirty = changeFlag?.dirty ?? false;
+  const scopeLabel = scopeDenied === 1 ? "1 scope refusal" : `${scopeDenied} scope refusals`;
 
   // 01-UI-SPEC.md Accessibility: each row's accessible name concatenates key, title, status,
   // priority and the criteria checked/total count — virtualization must not silently break
   // linear screen-reader navigation. "Blocked" appends when set (D-37) — never colour alone.
   // "Needs Decision" appends after it when set (D-46) — same discipline, never colour alone.
-  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}${blocked ? ", Blocked" : ""}${needsDecision ? ", Needs Decision" : ""}${ciFailed ? ", CI failed" : ""}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked${aheadCount > 0 ? `, ${aheadLabel}` : ""}${isDirty ? ", uncommitted changes" : ""}`;
+  const accessibleName = `${item.key}, ${item.title}, ${statusLabel}${blocked ? ", Blocked" : ""}${needsDecision ? ", Needs Decision" : ""}${ciFailed ? ", CI failed" : ""}, priority ${priorityLabel}, ${criteriaChecked} of ${criteriaTotal} criteria checked${aheadCount > 0 ? `, ${aheadLabel}` : ""}${isDirty ? ", uncommitted changes" : ""}${scopeDenied > 0 ? `, ${scopeLabel}` : ""}`;
 
   function handleRowClick() {
     onSelect?.();
@@ -448,6 +456,22 @@ export function BoardRow({
           style={{ display: "inline-flex", flexShrink: 0, alignItems: "center", color: "var(--text-muted-strip)" }}
         >
           <Icon name={changeDirtyMark?.glyph ?? "Dot"} size={12} />
+        </span>
+      )}
+      {scopeDenied > 0 && (
+        // D-153: a graded count, like the change cues above — information, not an alert, so no
+        // button role and no `field-*` class (never dropped by the truncation ladder). Absent for a
+        // task with no refusals: a printed zero would make every quiet task look measured.
+        <span
+          data-testid="scope-badge"
+          role="img"
+          aria-label={scopeLabel}
+          title={scopeDeniedMark?.meaning}
+          className="type-label tabular-nums"
+          style={{ display: "inline-flex", flexShrink: 0, alignItems: "center", gap: 2, color: "var(--text-primary-strip)" }}
+        >
+          <Icon name={scopeDeniedMark?.glyph ?? "ShieldBan"} size={12} />
+          {scopeDenied}
         </span>
       )}
       <span

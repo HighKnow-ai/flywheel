@@ -58,12 +58,13 @@ describe("MARKS registry", () => {
  * Decision" rollup pill's own glyph (D-46), the destructive-action gate card's own stop-sign glyph
  * (D-56), the three-stage authoring machine's own marks, the proposal tray's pending-proposal mark
  * (D-88), the board row's CI-failure pill (D-124), and the board row's two graded change
- * annotations — commits ahead and uncommitted changes (D-15).
+ * annotations — commits ahead and uncommitted changes (D-15) — and the board row's scope-refusal
+ * count (D-153).
  */
 describe("agent channel", () => {
   const agentMarks = MARKS.filter((m) => m.channel === "agent");
 
-  it("has exactly sixteen entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md/08.1-01-PLAN.md specify", () => {
+  it("has exactly seventeen entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md/08.1-01-PLAN.md specify", () => {
     const expected = [
       { id: "run-running", glyph: "Loader", label: "Running" },
       { id: "run-completed", glyph: "CircleCheckBig", label: "Completed" },
@@ -76,13 +77,14 @@ describe("agent channel", () => {
       { id: "ci-failed", glyph: "CircleX", label: "CI failed" },
       { id: "change-ahead", glyph: "Triangle", label: "Commits ahead" },
       { id: "change-dirty", glyph: "Dot", label: "Uncommitted changes" },
+      { id: "scope-denied", glyph: "ShieldBan", label: "Scope refusals" },
       { id: "destructive-gate", glyph: "OctagonAlert", label: "Destructive" },
       { id: "authoring-stage-challenge", glyph: "MessageCircleQuestion", label: "Challenge" },
       { id: "authoring-stage-decompose", glyph: "ListTree", label: "Decompose" },
       { id: "authoring-stage-criteria", glyph: "ListChecks", label: "Criteria" },
       { id: "proposal-pending", glyph: "FileClock", label: "Pending proposal" },
     ];
-    expect(agentMarks).toHaveLength(16);
+    expect(agentMarks).toHaveLength(17);
     for (const exp of expected) {
       const mark = agentMarks.find((m) => m.id === exp.id);
       expect(mark, `missing agent mark "${exp.id}"`).toBeDefined();
@@ -258,9 +260,9 @@ describe("the legend tells the truth about the world 08.1 built", () => {
       estimate: 3,
       assignee: 4,
       project: 3,
-      agent: 16,
+      agent: 17,
     });
-    expect(MARKS).toHaveLength(52);
+    expect(MARKS).toHaveLength(53);
   });
 });
 

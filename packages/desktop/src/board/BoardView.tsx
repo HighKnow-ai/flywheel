@@ -76,6 +76,7 @@ import {
   useActors,
   useBlockedSummary,
   useChangeFlags,
+  useScopeFlags,
   useCreateEpic,
   useCreateIssue,
   useDeleteItem,
@@ -492,6 +493,13 @@ export function BoardView({
   const changeFlagsByTaskId = useMemo(
     () => new Map((changeFlagsQuery.data ?? []).map((flag) => [flag.taskId, flag])),
     [changeFlagsQuery.data],
+  );
+  // D-153's scope-refusal badge (phase 09 plan 06) — ONE project-wide read, keyed by task id. A task
+  // with no refusal is absent from the map, and its row renders no badge.
+  const scopeFlagsQuery = useScopeFlags(projectId);
+  const scopeDeniedByTaskId = useMemo(
+    () => new Map((scopeFlagsQuery.data ?? []).map((flag) => [flag.taskId, flag.count])),
+    [scopeFlagsQuery.data],
   );
   // The same map, reduced per epic for the roster (D-18) — no second query.
   const changeByEpicId = useMemo(() => rollUpChangeFlags(changeFlagsQuery.data ?? []), [changeFlagsQuery.data]);
@@ -1278,6 +1286,7 @@ export function BoardView({
                   needsDecision={recoveryTaskIds.has(row.item.id)}
                   ciFailed={ciFailedTaskIds.has(row.item.id)}
                   changeFlag={changeFlagsByTaskId.get(row.item.id)}
+                  scopeDenied={scopeDeniedByTaskId.get(row.item.id)}
                   pendingProposalCount={pendingProposalCountByEpicId[row.item.id] ?? 0}
                   hideEpicPill={groupingKey === "epic"}
                   onSelect={() => setSelectedId(row.item.id)}
