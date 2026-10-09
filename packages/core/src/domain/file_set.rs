@@ -144,7 +144,7 @@ pub fn declare_file_set(
 /// `core.ignorecase` (git sets it at init). Unset or unreadable reads as `false`: not folding is
 /// the STRICTER direction for enforcement (an alias spelled in another case is refused rather
 /// than allowed).
-fn repo_is_case_insensitive(worktree_path: &std::path::Path) -> bool {
+pub(crate) fn repo_is_case_insensitive(worktree_path: &std::path::Path) -> bool {
     crate::git::git_output_at(worktree_path, &["config", "--get", "core.ignorecase"])
         .map(|out| {
             out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "true"
@@ -195,4 +195,40 @@ pub fn arm_scope_marker(
             "could not write the scope marker for run {run_id}: {why} — a run that cannot record its scope does not start"
         )),
     }
+}
+
+/// The event appended for a write the scope gate refused, or that the close-time backstop found
+/// outside the declared set (PLAN-05). One row per refusal; never coalesced (D-154).
+pub const EVENT_SCOPE_DENIED: &str = "task.scope_denied";
+
+/// One refused (or after-the-fact detected) out-of-set write.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScopeDenial {
+    pub path: String,
+    pub tool: String,
+    pub tool_use_id: String,
+    pub outside_worktree: bool,
+    pub detected_after_the_fact: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn record_scope_denied_in_tx(
+    _tx: &Transaction,
+    _project_id: &str,
+    _task_id: &str,
+    _epic_id: Option<&str>,
+    _run_id: &str,
+    _actor_id: &str,
+    _denial: &ScopeDenial,
+    _now: &str,
+) -> anyhow::Result<()> {
+    Ok(())
+}
+
+pub fn record_scope_denied(_conn: &mut Connection, _run_id: &str, _denial: &ScopeDenial) -> anyhow::Result<Option<String>> {
+    Ok(None)
+}
+
+pub fn record_backstop_denials(_conn: &mut Connection, _run_id: &str, _paths: &[String]) -> anyhow::Result<usize> {
+    Ok(0)
 }

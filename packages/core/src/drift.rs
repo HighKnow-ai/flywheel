@@ -257,3 +257,29 @@ pub fn detect_drift(inputs: &DriftInputs) -> Vec<DriftWarning> {
 
     warnings
 }
+
+/// RED stub.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScopeBackstopInputs {
+    pub task_id: String,
+    pub worktree_path: std::path::PathBuf,
+    pub base_branch: String,
+    pub entries: Vec<crate::file_set::FileSetEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScopeBackstopFinding {
+    pub path: String,
+}
+
+pub fn scope_backstop_inputs(_conn: &rusqlite::Connection, _task_id: &str) -> anyhow::Result<Option<ScopeBackstopInputs>> {
+    Ok(None)
+}
+
+pub fn scope_backstop_git(_inputs: &ScopeBackstopInputs) -> anyhow::Result<Vec<ScopeBackstopFinding>> {
+    Ok(Vec::new())
+}
+
+pub fn scope_backstop_findings(_conn: &rusqlite::Connection, _task_id: &str) -> anyhow::Result<Vec<ScopeBackstopFinding>> {
+    Ok(Vec::new())
+}

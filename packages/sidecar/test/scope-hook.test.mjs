@@ -17,6 +17,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -333,3 +334,124 @@ test(
     assertDenied(runHook({ stdin: payload({ tool_input: { file_path: "/etc/hosts" } }), env }), "outside the worktree");
   },
 );
+
+// --- the refusal is reported (phase 09 plan 09-02, PLAN-05) -----------------------------------
+//
+// The hook sends ONE fire-and-forget notice over FLYWHEEL_PERMISSION_SOCKET on the deny path. The
+// decision never depends on it: these cases pin that a missing, dead or stuck socket changes
+// nothing about the printed body or the exit code. They need an event loop that keeps running while
+// the hook runs, so they use an async spawn rather than `runHook`'s spawnSync.
+
+import { startPermissionServer } from "../dist/mcp-permission-server.js";
+import { noticeToAgentEvent } from "../dist/claude-code-adapter.js";
+
+const DENY_SHIM = () =>
+  fakeShim({
+    stdout: JSON.stringify({ decision: "deny", entries: ["src/"], relative: "README.md", outsideWorktree: false }),
+  });
+
+function runHookAsync({ stdin = payload(), env = {} } = {}) {
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.FLYWHEEL_RUN_ID;
+  delete cleanEnv.FLYWHEEL_RUNTIME_DIR;
+  delete cleanEnv.FLYWHEEL_SHIM_BIN;
+  delete cleanEnv.FLYWHEEL_PERMISSION_SOCKET;
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const child = spawn(process.execPath, [HOOK], { env: { ...cleanEnv, ...env }, stdio: ["pipe", "pipe", "ignore"] });
+    let stdout = "";
+    child.stdout.on("data", (d) => (stdout += d));
+    child.on("close", (code) => {
+      let body;
+      try {
+        body = JSON.parse(stdout);
+      } catch {
+        body = undefined;
+      }
+      resolve({ code, stdout, body, ms: Date.now() - started });
+    });
+    child.stdin.end(stdin);
+  });
+}
+
+test("a denial sends one scope_denied notice that reaches onNotice and maps to a scope_denied event", async () => {
+  const notices = [];
+  const server = startPermissionServer(() => {}, (n) => notices.push(n));
+  try {
+    const stdin = payload({ tool_use_id: "toolu_abc", tool_input: { file_path: "/w/README.md", content: "x" } });
+    const run = await runHookAsync({
+      stdin,
+      env: { ...goodEnv(DENY_SHIM()), FLYWHEEL_PERMISSION_SOCKET: server.socketPath },
+    });
+    assertDenied(run, "deny with a live socket");
+    assert.equal(notices.length, 1, "exactly one notice per denial");
+    assert.deepEqual(notices[0], {
+      kind: "scope_denied",
+      runId: RUN_ID,
+      path: "README.md",
+      tool: "Write",
+      toolUseId: "toolu_abc",
+      outsideWorktree: false,
+    });
+    const event = noticeToAgentEvent(notices[0], "the-session-run", 7, "2026-01-01T00:00:00.000Z");
+    assert.equal(event.type, "scope_denied");
+    assert.equal(event.path, "README.md");
+    assert.equal(event.tool, "Write");
+    assert.equal(event.toolUseId, "toolu_abc");
+    assert.equal(event.outsideWorktree, false);
+  } finally {
+    server.close();
+  }
+});
+
+test("a denial of a path outside the worktree carries outsideWorktree true", async () => {
+  const notices = [];
+  const server = startPermissionServer(() => {}, (n) => notices.push(n));
+  try {
+    const shim = fakeShim({
+      stdout: JSON.stringify({ decision: "deny", entries: ["src/"], relative: "/etc/hosts", outsideWorktree: true }),
+    });
+    await runHookAsync({ env: { ...goodEnv(shim), FLYWHEEL_PERMISSION_SOCKET: server.socketPath } });
+    assert.equal(notices[0]?.outsideWorktree, true);
+  } finally {
+    server.close();
+  }
+});
+
+test("an allow and a crash-deny send no scope notice", async () => {
+  const notices = [];
+  const server = startPermissionServer(() => {}, (n) => notices.push(n));
+  try {
+    const sock = { FLYWHEEL_PERMISSION_SOCKET: server.socketPath };
+    assertAllowed(await runHookAsync({ env: { ...goodEnv(fakeShim({ stdout: '{"decision":"allow"}' })), ...sock } }), "allow");
+    assertDenied(await runHookAsync({ stdin: "not json", env: { ...goodEnv(DENY_SHIM()), ...sock } }), "bad payload");
+    assert.equal(notices.length, 0);
+  } finally {
+    server.close();
+  }
+});
+
+test("a denial with no permission socket configured still prints the deny body and exits 2", () => {
+  assertDenied(runHook({ env: goodEnv(DENY_SHIM()) }), "socket unset");
+});
+
+test("a denial whose socket path is dead still prints the deny body and exits 2", async () => {
+  const run = await runHookAsync({ env: { ...goodEnv(DENY_SHIM()), FLYWHEEL_PERMISSION_SOCKET: path.join(scratch("dead"), "nope.sock") } });
+  assertDenied(run, "dead socket");
+});
+
+test("a denial whose socket accepts and never answers is bounded and still denies", async () => {
+  const dir = scratch("stuck");
+  const sock = path.join(dir, "s.sock");
+  const held = [];
+  const server = net.createServer((c) => held.push(c)); // accepts, never reads, never closes
+  await new Promise((r) => server.listen(sock, r));
+  try {
+    const run = await runHookAsync({ env: { ...goodEnv(DENY_SHIM()), FLYWHEEL_PERMISSION_SOCKET: sock } });
+    assertDenied(run, "stuck socket");
+    assert.ok(run.ms < 5_000, `the notice wait must be bounded, took ${run.ms}ms`);
+  } finally {
+    for (const c of held) c.destroy();
+    server.close();
+  }
+});

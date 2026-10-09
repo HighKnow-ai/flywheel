@@ -31,6 +31,7 @@ pub mod filter;
 pub mod forge;
 pub mod permissions;
 pub mod recovery;
+pub mod scope;
 pub mod search;
 
 use anyhow::Context;
