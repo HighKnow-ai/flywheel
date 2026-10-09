@@ -289,6 +289,20 @@ context to be answerable months later by someone who was not in the room:
   risk_if_wrong: "Low. Cosmetic; a refusal message clipped by the fixed 32px row can be expanded later. The widen itself is asserted in the core."
   automatable: "PARTLY. A WebKit layout test for the row's overflow is YES once a session with a denial exists; a live widen against a real run is YES in the Phase 11 drain. Only 'is it noticeable' is human."
 
+- id: D-REV-34
+  phase: "09 — Planned Fan-Out (plan 07, PLAN-03, PLAN-06)"
+  truth: "In the installed app, one approved plan drives real `claude` sessions end to end: the tick spawns up to the cap through the real sidecar, the agent commits as its briefing tells it to, the automatic merge lands, and wave two starts from a base containing wave one."
+  status: open
+  why_deferred: |
+    Physical: it needs a live `claude` login and the packaged sidecar, neither of which a test can stand in
+    for. Everything the dispatcher decides and does is asserted against real git repositories
+    (`packages/core/tests/dispatch_auto_merge.rs`), but the spawner there is a fake that writes and commits a
+    file; the real launch body, the sidecar spawn and the agent's own obedience to the commit instruction
+    were not exercised together. The cap and the gate are enforced on a spawn in that harness, not against a
+    running account.
+  risk_if_wrong: "Moderate. An agent that ignores the commit instruction stops its task as needs-attention (it is never committed for), so the failure is loud and the wave holds; a launch that fails in the real sidecar marks the task needs-attention with the error. Neither loses work."
+  automatable: "PARTLY. The launch path against the real sidecar with a scripted fake `claude` is YES (the sidecar tests already ship `fake-claude.mjs`). A run against a real account is the Phase 11 drain."
+
 ## Redemption protocol
 
 At Phase 11, with an installed, usable build:
