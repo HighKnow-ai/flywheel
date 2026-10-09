@@ -10,6 +10,7 @@ pub mod credentials;
 pub mod db;
 pub mod destructive;
 pub mod dispatch;
+pub mod dispatch_exec;
 pub mod domain;
 pub mod drift;
 pub mod epic_context_packet;

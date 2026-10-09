@@ -9,6 +9,9 @@
 //! collision. D-158 downgrades only the colliding pair: [`edges_for_plan`] emits one edge per
 //! colliding pair and nothing for anyone else.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -259,6 +262,492 @@ pub fn in_flight_declared_sets(
         let entries = list_entries_for_task(conn, &task_id)?;
         if !entries.is_empty() {
             out.push((task_id, entries));
+        }
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The decision half (phase 09 plan 09-07, D-155, D-156, D-158, PLAN-03, PLAN-06).
+//
+// `decide` answers "what should happen next?" from database rows and a plain-values snapshot of
+// git, and does nothing else: no git, no subprocess, no sleep, no clock of its own. That is what
+// makes it safe to call while holding the database lock and testable without a timer. The git
+// facts it needs (is a finished worktree clean? is it ahead of its base? is an existing worktree
+// older than the integration tip?) are gathered BEFORE it runs by `git_facts::observe`, from
+// targets this module names (`observation_targets`) -- the read, act, write split the scheduler
+// already uses for the forge poll.
+//
+// All state is rows, so the answer is idempotent and restart-safe by construction. Nothing here
+// writes `tasks.status`: a status has exactly one owner per transition.
+// ---------------------------------------------------------------------------------------------
+
+/// Which side of a run a needs-attention cause belongs to. A task marked before its run started
+/// is re-evaluated for spawning; one marked after its run ended is re-evaluated for merging.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttentionPhase {
+    PreSpawn,
+    PostRun,
+}
+
+impl AttentionPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AttentionPhase::PreSpawn => "pre_spawn",
+            AttentionPhase::PostRun => "post_run",
+        }
+    }
+}
+
+/// Why a task stopped the wave and asks for the user. Always a named cause, never a bare failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttentionCause {
+    /// The run ended with work in the worktree that is not committed. Never auto-committed: that
+    /// would rewrite the authorship of the agent's output.
+    Uncommitted { count: usize, first: String },
+    /// The run ended with no commit ahead of the integration branch.
+    NoCommits { target_branch: String },
+    /// An existing worktree was cut from a base that predates the integration tip. No rebase here.
+    StaleBase { integration_branch: String },
+    /// The launch itself failed (credentials, worktree, scope marker).
+    LaunchFailed { error: String },
+    /// The merge could not run (a dirty integration worktree, a missing branch, ...).
+    MergeBlocked { reason: String },
+}
+
+impl AttentionCause {
+    pub fn phase(&self) -> AttentionPhase {
+        match self {
+            AttentionCause::StaleBase { .. } | AttentionCause::LaunchFailed { .. } => AttentionPhase::PreSpawn,
+            _ => AttentionPhase::PostRun,
+        }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            AttentionCause::Uncommitted { .. } => "uncommitted",
+            AttentionCause::NoCommits { .. } => "no_commits",
+            AttentionCause::StaleBase { .. } => "stale_base",
+            AttentionCause::LaunchFailed { .. } => "launch_failed",
+            AttentionCause::MergeBlocked { .. } => "merge_blocked",
+        }
+    }
+
+    /// The sentence the user reads.
+    pub fn sentence(&self) -> String {
+        match self {
+            AttentionCause::Uncommitted { count, first } => format!(
+                "The run finished with {count} uncommitted change(s) in its worktree (first: {first}). \
+                 Uncommitted work is not on the branch, so nothing can be merged. Commit it or discard it."
+            ),
+            AttentionCause::NoCommits { target_branch } => format!(
+                "The run finished with no commits ahead of {target_branch}, so there is nothing to merge."
+            ),
+            AttentionCause::StaleBase { integration_branch } => format!(
+                "Its worktree was cut from a base older than the tip of {integration_branch}. The \
+                 dispatcher does not rebase; bring {integration_branch} into the task branch and it will start."
+            ),
+            AttentionCause::LaunchFailed { error } => format!("The run could not be started: {error}"),
+            AttentionCause::MergeBlocked { reason } => format!("The merge could not run: {reason}"),
+        }
+    }
+}
+
+/// One thing the dispatcher should do. `Spawn` is the only variant that starts a process; the
+/// executor routes it through the one launch path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    Spawn { plan_id: String, task_id: String },
+    Merge { plan_id: String, task_id: String },
+    AdvanceWave { plan_id: String },
+    MarkNeedsAttention { plan_id: String, task_id: String, cause: AttentionCause },
+    /// The run ended without finishing: record the dispatcher's display state (`failed`, `stopped`
+    /// or `held_by_limit`).
+    MarkRunEnded { plan_id: String, task_id: String, state: &'static str },
+}
+
+/// Why a task is not ready to start. Returned by [`readiness`]; `decide` acts on `BaseStale` only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadinessRefusal {
+    NotCursorWave { wave: u32, cursor: u32 },
+    HasLiveRun,
+    NotStartable { state: String },
+    /// A sequenced predecessor is not yet MERGED. Finished is not enough (D-158).
+    WaitingOn { task_id: String },
+    /// Its declared set overlaps a task that is running right now, in this plan or another.
+    OverlapsInFlight { task_id: String, path: String },
+    BaseStale { integration_branch: String },
+}
+
+/// Where the git facts for one task are to be read. Plain values: the git-running reader takes no
+/// connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservationTarget {
+    pub task_id: String,
+    pub project_id: String,
+    pub repo_path: PathBuf,
+    /// `(worktree path, task branch)`; `None` while no worktree has been cut.
+    pub worktree: Option<(PathBuf, String)>,
+    pub integration_branch: Option<String>,
+}
+
+/// What git said about one worktree.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WorktreeObservation {
+    /// Paths of uncommitted entries (`git status --porcelain`).
+    pub uncommitted: Vec<String>,
+    /// Commits on the task branch not on the integration branch; `None` when it cannot be measured.
+    pub commits_ahead: Option<u32>,
+    /// The epic's integration branch, when it has one.
+    pub integration_branch: Option<String>,
+    /// `Some(integration branch)` when the integration tip is NOT contained in the task branch.
+    pub stale_against: Option<String>,
+}
+
+/// The git snapshot `decide` runs against. A missing entry means "not measured this pass", and
+/// `decide` then waits rather than guessing.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Observations {
+    pub worktrees: HashMap<String, WorktreeObservation>,
+    /// Per project: does the repository fold case (`core.ignorecase`)?
+    pub case_insensitive: HashMap<String, bool>,
+}
+
+#[derive(Debug, Clone)]
+struct LivePlan {
+    id: String,
+    status: String,
+    cursor: u32,
+}
+
+#[derive(Debug, Clone)]
+struct TaskView {
+    task_id: String,
+    wave: u32,
+    state: String,
+    project_id: String,
+    live: bool,
+    latest_run: Option<String>,
+}
+
+fn live_plans(conn: &Connection) -> anyhow::Result<Vec<LivePlan>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, status, wave_cursor FROM dispatch_plans
+              WHERE status IN ('approved', 'running', 'paused') ORDER BY created_at, id",
+        )
+        .context("failed to prepare the live-plan read")?;
+    let rows = stmt
+        .query_map([], |r| Ok(LivePlan { id: r.get(0)?, status: r.get(1)?, cursor: r.get(2)? }))
+        .context("failed to read the live plans")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read a live-plan row")?;
+    Ok(rows)
+}
+
+fn task_views(conn: &Connection, plan_id: &str) -> anyhow::Result<Vec<TaskView>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT pt.task_id, pt.wave, pt.state, t.project_id,
+                    EXISTS (SELECT 1 FROM agent_runs r
+                             WHERE r.task_id = pt.task_id AND r.status IN ('running', 'blocked')),
+                    (SELECT r.status FROM agent_runs r WHERE r.task_id = pt.task_id
+                      ORDER BY r.started_at DESC, r.id DESC LIMIT 1)
+               FROM dispatch_plan_tasks pt JOIN tasks t ON t.id = pt.task_id
+              WHERE pt.plan_id = ?1 ORDER BY pt.wave, t.rank, pt.task_id",
+        )
+        .context("failed to prepare the plan-task view read")?;
+    let rows = stmt
+        .query_map(params![plan_id], |r| {
+            Ok(TaskView {
+                task_id: r.get(0)?,
+                wave: r.get(1)?,
+                state: r.get(2)?,
+                project_id: r.get(3)?,
+                live: r.get::<_, i64>(4)? != 0,
+                latest_run: r.get(5)?,
+            })
+        })
+        .context("failed to read the plan-task views")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read a plan-task view row")?;
+    Ok(rows)
+}
+
+/// The most recent needs-attention record for a task in a plan: `(phase, kind, sentence)`.
+pub fn attention_for(
+    conn: &Connection,
+    plan_id: &str,
+    task_id: &str,
+) -> anyhow::Result<Option<(AttentionPhase, String, String)>> {
+    let payload: Option<String> = conn
+        .query_row(
+            "SELECT payload FROM events
+              WHERE task_id = ?1 AND event_type = ?2 AND json_extract(payload, '$.plan_id') = ?3
+              ORDER BY sequence DESC LIMIT 1",
+            params![task_id, crate::domain::dispatch_plan::EVENT_TASK_NEEDS_ATTENTION, plan_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .context("failed to read the task's needs-attention record")?;
+    let Some(payload) = payload else { return Ok(None) };
+    let value: serde_json::Value =
+        serde_json::from_str(&payload).context("needs-attention payload is not JSON")?;
+    let phase = match value["phase"].as_str() {
+        Some("pre_spawn") => AttentionPhase::PreSpawn,
+        _ => AttentionPhase::PostRun,
+    };
+    Ok(Some((
+        phase,
+        value["kind"].as_str().unwrap_or_default().to_string(),
+        value["cause"].as_str().unwrap_or_default().to_string(),
+    )))
+}
+
+/// Is every task in `wave` merged or skipped? Merged, NOT finished: worktrees are cut lazily at
+/// spawn from the epic integration tip, so a wave that advanced on "finished" would branch the next
+/// wave from a base without the last wave's work. A wave with no tasks is drained.
+pub fn wave_is_drained(conn: &Connection, plan_id: &str, wave: u32) -> anyhow::Result<bool> {
+    let open: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM dispatch_plan_tasks
+              WHERE plan_id = ?1 AND wave = ?2 AND state NOT IN ('merged', 'skipped')",
+            params![plan_id, wave],
+            |r| r.get(0),
+        )
+        .context("failed to count the undrained tasks of a wave")?;
+    Ok(open == 0)
+}
+
+fn is_startable(conn: &Connection, plan_id: &str, t: &TaskView) -> anyhow::Result<bool> {
+    Ok(match t.state.as_str() {
+        "planned" | "waiting" | "held_by_limit" => true,
+        // `running` with no run row at all: the process died between the state write and the run row.
+        "running" => t.latest_run.is_none(),
+        "needs_attention" => matches!(
+            attention_for(conn, plan_id, &t.task_id)?,
+            Some((AttentionPhase::PreSpawn, ..))
+        ),
+        _ => false,
+    })
+}
+
+/// May `t` start now, ignoring the cap, the gate and the plan's own pause? The one readiness rule:
+/// right wave, no live run, every sequenced predecessor MERGED or skipped, no overlap with anything
+/// running in the same project (this plan's or another's), and a worktree base that contains the
+/// integration tip.
+#[allow(clippy::too_many_arguments)]
+fn readiness(
+    conn: &Connection,
+    plan: &LivePlan,
+    t: &TaskView,
+    tasks: &[TaskView],
+    edges: &[DispatchEdge],
+    taken: &[(String, String, Vec<FileSetEntry>)],
+    obs: &Observations,
+) -> anyhow::Result<Result<(), ReadinessRefusal>> {
+    if t.wave != plan.cursor {
+        return Ok(Err(ReadinessRefusal::NotCursorWave { wave: t.wave, cursor: plan.cursor }));
+    }
+    if t.live {
+        return Ok(Err(ReadinessRefusal::HasLiveRun));
+    }
+    if !is_startable(conn, &plan.id, t)? {
+        return Ok(Err(ReadinessRefusal::NotStartable { state: t.state.clone() }));
+    }
+    for edge in edges.iter().filter(|e| e.after_task_id == t.task_id) {
+        let merged = tasks
+            .iter()
+            .find(|p| p.task_id == edge.before_task_id)
+            .is_some_and(|p| matches!(p.state.as_str(), "merged" | "skipped"));
+        if !merged {
+            return Ok(Err(ReadinessRefusal::WaitingOn { task_id: edge.before_task_id.clone() }));
+        }
+    }
+    let entries = list_entries_for_task(conn, &t.task_id)?;
+    if !entries.is_empty() {
+        let fold = obs.case_insensitive.get(&t.project_id).copied().unwrap_or(false);
+        // Read from the rows, not the marker file; includes a set widened mid-flight (09-06).
+        let mut others = in_flight_declared_sets(conn, &t.project_id)?;
+        others.extend(
+            taken.iter().filter(|(p, ..)| *p == t.project_id).map(|(_, id, e)| (id.clone(), e.clone())),
+        );
+        for (other_id, other_entries) in others.iter().filter(|(id, _)| *id != t.task_id) {
+            if let Some(c) = collisions(&entries, other_entries, fold).first() {
+                return Ok(Err(ReadinessRefusal::OverlapsInFlight {
+                    task_id: other_id.clone(),
+                    path: entry_path(c.first).to_string(),
+                }));
+            }
+        }
+    }
+    if let Some(stale) = obs.worktrees.get(&t.task_id).and_then(|o| o.stale_against.clone()) {
+        return Ok(Err(ReadinessRefusal::BaseStale { integration_branch: stale }));
+    }
+    Ok(Ok(()))
+}
+
+/// The tasks of `plan_id` that could start right now, ignoring the cap, the gate and the plan's own
+/// pause. Board order.
+pub fn ready_tasks(conn: &Connection, plan_id: &str, obs: &Observations) -> anyhow::Result<Vec<String>> {
+    let Some(plan) = live_plans(conn)?.into_iter().find(|p| p.id == plan_id) else {
+        return Ok(Vec::new());
+    };
+    let tasks = task_views(conn, plan_id)?;
+    let edges = crate::domain::dispatch_plan::read_edges(conn, plan_id)?;
+    let mut ready = Vec::new();
+    for t in &tasks {
+        if readiness(conn, &plan, t, &tasks, &edges, &[], obs)?.is_ok() {
+            ready.push(t.task_id.clone());
+        }
+    }
+    Ok(ready)
+}
+
+/// Where git must be read for the next `decide`: every task of a live plan's cursor wave that is not
+/// finished with and has no live run (a live run needs no git facts). Database-only.
+pub fn observation_targets(conn: &Connection) -> anyhow::Result<Vec<ObservationTarget>> {
+    let mut targets = Vec::new();
+    for plan in live_plans(conn)? {
+        for t in task_views(conn, &plan.id)? {
+            if t.wave != plan.cursor || t.live {
+                continue;
+            }
+            if matches!(t.state.as_str(), "merged" | "skipped" | "conflict" | "failed" | "stopped") {
+                continue;
+            }
+            let (repo_path, integration_branch): (String, Option<String>) = conn
+                .query_row(
+                    "SELECT p.repo_path, e.integration_branch
+                       FROM tasks t JOIN projects p ON p.id = t.project_id
+                       LEFT JOIN epics e ON e.id = t.epic_id WHERE t.id = ?1",
+                    params![t.task_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .with_context(|| format!("task {:?} not found", t.task_id))?;
+            let worktree: Option<(String, String)> = conn
+                .query_row(
+                    "SELECT path, branch FROM worktrees WHERE task_id = ?1",
+                    params![t.task_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .context("failed to read a task's worktree")?;
+            targets.push(ObservationTarget {
+                task_id: t.task_id,
+                project_id: t.project_id,
+                repo_path: PathBuf::from(repo_path),
+                worktree: worktree.map(|(p, b)| (PathBuf::from(p), b)),
+                integration_branch,
+            });
+        }
+    }
+    Ok(targets)
+}
+
+/// A finished run's next step: merge it, or stop the wave and say why.
+fn after_completed_run(
+    conn: &Connection,
+    plan_id: &str,
+    t: &TaskView,
+    obs: &Observations,
+    out: &mut Vec<Action>,
+) -> anyhow::Result<()> {
+    let Some(seen) = obs.worktrees.get(&t.task_id) else { return Ok(()) };
+    let already_marked = t.state == "needs_attention";
+    let mark = |cause: AttentionCause| Action::MarkNeedsAttention {
+        plan_id: plan_id.to_string(),
+        task_id: t.task_id.clone(),
+        cause,
+    };
+    if let Some(first) = seen.uncommitted.first() {
+        if !already_marked {
+            out.push(mark(AttentionCause::Uncommitted { count: seen.uncommitted.len(), first: first.clone() }));
+        }
+        return Ok(());
+    }
+    match seen.commits_ahead {
+        None => {}
+        Some(0) => {
+            // Zero ahead is "already merged" when a merge was recorded (a crash between the merge and
+            // its state write, or the user's own merge); otherwise the run produced nothing.
+            if crate::merge::integrated_merge_commit(conn, &t.task_id)?.is_some() {
+                out.push(Action::Merge { plan_id: plan_id.to_string(), task_id: t.task_id.clone() });
+            } else if !already_marked {
+                let target_branch =
+                    seen.integration_branch.clone().unwrap_or_else(|| "the integration branch".into());
+                out.push(mark(AttentionCause::NoCommits { target_branch }));
+            }
+        }
+        Some(_) => out.push(Action::Merge { plan_id: plan_id.to_string(), task_id: t.task_id.clone() }),
+    }
+    Ok(())
+}
+
+/// What should happen next. See the section comment above. `now_epoch_secs` is injected.
+///
+/// Order of evaluation: the gate, the cap budget (`cap - occupied`, floored at zero: a user's own
+/// launches can put the live count above the cap and the only response is to spawn nothing), then
+/// per live plan the finished runs (merge or ask), the ready tasks (spawn up to the budget) and the
+/// wave boundary. A paused gate or paused plan spawns nothing; merges still proceed.
+pub fn decide(conn: &Connection, now_epoch_secs: i64, obs: &Observations) -> anyhow::Result<Vec<Action>> {
+    let gate = crate::limit_gate::read_gate(conn, now_epoch_secs)?;
+    let cap = crate::domain::settings::dispatch_max_parallel(conn)? as usize;
+    let mut budget = cap.saturating_sub(occupied_slots(conn)? as usize);
+    let mut out = Vec::new();
+    let mut taken: Vec<(String, String, Vec<FileSetEntry>)> = Vec::new();
+
+    for plan in live_plans(conn)? {
+        let tasks = task_views(conn, &plan.id)?;
+        let edges = crate::domain::dispatch_plan::read_edges(conn, &plan.id)?;
+        let paused = plan.status == "paused";
+
+        for t in tasks.iter().filter(|t| t.wave <= plan.cursor && !t.live) {
+            let completed = t.latest_run.as_deref() == Some("completed");
+            match t.state.as_str() {
+                "running" | "merging" => match t.latest_run.as_deref() {
+                    Some("completed") => after_completed_run(conn, &plan.id, t, obs, &mut out)?,
+                    Some(status @ ("failed" | "interrupted" | "abandoned")) => {
+                        let state = match status {
+                            "interrupted" => "stopped",
+                            "failed" if matches!(gate, crate::limit_gate::GateState::Paused { .. }) => "held_by_limit",
+                            _ => "failed",
+                        };
+                        out.push(Action::MarkRunEnded { plan_id: plan.id.clone(), task_id: t.task_id.clone(), state });
+                    }
+                    _ => {}
+                },
+                "needs_attention" if completed => {
+                    if matches!(attention_for(conn, &plan.id, &t.task_id)?, Some((AttentionPhase::PostRun, ..))) {
+                        after_completed_run(conn, &plan.id, t, obs, &mut out)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !paused && crate::limit_gate::may_spawn(&gate) {
+            for t in &tasks {
+                match readiness(conn, &plan, t, &tasks, &edges, &taken, obs)? {
+                    Ok(()) if budget > 0 => {
+                        budget -= 1;
+                        taken.push((t.project_id.clone(), t.task_id.clone(), list_entries_for_task(conn, &t.task_id)?));
+                        out.push(Action::Spawn { plan_id: plan.id.clone(), task_id: t.task_id.clone() });
+                    }
+                    Err(ReadinessRefusal::BaseStale { integration_branch }) if t.state != "needs_attention" => {
+                        out.push(Action::MarkNeedsAttention {
+                            plan_id: plan.id.clone(),
+                            task_id: t.task_id.clone(),
+                            cause: AttentionCause::StaleBase { integration_branch },
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if !paused && crate::limit_gate::may_advance(&gate) && wave_is_drained(conn, &plan.id, plan.cursor)? {
+            out.push(Action::AdvanceWave { plan_id: plan.id.clone() });
         }
     }
     Ok(out)

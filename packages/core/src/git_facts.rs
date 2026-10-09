@@ -354,3 +354,51 @@ pub fn record_outside_commits(conn: &mut Connection, task_id: &str, actor_id: &s
 
     Ok(appended)
 }
+
+/// Read the git facts the dispatcher's `decide` needs, for each target (plan 09-07). Takes NO
+/// connection: the targets are plain values read under the lock beforehand, so this runs with no
+/// lock held. A target whose git read fails is simply absent from the result, and `decide` waits
+/// for it rather than guessing; an unreadable repository is never read as "clean".
+pub fn observe(targets: &[crate::dispatch::ObservationTarget]) -> crate::dispatch::Observations {
+    use crate::dispatch::{Observations, WorktreeObservation};
+
+    let mut out = Observations::default();
+    for target in targets {
+        out.case_insensitive
+            .entry(target.project_id.clone())
+            .or_insert_with(|| crate::domain::file_set::repo_is_case_insensitive(&target.repo_path));
+        let Some((worktree, branch)) = &target.worktree else { continue };
+        let read = || -> anyhow::Result<WorktreeObservation> {
+            let uncommitted = crate::domain::worktree::porcelain_entries(worktree)?
+                .into_iter()
+                .map(|e| e.path)
+                .collect();
+            let mut seen = WorktreeObservation {
+                uncommitted,
+                integration_branch: target.integration_branch.clone(),
+                ..Default::default()
+            };
+            if let Some(integration) = &target.integration_branch {
+                if git::rev_parse_verify(&target.repo_path, integration)? {
+                    let range = format!("{integration}..{branch}");
+                    let count = git::git_at(&target.repo_path, &["rev-list", "--count", &range])?;
+                    seen.commits_ahead = String::from_utf8_lossy(&count.stdout).trim().parse().ok();
+                    // The integration tip must be inside the task branch, or the worktree was cut
+                    // before the tip moved (a sibling merged since).
+                    let contained = git::git_output_at(
+                        &target.repo_path,
+                        &["merge-base", "--is-ancestor", integration, branch],
+                    )?;
+                    if !contained.status.success() {
+                        seen.stale_against = Some(integration.clone());
+                    }
+                }
+            }
+            Ok(seen)
+        };
+        if let Ok(seen) = read() {
+            out.worktrees.insert(target.task_id.clone(), seen);
+        }
+    }
+    out
+}

@@ -383,3 +383,290 @@ pub fn read_edges(conn: &Connection, plan_id: &str) -> anyhow::Result<Vec<Dispat
         })
         .collect()
 }
+
+// ---------------------------------------------------------------------------------------------
+// Plan 09-07: the dispatcher's own writes. Every state here is the dispatcher's DISPLAY state
+// (`dispatch_plan_tasks.state`, `dispatch_plans.status`); none of it writes `tasks.status`.
+// ---------------------------------------------------------------------------------------------
+
+/// Appended when a task stops its wave and asks for the user. The payload carries the plan id, the
+/// phase, the cause kind and the sentence; the latest one is the readable cause.
+pub const EVENT_TASK_NEEDS_ATTENTION: &str = "dispatch.task_needs_attention";
+pub const EVENT_WAVE_ADVANCED: &str = "dispatch_plan.wave_advanced";
+pub const EVENT_PLAN_COMPLETED: &str = "dispatch_plan.completed";
+
+fn plan_anchor(conn: &Connection, plan_id: &str) -> anyhow::Result<(String, String, String, u32)> {
+    conn.query_row(
+        "SELECT p.epic_id, e.project_id, p.status, p.wave_cursor
+           FROM dispatch_plans p JOIN epics e ON e.id = p.epic_id WHERE p.id = ?1",
+        params![plan_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )
+    .with_context(|| format!("plan {plan_id:?} not found"))
+}
+
+/// Mark a task as needing attention with a named cause: state and event in one transaction. Returns
+/// `false` and writes nothing when the task is already marked with the very same cause, so a
+/// condition that persists across ticks is one record, not one per tick.
+pub fn mark_needs_attention(
+    conn: &mut Connection,
+    plan_id: &str,
+    task_id: &str,
+    cause: &crate::dispatch::AttentionCause,
+    actor_id: &str,
+) -> anyhow::Result<bool> {
+    let (epic_id, project_id, _, _) = plan_anchor(conn, plan_id)?;
+    let sentence = cause.sentence();
+    let current: String = conn
+        .query_row(
+            "SELECT state FROM dispatch_plan_tasks WHERE plan_id = ?1 AND task_id = ?2",
+            params![plan_id, task_id],
+            |r| r.get(0),
+        )
+        .with_context(|| format!("task {task_id:?} is not in plan {plan_id:?}"))?;
+    if current == "needs_attention" {
+        if let Some((_, kind, text)) = crate::dispatch::attention_for(conn, plan_id, task_id)? {
+            if kind == cause.kind() && text == sentence {
+                return Ok(false);
+            }
+        }
+    }
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute(
+        "UPDATE dispatch_plan_tasks SET state = 'needs_attention' WHERE plan_id = ?1 AND task_id = ?2",
+        params![plan_id, task_id],
+    )
+    .context("failed to mark the task as needing attention")?;
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        Some(&epic_id),
+        actor_id,
+        EVENT_TASK_NEEDS_ATTENTION,
+        &serde_json::json!({
+            "field": "dispatch_state",
+            "plan_id": plan_id,
+            "phase": cause.phase().as_str(),
+            "kind": cause.kind(),
+            "cause": sentence,
+            "label": "Needs attention",
+        }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit the needs-attention mark")?;
+    Ok(true)
+}
+
+/// Where a wave advance left the plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdvanceOutcome {
+    NextWave(u32),
+    Completed,
+}
+
+/// Move the cursor past a wave that is entirely merged or skipped; past the last wave the plan is
+/// completed. Refuses a wave that is not drained, so neither the tick nor the manual advance can
+/// start a wave on a base that lacks the last one's work. One transaction with its event.
+pub fn advance_wave(conn: &mut Connection, plan_id: &str, actor_id: &str) -> anyhow::Result<AdvanceOutcome> {
+    let (epic_id, project_id, status, cursor) = plan_anchor(conn, plan_id)?;
+    if !matches!(status.as_str(), "approved" | "running") {
+        bail!("plan {plan_id:?} is {status}; only a running plan advances");
+    }
+    if !crate::dispatch::wave_is_drained(conn, plan_id, cursor)? {
+        bail!("wave {cursor} of plan {plan_id:?} still has tasks that are not merged or skipped");
+    }
+    let last: u32 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(wave), 0) FROM dispatch_plan_tasks WHERE plan_id = ?1",
+            params![plan_id],
+            |r| r.get(0),
+        )
+        .context("failed to read the last wave")?;
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let (outcome, event_type, label) = if cursor >= last {
+        tx.execute(
+            "UPDATE dispatch_plans SET status = 'completed', updated_at = ?1 WHERE id = ?2",
+            params![now, plan_id],
+        )
+        .context("failed to complete the plan")?;
+        (AdvanceOutcome::Completed, EVENT_PLAN_COMPLETED, "Fan-out completed".to_string())
+    } else {
+        tx.execute(
+            "UPDATE dispatch_plans SET wave_cursor = ?1, updated_at = ?2 WHERE id = ?3",
+            params![cursor + 1, now, plan_id],
+        )
+        .context("failed to advance the wave cursor")?;
+        (AdvanceOutcome::NextWave(cursor + 1), EVENT_WAVE_ADVANCED, format!("Wave {cursor} merged; starting wave {}", cursor + 1))
+    };
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "dispatch_plan",
+        plan_id,
+        None,
+        Some(&epic_id),
+        actor_id,
+        event_type,
+        &serde_json::json!({ "field": "dispatch_plan", "plan_id": plan_id, "from_wave": cursor, "label": label }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit the wave advance")?;
+    Ok(outcome)
+}
+
+/// A user's control over a plan. Pause and stop change what the dispatcher STARTS; neither touches
+/// a running session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanControl {
+    Start,
+    Pause,
+    Resume,
+    Stop,
+}
+
+/// Apply a control, recorded against `actor_id`. `Start` takes an approved plan to running.
+pub fn control_plan(
+    conn: &mut Connection,
+    plan_id: &str,
+    control: PlanControl,
+    actor_id: &str,
+) -> anyhow::Result<()> {
+    let (epic_id, project_id, status, _) = plan_anchor(conn, plan_id)?;
+    let (to, event_type, label) = match (control, status.as_str()) {
+        (PlanControl::Start, "approved") => ("running", "dispatch_plan.started", "Started the fan-out"),
+        (PlanControl::Pause, "running" | "approved") => ("paused", "dispatch_plan.paused", "Paused the fan-out"),
+        (PlanControl::Resume, "paused") => ("running", "dispatch_plan.resumed", "Resumed the fan-out"),
+        (PlanControl::Stop, "approved" | "running" | "paused") => ("aborted", "dispatch_plan.stopped", "Stopped the fan-out"),
+        (c, s) => bail!("plan {plan_id:?} is {s}; {c:?} does not apply"),
+    };
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute(
+        "UPDATE dispatch_plans SET status = ?1, updated_at = ?2 WHERE id = ?3",
+        params![to, now, plan_id],
+    )
+    .context("failed to change the plan status")?;
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "dispatch_plan",
+        plan_id,
+        None,
+        Some(&epic_id),
+        actor_id,
+        event_type,
+        &serde_json::json!({ "field": "dispatch_plan", "plan_id": plan_id, "from": status, "to": to, "label": label }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit the plan control")?;
+    Ok(())
+}
+
+/// Approve a draft plan and start it: [`approve_plan`] then [`PlanControl::Start`]. The approval is
+/// its own transaction (it freezes the edges); a start that then fails leaves an `approved` plan,
+/// which the dispatcher already treats as live.
+pub fn approve_and_start(conn: &mut Connection, plan_id: &str, actor_id: &str) -> anyhow::Result<()> {
+    approve_plan(conn, plan_id, actor_id)?;
+    control_plan(conn, plan_id, PlanControl::Start, actor_id)
+}
+
+/// A draft plan over an epic's not-yet-started tasks, built from their currently declared sets with
+/// no planning agent involved. Every task starts in wave one: overlap inside a wave is the ordering
+/// edges' job (only the colliding pair waits), and wave boundaries are a planner's judgement that
+/// this draft has no basis to invent. The user edits waves before approving.
+pub fn create_plan_for_epic(conn: &mut Connection, epic_id: &str, actor_id: &str) -> anyhow::Result<String> {
+    // ponytail: only backlog/todo tasks are included; a task already in progress or in review is the
+    // user's to launch. Widen the filter if a re-plan after a changes-requested loop is wanted.
+    let task_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM tasks WHERE epic_id = ?1 AND status IN ('backlog', 'todo') ORDER BY rank, id",
+            )
+            .context("failed to prepare the epic task read")?;
+        let rows = stmt
+            .query_map(params![epic_id], |r| r.get::<_, String>(0))
+            .context("failed to read the epic's tasks")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to read an epic task row")?;
+        rows
+    };
+    if task_ids.is_empty() {
+        bail!("epic {epic_id:?} has no backlog or todo tasks to plan");
+    }
+    let inputs: Vec<PlanTaskInput> = task_ids
+        .into_iter()
+        .map(|task_id| PlanTaskInput { task_id, wave: 1, rationale: None })
+        .collect();
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let plan_id = create_draft_plan_in_tx(&tx, epic_id, None, actor_id, &now)?;
+    replace_plan_tasks_in_tx(&tx, &plan_id, &inputs)?;
+    tx.commit().context("failed to commit the draft plan")?;
+    Ok(plan_id)
+}
+
+/// One edit to a draft plan: move a task to another wave and/or replace its declared entries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DraftEdit {
+    pub task_id: String,
+    pub wave: Option<u32>,
+    pub entries: Option<Vec<String>>,
+}
+
+/// Apply edits to a DRAFT plan. Entries are parsed first (a refused entry changes nothing); wave
+/// moves rewrite the plan's task rows, keeping each task's rationale.
+pub fn edit_draft_plan(
+    conn: &mut Connection,
+    plan_id: &str,
+    edits: &[DraftEdit],
+    actor_id: &str,
+) -> anyhow::Result<()> {
+    let plan = read_plan(conn, plan_id)?.with_context(|| format!("plan {plan_id:?} not found"))?;
+    if plan.status != "draft" {
+        bail!("plan {plan_id:?} is {}; only a draft plan can be edited", plan.status);
+    }
+    let mut parsed = Vec::new();
+    for edit in edits {
+        if !plan.tasks.iter().any(|t| t.task_id == edit.task_id) {
+            bail!("task {:?} is not in plan {plan_id:?}", edit.task_id);
+        }
+        if let Some(raw) = &edit.entries {
+            let entries = raw
+                .iter()
+                .map(|r| crate::file_set::parse_entry(r).map_err(|e| anyhow!("{r:?}: {e}")))
+                .collect::<Result<Vec<_>, _>>()?;
+            parsed.push((edit.task_id.clone(), entries));
+        }
+    }
+    let inputs: Vec<PlanTaskInput> = plan
+        .tasks
+        .iter()
+        .map(|t| PlanTaskInput {
+            task_id: t.task_id.clone(),
+            wave: edits.iter().rev().find(|e| e.task_id == t.task_id).and_then(|e| e.wave).unwrap_or(t.wave),
+            rationale: t.rationale.clone(),
+        })
+        .collect();
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    for (task_id, entries) in &parsed {
+        crate::domain::file_set::declare_file_set_in_tx(&tx, task_id, entries, actor_id, &now)?;
+    }
+    replace_plan_tasks_in_tx(&tx, plan_id, &inputs)?;
+    tx.commit().context("failed to commit the draft edit")?;
+    Ok(())
+}

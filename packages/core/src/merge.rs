@@ -313,7 +313,21 @@ pub fn record_merge_event(
     outcome: &MergeOutcome,
     actor_id: &str,
 ) -> anyhow::Result<()> {
-    let (event_type, payload) = match outcome {
+    record_merge_event_with(conn, plan, outcome, actor_id, None)
+}
+
+/// [`record_merge_event`] with extra payload keys merged over the standard ones (a `label` among
+/// them replaces the standard label). The fan-out dispatcher uses this to mark a merge nobody
+/// reviewed as `automatic`, under the system actor, while the event TYPE stays the one Phase 8's
+/// integrated marker reads.
+pub fn record_merge_event_with(
+    conn: &mut Connection,
+    plan: &MergePlan,
+    outcome: &MergeOutcome,
+    actor_id: &str,
+    extra: Option<&serde_json::Value>,
+) -> anyhow::Result<()> {
+    let (event_type, mut payload) = match outcome {
         MergeOutcome::AlreadyIntegrated => return Ok(()),
         MergeOutcome::Merged { merge_commit } => (
             EVENT_TASK_INTEGRATED,
@@ -337,6 +351,11 @@ pub fn record_merge_event(
         ),
     };
 
+    if let (Some(extra), Some(map)) = (extra.and_then(|e| e.as_object()), payload.as_object_mut()) {
+        for (key, value) in extra {
+            map.insert(key.clone(), value.clone());
+        }
+    }
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
     let sequence = next_sequence(&tx, &plan.project_id, "local")?;
