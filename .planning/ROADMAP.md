@@ -997,8 +997,17 @@ Plans:
      `create-tauri-app` scaffold default, on every artifact `tauri.conf.json` lists.
   2. The brand asset exists in the repository and any surface entitled to render it does so.
   3. Opening the item detail panel slides it in from the trailing edge; collapsing or expanding a
-     status group animates its height; opening the command palette fades/scales it in — each
-     collapsing to an instant state change under `prefers-reduced-motion`.
+     group reveals its rows by a top-down wipe while the rows below travel; opening the command
+     palette shows it at full opacity on frame one and settles it with a transform-only
+     translation — each collapsing to an instant state change under `prefers-reduced-motion`.
+     *(Amended 2026-10-09 by the owner. As first written this criterion said the group "animates
+     its height" and the palette "fades/scales" in. Both were superseded during the phase by
+     `08.1-UI-SPEC.md` § Motion, which settled `01-UI-SPEC.md`'s own contradiction — its § Motion
+     specified a palette fade while its motion grammar said "never a fade" — in favour of never a
+     fade. A height animation was also rejected: it forces layout on a 907-row rack and would break
+     the Performance Contract's O(1) size lookup. The behaviour was decided deliberately and
+     confirmed by the owner on 2026-10-08; only this sentence lagged, which made a correct build
+     read as a miss. The three motions and the reduced-motion collapse are unchanged in substance.)*
   4. The motion durations in `styles/motion.css` are the ones a direction round actually
      confirmed, not an unreviewed assertion.
 
