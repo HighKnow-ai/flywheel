@@ -16,6 +16,7 @@ const generateMock = vi.fn();
 const pauseMock = vi.fn();
 const resumeMock = vi.fn();
 const stopMock = vi.fn();
+const gateMock = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -27,7 +28,7 @@ vi.mock("../../adapters/tauri", async () => {
     dispatchPlanPause: (planId: string) => pauseMock(planId),
     dispatchPlanResume: (planId: string) => resumeMock(planId),
     dispatchPlanStop: (planId: string) => stopMock(planId),
-    dispatchGateState: () => Promise.resolve({ state: "open", message: "Dispatch is open.", resumeAt: null }),
+    dispatchGateState: () => gateMock(),
     getSettings: () => Promise.resolve({ dispatchCap: { maxParallel: 4, occupiedSlots: 2 } }),
     subscribeDispatchGateChanged: () => Promise.resolve(() => {}),
   };
@@ -57,6 +58,7 @@ async function mount(current: DispatchPlanDto | null, run: PlanningRunDto | null
   pauseMock.mockReset();
   resumeMock.mockReset();
   stopMock.mockReset();
+  gateMock.mockReset().mockResolvedValue({ state: "open", message: "Dispatch is open.", resumeAt: null });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={queryClient}>
@@ -200,5 +202,26 @@ describe("EpicDispatchControls", () => {
     await mount(plan("running"));
     await screen.findByText("Wave 2 of 3");
     expect(screen.queryByText(/stuck/)).toBeNull();
+  });
+
+  it("shows the gate's reason and its action on a running plan, where the user looks when it seems stalled", async () => {
+    await mount(plan("running"));
+    gateMock.mockResolvedValue({ state: "paused", message: "The weekly allowance is used up.", resumeAt: null });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EpicDispatchControls epicId="epic-1" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("The weekly allowance is used up.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume now" })).toBeInTheDocument();
+  });
+
+  it("shows no gate line on a draft, which is not starting any work", async () => {
+    gateMock.mockResolvedValue({ state: "paused", message: "The weekly allowance is used up.", resumeAt: null });
+    await mount(plan("draft"));
+    await screen.findByRole("button", { name: "Review plan" });
+    gateMock.mockResolvedValue({ state: "paused", message: "The weekly allowance is used up.", resumeAt: null });
+    expect(screen.queryByText("The weekly allowance is used up.")).toBeNull();
   });
 });

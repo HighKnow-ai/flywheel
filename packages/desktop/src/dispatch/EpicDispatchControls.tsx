@@ -25,6 +25,7 @@ import {
 import { MARKS_BY_ID } from "../legend/marks";
 import { Icon } from "../board/BoardRow";
 import { useUiStore } from "../state/uiStore";
+import { DispatchGateLine } from "./DispatchGateLine";
 import { dispatchPlanKey, errorText, planningRunKey, useDispatchCap, useDispatchPlan, usePlanningRun } from "./queries";
 import "./dispatch.css";
 
@@ -187,6 +188,10 @@ export function EpicDispatchControls({ epicId }: EpicDispatchControlsProps) {
       onDoubleClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
+      {/* The gate is account-wide but only matters to a plan that is starting work. */}
+      {plan && (plan.status === "running" || plan.status === "approved") && !confirmingStop && (
+        <DispatchGateLine planId={plan.id} epicId={epicId} />
+      )}
       {status && <div className="type-label epic-dispatch-line">{status}</div>}
       {actions && <div className="epic-dispatch-actions">{actions}</div>}
       {error && (
