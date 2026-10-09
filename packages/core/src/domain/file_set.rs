@@ -361,3 +361,38 @@ pub fn record_backstop_denials(
     tx.commit().context("failed to commit record_backstop_denials transaction")?;
     Ok(appended)
 }
+
+/// The event appended when a live widen is accepted (D-152). Same `{field, before, after, label}`
+/// payload as [`EVENT_FILE_SET_DECLARED`].
+pub const EVENT_FILE_SET_WIDENED: &str = "task.file_set_widened";
+
+/// Why a widen was refused. Nothing was stored and no marker was rewritten.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WidenRefusal {
+    /// `parse_entry` refused the string; `cause` is its own named text.
+    InvalidEntry { entry: String, cause: String },
+    /// The entry overlaps a set an in-flight task is running against. Names the other task's
+    /// colliding entry and its key, never its whole set (T-09-06-04).
+    Collision { entry: String, colliding_path: String, other_task_id: String, other_task_key: String },
+}
+
+/// What a widen did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WidenOutcome {
+    /// Stored, evented and the marker rewritten. `entries` is the new full set.
+    Accepted { entries: Vec<String> },
+    Refused(WidenRefusal),
+    /// Stored and evented, but the marker could not be rewritten: the database says the set is
+    /// wider and the hook does not yet agree (T-09-06-05). `entries` is the new full set.
+    MarkerNotRewritten { entries: Vec<String>, error: String },
+}
+
+/// Widen `task_id`'s declared set by one entry, live.
+pub fn widen_file_set(
+    _conn: &mut Connection,
+    _task_id: &str,
+    _raw_entry: &str,
+    _actor_id: &str,
+) -> anyhow::Result<WidenOutcome> {
+    Err(anyhow!("widen_file_set is not implemented"))
+}
