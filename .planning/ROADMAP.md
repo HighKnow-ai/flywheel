@@ -1078,7 +1078,7 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: 3/9 plans executed in 7 waves
+**Plans**: 4/9 plans executed in 7 waves
 
 Plans:
 
@@ -1093,7 +1093,7 @@ Plans:
 
 **Wave 3** *(blocked on 09-03 — reads `occupied_slots`; and on 09-01 for the command roster)*
 
-- [ ] 09-04-PLAN.md — The global parallel cap: `dispatch_max_parallel` defaulting to 3 in a validated range of 1 to 8, database-counted occupancy across every project, and the Settings control (PLAN-06)
+- [x] 09-04-PLAN.md — The global parallel cap: `dispatch_max_parallel` defaulting to 3 in a validated range of 1 to 8, database-counted occupancy across every project, and the Settings control (PLAN-06)
 
 **Wave 4** *(09-05 and 09-06 share no file: the first is the adapter seam and the core gate, the second is the widen transaction and the two scope surfaces)*
 
@@ -1224,7 +1224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
-| 9. Planned Fan-Out That Does Not Collide | 3/9 | In Progress|  |
+| 9. Planned Fan-Out That Does Not Collide | 4/9 | In Progress|  |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
