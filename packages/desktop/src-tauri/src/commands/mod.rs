@@ -13,6 +13,7 @@ pub mod change_flags;
 pub mod criterion;
 pub mod epic;
 pub mod events;
+pub mod file_set;
 pub mod forge;
 pub mod git_identity;
 pub mod git_truth;
