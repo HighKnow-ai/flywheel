@@ -17,6 +17,7 @@ import {
   isRowExpandable,
   type FeedRowData,
 } from "../FeedRow";
+import { buildFeedRows } from "../SessionSurface";
 
 // The widen call goes through the single adapter module; the verdict is whatever it resolves.
 const widenFileSetMock = vi.fn();
@@ -192,7 +193,8 @@ describe("FeedRow scope_denied (D-153)", () => {
     expect(button).toBeDisabled();
     expect(widenFileSetMock).toHaveBeenCalledTimes(1);
     resolve(accepted);
-    await waitFor(() => expect(screen.getByRole("button", { name: /widen/i })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByText(/widened/i)).toBeInTheDocument());
+    expect(widenFileSetMock).toHaveBeenCalledTimes(1);
   });
 
   it("shows the refusal text the command returned and keeps the row", async () => {
@@ -230,5 +232,12 @@ describe("FeedRow scope_denied (D-153)", () => {
     expect(b.textContent).toMatch(/outside the repository/i);
     expect(b.textContent).not.toContain("/Users/x");
     expect(b.querySelector("button")).toBeNull();
+  });
+
+  it("is produced from a scope_denied log entry by the surface's pairing step, not the raw fallback", () => {
+    const rows = buildFeedRows([
+      { type: "scope_denied", seq: 7, path: "src/b.rs", tool: "Edit", toolUseId: "t", outsideWorktree: false },
+    ]);
+    expect(rows).toEqual([{ kind: "scope_denied", key: "seq-7", path: "src/b.rs", tool: "Edit", outsideWorktree: false }]);
   });
 });

@@ -1589,3 +1589,36 @@ export async function reviewChangesRequestState(taskId: string): Promise<Changes
 export async function reviewRequestChanges(taskId: string): Promise<number> {
   return invokeCommand<number>("review_request_changes", { taskId });
 }
+
+/** The outcome of a live file-set widen — mirrors `commands::file_set::WidenResultDto`. The
+ * verdict is the Rust core's (a transaction re-checked against every in-flight set); the renderer
+ * only displays it. `refusal` is ready-to-show text; `markerError` is set when the widen committed
+ * but the running agent's scope file could not be rewritten. */
+export interface WidenResultDto {
+  status: "accepted" | "refused" | "marker_not_rewritten";
+  entries: string[];
+  refusal: string | null;
+  collidingPath: string | null;
+  otherTaskKey: string | null;
+  markerError: string | null;
+}
+
+/** Widen a task's declared file-set by ONE entry, live (D-152). Takes a task id and an entry string
+ * and nothing else — the actor is resolved server-side. Human-only; no MCP tool exists for it.
+ * Thin wrapper over `task_file_set_widen`. */
+export async function widenFileSet(taskId: string, entry: string): Promise<WidenResultDto> {
+  return invokeCommand<WidenResultDto>("task_file_set_widen", { taskId, entry });
+}
+
+/** One task's scope-refusal count — mirrors `commands::file_set::ScopeFlagDto`. A task with no
+ * refusal is absent from the list, not present with zero. */
+export interface ScopeFlagDto {
+  taskId: string;
+  count: number;
+}
+
+/** Per-task scope-refusal counts for a project, one call per board read (D-153). Read-only; takes a
+ * project id and nothing else. Thin wrapper over `board_scope_flags`. */
+export async function boardScopeFlags(projectId: string): Promise<ScopeFlagDto[]> {
+  return invokeCommand<ScopeFlagDto[]>("board_scope_flags", { projectId });
+}

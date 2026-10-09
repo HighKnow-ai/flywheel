@@ -618,6 +618,18 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
       return;
     }
 
+    // D-153 (phase 09): the scope hook's refusal — its own row, with the widen action, never raw.
+    if (type === "scope_denied") {
+      rows.push({
+        kind: "scope_denied",
+        key,
+        path: typeof event.path === "string" ? event.path : "",
+        tool: typeof event.tool === "string" ? event.tool : "tool",
+        outsideWorktree: event.outsideWorktree === true,
+      });
+      return;
+    }
+
     // Anything else — including session_log.rs's own `unknown` entry for a malformed line —
     // never disappears (T-02-33).
     rows.push({ kind: "raw", key, raw: rawTextFor(event) });
@@ -1234,7 +1246,7 @@ export function SessionSurface({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} live={row.key === liveRowKey} />
+                  <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} live={row.key === liveRowKey} taskId={taskId} />
                 </div>
               );
             })}
