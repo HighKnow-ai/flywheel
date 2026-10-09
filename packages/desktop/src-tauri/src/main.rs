@@ -155,6 +155,8 @@ fn main() {
             commands::criterion::criterion_revisions,
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
+            commands::file_set::task_file_set_get,
+            commands::file_set::task_file_set_set,
             commands::menu::menu_set_action_enabled,
             commands::agent_run::agent_run_preview,
             commands::agent_run::agent_run_start,

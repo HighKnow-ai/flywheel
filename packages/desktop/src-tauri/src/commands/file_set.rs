@@ -1,9 +1,22 @@
 //! `task_file_set_get` / `task_file_set_set` — a task's declared file-set (phase 09 plan 09-01,
-//! D-147/D-148). RED-phase stub: the behaviours the tests below pin are implemented in the GREEN
-//! commit.
+//! D-147/D-148): the scope the run-time hook enforces (PLAN-04) and the plan-time overlap check
+//! compares (PLAN-02). In the module convention: lock `AppState.db`, validate input shape before
+//! calling into the core, resolve the actor server-side with `local_human_actor_id` (never from a
+//! renderer claim, T-01-04), map core errors through [`ipc_error`], emit `board:changed` after a
+//! successful mutation.
+//!
+//! **`task_file_set_set` is a human-only command** in the `advance_stage` family (T-09-01-08): there
+//! is no MCP tool for it and no agent-reachable caller, so an agent can never widen its own scope.
+//! It accepts neither a worktree path nor an absolute path — an entry is a repo-relative string that
+//! `flywheel_core::file_set::parse_entry` either accepts as-is or REFUSES with a named cause; nothing
+//! is ever repaired, and one refused entry stores nothing, not even the valid entries beside it.
 
-use serde::Serialize;
 use rusqlite::Connection;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, State};
+
+use super::ipc_error;
+use crate::state::AppState;
 
 /// One declared entry projected for the wire: `form` is `"file"` or `"dir"`, `path` keeps a `dir`'s
 /// trailing `/`.
@@ -14,23 +27,97 @@ pub struct FileSetEntryDto {
     pub path: String,
 }
 
-/// The server-side cap on a submitted set (the renderer cannot submit an unbounded one).
+/// The server-side cap on a submitted set, so a renderer cannot submit an unbounded one.
 pub const MAX_ENTRIES: usize = 200;
 
-pub(crate) fn get_task_file_set(
-    _conn: &Connection,
-    _task_id: &str,
-) -> Result<Vec<FileSetEntryDto>, String> {
-    Ok(Vec::new())
+fn validate_task_id(task_id: &str) -> Result<(), String> {
+    if flywheel_core::ids::is_ulid(task_id) {
+        Ok(())
+    } else {
+        Err(format!("task id must be a 26-character ULID, got {task_id:?}"))
+    }
 }
 
-pub(crate) fn set_task_file_set(
-    _conn: &mut Connection,
-    _task_id: &str,
-    _raw_entries: &[String],
-    _actor_id: &str,
+/// A task's declared entries, in the order they were stored. A task that does not exist has none.
+pub(crate) fn get_task_file_set(
+    conn: &Connection,
+    task_id: &str,
 ) -> Result<Vec<FileSetEntryDto>, String> {
-    Err("not implemented".to_string())
+    validate_task_id(task_id)?;
+    let entries = flywheel_core::domain::file_set::list_entries_for_task(conn, task_id)
+        .map_err(|e| ipc_error("task_file_set_get:read", e))?;
+    Ok(entries
+        .iter()
+        .map(|e| FileSetEntryDto {
+            form: flywheel_core::file_set::entry_form(e).to_string(),
+            path: flywheel_core::file_set::entry_path(e).to_string(),
+        })
+        .collect())
+}
+
+/// Replace a task's declared set with `raw_entries`. Every string goes through `parse_entry`; the
+/// first refusal, in submission order, is returned as its named cause and NOTHING is stored.
+pub(crate) fn set_task_file_set(
+    conn: &mut Connection,
+    task_id: &str,
+    raw_entries: &[String],
+    actor_id: &str,
+) -> Result<Vec<FileSetEntryDto>, String> {
+    validate_task_id(task_id)?;
+    if raw_entries.len() > MAX_ENTRIES {
+        return Err(format!(
+            "a file-set holds at most {MAX_ENTRIES} entries, got {}",
+            raw_entries.len()
+        ));
+    }
+    let mut parsed = Vec::with_capacity(raw_entries.len());
+    for raw in raw_entries {
+        let entry = flywheel_core::file_set::parse_entry(raw)
+            .map_err(|refusal| format!("file-set entry {raw:?} refused: {refusal}"))?;
+        parsed.push(entry);
+    }
+
+    let exists: bool = conn
+        .query_row("SELECT 1 FROM tasks WHERE id = ?1", rusqlite::params![task_id], |_| Ok(true))
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(false),
+            other => Err(other),
+        })
+        .map_err(|e| ipc_error("task_file_set_set:lookup", e))?;
+    if !exists {
+        return Err(format!("task {task_id:?} was not found"));
+    }
+
+    flywheel_core::domain::file_set::declare_file_set(conn, task_id, &parsed, actor_id)
+        .map_err(|e| ipc_error("task_file_set_set:declare", e))?;
+    get_task_file_set(conn, task_id)
+}
+
+/// Read a task's declared file-set. Read-only.
+#[tauri::command]
+pub fn task_file_set_get(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<Vec<FileSetEntryDto>, String> {
+    let conn = state.db.lock().map_err(|e| ipc_error("task_file_set_get:lock", e))?;
+    get_task_file_set(&conn, &task_id)
+}
+
+/// Replace a task's declared file-set with `entries`; an empty list clears it (the task's next run
+/// starts unarmed, D-150). Human-only — see this module's doc comment.
+#[tauri::command]
+pub fn task_file_set_set(
+    state: State<AppState>,
+    app: AppHandle,
+    task_id: String,
+    entries: Vec<String>,
+) -> Result<Vec<FileSetEntryDto>, String> {
+    let mut conn = state.db.lock().map_err(|e| ipc_error("task_file_set_set:lock", e))?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+        .map_err(|e| ipc_error("task_file_set_set:actor", e))?;
+    let stored = set_task_file_set(&mut conn, &task_id, &entries, &actor_id)?;
+    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+    Ok(stored)
 }
 
 #[cfg(test)]

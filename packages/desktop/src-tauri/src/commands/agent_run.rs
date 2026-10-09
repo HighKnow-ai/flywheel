@@ -3172,13 +3172,13 @@ mod tests {
         (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
     }
 
+    /// Declare (or, with an empty list, clear) a task's file-set through the SAME function the
+    /// `task_file_set_set` command runs — so these tests start from a set the app itself could have
+    /// stored, and "clearing it makes the next run unarmed" is proven through the command path.
     fn declare_set(conn: &mut Connection, actor: &str, task_id: &str, raw: &[&str]) {
-        let entries: Vec<_> = raw
-            .iter()
-            .map(|r| flywheel_core::file_set::parse_entry(r).expect("fixture entries are valid"))
-            .collect();
-        flywheel_core::domain::file_set::declare_file_set(conn, task_id, &entries, actor)
-            .expect("declare_file_set should succeed");
+        let raw: Vec<String> = raw.iter().map(|r| r.to_string()).collect();
+        crate::commands::file_set::set_task_file_set(conn, task_id, &raw, actor)
+            .expect("set_task_file_set should accept the fixture entries");
     }
 
     #[test]
