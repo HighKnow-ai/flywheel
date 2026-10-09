@@ -180,10 +180,6 @@ for (const mode of MODES) {
       expect(p.borderControl).not.toBe(p.divider);
     });
 
-    it("text on a brand fill clears 4.5:1 against the brand fill", () => {
-      expect(contrastRatio(p.textOnAccent, p.accentNontext), `${mode}: textOnAccent on accentNontext`).toBeGreaterThanOrEqual(AA_TEXT);
-    });
-
     // A-06(b). The legend test below only proves the four row-state HEX STRINGS differ; the two
     // selected surfaces are 1.011 (light) / 1.014 (dark) apart, which no eye separates. These are
     // the assertions that the selected-but-unfocused obligation is PERCEPTIBLE, not merely distinct.
@@ -296,9 +292,21 @@ describe("dark carries what light carries (08.1-15 closure)", () => {
  */
 const SAME_BY_DESIGN: Partial<Record<Role, string>> = {
   accentNontext: "the pinned brand fill (progress); the dark lift applies to brand TEXT only",
-  textOnAccent: "white on the pinned brand fill, 5.17:1 in either mode",
   rowSurface: "the transparent rest state",
 };
+
+/**
+ * `--text-on-accent` (white on the brand fill) was retired in 08.1-20: the finish passes redrew every
+ * primary button with a control edge, so nothing paints a brand fill under text any more. A
+ * declared-but-unreferenced role is the kind someone later wires back up (the same reasoning that
+ * retired `--duration-displace`), and ink on the brand is 3.05:1, so a revival would fail AA.
+ */
+describe("retired token roles stay retired", () => {
+  it("--text-on-accent is declared nowhere", () => {
+    expect(tokensCssSource).not.toMatch(/--text-on-accent\s*:/);
+    expect(Object.keys(PALETTES.light)).not.toContain("textOnAccent");
+  });
+});
 
 describe("no token is declared identically in both modes unless that is the design", () => {
   const roles = Object.keys(PALETTES.light) as Role[];

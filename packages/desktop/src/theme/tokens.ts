@@ -37,8 +37,6 @@ export interface Palette {
   /** Brand as a fill or edge (the progress fill). */
   accentNontext: string;
   focusRing: string;
-  /** Text on a brand fill (a primary button). */
-  textOnAccent: string;
   /** Done. */
   successTextRack: string;
   /** Failed. */
@@ -73,7 +71,6 @@ export const LIGHT: Palette = {
   accentTextRack: "#3c64dd",
   accentNontext: "#3c64dd",
   focusRing: "#3c64dd",
-  textOnAccent: "#ffffff",
   successTextRack: "#1a7f37",
   destructiveTextRack: "#cf222e",
   blockedTextRack: "#9a6700",
@@ -103,7 +100,6 @@ export const DARK: Palette = {
   accentTextRack: "#5175e1",
   accentNontext: "#3c64dd",
   focusRing: "#5175e1",
-  textOnAccent: "#ffffff",
   successTextRack: "#3fb950",
   destructiveTextRack: "#f85149",
   blockedTextRack: "#d29922",

@@ -51,8 +51,6 @@
   --accent-text-rack: #3c64dd;
   --accent-nontext: #3c64dd;
   --focus-ring: #3c64dd;
-  /* Text on a brand FILL (a primary button): 5.17 on the brand. Ink on the brand is 3.05. */
-  --text-on-accent: #ffffff;
 
   /* --- Data channels (D-11): done, failed, blocked. All AA on both surfaces. --- */
   --success-text-rack: #1a7f37;
@@ -153,7 +151,6 @@
      * 3:1 asked for). Overlay controls that sit flush on a dialog edge do not use it; they use the ink rule.
      */
     --focus-ring: #5175e1;
-    --text-on-accent: #ffffff;
 
     --success-text-rack: #3fb950;
     --destructive-text-rack: #f85149;
