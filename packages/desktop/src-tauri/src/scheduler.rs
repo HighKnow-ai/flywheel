@@ -1,7 +1,8 @@
 //! D-113/D-114/D-116's git-truth tick: the first job `tokio-cron-scheduler` has ever actually run
-//! in this workspace. Four registrations of the same primitive — a hot tier, a cold tier, a
-//! slower fetch, and phase 7 plan 07-07's slower-still forge poll — never one job with internal
-//! partitioning (07-CONTEXT.md's own discretion call).
+//! in this workspace. Five registrations of the same primitive — a hot tier, a cold tier, a
+//! slower fetch, phase 7 plan 07-07's slower-still forge poll, and phase 9 plan 09-07's fan-out
+//! dispatch tick — never one job with internal partitioning (07-CONTEXT.md's own discretion
+//! call).
 //!
 //! Each job locks `AppState.db`, calls the matching sync `flywheel_core::git_facts` function,
 //! DROPS the lock, then emits the shared board-invalidation event (see [`emit_board_changed`])
@@ -27,6 +28,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -505,7 +507,54 @@ fn run_forge_tick(app: &AppHandle) {
     }
 }
 
-/// Build, register and start the four D-113/D-114/D-116/phase-07-07 jobs against `app`'s
+/// The fan-out dispatch tick's cadence (phase 9 plan 09-07): the same hot cadence the git-truth hot
+/// tier uses, because a wave should drain about as fast as a person would notice it had.
+pub const DISPATCH_TICK_SECS: u64 = 5;
+
+/// Runs its body only if no other body is running: a firing that arrives while one is in progress
+/// does nothing at all (T-09-07-05). A slow evaluation (a spawn sleeps inside the spawn floor, a
+/// merge waits on git) therefore cannot overlap itself and double its spawns.
+pub(crate) struct SingleFlight(AtomicBool);
+
+impl SingleFlight {
+    pub(crate) const fn new() -> Self {
+        SingleFlight(AtomicBool::new(false))
+    }
+
+    /// `Some(result)` if the body ran, `None` if another was already in flight.
+    pub(crate) fn run<R>(&self, body: impl FnOnce() -> R) -> Option<R> {
+        struct Reset<'a>(&'a AtomicBool);
+        impl Drop for Reset<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        if self.0.swap(true, Ordering::AcqRel) {
+            return None;
+        }
+        let _reset = Reset(&self.0);
+        Some(body())
+    }
+}
+
+static DISPATCH_FLIGHT: SingleFlight = SingleFlight::new();
+
+/// The dispatch tick: one pass of read, observe, decide, act, single-flight. Runs on whatever
+/// thread calls it, and MUST NOT be called on an async worker: the spawn path sleeps inside the
+/// per-repository spawn floor.
+fn run_dispatch_tick(app: &AppHandle) {
+    DISPATCH_FLIGHT.run(|| crate::commands::dispatch::execute_dispatch_actions(app));
+}
+
+/// Ask for a dispatch pass now instead of at the next firing: a session closing, a plan approved or
+/// resumed, a gate resumed. On its own thread; if a pass is already running this does nothing, and
+/// that pass or the next scheduled one picks the change up.
+pub fn nudge_dispatch(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || run_dispatch_tick(&app));
+}
+
+/// Build, register and start the five D-113/D-114/D-116/phase-07-07/phase-09-07 jobs against `app`'s
 /// already-managed `AppState` — called once, after `app.manage(AppState { .. })`, from
 /// `main.rs`'s `.setup()`.
 pub async fn start_git_truth_scheduler(app: AppHandle) -> anyhow::Result<()> {
@@ -541,6 +590,18 @@ pub async fn start_git_truth_scheduler(app: AppHandle) -> anyhow::Result<()> {
             Box::pin(async move { run_forge_tick(&app) })
         })?;
     sched.add(forge_job).await?;
+
+    // Phase 9 plan 09-07: the fifth job. The body is blocking (a spawn sleeps inside the spawn floor,
+    // a merge waits on git), so it runs on a blocking thread, never on the scheduler's async worker.
+    let dispatch_app = app.clone();
+    let dispatch_job =
+        Job::new_repeated_async(Duration::from_secs(DISPATCH_TICK_SECS), move |_uuid, _lock| {
+            let app = dispatch_app.clone();
+            Box::pin(async move {
+                let _ = tauri::async_runtime::spawn_blocking(move || run_dispatch_tick(&app)).await;
+            })
+        })?;
+    sched.add(dispatch_job).await?;
 
     sched.start().await?;
 
@@ -820,5 +881,69 @@ mod forge_tick_tests {
             "an unmoved task's merge must never be refused — this is what stops the fix from \
              passing the regression test by refusing every write"
         );
+    }
+}
+
+#[cfg(test)]
+mod dispatch_tick_tests {
+    use super::*;
+
+    #[test]
+    fn a_second_firing_while_one_is_in_progress_performs_no_evaluation() {
+        let flight = SingleFlight::new();
+        let evaluations = std::cell::Cell::new(0);
+        let outer = flight.run(|| {
+            evaluations.set(evaluations.get() + 1);
+            // An overlapping firing arrives mid-evaluation.
+            let inner = flight.run(|| evaluations.set(evaluations.get() + 1));
+            assert!(inner.is_none(), "the overlapping firing must not run");
+        });
+        assert!(outer.is_some());
+        assert_eq!(evaluations.get(), 1, "exactly one evaluation happened");
+        assert!(flight.run(|| ()).is_some(), "the flag clears afterwards");
+    }
+
+    #[test]
+    fn a_panicking_pass_does_not_wedge_the_flag() {
+        let flight = SingleFlight::new();
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| flight.run(|| panic!("boom"))));
+        assert!(caught.is_err());
+        assert!(flight.run(|| ()).is_some(), "the next firing must still be able to run");
+    }
+
+    /// The pass acquires the lock to read, releases it, and only then spawns: the spawn closure runs
+    /// with the lock free. `try_lock` failing here would mean a lock held across the launch, which
+    /// holds every other command for as long as the spawn floor sleeps (T-09-07-04).
+    #[test]
+    fn no_database_lock_is_held_across_the_spawn() {
+        let dir = tempfile::tempdir().expect("scratch dir");
+        let conn = flywheel_core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups"))
+            .expect("open_and_migrate");
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).expect("human");
+        let system = flywheel_core::domain::actor::system_actor(&conn).expect("system").id;
+        let mut conn = conn;
+        let project = flywheel_core::domain::project::create_project(&mut conn, &human, "P", "/repo", "FLY", "main")
+            .expect("project");
+        let epic = flywheel_core::domain::epic::create_epic(&mut conn, &project.id, &human, "E", None).expect("epic");
+        flywheel_core::domain::task::create_task(&mut conn, &project.id, &human, "T", Some(&epic.id)).expect("task");
+        let plan = flywheel_core::domain::dispatch_plan::create_plan_for_epic(&mut conn, &epic.id, &human).expect("plan");
+        flywheel_core::domain::dispatch_plan::approve_and_start(&mut conn, &plan, &human).expect("start");
+
+        let db = Mutex::new(conn);
+        let mut spawned = 0;
+        let report = flywheel_core::dispatch_exec::run_pass(&db, chrono::Utc::now().timestamp(), &system, |_p, _t| {
+            assert!(db.try_lock().is_ok(), "the database lock must be free while a run is being launched");
+            spawned += 1;
+            Err("not launching in a unit test".to_string())
+        })
+        .expect("pass");
+        assert_eq!(spawned, 1, "the ready task was handed to the launcher");
+        assert_eq!(report.spawned, 0);
+        // A failed launch is a named cause on the task, not a lost task.
+        let conn = db.lock().expect("lock");
+        let state: String = conn
+            .query_row("SELECT state FROM dispatch_plan_tasks WHERE plan_id = ?1", [&plan], |r| r.get(0))
+            .expect("state");
+        assert_eq!(state, "needs_attention");
     }
 }

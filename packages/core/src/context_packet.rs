@@ -117,6 +117,16 @@ pub struct DiffSoFar {
     pub working_tree_porcelain: String,
 }
 
+/// The heading of the declared-scope section (phase 09, D-150): present only when the task declares
+/// a file-set, so an unarmed task's briefing is byte-for-byte what it was before this phase.
+pub const SCOPE_SECTION_HEADING: &str = "## Declared Scope";
+
+/// The instruction a DISPATCHED run is launched with (phase 09 plan 09-07). The briefing's only other
+/// closing instruction is to report a summary, so an agent that leaves work uncommitted would give
+/// the automatic merge nothing to merge and the next wave would start without it. Passed as the
+/// launch's additional instruction, so a user's own launch carries none of it.
+pub const DISPATCHED_COMMIT_INSTRUCTION: &str = "Commit your work on this branch before you finish, as one or more commits. Do not push. Uncommitted work is not on the branch: it cannot be merged, and the next stage of the plan would start without it.";
+
 /// The lead sentence of the Review Feedback section, declared once on this side so the prompt and
 /// the launch sheet's preview (`ContextPacketDto`) can never word it differently (T-02-21).
 pub const REVIEW_FEEDBACK_LEAD: &str =
@@ -184,6 +194,9 @@ pub struct ContextPacket {
     /// (A-08(a)). Populated by [`assemble_context_packet`] itself — a pure read of the board — so
     /// the preview and the run start get it from the one assembler.
     pub review_feedback: Option<ReviewFeedback>,
+    /// The task's declared file-set, as stored paths (a directory ends in `/`), in declared order.
+    /// Empty for an unarmed task. Read from the database rows (D-150), never the marker file.
+    pub file_set: Vec<String>,
     pub worktree: WorktreeFacts,
 }
 
@@ -385,6 +398,11 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
             statements: unchecked.into_iter().map(|c| c.statement).collect(),
         });
 
+    let file_set = crate::domain::file_set::list_entries_for_task(conn, task_id)?
+        .iter()
+        .map(|e| crate::file_set::entry_path(e).to_string())
+        .collect();
+
     Ok(ContextPacket {
         task_key,
         task_title,
@@ -397,6 +415,7 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         diff: None,
         drift: Vec::new(),
         review_feedback,
+        file_set,
         worktree,
     })
 }
@@ -670,6 +689,20 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
                 "\nYou are in this worktree — read any of these files directly for the full \
                  detail.\n",
             );
+        }
+    }
+
+    if !packet.file_set.is_empty() {
+        out.push('\n');
+        out.push_str(SCOPE_SECTION_HEADING);
+        out.push_str(
+            "\n\nThis task declares the files it may change. File-tool edits outside this set are \
+             refused, and shell writes outside it are checked when the session closes.\n\n",
+        );
+        for path in &packet.file_set {
+            out.push_str("- ");
+            out.push_str(path);
+            out.push('\n');
         }
     }
 

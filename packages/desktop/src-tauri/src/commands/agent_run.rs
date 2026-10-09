@@ -662,11 +662,9 @@ pub(crate) fn arm_run_scope(
 
 /// Start a fresh agent run against `task_id` (D-30: always fresh, never `--resume`). Validates
 /// `permission_mode` and the operator's free-text `instruction` (T-02-19/T-02-20) before any DB
-/// or sidecar call happens, resolves the human actor server-side (T-01-04), then delegates the
-/// entire DB-only half to [`start_agent_run_recording_first`] (gap #2 of 04-VERIFICATION.md) —
-/// this command itself keeps only what is Tauri- or process-facing: credential resolution before
-/// any run/worktree state exists (D-39, T-02-42), the shim env merge, the spawn request, and the
-/// `board:changed` emit.
+/// or sidecar call happens, then delegates everything else to [`launch_run_for_task`] — the ONE
+/// launch path, shared with the fan-out dispatcher (phase 09 plan 09-07). A task with no declared
+/// file-set launches exactly as it did before that phase.
 #[tauri::command]
 pub fn agent_run_start(
     state: State<AppState>,
@@ -677,7 +675,25 @@ pub fn agent_run_start(
 ) -> Result<AgentRunDto, String> {
     validate_permission_mode(&permission_mode)?;
     let instruction = validate_instruction(instruction.as_deref())?;
+    launch_run_for_task(&state, &app, &task_id, &permission_mode, &instruction)
+}
 
+/// The launch body, after argument validation: resolves the human actor server-side (T-01-04),
+/// credential resolution before any run/worktree state exists (D-39, T-02-42), the DB-only half
+/// ([`start_agent_run_recording_first`], which arms the scope marker), the shim env merge, the
+/// spawn request through the one gated path, and the `board:changed` emit.
+///
+/// Called by [`agent_run_start`] for a user's launch and by the dispatcher for an autonomous one:
+/// one launch path, so there is one place the order below can be wrong. The cap and the limit gate
+/// are the DISPATCHER's to consult; neither is consulted here, so a user's own launch is never
+/// refused by either. Callers pass an already-validated mode and instruction.
+pub(crate) fn launch_run_for_task(
+    state: &AppState,
+    app: &AppHandle,
+    task_id: &str,
+    permission_mode: &str,
+    instruction: &str,
+) -> Result<AgentRunDto, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let human_actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
@@ -689,8 +705,8 @@ pub fn agent_run_start(
     // looked up (read-only) and the credential resolved BEFORE `start_agent_run_recording_first`
     // runs.
     // D-52 (plan 03-04): `repo_path` is read in this SAME `query_row` call, one extra column, no
-    // extra round trip — `agent_run_start`'s own spawn request needs it to key the per-repository
-    // spawn floor (`send_spawn_request`, below).
+    // extra round trip — the spawn request needs it to key the per-repository spawn floor
+    // (`send_spawn_request`, below).
     let (project_id, repo_path): (String, String) = conn
         .query_row(
             "SELECT tasks.project_id, projects.repo_path
@@ -706,9 +722,9 @@ pub fn agent_run_start(
 
     let outcome = start_agent_run_recording_first(
         &mut conn,
-        &task_id,
-        &permission_mode,
-        &instruction,
+        task_id,
+        permission_mode,
+        instruction,
         &human_actor_id,
     )?;
 
@@ -746,11 +762,11 @@ pub fn agent_run_start(
 
     Ok(AgentRunDto {
         id: outcome.run_id,
-        task_id,
+        task_id: task_id.to_string(),
         // `start_agent_run` always inserts a fresh run with `status = 'running'` — see
         // `start_agent_run_recording_first`'s own step 2.
         status: "running".to_string(),
-        permission_mode,
+        permission_mode: permission_mode.to_string(),
     })
 }
 

@@ -190,6 +190,41 @@ fn two_authoring_spawns_against_different_repositories_are_not_staggered() {
     );
 }
 
+/// Phase 09 plan 09-07: the fan-out dispatcher invents NO spawn-timing policy and starts NO process
+/// of its own. Its spawn goes through `launch_run_for_task`, which uses the gated path above, so the
+/// one-policy rule is enforced by a gate rather than a comment: no dispatcher file may sleep, name
+/// the floor, construct a process or send a request itself.
+#[test]
+fn the_dispatcher_files_route_every_spawn_through_the_one_gated_launch() {
+    let root = workspace_root();
+    for rel in [
+        "packages/desktop/src-tauri/src/commands/dispatch.rs",
+        "packages/core/src/dispatch.rs",
+        "packages/core/src/dispatch_exec.rs",
+    ] {
+        let path = root.join(rel);
+        let contents = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
+        for raw_line in contents.lines().filter(|l| !is_whole_line_comment(l)) {
+            for banned in [
+                "thread::sleep",
+                "tokio::time::sleep",
+                "SpawnFloor",
+                ".send_request(",
+                "send_spawn_request",
+                "Command::new",
+                "tokio::process",
+            ] {
+                assert!(!raw_line.contains(banned), "{rel} must not contain {banned:?}: {raw_line}");
+            }
+        }
+    }
+    let dispatch = std::fs::read_to_string(root.join("packages/desktop/src-tauri/src/commands/dispatch.rs")).unwrap();
+    assert!(
+        dispatch.lines().filter(|l| !is_whole_line_comment(l)).any(|l| l.contains("launch_run_for_task")),
+        "the dispatcher must launch through the one extracted launch body"
+    );
+}
+
 fn is_whole_line_comment(line: &str) -> bool {
     line.trim_start().starts_with("//")
 }

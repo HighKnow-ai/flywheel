@@ -1819,6 +1819,10 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                 // file-tool hook cannot see (a `Bash` write) or a lost notice. After
                                 // the close above, on its own thread; failures only log.
                                 handle_inbound_scope_backstop(&app_for_reader, &event);
+                                // Phase 9 plan 09-07: a closed session may be the one a wave was
+                                // waiting on, so ask for a dispatch pass now rather than at the
+                                // next firing. After the close above has written the run's status.
+                                crate::scheduler::nudge_dispatch(&app_for_reader);
                             }
 
                             // D-53 (plan 03-13): the shim's exhaustion notice already reached the

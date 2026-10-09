@@ -700,3 +700,67 @@ fn a_superseded_revision_contributes_nothing_and_the_successor_keeps_the_evidenc
         assert!(prompt.contains("Evidence: README.md lines 1-1"), "{prompt}");
     });
 }
+
+// ----- phase 09 plan 09-07: the dispatched briefing -----------------------------------------
+
+use core::context_packet::{DISPATCHED_COMMIT_INSTRUCTION, SCOPE_SECTION_HEADING};
+use core::domain::file_set::declare_file_set;
+use core::file_set::parse_entry;
+
+fn task_with_declared(declared: &[&str]) -> (rusqlite::Connection, String, tempfile::TempDir) {
+    let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Scoped work", None).expect("task");
+    if !declared.is_empty() {
+        let entries: Vec<_> = declared.iter().map(|d| parse_entry(d).expect("entry")).collect();
+        declare_file_set(&mut conn, &task.id, &entries, &actor_id).expect("declare");
+    }
+    (conn, task.id, repo_dir)
+}
+
+#[test]
+fn a_declared_task_names_its_scope_and_every_entry_in_the_briefing() {
+    with_scratch_worktree_root(|| {
+        let (conn, task_id, _repo) = task_with_declared(&["src/lib/", "docs/guide.md"]);
+        let prompt = render_prompt(&assemble_context_packet(&conn, &task_id).expect("packet"), "");
+        assert!(prompt.contains(SCOPE_SECTION_HEADING));
+        assert!(prompt.contains("- src/lib/\n"));
+        assert!(prompt.contains("- docs/guide.md\n"));
+    });
+}
+
+#[test]
+fn an_unarmed_task_has_no_scope_section_and_no_entry_list() {
+    with_scratch_worktree_root(|| {
+        let (conn, task_id, _repo) = task_with_declared(&[]);
+        let packet = assemble_context_packet(&conn, &task_id).expect("packet");
+        assert!(packet.file_set.is_empty());
+        let prompt = render_prompt(&packet, "");
+        assert!(!prompt.contains(SCOPE_SECTION_HEADING));
+        assert!(!prompt.contains("declares the files"));
+    });
+}
+
+#[test]
+fn the_commit_instruction_is_in_a_dispatched_briefing_and_not_in_a_user_launched_one() {
+    with_scratch_worktree_root(|| {
+        let (conn, task_id, _repo) = task_with_declared(&["a/"]);
+        let packet = assemble_context_packet(&conn, &task_id).expect("packet");
+        let dispatched = render_prompt(&packet, DISPATCHED_COMMIT_INSTRUCTION);
+        let by_hand = render_prompt(&packet, "");
+        assert!(dispatched.contains(DISPATCHED_COMMIT_INSTRUCTION));
+        assert!(dispatched.contains("Do not push"));
+        assert!(!by_hand.contains(DISPATCHED_COMMIT_INSTRUCTION));
+    });
+}
+
+#[test]
+fn the_same_board_state_renders_the_same_bytes_dispatched_or_not() {
+    with_scratch_worktree_root(|| {
+        let (conn, task_id, _repo) = task_with_declared(&["a/", "b.txt"]);
+        for instruction in ["", DISPATCHED_COMMIT_INSTRUCTION] {
+            let first = render_prompt(&assemble_context_packet(&conn, &task_id).expect("packet"), instruction);
+            let second = render_prompt(&assemble_context_packet(&conn, &task_id).expect("packet"), instruction);
+            assert_eq!(first, second);
+        }
+    });
+}
