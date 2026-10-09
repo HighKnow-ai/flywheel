@@ -1078,13 +1078,13 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: 9 plans in 7 waves
+**Plans**: 1/9 plans executed in 7 waves
 
 Plans:
 
 **Wave 1** *(the tracer — the phase's highest-risk claim, proved end-to-end against the real shipped artifacts before anything is built on top of it)*
 
-- [ ] 09-01-PLAN.md — Tracer: a declared file-set is enforced at the tool call. Migration `0019`, the `file_set` matcher, the scope marker, the shim's `--scope-check`, `scope-hook.ts`, the third `PreToolUse` entry, `arm_run_scope`, and the human-only declare command (PLAN-04)
+- [x] 09-01-PLAN.md — Tracer: a declared file-set is enforced at the tool call. Migration `0019`, the `file_set` matcher, the scope marker, the shim's `--scope-check`, `scope-hook.ts`, the third `PreToolUse` entry, `arm_run_scope`, and the human-only declare command (PLAN-04)
 
 **Wave 2** *(09-02 and 09-03 share no file: the first is the hook-notice/event/backstop path, the second is the pure overlap and plan-table core)*
 
@@ -1224,7 +1224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
-| 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
+| 9. Planned Fan-Out That Does Not Collide | 1/9 | In Progress|  |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
