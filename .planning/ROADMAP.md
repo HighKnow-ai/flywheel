@@ -922,7 +922,7 @@ owner actually wants to look at all day — wearing its own mark and moving the 
 contract says it moves.
 **Requirements**: TBD (none mapped — the five success criteria below plus `08.1-CONTEXT.md` D-01…D-25 are the contract)
 **Depends on:** Phase 8
-**Plans:** 19/20 plans executed
+**Plans:** 20/21 plans executed
 
 Plans:
 **Wave 1**
@@ -975,6 +975,10 @@ Plans:
 - [x] 08.1-19-PLAN.md — Finish group 6: the empty and broken states, and the three confirmations [D-24, D-25]
 
 **Wave 11** *(blocked on Wave 10 completion)*
+
+- [x] 08.1-21-PLAN.md — The review surface's decline path: Request changes returns a task to its agent with its unchecked criteria as the reason, and sits beside Merge at the foot of the criteria column [A-08(a), SC0]
+
+**Wave 12** *(blocked on Wave 11 — the closing plan writes `DESIGN.md` from the built world, so the decline path must exist first)*
 
 - [ ] 08.1-20-PLAN.md — Phase gate across all five test arms; `DESIGN.md` written from the built world; the register closed honestly [D-24]
 
@@ -1177,7 +1181,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Agents File Their Own Backlog | 9/9 | Complete    | 2026-10-02 |
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
-| 8.1 Visual polish: brand assets and confirmed motion | 19/20 | In Progress|  |
+| 8.1 Visual polish: brand assets and confirmed motion | 20/21 | In Progress|  |
 | 9. Planned Fan-Out That Does Not Collide | 0/TBD | Not started | - |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |

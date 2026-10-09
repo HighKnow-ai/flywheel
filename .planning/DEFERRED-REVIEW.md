@@ -476,3 +476,32 @@ At Phase 11, with an installed, usable build:
     pre-fix captures no longer exist.
   risk_if_wrong: "Moderate. The reviewer may find that a destructive action without a fill under-signals at a glance on a delete confirmation, or that the full-window states look unfinished at that size. Both were judged by their builder only. The scrim, the dialog tier and the blocking layer are measured in WebKit, not judged."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer again against those paths now, over the fixed group; it needs no human."
+
+- id: D-REV-19
+  phase: "08.1 — Visual Polish (plan 21)"
+  truth: "The shipped impeccable-finish-reviewer, run once against the approved review comp (comps/review.html, .action-row) and 08.1-UI-SPEC.md for the CHANGED foot of the review surface's criteria column (the `Review decision` group: Request changes beside Merge, the sent-back, nothing-unchecked and no-criteria notes, the could-not-send alert) and for the Review feedback section the launch sheet gained, raises nothing material that is not fixed or recorded."
+  status: "NOT RUN. No independent finish-review has seen the changed foot, the decline path's copy, or the launch sheet's new section. Nothing here is a reviewer finding; there are none."
+  why_deferred: |
+    The plan 21 executor has no subagent tool, so it could not spawn the reviewer, and the orchestrator
+    could not run it for this plan either: the run stalled (watchdog, no progress for 600s) between
+    implementing Task 3 and verifying it, and was recovered and closed out without the reviewer pass. The
+    mechanical gate DID run and reports `[]` over packages/desktop/src/review/ and on LaunchSheet.tsx, and
+    the foot's geometry, paint and contrast are measured in WebKit in both schemes; that is NOT the
+    independent pass D-24 asks for. Captures of the changed surface are in .impeccable/review/
+    (gitignored): review-group-built-{light,dark}-surface-1440x900.png (the foot with the decline ready)
+    and -decision-sent-1440x900.png (after Request changes was pressed), with rendered HTML beside each
+    (review-group-built-{light,dark}.html). Regenerate with `npm run test:browser` and
+    `npm run test:browser:dark`, then `git checkout --` the Phase 8 UAT screenshot directory
+    (.planning/phases/08-review-and-merge-inside-flywheel/uat-screenshots/), which the browser arms overwrite.
+    THE REVIEWER MUST BE TOLD that the title bar no longer holds Merge (it moved into the foot, owner
+    decision A-08(a)), that the comp fills its primary and the owner's no-filled-buttons rule governs, and
+    that Merge keeps the 2px ink lead edge while Request changes is a 1px hairline secondary by design
+    (plan 16's closure gave Merge the lead after a reviewer found it indistinguishable from the scope
+    toggles). ALSO FOR THE REVIEWER: whether the foot reads as the end of the attestation or as a stray
+    block under a short rail; whether a muted 11px consequence line ("Request changes sends 3 unchecked
+    criteria back to the agent.") is enough to stand in for a confirm sheet; whether "Sent back to the
+    agent: N unchecked criteria. They go into the next session's briefing." reads as a state or as a
+    toast; and whether the Review feedback section in the launch sheet sits correctly between Warnings
+    and Epic. The captures are of a fixture task (THRE-58's three criteria, in_progress), not the app shell.
+  risk_if_wrong: "Moderate. The foot is the surface where this product's core value becomes a daily act, and it was judged by its builder and by WebKit measurements only. The reviewer may find the secondary too quiet beside the lead, the foot too sparse under a short rail, or the sent-back note indistinct from a muted label."
+  automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer now against those paths and the regenerated captures; it needs no human."
