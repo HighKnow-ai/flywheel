@@ -932,6 +932,118 @@ fn handle_inbound_git_lock_exhausted(app: &AppHandle, event: &serde_json::Value)
     }
 }
 
+/// PLAN-05 (phase 09 plan 09-02): the DB-only half of a `scope_denied` event — parses the sidecar's
+/// event line and appends one `task.scope_denied` row through
+/// `flywheel_core::domain::file_set::record_scope_denied`. The run's task, epic, project and agent
+/// actor are all resolved from the `agent_runs` row, never from the event (T-09-02-01: the event's
+/// `runId` is the sidecar's session closure, and nothing else in it is an identity). Returns the task
+/// the row was attached to, or `None` for a malformed event or a run that is unknown or has no task.
+/// Split from [`handle_inbound_scope_denied`] so it is testable without an `AppHandle`.
+fn process_inbound_scope_denied(
+    conn: &mut rusqlite::Connection,
+    event: &serde_json::Value,
+) -> anyhow::Result<Option<String>> {
+    let (Some(run_id), Some(path)) = (
+        event.get("runId").and_then(|v| v.as_str()),
+        event.get("path").and_then(|v| v.as_str()),
+    ) else {
+        return Ok(None);
+    };
+    let text = |key: &str| event.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    flywheel_core::domain::file_set::record_scope_denied(
+        conn,
+        run_id,
+        &flywheel_core::domain::file_set::ScopeDenial {
+            path: path.to_string(),
+            tool: text("tool"),
+            tool_use_id: text("toolUseId"),
+            outside_worktree: event.get("outsideWorktree").and_then(|v| v.as_bool()).unwrap_or(false),
+            detected_after_the_fact: false,
+        },
+    )
+}
+
+/// The Tauri-facing half of a `scope_denied` event: the DB write, then a `board:changed` for the
+/// task. A failure is logged and dropped — never a panic, never an early return out of the shared
+/// reader loop (CR-03) — and the live `agent:event` the developer watches was emitted before this
+/// runs.
+fn handle_inbound_scope_denied(app: &AppHandle, event: &serde_json::Value) {
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return;
+    };
+    let Ok(mut conn) = state.db.lock() else {
+        return;
+    };
+    let result = process_inbound_scope_denied(&mut conn, event);
+    drop(conn);
+    match result {
+        Ok(Some(task_id)) => {
+            let _ = app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }));
+        }
+        Ok(None) => {}
+        Err(err) => eprintln!("failed to record a scope refusal: {err:#}"),
+    }
+}
+
+/// PLAN-05 (phase 09 plan 09-02): the close-time detective backstop for the half of the scope guarantee
+/// the hook cannot give. Runs on its own thread (a git subprocess must not stall the shared reader
+/// loop) and takes the database lock only around the two database halves, never around git. Every
+/// failure logs and returns: a backstop that aborted or delayed session close would cost more than it
+/// catches. It compares against the declared rows, not the marker file (T-09-02-03).
+fn handle_inbound_scope_backstop(app: &AppHandle, event: &serde_json::Value) {
+    let Some(run_id) = event.get("runId").and_then(|v| v.as_str()).map(str::to_owned) else {
+        return;
+    };
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let Some(state) = app.try_state::<crate::state::AppState>() else {
+            return;
+        };
+        let inputs = {
+            let Ok(conn) = state.db.lock() else {
+                return;
+            };
+            let task_id: Option<String> = conn
+                .query_row("SELECT task_id FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |r| r.get(0))
+                .ok()
+                .flatten();
+            let Some(task_id) = task_id else {
+                return;
+            };
+            match flywheel_core::drift::scope_backstop_inputs(&conn, &task_id) {
+                Ok(Some(inputs)) => inputs,
+                Ok(None) => return,
+                Err(err) => {
+                    eprintln!("scope backstop could not read the declared set for run {run_id}: {err:#}");
+                    return;
+                }
+            }
+        };
+        let paths: Vec<String> = match flywheel_core::drift::scope_backstop_git(&inputs) {
+            Ok(findings) => findings.into_iter().map(|f| f.path).collect(),
+            Err(err) => {
+                eprintln!("scope backstop could not read git for run {run_id}: {err:#}");
+                return;
+            }
+        };
+        let Ok(mut conn) = state.db.lock() else {
+            return;
+        };
+        let result = flywheel_core::domain::file_set::record_backstop_denials(&mut conn, &run_id, &paths);
+        drop(conn);
+        match result {
+            Ok(appended) if appended > 0 => {
+                let _ = app.emit(
+                    "board:changed",
+                    serde_json::json!({ "entity": "task", "id": inputs.task_id }),
+                );
+            }
+            Ok(_) => {}
+            Err(err) => eprintln!("scope backstop could not record its findings for run {run_id}: {err:#}"),
+        }
+    });
+}
+
 /// CR-03's exact failure mode, as falsifiable tests: force `SessionLogWriter::open` to fail for
 /// one run and prove — by bytes on disk, not just the return value — that another run's events
 /// keep flowing. Follows `packages/core/tests/session_log_window.rs`'s own precedent of writing
@@ -1661,6 +1773,10 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                     &app_for_reader,
                                     &event,
                                 );
+                                // PLAN-05: the detective half of the scope guarantee — what the
+                                // file-tool hook cannot see (a `Bash` write) or a lost notice. After
+                                // the close above, on its own thread; failures only log.
+                                handle_inbound_scope_backstop(&app_for_reader, &event);
                             }
 
                             // D-53 (plan 03-13): the shim's exhaustion notice already reached the
@@ -1677,6 +1793,14 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                 == Some("git_lock_exhausted")
                             {
                                 handle_inbound_git_lock_exhausted(&app_for_reader, &event);
+                            }
+
+                            // PLAN-05 (plan 09-02): the scope hook's refusal notice, relayed here as a
+                            // `scope_denied` event. Unlike the shim's retry notice above, EVERY one is a
+                            // row — no coalescing and no threshold (D-154). Sits AFTER the `agent:event`
+                            // emit for the same reason every inbound branch does.
+                            if event.get("type").and_then(|v| v.as_str()) == Some("scope_denied") {
+                                handle_inbound_scope_denied(&app_for_reader, &event);
                             }
 
                             // D-64/D-65 (plan 04-06): the agent's own `report_summary` tool call,
@@ -1764,4 +1888,112 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
     });
 
     Ok(handle)
+}
+
+/// PLAN-05: the DB half of the `scope_denied` reader branch, driven with real sidecar-shaped event
+/// lines against a real migrated database. No `AppHandle` is needed, which is the point of the
+/// handler/process split.
+#[cfg(test)]
+mod scope_denied_tests {
+    use super::*;
+
+    /// A migrated database with one task and one `running` agent run, returned as
+    /// `(conn, task_id, run_id, agent_actor_id)`.
+    fn seeded_run() -> (rusqlite::Connection, String, String, String) {
+        let dir = tempfile::tempdir().expect("scratch dir");
+        let mut conn = flywheel_core::db::open_and_migrate(&dir.path().join("f.db"), &dir.path().join("backups"))
+            .expect("open_and_migrate");
+        std::mem::forget(dir);
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).expect("human actor");
+        let project = flywheel_core::domain::project::create_project(&mut conn, &human, "P", "/repo", "FLY", "main")
+            .expect("project");
+        let task = flywheel_core::domain::task::create_task(&mut conn, &project.id, &human, "T", None).expect("task");
+        let agent = flywheel_core::domain::agent_run::agent_actor_id(&conn).expect("agent actor");
+        let (trigger_id, run_id) = (flywheel_core::ids::new_id(), flywheel_core::ids::new_id());
+        let now = "2026-01-01T00:00:00.000Z";
+        conn.execute(
+            "INSERT INTO triggers (id, project_id, target_task_id, source, config, enabled, last_fired_at, created_by, created_at)
+             VALUES (?1, ?2, ?3, 'user_action', NULL, 1, NULL, ?4, ?5)",
+            rusqlite::params![trigger_id, project.id, task.id, human, now],
+        )
+        .expect("trigger");
+        conn.execute(
+            "INSERT INTO agent_runs (id, worktree_id, task_id, project_id, trigger_id, adapter, actor_id, status,
+                external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path, started_at, ended_at)
+             VALUES (?1, NULL, ?2, ?3, ?4, 'claude_code', ?5, 'running', NULL, 'default', NULL, NULL, NULL, '/tmp/x.jsonl', ?6, NULL)",
+            rusqlite::params![run_id, task.id, project.id, trigger_id, agent, now],
+        )
+        .expect("run");
+        (conn, task.id, run_id, agent)
+    }
+
+    fn rows(conn: &rusqlite::Connection, task_id: &str) -> Vec<(String, serde_json::Value)> {
+        let mut stmt = conn
+            .prepare("SELECT actor_id, payload FROM events WHERE task_id = ?1 AND event_type = 'task.scope_denied' ORDER BY sequence")
+            .unwrap();
+        stmt.query_map(rusqlite::params![task_id], |r| {
+            let p: String = r.get(1)?;
+            Ok((r.get(0)?, serde_json::from_str(&p).unwrap()))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+    }
+
+    #[test]
+    fn an_event_line_becomes_one_row_attributed_to_the_agent_with_the_run_identity_from_the_database() {
+        let (mut conn, task_id, run_id, agent) = seeded_run();
+        let event = serde_json::json!({
+            "type": "scope_denied", "runId": run_id, "seq": 4, "at": "x", "raw": "{}",
+            "path": "src/b.rs", "tool": "Edit", "toolUseId": "toolu_9", "outsideWorktree": false,
+            // A spoof attempt: nothing but runId + the report fields is read.
+            "taskId": "01SPOOFSPOOFSPOOFSPOOFSPOO", "actorId": "01SPOOFSPOOFSPOOFSPOOFSPOO",
+        });
+        let attached = process_inbound_scope_denied(&mut conn, &event).unwrap();
+        assert_eq!(attached.as_deref(), Some(task_id.as_str()));
+        let got = rows(&conn, &task_id);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, agent);
+        assert_eq!(got[0].1["path"], "src/b.rs");
+        assert_eq!(got[0].1["tool"], "Edit");
+        assert_eq!(got[0].1["tool_use_id"], "toolu_9");
+        assert_eq!(got[0].1["outside_worktree"], false);
+        assert_eq!(got[0].1["detected_after_the_fact"], false);
+    }
+
+    #[test]
+    fn twenty_events_are_twenty_rows() {
+        let (mut conn, task_id, run_id, _) = seeded_run();
+        for i in 0..20 {
+            let event = serde_json::json!({ "runId": run_id, "path": format!("f{i}.rs"), "tool": "Write" });
+            process_inbound_scope_denied(&mut conn, &event).unwrap();
+        }
+        assert_eq!(rows(&conn, &task_id).len(), 20);
+    }
+
+    #[test]
+    fn an_outside_worktree_event_stores_the_flag_and_not_the_absolute_path() {
+        let (mut conn, task_id, run_id, _) = seeded_run();
+        let event = serde_json::json!({
+            "runId": run_id, "path": "/Users/x/.claude/plans/p.md", "tool": "Write", "outsideWorktree": true,
+        });
+        process_inbound_scope_denied(&mut conn, &event).unwrap();
+        let got = rows(&conn, &task_id);
+        assert_eq!(got[0].1["outside_worktree"], true);
+        assert_eq!(got[0].1["path"], "p.md");
+    }
+
+    #[test]
+    fn a_malformed_or_unknown_run_event_writes_nothing_and_does_not_error() {
+        let (mut conn, task_id, run_id, _) = seeded_run();
+        for event in [
+            serde_json::json!({}),
+            serde_json::json!({ "runId": run_id }),
+            serde_json::json!({ "path": "a.rs" }),
+            serde_json::json!({ "runId": "01ZZZZZZZZZZZZZZZZZZZZZZZZ", "path": "a.rs" }),
+        ] {
+            assert_eq!(process_inbound_scope_denied(&mut conn, &event).unwrap(), None);
+        }
+        assert!(rows(&conn, &task_id).is_empty());
+    }
 }

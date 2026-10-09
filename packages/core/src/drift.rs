@@ -11,7 +11,8 @@
 //! against changes. [`detect_drift`] is called fresh on every packet assembly; its result lives
 //! only as long as the call that produced it.
 //!
-//! Third, the whole module is pure: [`detect_drift`]'s output is a function of its
+//! Third, [`detect_drift`] is pure (the scope backstop at the bottom of this file is the one
+//! exception, and says so): its output is a function of its
 //! [`DriftInputs`] argument and nothing else — no database connection, no process spawn, no
 //! network call, no clock read. Two calls on the same inputs return equal vectors.
 
@@ -258,7 +259,29 @@ pub fn detect_drift(inputs: &DriftInputs) -> Vec<DriftWarning> {
     warnings
 }
 
-/// RED stub.
+// --- the scope backstop (phase 09 plan 09-02, PLAN-05) --------------------------------------------
+//
+// NOT part of `detect_drift` and NOT pure: this half reads the database and runs git. It lives here
+// because it is the same kind of fact-based comparison (a set of paths against a set of paths), but
+// the module's "no connection, no process" contract above covers `detect_drift` only.
+//
+// **What it is for.** The scope hook (`scope-hook.ts`) matches `Write|Edit|MultiEdit|NotebookEdit`,
+// so a write made through `Bash` (`echo >`, `sed -i`, a package manager rewriting a lockfile) never
+// reaches it, and a hook notice is best effort. At session close this compares what git says changed
+// in the task's worktree with the declared set. It is DETECTIVE, never preventive, and it cannot see a
+// change created and reverted inside one session.
+//
+// **What it compares against.** The declared entries in `task_file_set_entries`, never the per-run
+// marker file: an agent that rewrote its own marker through a shell changes what the hook enforces
+// but not what this compares against (T-09-02-03).
+//
+// **Shape.** Three functions so no caller holds the database lock across a git subprocess:
+// [`scope_backstop_inputs`] (database, returns plain values), [`scope_backstop_git`] (git, takes plain
+// values and never a connection), and [`scope_backstop_findings`] (the two composed, for callers that
+// hold no lock that matters).
+
+/// The plain values the git half needs, read from the database. `None` from
+/// [`scope_backstop_inputs`] means there is nothing to detect against.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScopeBackstopInputs {
     pub task_id: String,
@@ -267,19 +290,84 @@ pub struct ScopeBackstopInputs {
     pub entries: Vec<crate::file_set::FileSetEntry>,
 }
 
+/// One changed path outside the declared set (repository-relative, forward slashes).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScopeBackstopFinding {
     pub path: String,
 }
 
-pub fn scope_backstop_inputs(_conn: &rusqlite::Connection, _task_id: &str) -> anyhow::Result<Option<ScopeBackstopInputs>> {
-    Ok(None)
+/// Database half. `Ok(None)` when the task declared nothing (an unarmed run made no disjointness
+/// claim) or has no worktree.
+pub fn scope_backstop_inputs(
+    conn: &rusqlite::Connection,
+    task_id: &str,
+) -> anyhow::Result<Option<ScopeBackstopInputs>> {
+    let entries = crate::domain::file_set::list_entries_for_task(conn, task_id)?;
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    let Some(worktree) = crate::domain::worktree::worktree_for_task(conn, task_id)? else {
+        return Ok(None);
+    };
+    Ok(Some(ScopeBackstopInputs {
+        task_id: task_id.to_string(),
+        worktree_path: std::path::PathBuf::from(worktree.path),
+        base_branch: worktree.base_branch,
+        entries,
+    }))
 }
 
-pub fn scope_backstop_git(_inputs: &ScopeBackstopInputs) -> anyhow::Result<Vec<ScopeBackstopFinding>> {
-    Ok(Vec::new())
+/// Every path named by `git status --porcelain -z -uall`: `-z` keeps odd bytes unquoted and `-uall`
+/// lists the files inside a new directory instead of the directory. A rename or copy contributes both
+/// its paths.
+fn uncommitted_paths(worktree: &std::path::Path) -> anyhow::Result<Vec<String>> {
+    let out = crate::git::git_at(worktree, &["status", "--porcelain", "-z", "-uall"])?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let mut tokens = text.split('\0').filter(|t| !t.is_empty());
+    let mut paths = Vec::new();
+    while let Some(token) = tokens.next() {
+        if token.len() < 4 || !token.is_char_boundary(3) {
+            continue;
+        }
+        let (code, path) = (&token[..2], &token[3..]);
+        paths.push(path.to_string());
+        if code.contains('R') || code.contains('C') {
+            if let Some(original) = tokens.next() {
+                paths.push(original.to_string());
+            }
+        }
+    }
+    Ok(paths)
 }
 
-pub fn scope_backstop_findings(_conn: &rusqlite::Connection, _task_id: &str) -> anyhow::Result<Vec<ScopeBackstopFinding>> {
-    Ok(Vec::new())
+/// Git half: committed since the task's base branch plus uncommitted, unioned, minus anything an
+/// entry covers (with the repository's own case-folding rule, as the marker carries it).
+pub fn scope_backstop_git(inputs: &ScopeBackstopInputs) -> anyhow::Result<Vec<ScopeBackstopFinding>> {
+    use std::collections::BTreeSet;
+
+    let fold = crate::domain::file_set::repo_is_case_insensitive(&inputs.worktree_path);
+    let mut changed: BTreeSet<String> = BTreeSet::new();
+    for file in crate::git::review_files(&inputs.worktree_path, &inputs.base_branch, "HEAD")? {
+        changed.extend(file.old_path);
+        changed.insert(file.path);
+    }
+    changed.extend(uncommitted_paths(&inputs.worktree_path)?);
+
+    Ok(changed
+        .into_iter()
+        .filter(|path| !inputs.entries.iter().any(|e| crate::file_set::covers(e, path, fold)))
+        .map(|path| ScopeBackstopFinding { path })
+        .collect())
+}
+
+/// [`scope_backstop_inputs`] then [`scope_backstop_git`]. Holds `conn` for the whole git read, so a
+/// caller that shares the connection behind a lock must call the two halves itself.
+pub fn scope_backstop_findings(
+    conn: &rusqlite::Connection,
+    task_id: &str,
+) -> anyhow::Result<Vec<ScopeBackstopFinding>> {
+    match scope_backstop_inputs(conn, task_id)? {
+        Some(inputs) => scope_backstop_git(&inputs),
+        None => Ok(Vec::new()),
+    }
 }

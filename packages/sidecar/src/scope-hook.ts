@@ -40,12 +40,22 @@
  * matches this hook; that gap is detective, not preventive, and is covered by plan 09-02's
  * session-close backstop.
  *
+ * **The refusal is also reported, best effort (PLAN-05).** After the deny body is printed, the hook sends
+ * one fire-and-forget `scope_denied` notice over `FLYWHEEL_PERMISSION_SOCKET` (already in the agent
+ * environment, so inherited the way the shim inherits it). The wait is bounded at
+ * {@link NOTICE_TIMEOUT_MS} and every failure is swallowed: the printed decision and exit code 2 never
+ * depend on the notice landing. The notice carries the hook's own `FLYWHEEL_RUN_ID`, but the sidecar
+ * takes the run identity from its session closure and does not read it (T-09-02-01). A lost notice is
+ * not a silent block: the close-time backstop (`packages/core/src/drift.rs`) raises the same event
+ * from git state.
+ *
  * **The refusal reason discloses only the refused path (made repository-relative by the shim) and the
  * refused run's OWN declared entries, truncated to the first 20 with a count of the remainder.** It
  * carries nothing from any other run: no other run's set, no task title, no worktree path
  * (T-09-01-07).
  */
 import { spawnSync } from "node:child_process";
+import { createConnection } from "node:net";
 import { join } from "node:path";
 
 /** The measured, wired decision value — the one place this hook's own permission decision is named. */
@@ -60,12 +70,15 @@ const MAX_ENTRIES_SHOWN = 20;
 /** Tools that carry their target in `notebook_path`; every other matched tool uses `file_path`. */
 const NOTEBOOK_TOOL = "NotebookEdit";
 
+/** How long the hook waits for the notice to be handed to the socket before exiting 2 anyway. */
+const NOTICE_TIMEOUT_MS = 500;
+
 /** The characters a run id may contain when it becomes a file name: no separator, no dot. */
 const SAFE_RUN_ID = /^[A-Za-z0-9_-]+$/;
 
-/** Print the deny decision and exit 2. Never throws, never returns: this is the last line of
- * defence for every failure path, so a failure to WRITE the decision still exits 2. */
-function deny(reason: string): never {
+/** Print the deny decision. Never throws: a failure to WRITE it is swallowed because the exit code
+ * (2) is what blocks the call. Does not exit, so a caller can do bounded work before exiting. */
+function printDeny(reason: string): void {
   try {
     process.stdout.write(
       JSON.stringify({
@@ -77,9 +90,46 @@ function deny(reason: string): never {
       }),
     );
   } catch {
-    // The exit code below is what blocks the call; there is nothing further to do.
+    // The exit code is what blocks the call; there is nothing further to do.
   }
+}
+
+/** Print the deny decision and exit 2. Never throws, never returns: this is the last line of
+ * defence for every failure path, so a failure to WRITE the decision still exits 2. */
+function deny(reason: string): never {
+  printDeny(reason);
   process.exit(2);
+}
+
+/** What a scope refusal reports to the board. */
+interface ScopeNotice {
+  runId: string;
+  path: string;
+  tool: string;
+  toolUseId: string;
+  outsideWorktree: boolean;
+}
+
+/** Hand one `scope_denied` line to the permission socket and resolve — on success, on any error, or
+ * after {@link NOTICE_TIMEOUT_MS}, whichever comes first. Never rejects, never throws. */
+function sendScopeNotice(notice: ScopeNotice): Promise<void> {
+  return new Promise((resolve) => {
+    const socketPath = process.env.FLYWHEEL_PERMISSION_SOCKET;
+    if (!socketPath) return resolve();
+    try {
+      const socket = createConnection(socketPath);
+      const finish = () => {
+        clearTimeout(timer);
+        socket.destroy();
+        resolve();
+      };
+      const timer = setTimeout(finish, NOTICE_TIMEOUT_MS);
+      socket.on("error", finish);
+      socket.on("connect", () => socket.end(`${JSON.stringify({ kind: "scope_denied", ...notice })}\n`, finish));
+    } catch {
+      resolve();
+    }
+  });
 }
 
 function allow(): never {
@@ -165,8 +215,19 @@ async function main(): Promise<void> {
     case "unarmed":
     case "allow":
       return allow();
-    case "deny":
-      return deny(refusalReason(decision));
+    case "deny": {
+      // The decision is printed FIRST; the notice is best effort and bounded, so nothing below can
+      // change what the agent is told or the exit code.
+      printDeny(refusalReason(decision));
+      await sendScopeNotice({
+        runId,
+        path: typeof decision.relative === "string" ? decision.relative : target,
+        tool: typeof call.tool_name === "string" ? call.tool_name : "",
+        toolUseId: typeof call.tool_use_id === "string" ? call.tool_use_id : "",
+        outsideWorktree: decision.outsideWorktree === true,
+      });
+      process.exit(2);
+    }
     default:
       return deny("the scope check produced an unrecognised decision");
   }

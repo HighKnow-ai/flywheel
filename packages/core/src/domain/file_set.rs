@@ -211,24 +211,153 @@ pub struct ScopeDenial {
     pub detected_after_the_fact: bool,
 }
 
+/// The longest path a stored refusal keeps (characters). A path is agent-supplied text.
+const MAX_STORED_PATH_CHARS: usize = 1024;
+
+/// Append one [`EVENT_SCOPE_DENIED`] row inside the caller's transaction. Every refusal is its own
+/// row: no coalescing, no threshold, no escalation (D-154) — the count is the signal and the
+/// developer decides. `actor_id` is the agent that attempted the write, not the local human.
+///
+/// A path outside the worktree cannot be stored repository-relative, so only its file name is kept
+/// (T-09-02-05: no absolute filesystem path is written to a row that later crosses to the renderer).
 #[allow(clippy::too_many_arguments)]
 pub fn record_scope_denied_in_tx(
-    _tx: &Transaction,
-    _project_id: &str,
-    _task_id: &str,
-    _epic_id: Option<&str>,
-    _run_id: &str,
-    _actor_id: &str,
-    _denial: &ScopeDenial,
-    _now: &str,
+    tx: &Transaction,
+    project_id: &str,
+    task_id: &str,
+    epic_id: Option<&str>,
+    run_id: &str,
+    actor_id: &str,
+    denial: &ScopeDenial,
+    now: &str,
 ) -> anyhow::Result<()> {
+    let raw_path: String = if denial.outside_worktree {
+        std::path::Path::new(&denial.path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    } else {
+        denial.path.clone()
+    };
+    let stored_path: String = raw_path.chars().take(MAX_STORED_PATH_CHARS).collect();
+    let label = if denial.detected_after_the_fact {
+        format!("Found a change outside the declared file-set at session close: {stored_path}")
+    } else if denial.outside_worktree {
+        format!("Refused a write outside the worktree: {stored_path}")
+    } else {
+        format!("Refused a write outside the declared file-set: {stored_path}")
+    };
+    let payload = serde_json::json!({
+        "label": label,
+        "path": stored_path,
+        "tool": denial.tool,
+        "tool_use_id": denial.tool_use_id,
+        "run_id": run_id,
+        "outside_worktree": denial.outside_worktree,
+        "detected_after_the_fact": denial.detected_after_the_fact,
+    });
+    let sequence = next_sequence(tx, project_id, "local")?;
+    append_event(
+        tx,
+        project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id,
+        actor_id,
+        EVENT_SCOPE_DENIED,
+        &payload,
+        now,
+    )?;
     Ok(())
 }
 
-pub fn record_scope_denied(_conn: &mut Connection, _run_id: &str, _denial: &ScopeDenial) -> anyhow::Result<Option<String>> {
-    Ok(None)
+/// Everything a refusal row needs that the run already knows: `(project, task, epic, actor)`.
+/// `None` for an unknown run or one with no task (a planning run) — there is nothing to anchor to.
+fn run_anchor(
+    tx: &Transaction,
+    run_id: &str,
+) -> anyhow::Result<Option<(String, String, Option<String>, String)>> {
+    use rusqlite::OptionalExtension;
+    let row: Option<(String, Option<String>, String)> = tx
+        .query_row(
+            "SELECT project_id, task_id, actor_id FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .context("failed to read the run a scope refusal belongs to")?;
+    let Some((project_id, Some(task_id), actor_id)) = row else { return Ok(None) };
+    let epic_id: Option<String> = tx
+        .query_row("SELECT epic_id FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0))
+        .optional()
+        .context("failed to read the task a scope refusal belongs to")?
+        .flatten();
+    Ok(Some((project_id, task_id, epic_id, actor_id)))
 }
 
-pub fn record_backstop_denials(_conn: &mut Connection, _run_id: &str, _paths: &[String]) -> anyhow::Result<usize> {
-    Ok(0)
+/// Record one refusal for `run_id` in its own transaction. Returns the task the row was attached
+/// to, or `None` (and writes nothing) for an unknown run.
+pub fn record_scope_denied(
+    conn: &mut Connection,
+    run_id: &str,
+    denial: &ScopeDenial,
+) -> anyhow::Result<Option<String>> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let Some((project_id, task_id, epic_id, actor_id)) = run_anchor(&tx, run_id)? else {
+        return Ok(None);
+    };
+    record_scope_denied_in_tx(&tx, &project_id, &task_id, epic_id.as_deref(), run_id, &actor_id, denial, &now)?;
+    tx.commit().context("failed to commit record_scope_denied transaction")?;
+    Ok(Some(task_id))
+}
+
+/// Record the close-time backstop's findings for `run_id`: one after-the-fact row per path, all in
+/// one transaction. A path already recorded after the fact for this run is skipped, so a
+/// `session_closed` event delivered twice does not double the count. (A hook denial of the same path
+/// is a different row and is never skipped: the two are told apart by `detected_after_the_fact`.)
+/// Returns the number of rows appended.
+pub fn record_backstop_denials(
+    conn: &mut Connection,
+    run_id: &str,
+    paths: &[String],
+) -> anyhow::Result<usize> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let Some((project_id, task_id, epic_id, actor_id)) = run_anchor(&tx, run_id)? else {
+        return Ok(0);
+    };
+    let mut appended = 0;
+    for path in paths {
+        let already: bool = tx
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM events WHERE task_id = ?1 AND event_type = ?2
+                   AND json_extract(payload, '$.run_id') = ?3
+                   AND json_extract(payload, '$.path') = ?4
+                   AND json_extract(payload, '$.detected_after_the_fact') = 1)",
+                params![task_id, EVENT_SCOPE_DENIED, run_id, path],
+                |r| r.get(0),
+            )
+            .context("failed to check for an existing backstop row")?;
+        if already {
+            continue;
+        }
+        let denial = ScopeDenial {
+            path: path.clone(),
+            tool: String::new(),
+            tool_use_id: String::new(),
+            outside_worktree: false,
+            detected_after_the_fact: true,
+        };
+        record_scope_denied_in_tx(&tx, &project_id, &task_id, epic_id.as_deref(), run_id, &actor_id, &denial, &now)?;
+        appended += 1;
+    }
+    tx.commit().context("failed to commit record_backstop_denials transaction")?;
+    Ok(appended)
 }

@@ -606,7 +606,7 @@ function summedInputTokens(usage: ClaudeStreamUsage | undefined): number | undef
 
 /**
  * D-53/plan 03-13: map one parsed shim NOTICE payload to exactly one {@link AgentEvent} —
- * `git_retry` or `git_lock_exhausted` — or `undefined` for a `kind` this function does not
+ * `git_retry`, `git_lock_exhausted` or `scope_denied` — or `undefined` for a `kind` this function does not
  * recognise (dropped, never forwarded as `unknown`: this is reached ONLY from the shim's own
  * notice wire shape, never the backend's stream-json, so there is no raw line worth preserving
  * for an unrecognised notice kind). `raw` is always the serialised notice JSON itself — never
@@ -640,6 +640,18 @@ export function noticeToAgentEvent(
       repository: typeof payload.repository === "string" ? payload.repository : "",
       command: typeof payload.command === "string" ? payload.command : "",
       attempts: typeof payload.attempts === "number" ? payload.attempts : 0,
+    };
+  }
+  if (payload.kind === "scope_denied") {
+    // `runId` is the session closure's, passed in by the caller — the notice's own `runId` is never
+    // read (T-09-02-01).
+    return {
+      ...base,
+      type: "scope_denied",
+      path: typeof payload.path === "string" ? payload.path : "",
+      tool: typeof payload.tool === "string" ? payload.tool : "",
+      toolUseId: typeof payload.toolUseId === "string" ? payload.toolUseId : "",
+      outsideWorktree: payload.outsideWorktree === true,
     };
   }
   return undefined;

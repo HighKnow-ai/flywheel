@@ -253,6 +253,19 @@ export interface GitLockExhaustedEvent extends AgentEventBase {
   attempts: number;
 }
 
+/** PLAN-05 (phase 09 plan 09-02): the scope hook's "I refused a write" report, relayed over the
+ * SAME permission socket as a fire-and-forget notice. `path` is repository-relative (or absolute when
+ * `outsideWorktree` is true — the Rust side keeps only its file name). `runId` comes from the session
+ * closure, never from the notice body (T-09-02-01). Best effort by construction: the close-time
+ * backstop in `packages/core/src/drift.rs` is what makes a lost notice still surface. */
+export interface ScopeDeniedEvent extends AgentEventBase {
+  type: "scope_denied";
+  path: string;
+  tool: string;
+  toolUseId: string;
+  outsideWorktree: boolean;
+}
+
 /**
  * D-64/D-65 (plan 04-03): the agent's own closing summary, reported through the `report_summary`
  * MCP tool relayed over the SAME per-run permission socket `GitRetryEvent` already travels (a
@@ -395,6 +408,7 @@ export type AgentEvent =
   | SessionClosedEvent
   | GitRetryEvent
   | GitLockExhaustedEvent
+  | ScopeDeniedEvent
   | SummaryReportedEvent
   | ProposalCreatedEvent
   | BoardReadRequestEvent
