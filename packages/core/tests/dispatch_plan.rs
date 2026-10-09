@@ -13,7 +13,7 @@ use core::dispatch::{
 };
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
 use core::domain::dispatch_plan::{
-    approve_plan, approve_plan_with, create_draft_plan_in_tx, insert_edge_in_tx, read_edges,
+    approve_plan, approve_plan_with, create_draft_plan_in_tx, insert_edge_in_tx, preview_edges, read_edges,
     read_plan, replace_plan_tasks_in_tx, resolve_planning_run, set_plan_status,
     set_task_dispatch_state, store_submitted_plan, PlanTaskInput, SubmissionRefusal,
     SubmittedExclusion, SubmittedPlan, SubmittedTask, EVENT_DISPATCH_PLAN_APPROVED,
@@ -1087,4 +1087,27 @@ fn two_renders_of_the_same_board_state_are_byte_identical() {
     assert_eq!(a.as_bytes(), b.as_bytes());
     // And the prompt a real start hands back is the same render.
     assert_eq!(fx.begin().unwrap().prompt.as_bytes(), a.as_bytes());
+}
+
+// --- plan 09-09: the draft's preview of the edges approval will freeze ------------------------
+
+#[test]
+fn a_draft_previews_the_one_edge_approval_will_write_with_its_colliding_paths_and_writes_nothing() {
+    let mut s = stored(&[(1, &["a.rs"]), (1, &["a.rs", "b.rs"]), (1, &["z.rs"])]);
+
+    let preview = preview_edges(&s.conn, &s.plan_id).unwrap();
+    assert_eq!(preview.len(), 1);
+    assert_eq!(preview[0].before_task_id, s.tasks[0]);
+    assert_eq!(preview[0].after_task_id, s.tasks[1]);
+    assert_eq!(preview[0].colliding_paths, pair("a.rs", "a.rs"));
+    assert_eq!(count(&s.conn, "SELECT COUNT(*) FROM dispatch_edges WHERE plan_id = ?1", params![s.plan_id]), 0);
+
+    approve_plan(&mut s.conn, &s.plan_id, &s.actor).unwrap();
+    assert_eq!(preview, read_edges(&s.conn, &s.plan_id).unwrap(), "the preview is what approval then froze");
+}
+
+#[test]
+fn a_preview_follows_a_wave_move_without_a_second_overlap_rule() {
+    let s = stored(&[(1, &["a.rs"]), (2, &["a.rs"])]);
+    assert!(preview_edges(&s.conn, &s.plan_id).unwrap().is_empty(), "different waves never run together");
 }

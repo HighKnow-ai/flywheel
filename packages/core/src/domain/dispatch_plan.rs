@@ -160,6 +160,14 @@ pub fn insert_edge_in_tx(
     Ok(())
 }
 
+/// The ordering edges approval WOULD write for this plan, computed from the CURRENT declared sets and
+/// waves and written nowhere, so the review sheet can show the colliding paths while the user can
+/// still fix a wrong one. It is the same computation approval runs (`edges_for_plan`), so what the
+/// sheet shows and what approval freezes cannot disagree about the rule.
+pub fn preview_edges(_conn: &Connection, _plan_id: &str) -> anyhow::Result<Vec<DispatchEdge>> {
+    Ok(Vec::new())
+}
+
 /// Approve a draft plan. Case-folding is read from the epic's repository (`core.ignorecase`)
 /// BEFORE the write transaction opens, so no subprocess runs while the lock is held.
 pub fn approve_plan(conn: &mut Connection, plan_id: &str, actor_id: &str) -> anyhow::Result<()> {

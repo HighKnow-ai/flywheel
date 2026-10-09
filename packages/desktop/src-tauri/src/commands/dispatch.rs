@@ -68,6 +68,8 @@ pub struct DispatchTaskDto {
     pub rationale: Option<String>,
     /// The named cause, present only while `state` is `needs_attention`.
     pub attention: Option<String>,
+    /// The task's declared file-set as stored, in the order it was stored.
+    pub entries: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,6 +81,9 @@ pub struct DispatchPlanDto {
     pub wave_cursor: u32,
     pub tasks: Vec<DispatchTaskDto>,
     pub edges: Vec<DispatchEdgeDto>,
+    /// `true` once approval has frozen the edges; `false` for a draft, whose edges are a preview that
+    /// approval will recompute.
+    pub edges_frozen: bool,
 }
 
 fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDto, String> {
@@ -107,6 +112,7 @@ fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDt
             state: t.state,
             rationale: t.rationale,
             attention,
+            entries: Vec::new(),
         });
     }
     Ok(DispatchPlanDto {
@@ -115,6 +121,7 @@ fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDt
         status: plan.status,
         wave_cursor: plan.wave_cursor,
         tasks,
+        edges_frozen: true,
         edges: edges
             .into_iter()
             .map(|e| DispatchEdgeDto {
@@ -564,6 +571,15 @@ pub(crate) fn start_planning_run(state: &AppState, epic_id: &str) -> Result<Plan
     Ok(PlanningRunDto { run_id: start.run_id, epic_id: start.epic_id })
 }
 
+/// The epic's running planning run, if any: the window between "Generate" and the first valid
+/// submission, in which a run exists and no plan row does.
+pub(crate) fn planning_run_for_epic(
+    _conn: &rusqlite::Connection,
+    _epic_id: &str,
+) -> Result<Option<PlanningRunDto>, String> {
+    Ok(None)
+}
+
 /// Ask for a fan-out plan on an epic: a short, read-only agent run reads the repository as it is NOW
 /// and stores a draft with a file-set and a wave on every task and a reason for anything left out.
 /// It approves nothing and starts no task; the user reviews and edits the draft first. Human-only.
@@ -631,5 +647,83 @@ mod planning_tests {
             crate::commands::authoring::find_running_authoring_run(&conn, &epic_id).unwrap().is_none(),
             "a planning run must never be mistaken for an authoring session"
         );
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    /// An epic with two tasks, both declaring `a.rs` (so one edge), and the human actor.
+    fn two_task_epic() -> (rusqlite::Connection, String, String, Vec<String>) {
+        let dir = tempfile::tempdir().expect("scratch dir");
+        let mut conn = flywheel_core::db::open_and_migrate(&dir.path().join("f.db"), &dir.path().join("backups"))
+            .expect("open_and_migrate");
+        std::mem::forget(dir);
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+        let project = flywheel_core::domain::project::create_project(&mut conn, &human, "P", "/repo", "FLY", "main").unwrap();
+        let epic = flywheel_core::domain::epic::create_epic(&mut conn, &project.id, &human, "Epic", None).unwrap();
+        let mut tasks = Vec::new();
+        for (i, raw) in [["a.rs", "b.rs"], ["a.rs", "c.rs"]].iter().enumerate() {
+            let task = flywheel_core::domain::task::create_task(&mut conn, &project.id, &human, &format!("T{i}"), Some(&epic.id)).unwrap();
+            let entries: Vec<_> = raw.iter().map(|r| flywheel_core::file_set::parse_entry(r).unwrap()).collect();
+            flywheel_core::domain::file_set::declare_file_set(&mut conn, &task.id, &entries, &human).unwrap();
+            tasks.push(task.id);
+        }
+        (conn, epic.id, human, tasks)
+    }
+
+    #[test]
+    fn a_draft_dto_carries_each_tasks_declared_entries_and_previews_the_edges_unfrozen() {
+        let (mut conn, epic_id, human, tasks) = two_task_epic();
+        let plan_id = flywheel_core::domain::dispatch_plan::create_plan_for_epic(&mut conn, &epic_id, &human).unwrap();
+        let dto = plan_dto(&conn, &plan_id).unwrap();
+        assert_eq!(dto.status, "draft");
+        assert!(!dto.edges_frozen, "a draft's edges are a preview");
+        assert_eq!(dto.edges.len(), 1);
+        assert_eq!(dto.edges[0].before_task_id, tasks[0]);
+        assert_eq!(dto.edges[0].after_task_id, tasks[1]);
+        assert_eq!(dto.edges[0].colliding_paths[0].before, "a.rs");
+        let first = dto.tasks.iter().find(|t| t.task_id == tasks[0]).unwrap();
+        assert_eq!(first.entries, vec!["a.rs".to_string(), "b.rs".to_string()]);
+        let stored: i64 = conn.query_row("SELECT COUNT(*) FROM dispatch_edges", [], |r| r.get(0)).unwrap();
+        assert_eq!(stored, 0, "reading a draft freezes nothing");
+    }
+
+    #[test]
+    fn an_approved_plans_dto_returns_the_frozen_edges_not_a_preview() {
+        let (mut conn, epic_id, human, _) = two_task_epic();
+        let plan_id = flywheel_core::domain::dispatch_plan::create_plan_for_epic(&mut conn, &epic_id, &human).unwrap();
+        flywheel_core::domain::dispatch_plan::approve_and_start(&mut conn, &plan_id, &human).unwrap();
+        let dto = plan_dto(&conn, &plan_id).unwrap();
+        assert!(dto.edges_frozen);
+        assert_eq!(dto.edges.len(), 1);
+    }
+
+    #[test]
+    fn a_running_planning_run_is_reported_for_its_epic_until_it_ends() {
+        let (mut conn, epic_id, human, _) = two_task_epic();
+        assert!(planning_run_for_epic(&conn, &epic_id).unwrap().is_none());
+        let run_id = flywheel_core::domain::dispatch_plan::start_planning_run_row(
+            &mut conn,
+            &epic_id,
+            &human,
+            PLANNING_PERMISSION_MODE,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let found = planning_run_for_epic(&conn, &epic_id).unwrap().expect("the run is reported");
+        assert_eq!(found.run_id, run_id);
+        assert_eq!(found.epic_id, epic_id);
+        flywheel_core::domain::agent_run::close_agent_run(
+            &mut conn,
+            &run_id,
+            flywheel_core::domain::agent_run::AgentRunStatus::Failed,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(planning_run_for_epic(&conn, &epic_id).unwrap().is_none(), "an ended run is not in progress");
     }
 }
