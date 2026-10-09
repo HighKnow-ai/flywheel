@@ -340,6 +340,21 @@ export interface ProposalCreatedEvent extends AgentEventBase {
 }
 
 /**
+ * Plan 09-08 (PLAN-01): the planning run's `submit_plan` call, relayed over the SAME per-run
+ * permission socket (a FIFTH message kind). Like {@link BoardReadRequestEvent}, its `requestId` names
+ * a call still WAITING for an answer: the Rust core answers through the sidecar's
+ * `authoring_proposal_answer` op, which reaches {@link AgentAdapter.resolveProposalStaged}. `runId`
+ * is filled by the sidecar from the session this event fires inside — NEVER from the model's
+ * arguments; whether that run MAY submit is the Rust core's decision, not this event's.
+ */
+export interface PlanSubmittedEvent extends AgentEventBase {
+  type: "plan_submitted";
+  requestId: string;
+  tasks: Array<{ key: string; files: string[]; wave: number; rationale: string }>;
+  excluded: Array<{ key: string; reason: string }>;
+}
+
+/**
  * D-87 (plan 05-05), widened plan 05-44 (gap G-05-9): a HELD `board_search`/`epic_get`/
  * `task_list`/`proposal_list` call, relayed over the SAME per-run permission socket
  * {@link ProposalCreatedEvent} already travels (a FOURTH message kind, not a second socket).
@@ -430,6 +445,7 @@ export type AgentEvent =
   | ScopeDeniedEvent
   | SummaryReportedEvent
   | ProposalCreatedEvent
+  | PlanSubmittedEvent
   | BoardReadRequestEvent
   | ThinkingEvent
   | RateLimitEvent;
@@ -478,6 +494,10 @@ export interface StartSessionOptions {
   worktreePath: string;
   prompt: string;
   permissionMode: string;
+  /** Plan 09-08: this is the pre-dispatch PLANNING run, not a task-execution run. It pre-approves
+   * `submit_plan` and nothing else (no `report_summary`, no `propose_item`). Whether the run may
+   * submit is still decided by the Rust core, never by this flag. */
+  planning?: boolean;
   /** Additional environment variables to merge over `process.env` for the spawned child —
    * resolved credentials arrive here from the Rust core and are never read from disk by the
    * sidecar itself. */

@@ -19,6 +19,8 @@ interface SpawnRequest {
   worktreePath: string;
   prompt: string;
   permissionMode: string;
+  /** Plan 09-08: the pre-dispatch planning run (pre-approves `submit_plan` only). */
+  planning?: boolean;
   env?: Record<string, string>;
 }
 
@@ -196,6 +198,7 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
           worktreePath: request.worktreePath,
           prompt: request.prompt,
           permissionMode: request.permissionMode,
+          planning: request.planning === true,
           env: request.env,
           onEvent: emitEvent,
         })

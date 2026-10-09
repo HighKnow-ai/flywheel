@@ -105,13 +105,27 @@ pub fn replace_plan_tasks_in_tx(
             Some(_) => {}
         }
     }
+    // A task the planning pass left out is `skipped`; rewriting the draft (a wave move) must not
+    // quietly bring it back, so a task keeps the state it already had.
+    let previous: std::collections::HashMap<String, String> = {
+        let mut stmt = tx
+            .prepare("SELECT task_id, state FROM dispatch_plan_tasks WHERE plan_id = ?1")
+            .context("failed to prepare the previous-state read")?;
+        let rows = stmt
+            .query_map(params![plan_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .context("failed to read the previous plan-task states")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to read a previous plan-task state")?;
+        rows.into_iter().collect()
+    };
     tx.execute("DELETE FROM dispatch_plan_tasks WHERE plan_id = ?1", params![plan_id])
         .context("failed to clear the previous plan tasks")?;
     for task in tasks {
+        let state = previous.get(&task.task_id).map_or("planned", String::as_str);
         tx.execute(
             "INSERT INTO dispatch_plan_tasks (plan_id, task_id, wave, state, rationale)
-             VALUES (?1, ?2, ?3, 'planned', ?4)",
-            params![plan_id, task.task_id, task.wave, task.rationale],
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![plan_id, task.task_id, task.wave, state, task.rationale],
         )
         .with_context(|| format!("failed to store plan task {:?}", task.task_id))?;
     }
@@ -769,13 +783,50 @@ pub struct PlanningRun {
 /// Who may submit a plan: an epic-scoped run with no task and no authoring stage, in `running`
 /// status. This is the authority check; the tool being listed to every run is not a control.
 pub fn resolve_planning_run(conn: &Connection, run_id: &str) -> Result<PlanningRun, SubmissionRefusal> {
-    let _ = (conn, run_id);
-    Err(SubmissionRefusal::Storage("not implemented".into()))
+    let row: Option<(Option<String>, Option<String>, Option<String>, String, String)> = conn
+        .query_row(
+            "SELECT epic_id, task_id, authoring_stage, status, actor_id FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .optional()
+        .map_err(|e| SubmissionRefusal::Storage(format!("{e}")))?;
+    let Some((Some(epic_id), None, None, status, actor_id)) = row else {
+        return Err(SubmissionRefusal::NotPlanningRun);
+    };
+    if status != "running" {
+        return Err(SubmissionRefusal::RunNotRunning { status });
+    }
+    Ok(PlanningRun { run_id: run_id.to_string(), epic_id, actor_id })
+}
+
+fn storage(e: impl std::fmt::Display) -> SubmissionRefusal {
+    SubmissionRefusal::Storage(format!("{e:#}"))
+}
+
+/// `(id, rank, status)` of the epic's task with this key, or `UnknownKey`.
+fn epic_task(tx: &Transaction, epic_id: &str, key: &str) -> Result<(String, String, String), SubmissionRefusal> {
+    tx.query_row(
+        "SELECT id, rank, status FROM tasks WHERE epic_id = ?1 AND key = ?2",
+        params![epic_id, key],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )
+    .optional()
+    .map_err(storage)?
+    .ok_or_else(|| SubmissionRefusal::UnknownKey { key: key.to_string() })
+}
+
+/// The statuses a planning pass plans for dispatch; the same filter `create_plan_for_epic` uses.
+fn is_plannable(status: &str) -> bool {
+    matches!(status, "backlog" | "todo")
 }
 
 /// Validate a submission and store it as ONE draft plan: the plan row, its task rows (waves
 /// normalised, same-wave tasks in rank-then-id order), each task's declared entries and one event,
 /// in a single transaction. Returns the new plan's id. Nothing is stored on any refusal.
+///
+/// The plan row is created HERE, not when the planning run starts, so a pass that is abandoned or
+/// refused leaves no row, and the one-live-plan-per-epic index is the only guard on a second plan.
 pub fn store_submitted_plan(
     conn: &mut Connection,
     planning_run_id: &str,
@@ -784,6 +835,156 @@ pub fn store_submitted_plan(
     actor_id: &str,
     now: &str,
 ) -> Result<String, SubmissionRefusal> {
-    let _ = (conn, planning_run_id, epic_id, plan, actor_id, now);
-    Err(SubmissionRefusal::Storage("not implemented".into()))
+    if plan.tasks.is_empty() {
+        return Err(SubmissionRefusal::NoTasks);
+    }
+    if plan.tasks.len() + plan.excluded.len() > MAX_SUBMITTED_TASKS {
+        return Err(SubmissionRefusal::TooLarge(format!("at most {MAX_SUBMITTED_TASKS} tasks")));
+    }
+    let tx = conn.transaction().map_err(storage)?;
+    let project_id: String = tx
+        .query_row("SELECT project_id FROM epics WHERE id = ?1", params![epic_id], |r| r.get(0))
+        .map_err(storage)?;
+
+    let mut seen = std::collections::HashSet::new();
+    let mut included: Vec<(crate::dispatch::PlannedTask, String)> = Vec::new();
+    for task in &plan.tasks {
+        if task.files.is_empty() {
+            return Err(SubmissionRefusal::EmptyFileList { key: task.key.clone() });
+        }
+        if task.files.len() > MAX_SUBMITTED_ENTRIES
+            || task.files.iter().any(|f| f.chars().count() > MAX_SUBMITTED_ENTRY_CHARS)
+        {
+            return Err(SubmissionRefusal::TooLarge(format!(
+                "task {} may list at most {MAX_SUBMITTED_ENTRIES} entries of {MAX_SUBMITTED_ENTRY_CHARS} characters",
+                task.key
+            )));
+        }
+        if !seen.insert(task.key.clone()) {
+            return Err(SubmissionRefusal::DuplicateKey { key: task.key.clone() });
+        }
+        if task.wave < 1 {
+            return Err(SubmissionRefusal::BadWave { key: task.key.clone() });
+        }
+        let (task_id, rank, status) = epic_task(&tx, epic_id, &task.key)?;
+        if !is_plannable(&status) {
+            return Err(SubmissionRefusal::NotPlannable { key: task.key.clone(), status });
+        }
+        let mut entries = Vec::with_capacity(task.files.len());
+        for raw in &task.files {
+            let entry = crate::file_set::parse_entry(raw).map_err(|cause| SubmissionRefusal::BadEntry {
+                key: task.key.clone(),
+                entry: raw.clone(),
+                cause,
+            })?;
+            entries.push(entry);
+        }
+        included.push((
+            crate::dispatch::PlannedTask { task_id, wave: task.wave, rank, entries },
+            task.rationale.trim().to_string(),
+        ));
+    }
+
+    // Left out: named by the agent with a reason, or not named at all. Either way the draft shows
+    // the task, skipped, with words the user can read; none is dropped silently.
+    let mut left_out: Vec<(String, String, String)> = Vec::new(); // (rank, task_id, reason)
+    for ex in &plan.excluded {
+        if ex.reason.trim().is_empty() {
+            return Err(SubmissionRefusal::EmptyReason { key: ex.key.clone() });
+        }
+        if !seen.insert(ex.key.clone()) {
+            return Err(SubmissionRefusal::DuplicateKey { key: ex.key.clone() });
+        }
+        let (task_id, rank, _) = epic_task(&tx, epic_id, &ex.key)?;
+        left_out.push((rank, task_id, ex.reason.trim().to_string()));
+    }
+    let unnamed: Vec<(String, String)> = {
+        let mut stmt = tx
+            .prepare("SELECT id, rank, key FROM tasks WHERE epic_id = ?1 AND status IN ('backlog', 'todo')")
+            .map_err(storage)?;
+        let rows = stmt
+            .query_map(params![epic_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
+            .map_err(storage)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage)?;
+        rows.into_iter().filter(|(_, _, key)| !seen.contains(key)).map(|(id, rank, _)| (id, rank)).collect()
+    };
+    for (task_id, rank) in unnamed {
+        left_out.push((
+            rank,
+            task_id,
+            "The planner did not place this task and gave no reason; it stays out of the plan until you decide.".to_string(),
+        ));
+    }
+
+    let mut planned: Vec<crate::dispatch::PlannedTask> = included.iter().map(|(t, _)| t.clone()).collect();
+    normalise_waves(&mut planned);
+    planned.sort_by(|a, b| (a.wave, &a.rank, &a.task_id).cmp(&(b.wave, &b.rank, &b.task_id)));
+    let last_wave = planned.iter().map(|t| t.wave).max().unwrap_or(1);
+    left_out.sort();
+
+    let mut inputs: Vec<PlanTaskInput> = planned
+        .iter()
+        .map(|t| PlanTaskInput {
+            task_id: t.task_id.clone(),
+            wave: t.wave,
+            rationale: included.iter().find(|(i, _)| i.task_id == t.task_id).map(|(_, r)| r.clone()).filter(|r| !r.is_empty()),
+        })
+        .collect();
+    inputs.extend(left_out.iter().map(|(_, task_id, reason)| PlanTaskInput {
+        task_id: task_id.clone(),
+        wave: last_wave,
+        rationale: Some(reason.clone()),
+    }));
+
+    let plan_id = create_draft_plan_in_tx(&tx, epic_id, Some(planning_run_id), actor_id, now).map_err(|e| {
+        let unique = e.chain().any(|c| {
+            matches!(
+                c.downcast_ref::<rusqlite::Error>(),
+                Some(rusqlite::Error::SqliteFailure(f, _)) if f.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
+            )
+        });
+        if unique { SubmissionRefusal::LivePlanExists } else { storage(e) }
+    })?;
+    for task in &planned {
+        crate::domain::file_set::declare_file_set_in_tx(&tx, &task.task_id, &task.entries, actor_id, now).map_err(storage)?;
+    }
+    replace_plan_tasks_in_tx(&tx, &plan_id, &inputs).map_err(storage)?;
+    for (_, task_id, _) in &left_out {
+        tx.execute(
+            "UPDATE dispatch_plan_tasks SET state = 'skipped' WHERE plan_id = ?1 AND task_id = ?2",
+            params![plan_id, task_id],
+        )
+        .map_err(storage)?;
+    }
+
+    let sequence = next_sequence(&tx, &project_id, "local").map_err(storage)?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "dispatch_plan",
+        &plan_id,
+        None,
+        Some(epic_id),
+        actor_id,
+        EVENT_DISPATCH_PLAN_DRAFTED,
+        &serde_json::json!({
+            "field": "dispatch_plan",
+            "plan_id": plan_id,
+            "planning_run_id": planning_run_id,
+            "task_count": planned.len(),
+            "left_out_count": left_out.len(),
+            "wave_count": last_wave,
+            "label": format!(
+                "Drafted a fan-out of {} tasks in {} waves, {} left out",
+                planned.len(), last_wave, left_out.len()
+            ),
+        }),
+        now,
+    )
+    .map_err(storage)?;
+    tx.commit().map_err(storage)?;
+    Ok(plan_id)
 }

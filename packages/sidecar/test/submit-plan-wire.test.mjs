@@ -14,7 +14,6 @@
  * Imports are by namespace so a missing export fails an assertion, not module linking.
  */
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
@@ -28,15 +27,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(__dirname, "fake-claude.mjs");
 process.env.FLYWHEEL_CLAUDE_BIN = FAKE_CLAUDE;
 
-// A test that fails before answering a held call would leave the fake backend (and the MCP server
-// it spawned) running and hang this file's process.
-after(() => {
-  for (const pattern of [FAKE_CLAUDE, "mcp-permission-server\\.js"]) {
-    try {
-      execSync(`pkill -f ${JSON.stringify(pattern)}`, { stdio: "ignore" });
-    } catch {
-      // pkill exits non-zero when nothing matched.
-    }
+// A test that fails before answering a held call would leave its fake backend running and hang this
+// file's process. Kill only the sessions THIS file started: node runs test files in parallel, and a
+// blanket `pkill` would take down another file's fake backend mid-test.
+const started = [];
+after(async () => {
+  for (const { adapter, runId } of started) {
+    await adapter.killSession(runId).catch(() => {});
   }
 });
 
@@ -66,6 +63,7 @@ function withTimeout(promise, ms, message) {
 }
 
 function startPlanningSession(adapter, runId, events, submission = SUBMISSION) {
+  started.push({ adapter, runId });
   return adapter.startSession({
     runId,
     worktreePath: process.cwd(),

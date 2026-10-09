@@ -974,6 +974,59 @@ fn handle_inbound_rate_limit(app: &AppHandle, event: &serde_json::Value) {
     }
 }
 
+/// PLAN-01 (phase 09 plan 09-08): the DB-only half of a planning run's `submit_plan` call. AUTHORITY
+/// LIVES HERE. The sidecar lists the tool to every run, so visibility is not a control: this resolves
+/// the run from the database and refuses unless it is a running planning run, then validates and
+/// stores the submission as one draft plan. Both failure kinds come back as the text the waiting agent
+/// reads and corrects in the same call. The epic, the actor and every task key's meaning come from
+/// the database; the event contributes only the run id the sidecar's session closure filled and the
+/// model's own list. Split from [`handle_inbound_submit_plan`] so it is testable without an `AppHandle`.
+fn process_inbound_submit_plan(
+    conn: &mut rusqlite::Connection,
+    event: &serde_json::Value,
+    now: &str,
+) -> Result<String, String> {
+    use flywheel_core::domain::dispatch_plan::{resolve_planning_run, store_submitted_plan, SubmissionRefusal, SubmittedPlan};
+    let run_id = event
+        .get("runId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| SubmissionRefusal::Malformed("the event carries no run id".into()).to_string())?;
+    let run = resolve_planning_run(conn, run_id).map_err(|r| r.to_string())?;
+    let plan: SubmittedPlan =
+        serde_json::from_value(event.clone()).map_err(|e| SubmissionRefusal::Malformed(e.to_string()).to_string())?;
+    store_submitted_plan(conn, &run.run_id, &run.epic_id, &plan, &run.actor_id, now).map_err(|r| r.to_string())
+}
+
+/// The Tauri-facing half: run [`process_inbound_submit_plan`], tell the board, and ALWAYS answer the
+/// held call — success carries the new plan id, a refusal carries its reason. Never a panic and never
+/// an early return that leaves the agent waiting (an unanswered held call hangs the planning run).
+fn handle_inbound_submit_plan(app: &AppHandle, event: &serde_json::Value) {
+    let (Some(run_id), Some(request_id)) = (
+        event.get("runId").and_then(|v| v.as_str()),
+        event.get("requestId").and_then(|v| v.as_str()),
+    ) else {
+        return;
+    };
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return;
+    };
+    let Some(sidecar) = state.sidecar.as_ref() else {
+        return;
+    };
+    let result = match state.db.lock() {
+        Ok(mut conn) => process_inbound_submit_plan(&mut conn, event, &chrono::Utc::now().to_rfc3339()),
+        Err(_) => Err("the database lock was poisoned".to_string()),
+    };
+    if let Ok(plan_id) = &result {
+        let _ = app.emit("board:changed", serde_json::json!({ "entity": "dispatch_plan", "id": plan_id }));
+    }
+    let _ = sidecar.relay_authoring_proposal_answer(
+        run_id,
+        request_id,
+        result.map(|plan_id| serde_json::json!({ "planId": plan_id })),
+    );
+}
+
 /// PLAN-05 (phase 09 plan 09-02): the DB-only half of a `scope_denied` event — parses the sidecar's
 /// event line and appends one `task.scope_denied` row through
 /// `flywheel_core::domain::file_set::record_scope_denied`. The run's task, epic, project and agent
@@ -1889,6 +1942,14 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                 );
                             }
 
+                            // Plan 09-08: the planning run's HELD submit_plan call — answered by
+                            // relaying an authoring_proposal_answer back to the sidecar's stdin.
+                            // Placed after the `agent:event` emit for the same reason every other
+                            // inbound branch is: a fault here can never delay the live event.
+                            if event.get("type").and_then(|v| v.as_str()) == Some("plan_submitted") {
+                                handle_inbound_submit_plan(&app_for_reader, &event);
+                            }
+
                             // D-87 (plan 05-05): a HELD board_read call — resolved by relaying an
                             // authoring_read_answer request back to the sidecar's own stdin
                             // (never here, never blocking this loop). Placed AFTER the
@@ -2108,5 +2169,95 @@ mod rate_limit_tests {
         conn.execute_batch("DROP TABLE settings").unwrap();
         let event = serde_json::json!({"type": "rate_limit", "runId": run_id, "tier": "rejected"});
         assert!(process_inbound_rate_limit(&mut conn, &event, NOW).is_err());
+    }
+}
+
+/// PLAN-01 (plan 09-08): the Rust-side authority for `submit_plan`, driven with sidecar-shaped
+/// events against a real migrated database. The tool is listed to every run, so these are the tests
+/// that show an execution run is refused by THIS check and not by the tool being absent.
+#[cfg(test)]
+mod submit_plan_tests {
+    use super::*;
+
+    const NOW: &str = "2026-10-09T00:00:00Z";
+
+    /// `(conn, epic_id, task_key, planning_run_id, execution_run_id)`.
+    fn fixture() -> (rusqlite::Connection, String, String, String, String) {
+        let (mut conn, task_id, execution_run, _agent) = scope_denied_tests::seeded_run();
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+        let project_id: String = conn.query_row("SELECT project_id FROM tasks WHERE id = ?1", [&task_id], |r| r.get(0)).unwrap();
+        let epic = flywheel_core::domain::epic::create_epic(&mut conn, &project_id, &human, "Epic", None).unwrap();
+        let planned = flywheel_core::domain::task::create_task(&mut conn, &project_id, &human, "Planned", Some(&epic.id)).unwrap();
+        let key: String = conn.query_row("SELECT key FROM tasks WHERE id = ?1", [&planned.id], |r| r.get(0)).unwrap();
+        let agent = flywheel_core::domain::agent_run::agent_actor_id(&conn).unwrap();
+        let (trigger, planning_run) = (flywheel_core::ids::new_id(), flywheel_core::ids::new_id());
+        conn.execute(
+            "INSERT INTO triggers (id, project_id, target_task_id, target_epic_id, source, config, enabled, last_fired_at, created_by, created_at)
+             VALUES (?1, ?2, NULL, ?3, 'user_action', NULL, 1, ?4, ?5, ?4)",
+            rusqlite::params![trigger, project_id, epic.id, NOW, human],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO agent_runs (id, worktree_id, task_id, epic_id, project_id, trigger_id, adapter, actor_id, status,
+                permission_mode, log_path, started_at, authoring_stage)
+             VALUES (?1, NULL, NULL, ?2, ?3, ?4, 'claude_code', ?5, 'running', 'default', '/tmp/x.jsonl', ?6, NULL)",
+            rusqlite::params![planning_run, epic.id, project_id, trigger, agent, NOW],
+        )
+        .unwrap();
+        (conn, epic.id, key, planning_run, execution_run)
+    }
+
+    fn event(run_id: &str, key: &str) -> serde_json::Value {
+        serde_json::json!({
+            "type": "plan_submitted",
+            "runId": run_id,
+            "requestId": "req-1",
+            "tasks": [{ "key": key, "files": ["src/a.rs", "docs/"], "wave": 1, "rationale": "why" }],
+            "excluded": [],
+        })
+    }
+
+    fn plans(conn: &rusqlite::Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM dispatch_plans", [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn a_running_planning_run_stores_a_draft_plan_and_gets_its_id_back() {
+        let (mut conn, epic, key, planning_run, _) = fixture();
+        let plan_id = process_inbound_submit_plan(&mut conn, &event(&planning_run, &key), NOW).unwrap();
+        let (stored_epic, status): (String, String) = conn
+            .query_row("SELECT epic_id, status FROM dispatch_plans WHERE id = ?1", [&plan_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!((stored_epic, status), (epic, "draft".to_string()));
+    }
+
+    #[test]
+    fn an_execution_run_is_refused_here_even_though_the_tool_is_visible_to_it() {
+        let (mut conn, _, key, _, execution_run) = fixture();
+        let refusal = process_inbound_submit_plan(&mut conn, &event(&execution_run, &key), NOW).unwrap_err();
+        assert!(refusal.contains("only the planning run"), "{refusal}");
+        assert_eq!(plans(&conn), 0);
+    }
+
+    #[test]
+    fn a_planning_run_that_is_no_longer_running_is_refused() {
+        let (mut conn, _, key, planning_run, _) = fixture();
+        conn.execute("UPDATE agent_runs SET status = 'completed' WHERE id = ?1", [&planning_run]).unwrap();
+        let refusal = process_inbound_submit_plan(&mut conn, &event(&planning_run, &key), NOW).unwrap_err();
+        assert!(refusal.contains("completed"), "{refusal}");
+        assert_eq!(plans(&conn), 0);
+    }
+
+    #[test]
+    fn a_malformed_event_and_a_refused_entry_are_answers_not_panics() {
+        let (mut conn, _, key, planning_run, _) = fixture();
+        let bad_shape = serde_json::json!({ "runId": planning_run, "tasks": "nope" });
+        assert!(process_inbound_submit_plan(&mut conn, &bad_shape, NOW).unwrap_err().contains("could not be read"));
+        assert!(process_inbound_submit_plan(&mut conn, &serde_json::json!({}), NOW).is_err());
+        let mut glob = event(&planning_run, &key);
+        glob["tasks"][0]["files"] = serde_json::json!(["src/*.rs"]);
+        let refusal = process_inbound_submit_plan(&mut conn, &glob, NOW).unwrap_err();
+        assert!(refusal.contains("glob character"), "{refusal}");
+        assert_eq!(plans(&conn), 0);
     }
 }

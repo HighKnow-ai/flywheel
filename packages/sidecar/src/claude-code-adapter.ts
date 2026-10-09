@@ -22,6 +22,7 @@ import {
   type BoardReadRequestEvent,
   CapabilityUnsupportedError,
   defaultResumeSession,
+  type PlanSubmittedEvent,
   type ProposalCreatedEvent,
   type RateLimitTier,
   type StartAuthoringSessionOptions,
@@ -36,11 +37,13 @@ import {
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
   startPermissionServer,
+  SUBMIT_PLAN_TOOL_NAME,
   SUMMARY_TOOL_NAME,
   type AuthoringProposalPayload,
   type BoardReadRequestPayload,
   type PermissionNoticePayload,
   type PermissionServerHandle,
+  type SubmitPlanPayload,
   type SummaryReportPayload,
 } from "./mcp-permission-server.js";
 
@@ -363,6 +366,11 @@ export function buildClaudeArgv(options: {
    * `report_summary`), so an execution-run agent's `propose_item` call must never wait on a human
    * permission answer either. */
   proposeItemToolName?: string;
+  /** Plan 09-08 (PLAN-01): the fully-qualified `submit_plan` tool name, supplied ONLY for the
+   * pre-dispatch planning run, which passes neither of the two names above — so its `--allowedTools`
+   * is exactly this one tool. Anything else it tries (a write, a shell command) is not pre-approved
+   * and raises a permission request instead of running. */
+  submitPlanToolName?: string;
 }): string[] {
   const argv = [
     "-p",
@@ -391,6 +399,9 @@ export function buildClaudeArgv(options: {
       // D-98: pre-approve exactly the propose_item tool for this execution run, mirroring the
       // summaryToolName push immediately above.
       argv.push("--allowedTools", options.proposeItemToolName);
+    }
+    if (options.submitPlanToolName) {
+      argv.push("--allowedTools", options.submitPlanToolName);
     }
   }
   if (options.settingsPath) {
@@ -735,6 +746,29 @@ export function normalizeProposalNotice(
     parentProposalId: payload.parentProposalId,
     rationale: payload.rationale,
     payload: payload.payload,
+  };
+}
+
+/**
+ * Plan 09-08: map one parsed `submit_plan` payload to exactly one {@link PlanSubmittedEvent},
+ * mirroring {@link normalizeProposalNotice}: `runId`/`seq`/`at` come from the caller's closure and
+ * NEVER from the payload. Exported so the mapping is unit-testable without a live session.
+ */
+export function normalizePlanSubmitted(
+  payload: SubmitPlanPayload,
+  runId: string,
+  seq: number,
+  at: string,
+): PlanSubmittedEvent {
+  return {
+    runId,
+    seq,
+    at,
+    raw: JSON.stringify(payload),
+    type: "plan_submitted",
+    requestId: payload.requestId,
+    tasks: payload.tasks,
+    excluded: payload.excluded,
   };
 }
 
@@ -1314,6 +1348,16 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       const event = normalizeProposalNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
       session.nextSeq += 1;
       session.onEvent(event);
+    }, () => {
+      // `board_read` is an authoring-session path; an execution or planning run has no caller for it.
+    }, (payload: SubmitPlanPayload) => {
+      // Plan 09-08: the planning run's HELD `submit_plan` call. Without this callback the call would
+      // connect, write its payload and wait forever, because nothing would ever answer it — the
+      // exact bug plan 06-09 fixed for `propose_item`. `runId` comes from THIS closure. Whether this
+      // run may submit at all is decided by the Rust core when it answers, not here.
+      const event = normalizePlanSubmitted(payload, options.runId, session.nextSeq, new Date().toISOString());
+      session.nextSeq += 1;
+      session.onEvent(event);
     });
 
     const bin = resolveClaudeBin();
@@ -1364,11 +1408,17 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionPromptToolName: PERMISSION_TOOL_NAME,
       mcpConfig,
       settingsPath,
-      summaryToolName: SUMMARY_TOOL_NAME,
-      // Plan 06-01 (D-98): pre-approve `propose_item` for this execution run only — staging a
-      // proposal burns no money and blocks nothing (D-46 extended), so it must never wait on a
-      // human permission answer.
-      proposeItemToolName: EXECUTION_PROPOSE_ITEM_TOOL_NAME,
+      // Plan 09-08: the planning run pre-approves `submit_plan` and nothing else; every other
+      // run keeps exactly the two pre-approvals it always had.
+      ...(options.planning === true
+        ? { submitPlanToolName: SUBMIT_PLAN_TOOL_NAME }
+        : {
+            summaryToolName: SUMMARY_TOOL_NAME,
+            // Plan 06-01 (D-98): pre-approve `propose_item` for this execution run only — staging a
+            // proposal burns no money and blocks nothing (D-46 extended), so it must never wait on
+            // a human permission answer.
+            proposeItemToolName: EXECUTION_PROPOSE_ITEM_TOOL_NAME,
+          }),
     });
 
     // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the

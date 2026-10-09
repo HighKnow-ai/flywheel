@@ -181,6 +181,18 @@ export const PROPOSE_ITEM_TOOL_NAME = "propose_item";
  * `--allowedTools` — composed exactly like every other fully-qualified tool name in this file. */
 export const EXECUTION_PROPOSE_ITEM_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${PROPOSE_ITEM_TOOL_NAME}`;
 
+/** Plan 09-08 (PLAN-01, D-147): the raw tool name the PRE-DISPATCH PLANNING run calls, once, to hand
+ * Flywheel a file-set and a wave for each task of an epic. Deliberately NOT prefixed `propose_`: it
+ * stages nothing for triage, it declares, and the authoring stage gate's `propose|amend|delete`
+ * matcher must never catch it. The server lists it to EVERY run (one fixed tool array), so its
+ * visibility is not a control: the Rust core refuses a call from anything that is not a running
+ * planning run. */
+export const SUBMIT_PLAN_RAW_TOOL_NAME = "submit_plan";
+
+/** The fully-qualified string a planning launch pushes onto `--allowedTools` — and the ONLY tool it
+ * pre-approves. Composed exactly like every other fully-qualified tool name in this file. */
+export const SUBMIT_PLAN_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${SUBMIT_PLAN_RAW_TOOL_NAME}`;
+
 /** Plan 06-01 (D-97): the three target types an execution-run's `propose_item` call may stage —
  * mirrors `domain::authoring_proposal::ProposalTargetType`'s vocabulary, restricted to the three
  * an execution run (rather than an epic-authoring session) ever proposes. */
@@ -271,6 +283,18 @@ export interface BoardReadRequestPayload {
   limit?: number;
 }
 
+/** Plan 09-08: the wire shape `submit_plan` writes over the per-run socket — a HELD call, like
+ * {@link BoardReadRequestPayload}: the agent's call blocks until the Rust core answers with the plan
+ * id or with the reason it was refused. `kind: "submit_plan"` is the EXACT string
+ * {@link isSubmitPlanPayload} checks. Carries no run, project, epic or plan id: identity is derived
+ * from the socket the call arrives on, never from an argument. */
+export interface SubmitPlanPayload {
+  kind: "submit_plan";
+  requestId: string;
+  tasks: Array<{ key: string; files: string[]; wave: number; rationale: string }>;
+  excluded: Array<{ key: string; reason: string }>;
+}
+
 /** Plan 03-13 (D-53): the shim's fire-and-forget notice shape — `kind` is what distinguishes this
  * from {@link PermissionRequestPayload} on the wire (the routine payload never carries a `kind`
  * field at all). `runId` is the shim's own `FLYWHEEL_RUN_ID`; every other field is notice-specific
@@ -354,6 +378,17 @@ function isBoardReadPayload(parsed: unknown): parsed is BoardReadRequestPayload 
   );
 }
 
+/** Plan 09-08: checks the EXACT `kind: "submit_plan"` string, ahead of {@link isNoticePayload}'s
+ * broader "carries some string `kind`" check, for the identical reason the other guards are. */
+function isSubmitPlanPayload(parsed: unknown): parsed is SubmitPlanPayload {
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    (parsed as { kind?: unknown }).kind === "submit_plan" &&
+    typeof (parsed as { requestId?: unknown }).requestId === "string"
+  );
+}
+
 export interface PermissionServerHandle {
   /** The Unix domain socket path the standalone server (spawned by the backend) connects to —
    * embedded verbatim into the `--mcp-config` JSON `buildClaudeArgv` builds. */
@@ -372,7 +407,9 @@ export interface PermissionServerHandle {
    * `pending` map and the SAME "a requestId matching no held call is ignored with a logged
    * notice" contract; a distinct method only because the settled payload shape differs
    * (`{result: {proposalId}}`/`{error}` — deliberately identical wire shape to `answerBoardRead`,
-   * just documented under its own name for this call's own purpose). */
+   * just documented under its own name for this call's own purpose). Plan 09-08: a held
+   * `submit_plan` call is answered through this same method (`{result: {planId}}` or `{error}`),
+   * so the Rust core needs no second answering op. */
   answerProposalStaged(requestId: string, result: unknown, error?: string): void;
   /** Stop listening and remove the socket file. Safe to call more than once. */
   close(): void;
@@ -411,6 +448,10 @@ export interface PermissionServerHandle {
  * `onSummary`/`onProposal` it IS held in `pending` (like the routine permission-request path),
  * because a read needs an actual answer back, not just a receipt acknowledgement. Optional,
  * defaulting to a no-op, for the same additive-capability-growth reason `onProposal` is.
+ *
+ * `onPlanSubmitted` (plan 09-08) is invoked once per incoming connection whose parsed line carries
+ * `kind: "submit_plan"` — a FIFTH message kind on this SAME socket, HELD in `pending` and answered
+ * through {@link PermissionServerHandle.answerProposalStaged}. Optional, defaulting to a no-op.
  */
 export function startPermissionServer(
   onRequest: (payload: PermissionRequestPayload) => void,
@@ -418,6 +459,7 @@ export function startPermissionServer(
   onSummary: (payload: SummaryReportPayload) => void,
   onProposal: (payload: AuthoringProposalPayload) => void = () => {},
   onBoardRead: (payload: BoardReadRequestPayload) => void = () => {},
+  onPlanSubmitted: (payload: SubmitPlanPayload) => void = () => {},
 ): PermissionServerHandle {
   const socketPath = path.join(socketBaseDir(), `flywheel-permission-${randomUUID()}.sock`);
   // A stale socket file from a previous run that was killed without cleanup would make `listen`
@@ -479,6 +521,18 @@ export function startPermissionServer(
         pending.set(parsed.requestId, socket);
         socket.on("close", () => pending.delete(parsed.requestId));
         onBoardRead(parsed);
+        return;
+      }
+
+      // Plan 09-08: a plan submission carries `kind: "submit_plan"` EXACTLY. HELD in `pending` like a
+      // board read: the planning agent needs the Rust core's verdict back, in the same call, so a
+      // refusal can be corrected. `onPlanSubmitted` defaults to a no-op, like `onProposal`, so the
+      // callers that predate this plan compile unchanged — and a caller that does not wire it leaves
+      // the agent waiting forever, which `submit-plan-wire.test.mjs` exists to catch.
+      if (isSubmitPlanPayload(parsed)) {
+        pending.set(parsed.requestId, socket);
+        socket.on("close", () => pending.delete(parsed.requestId));
+        onPlanSubmitted(parsed);
         return;
       }
 
@@ -1244,6 +1298,123 @@ function requestBoardRead(
   });
 }
 
+/** Plan 09-08 (PLAN-01, D-147, D-149): the `submit_plan` tool's registration object. No run, project,
+ * epic or plan id property anywhere — the run is resolved from the socket. The description is plain
+ * about what the call does and does not do: it DECLARES file-sets and waves for a human to review; it
+ * approves nothing and starts nothing. */
+export const submitPlanToolDefinition = {
+  name: SUBMIT_PLAN_RAW_TOOL_NAME,
+  description:
+    "Hand Flywheel the file-set and wave for each task of the epic you were asked to plan, once. " +
+    "This does NOT start any agent and does NOT approve anything: it stores a draft the developer " +
+    "reviews and can edit first. If the call returns an error, correct what it names and call again.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      tasks: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            key: { type: "string", minLength: 1 },
+            files: {
+              type: "array",
+              items: { type: "string", minLength: 1, maxLength: 1024 },
+              description:
+                "Repo-relative exact file paths (src/a.rs) or directory prefixes ending in / (src/api/). No globs.",
+            },
+            wave: { type: "integer", minimum: 1 },
+            rationale: { type: "string" },
+          },
+          required: ["key", "files", "wave", "rationale"],
+        },
+      },
+      excluded: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { key: { type: "string", minLength: 1 }, reason: { type: "string", minLength: 1 } },
+          required: ["key", "reason"],
+        },
+      },
+    },
+    required: ["tasks"],
+  },
+} as const;
+
+/** Plan 09-08: build the `submit_plan` wire payload from a tool call's arguments, or throw for a
+ * malformed shape BEFORE anything reaches the socket. Only the SHAPE is checked here (what is a
+ * valid entry, an empty list, a key of this epic are all decided once, in the Rust core, and
+ * answered back to the agent in the same call). */
+export function buildSubmitPlanPayload(args: {
+  tasks?: unknown;
+  excluded?: unknown;
+}): Omit<SubmitPlanPayload, "requestId"> {
+  if (!Array.isArray(args.tasks)) {
+    throw new Error("submit_plan requires a tasks array");
+  }
+  const tasks = args.tasks.map((raw: unknown, index: number) => {
+    const t = (raw ?? {}) as { key?: unknown; files?: unknown; wave?: unknown; rationale?: unknown };
+    if (typeof t.key !== "string" || t.key.trim().length === 0) {
+      throw new Error(`submit_plan task ${index} requires a non-empty key`);
+    }
+    const key = t.key.trim();
+    if (!Array.isArray(t.files) || !t.files.every((f: unknown) => typeof f === "string")) {
+      throw new Error(`submit_plan task ${key} requires files to be an array of strings`);
+    }
+    if (typeof t.wave !== "number" || !Number.isInteger(t.wave)) {
+      throw new Error(`submit_plan task ${key} requires wave to be an integer`);
+    }
+    return { key, files: t.files as string[], wave: t.wave, rationale: typeof t.rationale === "string" ? t.rationale : "" };
+  });
+  const rawExcluded = args.excluded === undefined ? [] : args.excluded;
+  if (!Array.isArray(rawExcluded)) {
+    throw new Error("submit_plan requires excluded to be an array");
+  }
+  const excluded = rawExcluded.map((raw: unknown, index: number) => {
+    const e = (raw ?? {}) as { key?: unknown; reason?: unknown };
+    if (typeof e.key !== "string" || e.key.trim().length === 0 || typeof e.reason !== "string") {
+      throw new Error(`submit_plan excluded entry ${index} requires a key and a reason`);
+    }
+    return { key: e.key.trim(), reason: e.reason };
+  });
+  return { kind: "submit_plan", tasks, excluded };
+}
+
+/** Plan 09-08: send one {@link SubmitPlanPayload} over the per-run socket and HOLD until the Rust
+ * core answers. The planning agent's call blocks here — no timer, no default. A refusal comes back
+ * as an error RESULT (`isError`) rather than a protocol failure, so the agent reads the named cause
+ * and corrects it in the same conversation. Exported so the wire test can drive it directly. */
+export function submitPlan(
+  socketPath: string,
+  payload: Omit<SubmitPlanPayload, "requestId">,
+): Promise<{ isError?: boolean; content: Array<{ type: "text"; text: string }> }> {
+  const requestId = randomUUID();
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath, () => {
+      socket.write(JSON.stringify({ ...payload, requestId }) + "\n");
+    });
+    socket.on("error", (err) => reject(err));
+    const rl = createInterface({ input: socket });
+    rl.once("line", (line) => {
+      let parsed: { result?: { planId?: unknown }; error?: string };
+      try {
+        parsed = JSON.parse(line) as { result?: { planId?: unknown }; error?: string };
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      if (parsed.error !== undefined) {
+        resolve({ isError: true, content: [{ type: "text", text: parsed.error }] });
+        return;
+      }
+      resolve({
+        content: [{ type: "text", text: JSON.stringify({ submitted: true, planId: parsed.result?.planId ?? null }) }],
+      });
+    });
+  });
+}
+
 async function runStandaloneServer(socketPath: string): Promise<void> {
   const server = new Server({ name: MCP_SERVER_NAME, version: "0.1.0" }, { capabilities: { tools: {} } });
 
@@ -1263,6 +1434,7 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
       },
       summaryToolDefinition,
       proposeItemToolDefinition,
+      submitPlanToolDefinition,
       proposeTaskToolDefinition,
       proposeEpicToolDefinition,
       proposeCriterionToolDefinition,
@@ -1377,6 +1549,14 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
         rationale?: unknown;
       };
       return stageAuthoringProposal(socketPath, buildProposeItemPayload(args));
+    }
+
+    if (request.params.name === SUBMIT_PLAN_RAW_TOOL_NAME) {
+      // Plan 09-08: no argument names a run, project, epic or plan — identity is whichever socket
+      // this connection reaches. buildSubmitPlanPayload throws (rejecting BEFORE any socket write)
+      // for a malformed shape; everything else is decided and answered by the Rust core.
+      const args = (request.params.arguments ?? {}) as { tasks?: unknown; excluded?: unknown };
+      return submitPlan(socketPath, buildSubmitPlanPayload(args));
     }
 
     if (request.params.name === PROPOSE_TASK_TOOL_NAME) {
