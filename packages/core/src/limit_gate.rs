@@ -203,8 +203,25 @@ pub fn read_gate(conn: &Connection, now_epoch_secs: i64) -> anyhow::Result<GateS
 
 fn next_state(current: &GateState, signal: &LimitSignal, now: i64) -> GateState {
     match signal.tier {
-        // The warning tier's consequences are the next task's.
-        LimitTier::Open | LimitTier::Warning => current.clone(),
+        // An allowed reading clears a warning for ITS OWN window only. It never lifts a pause: a pause
+        // ends at the wire's reset time or at the user's word, not on a sunnier-looking event.
+        LimitTier::Open => match current {
+            GateState::Warning { window, .. } if *window == signal.window => GateState::Open { resumed_at: None },
+            _ => current.clone(),
+        },
+        LimitTier::Warning => match current {
+            // Just after a time-driven resume the open state is carrying the reject floor; a warning
+            // must not erase it. The next response re-reports the warning once the floor has passed.
+            GateState::Open { resumed_at: Some(t) } if now - *t < DISPATCH_REJECT_FLOOR_SECS => current.clone(),
+            // A warning whose own reset has already passed describes a window that is over.
+            GateState::Open { .. } if signal.resets_at.is_some_and(|r| r <= now) => current.clone(),
+            // ponytail: one warning at a time; a second window's warning is ignored until the first
+            // clears (the backend re-reports it per response). Track a set if windows must show together.
+            GateState::Open { .. } => {
+                GateState::Warning { window: signal.window.clone(), resets_at: signal.resets_at }
+            }
+            _ => current.clone(),
+        },
         LimitTier::Rejected => after_rejection(current, signal, now),
     }
 }
@@ -330,35 +347,78 @@ fn append_gate_event(
     Ok(())
 }
 
-// --- Task 2 (RED-step stubs: inert) -----------------------------------------------------------
-
-pub fn may_spawn(_gate: &GateState) -> bool {
-    false
+/// May a new agent session start now? A warning still allows it (the running wave finishes); a pause
+/// does not.
+pub fn may_spawn(gate: &GateState) -> bool {
+    !matches!(gate, GateState::Paused { .. })
 }
 
-pub fn may_advance(_gate: &GateState) -> bool {
-    false
+/// May the wave cursor advance on its own now? Only when nothing is wrong: the warning tier lets the
+/// running wave finish and stops the next one starting, so the user is never cut off mid-wave with half
+/// an epic merged. Manual dispatch is a separate action and is not gated here.
+pub fn may_advance(gate: &GateState) -> bool {
+    gate.is_open()
 }
 
+/// May a merge run now? Always: a merge is local git and touches no backend.
 pub fn may_merge(_gate: &GateState) -> bool {
-    false
+    true
 }
 
-pub fn clear_expired_warning(conn: &mut Connection, _now: i64) -> anyhow::Result<GateChange> {
-    let state = read_stored(conn)?;
-    Ok(GateChange { before: state.clone(), after: state, changed: false })
+fn write_transition(
+    conn: &mut Connection,
+    before: GateState,
+    after: GateState,
+    actor_id: Option<&str>,
+) -> anyhow::Result<GateChange> {
+    if before == after {
+        return Ok(GateChange { before, after, changed: false });
+    }
+    let actor = match actor_id {
+        Some(id) => id.to_string(),
+        None => system_actor(conn).context("failed to resolve the system actor for the gate")?.id,
+    };
+    let tx = conn.transaction()?;
+    upsert_setting(&tx, SETTING_DISPATCH_GATE, &serde_json::to_string(&after)?, &actor, &Utc::now().to_rfc3339())?;
+    tx.commit().context("failed to commit the dispatch gate change")?;
+    Ok(GateChange { before, after, changed: true })
 }
 
-pub fn resume_if_due(conn: &mut Connection, _now: i64) -> anyhow::Result<GateChange> {
-    let state = read_stored(conn)?;
-    Ok(GateChange { before: state.clone(), after: state, changed: false })
+/// Clear a warning whose reset time has passed. Without this, a seven-day window reporting a warning
+/// three days out would hold auto-advance with no exit but manual dispatch.
+pub fn clear_expired_warning(conn: &mut Connection, now_epoch_secs: i64) -> anyhow::Result<GateChange> {
+    let before = read_stored(conn)?;
+    let after = match &before {
+        GateState::Warning { resets_at: Some(r), .. } if now_epoch_secs >= *r => GateState::Open { resumed_at: None },
+        other => other.clone(),
+    };
+    write_transition(conn, before, after, None)
 }
 
-pub fn resume_now(conn: &mut Connection, _actor_id: &str) -> anyhow::Result<GateChange> {
-    let state = read_stored(conn)?;
-    Ok(GateChange { before: state.clone(), after: state, changed: false })
+/// The time-driven resume: a pause whose resume instant has arrived becomes open exactly once, and the
+/// open state remembers when, which arms the reject floor. A pause with no resume instant never moves.
+pub fn resume_if_due(conn: &mut Connection, now_epoch_secs: i64) -> anyhow::Result<GateChange> {
+    let before = read_stored(conn)?;
+    let after = match &before {
+        GateState::Paused { resume_at: Some(t), .. } if now_epoch_secs >= *t => {
+            GateState::Open { resumed_at: Some(now_epoch_secs) }
+        }
+        other => other.clone(),
+    };
+    write_transition(conn, before, after, None)
 }
 
-pub fn hold_for_limit(_conn: &Connection, _plan_id: &str, _task_id: &str) -> anyhow::Result<()> {
-    Ok(())
+/// The user's own resume: any pause or warning becomes open, recorded against `actor_id`, and the
+/// reject floor is forgotten (the user is not second-guessed). Resuming an open gate is a no-op.
+pub fn resume_now(conn: &mut Connection, actor_id: &str) -> anyhow::Result<GateChange> {
+    let before = read_stored(conn)?;
+    let after = if before.is_open() { before.clone() } else { GateState::Open { resumed_at: None } };
+    write_transition(conn, before, after, Some(actor_id))
+}
+
+/// Mark a task whose run ended because of the limit as held by it, not failed, so a later resume can
+/// start a FRESH run on the same durable worktree. Changes the dispatcher's display state only; no
+/// agent run is touched.
+pub fn hold_for_limit(conn: &Connection, plan_id: &str, task_id: &str) -> anyhow::Result<()> {
+    crate::domain::dispatch_plan::set_task_dispatch_state(conn, plan_id, task_id, "held_by_limit")
 }
