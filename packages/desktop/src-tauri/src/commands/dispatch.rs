@@ -480,3 +480,79 @@ pub fn execute_dispatch_actions(app: &AppHandle) {
         Err(err) => eprintln!("dispatch tick: {err:#}"),
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Plan 09-08: the pre-dispatch planning pass.
+// ---------------------------------------------------------------------------------------------
+
+/// A planning run uses the default permission mode (the authoring precedent): a tool call that is not
+/// pre-approved, which is everything but `submit_plan`, blocks and surfaces as a permission request
+/// instead of running.
+pub const PLANNING_PERMISSION_MODE: &str = "default";
+
+/// The sidecar `spawn` request a planning run is launched with. (Stub: the body lands with the
+/// implementation.)
+pub(crate) fn planning_spawn_request(
+    run_id: &str,
+    worktree_path: &std::path::Path,
+    prompt: &str,
+    env: &impl Serialize,
+) -> serde_json::Value {
+    let _ = (run_id, worktree_path, prompt, env);
+    serde_json::Value::Null
+}
+
+#[cfg(test)]
+mod planning_tests {
+    use super::*;
+
+    /// A migrated database holding one epic with one backlog task, returned with the human actor.
+    fn epic_fixture() -> (rusqlite::Connection, String, String) {
+        let dir = tempfile::tempdir().expect("scratch dir");
+        let mut conn = flywheel_core::db::open_and_migrate(&dir.path().join("f.db"), &dir.path().join("backups"))
+            .expect("open_and_migrate");
+        std::mem::forget(dir);
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+        let project = flywheel_core::domain::project::create_project(&mut conn, &human, "P", "/repo", "FLY", "main").unwrap();
+        let epic = flywheel_core::domain::epic::create_epic(&mut conn, &project.id, &human, "Epic", None).unwrap();
+        flywheel_core::domain::task::create_task(&mut conn, &project.id, &human, "T", Some(&epic.id)).unwrap();
+        (conn, epic.id, human)
+    }
+
+    #[test]
+    fn the_spawn_request_marks_the_run_as_planning_and_names_no_task() {
+        let request = planning_spawn_request(
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            std::path::Path::new("/tmp/epic-worktree"),
+            "plan it",
+            &serde_json::json!({ "A": "b" }),
+        );
+        assert_eq!(request["op"], "spawn");
+        assert_eq!(request["runId"], "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+        assert_eq!(request["worktreePath"], "/tmp/epic-worktree");
+        assert_eq!(request["prompt"], "plan it");
+        assert_eq!(request["permissionMode"], PLANNING_PERMISSION_MODE);
+        assert_eq!(request["planning"], true);
+        assert_eq!(request["env"]["A"], "b");
+        assert!(request.get("taskId").is_none());
+    }
+
+    #[test]
+    fn a_planning_run_is_not_returned_by_the_running_authoring_run_lookup() {
+        let (mut conn, epic_id, human) = epic_fixture();
+        let run_id = flywheel_core::domain::dispatch_plan::start_planning_run_row(
+            &mut conn,
+            &epic_id,
+            &human,
+            PLANNING_PERMISSION_MODE,
+            |_| Ok(()),
+        )
+        .expect("the planning run starts");
+        let status: String = conn.query_row("SELECT status FROM agent_runs WHERE id = ?1", [&run_id], |r| r.get(0)).unwrap();
+        assert_eq!(status, "running");
+        assert!(
+            crate::commands::authoring::find_running_authoring_run(&conn, &epic_id).unwrap().is_none(),
+            "a planning run must never be mistaken for an authoring session"
+        );
+    }
+}

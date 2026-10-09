@@ -233,3 +233,43 @@ where
     }
     Ok(report)
 }
+
+// ---------------------------------------------------------------------------------------------
+// Plan 09-08: the pre-dispatch planning run's start.
+// ---------------------------------------------------------------------------------------------
+
+/// Everything the caller needs to launch the planning run.
+#[derive(Debug, Clone)]
+pub struct PlanningRunStart {
+    pub run_id: String,
+    pub epic_id: String,
+    pub project_id: String,
+    pub repo_path: String,
+    /// The epic integration worktree: the run's working directory.
+    pub worktree_path: std::path::PathBuf,
+    pub prompt: String,
+}
+
+/// [`begin_planning_run_with`] recording the real scope marker. (Stub.)
+pub fn begin_planning_run(
+    db: &Mutex<Connection>,
+    epic_id: &str,
+    human_actor_id: &str,
+    permission_mode: &str,
+) -> anyhow::Result<PlanningRunStart> {
+    begin_planning_run_with(db, epic_id, human_actor_id, permission_mode, |_, _| Ok(()))
+}
+
+/// Prepare the epic's integration branch and worktree, insert the planning run and render its
+/// prompt. `record_state(run_id, canonical_worktree)` is the run's own state and must succeed or the
+/// run does not start. (Stub.)
+pub fn begin_planning_run_with(
+    db: &Mutex<Connection>,
+    epic_id: &str,
+    human_actor_id: &str,
+    permission_mode: &str,
+    record_state: impl FnOnce(&str, &std::path::Path) -> anyhow::Result<()>,
+) -> anyhow::Result<PlanningRunStart> {
+    let _ = (db, epic_id, human_actor_id, permission_mode, record_state);
+    Err(anyhow!("not implemented"))
+}

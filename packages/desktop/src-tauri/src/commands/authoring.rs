@@ -181,7 +181,7 @@ fn proposal_dto_with_duplicate_label(
 /// never disagree about what counts as "already running". `authoring_stage IS NOT NULL` is what
 /// scopes this to an authoring run specifically — an ordinary task-execution run never carries a
 /// stage, and shares no identity space with an epic id regardless.
-fn find_running_authoring_run(
+pub(crate) fn find_running_authoring_run(
     conn: &rusqlite::Connection,
     epic_id: &str,
 ) -> Result<Option<AuthoringRunDto>, String> {

@@ -988,3 +988,28 @@ pub fn store_submitted_plan(
     tx.commit().map_err(storage)?;
     Ok(plan_id)
 }
+
+// ---------------------------------------------------------------------------------------------
+// Plan 09-08, Task 2: the planning run's own row.
+// ---------------------------------------------------------------------------------------------
+
+/// Refuse to plan an epic that already has a live plan, a planning run still running, or nothing to
+/// plan. Checked before any run row, branch or worktree exists. (Stub.)
+pub fn check_can_plan(conn: &Connection, epic_id: &str) -> anyhow::Result<()> {
+    let _ = (conn, epic_id);
+    Ok(())
+}
+
+/// Insert the planning run: an epic-scoped `agent_runs` row with no task, no worktree of its own and
+/// no authoring stage, plus its trigger and started event, in one transaction. `record_state` runs as
+/// the LAST step before commit; if it fails nothing is left behind. Returns the run id. (Stub.)
+pub fn start_planning_run_row(
+    conn: &mut Connection,
+    epic_id: &str,
+    human_actor_id: &str,
+    permission_mode: &str,
+    record_state: impl FnOnce(&str) -> anyhow::Result<()>,
+) -> anyhow::Result<String> {
+    let _ = (conn, epic_id, human_actor_id, permission_mode, record_state);
+    bail!("not implemented")
+}

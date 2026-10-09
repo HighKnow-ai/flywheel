@@ -564,3 +564,12 @@ pub fn render_epic_prompt(packet: &EpicContextPacket, premise: Option<&str>) -> 
 
     out
 }
+
+/// Plan 09-08 (PLAN-01, D-147): the briefing the pre-dispatch planning run is spawned with — the
+/// epic's goal, every task with its key, title and criteria, then the instruction to read the
+/// repository as it is NOW and call `submit_plan`. Pure and deterministic over the packet, like
+/// [`render_epic_prompt`]. (Stub: the body lands with the implementation.)
+pub fn render_planning_prompt(packet: &EpicContextPacket) -> String {
+    let _ = packet;
+    String::new()
+}
