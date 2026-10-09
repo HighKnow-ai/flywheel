@@ -134,6 +134,13 @@ pub struct MergePlanInputs {
     epic_worktree: PathBuf,
 }
 
+/// Where an epic's integration worktree lives. Epic and task keys share the project's key counter, so
+/// this path cannot collide with a task's worktree. One definition for the merge and for the planning
+/// run, which both work inside it.
+pub fn epic_worktree_path(key_prefix: &str, epic_key: &str) -> PathBuf {
+    crate::domain::worktree::worktree_root().join(key_prefix).join(epic_key)
+}
+
 /// The database half of [`plan_merge`]: resolve the task, its branch, its epic's integration branch
 /// and the epic worktree path, or refuse by name (a [`MergeRefusal`] inside the returned error).
 /// Reads the board only and spawns no git, so it is safe under the database lock.
@@ -179,9 +186,7 @@ pub fn plan_merge_inputs(conn: &Connection, task_id: &str) -> anyhow::Result<Mer
         .with_context(|| format!("project {project_id:?} not found"))?;
     let repo_path = PathBuf::from(repo_path);
 
-    // Epic and task keys share the project's key counter, so this path cannot collide with a
-    // task's worktree.
-    let epic_worktree = crate::domain::worktree::worktree_root().join(&key_prefix).join(&epic_key);
+    let epic_worktree = epic_worktree_path(&key_prefix, &epic_key);
 
     Ok(MergePlanInputs {
         repo_path,

@@ -819,8 +819,6 @@ fn a_failure_part_way_through_storing_leaves_no_plan_no_plan_task_and_no_entry()
 // integration worktree, that leaves a draft behind.
 // =============================================================================================
 
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// A real git project, an epic with three backlog tasks (one with a criterion), and the two
 /// environment overrides the planning start writes through.
 struct Git {
@@ -838,7 +836,7 @@ struct Git {
 
 impl Drop for Git {
     fn drop(&mut self) {
-        // SAFETY: every test that touches these variables holds ENV_LOCK for its whole body.
+        // SAFETY: every test that touches these variables holds WORKTREE_ROOT_ENV_LOCK for its whole body.
         unsafe {
             std::env::remove_var("FLYWHEEL_WORKTREE_ROOT");
             std::env::remove_var("FLYWHEEL_RUNTIME_DIR");
@@ -847,10 +845,10 @@ impl Drop for Git {
 }
 
 fn git_fx() -> Git {
-    let guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let worktrees = tempfile::tempdir().unwrap();
     let runtime = tempfile::tempdir().unwrap();
-    // SAFETY: serialised by ENV_LOCK; cleared in Drop.
+    // SAFETY: serialised by WORKTREE_ROOT_ENV_LOCK; cleared in Drop.
     unsafe {
         std::env::set_var("FLYWHEEL_WORKTREE_ROOT", worktrees.path());
         std::env::set_var("FLYWHEEL_RUNTIME_DIR", runtime.path());

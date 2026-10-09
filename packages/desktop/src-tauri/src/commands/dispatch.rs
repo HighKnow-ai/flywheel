@@ -490,16 +490,93 @@ pub fn execute_dispatch_actions(app: &AppHandle) {
 /// instead of running.
 pub const PLANNING_PERMISSION_MODE: &str = "default";
 
-/// The sidecar `spawn` request a planning run is launched with. (Stub: the body lands with the
-/// implementation.)
+/// The sidecar `spawn` request a planning run is launched with: the ordinary `spawn` op with the
+/// epic integration worktree as its working directory and `planning: true`, which makes the sidecar
+/// pre-approve `submit_plan` and nothing else. No task id: a planning run has none.
 pub(crate) fn planning_spawn_request(
     run_id: &str,
     worktree_path: &std::path::Path,
     prompt: &str,
     env: &impl Serialize,
 ) -> serde_json::Value {
-    let _ = (run_id, worktree_path, prompt, env);
-    serde_json::Value::Null
+    serde_json::json!({
+        "id": run_id,
+        "op": "spawn",
+        "runId": run_id,
+        "worktreePath": worktree_path.to_string_lossy(),
+        "prompt": prompt,
+        "permissionMode": PLANNING_PERMISSION_MODE,
+        "planning": true,
+        "env": env,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanningRunDto {
+    pub run_id: String,
+    pub epic_id: String,
+}
+
+/// End a planning run that was recorded but could not be launched, so it does not sit `running`
+/// forever holding a slot.
+fn fail_planning_start(state: &AppState, run_id: &str, why: String) -> String {
+    if let Ok(mut conn) = state.db.lock() {
+        let _ = flywheel_core::domain::agent_run::close_agent_run(
+            &mut conn,
+            run_id,
+            flywheel_core::domain::agent_run::AgentRunStatus::Failed,
+            None,
+            None,
+            None,
+        );
+    }
+    why
+}
+
+/// Start the pre-dispatch planning run for an epic: refuse what cannot be planned, prepare the
+/// integration worktree, record the run, then launch it through the ONE gated spawn path. The
+/// credential is resolved before any run exists (D-39). Not gated by the parallel cap: this is the
+/// user's own action, and the run still holds a slot while it runs.
+pub(crate) fn start_planning_run(state: &AppState, epic_id: &str) -> Result<PlanningRunDto, String> {
+    let (human, mut env) = {
+        let conn = state.db.lock().map_err(|e| ipc_error("dispatch_plan_generate:lock", e))?;
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .map_err(|e| ipc_error("dispatch_plan_generate:actor", e))?;
+        let project_id: String = conn
+            .query_row("SELECT project_id FROM epics WHERE id = ?1", [epic_id], |r| r.get(0))
+            .map_err(|e| ipc_error("dispatch_plan_generate:epic", e))?;
+        let env = crate::sidecar::resolved_env_for_run(&conn, &project_id)
+            .map_err(|e| ipc_error("dispatch_plan_generate:credential", e))?;
+        (human, env)
+    };
+    let start = flywheel_core::dispatch_exec::begin_planning_run(&state.db, epic_id, &human, PLANNING_PERMISSION_MODE)
+        .map_err(|e| ipc_error("dispatch_plan_generate:begin", e))?;
+    if let Err(e) = crate::sidecar::merge_shim_env_for_run(&mut env, &start.run_id) {
+        return Err(fail_planning_start(state, &start.run_id, ipc_error("dispatch_plan_generate:shim", e)));
+    }
+    if let Some(sidecar) = state.sidecar.as_ref() {
+        let request = planning_spawn_request(&start.run_id, &start.worktree_path, &start.prompt, &env);
+        if let Err(e) = sidecar.send_spawn_request(&start.repo_path, &request.to_string()) {
+            return Err(fail_planning_start(state, &start.run_id, ipc_error("dispatch_plan_generate:spawn", e)));
+        }
+    }
+    Ok(PlanningRunDto { run_id: start.run_id, epic_id: start.epic_id })
+}
+
+/// Ask for a fan-out plan on an epic: a short, read-only agent run reads the repository as it is NOW
+/// and stores a draft with a file-set and a wave on every task and a reason for anything left out.
+/// It approves nothing and starts no task; the user reviews and edits the draft first. Human-only.
+#[tauri::command]
+pub fn dispatch_plan_generate(
+    state: State<AppState>,
+    app: AppHandle,
+    epic_id: String,
+) -> Result<PlanningRunDto, String> {
+    validate_id("epic", &epic_id)?;
+    let dto = start_planning_run(&state, &epic_id)?;
+    app.emit("board:changed", serde_json::json!({ "entity": "agent_run", "id": dto.run_id })).ok();
+    Ok(dto)
 }
 
 #[cfg(test)]

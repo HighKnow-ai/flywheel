@@ -250,19 +250,43 @@ pub struct PlanningRunStart {
     pub prompt: String,
 }
 
-/// [`begin_planning_run_with`] recording the real scope marker. (Stub.)
+/// [`begin_planning_run_with`] recording the run's real scope marker: ARMED over an EMPTY set, so
+/// the scope gate denies every file-tool write the run attempts. An absent marker would deny too, but
+/// writing it is the run's recorded state: if the runtime directory cannot be written, the run does
+/// not start.
 pub fn begin_planning_run(
     db: &Mutex<Connection>,
     epic_id: &str,
     human_actor_id: &str,
     permission_mode: &str,
 ) -> anyhow::Result<PlanningRunStart> {
-    begin_planning_run_with(db, epic_id, human_actor_id, permission_mode, |_, _| Ok(()))
+    begin_planning_run_with(db, epic_id, human_actor_id, permission_mode, |run_id, worktree| {
+        use crate::runtime_protocol::{write_scope_marker, RuntimeIo, ScopeMarker, ScopeMode, SCOPE_MARKER_VERSION};
+        let marker = ScopeMarker {
+            version: SCOPE_MARKER_VERSION,
+            mode: ScopeMode::Armed,
+            worktree_root: worktree.to_string_lossy().into_owned(),
+            case_insensitive: crate::domain::file_set::repo_is_case_insensitive(worktree),
+            entries: Vec::new(),
+            written_at: chrono::Utc::now().to_rfc3339(),
+        };
+        match write_scope_marker(run_id, &marker) {
+            RuntimeIo::Written => Ok(()),
+            RuntimeIo::WriteFailed(why) => Err(anyhow!(
+                "could not write the scope marker for planning run {run_id}: {why} — a run that cannot record its scope does not start"
+            )),
+        }
+    })
 }
 
-/// Prepare the epic's integration branch and worktree, insert the planning run and render its
-/// prompt. `record_state(run_id, canonical_worktree)` is the run's own state and must succeed or the
-/// run does not start. (Stub.)
+/// Prepare the epic's integration branch and worktree, insert the planning run and render its prompt.
+///
+/// Refusals come first (a live plan, a planning run already running, nothing to plan), before any
+/// branch, worktree or row exists. The integration branch is then cut through the sanctioned lazy
+/// path, so "the repository as it is now" means the integration tip. Git runs with no connection in
+/// scope. `record_state(run_id, canonical_worktree)` is the run's own state and runs last inside the
+/// run's transaction; a failure leaves no run, trigger or event. The cap is not consulted: this is a
+/// user-initiated action, and the run still holds a slot while it runs.
 pub fn begin_planning_run_with(
     db: &Mutex<Connection>,
     epic_id: &str,
@@ -270,6 +294,42 @@ pub fn begin_planning_run_with(
     permission_mode: &str,
     record_state: impl FnOnce(&str, &std::path::Path) -> anyhow::Result<()>,
 ) -> anyhow::Result<PlanningRunStart> {
-    let _ = (db, epic_id, human_actor_id, permission_mode, record_state);
-    Err(anyhow!("not implemented"))
+    let (project_id, repo_path, key_prefix, epic_key, branch) = {
+        let mut conn = lock(db)?;
+        crate::domain::dispatch_plan::check_can_plan(&conn, epic_id)?;
+        let branch = crate::domain::epic::ensure_epic_integration_branch(&mut conn, epic_id, human_actor_id)?;
+        let row: (String, String, String, String) = conn
+            .query_row(
+                "SELECT e.project_id, p.repo_path, p.key_prefix, e.key
+                   FROM epics e JOIN projects p ON p.id = e.project_id WHERE e.id = ?1",
+                [epic_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .with_context(|| format!("epic {epic_id:?} not found"))?;
+        (row.0, row.1, row.2, row.3, branch)
+    };
+
+    let worktree = crate::merge::epic_worktree_path(&key_prefix, &epic_key);
+    ensure_epic_worktree(std::path::Path::new(&repo_path), &worktree, &branch)?;
+    let canonical = std::fs::canonicalize(&worktree)
+        .with_context(|| format!("cannot canonicalise the epic worktree {worktree:?}"))?;
+
+    let mut conn = lock(db)?;
+    let run_id = crate::domain::dispatch_plan::start_planning_run_row(
+        &mut conn,
+        epic_id,
+        human_actor_id,
+        permission_mode,
+        |run_id| record_state(run_id, &canonical),
+    )?;
+    let packet = crate::epic_context_packet::assemble_epic_context_packet(&conn, &project_id, Some(epic_id))?;
+    let prompt = crate::epic_context_packet::render_planning_prompt(&packet);
+    Ok(PlanningRunStart {
+        run_id,
+        epic_id: epic_id.to_string(),
+        project_id,
+        repo_path,
+        worktree_path: worktree,
+        prompt,
+    })
 }

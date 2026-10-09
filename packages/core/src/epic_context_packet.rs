@@ -568,8 +568,95 @@ pub fn render_epic_prompt(packet: &EpicContextPacket, premise: Option<&str>) -> 
 /// Plan 09-08 (PLAN-01, D-147): the briefing the pre-dispatch planning run is spawned with — the
 /// epic's goal, every task with its key, title and criteria, then the instruction to read the
 /// repository as it is NOW and call `submit_plan`. Pure and deterministic over the packet, like
-/// [`render_epic_prompt`]. (Stub: the body lands with the implementation.)
+/// [`render_epic_prompt`].
+///
+/// Tasks already past `todo` are listed for context only: the plan covers backlog and todo tasks,
+/// and the Rust side refuses any other key. Two requests here exist because the overlap check can
+/// only compare what is declared: manifests and lockfiles (several tasks that add a dependency each
+/// legitimately touch the same one), and a stated reason for every task left out (so none vanishes
+/// quietly).
 pub fn render_planning_prompt(packet: &EpicContextPacket) -> String {
-    let _ = packet;
-    String::new()
+    let mut out = String::new();
+
+    out.push_str("## Epic\n\n");
+    if let Some(epic) = &packet.epic {
+        out.push_str(&epic.title);
+        out.push('\n');
+        if let Some(description) = &epic.description {
+            out.push('\n');
+            out.push_str(description);
+            out.push('\n');
+        }
+    }
+
+    let plannable = |status: &str| matches!(status, "backlog" | "todo");
+    out.push_str("\n## Tasks To Plan\n\n");
+    for task in packet.task_roster.iter().filter(|t| plannable(&t.status)) {
+        push_task(&mut out, task);
+    }
+    if packet.task_roster.iter().any(|t| !plannable(&t.status)) {
+        out.push_str("\n## Already Under Way (context only, do not plan these)\n\n");
+        for task in packet.task_roster.iter().filter(|t| !plannable(&t.status)) {
+            push_task(&mut out, task);
+        }
+    }
+
+    out.push_str("\n## Your Task\n\n");
+    out.push_str(
+        "You are planning how the tasks above can run at the same time. Read the repository as it is \
+         now, in this working directory, and for EACH task above decide the exact files it expects to \
+         modify and the wave it belongs in. Then call `submit_plan` once.\n\n\
+         This is a read-only job: do not modify any file, do not run builds or tests that write, and do \
+         not call any other Flywheel tool. Reading, searching and listing are what it needs.\n\n",
+    );
+    out.push_str(
+        "For each task give `files`: repository-relative paths in exactly two forms. An exact file, such \
+         as `src/lib.rs`, or a directory prefix ending in `/`, such as `src/api/`. General globs \
+         (`*`, `?`, `[`, `{`) are rejected, as are absolute paths, `..` segments and the repository \
+         root. Prefer exact files; use a directory prefix only when the task really owns the directory. \
+         A file list that is too small voids the guarantee that tasks in one wave cannot collide, so \
+         when in doubt include the file.\n\n",
+    );
+    out.push_str(
+        "Declare manifests and lockfiles (`Cargo.toml`, `Cargo.lock`, `package.json`, \
+         `package-lock.json` and the like) for every task that adds or upgrades a dependency. Several \
+         tasks that each add a dependency all touch the same lockfile, and it is a collision the \
+         overlap check cannot see unless you declare it.\n\n",
+    );
+    out.push_str(
+        "Give each task a `wave`, starting at 1. Tasks in one wave run at the same time; only tasks \
+         whose files overlap wait for each other. Put a task in a later wave when it needs the result \
+         of an earlier task, not merely because it is large. Give each task a one-line `rationale`.\n\n",
+    );
+    out.push_str(
+        "Name every task above. If you believe a task should not be part of this plan, list it under \
+         `excluded` with a `reason` the developer will read; a task you neither plan nor exclude is \
+         left out and shown as unexplained.\n\n",
+    );
+    out.push_str(
+        "`submit_plan` stores a draft for the developer to review and edit; it starts nothing. If it \
+         returns an error, the message names what to fix: correct it and call `submit_plan` again with \
+         the whole plan.\n",
+    );
+    out
+}
+
+fn push_task(out: &mut String, task: &TaskRosterEntry) {
+    out.push_str("- [");
+    out.push_str(&task.key);
+    out.push_str("] ");
+    out.push_str(&task.title);
+    out.push_str(" (");
+    out.push_str(&task.status);
+    out.push_str(")\n");
+    for criterion in &task.criteria {
+        out.push_str("  - ");
+        out.push_str(&criterion.statement);
+        if let Some(hint) = &criterion.verification_hint {
+            out.push_str(" (Verify: ");
+            out.push_str(hint);
+            out.push(')');
+        }
+        out.push('\n');
+    }
 }

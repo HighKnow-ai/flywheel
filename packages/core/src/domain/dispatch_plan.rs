@@ -994,15 +994,36 @@ pub fn store_submitted_plan(
 // ---------------------------------------------------------------------------------------------
 
 /// Refuse to plan an epic that already has a live plan, a planning run still running, or nothing to
-/// plan. Checked before any run row, branch or worktree exists. (Stub.)
+/// plan. Checked before any run row, branch or worktree exists.
 pub fn check_can_plan(conn: &Connection, epic_id: &str) -> anyhow::Result<()> {
-    let _ = (conn, epic_id);
+    let exists = |sql: &str| -> anyhow::Result<bool> {
+        conn.query_row(sql, params![epic_id], |r| r.get::<_, i64>(0))
+            .map(|n| n > 0)
+            .context("failed to check whether the epic can be planned")
+    };
+    if exists(
+        "SELECT COUNT(*) FROM dispatch_plans WHERE epic_id = ?1 AND status IN ('draft', 'approved', 'running', 'paused')",
+    )? {
+        bail!("epic {epic_id:?} already has a live plan; finish or discard it before planning again");
+    }
+    if exists(
+        "SELECT COUNT(*) FROM agent_runs
+          WHERE epic_id = ?1 AND task_id IS NULL AND authoring_stage IS NULL AND status IN ('running', 'blocked')",
+    )? {
+        bail!("epic {epic_id:?} is already being planned by a running planning run");
+    }
+    if !exists("SELECT COUNT(*) FROM tasks WHERE epic_id = ?1 AND status IN ('backlog', 'todo')")? {
+        bail!("epic {epic_id:?} has nothing to plan: no backlog or todo tasks");
+    }
     Ok(())
 }
 
 /// Insert the planning run: an epic-scoped `agent_runs` row with no task, no worktree of its own and
-/// no authoring stage, plus its trigger and started event, in one transaction. `record_state` runs as
-/// the LAST step before commit; if it fails nothing is left behind. Returns the run id. (Stub.)
+/// no authoring stage (so every authoring lookup, which filters on a non-null stage, skips it), plus
+/// its trigger and started event, in one transaction. `record_state` runs as the LAST step before
+/// commit, and if it fails nothing is left behind: a run that cannot record its own state does not
+/// start. No plan row is written here; the plan comes into being at a valid submission. Returns the
+/// run id.
 pub fn start_planning_run_row(
     conn: &mut Connection,
     epic_id: &str,
@@ -1010,6 +1031,53 @@ pub fn start_planning_run_row(
     permission_mode: &str,
     record_state: impl FnOnce(&str) -> anyhow::Result<()>,
 ) -> anyhow::Result<String> {
-    let _ = (conn, epic_id, human_actor_id, permission_mode, record_state);
-    bail!("not implemented")
+    let agent_id = crate::domain::agent_run::agent_actor_id(conn)?;
+    let now = Utc::now().to_rfc3339();
+    let run_id = new_id();
+    let log_path = crate::session_log::session_log_path(&run_id)?.to_string_lossy().into_owned();
+
+    let tx = conn.transaction()?;
+    check_can_plan(&tx, epic_id)?;
+    let project_id: String = tx
+        .query_row("SELECT project_id FROM epics WHERE id = ?1", params![epic_id], |r| r.get(0))
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+    let trigger_id = crate::domain::trigger::create_user_action_trigger_for_epic(
+        &tx,
+        &project_id,
+        Some(epic_id),
+        human_actor_id,
+        &now,
+    )?;
+    tx.execute(
+        "INSERT INTO agent_runs (
+            id, worktree_id, task_id, epic_id, project_id, trigger_id, adapter, actor_id, status,
+            external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path,
+            started_at, ended_at, authoring_stage
+        ) VALUES (?1, NULL, NULL, ?2, ?3, ?4, 'claude_code', ?5, 'running', NULL, ?6, NULL, NULL, NULL, ?7, ?8, NULL, NULL)",
+        params![run_id, epic_id, project_id, trigger_id, agent_id, permission_mode, log_path, now],
+    )
+    .context("failed to insert the planning run")?;
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "agent_run",
+        &run_id,
+        None,
+        Some(epic_id),
+        &agent_id,
+        "agent_run.started",
+        &serde_json::json!({
+            "field": "agent_run",
+            "before": null,
+            "after": run_id,
+            "label": format!("Started a planning run for {epic_id}"),
+        }),
+        &now,
+    )?;
+    record_state(&run_id)?;
+    tx.commit().context("failed to commit the planning run")?;
+    Ok(run_id)
 }
