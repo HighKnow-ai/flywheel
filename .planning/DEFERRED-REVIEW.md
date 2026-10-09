@@ -303,6 +303,22 @@ context to be answerable months later by someone who was not in the room:
   risk_if_wrong: "Moderate. An agent that ignores the commit instruction stops its task as needs-attention (it is never committed for), so the failure is loud and the wave holds; a launch that fails in the real sidecar marks the task needs-attention with the error. Neither loses work."
   automatable: "PARTLY. The launch path against the real sidecar with a scripted fake `claude` is YES (the sidecar tests already ship `fake-claude.mjs`). A run against a real account is the Phase 11 drain."
 
+- id: D-REV-35
+  phase: "09 — Planned Fan-Out (plan 08, PLAN-01, D-147)"
+  truth: "A real `claude` session started by `dispatch_plan_generate` completes headlessly, in the epic integration worktree, without stalling on a permission prompt: it reads the repository, calls `submit_plan`, a refused call is corrected in the same conversation, and it exits leaving the worktree clean."
+  status: open
+  why_deferred: |
+    Physical: it needs a live `claude` login and the packaged sidecar. 09-RESEARCH flagged a read-only headless run as
+    supported but not conclusive, and this is the first time the project launches one. What IS proven: the held
+    `submit_plan` call is answered through the real socket by a fake backend, a refusal comes back as an error result
+    the agent can read, the launch pre-approves that one tool only (argv), the run records an armed empty scope, and
+    the core refuses every submission that does not come from a running planning run. NOT proven: that the real CLI
+    in `default` permission mode lets its own read tools (Read, Grep, Glob) run without a prompt, that it does not
+    reach for a tool outside the one pre-approved (which would block the run as `blocked` and hold its slot), or that
+    a model follows the prompt's two entry forms without a correction round.
+  risk_if_wrong: "Moderate. A run that blocks on a prompt shows as a pending permission request and holds a slot until the user answers or stops it; it writes nothing and stores no plan. Worst case the pass is unusable until the permission mode or the pre-approved list is widened, and the fix is a one-line argv change."
+  automatable: "PARTLY. Whether the installed CLI pre-approves its read tools in `default` mode is YES: run the real binary once with the exact argv `buildClaudeArgv` produces for a planning launch and a read-only prompt, assert no permission request arrives (the `real-claude-argv` test is the precedent). A model's obedience to the prompt is the Phase 11 drain."
+
 ## Redemption protocol
 
 At Phase 11, with an installed, usable build:

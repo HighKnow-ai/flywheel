@@ -1078,7 +1078,7 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: 7/9 plans executed in 7 waves
+**Plans**: 8/9 plans executed in 7 waves
 
 Plans:
 
@@ -1106,7 +1106,7 @@ Plans:
 
 **Wave 6** *(blocked on 09-07 — joins the dispatcher's command module)*
 
-- [ ] 09-08-PLAN.md — The pre-dispatch planning pass: `submit_plan` as a held call whose authority lives in Rust, and a short epic-scoped run that reads the repository as it is now and leaves a draft plan (PLAN-01)
+- [x] 09-08-PLAN.md — The pre-dispatch planning pass: `submit_plan` as a held call whose authority lives in Rust, and a short epic-scoped run that reads the repository as it is now and leaves a draft plan (PLAN-01)
 
 **Wave 7** *(blocked on 09-07 and 09-08 — renders their DTOs)*
 
@@ -1224,7 +1224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
-| 9. Planned Fan-Out That Does Not Collide | 7/9 | In Progress|  |
+| 9. Planned Fan-Out That Does Not Collide | 8/9 | In Progress|  |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
