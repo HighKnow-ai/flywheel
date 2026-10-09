@@ -276,6 +276,19 @@ context to be answerable months later by someone who was not in the room:
   risk_if_wrong: "Moderate. If a real limit presents differently, the adapter yields no tier (an unrecognised status is never guessed at) and dispatch does not pause: AGNT-05 would silently be unmet on the one path it exists for, and the account would keep being sent requests."
   automatable: "PARTLY. Once a real limit occurs, its raw line is in the session log; freezing it as a fixture and asserting `tier: rejected` is one test. Provoking one deliberately is not something to do (it is the abuse this requirement exists to avoid)."
 
+- id: D-REV-33
+  phase: "09 — Planned Fan-Out (plan 06, PLAN-05)"
+  truth: "The scope-denied feed row (one line, with its widen action) and the per-task scope-refusal badge read well in the installed WKWebView: the row stays legible with a long refusal message, and a count of 20 is visibly different from none."
+  status: open
+  why_deferred: |
+    Physical: human aesthetic judgement on a real window. The tests assert the row kind, the refused path,
+    the single-flight action, the refusal text, the badge's presence, value, accessible name and call
+    count; none can say whether a one-line row truncating a refusal message, or a 12px glyph beside a
+    count, is noticeable at a glance. A live widen against a running `claude` session was also not run:
+    the shipped hook was driven against the rewritten marker instead.
+  risk_if_wrong: "Low. Cosmetic; a refusal message clipped by the fixed 32px row can be expanded later. The widen itself is asserted in the core."
+  automatable: "PARTLY. A WebKit layout test for the row's overflow is YES once a session with a denial exists; a live widen against a real run is YES in the Phase 11 drain. Only 'is it noticeable' is human."
+
 ## Redemption protocol
 
 At Phase 11, with an installed, usable build:

@@ -112,7 +112,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **PLAN-02**: Before dispatch, the planner checks every pair of candidate parallel tasks for declared file-set overlap
 - [ ] **PLAN-03**: When two tasks overlap, only that pair is downgraded to sequential execution — not the entire batch
 - [x] **PLAN-04**: A running agent is prevented at the tool level from writing to files outside its task's declared file-set
-- [ ] **PLAN-05**: An agent's attempt to write outside its declared file-set is surfaced to the user as a scope event, not silently blocked
+- [x] **PLAN-05**: An agent's attempt to write outside its declared file-set is surfaced to the user as a scope event, not silently blocked
 - [ ] **PLAN-06**: The planner decides how many tasks run in parallel, and the user can cap that width globally
 - [ ] **PLAN-07**: User can see why any two tasks were scheduled sequentially rather than in parallel
 
@@ -295,7 +295,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PLAN-02 | Phase 9 | Complete |
 | PLAN-03 | Phase 9 | Pending |
 | PLAN-04 | Phase 9 | Complete |
-| PLAN-05 | Phase 9 | Pending |
+| PLAN-05 | Phase 9 | Complete |
 | PLAN-06 | Phase 9 | Pending |
 | PLAN-07 | Phase 9 | Pending |
 | FLEET-01 | Phase 10 | Pending |

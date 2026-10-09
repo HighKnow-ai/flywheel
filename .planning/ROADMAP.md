@@ -1078,7 +1078,7 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: 5/9 plans executed in 7 waves
+**Plans**: 6/9 plans executed in 7 waves
 
 Plans:
 
@@ -1098,7 +1098,7 @@ Plans:
 **Wave 4** *(09-05 and 09-06 share no file: the first is the adapter seam and the core gate, the second is the widen transaction and the two scope surfaces)*
 
 - [x] 09-05-PLAN.md — The rate-limit gate: pause new dispatch, keep running sessions, say why, resume at the reset instant the wire reported — no probe, no blind retry (AGNT-05)
-- [ ] 09-06-PLAN.md — Widen a declared set live, refused inside the same transaction when it would reach into any in-flight task's lane; the feed row that offers it and the task-row badge that counts it (PLAN-05)
+- [x] 09-06-PLAN.md — Widen a declared set live, refused inside the same transaction when it would reach into any in-flight task's lane; the feed row that offers it and the task-row badge that counts it (PLAN-05)
 
 **Wave 5** *(blocked on 09-03, 09-04, 09-05 and 09-06 — the dispatcher consults all four)*
 
@@ -1224,7 +1224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
-| 9. Planned Fan-Out That Does Not Collide | 5/9 | In Progress|  |
+| 9. Planned Fan-Out That Does Not Collide | 6/9 | In Progress|  |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
