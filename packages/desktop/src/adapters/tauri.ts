@@ -1622,3 +1622,148 @@ export interface ScopeFlagDto {
 export async function boardScopeFlags(projectId: string): Promise<ScopeFlagDto[]> {
   return invokeCommand<ScopeFlagDto[]>("board_scope_flags", { projectId });
 }
+
+// ---------------------------------------------------------------------------------------------
+// Phase 9 plan 09-09: the fan-out surface. Every verdict below (a sequencing edge, the paths that
+// earned it, a refusal, a gate reason) is the Rust core's. The renderer displays these DTOs and
+// computes none of them.
+// ---------------------------------------------------------------------------------------------
+
+/** One colliding pair of declared entries — mirrors `commands::dispatch::CollidingPathDto`. */
+export interface CollidingPathDto {
+  before: string;
+  after: string;
+}
+
+/** "`beforeTaskId` runs first, `afterTaskId` waits" — mirrors `DispatchEdgeDto`. */
+export interface DispatchEdgeDto {
+  beforeTaskId: string;
+  afterTaskId: string;
+  /** `overlap` or `widen`. */
+  cause: string;
+  collidingPaths: CollidingPathDto[];
+}
+
+/** One task of a plan — mirrors `DispatchTaskDto`. `entries` is the declared file-set as stored. */
+export interface DispatchTaskDto {
+  taskId: string;
+  taskKey: string;
+  title: string;
+  wave: number;
+  state: string;
+  rationale: string | null;
+  attention: string | null;
+  entries: string[];
+}
+
+/** A plan — mirrors `DispatchPlanDto`. For a draft the edges are a preview (`edgesFrozen: false`)
+ * that approval recomputes; otherwise they are the rows that were acted on. */
+export interface DispatchPlanDto {
+  id: string;
+  epicId: string;
+  /** `draft`, `approved`, `running`, `paused`, `completed` or `aborted`. */
+  status: string;
+  waveCursor: number;
+  tasks: DispatchTaskDto[];
+  edges: DispatchEdgeDto[];
+  edgesFrozen: boolean;
+}
+
+/** One edit to a draft: a wave move and/or a replacement of the declared entries. */
+export interface DispatchEditInput {
+  taskId: string;
+  wave?: number;
+  entries?: string[];
+}
+
+/** The epic's most recent plan, or `null` when it has none. Read-only. Thin wrapper over `dispatch_plan_get`. */
+export async function dispatchPlanGet(epicId: string): Promise<DispatchPlanDto | null> {
+  return invokeCommand<DispatchPlanDto | null>("dispatch_plan_get", { epicId });
+}
+
+/** Wave moves and entry edits on a draft. A refused entry rejects with the named refusal and changes
+ * nothing. Thin wrapper over `dispatch_plan_edit`. */
+export async function dispatchPlanEdit(planId: string, edits: DispatchEditInput[]): Promise<DispatchPlanDto> {
+  return invokeCommand<DispatchPlanDto>("dispatch_plan_edit", { planId, edits });
+}
+
+/** Approve a draft and start it. Human-only; the ONLY call that starts dispatch. Thin wrapper over
+ * `dispatch_plan_approve`. */
+export async function dispatchPlanApprove(planId: string): Promise<DispatchPlanDto> {
+  return invokeCommand<DispatchPlanDto>("dispatch_plan_approve", { planId });
+}
+
+/** Stop starting new work; running sessions are untouched. Human-only. */
+export async function dispatchPlanPause(planId: string): Promise<DispatchPlanDto> {
+  return invokeCommand<DispatchPlanDto>("dispatch_plan_pause", { planId });
+}
+
+/** Continue a paused plan. Human-only. */
+export async function dispatchPlanResume(planId: string): Promise<DispatchPlanDto> {
+  return invokeCommand<DispatchPlanDto>("dispatch_plan_resume", { planId });
+}
+
+/** End the plan; running sessions are untouched. Human-only. */
+export async function dispatchPlanStop(planId: string): Promise<DispatchPlanDto> {
+  return invokeCommand<DispatchPlanDto>("dispatch_plan_stop", { planId });
+}
+
+/** Advance the wave cursor now, from the warning tier. Human-only. Thin wrapper over `dispatch_advance_now`. */
+export async function dispatchAdvanceNow(planId: string): Promise<DispatchPlanDto> {
+  return invokeCommand<DispatchPlanDto>("dispatch_advance_now", { planId });
+}
+
+/** The run `dispatch_plan_generate` started. */
+export interface PlanningRunDto {
+  runId: string;
+  epicId: string;
+}
+
+/** Start the read-only planning pass over an epic. Human-only. It stores a draft and approves nothing. */
+export async function dispatchPlanGenerate(epicId: string): Promise<PlanningRunDto> {
+  return invokeCommand<PlanningRunDto>("dispatch_plan_generate", { epicId });
+}
+
+/** The epic's running planning run, or `null`. A run exists for a while before any plan row does. */
+export async function dispatchPlanningRun(epicId: string): Promise<PlanningRunDto | null> {
+  return invokeCommand<PlanningRunDto | null>("dispatch_planning_run", { epicId });
+}
+
+/** The answer to "why were these two sequenced?" — mirrors `WhyDto`. It reads the edge frozen at
+ * approval, which is what was acted on, so it can differ from what the sets say today. */
+export interface WhyDto {
+  /** `sequenced`, `differentWaves`, `disjointSets` or `notInPlan`. */
+  kind: string;
+  sentence: string;
+  beforeTaskId: string | null;
+  afterTaskId: string | null;
+  cause: string | null;
+  collidingPaths: CollidingPathDto[];
+}
+
+export async function dispatchWhy(planId: string, taskA: string, taskB: string): Promise<WhyDto> {
+  return invokeCommand<WhyDto>("dispatch_why", { planId, taskA, taskB });
+}
+
+/** The account-limit gate as the dispatcher reads it — mirrors `GateDto`. `message` is the reason
+ * the user reads, written by the core; `resumeAt` is epoch seconds or `null` when the reset is unknown. */
+export interface GateDto {
+  /** `open`, `warning` or `paused`. */
+  state: string;
+  message: string;
+  resumeAt: number | null;
+}
+
+export async function dispatchGateState(): Promise<GateDto> {
+  return invokeCommand<GateDto>("dispatch_gate_state");
+}
+
+/** Open a paused gate on the user's word. Human-only. */
+export async function dispatchGateResumeNow(): Promise<GateDto> {
+  return invokeCommand<GateDto>("dispatch_gate_resume_now");
+}
+
+/** Subscribe to `dispatch:gate_changed`, which the Rust core emits when the gate changes state. */
+export async function subscribeDispatchGateChanged(handler: () => void): Promise<UnlistenFn> {
+  return listen("dispatch:gate_changed", () => handler());
+}
