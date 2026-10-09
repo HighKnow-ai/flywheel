@@ -11,6 +11,7 @@ pub mod actor;
 pub mod agent_run;
 pub mod authoring_proposal;
 pub mod authoring_session;
+pub mod dispatch_plan;
 pub mod epic;
 pub mod event;
 pub mod file_set;

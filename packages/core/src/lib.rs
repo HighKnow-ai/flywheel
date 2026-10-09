@@ -9,6 +9,7 @@ pub mod context_packet;
 pub mod credentials;
 pub mod db;
 pub mod destructive;
+pub mod dispatch;
 pub mod domain;
 pub mod drift;
 pub mod epic_context_packet;
