@@ -224,6 +224,20 @@ display role: this is a product surface.
 - **Label** (400, 11px, 1.3): counts, pills, badges, captions, key sub-labels.
 - **Micro** (400, 10px, 1.2): the feed's "retrying request" system notice and the assignee picker. The
   detector reports `tiny-text` on it, and the 08.1 scale otherwise starts at 11. See "Not canonized".
+
+Two further steps ship and are **not** in `type.css`, which carries only the four roles above. They were
+missing from this document's first draft, which claimed to be written from the built world and was not
+complete; the design hook caught the omission. Both are deliberate roles, not drift:
+
+- **State heading** (600, 20px, 1.2, `.state-heading` in `styles/states-and-confirms.css`): the
+  full-page hero heading on first-run and on the unreachable-project surface. It is a distinct role
+  from **Heading**, which titles a panel inside a populated window — first-run is the first thing a new
+  user ever sees and owns its whole viewport, so it is not a 15px panel title.
+- **Diff code** (12px, `.review-diff` root in `review/review.css`): the monospace size for patch
+  content. Code is set a step below body prose so a 1440px review column holds a realistic line without
+  wrapping — and the review surface explicitly does not wrap code, it scrolls sideways.
+
+The full shipped scale is therefore **10 / 11 / 12 / 13 / 15 / 20px**. Anything outside it is drift.
 - **Condensed cut** (`font-stretch: 75%`, the same file): the stamped key and band headers.
 - **Tabular figures** (`tnum`, `lnum`, verified present in the shipped font): every numeric and columnar
   field.
