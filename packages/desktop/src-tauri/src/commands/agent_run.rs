@@ -530,6 +530,12 @@ pub(crate) struct StartRunOutcome {
 /// 7. the `record_drift_warnings` transaction, unchanged in shape.
 /// 8. `list_current_criteria` then `pin_criteria_revisions`, unchanged.
 /// 9. the `SELECT path FROM worktrees WHERE id = ?1` read for the worktree path.
+/// 10. [`arm_run_scope`] (phase 09, plan 09-01, D-150/D-151) — writes the run's scope marker, AFTER
+///     the worktree path is read (the marker records the canonical worktree root) and BEFORE the
+///     outcome is returned, so the marker exists on disk before the caller can spawn a session
+///     that reads it. Unarmed when the task declares no file-set; armed otherwise. A marker-write
+///     failure returns an error from this function and aborts the start: a run that cannot record
+///     its scope must not start.
 pub(crate) fn start_agent_run_recording_first(
     conn: &mut Connection,
     task_id: &str,
@@ -607,6 +613,22 @@ pub(crate) fn start_agent_run_recording_first(
         )
         .map_err(|e| e.to_string())?;
 
+    // Step 10 (D-150/D-151, plan 09-01) — see this function's own doc comment. On failure the run
+    // row this function inserted at step 2 is closed `failed` before the error propagates: a
+    // `running` row with no session behind it would hold a dispatcher slot forever (plan 09-07
+    // counts `running` runs) and leave the task looking worked-on.
+    if let Err(why) = arm_run_scope(conn, &run.id, task_id, &worktree_path) {
+        let _ = flywheel_core::domain::agent_run::close_agent_run(
+            conn,
+            &run.id,
+            flywheel_core::domain::agent_run::AgentRunStatus::Failed,
+            None,
+            None,
+            None,
+        );
+        return Err(why);
+    }
+
     Ok(StartRunOutcome {
         run_id: run.id,
         actor_id: run.actor_id,
@@ -615,6 +637,27 @@ pub(crate) fn start_agent_run_recording_first(
         prompt,
         drift_event_count,
     })
+}
+
+/// Write `run_id`'s scope marker (D-150, D-151): the single call that decides "armed or unarmed",
+/// so no spawn path can forget it. The body lives in `flywheel_core` (`domain::file_set::
+/// arm_scope_marker`) so the contract test in `packages/core` drives the very same function; this
+/// wrapper is the name the run-start path calls and the place the error becomes a command error.
+/// A task with no declared file-set gets an explicit `unarmed` marker — `agent_run_start` behaves
+/// exactly as it did before this phase for it.
+pub(crate) fn arm_run_scope(
+    conn: &Connection,
+    run_id: &str,
+    task_id: &str,
+    worktree_path: &str,
+) -> Result<(), String> {
+    flywheel_core::domain::file_set::arm_scope_marker(
+        conn,
+        run_id,
+        task_id,
+        std::path::Path::new(worktree_path),
+    )
+    .map(|_mode| ())
 }
 
 /// Start a fresh agent run against `task_id` (D-30: always fresh, never `--resume`). Validates
@@ -2686,11 +2729,17 @@ mod tests {
     fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
         let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
+        // Plan 09-01: starting a run now writes its scope marker under `runtime_dir()`, so every
+        // test that reaches `start_agent_run_recording_first` also needs a scratch runtime dir —
+        // otherwise the marker lands in the developer's real `<app-data>/runtime/`.
+        let runtime_dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
         // SAFETY: the mutex above serializes every caller in this binary, so no other thread
-        // reads or mutates this var while it's set, and this helper always clears it before
-        // returning.
+        // reads or mutates these vars while they're set, and this helper always clears them
+        // before returning.
         unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
+        unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", runtime_dir.path()) };
         let result = f();
+        unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
         unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
         result
     }
@@ -3072,6 +3121,157 @@ mod tests {
             let recovery =
                 flywheel_core::query::recovery::recovery_task_ids_for_project(&conn, &project_id).unwrap();
             assert!(!recovery.contains(&task_id), "a decline must not raise the Needs Decision signal");
+        });
+    }
+
+    // --- phase 09 plan 09-01: the run-start path arms the scope (D-150/D-151) ---------------------
+    //
+    // The two-sided contract's desktop half: these drive the REAL `start_agent_run_recording_first`
+    // and then run the SHIPPED compiled hook against the marker it wrote — neither half writes the
+    // other's state. (`packages/core/tests/scope_marker_contract.rs` owns the core half and a
+    // source-structural gate over this function.)
+
+    /// Run the shipped compiled `scope-hook.js` against `target`, with identity from the
+    /// environment only. Returns `(exit_code, stdout)`.
+    fn run_shipped_scope_hook(run_id: &str, target: &std::path::Path) -> (Option<i32>, String) {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .expect("src-tauri sits at <workspace>/packages/desktop/src-tauri")
+            .to_path_buf();
+        let hook = workspace_root.join("packages/sidecar/dist/scope-hook.js");
+        assert!(
+            hook.is_file(),
+            "expected the built scope hook at {hook:?} — run `npm --prefix packages/sidecar run build` first"
+        );
+        let shim = flywheel_core::shim::resolve_shim_binary()
+            .expect("the compiled flywheel-shim is required — run `cargo build --workspace` first");
+        let runtime = flywheel_core::runtime_protocol::runtime_dir().expect("runtime dir");
+        let payload = serde_json::json!({
+            "tool_name": "Write",
+            "tool_input": { "file_path": target, "content": "x" },
+        })
+        .to_string();
+
+        let mut child = Command::new("node")
+            .arg(&hook)
+            .env("FLYWHEEL_RUN_ID", run_id)
+            .env("FLYWHEEL_RUNTIME_DIR", runtime)
+            .env("FLYWHEEL_SHIM_BIN", shim)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("failed to spawn node for the shipped scope hook");
+        child.stdin.as_mut().unwrap().write_all(payload.as_bytes()).unwrap();
+        drop(child.stdin.take());
+        let out = child.wait_with_output().unwrap();
+        (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    fn declare_set(conn: &mut Connection, actor: &str, task_id: &str, raw: &[&str]) {
+        let entries: Vec<_> = raw
+            .iter()
+            .map(|r| flywheel_core::file_set::parse_entry(r).expect("fixture entries are valid"))
+            .collect();
+        flywheel_core::domain::file_set::declare_file_set(conn, task_id, &entries, actor)
+            .expect("declare_file_set should succeed");
+    }
+
+    #[test]
+    fn the_real_run_start_writes_an_armed_marker_and_the_shipped_hook_enforces_it() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
+            declare_set(&mut conn, &actor, &task_id, &["src/allowed/"]);
+
+            let outcome = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor)
+                .expect("a task with a declared set starts");
+
+            let marker = flywheel_core::runtime_protocol::read_scope_marker(&outcome.run_id)
+                .expect("the run start must have written the scope marker");
+            assert_eq!(marker.mode, flywheel_core::runtime_protocol::ScopeMode::Armed);
+            assert_eq!(marker.entries.len(), 1);
+            assert_eq!(marker.entries[0].path, "src/allowed/");
+
+            let worktree = std::path::Path::new(&outcome.worktree_path);
+            let (code, out) = run_shipped_scope_hook(&outcome.run_id, &worktree.join("src/allowed/new.rs"));
+            assert_eq!((code, out.trim()), (Some(0), "{}"), "inside the declared set");
+
+            let (code, out) = run_shipped_scope_hook(&outcome.run_id, &worktree.join("README.md"));
+            assert_eq!(code, Some(2), "outside the declared set: {out}");
+            assert!(out.contains("FLYWHEEL-SCOPE:") && out.contains("README.md"), "{out}");
+        });
+    }
+
+    #[test]
+    fn the_real_run_start_for_a_task_with_no_declared_set_writes_an_unarmed_marker() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
+
+            let outcome = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor)
+                .expect("a task with no declared set starts exactly as before this phase");
+
+            let marker = flywheel_core::runtime_protocol::read_scope_marker(&outcome.run_id)
+                .expect("an unarmed marker is still written — a fact, never an absence");
+            assert_eq!(marker.mode, flywheel_core::runtime_protocol::ScopeMode::Unarmed);
+            assert!(marker.entries.is_empty());
+
+            let worktree = std::path::Path::new(&outcome.worktree_path);
+            let (code, out) = run_shipped_scope_hook(&outcome.run_id, &worktree.join("anything/at/all.rs"));
+            assert_eq!((code, out.trim()), (Some(0), "{}"), "an unarmed run is not enforced");
+        });
+    }
+
+    #[test]
+    fn clearing_the_declared_set_makes_the_next_real_run_start_unarmed() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
+            declare_set(&mut conn, &actor, &task_id, &["a/"]);
+            let first = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor).unwrap();
+            assert_eq!(
+                flywheel_core::runtime_protocol::read_scope_marker(&first.run_id).unwrap().mode,
+                flywheel_core::runtime_protocol::ScopeMode::Armed
+            );
+
+            declare_set(&mut conn, &actor, &task_id, &[]);
+            let second = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor).unwrap();
+            assert_eq!(
+                flywheel_core::runtime_protocol::read_scope_marker(&second.run_id).unwrap().mode,
+                flywheel_core::runtime_protocol::ScopeMode::Unarmed
+            );
+        });
+    }
+
+    #[test]
+    fn a_scope_marker_write_failure_aborts_the_start_and_leaves_no_running_run() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
+            declare_set(&mut conn, &actor, &task_id, &["a/"]);
+
+            // Make the runtime directory unusable: point it BENEATH a regular file, so creating
+            // `<runtime>/scope/` fails. (`with_scratch_worktree_root` restores/clears the var.)
+            let blocker = tempfile::NamedTempFile::new().unwrap();
+            let unusable = blocker.path().join("runtime");
+            // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK`, held by the enclosing helper.
+            unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", &unusable) };
+
+            let err = match start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor) {
+                Ok(_) => panic!("a run that cannot record its scope must not start"),
+                Err(e) => e,
+            };
+            assert!(err.contains("scope marker"), "{err}");
+
+            let running: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM agent_runs WHERE task_id = ?1 AND status IN ('running', 'blocked')",
+                    rusqlite::params![task_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(running, 0, "the aborted start must not leave a running run behind");
         });
     }
 }

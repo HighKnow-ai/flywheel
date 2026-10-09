@@ -13,6 +13,7 @@ pub mod authoring_proposal;
 pub mod authoring_session;
 pub mod epic;
 pub mod event;
+pub mod file_set;
 pub mod issue;
 pub mod permission_request;
 pub mod permission_rule;

@@ -31,6 +31,7 @@ import { test } from "node:test";
 
 import {
   AUTHORING_STAGE_GATE_MATCHER,
+  SCOPE_GATE_MATCHER,
   ClaudeCodeAdapter,
   stageGateHookScriptPath,
 } from "../dist/claude-code-adapter.js";
@@ -195,12 +196,12 @@ test("the second matcher regex compiles and matches propose_task while not match
 // wrote BOTH entries for every session, including an ordinary task-execution `startSession` run —
 // this test used to assert that exact bug ("exactly two PreToolUse entries") as if it were the
 // correct shape. It is corrected here to assert the fix: an execution run now gets exactly ONE
-// entry (no `AUTHORING_STAGE_GATE_MATCHER`), because `propose_item`'s shared `propose_` prefix
+// Bash entry (no `AUTHORING_STAGE_GATE_MATCHER`; plan 09-01 later added the scope entry beside it), because `propose_item`'s shared `propose_` prefix
 // would otherwise be denied by the authoring stage gate before its own MCP handler is ever
 // reached. `execution-hook-settings.test.mjs` (plan 06-01) unit-tests `writeHookSettings` directly
 // for both the `false` and `true` branches; this integration-level test proves the SAME shape via
 // a real `startSession` spawn, mirroring this file's own established harness.
-test("an execution-run startSession writes exactly ONE PreToolUse entry, byte-identical to the pre-existing Bash entry", async () => {
+test("an execution-run startSession writes the Bash entry byte-identical to before plus the scope entry, and NO authoring stage gate", async () => {
   process.env.FLYWHEEL_CLAUDE_BIN = FAKE_CLAUDE;
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-stagegate-settings-"));
   const adapter = new ClaudeCodeAdapter();
@@ -217,7 +218,13 @@ test("an execution-run startSession writes exactly ONE PreToolUse entry, byte-id
   const settingsPath = path.join(runtimeDir, "settings", "run-settings-shape-test.json");
   const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
   const entries = settings.hooks.PreToolUse;
-  assert.equal(entries.length, 1, "expected exactly one PreToolUse entry for an execution run");
+  // Plan 09-01 (D-151): an execution run is now ALSO scope-gated, so the array holds the Bash entry
+  // and the scope entry — still no authoring stage-gate entry.
+  assert.equal(entries.length, 2, "expected the Bash entry plus the scope entry for an execution run");
+  assert.deepEqual(entries[1], {
+    matcher: SCOPE_GATE_MATCHER,
+    hooks: [{ type: "command", command: `${process.execPath} ${path.join(__dirname, "..", "dist", "scope-hook.js")}` }],
+  });
   assert.deepEqual(entries[0], {
     matcher: "Bash",
     hooks: [{ type: "command", command: `${process.execPath} ${path.join(__dirname, "..", "dist", "pretooluse-hook.js")}` }],

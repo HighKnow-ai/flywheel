@@ -124,6 +124,15 @@
 //! `docs/destructive-gate-trust-boundary.md`** (D-62 item 3) — read it before changing this file's
 //! dispatch or classification behaviour.
 
+//! **`--scope-check <marker-path> <absolute-target-path>` (plan 09-01, D-151):** checked BEFORE the
+//! `argv[0]`-stem dispatch, alongside the other argv modes. The run-time half of PLAN-04: the Node
+//! scope hook (`packages/sidecar/src/scope-hook.ts`) shells here once per matched file-tool call so
+//! the containment predicate has exactly ONE implementation (`flywheel_core::file_set`), shared with
+//! every plan-time check. Prints one JSON line — `{"decision":"unarmed"}`, `{"decision":"allow"}`,
+//! or `{"decision":"deny","entries":[..],"relative":"..","outsideWorktree":bool}` — and exits 0 for
+//! every decision; it exits non-zero only when its arguments are absent or the marker cannot be
+//! read, which the hook treats as a deny. Never opens a socket, never writes a file, never execs.
+//!
 use std::env;
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
@@ -167,6 +176,9 @@ fn main() -> ExitCode {
     }
     if args.get(1).and_then(|a| a.to_str()) == Some("--gate-push") {
         return run_gate_push(&args[2..]);
+    }
+    if args.get(1).and_then(|a| a.to_str()) == Some("--scope-check") {
+        return run_scope_check(&args[2..]);
     }
 
     let invoked_stem = args
@@ -400,6 +412,121 @@ fn run_gate_push(args: &[OsString]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Resolve `target` to the path a write to it would actually land on, without requiring it to
+/// exist (a `Write` usually creates the file). The longest EXISTING prefix is canonicalised by the
+/// operating system — so a symlink anywhere in it, and any `..` that follows one, resolve exactly
+/// as the kernel resolves them — and the non-existent tail is applied lexically (a directory that
+/// does not exist cannot be a symlink). `Err` for anything that cannot be resolved with certainty:
+/// a dangling symlink, a non-directory in the middle of the path, an unreadable component. The
+/// caller denies on `Err`.
+fn resolve_scope_target(target: &Path) -> Result<PathBuf, String> {
+    use std::path::Component;
+
+    let components: Vec<Component> = target.components().collect();
+    let mut split = components.len();
+    let canonical = loop {
+        let prefix: PathBuf = components[..split].iter().collect();
+        match fs::canonicalize(&prefix) {
+            Ok(canonical) => break canonical,
+            Err(err) => {
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    return Err(format!("cannot resolve {prefix:?}: {err}"));
+                }
+                // NotFound for a path that IS present means a dangling symlink: where a write
+                // through it lands cannot be established, so it is not "a path that does not exist".
+                if fs::symlink_metadata(&prefix).is_ok() {
+                    return Err(format!("{prefix:?} is a dangling symlink"));
+                }
+                if split == 0 {
+                    return Err(format!("no component of {target:?} exists"));
+                }
+                split -= 1;
+            }
+        }
+    };
+
+    let mut resolved = canonical;
+    for component in &components[split..] {
+        match component {
+            Component::Normal(part) => resolved.push(part),
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    Ok(resolved)
+}
+
+/// `--scope-check <marker-path> <absolute-target-path>` (plan 09-01, D-151): see this file's module
+/// doc. The decision is the stdout line, never the exit code — the exit code is non-zero only when
+/// the two arguments are absent or the marker cannot be read, and the hook treats that as a deny.
+///
+/// Containment is `flywheel_core::file_set::covers`, called once below; this function re-derives
+/// nothing. What it adds is path resolution: the marker's `worktree_root` is already canonical, the
+/// target is resolved by [`resolve_scope_target`] (symlinks and `..` included), and a target that
+/// does not live under the root is a deny with `outsideWorktree` true.
+fn run_scope_check(args: &[OsString]) -> ExitCode {
+    let (Some(marker_arg), Some(target_arg)) = (args.first(), args.get(1)) else {
+        eprintln!("flywheel-shim: --scope-check requires <marker-path> <absolute-target-path>");
+        return ExitCode::FAILURE;
+    };
+    let Some(marker) = flywheel_core::runtime_protocol::read_scope_marker_at(Path::new(marker_arg))
+    else {
+        eprintln!("flywheel-shim: --scope-check could not read a valid scope marker at {marker_arg:?}");
+        return ExitCode::FAILURE;
+    };
+
+    if marker.mode == flywheel_core::runtime_protocol::ScopeMode::Unarmed {
+        println!("{}", serde_json::json!({ "decision": "unarmed" }));
+        return ExitCode::SUCCESS;
+    }
+
+    let Some(entries) = marker.parsed_entries() else {
+        eprintln!("flywheel-shim: --scope-check found an unreadable entry in the scope marker");
+        return ExitCode::FAILURE;
+    };
+    let entry_strings: Vec<&str> = marker.entries.iter().map(|e| e.path.as_str()).collect();
+    let deny = |relative: &str, outside_worktree: bool| {
+        println!(
+            "{}",
+            serde_json::json!({
+                "decision": "deny",
+                "entries": entry_strings,
+                "relative": relative,
+                "outsideWorktree": outside_worktree,
+            })
+        );
+        ExitCode::SUCCESS
+    };
+
+    let target = Path::new(target_arg);
+    if !target.is_absolute() {
+        return deny(&target.to_string_lossy(), true);
+    }
+    let resolved = match resolve_scope_target(target) {
+        Ok(resolved) => resolved,
+        Err(why) => {
+            eprintln!("flywheel-shim: --scope-check: {why}");
+            return deny(&target.to_string_lossy(), true);
+        }
+    };
+    let Ok(under_root) = resolved.strip_prefix(&marker.worktree_root) else {
+        return deny(&resolved.to_string_lossy(), true);
+    };
+    // The shim is unix-only (it speaks to the permission socket over a `UnixStream`), so a path
+    // already uses `/` separators and needs no rewriting before it meets a `file_set` entry.
+    let Some(relative) = under_root.to_str().map(str::to_owned) else {
+        return deny(&resolved.to_string_lossy(), false);
+    };
+
+    if entries.iter().any(|e| flywheel_core::file_set::covers(e, &relative, marker.case_insensitive)) {
+        println!("{}", serde_json::json!({ "decision": "allow" }));
+        return ExitCode::SUCCESS;
+    }
+    deny(&relative, false)
 }
 
 fn run_git(forwarded_args: &[OsString]) -> ExitCode {

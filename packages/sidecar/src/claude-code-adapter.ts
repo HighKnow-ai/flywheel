@@ -116,6 +116,13 @@ export function stageGateHookScriptPath(): string {
   return fileURLToPath(new URL("./stage-gate-hook.js", import.meta.url));
 }
 
+/** The compiled standalone file-set scope hook script's absolute path (D-151, plan 09-01) —
+ * resolved relative to THIS compiled module's own location, the same sibling-file idiom
+ * [`pretoolUseHookScriptPath`]/[`stageGateHookScriptPath`] already use. */
+export function scopeHookScriptPath(): string {
+  return fileURLToPath(new URL("./scope-hook.js", import.meta.url));
+}
+
 /** The compiled standalone `SessionStart` hook script's absolute path (phase 12, plan 12-03) —
  * resolved relative to THIS compiled module's own location, the same sibling-file idiom
  * [`pretoolUseHookScriptPath`]/[`stageGateHookScriptPath`] already use. RED-phase stub: the
@@ -162,6 +169,16 @@ function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
  * rather than asserting on the literal string alone. */
 export const AUTHORING_STAGE_GATE_MATCHER = `mcp__${MCP_SERVER_NAME}__(propose|amend|delete)_.*`;
 
+/** D-151 (plan 09-01): the third `PreToolUse` matcher — every file-writing tool, by name. ONE
+ * constant (single-list discipline). `MultiEdit` is absent from the installed CLI's tool list at the
+ * time of writing (09-RESEARCH.md M5) but the list varies by CLI version, so the name stays in the
+ * regex defensively: matching a tool that does not exist costs nothing, missing one that does is a
+ * hole. Reads are deliberately NOT matched — reading outside the declared set is how an agent
+ * understands the code it is changing. `Bash` is not matched either: a write made through it is
+ * outside this gate and is covered by the detective backstop, not by this entry. Exported so
+ * `execution-hook-settings.test.mjs` can compile it as a real `RegExp`. */
+export const SCOPE_GATE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit";
+
 /** Write `<runtimeDir>/settings/<runId>.json` — the exact `PreToolUse`/`matcher: "Bash"` shape
  * RESEARCH.md confirmed working live against the real `claude` binary this session (§ "The hook
  * mechanism verified working this session"), EXTENDED (plan 05-03, D-88) with a SECOND
@@ -187,6 +204,12 @@ export const AUTHORING_STAGE_GATE_MATCHER = `mcp__${MCP_SERVER_NAME}__(propose|a
  * D-90's own restriction that the sidecar must never reach the human-only stage-advance path).
  * Exported so `execution-hook-settings.test.mjs` can drive both branches directly.
  *
+ * `includeScopeGate` (phase 09, plan 09-01, D-151): appends a THIRD `PreToolUse` entry on
+ * `SCOPE_GATE_MATCHER` that wires `scope-hook.ts`. Defaults to `false`, so a caller that does not
+ * pass it — and every existing call in the test suite — gets the one-entry or two-entry array
+ * byte-identical to before this plan; the `SessionStart` entry is untouched in every branch. The
+ * execution-session path passes `true`; the authoring-session path passes `false`.
+ *
  * A write failure here degrades to "no hook injected for this session" (logged, never thrown) —
  * unchanged for `startSession` (the shim, D-51/D-58, is that path's load-bearing guarantee, so a
  * settings-write failure must not refuse an entire task-execution session over this
@@ -198,6 +221,7 @@ export function writeHookSettings(
   runtimeDir: string,
   runId: string,
   includeAuthoringStageGate: boolean,
+  includeScopeGate: boolean = false,
 ): string | undefined {
   try {
     const settingsPath = permissionSettingsPath(runtimeDir, runId);
@@ -212,6 +236,16 @@ export function writeHookSettings(
       preToolUse.push({
         matcher: AUTHORING_STAGE_GATE_MATCHER,
         hooks: [{ type: "command", command: `${process.execPath} ${stageGateHookScriptPath()}` }],
+      });
+    }
+    // D-151 (plan 09-01): the file-set scope gate. Execution runs only — an authoring run has no
+    // task and therefore no declared file-set. Deliberately NO `timeout` field on this entry: a
+    // timed-out `PreToolUse` hook does not block the call, so a short timeout would be a silent
+    // bypass (09-RESEARCH.md Pattern 3); the hook keeps its own work bounded instead.
+    if (includeScopeGate) {
+      preToolUse.push({
+        matcher: SCOPE_GATE_MATCHER,
+        hooks: [{ type: "command", command: `${process.execPath} ${scopeHookScriptPath()}` }],
       });
     }
     const settings = {
@@ -1270,8 +1304,11 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // this session" (writeHookSettings's own doc comment), never a refused spawn.
     // Plan 06-01 (`06-RESEARCH.md` Pitfall 1): `false` — an execution run is never stage-gated,
     // see `writeHookSettings`'s own doc comment for why.
+    // Plan 09-01 (D-151): the fourth argument is `true` — an execution run IS scope-gated. The Rust
+    // core writes the run's scope marker (armed or unarmed) before this spawn; an unarmed marker
+    // makes the hook a no-op, so a task with no declared file-set runs exactly as it did before.
     const settingsPath = env.FLYWHEEL_RUNTIME_DIR
-      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, false)
+      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, false, true)
       : undefined;
 
     const mcpConfig = JSON.stringify({
@@ -1517,7 +1554,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // Plan 06-01 (`06-RESEARCH.md` Pitfall 1): `true` — an authoring run keeps the stage gate,
     // byte-identical to before this plan.
     const settingsPath = env.FLYWHEEL_RUNTIME_DIR
-      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, true)
+      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, true, false)
       : undefined;
 
     const mcpConfig = JSON.stringify({
