@@ -10,7 +10,7 @@
  * and the command palette — never an inline settings-adjacent affordance on the board or the
  * launch sheet.
  *
- * Five sections, top to bottom:
+ * Six sections, top to bottom:
  * 1. **Credential path** — a global two-value segmented control (`Local Claude Code Credentials`
  *    default / `API Key`), the write-only Keychain-backed key field (only revealed while the
  *    global mode is `api_key`), and the non-blocking backend-unavailable notice.
@@ -31,7 +31,10 @@
  *    pre-filled with their current (stored-or-default) value and saved on blur/Enter, following
  *    this file's own "every field commits on interaction" discipline. A rejected save (an empty
  *    or whitespace-only template) surfaces the core's own rejection text rather than storing it.
- * 5. **Permission rules** (D-38) — `PermissionRulesTable.tsx`, mounted by plan 02-10 Task 2.
+ * 5. **Parallel agents** (D-159, phase 09 plan 09-04) — one native select over 1 to 8 for the
+ *    global cap on concurrent agent sessions, with the live occupied-slot count beside it. The
+ *    cap gates the dispatcher's own spawns only; no verdict is computed in the renderer.
+ * 6. **Permission rules** (D-38) — `PermissionRulesTable.tsx`, mounted by plan 02-10 Task 2.
  *
  * `T-02-40`'s mitigation lives here structurally: the API key input is always `type="password"`,
  * there is no unmask affordance anywhere in this file (Task 1's own structural `<verify>` grep
@@ -47,6 +50,7 @@ import {
   projectForgeOverrides,
   setCredentialMode,
   setOpenCommandTemplate,
+  settingsSetDispatchMaxParallel,
   settingsSetProjectForge,
   storeApiKey,
   type ProjectForge,
@@ -339,6 +343,59 @@ function OpenCommandTemplateField({ surface, label }: { surface: WorktreeOpenSur
   );
 }
 
+/** The cap's closed range (D-159, `domain/settings.rs`) as a list the select renders — an
+ * out-of-range value is unreachable from the UI rather than merely rejected by the command. */
+const PARALLEL_CAP_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+
+/**
+ * The global parallel-agent cap (PLAN-06, D-159): one number for concurrent agent sessions across
+ * every project, shown beside how many slots are in use right now. Controlled by the stored value
+ * so a refused set snaps back by construction; the error text is the command's own. The cap gates
+ * the dispatcher's spawns only — a launch the user starts is never refused by it.
+ */
+function ParallelCapControl({ settings }: { settings: SettingsDto }) {
+  const queryClient = useQueryClient();
+  const setCapMutation = useMutation({
+    mutationFn: (value: number) => settingsSetDispatchMaxParallel(value),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY }),
+  });
+  const { maxParallel, occupiedSlots } = settings.dispatchCap;
+  const error = setCapMutation.error;
+  const errorText =
+    typeof error === "string" ? error : error instanceof Error ? error.message : "Could not save the cap.";
+
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+        <select
+          aria-label="Parallel agent sessions"
+          value={maxParallel}
+          disabled={setCapMutation.isPending}
+          onChange={(event) => setCapMutation.mutate(Number(event.target.value))}
+          className="type-body control-edge admin-field"
+        >
+          {PARALLEL_CAP_OPTIONS.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+        <span data-testid="dispatch-cap-occupancy" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          {`${occupiedSlots} of ${maxParallel} slots in use`}
+        </span>
+      </div>
+      <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        Most agent sessions the planner runs at once, across every project. Sessions you start yourself are never refused.
+      </p>
+      {setCapMutation.isError && (
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+          {errorText}
+        </p>
+      )}
+    </>
+  );
+}
+
 export interface SettingsSurfaceProps {
   onBack: () => void;
 }
@@ -494,6 +551,15 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
                 </div>
               ))}
             </div>
+          </section>
+        )}
+
+        {!loading && settings && (
+          <section className="admin-section">
+            <span className="type-body admin-section-label">
+              Parallel Agents
+            </span>
+            <ParallelCapControl settings={settings} />
           </section>
         )}
 

@@ -81,6 +81,7 @@ function settingsFixture(overrides: Partial<SettingsDto> = {}): SettingsDto {
     projectOverrides: [],
     apiKeyConfigured: false,
     apiKeyConfiguredAt: null,
+    dispatchCap: { maxParallel: 3, occupiedSlots: 0 },
     ...overrides,
   };
 }

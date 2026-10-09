@@ -786,6 +786,26 @@ export interface SettingsDto {
   projectOverrides: ProjectCredentialOverrideDto[];
   apiKeyConfigured: boolean;
   apiKeyConfiguredAt: string | null;
+  dispatchCap: DispatchCapDto;
+}
+
+/**
+ * The global parallel-agent cap beside the number of agent slots in use right now (Phase 9 plan
+ * 09-04, D-159) — mirrors `commands/settings.rs`'s `DispatchCapDto` field-for-field. The occupied
+ * count is read from the database, so it includes every project and every run kind.
+ */
+export interface DispatchCapDto {
+  maxParallel: number;
+  occupiedSlots: number;
+}
+
+/**
+ * Set the global cap on concurrently running agent sessions (1 to 8). Human-only. It gates the
+ * dispatcher's own spawns only and never a user's own launch. Thin typed wrapper over
+ * `settings_set_dispatch_max_parallel`.
+ */
+export async function settingsSetDispatchMaxParallel(value: number): Promise<DispatchCapDto> {
+  return invokeCommand<DispatchCapDto>("settings_set_dispatch_max_parallel", { value });
 }
 
 /**

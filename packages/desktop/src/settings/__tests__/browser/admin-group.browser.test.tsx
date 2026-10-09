@@ -111,6 +111,7 @@ vi.mock("../../../adapters/tauri", async (importOriginal) => {
         projectOverrides: [{ projectId: PROJECT.id, projectName: PROJECT.name, credentialMode: null }],
         apiKeyConfigured: false,
         apiKeyConfiguredAt: null,
+        dispatchCap: { maxParallel: 3, occupiedSlots: 0 },
       }),
     backendCapabilityProbe: () => Promise.resolve({ available: true, version: "2.1.0", apiKeyPathUsable: true }),
     projectForgeOverrides: () => Promise.resolve([{ projectId: PROJECT.id, projectName: PROJECT.name, forge: null }]),
