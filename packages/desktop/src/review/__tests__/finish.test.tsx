@@ -176,3 +176,20 @@ describe("no ring is driven by a prop", () => {
     expect(selected).toMatch(/border-left-color:\s*var\(--selection-rule\)/);
   });
 });
+
+describe("the brand rule holds across the review surface", () => {
+  it("spends no brand colour anywhere in review.css", () => {
+    // D-12 permits the brand in four places and none of them is this surface. The last offender was
+    // `.review-anchor-widget`, which drew a 2px `--accent-text-rack` left border — a fifth brand site
+    // AND a coloured side stripe at the weight A-06 reserves for the selection rule.
+    const offenders = code(css)
+      .split("\n")
+      .map((line, i) => [i + 1, line] as const)
+      .filter(([, line]) => /var\(--accent/.test(line));
+    expect(offenders, "review.css must spend no --accent role").toEqual([]);
+  });
+
+  it("draws the anchor badge's edge in ink, not the brand", () => {
+    expect(rule(".review-anchor-widget")).toMatch(/border-left:\s*2px solid var\(--text-primary-rack\)/);
+  });
+});

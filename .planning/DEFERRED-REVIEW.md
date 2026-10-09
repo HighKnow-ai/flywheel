@@ -672,3 +672,13 @@ At Phase 11, with an installed, usable build:
     deliberately and not inherited.
   risk_if_wrong: "Low: the selection treatment changes (A-06 offered a 1px rule, an inset bar and a background-only shift), at the cost of the focus clause, which the rule carries because the two selected surfaces are 1.03 apart."
   automatable: "No. The perceptibility of the rule (focused against unfocused, 4.06 / 4.23; both 3:1 on every surface) is already asserted; whether it offends the floor is a judgement."
+
+  **RESOLVED 2026-10-09 by the orchestrator, during the phase close.** Confirmed: it was the only
+  `--accent` in `review.css`, and a double violation — a fifth brand site outside D-12's four
+  permitted uses, drawn as a 2px coloured side stripe, which is simultaneously the weight A-06
+  reserves for the selection rule and the shape `craft-floor.md`'s `skill-ban-side-stripe-borders`
+  bans. The badge marks board text beside a diff; it is not a cursor. Now
+  `border-left: 2px solid var(--text-primary-rack)`. Two guards added to
+  `review/__tests__/finish.test.tsx`: one asserts `review.css` spends no `--accent` role at all
+  (reporting the offending line numbers), one pins the badge's ink edge. Verified by reinstating the
+  brand value: both fail, and both pass once reverted.
