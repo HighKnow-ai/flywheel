@@ -202,6 +202,16 @@ export const MARKS: Mark[] = [
     meaning:
       "The thin strip beside an epic's progress: its tasks split by status, one segment per status that has any, widest where there are most. The counts are printed under it.",
   },
+  // Phase 9 plan 09-09: the running fan-out's position, on the epic row.
+  {
+    id: "epic-dispatch-wave",
+    channel: "epic",
+    glyph: "Layers",
+    label: "Fan-out wave",
+    meaning:
+      "This epic has a plan running. The wave is the group of tasks being started now; the next wave starts when every task in this one is merged. Tasks in a wave start together only where their declared files do not overlap. A count of stuck tasks beside it names tasks that are holding the wave until you act.",
+    sample: { text: "2/3", glyph: true },
+  },
   // Acceptance-criteria marks (BOARD-02, D-05/D-06/D-08). The checked/total badge is
   // structurally exempt from the row's progressive-disclosure ladder (01-UI-SPEC.md "Row
   // Anatomy") — D-08 requires it "visible wherever the item appears."

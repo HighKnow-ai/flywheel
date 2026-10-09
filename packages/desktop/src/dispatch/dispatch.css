@@ -121,3 +121,39 @@
   border-top: 1px solid var(--divider);
   flex-shrink: 0;
 }
+
+/* --- The epic row's dispatch cell ------------------------------------------------------------- */
+
+.epic-dispatch {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.epic-dispatch-line {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-sm);
+  color: var(--text-muted-rack);
+}
+
+.epic-dispatch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.epic-dispatch-btn {
+  background: transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  padding: 0 var(--space-sm);
+  line-height: 18px;
+}
+
+.epic-dispatch-error {
+  color: var(--destructive-text-rack);
+}

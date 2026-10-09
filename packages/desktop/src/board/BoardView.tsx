@@ -1210,6 +1210,7 @@ export function BoardView({
                       row.id && proposalsQuery.data ? (pendingProposalCountByEpicId[row.id] ?? 0) : undefined
                     }
                     change={changeByEpicId.get(row.id)}
+                    showDispatch={row.id !== null}
                     collapsed={collapsedByStatus[key] ?? true}
                     selected={epicItemId !== undefined && epicItemId === selectedId}
                     focused={epicItemId !== undefined && epicItemId === selectedId && listFocused}

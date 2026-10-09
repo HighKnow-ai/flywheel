@@ -23,6 +23,7 @@ import type { CSSProperties } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
 import { Icon } from "./BoardRow";
+import { EpicDispatchControls } from "../dispatch/EpicDispatchControls";
 import type { ChangeFlagDto, EpicProgressDto } from "../adapters/tauri";
 
 /** Display order of the distribution strip: finished work first, so the strip reads as a fill. */
@@ -88,6 +89,9 @@ export interface EpicHeaderRowProps {
   collapsed: boolean;
   selected?: boolean;
   focused?: boolean;
+  /** Plan 09-09: show the epic's dispatch controls (plan a fan-out, review it, pause or stop it). Off
+   * by default so a bare row stays a pure function of its props; the board turns it on. */
+  showDispatch?: boolean;
   onToggleCollapsed: () => void;
   onSelect?: () => void;
   onOpenDetail?: () => void;
@@ -105,6 +109,7 @@ export function EpicHeaderRow({
   collapsed,
   selected = false,
   focused = false,
+  showDispatch = false,
   onToggleCollapsed,
   onSelect,
   onOpenDetail,
@@ -333,6 +338,10 @@ export function EpicHeaderRow({
           </span>
         )}
       </div>
+
+      {/* The last field, so the ladder sheds it first: a SIGNAL (agents, proposals, change) never goes,
+          this is the one place a fan-out is started, which is a field. */}
+      {showDispatch && epicId !== null ? <EpicDispatchControls epicId={epicId} /> : <div className="field-epic-dispatch" />}
     </div>
   );
 }
