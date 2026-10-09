@@ -1078,7 +1078,7 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: 2/9 plans executed in 7 waves
+**Plans**: 3/9 plans executed in 7 waves
 
 Plans:
 
@@ -1089,7 +1089,7 @@ Plans:
 **Wave 2** *(09-02 and 09-03 share no file: the first is the hook-notice/event/backstop path, the second is the pure overlap and plan-table core)*
 
 - [x] 09-02-PLAN.md — The refusal is a scope event the board carries: the `scope_denied` notice end to end, plus the close-time detective backstop that covers the writes the file-tool matcher structurally cannot see (PLAN-05)
-- [ ] 09-03-PLAN.md — Overlap algebra, waves, ordering edges and the "why": `overlaps`/`collisions`, `dispatch.rs`'s pure wave and edge computation, and the approval transaction that freezes what was acted on (PLAN-02, PLAN-03, PLAN-07)
+- [x] 09-03-PLAN.md — Overlap algebra, waves, ordering edges and the "why": `overlaps`/`collisions`, `dispatch.rs`'s pure wave and edge computation, and the approval transaction that freezes what was acted on (PLAN-02, PLAN-03, PLAN-07)
 
 **Wave 3** *(blocked on 09-03 — reads `occupied_slots`; and on 09-01 for the command roster)*
 
@@ -1224,7 +1224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
-| 9. Planned Fan-Out That Does Not Collide | 2/9 | In Progress|  |
+| 9. Planned Fan-Out That Does Not Collide | 3/9 | In Progress|  |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
