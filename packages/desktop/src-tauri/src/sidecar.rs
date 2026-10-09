@@ -932,6 +932,48 @@ fn handle_inbound_git_lock_exhausted(app: &AppHandle, event: &serde_json::Value)
     }
 }
 
+/// AGNT-05 (phase 09 plan 09-05): the DB-only half of a rate-limit signal — reads the normalised tier
+/// the adapter seam attached (never backend wire text), applies it to the dispatch gate and, on a state
+/// change, appends one event to the triggering run's project stream. Returns the change, or `None` for
+/// an event that carries no usable signal. Split from [`handle_inbound_rate_limit`] so it is testable
+/// without an `AppHandle`. It touches no agent run: a limit pauses new dispatch only.
+fn process_inbound_rate_limit(
+    conn: &mut rusqlite::Connection,
+    event: &serde_json::Value,
+    now_epoch_secs: i64,
+) -> anyhow::Result<Option<flywheel_core::limit_gate::GateChange>> {
+    let (Some(run_id), Some(signal)) = (
+        event.get("runId").and_then(|v| v.as_str()),
+        flywheel_core::limit_gate::LimitSignal::from_event(event),
+    ) else {
+        return Ok(None);
+    };
+    flywheel_core::limit_gate::apply_rate_limit_signal_for_run(conn, run_id, &signal, now_epoch_secs).map(Some)
+}
+
+/// The Tauri-facing half of a rate-limit signal. A failure is logged and dropped: never a panic, never
+/// an early return out of the shared reader loop (CR-03), and the live `agent:event` was already emitted.
+fn handle_inbound_rate_limit(app: &AppHandle, event: &serde_json::Value) {
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return;
+    };
+    let Ok(mut conn) = state.db.lock() else {
+        return;
+    };
+    let result = process_inbound_rate_limit(&mut conn, event, chrono::Utc::now().timestamp());
+    drop(conn);
+    match result {
+        Ok(Some(change)) if change.changed => {
+            let _ = app.emit(
+                "dispatch:gate_changed",
+                serde_json::json!({ "state": change.after, "message": change.after.message() }),
+            );
+        }
+        Ok(_) => {}
+        Err(err) => eprintln!("failed to apply a rate-limit signal: {err:#}"),
+    }
+}
+
 /// PLAN-05 (phase 09 plan 09-02): the DB-only half of a `scope_denied` event — parses the sidecar's
 /// event line and appends one `task.scope_denied` row through
 /// `flywheel_core::domain::file_set::record_scope_denied`. The run's task, epic, project and agent
@@ -1803,6 +1845,16 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                 handle_inbound_scope_denied(&app_for_reader, &event);
                             }
 
+                            // AGNT-05 (plan 09-05): the adapter seam's normalised limit tier — on a
+                            // `rate_limit` event, or on an assistant message whose backend error named a
+                            // limit. Gates NEW dispatch only; no running session is touched. Placed AFTER
+                            // the `agent:event` emit like every inbound branch.
+                            if event.get("type").and_then(|v| v.as_str()) == Some("rate_limit")
+                                || event.get("rateLimitTier").is_some()
+                            {
+                                handle_inbound_rate_limit(&app_for_reader, &event);
+                            }
+
                             // D-64/D-65 (plan 04-06): the agent's own `report_summary` tool call,
                             // relayed here as a `summary_reported` event. Sits AFTER both the
                             // `agent:event` emit and the `session_closed` branch above, for the
@@ -1899,7 +1951,7 @@ mod scope_denied_tests {
 
     /// A migrated database with one task and one `running` agent run, returned as
     /// `(conn, task_id, run_id, agent_actor_id)`.
-    fn seeded_run() -> (rusqlite::Connection, String, String, String) {
+    pub(super) fn seeded_run() -> (rusqlite::Connection, String, String, String) {
         let dir = tempfile::tempdir().expect("scratch dir");
         let mut conn = flywheel_core::db::open_and_migrate(&dir.path().join("f.db"), &dir.path().join("backups"))
             .expect("open_and_migrate");
@@ -1995,5 +2047,62 @@ mod scope_denied_tests {
             assert_eq!(process_inbound_scope_denied(&mut conn, &event).unwrap(), None);
         }
         assert!(rows(&conn, &task_id).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod rate_limit_tests {
+    use super::scope_denied_tests::seeded_run;
+    use super::*;
+
+    const NOW: i64 = 1_791_000_000;
+
+    #[test]
+    fn a_rejected_tier_pauses_the_gate_appends_one_event_and_leaves_the_run_running() {
+        let (mut conn, _task, run_id, _agent) = seeded_run();
+        let event = serde_json::json!({
+            "type": "rate_limit", "runId": run_id, "tier": "rejected",
+            "rateLimitType": "five_hour", "resetsAt": NOW + 600,
+        });
+        let change = process_inbound_rate_limit(&mut conn, &event, NOW).unwrap().unwrap();
+        assert!(change.changed);
+        assert!(!flywheel_core::limit_gate::read_gate(&conn, NOW).unwrap().is_open());
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'dispatch.gate_changed'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1);
+        // The same signal again changes nothing and appends nothing.
+        assert!(!process_inbound_rate_limit(&mut conn, &event, NOW).unwrap().unwrap().changed);
+        let status: String =
+            conn.query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |r| r.get(0)).unwrap();
+        assert_eq!(status, "running");
+    }
+
+    #[test]
+    fn an_assistant_message_carrying_the_rejected_tier_pauses_with_the_reset_unknown() {
+        let (mut conn, _task, run_id, _agent) = seeded_run();
+        let event = serde_json::json!({"type": "assistant_text", "runId": run_id, "text": "x", "rateLimitTier": "rejected"});
+        let change = process_inbound_rate_limit(&mut conn, &event, NOW).unwrap().unwrap();
+        assert!(change.after.message().contains("reset time is unknown"));
+    }
+
+    #[test]
+    fn an_event_with_no_usable_signal_changes_nothing() {
+        let (mut conn, _task, run_id, _agent) = seeded_run();
+        for event in [
+            serde_json::json!({"type": "rate_limit", "runId": run_id}),
+            serde_json::json!({"type": "rate_limit", "tier": "rejected"}),
+        ] {
+            assert!(process_inbound_rate_limit(&mut conn, &event, NOW).unwrap().is_none());
+        }
+        assert!(flywheel_core::limit_gate::read_gate(&conn, NOW).unwrap().is_open());
+    }
+
+    #[test]
+    fn a_database_failure_is_an_error_value_not_a_panic() {
+        let (mut conn, _task, run_id, _agent) = seeded_run();
+        conn.execute_batch("DROP TABLE settings").unwrap();
+        let event = serde_json::json!({"type": "rate_limit", "runId": run_id, "tier": "rejected"});
+        assert!(process_inbound_rate_limit(&mut conn, &event, NOW).is_err());
     }
 }

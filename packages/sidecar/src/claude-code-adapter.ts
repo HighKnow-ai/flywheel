@@ -579,9 +579,25 @@ type ClaudeStreamEvent =
   | ClaudeStreamRateLimit
   | Record<string, unknown>;
 
-/** Plan 09-05 (AGNT-05): STUB for the RED step — inert on purpose. */
-export function rateLimitTier(_status: unknown): RateLimitTier | undefined {
-  return undefined;
+/**
+ * Plan 09-05 (AGNT-05): the normalised tier for a `rate_limit_info.status` value, or `undefined` for
+ * anything else. An exact match on the TOP-LEVEL status and nothing more: the one real `allowed` event
+ * this project holds carries an overage status of `rejected`, so matching that word anywhere on the
+ * object would pause dispatch on every response for an account that merely has overage disabled.
+ * The `rejected` value is from the documented shape and has never been observed live. An unrecognised
+ * status yields no tier, never a guess in either direction.
+ */
+export function rateLimitTier(status: unknown): RateLimitTier | undefined {
+  switch (status) {
+    case "allowed":
+      return "open";
+    case "allowed_warning":
+      return "warning";
+    case "rejected":
+      return "rejected";
+    default:
+      return undefined;
+  }
 }
 
 /** Read one optional numeric field out of a usage-shaped object, returning `undefined` for a
@@ -933,6 +949,9 @@ export function normaliseStreamEvent(
           ? { isApiErrorMessage: envelope.is_api_error_message }
           : {}),
         ...(typeof envelope.error === "string" && envelope.error.length > 0 ? { errorCode: envelope.error } : {}),
+        // Plan 09-05: a documented value of the backend's error enum; a hard limit may surface here
+        // instead of as a rate-limit event. Same normalised tier, so the supervisor reads one field.
+        ...(envelope.error === "rate_limit" ? { rateLimitTier: "rejected" as const } : {}),
       };
     }
 
@@ -1004,6 +1023,8 @@ export function normaliseStreamEvent(
       ...(typeof info?.surpassedThreshold === "number" ? { surpassedThreshold: info.surpassedThreshold } : {}),
       ...(typeof info?.resetsAt === "number" ? { resetsAt: info.resetsAt } : {}),
       ...(typeof info?.isUsingOverage === "boolean" ? { isUsingOverage: info.isUsingOverage } : {}),
+      // Plan 09-05: derived from the top-level status alone (see rateLimitTier).
+      ...(rateLimitTier(info?.status) ? { tier: rateLimitTier(info?.status) } : {}),
     };
   }
 

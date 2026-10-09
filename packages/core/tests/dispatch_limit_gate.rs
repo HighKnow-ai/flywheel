@@ -144,7 +144,8 @@ fn fifty_identical_signals_write_the_gate_row_exactly_once() {
         stamps.insert(gate_row_updated_at(&conn));
     }
     assert_eq!(changes, 1);
-    assert_eq!(stamps.len(), 2, "absent before the first write, one timestamp after, never another");
+    assert_eq!(stamps.len(), 1, "one timestamp across all fifty, so the row was written once");
+    assert!(stamps.iter().next().unwrap().is_some());
 }
 
 #[test]
