@@ -788,3 +788,96 @@ fn no_dispatch_handler_accepts_an_actor_a_branch_a_ref_a_sha_or_a_path() {
     }
     assert!(handlers >= 11, "expected the whole command roster, found {handlers}");
 }
+
+// ===== 09 review CR-02: a task with no declared set runs alone (D-150) ==========================
+
+#[test]
+fn undeclared_tasks_in_one_wave_are_never_spawned_together() {
+    let fx = fx();
+    let a = fx.task("A", &[], w("a.txt"));
+    let b = fx.task("B", &[], w("b.txt"));
+    let c = fx.task("C", &[], w("c.txt"));
+    let plan = fx.plan(&[(&a, 1), (&b, 1), (&c, 1)]);
+
+    assert_eq!(spawns(&fx.actions()), vec![a.as_str()], "no declaration, no disjointness claim: one at a time");
+    assert_eq!(
+        ready_tasks(&fx.conn(), &plan, &Observations::default()).unwrap(),
+        vec![a.clone()],
+        "the second reader of readiness agrees"
+    );
+}
+
+#[test]
+fn undeclared_tasks_all_complete_one_after_another_and_never_overlap() {
+    let fx = fx();
+    let a = fx.task("A", &[], w("a.txt"));
+    let b = fx.task("B", &[], w("b.txt"));
+    let plan = fx.plan(&[(&a, 1), (&b, 1)]);
+    for _ in 0..12 {
+        assert!(spawns(&fx.actions()).len() <= 1, "never two spawns in one decision");
+        fx.pass();
+    }
+    assert_eq!(fx.state(&plan, &a), "merged");
+    assert_eq!(fx.state(&plan, &b), "merged");
+}
+
+#[test]
+fn an_undeclared_task_shares_no_decision_with_a_declared_sibling() {
+    let fx = fx();
+    let u = fx.task("U", &[], w("u.txt"));
+    let d = fx.task("D", &["d/"], w("d/1"));
+    fx.plan(&[(&u, 1), (&d, 1)]);
+    // Board order puts U first: it takes the project alone, so D is held off in the same decision.
+    assert_eq!(spawns(&fx.actions()), vec![u.as_str()]);
+
+    // Reverse the order: D is first and takes the project, so U cannot start beside it.
+    let fx = self::fx();
+    let d = fx.task("D", &["d/"], w("d/1"));
+    let u = fx.task("U", &[], w("u.txt"));
+    fx.plan(&[(&d, 1), (&u, 1)]);
+    assert_eq!(spawns(&fx.actions()), vec![d.as_str()]);
+}
+
+#[test]
+fn a_live_undeclared_run_holds_every_other_task_in_the_project_off() {
+    let fx = fx();
+    let manual = create_task(&mut fx.conn(), &fx.project_id, &fx.human, "typed into QuickAdd", None).unwrap();
+    fx.launch(&manual.id); // live, unarmed, no declared set
+    let d = fx.task("D", &["d/"], w("d/1"));
+    fx.plan(&[(&d, 1)]);
+    assert!(spawns(&fx.actions()).is_empty(), "an unarmed live run is a hazard to every sibling");
+}
+
+#[test]
+fn a_live_declared_run_holds_an_undeclared_task_off_even_from_another_plan() {
+    let fx = fx();
+    let d = fx.task("D", &["d/"], w("d/1"));
+    fx.plan(&[(&d, 1)]);
+    fx.launch(&d);
+
+    // A second epic, a second plan, same project: still one project, still no shared decision.
+    let other = create_epic(&mut fx.conn(), &fx.project_id, &fx.human, "Other", None).unwrap();
+    let u = create_task(&mut fx.conn(), &fx.project_id, &fx.human, "U", Some(&other.id)).unwrap();
+    {
+        let mut conn = fx.conn();
+        let plan2 = create_plan_for_epic(&mut conn, &other.id, &fx.human).unwrap();
+        approve_and_start(&mut conn, &plan2, &fx.human).unwrap();
+    }
+    assert!(!spawns(&fx.actions()).contains(&u.id.as_str()), "no declared set: it cannot run beside a live run");
+}
+
+#[test]
+fn undeclared_tasks_of_two_plans_in_one_project_are_not_spawned_together() {
+    let fx = fx();
+    let a = fx.task("A", &[], w("a.txt"));
+    fx.plan(&[(&a, 1)]);
+    let other = create_epic(&mut fx.conn(), &fx.project_id, &fx.human, "Other", None).unwrap();
+    let b = create_task(&mut fx.conn(), &fx.project_id, &fx.human, "B", Some(&other.id)).unwrap();
+    {
+        let mut conn = fx.conn();
+        let plan2 = create_plan_for_epic(&mut conn, &other.id, &fx.human).unwrap();
+        approve_and_start(&mut conn, &plan2, &fx.human).unwrap();
+    }
+    assert_eq!(spawns(&fx.actions()), vec![a.as_str()], "the second plan's undeclared task waits for the first");
+    let _ = b;
+}
