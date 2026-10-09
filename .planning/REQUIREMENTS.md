@@ -72,7 +72,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **AGNT-02**: A Claude Code adapter drives headless sessions and normalises their event stream into the adapter's common event type
 - [x] **AGNT-03**: Agents run using the developer's existing local Claude Code credentials, with no credential ever leaving the machine
 - [x] **AGNT-04**: An explicit API-key credential path is supported as a first-class alternative to local subscription credentials
-- [ ] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
+- [x] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
 - [x] **AGNT-06**: Permission requests raised by a running agent surface to the user and block that agent until answered
 - [x] **AGNT-07**: Destructive actions (force-push, branch deletion, recursive delete) always require explicit confirmation, even when the session is running in an auto-accept permission mode
 - [ ] **AGNT-08**: The adapter reports token usage and cost per session
@@ -267,7 +267,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | AGNT-02 | Phase 2 | Complete |
 | AGNT-03 | Phase 2 | Complete |
 | AGNT-04 | Phase 2 | Complete |
-| AGNT-05 | Phase 9 | Pending |
+| AGNT-05 | Phase 9 | Complete |
 | AGNT-06 | Phase 2 | Complete |
 | AGNT-07 | Phase 3 | Complete |
 | AGNT-08 | Phase 10 | Pending |
