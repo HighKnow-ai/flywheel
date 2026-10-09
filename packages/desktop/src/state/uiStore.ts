@@ -195,6 +195,10 @@ interface UiState {
    * Work" affordance (deep inside `BoardView`'s tree) and from the board-list `start-work` action
    * id (`w`) — neither of which imports the sheet component itself. */
   launchSheetTaskId: string | null;
+  /** The epic whose wave plan sheet (plan 09-09) is open, or `null` when it is closed. Mounted once at
+   * the `App.tsx` level like the launch sheet; opened from the epic row's dispatch controls, which sit
+   * deep in `BoardView`'s tree and do not import the sheet. */
+  wavePlanSheetEpicId: string | null;
   /** D-66's authoring hand-off (plan 05-09): the epic id a Discard on an authoring run wants a
    * fresh authoring launch primed for, or `null` (not `undefined`) to distinguish "not pending" —
    * an object rather than a bare `string | null` field because a fresh-epic authoring run's own
@@ -256,6 +260,7 @@ interface UiState {
     initialLogOffset?: number | null,
   ) => void;
   setLaunchSheetTaskId: (taskId: string | null) => void;
+  setWavePlanSheetEpicId: (epicId: string | null) => void;
   /** Opens the authoring hand-off channel for `epicId` (`null` for a fresh epic) — the Discard
    * verb's own call, mirroring `setLaunchSheetTaskId`'s shape. */
   setLaunchSheetAuthoringHandoff: (epicId: string | null) => void;
@@ -291,6 +296,7 @@ export const useUiStore = create<UiState>((set) => ({
   activeAgentRunEpicId: null,
   activeAgentRunInitialLogOffset: null,
   launchSheetTaskId: null,
+  wavePlanSheetEpicId: null,
   launchSheetAuthoringHandoff: null,
   settingsOpen: false,
   triageSurfaceProjectId: null,
@@ -375,6 +381,7 @@ export const useUiStore = create<UiState>((set) => ({
       activeAgentRunInitialLogOffset: initialLogOffset,
     }),
   setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
+  setWavePlanSheetEpicId: (epicId) => set({ wavePlanSheetEpicId: epicId }),
   setLaunchSheetAuthoringHandoff: (epicId) => set({ launchSheetAuthoringHandoff: { epicId } }),
   clearLaunchSheetAuthoringHandoff: () => set({ launchSheetAuthoringHandoff: null }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
@@ -409,6 +416,7 @@ export function resetUiState() {
     activeAgentRunEpicId: null,
     activeAgentRunInitialLogOffset: null,
     launchSheetTaskId: null,
+    wavePlanSheetEpicId: null,
     launchSheetAuthoringHandoff: null,
     settingsOpen: false,
     triageSurfaceProjectId: null,

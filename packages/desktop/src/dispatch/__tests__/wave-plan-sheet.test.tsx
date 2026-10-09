@@ -86,7 +86,7 @@ async function loaded(p: DispatchPlanDto = plan(), onClose = vi.fn()) {
   whyMock.mockReset();
   const utils = renderSheet(onClose);
   await screen.findByRole("dialog", { name: "Wave plan" });
-  await screen.findByText("Parse the header");
+  await screen.findByRole("region", { name: "Wave 1" });
   return utils;
 }
 
@@ -95,9 +95,9 @@ describe("WavePlanSheet", () => {
     await loaded();
     const wave1 = screen.getByRole("region", { name: "Wave 1" });
     const wave2 = screen.getByRole("region", { name: "Wave 2" });
-    expect(within(wave1).getByText("Parse the header")).toBeInTheDocument();
-    expect(within(wave1).getByText("Render the header")).toBeInTheDocument();
-    expect(within(wave2).getByText("Write the docs")).toBeInTheDocument();
+    expect(within(wave1).getByRole("listitem", { name: "FLY-1 Parse the header" })).toBeInTheDocument();
+    expect(within(wave1).getByRole("listitem", { name: "FLY-2 Render the header" })).toBeInTheDocument();
+    expect(within(wave2).getByRole("listitem", { name: "FLY-3 Write the docs" })).toBeInTheDocument();
     expect(screen.getByLabelText("Files for FLY-2")).toHaveValue("src/a.rs\nsrc/b.rs");
     expect(screen.getByLabelText("Files for FLY-3")).toHaveValue("docs/");
   });
@@ -154,22 +154,24 @@ describe("WavePlanSheet", () => {
   });
 
   it("displays the response's pairs, not a comparison of the entries", async () => {
-    // Overlapping entries and NO edge; and an edge between two tasks whose entries do not overlap.
-    await loaded(
-      plan({
-        edges: [
-          {
-            beforeTaskId: "t1",
-            afterTaskId: "t3",
-            cause: "overlap",
-            collidingPaths: [{ before: "src/", after: "src/lib/x.rs" }],
-          },
-        ],
-      }),
-    );
-    expect(screen.queryByRole("listitem", { name: /FLY-2 waits for FLY-1/ })).toBeNull();
-    const pair = screen.getByRole("listitem", { name: /FLY-3 waits for FLY-1/ });
+    // FLY-5 shares src/b.rs with FLY-2 and the response has NO edge for them; the one edge it does
+    // carry names paths that neither task declares.
+    const p = plan({
+      edges: [
+        {
+          beforeTaskId: "t1",
+          afterTaskId: "t2",
+          cause: "overlap",
+          collidingPaths: [{ before: "src/", after: "src/lib/x.rs" }],
+        },
+      ],
+    });
+    p.tasks.push(task({ taskId: "t5", taskKey: "FLY-5", title: "Index the header", wave: 1, entries: ["src/b.rs"] }));
+    await loaded(p);
+    expect(screen.queryByRole("listitem", { name: /FLY-5 waits/ })).toBeNull();
+    const pair = screen.getByRole("listitem", { name: /FLY-2 waits for FLY-1/ });
     expect(within(pair).getByText("src/lib/x.rs")).toBeInTheDocument();
+    expect(within(pair).queryByText("src/a.rs")).toBeNull();
   });
 
   it("issues exactly one approve call and disables the action while it is in flight", async () => {

@@ -14,6 +14,7 @@ import {
   useProjects,
   type EpicSummary,
 } from "./board/useBoardQuery";
+import { WavePlanSheet } from "./dispatch/WavePlanSheet";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
@@ -137,6 +138,9 @@ function AppShell() {
   // action id (`w`) both open it purely by setting this task id (`board/BoardView.tsx`).
   const launchSheetTaskId = useUiStore((state) => state.launchSheetTaskId);
   const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
+  // Plan 09-09: the wave plan sheet, mounted once here as a peer of the launch sheet below.
+  const wavePlanSheetEpicId = useUiStore((state) => state.wavePlanSheetEpicId);
+  const setWavePlanSheetEpicId = useUiStore((state) => state.setWavePlanSheetEpicId);
   // D-91 (plan 05-10): the SAME channel `SessionSurface.tsx`'s Discard hand-off (plan 05-09)
   // already writes to — reused here as the general "open the authoring launch sheet" trigger, so
   // `continueShapingEpic` (a fresh reopen) and a post-Discard hand-off (an interrupted one) both
@@ -347,6 +351,7 @@ function AppShell() {
           clearLaunchSheetAuthoringHandoff();
         }}
       />
+      <WavePlanSheet epicId={wavePlanSheetEpicId} onClose={() => setWavePlanSheetEpicId(null)} />
       {registerNoticeNode}
     </>
   );
