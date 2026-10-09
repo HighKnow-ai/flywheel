@@ -39,6 +39,7 @@ import {
   type ActionId,
 } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
+import { groupCollapseKey, useCollapseStore } from "./collapseStore";
 import {
   continueShapingEpic,
   openLiveSessionForTask,
@@ -87,7 +88,7 @@ const TASK_ONLY_ACTION_IDS = new Set<ActionId>(["open-epic-picker"]);
 
 /** Board-list action ids that only apply to an epic, never a task (D-91, plan 05-10) — the
  * inverse of `TASK_ONLY_ACTION_IDS` above. The palette disables these when a task is selected. */
-const EPIC_ONLY_ACTION_IDS = new Set<ActionId>(["continue-shaping"]);
+const EPIC_ONLY_ACTION_IDS = new Set<ActionId>(["continue-shaping", "expand-row", "collapse-row"]);
 
 /**
  * The order the palette's sections appear in. A command carries its own `group`, but the generated list
@@ -239,6 +240,13 @@ export function CommandPalette() {
         break;
       case "open-detail":
         if (targetItemId) setDetailItemId(targetItemId);
+        break;
+      case "expand-row":
+        // A-09: the same collapse key the roster's own disclosure reads (`groupCollapseKey`).
+        if (selectedItem) useCollapseStore.getState().expand(effectiveProjectId ?? "", groupCollapseKey("epic", selectedItem.id));
+        break;
+      case "collapse-row":
+        if (selectedItem) useCollapseStore.getState().collapse(effectiveProjectId ?? "", groupCollapseKey("epic", selectedItem.id));
         break;
       case "open-status-picker":
         if (selectedItem) setOverlay("status");

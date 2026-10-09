@@ -59,6 +59,8 @@ export type ActionId =
   | "select-first"
   | "select-last"
   | "open-detail"
+  | "expand-row"
+  | "collapse-row"
   | "open-status-picker"
   | "open-priority-picker"
   | "open-estimate-picker"
@@ -172,6 +174,11 @@ export const BINDINGS: Binding[] = [
   { id: "select-last", region: "board-list", key: "End", label: "Jump to last row" },
   { id: "open-detail", region: "board-list", key: "Enter", label: "Open selected item" },
   { id: "open-detail", region: "board-list", key: "o", label: "Open selected item" },
+  // 08.1 A-09: the epic roster is the home surface and its rows start collapsed, so a keyboard user
+  // needs a way to disclose one. Tree-row grammar; neither key was bound anywhere before (checked
+  // against every region of this table and every `event.key` read in the source). Epic header rows only.
+  { id: "expand-row", region: "board-list", key: "ArrowRight", label: "Expand epic" },
+  { id: "collapse-row", region: "board-list", key: "ArrowLeft", label: "Collapse epic" },
   { id: "create-task", region: "board-list", key: "c", label: "Create Task" },
   { id: "open-status-picker", region: "board-list", key: "s", label: "Set Status" },
   { id: "open-priority-picker", region: "board-list", key: "p", label: "Set Priority" },

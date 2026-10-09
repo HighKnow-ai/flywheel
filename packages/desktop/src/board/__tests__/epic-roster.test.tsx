@@ -1171,6 +1171,36 @@ describe("epic header row (D-05, D-06)", () => {
     fireEvent.keyDown(list, { key: "j" });
     expect(useUiStore.getState().selectedItemId).toBe("epic-b");
   });
+
+  // 08.1 A-09: the roster starts collapsed, so a keyboard user needs a key to disclose a row.
+  it("expands and collapses the selected epic with Right and Left, idempotently, leaving the chevron out of the tab order", async () => {
+    renderRoster({ epics: [ALPHA], aggregate: [epicDto("epic-a", { total: 1 })] });
+    const row = await epicRow("Alpha");
+    const chevron = () => within(row).getByRole("button", { name: /(Expand|Collapse) /i });
+    const list = screen.getByRole("list", { name: "Board" });
+    fireEvent.keyDown(list, { key: "j" });
+    expect(chevron()).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.keyDown(list, { key: "ArrowRight" });
+    expect(chevron()).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(list, { key: "ArrowRight" });
+    expect(chevron()).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.keyDown(list, { key: "ArrowLeft" });
+    expect(chevron()).toHaveAttribute("aria-expanded", "false");
+    fireEvent.keyDown(list, { key: "ArrowLeft" });
+    expect(chevron()).toHaveAttribute("aria-expanded", "false");
+
+    expect(chevron()).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("does nothing on Right or Left while no epic is selected", async () => {
+    renderRoster({ epics: [ALPHA], aggregate: [epicDto("epic-a", { total: 1 })] });
+    const row = await epicRow("Alpha");
+    const list = screen.getByRole("list", { name: "Board" });
+    fireEvent.keyDown(list, { key: "ArrowRight" });
+    expect(within(row).getByRole("button", { name: /Expand /i })).toHaveAttribute("aria-expanded", "false");
+  });
 });
 
 describe("epic change roll-up (D-18)", () => {

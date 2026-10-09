@@ -364,6 +364,7 @@ export function BoardView({
     useCollapseStore((state) => state.collapsedByProject[projectId ?? ""]) ?? EMPTY_COLLAPSE;
   const toggleCollapsed = useCollapseStore((state) => state.toggle);
   const expandBand = useCollapseStore((state) => state.expand);
+  const collapseBand = useCollapseStore((state) => state.collapse);
 
   const setStatus = useSetStatus(projectId);
   const setPriority = useSetPriority(projectId);
@@ -892,6 +893,15 @@ export function BoardView({
         break;
       case "open-detail":
         if (selectedId) setDetailItemId(selectedId);
+        break;
+      case "expand-row":
+      case "collapse-row":
+        // A-09: Right/Left disclose the focused epic header. Idempotent by design (a set, not a flip),
+        // and only where an epic header row exists to be disclosed — never in the status lens.
+        if (selectedId && isRosterEpic(selectedId)) {
+          const setOpen = binding.id === "expand-row" ? expandBand : collapseBand;
+          setOpen(projectId ?? "", groupCollapseKey("epic", selectedId));
+        }
         break;
       case "create-task":
         openQuickAdd("task");

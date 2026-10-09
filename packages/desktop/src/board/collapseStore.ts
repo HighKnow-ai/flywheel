@@ -28,6 +28,9 @@ interface CollapseState {
    * already-open band on a second consecutive press — the exact bug `expand`'s idempotence
    * exists to avoid. */
   expand: (projectId: string, status: string) => void;
+  /** `expand`'s mirror: sets `status`'s collapsed value to `true` unconditionally, so a Left key
+   * pressed on an already-collapsed epic stays collapsed instead of flipping open (A-09). */
+  collapse: (projectId: string, status: string) => void;
 }
 
 export const useCollapseStore = create<CollapseState>((set, get) => ({
@@ -50,6 +53,16 @@ export const useCollapseStore = create<CollapseState>((set, get) => ({
         collapsedByProject: {
           ...state.collapsedByProject,
           [projectId]: { ...forProject, [status]: false },
+        },
+      };
+    }),
+  collapse: (projectId, status) =>
+    set((state) => {
+      const forProject = state.collapsedByProject[projectId] ?? {};
+      return {
+        collapsedByProject: {
+          ...state.collapsedByProject,
+          [projectId]: { ...forProject, [status]: true },
         },
       };
     }),
