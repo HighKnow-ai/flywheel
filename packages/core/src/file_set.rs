@@ -163,25 +163,63 @@ fn covers_exact(entry: &str, is_dir: bool, path: &str) -> bool {
     }
 }
 
-/// One colliding pair: the entry from the first set and the entry from the second.
+/// Whether two entries can touch the same file. Symmetric, and equality is a collision (two tasks
+/// declaring one path is the clearest collision there is, not a merge).
+///
+/// Exactly three cases: two files overlap iff equal; a file and a dir overlap iff [`covers`] says
+/// the dir covers the file; two dirs overlap iff either string prefixes the other — both end with
+/// a separator, so that prefix test is correct in both directions (`a/` vs `a_x/` is disjoint).
+/// `fold_case` is the repository's `core.ignorecase`, passed in rather than assumed.
+pub fn overlaps(a: &FileSetEntry, b: &FileSetEntry, fold_case: bool) -> bool {
+    match (a, b) {
+        (FileSetEntry::File(x), FileSetEntry::File(y)) => eq_folded(x, y, fold_case),
+        (FileSetEntry::Dir(_), FileSetEntry::File(f)) => covers(a, f, fold_case),
+        (FileSetEntry::File(f), FileSetEntry::Dir(_)) => covers(b, f, fold_case),
+        (FileSetEntry::Dir(x), FileSetEntry::Dir(y)) => {
+            if fold_case {
+                let (x, y) = (x.to_ascii_lowercase(), y.to_ascii_lowercase());
+                x.starts_with(&y) || y.starts_with(&x)
+            } else {
+                x.starts_with(y.as_str()) || y.starts_with(x.as_str())
+            }
+        }
+    }
+}
+
+fn eq_folded(x: &str, y: &str, fold_case: bool) -> bool {
+    if fold_case {
+        x.eq_ignore_ascii_case(y)
+    } else {
+        x == y
+    }
+}
+
+/// One colliding pair: the entry from the first set and the entry from the second. Borrowed, so
+/// the caller can name the colliding paths rather than only report that a collision exists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Collision<'a> {
     pub first: &'a FileSetEntry,
     pub second: &'a FileSetEntry,
 }
 
-/// Whether two entries can touch the same file.
-pub fn overlaps(_a: &FileSetEntry, _b: &FileSetEntry, _fold_case: bool) -> bool {
-    false
-}
-
-/// Every colliding pair between two sets.
+/// Every colliding pair between two sets, in the declared order of `a` then `b`, so the same two
+/// sets always yield a byte-identical answer and a `why` text is reproducible.
 pub fn collisions<'a>(
-    _a: &'a [FileSetEntry],
-    _b: &'a [FileSetEntry],
-    _fold_case: bool,
+    a: &'a [FileSetEntry],
+    b: &'a [FileSetEntry],
+    fold_case: bool,
 ) -> Vec<Collision<'a>> {
-    Vec::new()
+    // ponytail: quadratic in entries per pair — fine for hundreds of tasks on one machine; swap in
+    // an interval/trie structure if a repository ever makes that false.
+    let mut found = Vec::new();
+    for first in a {
+        for second in b {
+            if overlaps(first, second, fold_case) {
+                found.push(Collision { first, second });
+            }
+        }
+    }
+    found
 }
 
 /// The stored `form` string for an entry — always one of [`FILE_SET_FORMS`].
