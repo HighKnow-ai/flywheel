@@ -329,3 +329,36 @@ fn append_gate_event(
     )?;
     Ok(())
 }
+
+// --- Task 2 (RED-step stubs: inert) -----------------------------------------------------------
+
+pub fn may_spawn(_gate: &GateState) -> bool {
+    false
+}
+
+pub fn may_advance(_gate: &GateState) -> bool {
+    false
+}
+
+pub fn may_merge(_gate: &GateState) -> bool {
+    false
+}
+
+pub fn clear_expired_warning(conn: &mut Connection, _now: i64) -> anyhow::Result<GateChange> {
+    let state = read_stored(conn)?;
+    Ok(GateChange { before: state.clone(), after: state, changed: false })
+}
+
+pub fn resume_if_due(conn: &mut Connection, _now: i64) -> anyhow::Result<GateChange> {
+    let state = read_stored(conn)?;
+    Ok(GateChange { before: state.clone(), after: state, changed: false })
+}
+
+pub fn resume_now(conn: &mut Connection, _actor_id: &str) -> anyhow::Result<GateChange> {
+    let state = read_stored(conn)?;
+    Ok(GateChange { before: state.clone(), after: state, changed: false })
+}
+
+pub fn hold_for_limit(_conn: &Connection, _plan_id: &str, _task_id: &str) -> anyhow::Result<()> {
+    Ok(())
+}
