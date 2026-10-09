@@ -11,7 +11,8 @@ use core::domain::file_set::{
 };
 use core::domain::task::create_task;
 use core::file_set::{
-    covers, entry_form, entry_path, parse_entry, EntryRefusal, FileSetEntry, FILE_SET_FORMS,
+    collisions, covers, entry_form, entry_path, overlaps, parse_entry, EntryRefusal, FileSetEntry,
+    FILE_SET_FORMS,
 };
 use rusqlite::params;
 
@@ -330,4 +331,124 @@ fn the_schema_refuses_a_form_outside_the_vocabulary() {
         params![core::ids::new_id(), task_id, actor, now],
     );
     assert!(result.is_err(), "the CHECK constraint must refuse a glob form");
+}
+
+// --- overlaps: the truth table (plan 09-03) --------------------------------------------------
+
+/// One row per documented case: (a, b, fold_case, expected, why).
+fn overlap_table() -> Vec<(FileSetEntry, FileSetEntry, bool, bool, &'static str)> {
+    vec![
+        (file("a/b.rs"), file("a/b.rs"), false, true, "equal files collide"),
+        (file("a/b.rs"), file("a/c.rs"), false, false, "different files are disjoint"),
+        (dir("a/"), file("a/b.rs"), false, true, "a dir covers a file beneath it"),
+        (dir("a/"), file("a/x/y.rs"), false, true, "a dir covers a nested file"),
+        (dir("a/"), file("b/a.rs"), false, false, "a dir does not cover an unrelated file"),
+        (dir("a/"), file("a_x.rs"), false, false, "a dir does not cover a sibling sharing its prefix"),
+        (dir("a/"), file("a"), false, false, "a dir does not cover its own path with the separator stripped"),
+        (dir("a/"), dir("a/"), false, true, "equal dirs collide"),
+        (dir("a/"), dir("a/b/"), false, true, "a dir contains a nested dir"),
+        (dir("a/b/"), dir("a/"), false, true, "a nested dir is contained by its parent"),
+        (dir("a/"), dir("b/"), false, false, "sibling dirs are disjoint"),
+        (dir("packages/core/src/domain/"), file("packages/core/src/domain_x.rs"), false, false, "domain/ vs domain_x.rs"),
+        (dir("packages/core/src/domain/"), file("packages/core/src/domain"), false, false, "domain/ vs domain"),
+        (dir("packages/core/src/domain/"), dir("packages/core/src/domain_x/"), false, false, "domain/ vs domain_x/"),
+        (file("src/Foo.ts"), file("src/foo.ts"), false, false, "case differs, case-sensitive volume"),
+        (file("src/Foo.ts"), file("src/foo.ts"), true, true, "case differs, case-insensitive volume"),
+        (dir("Src/"), file("src/a.ts"), false, false, "dir case differs, case-sensitive"),
+        (dir("Src/"), file("src/a.ts"), true, true, "dir case differs, case-insensitive"),
+        (dir("Src/"), dir("src/lib/"), true, true, "dir vs dir case-insensitive"),
+        (dir("Src/"), dir("src/lib/"), false, false, "dir vs dir case-sensitive"),
+    ]
+}
+
+#[test]
+fn the_overlap_truth_table_holds_in_both_argument_orders() {
+    let table = overlap_table();
+    assert!(table.len() >= 20, "a missing row must be visible as a missing row");
+    for (a, b, fold, expected, why) in table {
+        assert_eq!(overlaps(&a, &b, fold), expected, "{why}: {a:?} vs {b:?} fold={fold}");
+        assert_eq!(overlaps(&b, &a, fold), expected, "{why} (reversed): {b:?} vs {a:?} fold={fold}");
+    }
+}
+
+#[test]
+fn the_case_fold_flag_changes_the_answer_in_both_positions() {
+    let (a, b) = (file("src/Foo.ts"), file("src/foo.ts"));
+    assert!(!overlaps(&a, &b, false));
+    assert!(overlaps(&a, &b, true));
+}
+
+#[test]
+fn collisions_over_identical_sets_pair_every_entry_with_itself() {
+    let set = vec![file("a.rs"), file("b.rs"), file("c.rs")];
+    let found = collisions(&set, &set, false);
+    assert_eq!(found.len(), 3);
+    for (i, c) in found.iter().enumerate() {
+        assert_eq!(c.first, &set[i]);
+        assert_eq!(c.second, &set[i]);
+    }
+}
+
+#[test]
+fn collisions_over_disjoint_sets_is_empty() {
+    let a = vec![file("a.rs"), dir("x/")];
+    let b = vec![file("b.rs"), dir("y/")];
+    assert!(collisions(&a, &b, false).is_empty());
+}
+
+#[test]
+fn collisions_come_back_in_first_set_then_second_set_declared_order() {
+    let a = vec![dir("x/"), file("z.rs"), file("m.rs")];
+    let b = vec![file("m.rs"), file("x/1.rs"), file("x/0.rs"), file("z.rs")];
+    let found: Vec<(&FileSetEntry, &FileSetEntry)> =
+        collisions(&a, &b, false).iter().map(|c| (c.first, c.second)).collect();
+    assert_eq!(
+        found,
+        vec![
+            (&a[0], &b[1]),
+            (&a[0], &b[2]),
+            (&a[1], &b[3]),
+            (&a[2], &b[0]),
+        ]
+    );
+    // The same two sets always yield a byte-identical answer.
+    let again: Vec<(&FileSetEntry, &FileSetEntry)> =
+        collisions(&a, &b, false).iter().map(|c| (c.first, c.second)).collect();
+    assert_eq!(found, again);
+}
+
+#[test]
+fn collisions_honour_the_case_fold_flag() {
+    let a = vec![file("src/Foo.ts")];
+    let b = vec![file("src/foo.ts")];
+    assert!(collisions(&a, &b, false).is_empty());
+    assert_eq!(collisions(&a, &b, true).len(), 1);
+}
+
+#[test]
+fn every_documented_refusal_is_one_named_row_and_none_returns_a_repaired_value() {
+    let rows: Vec<(&str, EntryRefusal)> = vec![
+        ("", EntryRefusal::Empty),
+        ("  \t ", EntryRefusal::Empty),
+        ("/etc/x", EntryRefusal::Absolute),
+        ("a/../b", EntryRefusal::DotSegment),
+        ("a/./b", EntryRefusal::DotSegment),
+        ("a//b", EntryRefusal::DoubledSeparator),
+        ("a\\b", EntryRefusal::Backslash),
+        ("a\u{1}b", EntryRefusal::ControlCharacter),
+        ("a*", EntryRefusal::Glob('*')),
+        ("a?", EntryRefusal::Glob('?')),
+        ("a[", EntryRefusal::Glob('[')),
+        ("a]", EntryRefusal::Glob(']')),
+        ("a{", EntryRefusal::Glob('{')),
+        ("a}", EntryRefusal::Glob('}')),
+        ("/", EntryRefusal::RepositoryRoot),
+        (".", EntryRefusal::RepositoryRoot),
+        ("./", EntryRefusal::RepositoryRoot),
+        (".git/", EntryRefusal::GitDirectory),
+        (".git/config", EntryRefusal::GitDirectory),
+    ];
+    for (raw, cause) in rows {
+        assert_eq!(parse_entry(raw), Err(cause), "{raw:?}");
+    }
 }

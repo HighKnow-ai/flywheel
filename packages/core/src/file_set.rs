@@ -163,6 +163,27 @@ fn covers_exact(entry: &str, is_dir: bool, path: &str) -> bool {
     }
 }
 
+/// One colliding pair: the entry from the first set and the entry from the second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Collision<'a> {
+    pub first: &'a FileSetEntry,
+    pub second: &'a FileSetEntry,
+}
+
+/// Whether two entries can touch the same file.
+pub fn overlaps(_a: &FileSetEntry, _b: &FileSetEntry, _fold_case: bool) -> bool {
+    false
+}
+
+/// Every colliding pair between two sets.
+pub fn collisions<'a>(
+    _a: &'a [FileSetEntry],
+    _b: &'a [FileSetEntry],
+    _fold_case: bool,
+) -> Vec<Collision<'a>> {
+    Vec::new()
+}
+
 /// The stored `form` string for an entry — always one of [`FILE_SET_FORMS`].
 pub fn entry_form(entry: &FileSetEntry) -> &'static str {
     match entry {
