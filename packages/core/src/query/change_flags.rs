@@ -79,8 +79,13 @@ pub fn change_flag_inputs(
     rows.context("failed to read change-flag inputs")
 }
 
-/// The git half: takes no connection. A worktree whose directory has vanished since the board
-/// read is skipped (a race with removal, not an error — it gets no annotation).
+/// The git half: takes no connection. A worktree that cannot be read is SKIPPED, not fatal — it
+/// simply gets no annotation. That covers the directory vanishing between the board read and here
+/// (a race with removal), and equally a deleted branch, a `.git` file pointing nowhere, or any other
+/// per-worktree git failure. The distinction matters: these errors used to propagate with `?`, so a
+/// single broken worktree aborted the whole loop and every ahead/dirty cue on every row vanished —
+/// the board silently losing the one annotation this phase was opened to add. One bad worktree may
+/// cost its own cue; it may not cost the board's.
 pub fn finish_change_flags(inputs: Vec<ChangeFlagInput>) -> anyhow::Result<Vec<ChangeFlag>> {
     let mut flags = Vec::with_capacity(inputs.len());
     for input in inputs {
@@ -89,11 +94,16 @@ pub fn finish_change_flags(inputs: Vec<ChangeFlagInput>) -> anyhow::Result<Vec<C
             continue;
         }
         let ahead = match &input.base {
-            Some(base) => crate::git::ahead_behind(path, base, &input.branch)?
-                .map(|(ahead, _behind)| ahead),
+            Some(base) => match crate::git::ahead_behind(path, base, &input.branch) {
+                Ok(counts) => counts.map(|(ahead, _behind)| ahead),
+                Err(_) => continue,
+            },
             None => None,
         };
-        let dirty = !crate::domain::worktree::porcelain_entries(path)?.is_empty();
+        let dirty = match crate::domain::worktree::porcelain_entries(path) {
+            Ok(entries) => !entries.is_empty(),
+            Err(_) => continue,
+        };
         flags.push(ChangeFlag { task_id: input.task_id, epic_id: input.epic_id, ahead, dirty });
     }
     Ok(flags)

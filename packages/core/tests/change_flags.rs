@@ -13,7 +13,7 @@ use core::domain::epic::create_epic;
 use core::domain::project::create_project;
 use core::domain::task::create_task;
 use core::ids::new_id;
-use core::query::change_flags::{change_flag_inputs, finish_change_flags, ChangeFlag};
+use core::query::change_flags::{change_flag_inputs, finish_change_flags, ChangeFlag, ChangeFlagInput};
 use rusqlite::{params, Connection};
 
 fn run_git_ok(repo: &Path, args: &[&str]) -> Output {
@@ -253,4 +253,53 @@ fn a_flag_names_the_epic_its_task_belongs_to_so_the_board_can_roll_it_up() {
     let flags = f.flags();
     assert_eq!(flag_for(&flags, &in_epic).epic_id.as_deref(), Some(epic.as_str()));
     assert_eq!(flag_for(&flags, &loose).epic_id, None);
+}
+
+/// 08.1-REVIEW WR-01: one unreadable worktree must cost its own cue, never the board's. Both git
+/// reads used to propagate with `?`, so a single broken worktree aborted the sweep and every row
+/// lost its annotation.
+///
+/// Scope, stated so nobody mistakes this for more than it is: the fixture pins the
+/// `porcelain_entries` arm. A plain non-repo directory makes `ahead_behind` return "cannot measure"
+/// (Ok(None)) rather than Err, so this test does NOT independently prove the `ahead_behind` arm's
+/// guard — that one is the same defensive shape, held by reading rather than by this assertion.
+/// Verified to bite: restoring `?` on both arms fails this test.
+#[test]
+fn a_broken_worktree_does_not_blank_the_whole_sweep() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let good = init_repo(root.path(), "healthy");
+    commit_file(&good, "a.txt", "one", "add a");
+    std::fs::write(good.join("dirty.txt"), "uncommitted").expect("write");
+
+    // A real directory that is not a usable git worktree: `is_dir()` passes, git then fails.
+    let broken = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(broken.path().join("src")).expect("mkdir");
+
+    let inputs = vec![
+        ChangeFlagInput {
+            task_id: "broken".into(),
+            epic_id: None,
+            path: broken.path().to_string_lossy().into_owned(),
+            branch: "main".into(),
+            base: Some("main".into()),
+        },
+        ChangeFlagInput {
+            task_id: "good".into(),
+            epic_id: None,
+            path: good.to_string_lossy().into_owned(),
+            branch: "main".into(),
+            base: None,
+        },
+    ];
+
+    let flags = finish_change_flags(inputs).expect("the sweep must survive a broken worktree");
+    assert!(
+        flags.iter().all(|f| f.task_id != "broken"),
+        "the unreadable worktree gets no annotation"
+    );
+    let good_flag = flags
+        .iter()
+        .find(|f| f.task_id == "good")
+        .expect("the healthy worktree keeps its cue even though a sibling was unreadable");
+    assert!(good_flag.dirty, "the healthy worktree is dirty");
 }
