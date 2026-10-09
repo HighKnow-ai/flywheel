@@ -14,8 +14,10 @@ use core::dispatch::{
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
 use core::domain::dispatch_plan::{
     approve_plan, approve_plan_with, create_draft_plan_in_tx, insert_edge_in_tx, read_edges,
-    read_plan, replace_plan_tasks_in_tx, set_plan_status, set_task_dispatch_state, PlanTaskInput,
-    EVENT_DISPATCH_PLAN_APPROVED, EVENT_TASK_SEQUENCED,
+    read_plan, replace_plan_tasks_in_tx, resolve_planning_run, set_plan_status,
+    set_task_dispatch_state, store_submitted_plan, PlanTaskInput, SubmissionRefusal,
+    SubmittedExclusion, SubmittedPlan, SubmittedTask, EVENT_DISPATCH_PLAN_APPROVED,
+    EVENT_DISPATCH_PLAN_DRAFTED, EVENT_TASK_SEQUENCED,
 };
 use core::domain::epic::create_epic;
 use core::domain::file_set::declare_file_set;
@@ -484,4 +486,326 @@ fn occupied_slots_and_in_flight_sets_come_from_the_database() {
     assert!(in_flight_declared_sets(&conn, &project.id).unwrap().is_empty());
 
     unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
+}
+
+// =============================================================================================
+// Plan 09-08, Task 1: a planning run's submission becomes one draft plan, or nothing.
+// =============================================================================================
+
+const NOW: &str = "2026-10-09T00:00:00Z";
+
+/// An epic with `n` backlog tasks and a planning-shaped run: epic-scoped, no task, no stage.
+struct Sub {
+    conn: Connection,
+    project_id: String,
+    epic_id: String,
+    run_id: String,
+    agent: String,
+    /// `(id, key)` in creation (board rank) order.
+    tasks: Vec<(String, String)>,
+}
+
+fn insert_run(
+    conn: &Connection,
+    project_id: &str,
+    epic_id: Option<&str>,
+    task_id: Option<&str>,
+    stage: Option<&str>,
+    status: &str,
+) -> String {
+    let run_id = core::ids::new_id();
+    let agent = core::domain::agent_run::agent_actor_id(conn).unwrap();
+    let human = core::domain::actor::local_human_actor_id(conn).unwrap();
+    let trigger = core::ids::new_id();
+    conn.execute(
+        "INSERT INTO triggers (id, project_id, target_task_id, target_epic_id, source, config, enabled, last_fired_at, created_by, created_at)
+         VALUES (?1, ?2, NULL, ?3, 'user_action', NULL, 1, ?4, ?5, ?4)",
+        params![trigger, project_id, epic_id, NOW, human],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO agent_runs (id, worktree_id, task_id, epic_id, project_id, trigger_id, adapter, actor_id, status,
+            permission_mode, log_path, started_at, authoring_stage)
+         VALUES (?1, NULL, ?2, ?3, ?4, ?5, 'claude_code', ?6, ?7, 'default', '/dev/null', ?8, ?9)",
+        params![run_id, task_id, epic_id, project_id, trigger, agent, status, NOW, stage],
+    )
+    .unwrap();
+    run_id
+}
+
+fn sub(n: usize) -> Sub {
+    let (mut conn, actor, project) = common::seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor, "Epic", None).unwrap();
+    let mut tasks = Vec::new();
+    for i in 0..n {
+        let t = create_task(&mut conn, &project.id, &actor, &format!("T{i}"), Some(&epic.id)).unwrap();
+        let key: String = conn.query_row("SELECT key FROM tasks WHERE id = ?1", [&t.id], |r| r.get(0)).unwrap();
+        tasks.push((t.id, key));
+    }
+    let run_id = insert_run(&conn, &project.id, Some(&epic.id), None, None, "running");
+    let agent = core::domain::agent_run::agent_actor_id(&conn).unwrap();
+    Sub { conn, project_id: project.id, epic_id: epic.id, run_id, agent, tasks }
+}
+
+fn st(key: &str, files: &[&str], wave: u32) -> SubmittedTask {
+    SubmittedTask {
+        key: key.to_string(),
+        files: files.iter().map(|f| f.to_string()).collect(),
+        wave,
+        rationale: format!("because {key}"),
+    }
+}
+
+fn submit(s: &mut Sub, plan: &SubmittedPlan) -> Result<String, SubmissionRefusal> {
+    store_submitted_plan(&mut s.conn, &s.run_id, &s.epic_id, plan, &s.agent, NOW)
+}
+
+fn plan_of(tasks: Vec<SubmittedTask>) -> SubmittedPlan {
+    SubmittedPlan { tasks, excluded: Vec::new() }
+}
+
+fn nothing_stored(s: &Sub) {
+    assert_eq!(count(&s.conn, "SELECT COUNT(*) FROM dispatch_plans", []), 0, "a plan row was written");
+    assert_eq!(count(&s.conn, "SELECT COUNT(*) FROM dispatch_plan_tasks", []), 0, "a plan-task row was written");
+    assert_eq!(count(&s.conn, "SELECT COUNT(*) FROM task_file_set_entries", []), 0, "an entry row was written");
+}
+
+#[test]
+fn a_valid_submission_from_a_running_planning_run_stores_one_draft_plan() {
+    let mut s = sub(2);
+    let (k0, k1) = (s.tasks[0].1.clone(), s.tasks[1].1.clone());
+    let plan_id = submit(&mut s, &plan_of(vec![st(&k0, &["src/a.rs", "docs/"], 1), st(&k1, &["src/b.rs"], 2)])).unwrap();
+
+    let plan = read_plan(&s.conn, &plan_id).unwrap().unwrap();
+    assert_eq!(plan.status, "draft");
+    assert_eq!(plan.epic_id, s.epic_id);
+    assert_eq!(plan.tasks.len(), 2);
+    assert_eq!((plan.tasks[0].task_id.as_str(), plan.tasks[0].wave), (s.tasks[0].0.as_str(), 1));
+    assert_eq!((plan.tasks[1].task_id.as_str(), plan.tasks[1].wave), (s.tasks[1].0.as_str(), 2));
+    assert_eq!(plan.tasks[0].rationale.as_deref(), Some(format!("because {k0}").as_str()));
+    let planning_run: Option<String> =
+        s.conn.query_row("SELECT planning_run_id FROM dispatch_plans WHERE id = ?1", [&plan_id], |r| r.get(0)).unwrap();
+    assert_eq!(planning_run.as_deref(), Some(s.run_id.as_str()));
+    // The declared sets landed through the one declare path.
+    let declared = core::domain::file_set::list_entries_for_task(&s.conn, &s.tasks[0].0).unwrap();
+    assert_eq!(declared, entries(&["src/a.rs", "docs/"]));
+    assert_eq!(events_of(&s.conn, EVENT_DISPATCH_PLAN_DRAFTED).len(), 1);
+    // No edge is computed and nothing is approved: the human has not looked yet.
+    assert_eq!(count(&s.conn, "SELECT COUNT(*) FROM dispatch_edges", []), 0);
+}
+
+#[test]
+fn an_execution_run_is_refused_by_the_authority_check_not_by_the_tool_list() {
+    let s = sub(1);
+    let exec = insert_run(&s.conn, &s.project_id, None, Some(&s.tasks[0].0), None, "running");
+    assert_eq!(resolve_planning_run(&s.conn, &exec), Err(SubmissionRefusal::NotPlanningRun));
+    // An authoring run (epic-scoped, but with a stage) is not a planning run either.
+    let authoring = insert_run(&s.conn, &s.project_id, Some(&s.epic_id), None, Some("challenge"), "running");
+    assert_eq!(resolve_planning_run(&s.conn, &authoring), Err(SubmissionRefusal::NotPlanningRun));
+    assert_eq!(resolve_planning_run(&s.conn, "01ARZ3NDEKTSV4RRFFQ69G5FAV"), Err(SubmissionRefusal::NotPlanningRun));
+    // The run that is a planning run resolves to its epic.
+    let ok = resolve_planning_run(&s.conn, &s.run_id).unwrap();
+    assert_eq!((ok.run_id.as_str(), ok.epic_id.as_str()), (s.run_id.as_str(), s.epic_id.as_str()));
+}
+
+#[test]
+fn a_planning_run_that_is_no_longer_running_is_refused() {
+    let s = sub(1);
+    for status in ["completed", "failed", "interrupted", "abandoned", "blocked"] {
+        s.conn.execute("UPDATE agent_runs SET status = ?1 WHERE id = ?2", params![status, s.run_id]).unwrap();
+        match resolve_planning_run(&s.conn, &s.run_id) {
+            Err(SubmissionRefusal::RunNotRunning { status: got }) => assert_eq!(got, status),
+            other => panic!("{status}: expected RunNotRunning, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_submission_with_zero_tasks_is_refused_and_nothing_is_stored() {
+    let mut s = sub(2);
+    assert_eq!(submit(&mut s, &plan_of(vec![])), Err(SubmissionRefusal::NoTasks));
+    nothing_stored(&s);
+}
+
+#[test]
+fn a_task_with_an_empty_file_list_is_refused_naming_its_key() {
+    let mut s = sub(2);
+    let (k0, k1) = (s.tasks[0].1.clone(), s.tasks[1].1.clone());
+    let refusal = submit(&mut s, &plan_of(vec![st(&k0, &["a.rs"], 1), st(&k1, &[], 1)])).unwrap_err();
+    assert_eq!(refusal, SubmissionRefusal::EmptyFileList { key: k1.clone() });
+    assert!(refusal.to_string().contains(&k1), "the message must name the key: {refusal}");
+    nothing_stored(&s);
+}
+
+#[test]
+fn a_key_outside_the_epic_is_refused_naming_that_key() {
+    let mut s = sub(1);
+    let human = core::domain::actor::local_human_actor_id(&s.conn).unwrap();
+    let other_epic = create_epic(&mut s.conn, &s.project_id, &human, "Other", None).unwrap();
+    let foreign = create_task(&mut s.conn, &s.project_id, &human, "Foreign", Some(&other_epic.id)).unwrap();
+    let foreign_key: String = s.conn.query_row("SELECT key FROM tasks WHERE id = ?1", [&foreign.id], |r| r.get(0)).unwrap();
+    let refusal = submit(&mut s, &plan_of(vec![st(&foreign_key, &["a.rs"], 1)])).unwrap_err();
+    assert_eq!(refusal, SubmissionRefusal::UnknownKey { key: foreign_key.clone() });
+    assert!(refusal.to_string().contains(&foreign_key));
+    let refusal = submit(&mut s, &plan_of(vec![st("NOPE-999", &["a.rs"], 1)])).unwrap_err();
+    assert_eq!(refusal, SubmissionRefusal::UnknownKey { key: "NOPE-999".into() });
+    nothing_stored(&s);
+}
+
+#[test]
+fn a_glob_entry_is_answered_with_the_cause_parse_entry_returns_and_nothing_is_stored() {
+    let mut s = sub(2);
+    let (k0, k1) = (s.tasks[0].1.clone(), s.tasks[1].1.clone());
+    let refusal = submit(&mut s, &plan_of(vec![st(&k0, &["ok.rs"], 1), st(&k1, &["src/*.rs"], 1)])).unwrap_err();
+    let cause = parse_entry("src/*.rs").unwrap_err();
+    assert_eq!(refusal, SubmissionRefusal::BadEntry { key: k1.clone(), entry: "src/*.rs".into(), cause: cause.clone() });
+    assert!(refusal.to_string().contains(&cause.to_string()), "the named cause must reach the agent: {refusal}");
+    nothing_stored(&s);
+}
+
+#[test]
+fn a_duplicate_key_a_zero_wave_and_a_task_already_started_are_refused() {
+    let mut s = sub(2);
+    let (k0, k1) = (s.tasks[0].1.clone(), s.tasks[1].1.clone());
+    assert_eq!(
+        submit(&mut s, &plan_of(vec![st(&k0, &["a"], 1), st(&k0, &["b"], 1)])),
+        Err(SubmissionRefusal::DuplicateKey { key: k0.clone() })
+    );
+    assert_eq!(submit(&mut s, &plan_of(vec![st(&k0, &["a"], 0)])), Err(SubmissionRefusal::BadWave { key: k0.clone() }));
+    s.conn.execute("UPDATE tasks SET status = 'in_progress' WHERE id = ?1", [&s.tasks[1].0]).unwrap();
+    assert_eq!(
+        submit(&mut s, &plan_of(vec![st(&k1, &["a"], 1)])),
+        Err(SubmissionRefusal::NotPlannable { key: k1, status: "in_progress".into() })
+    );
+    nothing_stored(&s);
+}
+
+#[test]
+fn an_oversized_submission_is_refused() {
+    let mut s = sub(1);
+    let k0 = s.tasks[0].1.clone();
+    let many: Vec<String> = (0..201).map(|i| format!("f{i}.rs")).collect();
+    let big = SubmittedPlan {
+        tasks: vec![SubmittedTask { key: k0.clone(), files: many, wave: 1, rationale: String::new() }],
+        excluded: vec![],
+    };
+    assert!(matches!(submit(&mut s, &big), Err(SubmissionRefusal::TooLarge(_))));
+    let long = "x".repeat(1025);
+    let big = SubmittedPlan {
+        tasks: vec![SubmittedTask { key: k0, files: vec![long], wave: 1, rationale: String::new() }],
+        excluded: vec![],
+    };
+    assert!(matches!(submit(&mut s, &big), Err(SubmissionRefusal::TooLarge(_))));
+    nothing_stored(&s);
+}
+
+#[test]
+fn two_tasks_submitted_with_identical_file_lists_are_accepted_and_approval_orders_exactly_one_edge() {
+    let mut s = sub(2);
+    let (k0, k1) = (s.tasks[0].1.clone(), s.tasks[1].1.clone());
+    let plan_id = submit(&mut s, &plan_of(vec![st(&k0, &["src/shared.rs"], 1), st(&k1, &["src/shared.rs"], 1)])).unwrap();
+    assert_eq!(read_plan(&s.conn, &plan_id).unwrap().unwrap().tasks.len(), 2, "equality is a collision, not a merge");
+    assert_eq!(count(&s.conn, "SELECT COUNT(*) FROM dispatch_edges", []), 0, "no edge before approval");
+
+    let human = core::domain::actor::local_human_actor_id(&s.conn).unwrap();
+    approve_plan(&mut s.conn, &plan_id, &human).unwrap();
+    let edges = read_edges(&s.conn, &plan_id).unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].before_task_id, s.tasks[0].0);
+    assert_eq!(edges[0].after_task_id, s.tasks[1].0);
+}
+
+#[test]
+fn waves_with_gaps_are_stored_contiguously_with_relative_order_kept() {
+    let mut s = sub(3);
+    let keys: Vec<String> = s.tasks.iter().map(|t| t.1.clone()).collect();
+    let plan_id = submit(
+        &mut s,
+        &plan_of(vec![st(&keys[0], &["a"], 7), st(&keys[1], &["b"], 1), st(&keys[2], &["c"], 3)]),
+    )
+    .unwrap();
+    let plan = read_plan(&s.conn, &plan_id).unwrap().unwrap();
+    let wave_of = |id: &str| plan.tasks.iter().find(|t| t.task_id == id).unwrap().wave;
+    assert_eq!((wave_of(&s.tasks[1].0), wave_of(&s.tasks[2].0), wave_of(&s.tasks[0].0)), (1, 2, 3));
+}
+
+#[test]
+fn same_wave_tasks_with_equal_rank_are_stored_in_ascending_task_id_order() {
+    let mut s = sub(3);
+    // Equal board rank: the order is then the task id alone, whatever order the agent listed them in.
+    s.conn.execute("UPDATE tasks SET rank = 'a0' WHERE epic_id = ?1", [&s.epic_id]).unwrap();
+    let mut by_id = s.tasks.clone();
+    by_id.sort();
+    let plan_id = submit(
+        &mut s,
+        &plan_of(by_id.iter().rev().map(|(_, k)| st(k, &["x"], 1)).collect()),
+    )
+    .unwrap();
+    let stored: Vec<String> = s
+        .conn
+        .prepare("SELECT task_id FROM dispatch_plan_tasks WHERE plan_id = ?1 ORDER BY rowid")
+        .unwrap()
+        .query_map([&plan_id], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(stored, by_id.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>());
+    let read: Vec<String> = read_plan(&s.conn, &plan_id).unwrap().unwrap().tasks.into_iter().map(|t| t.task_id).collect();
+    assert_eq!(read, stored, "the read order and the stored order agree");
+}
+
+#[test]
+fn a_second_submission_while_a_live_plan_exists_is_refused_by_the_index() {
+    let mut s = sub(1);
+    let k0 = s.tasks[0].1.clone();
+    let first = submit(&mut s, &plan_of(vec![st(&k0, &["a.rs"], 1)])).unwrap();
+    assert_eq!(submit(&mut s, &plan_of(vec![st(&k0, &["b.rs"], 1)])), Err(SubmissionRefusal::LivePlanExists));
+    assert_eq!(count(&s.conn, "SELECT COUNT(*) FROM dispatch_plans", []), 1);
+    // The refused call changed nothing about the first plan's declared set.
+    assert_eq!(core::domain::file_set::list_entries_for_task(&s.conn, &s.tasks[0].0).unwrap(), entries(&["a.rs"]));
+    // Once the live plan is finished, the index no longer objects.
+    set_plan_status(&s.conn, &first, "aborted").unwrap();
+    assert!(submit(&mut s, &plan_of(vec![st(&k0, &["b.rs"], 1)])).is_ok());
+}
+
+#[test]
+fn a_task_of_the_epic_absent_from_the_submission_is_stored_skipped_with_a_reason() {
+    let mut s = sub(3);
+    let keys: Vec<String> = s.tasks.iter().map(|t| t.1.clone()).collect();
+    let plan = SubmittedPlan {
+        tasks: vec![st(&keys[0], &["a"], 1)],
+        excluded: vec![SubmittedExclusion { key: keys[1].clone(), reason: "already covered by the shared helper".into() }],
+    };
+    let plan_id = submit(&mut s, &plan).unwrap();
+    let stored = read_plan(&s.conn, &plan_id).unwrap().unwrap();
+    assert_eq!(stored.tasks.len(), 3, "no task of the epic is dropped");
+    let row = |id: &str| stored.tasks.iter().find(|t| t.task_id == id).unwrap();
+    assert_eq!(row(&s.tasks[1].0).state, "skipped");
+    assert_eq!(row(&s.tasks[1].0).rationale.as_deref(), Some("already covered by the shared helper"));
+    // The one the agent said nothing about is still shown, with a reason the user can read.
+    assert_eq!(row(&s.tasks[2].0).state, "skipped");
+    assert!(!row(&s.tasks[2].0).rationale.clone().unwrap_or_default().trim().is_empty());
+    assert_eq!(row(&s.tasks[0].0).state, "planned");
+    // An exclusion with no reason is not an explanation.
+    let mut s = sub(1);
+    let k = s.tasks[0].1.clone();
+    let bad = SubmittedPlan { tasks: vec![st(&k, &["a"], 1)], excluded: vec![SubmittedExclusion { key: k.clone(), reason: "  ".into() }] };
+    assert!(submit(&mut s, &bad).is_err());
+}
+
+#[test]
+fn a_failure_part_way_through_storing_leaves_no_plan_no_plan_task_and_no_entry() {
+    let mut s = sub(2);
+    let (k0, k1) = (s.tasks[0].1.clone(), s.tasks[1].1.clone());
+    // Entries and the plan row are written before the plan-task rows; abort on the first of those.
+    s.conn
+        .execute_batch(
+            "CREATE TRIGGER boom BEFORE INSERT ON dispatch_plan_tasks BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+    let refusal = submit(&mut s, &plan_of(vec![st(&k0, &["a.rs"], 1), st(&k1, &["b.rs"], 1)])).unwrap_err();
+    assert!(matches!(refusal, SubmissionRefusal::Storage(_)), "{refusal:?}");
+    nothing_stored(&s);
+    assert!(events_of(&s.conn, EVENT_DISPATCH_PLAN_DRAFTED).is_empty());
+    assert!(events_of(&s.conn, "task.file_set_declared").is_empty());
 }

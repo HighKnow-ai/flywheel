@@ -670,3 +670,120 @@ pub fn edit_draft_plan(
     tx.commit().context("failed to commit the draft edit")?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------------------------
+// Plan 09-08: the pre-dispatch planning pass's submission (D-147, D-149, PLAN-01).
+//
+// A planning run reads the repository as it is NOW and calls `submit_plan` once, naming a file-set
+// and a wave for each task of the epic. Authority lives here, not in the tool list: the sidecar's
+// MCP server lists `submit_plan` to every run, so [`resolve_planning_run`] is the control. The plan
+// row does not exist until a valid submission arrives, so a pass that is abandoned or refused
+// leaves nothing behind and the one-live-plan-per-epic index is the only guard on a second one.
+// ---------------------------------------------------------------------------------------------
+
+/// Appended when a planning run's submission is stored as a draft plan.
+pub const EVENT_DISPATCH_PLAN_DRAFTED: &str = "dispatch_plan.drafted";
+
+/// The most tasks, entries per task and characters per entry one submission may carry. The list is
+/// model-authored text crossing into the database, so it is bounded here and not only in the tool.
+pub const MAX_SUBMITTED_TASKS: usize = 500;
+pub const MAX_SUBMITTED_ENTRIES: usize = 200;
+pub const MAX_SUBMITTED_ENTRY_CHARS: usize = 1024;
+
+/// One task as the planning run declared it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct SubmittedTask {
+    pub key: String,
+    pub files: Vec<String>,
+    pub wave: u32,
+    #[serde(default)]
+    pub rationale: String,
+}
+
+/// A task the planning run chose to leave out, with the reason the user will read.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct SubmittedExclusion {
+    pub key: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct SubmittedPlan {
+    pub tasks: Vec<SubmittedTask>,
+    #[serde(default)]
+    pub excluded: Vec<SubmittedExclusion>,
+}
+
+/// Why a submission was refused. Each message is written for the AGENT that will read it in the
+/// same tool call and correct it, so it names the task key or the entry and says what to change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmissionRefusal {
+    NotPlanningRun,
+    RunNotRunning { status: String },
+    Malformed(String),
+    NoTasks,
+    EmptyFileList { key: String },
+    UnknownKey { key: String },
+    NotPlannable { key: String, status: String },
+    DuplicateKey { key: String },
+    BadWave { key: String },
+    EmptyReason { key: String },
+    BadEntry { key: String, entry: String, cause: crate::file_set::EntryRefusal },
+    TooLarge(String),
+    LivePlanExists,
+    Storage(String),
+}
+
+impl std::fmt::Display for SubmissionRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use SubmissionRefusal::*;
+        match self {
+            NotPlanningRun => write!(f, "only the planning run of an epic can submit a plan"),
+            RunNotRunning { status } => write!(f, "this planning run is {status}, so it can no longer submit a plan"),
+            Malformed(why) => write!(f, "the submission could not be read: {why}"),
+            NoTasks => write!(f, "the submission names no tasks; name every task of the epic, with a file list for each"),
+            EmptyFileList { key } => write!(f, "task {key} has an empty file list; give the files it expects to modify, or move it to `excluded` with a reason"),
+            UnknownKey { key } => write!(f, "{key} is not a task of this epic; use the exact keys from the task roster"),
+            NotPlannable { key, status } => write!(f, "task {key} is {status}; only backlog and todo tasks are planned for dispatch"),
+            DuplicateKey { key } => write!(f, "task {key} appears more than once in the submission"),
+            BadWave { key } => write!(f, "task {key} has a wave below 1; waves start at 1"),
+            EmptyReason { key } => write!(f, "task {key} is excluded without a reason; say why it is left out"),
+            BadEntry { key, entry, cause } => write!(f, "task {key}: the file-set entry {entry:?} was refused: {cause}"),
+            TooLarge(what) => write!(f, "the submission is too large: {what}"),
+            LivePlanExists => write!(f, "this epic already has a live plan; discard or finish it before submitting another"),
+            Storage(why) => write!(f, "the plan could not be stored: {why}"),
+        }
+    }
+}
+
+impl std::error::Error for SubmissionRefusal {}
+
+/// The identity of a planning run, resolved from the database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanningRun {
+    pub run_id: String,
+    pub epic_id: String,
+    pub actor_id: String,
+}
+
+/// Who may submit a plan: an epic-scoped run with no task and no authoring stage, in `running`
+/// status. This is the authority check; the tool being listed to every run is not a control.
+pub fn resolve_planning_run(conn: &Connection, run_id: &str) -> Result<PlanningRun, SubmissionRefusal> {
+    let _ = (conn, run_id);
+    Err(SubmissionRefusal::Storage("not implemented".into()))
+}
+
+/// Validate a submission and store it as ONE draft plan: the plan row, its task rows (waves
+/// normalised, same-wave tasks in rank-then-id order), each task's declared entries and one event,
+/// in a single transaction. Returns the new plan's id. Nothing is stored on any refusal.
+pub fn store_submitted_plan(
+    conn: &mut Connection,
+    planning_run_id: &str,
+    epic_id: &str,
+    plan: &SubmittedPlan,
+    actor_id: &str,
+    now: &str,
+) -> Result<String, SubmissionRefusal> {
+    let _ = (conn, planning_run_id, epic_id, plan, actor_id, now);
+    Err(SubmissionRefusal::Storage("not implemented".into()))
+}
