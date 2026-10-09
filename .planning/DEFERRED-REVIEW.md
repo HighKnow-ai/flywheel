@@ -262,6 +262,20 @@ context to be answerable months later by someone who was not in the room:
   risk_if_wrong: "Low to moderate. A cramped row or an error that squeezes the title is cosmetic; the accept path itself is the tray's own and is unchanged."
   automatable: "MOSTLY. The visible-text and overflow checks (title truncates, buttons stay inside 48px) are one WebKit layout test once a proposal is staged: YES. A live accept against the real core needs a staged proposal, which Phase 11's drain can create: YES. Only 'does it read well' is human."
 
+- id: D-REV-32
+  phase: "09 — Planned Fan-Out (plan 05, AGNT-05)"
+  truth: "A real hard rate limit from the backend presents on the wire as a top-level `rate_limit_info.status` of `rejected` and/or an assistant message whose error is `rate_limit`, and pauses new dispatch."
+  status: open
+  why_deferred: |
+    Physical: a hard limit cannot be produced on demand, and none has ever been observed live in this
+    project. The only real captures are an `allowed` event (carrying an overage status of `rejected`,
+    which the adapter correctly reads as open) and an `allowed_warning` event. Every `rejected`
+    assertion runs against a fixture constructed from the documented shape
+    (`packages/sidecar/test/rate-limit-wire.test.mjs`, `packages/core/tests/dispatch_limit_gate.rs`).
+    The gate's reaction to the documented shape is tested; that the documented shape is what arrives is not.
+  risk_if_wrong: "Moderate. If a real limit presents differently, the adapter yields no tier (an unrecognised status is never guessed at) and dispatch does not pause: AGNT-05 would silently be unmet on the one path it exists for, and the account would keep being sent requests."
+  automatable: "PARTLY. Once a real limit occurs, its raw line is in the session log; freezing it as a fixture and asserting `tier: rejected` is one test. Provoking one deliberately is not something to do (it is the abuse this requirement exists to avoid)."
+
 ## Redemption protocol
 
 At Phase 11, with an installed, usable build:
