@@ -258,7 +258,7 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
 
             <div className="wave-plan-body">
               {planQuery.isPending && <p className="type-body">Loading the plan…</p>}
-              {planQuery.isError && (
+              {planQuery.isError && !plan && (
                 <p role="alert" className="type-body wave-plan-refusal">
                   Could not load the plan. Close this sheet and try again.
                 </p>

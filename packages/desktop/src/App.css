@@ -183,9 +183,10 @@ button.control-edge:hover:not(:disabled) {
   }
 }
 
-/* The dispatch controls are a field (plan 09-09): they give way before the title does. */
+/* The dispatch controls are a field (plan 09-09): they give way before the title does. Two classes of
+   specificity, so the cell's own `display: flex` cannot win on stylesheet order. */
 @container epic-header (max-width: 640px) {
-  .field-epic-dispatch {
+  .epic-header-row .field-epic-dispatch {
     display: none;
   }
 

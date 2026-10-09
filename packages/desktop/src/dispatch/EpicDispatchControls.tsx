@@ -69,8 +69,9 @@ export function EpicDispatchControls({ epicId }: EpicDispatchControlsProps) {
 
   const acceptPlan = (dto: DispatchPlanDto) => queryClient.setQueryData(dispatchPlanKey(epicId), dto);
 
-  // Unknown is not a zero: say nothing until the plan read has landed.
-  if (!planQuery.isSuccess) return null;
+  // Unknown is not a zero: say nothing until a plan read has landed. `null` is a landed read ("no plan");
+  // a failed refetch keeps the data it had, so it does not blank the controls.
+  if (planQuery.data === undefined) return null;
 
   const btn = "control-edge session-action type-label epic-dispatch-btn";
   let status: React.ReactNode = null;
