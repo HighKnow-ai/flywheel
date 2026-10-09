@@ -214,3 +214,35 @@
   status: open
   **Found during:** 08.1 finish-review closure, group six
   **To fix:** an amendment line in `08.1-AMENDMENTS.md` (the finish reviewer proposed it, not the owner), or leave the contract text as history.
+
+- **The open findings of `08.1-REVIEW.md`, registered here because the review file alone is not a
+  tracker.** The phase's code review ran at standard depth over 87 changed source files and returned
+  0 critical, 6 warnings, 2 info. It confirmed sound the four things most able to hide a real defect:
+  the lock-safe split in `change_flags` (db work under the mutex, explicit drop, git in
+  `spawn_blocking`), all six `:has_worktree` bind sites bound, the `epic_progress` aggregate's bound
+  real, and the decline path re-deriving its state inside its own transaction from a task id alone.
+  Two findings were fixed during the close — WR-01 (commit `e6ef598`) and IN-02's keyboard half
+  (A-09, commit `a739945`). These remain open:
+  - **WR-02** — `useChangeFlags` is mounted by both `BoardView` and `ProjectRail` and coalesces per
+    instance, so a burst invalidates twice; the second cancels the in-flight JS fetch while the Rust
+    sweep keeps running. The rail's "Worktrees" count is also just that list's length.
+  - **WR-03** — `GroupItems.truncated` is computed and nothing reads it. A group over 500 rows would
+    show 500 under a header carrying the full count: the silent short list this phase was opened to
+    remove, reintroduced one layer up. Highest-value of the five.
+  - **WR-04** — `rosterEpicItem` drops the criteria counts, so an epic moved to Done from the detail
+    panel never raises `DoneWarning`.
+  - **WR-05** — the selection-follows effect and the whole command palette read the unfiltered
+    200-row window while the rack renders group-fetched rows. Selection can jump off a visible row,
+    and palette commands for a group-only task look enabled and silently do nothing.
+  - **WR-06** — the epic "agents running" count inner-joins `tasks`, so epic shaping runs (null
+    `task_id`, non-null `epic_id`) are never counted.
+  - **IN-01** — `seed_criteria` is a `[[bin]]` compiled into the product crate that mutates the real
+    database, hard-codes `THRE-xx` keys, and whose `delete_probes` runs across all projects. It
+    belongs outside the shipping crate.
+  - **IN-02 (remainder)** — `aria-selected` on `role="listitem"` is not valid ARIA. A-09 closed the
+    keyboard half; this half is untouched.
+  status: open
+  **Found during:** 08.1 code-review gate (advisory, non-blocking by contract)
+  **Not fixed here, deliberately:** the owner's standing preference is to ship and drain bugs with
+  Flywheel itself rather than widen a closing phase. Each is a real defect with a named cause and
+  file, which is what makes it drainable.
