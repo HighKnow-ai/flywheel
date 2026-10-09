@@ -1078,7 +1078,40 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: TBD
+**Plans**: 9 plans in 7 waves
+
+Plans:
+
+**Wave 1** *(the tracer — the phase's highest-risk claim, proved end-to-end against the real shipped artifacts before anything is built on top of it)*
+
+- [ ] 09-01-PLAN.md — Tracer: a declared file-set is enforced at the tool call. Migration `0019`, the `file_set` matcher, the scope marker, the shim's `--scope-check`, `scope-hook.ts`, the third `PreToolUse` entry, `arm_run_scope`, and the human-only declare command (PLAN-04)
+
+**Wave 2** *(09-02 and 09-03 share no file: the first is the hook-notice/event/backstop path, the second is the pure overlap and plan-table core)*
+
+- [ ] 09-02-PLAN.md — The refusal is a scope event the board carries: the `scope_denied` notice end to end, plus the close-time detective backstop that covers the writes the file-tool matcher structurally cannot see (PLAN-05)
+- [ ] 09-03-PLAN.md — Overlap algebra, waves, ordering edges and the "why": `overlaps`/`collisions`, `dispatch.rs`'s pure wave and edge computation, and the approval transaction that freezes what was acted on (PLAN-02, PLAN-03, PLAN-07)
+
+**Wave 3** *(blocked on 09-03 — reads `occupied_slots`; and on 09-01 for the command roster)*
+
+- [ ] 09-04-PLAN.md — The global parallel cap: `dispatch_max_parallel` defaulting to 3 in a validated range of 1 to 8, database-counted occupancy across every project, and the Settings control (PLAN-06)
+
+**Wave 4** *(09-05 and 09-06 share no file: the first is the adapter seam and the core gate, the second is the widen transaction and the two scope surfaces)*
+
+- [ ] 09-05-PLAN.md — The rate-limit gate: pause new dispatch, keep running sessions, say why, resume at the reset instant the wire reported — no probe, no blind retry (AGNT-05)
+- [ ] 09-06-PLAN.md — Widen a declared set live, refused inside the same transaction when it would reach into any in-flight task's lane; the feed row that offers it and the task-row badge that counts it (PLAN-05)
+
+**Wave 5** *(blocked on 09-03, 09-04, 09-05 and 09-06 — the dispatcher consults all four)*
+
+- [ ] 09-07-PLAN.md — The dispatcher: `decide(conn, now)`, the fifth scheduled tick through the one gated launch path, auto-advance, the colliding pair sequential inside its wave, and the automatic merge recorded by the system actor (PLAN-03, PLAN-06)
+
+**Wave 6** *(blocked on 09-07 — joins the dispatcher's command module)*
+
+- [ ] 09-08-PLAN.md — The pre-dispatch planning pass: `submit_plan` as a held call whose authority lives in Rust, and a short epic-scoped run that reads the repository as it is now and leaves a draft plan (PLAN-01)
+
+**Wave 7** *(blocked on 09-07 and 09-08 — renders their DTOs)*
+
+- [ ] 09-09-PLAN.md — The surfaces: the wave plan sheet with each sequenced pair's colliding paths shown inline and editable before dispatch, the epic's dispatch controls, and the line that says why dispatch is waiting (PLAN-07)
+
 **UI hint**: yes
 
 **Notes**: Criteria 2 and 3 are companion enforcement mechanisms, not alternatives — the pairwise
