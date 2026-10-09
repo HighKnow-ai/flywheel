@@ -505,3 +505,170 @@ At Phase 11, with an installed, usable build:
     and Epic. The captures are of a fixture task (THRE-58's three criteria, in_progress), not the app shell.
   risk_if_wrong: "Moderate. The foot is the surface where this product's core value becomes a daily act, and it was judged by its builder and by WebKit measurements only. The reviewer may find the secondary too quiet beside the lead, the foot too sparse under a short rail, or the sent-back note indistinct from a muted label."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer now against those paths and the regenerated captures; it needs no human."
+
+- id: D-REV-20
+  phase: "08.1 — Visual Polish (plan 20, handed forward from plan 02)"
+  truth: "The installed Flywheel application shows the new HighKnow mark in the Dock, in Finder, and in the native About panel (SC1, as the OS paints it)."
+  status: open
+  why_deferred: |
+    Physical: the Dock and LaunchServices icon caches are operating-system state that only a reinstalled
+    bundle plus a cache refresh change, and no WebDriver or vitest arm can observe the macOS Dock. What IS
+    asserted: icons.test.ts reads every bundle.icon artifact and checks it is not the scaffold blob, has the
+    right dimensions and colour type, and that icon.png's opaque artwork spans 824 of 1024 (added in 08.1-20).
+    That proves the bundle contents. It does not prove what the OS paints. SC1 is closed on the contents.
+  risk_if_wrong: "The owner sees the scaffold icon on an installed build despite green tests."
+  automatable: "PARTLY. Bundle contents: already automated. After `tauri build`, comparing the icns inside the .app to src-tauri/icons/icon.icns is YES (no human, needs the built bundle, Phase 11). What the Dock paints: an OS-level screenshot of the Dock is YES with computer-use against an installed build; nothing earlier than an installed build can ask it."
+
+- id: D-REV-21
+  phase: "08.1 — Visual Polish (plan 20, handed forward from plan 02)"
+  truth: "The macOS icon's inset margin reads correctly beside other application icons in the Dock."
+  status: open
+  why_deferred: |
+    Physical: human aesthetic judgement, made against other applications' icons in a real Dock. The 824-of-1024
+    figure is the commonly cited macOS icon grid (08.1-RESEARCH A1), a recorded assumption and not an Apple
+    requirement. 08.1-20 made the geometry evidence: icons.test.ts now measures the shipped icon.png and
+    asserts its opaque artwork is 412 of 512, centred. The geometry is therefore not the open question.
+  risk_if_wrong: "Cosmetic: the icon looks slightly large or small beside its neighbours. Regenerating is one command (edit the 100 / 824 in app-icon.svg and re-run `tauri icon`)."
+  automatable: "No for 'looks right beside neighbours' (aesthetic). The margin figure itself is already asserted."
+
+- id: D-REV-22
+  phase: "08.1 — Visual Polish (plan 20)"
+  truth: "Dark mode actually activates in the Tauri shell's web view: with macOS set to Dark, the installed app paints the dark token block, and with macOS set to Light it paints the light block."
+  status: open
+  why_deferred: |
+    Physical: there is no WebDriver for WKWebView on macOS, and the appearance is operating-system state.
+    Recorded as assumption A2 in 08.1-RESEARCH ("[ASSUMED] — not run in WKWebView this session") and never run since. What IS proven: the contrast tests prove the
+    VALUES in each block, and the dark browser arm (`test:browser:dark`, 63 tests) proves that a WebKit engine
+    emulating prefers-color-scheme: dark selects the dark block and paints it legibly. What is NOT proven:
+    that Tauri's WKWebView reports the OS appearance as prefers-color-scheme. Evidence for it, not proof:
+    tauri.conf.json sets no window `theme`, and no Rust source calls set_theme or a window-builder theme (grepped 2026-10-09). The recorded fallback if it fails is a `data-theme` attribute set from Tauri's window theme API.
+    Playwright's WebKit emulating a scheme is not the shell.
+  risk_if_wrong: "High for the phase's headline claim: the owner could run the installed app in Dark and get the light world (or the reverse), and every dark-mode value in this phase would be unreachable."
+  automatable: "YES, against an installed or dev build, at Phase 11: set the system appearance with `defaults write -g AppleInterfaceStyle Dark` (or the System Settings toggle), launch, and take an OS-level screenshot with computer-use; compare the painted ground to #0a0a0a / #ffffff. No human judgement is needed, only a build. Cheaper partial now: none that touches the real web view."
+
+- id: D-REV-23
+  phase: "08.1 — Visual Polish (plan 20, from plan 13)"
+  truth: "Expanding a status group reads as growth to a human eye (a top-down wipe with the rows below travelling), in the packaged app. ROADMAP success criterion 3 says 'animates its height'; the shipped technique animates no height."
+  status: open
+  why_deferred: |
+    Physical: human aesthetic judgement of a 180ms transition. Plan 13 replaced its own planned technique
+    after seeing text overprint for about two frames in WebKit, and the browser test now polls getAnimations()
+    for a real CSSTransition on the travelling row (and none under reduced motion). The owner watched the
+    shipped CSS in comps/motion.html on 2026-10-08, a page and not the packaged app, and confirmed the
+    durations. That is an observation of the keyframes; no record says he judged that a group expansion
+    reads as growth. SC3's wording ('animates its height', 'fades/scales') was not amended; the contract
+    (08.1-UI-SPEC.md Motion) decided otherwise, and the owner has not been recorded ruling on the word.
+  risk_if_wrong: "Low to moderate: an expansion that reads as a pop or a flicker instead of growth; a cosmetic fix in motion.css. Separately, SC3's literal text is not what shipped."
+  automatable: "PARTLY. Monotonic reveal and no overprint can be asserted in WebKit by sampling the entering row's clip-path at fixed times: YES, one test (not written here; the existing test proves a transition exists, not its shape). 'Reads as growth' is human."
+
+- id: D-REV-24
+  phase: "08.1 — Visual Polish (plan 20, success criterion 0)"
+  truth: "The owner looks at the BUILT board, with real data on it, in the running app, and judges it bold and modern rather than 'a very old app' (SC0 as worded)."
+  status: open
+  why_deferred: |
+    Physical: this is a human aesthetic judgement, and it is the one the phase exists for. What happened:
+    the owner ADOPTED the Mission Control direction wholesale on 2026-10-07 after viewing six code-rendered
+    comps (not image-generated), told beforehand that several values were FIXTURE and that adoption was
+    one-way. He accepted three caveats: the craft detector had not run, the roster's rhythm was untested
+    (seed data is uniform, nearly every epic reads 15 of 60), and the roster's lead row is a junk epic.
+    That is a judgement of the comps. No record shows him viewing the built board; every built capture is
+    a harness page of real components, not the app shell (D-REV-12), and the comp's masthead is absent from
+    the source. SC0 is therefore closed on the adoption of the direction, and the built product has not been
+    judged against the owner's own words.
+  risk_if_wrong: "High and specific to this phase's purpose. The built world could have drifted from the comps through twenty-one plans without the person the phase is for having looked at it."
+  automatable: "No for the judgement itself. Getting the owner to the right screen is automatable: a build with real data and the roster in the epic lens, Light and Dark, screenshots attached to the question."
+
+- id: D-REV-25
+  phase: "08.1 — Visual Polish (plan 20, from plan 04 caveat c)"
+  truth: "The home surface's strongest position does not hold a junk epic. Today the roster's lead row is `test`, 0 of 1, and the 'No epic' bucket holds all 181 in-review tasks, which is the entire review queue."
+  status: open
+  why_deferred: |
+    Not a verification item: a data defect on the real board that the roster inherits. The owner adopted the
+    direction knowing it (plan 04). Plan 04 asked plan 20 to register it. Neither the epic nor the no-epic
+    bucket is a product fault, but the roster's first row is the first thing the owner sees.
+  risk_if_wrong: "Moderate: the home surface leads with junk, and the review queue has no home of its own in the epic lens (the status lens, A-02, is the sweep)."
+  automatable: "YES to detect (one query: epics whose title is `test` or whose total is 1 with no criteria). The remedy is a data decision for the owner (delete the epic; assign the 181 tasks), best drained through Flywheel itself."
+
+- id: D-REV-26
+  phase: "08.1 — Visual Polish (plan 20)"
+  truth: "The shipped impeccable-finish-reviewer, re-run once over each of the six fixed surface groups, the changed foot of the review surface (plan 21) and the app shell, raises nothing material that is not fixed or recorded."
+  status: "NOT RUN. Six reviewers ran once each and all returned `disposition: fix`; their findings were applied; none has been re-run against the fixes, and plan 21's changed foot has never been seen by one."
+  why_deferred: |
+    No physical reason. This is an unexecuted automated step, queued only because the plan 20 executor has no
+    subagent tool (Read, Write, Edit, Bash, Skill) and so could not spawn the reviewer or the documenter. It
+    duplicates D-REV-11 and D-REV-14 to D-REV-19 deliberately, as one batch. Until it is run, nothing in
+    Phase 8.1 may be described as passing an independent review after its fixes.
+  risk_if_wrong: "Moderate and cumulative: seven groups were finished by their builders and corrected by findings, and the corrections are unreviewed. The app shell has never been reviewed at all (D-REV-12)."
+  automatable: "YES. Capture the groups (`npm run test:browser`, `npm run test:browser:dark`, then `git checkout --` the Phase 8 UAT screenshot directory), widen the capture to mount BoardView/App (D-REV-12), and spawn impeccable-finish-reviewer once per group from the orchestrator. No human."
+
+- id: D-REV-27
+  phase: "08.1 — Visual Polish (plan 20, from plan 10 and the A-04 gate)"
+  truth: "Under the has-worktree chip the epic lens narrows its headers from 13 epics to the 5 that own live work, as the owner chose in A-04 (`any-child`)."
+  status: contradicted-by-measurement
+  why_deferred: |
+    Escalated to the owner by the orchestrator on 2026-10-08 and left open; no plan owns it. As shipped, the
+    epic lens renders every roster epic with the aggregate's unfiltered count and filters only the rows
+    inside, which is behaviourally the `always` reading the owner explicitly rejected ('would leave 8 of the
+    13 as empty shells'). The core SQL clause is correct and verified on the live database. The gap is that
+    the epic aggregate is board-wide by plan 05's design, so no header narrowing exists. See deferred-items.md.
+  risk_if_wrong: "Real: a decision the owner took on a blocking-human gate is not what shipped, and the contract (A-04) says otherwise."
+  needs: "A small plan: a filter-aware aggregate in the core, or a core-side 'epics matching this filter' read. Then a WebKit test over the real chip."
+  automatable: "YES once built: a jsdom or browser test that turns the chip on and asserts 5 headers. The decision is already made; this is an implementation gap, not a question."
+
+- id: D-REV-28
+  phase: "08.1 — Visual Polish (plan 20)"
+  truth: "The brand carries progress, the commits-ahead count and the focus ring, and nothing else (08.1-UI-SPEC.md, the brand rule's four permitted uses)."
+  status: needs-owner-decision
+  why_deferred: |
+    The build uses the brand in more places than the rule lists, and a new use needs an amendment. Open
+    already as an owner question: the running status, the live authoring stage and the developer's own turn
+    in the feed. Found by 08.1-20's grep and not previously recorded: brand-coloured links and text actions in
+    ForgeSection, ActivityTrail, TriageLane, EpicRequestSheet and the orphan modal, the global input focus
+    ring on inputs outside the finished groups, and review/review.css `.review-anchor-widget`, which draws a
+    2px BRAND left border on a block under a diff line. That last one is not covered by A-06 (A-06 decided
+    neutral ink, not an accent colour) and is the pattern the craft floor's coloured side-border ban names.
+  risk_if_wrong: "Low to moderate: the brand is diluted and the rule is no longer one a reviewer can enforce. The anchor widget is a plain floor violation with a one-line fix once the owner chooses (ink or control edge)."
+  needs: "An owner call: add 'text links, run status and stage, the developer's turn' to the permitted list by amendment, or move them to ink with weight. Separately, the anchor widget's border."
+  automatable: "YES to enforce once decided: a grep or computed-style test over the brand tokens' consumers, like the one that pins no-fill buttons. The decision is not automatable."
+
+- id: D-REV-29
+  phase: "08.1 — Visual Polish (plan 20, from plan 19)"
+  truth: "A project whose repository is gone for good can be removed from Flywheel, and a duplicate registration can be cleared."
+  status: needs-owner-decision
+  why_deferred: |
+    The group-six reviewer asked for a secondary 'Remove Project' on the unreachable surface. It was declined
+    in plan 19: no backend exists, and the decision (soft-hide, or delete the project's board) is the owner's.
+    The real board's second project is `unreachable` and is a DUPLICATE registration of the active one (same
+    name, same THRE prefix, same repo_path), which the surface has no way out of. See deferred-items.md.
+  risk_if_wrong: "Moderate: a surface that says 'Locate Project...' to a user who cannot. Data stays; the defect is a dead end."
+  needs: "An owner call between soft-hide and delete, then a command, a confirmation and a test."
+  automatable: "YES once decided (core command test plus the surface). The decision is not automatable."
+
+- id: D-REV-30
+  phase: "08.1 — Visual Polish (plan 20)"
+  truth: "Row Anatomy and the Copywriting Contract in 01-UI-SPEC.md describe the product: key alignment on rows that carry a pill, the 10px micro role, and the Done warning's copy."
+  status: needs-owner-decision
+  why_deferred: |
+    Three finish-pass items declined on contract grounds, each an amendment and not a finish edit. (1) Keys
+    misalign on rows that carry a pill or a change cue, because pills trail the status glyph by Row
+    Anatomy and may not clip; aligning them reserves a slot on every row. (2) `type-micro` (10px) still
+    carries a feed system notice and the assignee picker, and the detector reports tiny-text; the 08.1 scale
+    starts at 11. (3) The Done warning prints '{key} · {n} of {total} criteria unchecked. Mark Done anyway?'
+    at the group-six reviewer's instruction; 01-UI-SPEC.md's Copywriting Contract still gives the old string.
+    D-REV-13 (a zero criteria count and 'No priority' printing nothing) is the fourth in this family.
+  risk_if_wrong: "Low: cosmetic density and a stale contract string. The next phase inherits a document that disagrees with the product unless this is settled."
+  automatable: "No for the decisions. Each edit, once decided, is small and testable."
+
+- id: D-REV-31
+  phase: "08.1 — Visual Polish (plan 20, from A-06)"
+  truth: "The 2px neutral-ink left rule on a selected task row does not read as the decorative side stripe the craft floor bans."
+  status: open
+  why_deferred: |
+    Physical: human aesthetic judgement, and a reading of prose. The owner decided on 2026-10-08 (A-06) that
+    the ban targets accent colour, not neutral ink. The mechanical detector did not and cannot rule on it:
+    `skill-ban-side-stripe-borders` is prose in craft-floor.md and not a detect.mjs antipattern, so its
+    silence is structural. The rule stands as a knowing exception with a dated reason. It is queued so that
+    the next independent reviewer's reading of the floor, if it covers neutral ink, is re-argued
+    deliberately and not inherited.
+  risk_if_wrong: "Low: the selection treatment changes (A-06 offered a 1px rule, an inset bar and a background-only shift), at the cost of the focus clause, which the rule carries because the two selected surfaces are 1.03 apart."
+  automatable: "No. The perceptibility of the rule (focused against unfocused, 4.06 / 4.23; both 3:1 on every surface) is already asserted; whether it offends the floor is a judgement."
