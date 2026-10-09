@@ -255,14 +255,14 @@ describe("the legend tells the truth about the world 08.1 built", () => {
       focus: 1,
       status: 5,
       priority: 5,
-      epic: 4,
+      epic: 5,
       criteria: 7,
       estimate: 3,
       assignee: 4,
       project: 3,
       agent: 17,
     });
-    expect(MARKS).toHaveLength(53);
+    expect(MARKS).toHaveLength(54);
   });
 });
 
