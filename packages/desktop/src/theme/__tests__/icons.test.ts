@@ -93,6 +93,63 @@ describe("bundle.icon artifacts", () => {
     // raw[0] is the filter byte; raw[1..4] is the first pixel's R, G, B, A.
     expect(raw[4]).toBe(0);
   });
+
+  // The 824-of-1024 margin is a recorded assumption (RESEARCH A1: "the commonly cited macOS icon
+  // grid"). What a machine CAN check is that the shipped raster really has that geometry; whether
+  // it sits well beside other Dock icons is the human half (DEFERRED-REVIEW, 08.1-20).
+  it("icon.png's opaque artwork spans 824 of 1024 of the canvas (the recorded margin)", () => {
+    const b = read("icons/icon.png");
+    const width = u32(b, 16);
+    const height = u32(b, 20);
+    expect([b[24], b[25]]).toEqual([8, 6]); // 8-bit RGBA, so four bytes per pixel below
+    const idat: Uint8Array[] = [];
+    for (let at = 8; at < b.length; ) {
+      const len = u32(b, at);
+      if (String.fromCharCode(b[at + 4], b[at + 5], b[at + 6], b[at + 7]) === "IDAT") {
+        idat.push(b.slice(at + 8, at + 8 + len));
+      }
+      at += 12 + len;
+    }
+    const joined = new Uint8Array(idat.reduce((n, c) => n + c.length, 0));
+    idat.reduce((off, c) => (joined.set(c, off), off + c.length), 0);
+    const raw = inflateSync(joined);
+    const stride = width * 4;
+    const prev = new Uint8Array(stride);
+    const row = new Uint8Array(stride);
+    let [minX, maxX, minY, maxY] = [width, -1, height, -1];
+    for (let y = 0; y < height; y++) {
+      const at = y * (stride + 1);
+      const filter = raw[at];
+      for (let i = 0; i < stride; i++) {
+        const x = raw[at + 1 + i];
+        const a = i >= 4 ? row[i - 4] : 0;
+        const up = prev[i];
+        const c = i >= 4 ? prev[i - 4] : 0;
+        const pp = a + up - c;
+        const [pa, pb, pc] = [Math.abs(pp - a), Math.abs(pp - up), Math.abs(pp - c)];
+        const paeth = pa <= pb && pa <= pc ? a : pb <= pc ? up : c;
+        row[i] = [x, x + a, x + up, x + ((a + up) >> 1), x + paeth][filter] & 255;
+      }
+      for (let px = 0; px < width; px++) {
+        if (row[px * 4 + 3] > 128) {
+          minX = Math.min(minX, px);
+          maxX = Math.max(maxX, px);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+      prev.set(row);
+    }
+    const expected = (824 / 1024) * width;
+    // A rounded square: the bounding box is the artwork. Two pixels of slack for anti-aliasing.
+    expect(maxX - minX + 1).toBeGreaterThanOrEqual(expected - 2);
+    expect(maxX - minX + 1).toBeLessThanOrEqual(expected + 2);
+    expect(maxY - minY + 1).toBeGreaterThanOrEqual(expected - 2);
+    expect(maxY - minY + 1).toBeLessThanOrEqual(expected + 2);
+    // Centred: equal margin either side.
+    expect(Math.abs(minX - (width - 1 - maxX))).toBeLessThanOrEqual(2);
+    expect(Math.abs(minY - (height - 1 - maxY))).toBeLessThanOrEqual(2);
+  });
 });
 
 describe("in-app mark (logo.svg)", () => {
