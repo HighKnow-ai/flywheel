@@ -507,6 +507,7 @@ pub fn execute_dispatch_actions(app: &AppHandle) {
             task_id,
             DISPATCH_PERMISSION_MODE,
             flywheel_core::context_packet::DISPATCHED_COMMIT_INSTRUCTION,
+            crate::commands::agent_run::CrossTaskConflict::Refuse,
         )
         .map(|_| ())
     });

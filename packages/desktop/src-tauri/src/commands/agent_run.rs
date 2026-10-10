@@ -493,6 +493,10 @@ pub struct AgentRunDto {
     pub task_id: String,
     pub status: String,
     pub permission_mode: String,
+    /// Set only when a user's own launch overlaps a DIFFERENT live task (phase 09 plan 09-13): the
+    /// one sentence Rust composed from the stored rows, shown by the renderer verbatim. `None` for
+    /// an ordinary launch, so the warning means something when it appears.
+    pub overlap_warning: Option<String>,
 }
 
 /// What [`start_agent_run_recording_first`] produced (gap #2 of 04-VERIFICATION.md, CTX-06) — the
@@ -683,7 +687,14 @@ pub fn agent_run_start(
 ) -> Result<AgentRunDto, String> {
     validate_permission_mode(&permission_mode)?;
     let instruction = validate_instruction(instruction.as_deref())?;
-    launch_run_for_task(&state, &app, &task_id, &permission_mode, &instruction)
+    launch_run_for_task(
+        &state,
+        &app,
+        &task_id,
+        &permission_mode,
+        &instruction,
+        CrossTaskConflict::WarnAndProceed,
+    )
 }
 
 /// D-52/WORK-05: the ONLY place a spawn request leaves the app — it goes through
@@ -702,25 +713,44 @@ pub(crate) fn send_gated_spawn(
     }
 }
 
-/// The launch body, after argument validation: resolves the human actor server-side (T-01-04),
-/// credential resolution before any run/worktree state exists (D-39, T-02-42), the DB-only half
-/// ([`start_agent_run_recording_first`], which arms the scope marker), the shim env merge, the
-/// spawn request through the one gated path, and the `board:changed` emit.
-///
-/// Called by [`agent_run_start`] for a user's launch and by the dispatcher for an autonomous one:
-/// one launch path, so there is one place the order below can be wrong. The cap and the limit gate
-/// are the DISPATCHER's to consult; neither is consulted here, so a user's own launch is never
-/// refused by either. Callers pass an already-validated mode and instruction.
-pub(crate) fn launch_run_for_task(
-    state: &AppState,
-    app: &AppHandle,
+/// How the launch body disposes of a conflict with a DIFFERENT live task (phase 09 plan 09-13).
+/// Both callers pass one explicitly; there is no default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CrossTaskConflict {
+    /// The dispatcher's launch: a conflict refuses, nothing is created, and `run_pass` records a
+    /// pre-spawn launch failure that the next pass retries.
+    Refuse,
+    /// A user's own launch: never refused for a cross-task conflict (the 09-07 choice), but recorded
+    /// as an event and carried back on the result so it is no longer silent.
+    WarnAndProceed,
+}
+
+/// The event appended when a user's own launch overlaps a DIFFERENT live task (phase 09 plan 09-13).
+/// Payload follows the `task.scope_denied` idiom: a human `label`, then the facts.
+pub(crate) const EVENT_LAUNCH_OVERLAP: &str = "task.launch_overlap";
+
+/// Everything the lock-held half of a launch produced; [`launch_run_for_task`] finishes the
+/// process-facing half (shim env, gated spawn, `board:changed`) from it.
+pub(crate) struct PreparedLaunch {
+    pub outcome: StartRunOutcome,
+    pub repo_path: String,
+    pub env: std::collections::HashMap<String, String>,
+    pub overlap_warning: Option<String>,
+}
+
+/// The database half of a launch, run under the caller's `AppState.db` lock: actor, credential,
+/// the launch-conflict check, the run row. Split out of [`launch_run_for_task`] so it can be driven
+/// without a Tauri app handle.
+pub(crate) fn prepare_launch(
+    conn: &mut Connection,
     task_id: &str,
     permission_mode: &str,
     instruction: &str,
-) -> Result<AgentRunDto, String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    conflict: CrossTaskConflict,
+) -> Result<PreparedLaunch, String> {
+    let _ = conflict;
     let human_actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
 
     // Resolve the credential BEFORE any run/worktree state is created (D-39, plan 02-09 Task 2).
     // `resolve_credential` errors when the credential mode is api_key and no key is stored
@@ -741,20 +771,37 @@ pub(crate) fn launch_run_for_task(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|e| e.to_string())?;
-    let mut env =
-        crate::sidecar::resolved_env_for_run(&conn, &project_id).map_err(|e| e.to_string())?;
+    let env = crate::sidecar::resolved_env_for_run(conn, &project_id).map_err(|e| e.to_string())?;
 
-    let outcome = start_agent_run_recording_first(
-        &mut conn,
-        task_id,
-        permission_mode,
-        instruction,
-        &human_actor_id,
-    )?;
+    let outcome =
+        start_agent_run_recording_first(conn, task_id, permission_mode, instruction, &human_actor_id)?;
+    Ok(PreparedLaunch { outcome, repo_path, env, overlap_warning: None })
+}
+
+/// The launch body, after argument validation: resolves the human actor server-side (T-01-04),
+/// credential resolution before any run/worktree state exists (D-39, T-02-42), the DB-only half
+/// ([`prepare_launch`]), the shim env merge, the spawn request through the one gated path, and the
+/// `board:changed` emit.
+///
+/// Called by [`agent_run_start`] for a user's launch and by the dispatcher for an autonomous one:
+/// one launch path, so there is one place the order below can be wrong. The cap and the limit gate
+/// are the DISPATCHER's to consult; neither is consulted here, so a user's own launch is never
+/// refused by either. Callers pass an already-validated mode and instruction.
+pub(crate) fn launch_run_for_task(
+    state: &AppState,
+    app: &AppHandle,
+    task_id: &str,
+    permission_mode: &str,
+    instruction: &str,
+    conflict: CrossTaskConflict,
+) -> Result<AgentRunDto, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let PreparedLaunch { outcome, repo_path, mut env, overlap_warning } =
+        prepare_launch(&mut conn, task_id, permission_mode, instruction, conflict)?;
 
     // D-51: the shim's per-run directory is keyed by the run id, which only exists from this
     // point on — a shim-install failure here refuses the spawn (see `merge_shim_env_for_run`'s
-    // own doc comment for why this cannot live inside `resolved_env_for_run` above).
+    // own doc comment for why this cannot live inside `resolved_env_for_run`).
     crate::sidecar::merge_shim_env_for_run(&mut env, &outcome.run_id).map_err(|e| e.to_string())?;
 
     drop(conn);
@@ -786,6 +833,7 @@ pub(crate) fn launch_run_for_task(
         // `start_agent_run_recording_first`'s own step 2.
         status: "running".to_string(),
         permission_mode: permission_mode.to_string(),
+        overlap_warning,
     })
 }
 
@@ -3320,6 +3368,184 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(running, 0, "the aborted start must not leave a running run behind");
+        });
+    }
+
+    // --- phase 09 plan 09-13: the shared launch body consults the one launch-conflict rule ---------
+
+    fn add_task(conn: &mut Connection, actor: &str, project_id: &str, title: &str) -> (String, String) {
+        let t = flywheel_core::domain::task::create_task(conn, project_id, actor, title, None)
+            .expect("create_task should succeed");
+        (t.id, t.key)
+    }
+
+    /// `(agent_runs rows for the task, all events rows)` — a refusal must change neither.
+    fn launch_footprint(conn: &Connection, task_id: &str) -> (i64, i64) {
+        let runs = conn
+            .query_row("SELECT COUNT(*) FROM agent_runs WHERE task_id = ?1", rusqlite::params![task_id], |r| r.get(0))
+            .unwrap();
+        let events = conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
+        (runs, events)
+    }
+
+    fn overlap_events(conn: &Connection, task_id: &str) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT payload FROM events WHERE event_type = ?1 AND task_id = ?2")
+            .unwrap();
+        stmt.query_map(rusqlite::params![EVENT_LAUNCH_OVERLAP, task_id], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    }
+
+    fn launch(
+        conn: &mut Connection,
+        task_id: &str,
+        conflict: CrossTaskConflict,
+    ) -> Result<PreparedLaunch, String> {
+        prepare_launch(conn, task_id, "acceptEdits", "", conflict)
+    }
+
+    /// A project with two tasks: `task` (declared `src/a/` unless `task_set` says otherwise) and an
+    /// `other` task that is LIVE (its set is `other_set`; empty means undeclared).
+    struct TwoTasks {
+        conn: Connection,
+        task: String,
+        other: String,
+        other_key: String,
+        _repo: tempfile::TempDir,
+    }
+
+    fn two_tasks(task_set: &[&str], other_set: &[&str]) -> TwoTasks {
+        let (mut conn, actor, project_id, task, repo) = seeded_git_conn_with_task();
+        let (other, other_key) = add_task(&mut conn, &actor, &project_id, "Other task");
+        declare_set(&mut conn, &actor, &task, task_set);
+        declare_set(&mut conn, &actor, &other, other_set);
+        start_agent_run_recording_first(&mut conn, &other, "acceptEdits", "", &actor)
+            .expect("the other task goes live");
+        TwoTasks { conn, task, other, other_key, _repo: repo }
+    }
+
+    #[test]
+    fn a_dispatched_launch_colliding_with_a_live_task_is_refused_and_creates_nothing() {
+        with_scratch_worktree_root(|| {
+            let mut f = two_tasks(&["src/a/"], &["src/a/"]);
+            let before = launch_footprint(&f.conn, &f.task);
+            let err = match launch(&mut f.conn, &f.task, CrossTaskConflict::Refuse) {
+                Ok(_) => panic!("a colliding dispatched launch must be refused"),
+                Err(e) => e,
+            };
+            assert!(err.contains(&f.other_key) && err.contains("src/a/"), "names the task and the path: {err}");
+            assert_eq!(launch_footprint(&f.conn, &f.task), before, "a refusal creates no run row and appends no event");
+        });
+    }
+
+    #[test]
+    fn a_dispatched_launch_beside_an_undeclared_live_task_is_refused_as_runs_alone() {
+        with_scratch_worktree_root(|| {
+            let mut f = two_tasks(&["src/a/"], &[]);
+            let before = launch_footprint(&f.conn, &f.task);
+            let err = match launch(&mut f.conn, &f.task, CrossTaskConflict::Refuse) {
+                Ok(_) => panic!("D-150: an undeclared live task blocks a dispatched launch"),
+                Err(e) => e,
+            };
+            assert!(err.contains(&f.other_key) && err.contains("runs alone"), "{err}");
+            assert_eq!(launch_footprint(&f.conn, &f.task), before);
+        });
+    }
+
+    #[test]
+    fn a_dispatched_launch_with_nothing_in_flight_proceeds_silently() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, actor, _p, task, _repo) = seeded_git_conn_with_task();
+            declare_set(&mut conn, &actor, &task, &["src/a/"]);
+            let prepared = launch(&mut conn, &task, CrossTaskConflict::Refuse).expect("nothing in flight");
+            assert!(prepared.overlap_warning.is_none());
+            assert_eq!(launch_footprint(&conn, &task).0, 1, "the run row exists");
+            assert!(overlap_events(&conn, &task).is_empty());
+        });
+    }
+
+    #[test]
+    fn a_manual_launch_colliding_with_a_different_live_task_proceeds_recorded_and_warned() {
+        with_scratch_worktree_root(|| {
+            let mut f = two_tasks(&["src/a/"], &["src/a/"]);
+            let prepared = launch(&mut f.conn, &f.task, CrossTaskConflict::WarnAndProceed)
+                .expect("a user's own launch is never refused for a cross-task conflict (09-07)");
+            let warning = prepared.overlap_warning.expect("the overlap is surfaced, not silent");
+            assert!(warning.contains(&f.other_key) && warning.contains("src/a/"), "{warning}");
+            assert_eq!(launch_footprint(&f.conn, &f.task).0, 1, "the run row exists");
+            let events = overlap_events(&f.conn, &f.task);
+            assert_eq!(events.len(), 1, "exactly one overlap event");
+            assert!(events[0].contains(&f.other_key) && events[0].contains("src/a/"), "{}", events[0]);
+            assert!(events[0].contains(&prepared.outcome.run_id), "the event carries the run id");
+        });
+    }
+
+    #[test]
+    fn a_manual_launch_beside_an_undeclared_live_task_proceeds_with_the_runs_alone_wording() {
+        with_scratch_worktree_root(|| {
+            let mut f = two_tasks(&["src/a/"], &[]);
+            let prepared = launch(&mut f.conn, &f.task, CrossTaskConflict::WarnAndProceed).expect("proceeds");
+            let warning = prepared.overlap_warning.expect("surfaced");
+            assert!(warning.contains(&f.other_key) && warning.contains("runs alone"), "{warning}");
+            let events = overlap_events(&f.conn, &f.task);
+            assert_eq!(events.len(), 1);
+            assert!(events[0].contains("runs alone"), "{}", events[0]);
+        });
+    }
+
+    #[test]
+    fn a_manual_launch_with_nothing_in_flight_is_silent() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, actor, _p, task, _repo) = seeded_git_conn_with_task();
+            declare_set(&mut conn, &actor, &task, &["src/a/"]);
+            let prepared = launch(&mut conn, &task, CrossTaskConflict::WarnAndProceed).expect("proceeds");
+            assert!(prepared.overlap_warning.is_none(), "an ordinary launch carries no warning");
+            assert!(overlap_events(&conn, &task).is_empty(), "and appends no overlap event");
+        });
+    }
+
+    #[test]
+    fn a_task_with_its_own_running_or_blocked_run_is_refused_on_both_dispositions() {
+        for status in ["running", "blocked"] {
+            for conflict in [CrossTaskConflict::Refuse, CrossTaskConflict::WarnAndProceed] {
+                with_scratch_worktree_root(|| {
+                    let (mut conn, actor, _p, task, _repo) = seeded_git_conn_with_task();
+                    declare_set(&mut conn, &actor, &task, &["src/a/"]);
+                    let first = start_agent_run_recording_first(&mut conn, &task, "acceptEdits", "", &actor).unwrap();
+                    conn.execute(
+                        "UPDATE agent_runs SET status = ?1 WHERE id = ?2",
+                        rusqlite::params![status, first.run_id],
+                    )
+                    .unwrap();
+                    let before = launch_footprint(&conn, &task);
+                    let err = match launch(&mut conn, &task, conflict) {
+                        Ok(_) => panic!("{status} / {conflict:?}: two agents in one worktree must be refused"),
+                        Err(e) => e,
+                    };
+                    assert!(err.contains("already has"), "{status} / {conflict:?}: {err}");
+                    assert_eq!(launch_footprint(&conn, &task), before, "{status} / {conflict:?}");
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn a_manual_launch_at_or_above_the_cap_still_proceeds() {
+        with_scratch_worktree_root(|| {
+            let mut f = two_tasks(&["src/a/"], &["src/b/"]);
+            let actor = flywheel_core::domain::actor::local_human_actor_id(&f.conn).unwrap();
+            flywheel_core::domain::settings::set_dispatch_max_parallel(&mut f.conn, &actor, 1).unwrap();
+            let live: i64 = f
+                .conn
+                .query_row("SELECT COUNT(*) FROM agent_runs WHERE status IN ('running','blocked')", [], |r| r.get(0))
+                .unwrap();
+            assert!(live >= 1, "the cap of 1 is already reached");
+            let prepared = launch(&mut f.conn, &f.task, CrossTaskConflict::WarnAndProceed)
+                .expect("the cap is the dispatcher's alone (D-159)");
+            assert!(prepared.overlap_warning.is_none(), "disjoint sets: nothing to warn about");
+            let _ = &f.other;
         });
     }
 }
