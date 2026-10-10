@@ -72,7 +72,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **AGNT-02**: A Claude Code adapter drives headless sessions and normalises their event stream into the adapter's common event type
 - [x] **AGNT-03**: Agents run using the developer's existing local Claude Code credentials, with no credential ever leaving the machine
 - [x] **AGNT-04**: An explicit API-key credential path is supported as a first-class alternative to local subscription credentials
-- [x] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
+- [ ] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
 - [x] **AGNT-06**: Permission requests raised by a running agent surface to the user and block that agent until answered
 - [x] **AGNT-07**: Destructive actions (force-push, branch deletion, recursive delete) always require explicit confirmation, even when the session is running in an auto-accept permission mode
 - [ ] **AGNT-08**: The adapter reports token usage and cost per session
@@ -108,13 +108,13 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Planner & Parallel Fan-Out
 
-- [x] **PLAN-01**: The planner decomposes an epic into tasks each declaring the set of files it expects to modify
-- [x] **PLAN-02**: Before dispatch, the planner checks every pair of candidate parallel tasks for declared file-set overlap
-- [x] **PLAN-03**: When two tasks overlap, only that pair is downgraded to sequential execution — not the entire batch
-- [x] **PLAN-04**: A running agent is prevented at the tool level from writing to files outside its task's declared file-set
-- [x] **PLAN-05**: An agent's attempt to write outside its declared file-set is surfaced to the user as a scope event, not silently blocked
-- [x] **PLAN-06**: The planner decides how many tasks run in parallel, and the user can cap that width globally
-- [x] **PLAN-07**: User can see why any two tasks were scheduled sequentially rather than in parallel
+- [ ] **PLAN-01**: The planner decomposes an epic into tasks each declaring the set of files it expects to modify
+- [ ] **PLAN-02**: Before dispatch, the planner checks every pair of candidate parallel tasks for declared file-set overlap
+- [ ] **PLAN-03**: When two tasks overlap, only that pair is downgraded to sequential execution — not the entire batch
+- [ ] **PLAN-04**: A running agent is prevented at the tool level from writing to files outside its task's declared file-set
+- [ ] **PLAN-05**: An agent's attempt to write outside its declared file-set is surfaced to the user as a scope event, not silently blocked
+- [ ] **PLAN-06**: The planner decides how many tasks run in parallel, and the user can cap that width globally
+- [ ] **PLAN-07**: User can see why any two tasks were scheduled sequentially rather than in parallel
 
 ### Fleet Supervision
 
@@ -267,7 +267,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | AGNT-02 | Phase 2 | Complete |
 | AGNT-03 | Phase 2 | Complete |
 | AGNT-04 | Phase 2 | Complete |
-| AGNT-05 | Phase 9 | Complete |
+| AGNT-05 | Phase 9 | Gaps Found |
 | AGNT-06 | Phase 2 | Complete |
 | AGNT-07 | Phase 3 | Complete |
 | AGNT-08 | Phase 10 | Pending |
@@ -291,13 +291,13 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PROP-05 | Phase 6 | Complete |
 | PROP-06 | Phase 6 | Complete |
 | PROP-07 | Phase 6 | Complete |
-| PLAN-01 | Phase 9 | Complete |
-| PLAN-02 | Phase 9 | Complete |
-| PLAN-03 | Phase 9 | Complete |
-| PLAN-04 | Phase 9 | Complete |
-| PLAN-05 | Phase 9 | Complete |
-| PLAN-06 | Phase 9 | Complete |
-| PLAN-07 | Phase 9 | Complete |
+| PLAN-01 | Phase 9 | Gaps Found |
+| PLAN-02 | Phase 9 | Gaps Found |
+| PLAN-03 | Phase 9 | Gaps Found |
+| PLAN-04 | Phase 9 | Gaps Found |
+| PLAN-05 | Phase 9 | Gaps Found |
+| PLAN-06 | Phase 9 | Gaps Found |
+| PLAN-07 | Phase 9 | Gaps Found |
 | FLEET-01 | Phase 10 | Pending |
 | FLEET-02 | Phase 10 | Pending |
 | FLEET-03 | Phase 10 | Pending |
