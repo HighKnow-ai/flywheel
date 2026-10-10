@@ -506,6 +506,10 @@ pub(crate) struct StartRunOutcome {
     pub worktree_path: String,
     pub prompt: String,
     pub drift_event_count: usize,
+    /// The run's scope marker was written ARMED (the task has a declared file-set). The sidecar is
+    /// told, so it refuses to start the run if it cannot wire the scope gate in (phase 09 review
+    /// CR-01) rather than running it unenforced.
+    pub scope_armed: bool,
 }
 
 /// The DB-only half of [`agent_run_start`] (gap #2 of 04-VERIFICATION.md, CTX-06), extracted so
@@ -617,17 +621,20 @@ pub(crate) fn start_agent_run_recording_first(
     // row this function inserted at step 2 is closed `failed` before the error propagates: a
     // `running` row with no session behind it would hold a dispatcher slot forever (plan 09-07
     // counts `running` runs) and leave the task looking worked-on.
-    if let Err(why) = arm_run_scope(conn, &run.id, task_id, &worktree_path) {
-        let _ = flywheel_core::domain::agent_run::close_agent_run(
-            conn,
-            &run.id,
-            flywheel_core::domain::agent_run::AgentRunStatus::Failed,
-            None,
-            None,
-            None,
-        );
-        return Err(why);
-    }
+    let scope_armed = match arm_run_scope(conn, &run.id, task_id, &worktree_path) {
+        Ok(armed) => armed,
+        Err(why) => {
+            let _ = flywheel_core::domain::agent_run::close_agent_run(
+                conn,
+                &run.id,
+                flywheel_core::domain::agent_run::AgentRunStatus::Failed,
+                None,
+                None,
+                None,
+            );
+            return Err(why);
+        }
+    };
 
     Ok(StartRunOutcome {
         run_id: run.id,
@@ -636,6 +643,7 @@ pub(crate) fn start_agent_run_recording_first(
         worktree_path,
         prompt,
         drift_event_count,
+        scope_armed,
     })
 }
 
@@ -644,20 +652,20 @@ pub(crate) fn start_agent_run_recording_first(
 /// arm_scope_marker`) so the contract test in `packages/core` drives the very same function; this
 /// wrapper is the name the run-start path calls and the place the error becomes a command error.
 /// A task with no declared file-set gets an explicit `unarmed` marker — `agent_run_start` behaves
-/// exactly as it did before this phase for it.
+/// exactly as it did before this phase for it. Returns whether the marker was written ARMED.
 pub(crate) fn arm_run_scope(
     conn: &Connection,
     run_id: &str,
     task_id: &str,
     worktree_path: &str,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     flywheel_core::domain::file_set::arm_scope_marker(
         conn,
         run_id,
         task_id,
         std::path::Path::new(worktree_path),
     )
-    .map(|_mode| ())
+    .map(|mode| mode == flywheel_core::runtime_protocol::ScopeMode::Armed)
 }
 
 /// Start a fresh agent run against `task_id` (D-30: always fresh, never `--resume`). Validates
@@ -743,6 +751,7 @@ pub(crate) fn launch_run_for_task(
             "worktreePath": outcome.worktree_path,
             "prompt": outcome.prompt,
             "permissionMode": permission_mode,
+            "scopeArmed": outcome.scope_armed,
             "env": env,
         });
         // D-52/WORK-05: the ONLY path a spawn request may take — enforces the per-repository
@@ -3209,6 +3218,7 @@ mod tests {
             let marker = flywheel_core::runtime_protocol::read_scope_marker(&outcome.run_id)
                 .expect("the run start must have written the scope marker");
             assert_eq!(marker.mode, flywheel_core::runtime_protocol::ScopeMode::Armed);
+            assert!(outcome.scope_armed, "the sidecar is told the run is armed, so it can fail closed");
             assert_eq!(marker.entries.len(), 1);
             assert_eq!(marker.entries[0].path, "src/allowed/");
 
@@ -3233,6 +3243,7 @@ mod tests {
             let marker = flywheel_core::runtime_protocol::read_scope_marker(&outcome.run_id)
                 .expect("an unarmed marker is still written — a fact, never an absence");
             assert_eq!(marker.mode, flywheel_core::runtime_protocol::ScopeMode::Unarmed);
+            assert!(!outcome.scope_armed, "an undeclared task is never refused for lack of a gate (D-150)");
             assert!(marker.entries.is_empty());
 
             let worktree = std::path::Path::new(&outcome.worktree_path);

@@ -81,7 +81,7 @@ test("writeHookSettings(false, false, true) adds exactly one scope entry after t
   assert.equal(entries[1].hooks.length, 1);
   assert.equal(entries[1].hooks[0].type, "command");
   assert.ok(
-    entries[1].hooks[0].command.endsWith(scopeHookScriptPath()),
+    entries[1].hooks[0].command.includes(scopeHookScriptPath()),
     "the scope entry must run the compiled scope hook script",
   );
 });

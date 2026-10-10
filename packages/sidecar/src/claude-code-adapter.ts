@@ -183,6 +183,42 @@ export const AUTHORING_STAGE_GATE_MATCHER = `mcp__${MCP_SERVER_NAME}__(propose|a
  * `execution-hook-settings.test.mjs` can compile it as a real `RegExp`. */
 export const SCOPE_GATE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit";
 
+/** One argument, quoted for the shell the agent runs a hook command through: single quotes on POSIX
+ * (nothing inside is special), double quotes on Windows. */
+function shellQuote(arg: string): string {
+  return process.platform === "win32" ? `"${arg}"` : `'${arg.replace(/'/g, `'\\''`)}'`;
+}
+
+/** The scope gate's hook command (phase 09 review CR-01). Both paths are quoted, so a space in the
+ * install directory cannot split them. `|| exit 2` makes EVERY failure to run the hook a block:
+ * only exit 2 stops a tool call, and `node` reports a missing or unreadable script as exit 1, which
+ * lets the write through. The hook's own verdicts pass through unchanged: 0 allows, 2 denies. */
+export function scopeHookCommand(execPath: string, scriptPath: string): string {
+  return `${shellQuote(execPath)} ${shellQuote(scriptPath)} || exit 2`;
+}
+
+/** Why an ARMED run's scope gate cannot be enforced, or `undefined` when it can. The scope gate has
+ * no second layer (the Bash gate has the PATH shim), so every way its wiring can be absent is a
+ * refusal to start rather than a run that proceeds with an armed marker and no hooks. */
+function scopeGateUnavailable(
+  env: NodeJS.ProcessEnv,
+  settingsPath: string | undefined,
+): string | undefined {
+  if (!env.FLYWHEEL_RUNTIME_DIR) {
+    return "FLYWHEEL_RUNTIME_DIR is not set, so the scope gate's hook settings cannot be written";
+  }
+  if (settingsPath === undefined) {
+    return `the scope gate's hook settings could not be written under ${env.FLYWHEEL_RUNTIME_DIR}/settings`;
+  }
+  if (!fs.existsSync(scopeHookScriptPath())) {
+    return `the scope hook script is missing at ${scopeHookScriptPath()}`;
+  }
+  if (!env.FLYWHEEL_SHIM_BIN) {
+    return "FLYWHEEL_SHIM_BIN is not set, so the scope hook has no shim to check the declared file-set with";
+  }
+  return undefined;
+}
+
 /** Write `<runtimeDir>/settings/<runId>.json` — the exact `PreToolUse`/`matcher: "Bash"` shape
  * RESEARCH.md confirmed working live against the real `claude` binary this session (§ "The hook
  * mechanism verified working this session"), EXTENDED (plan 05-03, D-88) with a SECOND
@@ -249,7 +285,7 @@ export function writeHookSettings(
     if (includeScopeGate) {
       preToolUse.push({
         matcher: SCOPE_GATE_MATCHER,
-        hooks: [{ type: "command", command: `${process.execPath} ${scopeHookScriptPath()}` }],
+        hooks: [{ type: "command", command: scopeHookCommand(process.execPath, scopeHookScriptPath()) }],
       });
     }
     const settings = {
@@ -1393,6 +1429,30 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const settingsPath = env.FLYWHEEL_RUNTIME_DIR
       ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, false, true)
       : undefined;
+
+    // Phase 09 review CR-01: an ARMED run is refused, not started, when its scope gate cannot be
+    // enforced. Rust wrote an armed marker before this spawn; without the hook wired in, every
+    // write would be permitted and nothing recorded. The terminal `session_closed` (failed) is what
+    // makes the Rust core close this run's row, so the refusal frees its dispatcher slot and leaves
+    // the task with no live run; it is the same event a backend that never spawned produces.
+    if (options.scopeArmed === true) {
+      const why = scopeGateUnavailable(env, settingsPath);
+      if (why !== undefined) {
+        const reason = `refusing to start an armed run unenforced: ${why}`;
+        permissionServer.close();
+        options.onEvent({
+          runId: options.runId,
+          seq: 0,
+          at: new Date().toISOString(),
+          raw: `session_closed: failed`,
+          type: "session_closed",
+          reason: "failed",
+          closeOrigin: "unattributed",
+          detail: reason,
+        });
+        throw new Error(reason);
+      }
+    }
 
     const mcpConfig = JSON.stringify({
       mcpServers: {

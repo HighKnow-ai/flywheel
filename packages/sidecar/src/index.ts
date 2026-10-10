@@ -21,6 +21,8 @@ interface SpawnRequest {
   permissionMode: string;
   /** Plan 09-08: the pre-dispatch planning run (pre-approves `submit_plan` only). */
   planning?: boolean;
+  /** Phase 09 review CR-01: the run's scope marker is armed; the adapter refuses to start it unenforced. */
+  scopeArmed?: boolean;
   env?: Record<string, string>;
 }
 
@@ -199,6 +201,7 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
           prompt: request.prompt,
           permissionMode: request.permissionMode,
           planning: request.planning === true,
+          scopeArmed: request.scopeArmed === true,
           env: request.env,
           onEvent: emitEvent,
         })

@@ -32,6 +32,7 @@ import { test } from "node:test";
 import {
   AUTHORING_STAGE_GATE_MATCHER,
   SCOPE_GATE_MATCHER,
+  scopeHookCommand,
   ClaudeCodeAdapter,
   stageGateHookScriptPath,
 } from "../dist/claude-code-adapter.js";
@@ -223,7 +224,8 @@ test("an execution-run startSession writes the Bash entry byte-identical to befo
   assert.equal(entries.length, 2, "expected the Bash entry plus the scope entry for an execution run");
   assert.deepEqual(entries[1], {
     matcher: SCOPE_GATE_MATCHER,
-    hooks: [{ type: "command", command: `${process.execPath} ${path.join(__dirname, "..", "dist", "scope-hook.js")}` }],
+    // CR-01: both paths quoted, and any failure to run the hook is a block (exit 2).
+    hooks: [{ type: "command", command: scopeHookCommand(process.execPath, path.join(__dirname, "..", "dist", "scope-hook.js")) }],
   });
   assert.deepEqual(entries[0], {
     matcher: "Bash",

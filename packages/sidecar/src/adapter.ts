@@ -498,6 +498,10 @@ export interface StartSessionOptions {
    * `submit_plan` and nothing else (no `report_summary`, no `propose_item`). Whether the run may
    * submit is still decided by the Rust core, never by this flag. */
   planning?: boolean;
+  /** Phase 09 review CR-01: the Rust core wrote an ARMED scope marker for this run. The adapter
+   * must then refuse to start unless it can wire the scope gate in (fail closed); an unarmed run
+   * (no declared file-set, D-150) is unaffected. Absent means unarmed. */
+  scopeArmed?: boolean;
   /** Additional environment variables to merge over `process.env` for the spawned child —
    * resolved credentials arrive here from the Rust core and are never read from disk by the
    * sidecar itself. */
