@@ -1078,7 +1078,7 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: 11/13 plans executed — 9/9 executed in 7 waves, plus 4 gap-closure plans (09-10 … 09-13) in 3 further waves
+**Plans**: 12/13 plans executed — 9/9 executed in 7 waves, plus 4 gap-closure plans (09-10 … 09-13) in 3 further waves
 
 Plans:
 
@@ -1121,7 +1121,7 @@ Plans:
 
 **Gap wave 2** *(blocked on 09-10 — same file, `packages/core/src/dispatch.rs`)*
 
-- [ ] 09-12-PLAN.md — Gap 2: ONE launch-conflict rule, extracted from `readiness` so a launch path can call it, with the dispatcher's verdicts proved unchanged; and the first test of the decide-to-launch window. A partial unique index on `agent_runs` is deliberately REJECTED — it cannot state a cross-row predicate over a child table, and it would make the out-of-scope WR-03 leaked row permanent (PLAN-02, PLAN-03)
+- [x] 09-12-PLAN.md — Gap 2: ONE launch-conflict rule, extracted from `readiness` so a launch path can call it, with the dispatcher's verdicts proved unchanged; and the first test of the decide-to-launch window. A partial unique index on `agent_runs` is deliberately REJECTED — it cannot state a cross-row predicate over a child table, and it would make the out-of-scope WR-03 leaked row permanent (PLAN-02, PLAN-03)
 
 **Gap wave 3** *(blocked on 09-12 for the rule, and on 09-10 for `commands/dispatch.rs`)*
 
@@ -1239,7 +1239,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
-| 9. Planned Fan-Out That Does Not Collide | 11/13 | In Progress|  |
+| 9. Planned Fan-Out That Does Not Collide | 12/13 | In Progress|  |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
