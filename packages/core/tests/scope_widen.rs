@@ -16,7 +16,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRun, AgentRunStatus};
-use core::domain::dispatch_plan::{create_draft_plan_in_tx, replace_plan_tasks_in_tx, PlanTaskInput};
+use core::dispatch::{why, SequencingReason};
+use core::domain::dispatch_plan::{
+    approve_plan_with, create_draft_plan_in_tx, replace_plan_tasks_in_tx, PlanTaskInput, EVENT_TASK_SEQUENCED,
+};
 use core::domain::epic::create_epic;
 use core::domain::file_set::{
     arm_scope_marker, declare_file_set, list_entries_for_task, widen_file_set, WidenOutcome,
@@ -323,6 +326,183 @@ fn a_committed_widen_whose_marker_cannot_be_rewritten_is_reported_not_swallowed(
             other => panic!("expected a partial outcome, got {other:?}"),
         }
         assert_eq!(paths(&fx.conn, &a.task_id), vec!["src/a/", "docs/n.md"], "the database half did commit");
+    });
+}
+
+// --- D-157: a widen that reaches a queued sibling leaves the record `why` reads --------------------
+
+/// A declared task with no run: queued behind whatever its wave is waiting on.
+fn queued(fx: &mut Fixture, title: &str, epic: &str, declared: &[&str]) -> String {
+    let task = create_task(&mut fx.conn, &fx.project_id, &fx.actor, title, Some(epic)).unwrap();
+    let entries: Vec<_> = declared.iter().map(|r| parse_entry(r).unwrap()).collect();
+    declare_file_set(&mut fx.conn, &task.id, &entries, &fx.actor).unwrap();
+    task.id
+}
+
+/// An APPROVED plan over `tasks` (task id, wave). The sets are disjoint, so approval writes no edge.
+fn approved_plan(fx: &mut Fixture, epic: &str, tasks: &[(&str, u32)]) -> String {
+    let tx = fx.conn.transaction().unwrap();
+    let plan = create_draft_plan_in_tx(&tx, epic, None, &fx.actor, "2026-10-09T00:00:00Z").unwrap();
+    let inputs: Vec<_> = tasks
+        .iter()
+        .map(|(id, wave)| PlanTaskInput { task_id: id.to_string(), wave: *wave, rationale: None })
+        .collect();
+    replace_plan_tasks_in_tx(&tx, &plan, &inputs).unwrap();
+    tx.commit().unwrap();
+    approve_plan_with(&mut fx.conn, &plan, &fx.actor, false, "2026-10-09T00:00:01Z").unwrap();
+    plan
+}
+
+fn edge_rows(conn: &Connection) -> Vec<(String, String, String, String)> {
+    let mut stmt = conn
+        .prepare("SELECT before_task_id, after_task_id, cause, colliding_paths FROM dispatch_edges ORDER BY created_at, id")
+        .unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+fn sequenced_events(conn: &Connection, task_id: &str) -> i64 {
+    count(conn, "SELECT COUNT(*) FROM events WHERE task_id = ?1 AND event_type = ?2", params![task_id, EVENT_TASK_SEQUENCED])
+}
+
+/// A running A and a queued B in one wave of one approved plan, declared disjoint.
+fn a_running_and_a_queued(fx: &mut Fixture) -> (Running, String, String) {
+    let epic = create_epic(&mut fx.conn, &fx.project_id, &fx.actor, "E", None).unwrap();
+    let a = running(fx, "a", Some(&epic.id), &["src/a/"]);
+    let b = queued(fx, "b", &epic.id, &["src/b/"]);
+    let plan = approved_plan(fx, &epic.id, &[(&a.task_id, 1), (&b, 1)]);
+    (a, b, plan)
+}
+
+#[test]
+fn a_widen_reaching_a_queued_same_wave_task_is_accepted_and_records_edge_event_and_why() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let (a, b, plan) = a_running_and_a_queued(&mut fx);
+        assert!(edge_rows(&fx.conn).is_empty(), "disjoint at approval: no edge yet");
+
+        let outcome = widen_file_set(&mut fx.conn, &a.task_id, "src/b/deep.rs", &fx.actor).unwrap();
+        assert!(matches!(outcome, WidenOutcome::Accepted { .. }), "a queued task is not in flight: {outcome:?}");
+
+        let edges = edge_rows(&fx.conn);
+        assert_eq!(edges.len(), 1, "exactly one edge for the pair");
+        let (before, after, cause, stored) = &edges[0];
+        assert_eq!((before.as_str(), after.as_str(), cause.as_str()), (a.task_id.as_str(), b.as_str(), "widen"));
+        let stored: serde_json::Value = serde_json::from_str(stored).unwrap();
+        assert_eq!(stored, serde_json::json!([{ "before": "src/b/deep.rs", "after": "src/b/" }]));
+        assert_eq!(sequenced_events(&fx.conn, &b), 1, "exactly one sequenced event, on the waiting task");
+        match why(&fx.conn, &plan, &a.task_id, &b).unwrap() {
+            SequencingReason::Sequenced { before_task_id, after_task_id, cause, .. } => {
+                assert_eq!((before_task_id, after_task_id, cause), (a.task_id.clone(), b.clone(), "widen".to_string()));
+            }
+            other => panic!("expected the sequenced answer, got {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn a_second_widen_reaching_the_same_queued_task_writes_no_second_edge_and_is_accepted() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let (a, b, _plan) = a_running_and_a_queued(&mut fx);
+        widen_file_set(&mut fx.conn, &a.task_id, "src/b/one.rs", &fx.actor).unwrap();
+        let first = edge_rows(&fx.conn);
+
+        let outcome = widen_file_set(&mut fx.conn, &a.task_id, "src/b/two.rs", &fx.actor).unwrap();
+
+        assert!(matches!(outcome, WidenOutcome::Accepted { .. }), "bookkeeping must not fail a scope grant: {outcome:?}");
+        assert_eq!(edge_rows(&fx.conn), first, "the first answer is the frozen one, byte for byte");
+        assert_eq!(sequenced_events(&fx.conn, &b), 1);
+        assert_eq!(paths(&fx.conn, &a.task_id), vec!["src/a/", "src/b/one.rs", "src/b/two.rs"]);
+    });
+}
+
+#[test]
+fn a_widen_refused_for_a_running_sibling_writes_no_edge_and_no_event() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let epic = create_epic(&mut fx.conn, &fx.project_id, &fx.actor, "E", None).unwrap();
+        let a = running(&mut fx, "a", Some(&epic.id), &["src/a/"]);
+        let b = running(&mut fx, "b", Some(&epic.id), &["src/b/"]);
+        approved_plan(&mut fx, &epic.id, &[(&a.task_id, 1), (&b.task_id, 1)]);
+
+        collision_of(widen_file_set(&mut fx.conn, &a.task_id, "src/b/x.rs", &fx.actor).unwrap());
+
+        assert!(edge_rows(&fx.conn).is_empty());
+        assert_eq!(sequenced_events(&fx.conn, &b.task_id), 0);
+        assert_eq!(paths(&fx.conn, &a.task_id), vec!["src/a/"]);
+    });
+}
+
+#[test]
+fn a_widen_reaching_a_queued_task_in_another_wave_writes_no_edge() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let epic = create_epic(&mut fx.conn, &fx.project_id, &fx.actor, "E", None).unwrap();
+        let a = running(&mut fx, "a", Some(&epic.id), &["src/a/"]);
+        let b = queued(&mut fx, "b", &epic.id, &["src/b/"]);
+        approved_plan(&mut fx, &epic.id, &[(&a.task_id, 1), (&b, 2)]);
+
+        let outcome = widen_file_set(&mut fx.conn, &a.task_id, "src/b/x.rs", &fx.actor).unwrap();
+
+        assert!(matches!(outcome, WidenOutcome::Accepted { .. }));
+        assert!(edge_rows(&fx.conn).is_empty(), "different waves never run together");
+        assert_eq!(sequenced_events(&fx.conn, &b), 0);
+    });
+}
+
+#[test]
+fn a_widen_on_a_task_in_no_live_plan_writes_no_edge() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let epic = create_epic(&mut fx.conn, &fx.project_id, &fx.actor, "E", None).unwrap();
+        let a = running(&mut fx, "a", Some(&epic.id), &["src/a/"]);
+        let b = queued(&mut fx, "b", &epic.id, &["src/b/"]);
+
+        let outcome = widen_file_set(&mut fx.conn, &a.task_id, "src/b/x.rs", &fx.actor).unwrap();
+
+        assert!(matches!(outcome, WidenOutcome::Accepted { .. }));
+        assert!(edge_rows(&fx.conn).is_empty(), "no plan, no sequencing to explain");
+        assert_eq!(sequenced_events(&fx.conn, &b), 0);
+    });
+}
+
+#[test]
+fn a_widen_that_reaches_nobody_writes_no_edge() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let (a, b, _plan) = a_running_and_a_queued(&mut fx);
+
+        widen_file_set(&mut fx.conn, &a.task_id, "docs/notes.md", &fx.actor).unwrap();
+
+        assert!(edge_rows(&fx.conn).is_empty());
+        assert_eq!(sequenced_events(&fx.conn, &b), 0);
+    });
+}
+
+#[test]
+fn the_widen_and_its_record_land_together_or_not_at_all() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let (a, b, _plan) = a_running_and_a_queued(&mut fx);
+        // Make the sequenced event impossible to append: the whole widen must then roll back.
+        fx.conn
+            .execute_batch(
+                "CREATE TEMP TRIGGER no_sequenced BEFORE INSERT ON events
+                 WHEN NEW.event_type = 'task.sequenced'
+                 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",
+            )
+            .unwrap();
+
+        let result = widen_file_set(&mut fx.conn, &a.task_id, "src/b/x.rs", &fx.actor);
+
+        assert!(result.is_err(), "a widen that cannot record why it sequenced something does not widen");
+        assert_eq!(paths(&fx.conn, &a.task_id), vec!["src/a/"], "no entry row");
+        assert!(widened_events(&fx.conn, &a.task_id).is_empty(), "no widen event");
+        assert!(edge_rows(&fx.conn).is_empty(), "no edge");
+        assert_eq!(sequenced_events(&fx.conn, &b), 0);
     });
 }
 
