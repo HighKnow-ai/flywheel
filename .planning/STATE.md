@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 09
 current_phase_name: Planned Fan-Out That Does Not Collide
 status: executing
-stopped_at: Completed 09-10-PLAN.md
-last_updated: "2026-10-10T09:25:20.906Z"
+stopped_at: Completed 09-11-PLAN.md
+last_updated: "2026-10-10T09:41:28.122Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 09 execution started
-state_head: bf7a4b69b34506beba3dd5972f257234543e0058
+state_head: 8ca2e86b5e4a458a0bc131fcc8610261eed15ed0
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 219
-  completed_plans: 216
+  completed_plans: 217
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 09 (Planned Fan-Out That Does Not Collide) — EXECUTING
-Plan: 2 of 13
+Plan: 3 of 13
 Status: Ready to execute
 Last activity: 2026-10-10 — Phase 09 execution started
 
@@ -278,6 +278,7 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 09 P08 | 2h | 2 tasks | 16 files |
 | Phase 09 P09 | 35 min | 3 tasks | 23 files |
 | Phase 09 P10 | 30 min | 2 tasks | 5 files |
+| Phase 09 P11 | 25 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -648,6 +649,7 @@ Recent decisions affecting current work:
 - [Phase 09]: 09-08: the planning launch pre-approves submit_plan only and records an armed empty scope marker; a failure to record it aborts the start
 - [Phase 09]: 09-09: a draft's DTO now carries declared entries and a core-computed preview of the edges approval will freeze (edgesFrozen:false), so the colliding paths show before approval; dispatch_planning_run exposes the planning window
 - [Phase 09]: 09-10: SequencingReason::RunsAlone carries the undeclared task ids; why's no-edge same-wave arm reads list_entries_for_task so the explanation matches readiness's D-150 refusal; frozen-edge read stays first
+- [Phase 09]: 09-11: widen edges are oriented live-before-queued (acyclic by liveness); declare guard lives in declare_file_set_in_tx via declare_refusal
 
 ### Pending Todos
 
@@ -709,6 +711,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-10T09:25:20.730Z
-Stopped at: Completed 09-10-PLAN.md
+Last session: 2026-10-10T09:41:27.946Z
+Stopped at: Completed 09-11-PLAN.md
 Resume file: None
