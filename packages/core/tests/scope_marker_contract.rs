@@ -662,3 +662,26 @@ fn arm_run_scope_is_called_from_exactly_one_site() {
         .count();
     assert_eq!(calls, 1, "exactly one non-comment call site of arm_run_scope");
 }
+
+/// Phase 09 review CR-01: the sidecar installs the scope gate and cannot know whether the run it was
+/// asked to start is armed. The launch must TELL it, from the very mode `arm_run_scope` wrote, so the
+/// sidecar can refuse an armed run whose gate it cannot install instead of starting it unenforced.
+#[test]
+fn the_spawn_request_carries_the_armed_fact_from_the_marker_the_run_start_wrote() {
+    let path = workspace_root().join("packages/desktop/src-tauri/src/commands/agent_run.rs");
+    let source = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = source.lines().collect();
+
+    let start = function_region(&lines, "pub(crate) fn start_agent_run_recording_first(");
+    assert!(
+        start.iter().filter(|l| !is_whole_line_comment(l)).any(|l| l.contains("scope_armed")),
+        "start_agent_run_recording_first must hand the armed fact to its outcome"
+    );
+
+    let launch = function_region(&lines, "pub(crate) fn launch_run_for_task(");
+    let request: Vec<&&str> = launch.iter().filter(|l| !is_whole_line_comment(l)).collect();
+    assert!(
+        request.iter().any(|l| l.contains("\"scopeArmed\"") && l.contains("outcome.scope_armed")),
+        "the spawn request must carry scopeArmed taken from the run-start outcome, never recomputed"
+    );
+}
