@@ -237,14 +237,10 @@ pub fn occupied_slots(conn: &Connection) -> anyhow::Result<u32> {
     .context("failed to count occupied agent slots")
 }
 
-/// The declared entries of every task in `project_id` with a currently live run, as
-/// `(task_id, entries)` ordered by task id. A live task with no declared set is unarmed (D-150)
-/// and has nothing to compare against, so it is absent. The widen re-check and the cross-plan
-/// readiness guard are the same question asked twice.
-pub fn in_flight_declared_sets(
-    conn: &Connection,
-    project_id: &str,
-) -> anyhow::Result<Vec<(String, Vec<FileSetEntry>)>> {
+/// Every task in `project_id` with a currently live run, as `(task_id, entries)` ordered by task
+/// id. A live task with no declared set is unarmed (D-150): its entries are EMPTY, and [`readiness`]
+/// reads that as "runs alone", so it must be present here.
+fn in_flight_sets(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<(String, Vec<FileSetEntry>)>> {
     let mut stmt = conn
         .prepare(
             "SELECT DISTINCT task_id FROM agent_runs
@@ -260,11 +256,20 @@ pub fn in_flight_declared_sets(
     let mut out = Vec::new();
     for task_id in task_ids {
         let entries = list_entries_for_task(conn, &task_id)?;
-        if !entries.is_empty() {
-            out.push((task_id, entries));
-        }
+        out.push((task_id, entries));
     }
     Ok(out)
+}
+
+/// The declared entries of every task in `project_id` with a currently live run, as
+/// `(task_id, entries)` ordered by task id. A live task with no declared set is unarmed (D-150) and
+/// has nothing to compare against, so it is absent. The widen re-check and the cross-plan
+/// readiness guard are the same question asked twice.
+pub fn in_flight_declared_sets(
+    conn: &Connection,
+    project_id: &str,
+) -> anyhow::Result<Vec<(String, Vec<FileSetEntry>)>> {
+    Ok(in_flight_sets(conn, project_id)?.into_iter().filter(|(_, e)| !e.is_empty()).collect())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -376,6 +381,10 @@ pub enum ReadinessRefusal {
     WaitingOn { task_id: String },
     /// Its declared set overlaps a task that is running right now, in this plan or another.
     OverlapsInFlight { task_id: String, path: String },
+    /// D-150: a task with no declared set makes no disjointness claim, so it never shares the
+    /// project with another running task. Either THIS task is undeclared, or `task_id` (running, or
+    /// chosen earlier in this same decision) is.
+    RunsAlone { task_id: String },
     BaseStale { integration_branch: String },
 }
 
@@ -565,20 +574,25 @@ fn readiness(
         }
     }
     let entries = list_entries_for_task(conn, &t.task_id)?;
-    if !entries.is_empty() {
-        let fold = obs.case_insensitive.get(&t.project_id).copied().unwrap_or(false);
-        // Read from the rows, not the marker file; includes a set widened mid-flight (09-06).
-        let mut others = in_flight_declared_sets(conn, &t.project_id)?;
-        others.extend(
-            taken.iter().filter(|(p, ..)| *p == t.project_id).map(|(_, id, e)| (id.clone(), e.clone())),
-        );
-        for (other_id, other_entries) in others.iter().filter(|(id, _)| *id != t.task_id) {
-            if let Some(c) = collisions(&entries, other_entries, fold).first() {
-                return Ok(Err(ReadinessRefusal::OverlapsInFlight {
-                    task_id: other_id.clone(),
-                    path: entry_path(c.first).to_string(),
-                }));
-            }
+    let fold = obs.case_insensitive.get(&t.project_id).copied().unwrap_or(false);
+    // Read from the rows, not the marker file; includes a set widened mid-flight (09-06).
+    let mut others = in_flight_sets(conn, &t.project_id)?;
+    others.extend(
+        taken.iter().filter(|(p, ..)| *p == t.project_id).map(|(_, id, e)| (id.clone(), e.clone())),
+    );
+    for (other_id, other_entries) in others.iter().filter(|(id, _)| *id != t.task_id) {
+        // D-150, enforced HERE because every launch the dispatcher makes (any plan, any caller that
+        // built or edited or approved it) is decided by this one function. An empty set on either
+        // side is no claim of disjointness: the pair never runs together. The hook stays disarmed
+        // for the undeclared task; it is sequenced, not refused writes.
+        if entries.is_empty() || other_entries.is_empty() {
+            return Ok(Err(ReadinessRefusal::RunsAlone { task_id: other_id.clone() }));
+        }
+        if let Some(c) = collisions(&entries, other_entries, fold).first() {
+            return Ok(Err(ReadinessRefusal::OverlapsInFlight {
+                task_id: other_id.clone(),
+                path: entry_path(c.first).to_string(),
+            }));
         }
     }
     if let Some(stale) = obs.worktrees.get(&t.task_id).and_then(|o| o.stale_against.clone()) {

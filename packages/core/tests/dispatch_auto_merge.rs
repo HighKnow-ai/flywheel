@@ -560,9 +560,11 @@ fn an_automatic_merge_is_recorded_under_the_system_actor_with_an_automatic_flag(
 #[test]
 fn a_conflict_stops_that_task_writes_the_aborted_event_and_holds_the_cursor() {
     let fx = fx();
-    // No declared sets, so no ordering edge: both run, both edit the same file differently.
-    let a = fx.task("A", &[], Work { file: "shared.txt", content: "from a\n", commit: true });
-    let b = fx.task("B", &[], Work { file: "shared.txt", content: "from b\n", commit: true });
+    // Disjoint declarations, so no ordering edge: both run, and both edit the same file differently.
+    // (An undeclared pair would now be sequenced, D-150, and could not collide.) Each declaration is
+    // wrong about what the agent really touches, which is exactly the case the merge path catches.
+    let a = fx.task("A", &["a/"], Work { file: "shared.txt", content: "from a\n", commit: true });
+    let b = fx.task("B", &["b/"], Work { file: "shared.txt", content: "from b\n", commit: true });
     let plan = fx.plan(&[(&a, 1), (&b, 1)]);
 
     fx.drive(10, |f| f.state(&plan, &a) == "merged" || f.state(&plan, &b) == "merged");
@@ -800,11 +802,14 @@ fn undeclared_tasks_in_one_wave_are_never_spawned_together() {
     let plan = fx.plan(&[(&a, 1), (&b, 1), (&c, 1)]);
 
     assert_eq!(spawns(&fx.actions()), vec![a.as_str()], "no declaration, no disjointness claim: one at a time");
+    // `ready_tasks` answers per task ("could this start now?"), so it is asked once A is live.
+    fx.launch(&a);
     assert_eq!(
         ready_tasks(&fx.conn(), &plan, &Observations::default()).unwrap(),
-        vec![a.clone()],
-        "the second reader of readiness agrees"
+        Vec::<String>::new(),
+        "the second reader of readiness agrees: nothing starts beside a live undeclared run"
     );
+    let _ = (&b, &c);
 }
 
 #[test]
@@ -829,6 +834,7 @@ fn an_undeclared_task_shares_no_decision_with_a_declared_sibling() {
     fx.plan(&[(&u, 1), (&d, 1)]);
     // Board order puts U first: it takes the project alone, so D is held off in the same decision.
     assert_eq!(spawns(&fx.actions()), vec![u.as_str()]);
+    drop(fx); // the fixture serialises the binary on one lock
 
     // Reverse the order: D is first and takes the project, so U cannot start beside it.
     let fx = self::fx();
