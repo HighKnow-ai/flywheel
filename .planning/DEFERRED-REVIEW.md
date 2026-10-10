@@ -755,3 +755,92 @@ At Phase 11, with an installed, usable build:
   `review/__tests__/finish.test.tsx`: one asserts `review.css` spends no `--accent` role at all
   (reporting the offending line numbers), one pins the badge's ink edge. Verified by reinstating the
   brand value: both fail, and both pass once reverted.
+
+- id: D-REV-37
+  phase: "09 — Planned Fan-Out (09-REVIEW.md WR-02, WR-01)"
+  truth: "Between the dispatcher's readiness decision and `launch_run_for_task`, nothing re-checks overlap, the cap or task liveness — so a manual launch or a live widen landing in that window can still put two agents on the same files."
+  status: open
+  why_deferred: |
+    Not deferred for lack of automation — deferred because it is a second, separable defect class that
+    the phase's two Critical fixes do not cover, and closing it needs a design choice (re-check at launch,
+    or hold a decision lease) rather than a patch. CR-02 is closed at DECISION time: `readiness` now
+    refuses to co-schedule an undeclared task (D-150). WR-02 is the LAUNCH-time half of the same
+    guarantee. WR-01 is its sibling: `task_file_set_set` and `edit_draft_plan` change a live task's set
+    with no D-152 collision check, and a later widen re-arms the marker from all stored rows, carrying
+    the unchecked entries in. The fixer that closed CR-01/CR-02 independently judged WR-02 "close to
+    Critical"; the orchestrator agrees.
+  risk_if_wrong: "High for the phase's headline claim. Two agents can briefly hold overlapping sets, which is precisely what the phase promises cannot happen. Bounded by the window being short and by the merge-conflict path as a last guard."
+  automatable: "YES. A test that interleaves a manual launch (or a widen) between `decide` and `launch_run_for_task` and asserts refusal. The existing `dispatch_auto_merge.rs` harness already drives real runs and git."
+
+- id: D-REV-38
+  phase: "09 — Planned Fan-Out (09-REVIEW.md WR-06, and the D-149 review point)"
+  truth: "`dispatch_why` answers `DisjointSets` / 'neither waits' for an undeclared pair that, after the CR-02 fix, genuinely IS waiting; and the wave plan sheet shows no 'no files declared, runs alone' signal at the one human look."
+  status: open
+  why_deferred: |
+    This became WRONG rather than merely incomplete as a result of closing CR-02. `EDGE_CAUSE_WIDEN` is
+    declared and never used, and a live widen writes no ordering edge, so `why` has nothing to report for
+    either case. D-149 gives a wrong file-set its one human look precisely because a wrong set silently
+    voids the whole parallelism guarantee — and that review now happens without the reviewer being told
+    which tasks have no declared set at all.
+  risk_if_wrong: "Medium. Nothing executes wrongly, but the sequencing explanation the phase sells (PLAN-07, D-157: 'the user can ask why this one is waiting') returns a false answer, and the D-149 gate is reviewed with a material fact missing from the screen."
+  automatable: "YES. Assert `why` for an undeclared pair returns a runs-alone cause, not `DisjointSets`; assert the sheet renders the signal. `dispatch_plan.rs` has six `why` tests to extend and `wave-plan-sheet.test.tsx` exists."
+
+- id: D-REV-39
+  phase: "09 — Planned Fan-Out (09-REVIEW.md WR-03, WR-04, WR-05, WR-07, and the three Info items)"
+  truth: "Five lower-severity review findings stand unfixed: a run row inserted then abandoned on error leaks a cap slot permanently (`agent_run.rs:734`); a persistently failing `run_merge` flaps state and appends an event every 5s; `is_startable` relaunches a task the user ran manually; the `AppState.db` mutex is held across `git config` subprocesses; plus dead code (`EDGE_CAUSE_WIDEN`, `may_merge`, `hold_for_limit`), unattended spawns attributed to the human actor, and ASCII-only case-folding that errs lax for overlap detection."
+  status: open
+  why_deferred: |
+    Deliberate scope call at the phase close: the two Criticals were fixed because they inverted the
+    phase's core value on the default path; these were filed instead of fixed, per the standing
+    ship-first instruction. Grouped as one entry because they are independent small fixes with no shared
+    design decision, unlike D-REV-37 and D-REV-38.
+  risk_if_wrong: "Medium-low individually. WR-03 is the worst of them: a leaked cap slot is permanent and silently shrinks the parallelism budget until restart. WR-05 can double-run a task. The rest are noise, latency or cosmetics."
+  automatable: "YES, all seven. Each is a narrow unit test; none needs a live account or human judgement."
+
+- id: D-REV-40
+  phase: "09 — Planned Fan-Out (process finding, not a code defect)"
+  truth: "Every plan in phase 09 resolved `tdd_applicable: true` from task attributes, while the gate that enforces RED-before-GREEN reads `workflow.tdd_mode`, which is false for this project — so the gate was structurally incapable of firing, and plan 09-07 shipped three `feat` commits with no RED commit before it was noticed."
+  status: open
+  why_deferred: |
+    This is a defect in the harness's own gate wiring, not in Flywheel. Recorded here because it was
+    found during this phase and will recur on every phase until the predicate is fixed: the gate should
+    key on the same resolution the planner uses (`gsd_run query phase.tdd-applicable`, which reports
+    `source: task_attribute`), not on the config flag alone. 09-07 was mitigated after the fact by a
+    mutation check; 09-08 and 09-09 complied only because the orchestrator added an explicit
+    instruction to each dispatch prompt by hand.
+  risk_if_wrong: "Medium. Silent loss of TDD discipline on exactly the phases that declare it per-task. The compensating control is an orchestrator remembering to say so in the prompt, which is not a control."
+  automatable: "YES, in gsd-core: make the execute-phase TDD gate read `phase.tdd-applicable` per plan rather than `workflow.tdd_mode`."
+
+- id: D-REV-41
+  phase: "09 — Planned Fan-Out (verifier finding; 09-07 and 09-09 SUMMARYs both said 'file this' and it was never filed)"
+  truth: "A task whose run ends `failed`, `stopped` or whose automatic merge ends `conflict` can be retried or skipped from the app, and the user is told why it is stuck; the plan then advances."
+  status: open
+  why_deferred: |
+    Not a human-judgement item: it is a missing command. `dispatch.rs::is_startable` retries only `planned`,
+    `waiting`, `held_by_limit` and a pre-spawn `needs_attention`. `observation_targets` skips `conflict`,
+    `failed` and `stopped`. `wave_is_drained` counts only `merged` and `skipped`. `edit_draft_plan` refuses a
+    non-draft plan. So a task in one of those three states holds its wave, and every later wave, until the
+    user stops the whole plan; nothing in `commands/dispatch.rs` sets a task to `skipped` or back to `planned`.
+    A manual `agent_run_start` of the stuck task does not help either: `decide` re-reads only `running`,
+    `merging` and `needs_attention`. D-156 says a conflict 'stops that task and asks the user'. The app asks and
+    offers no way to answer. 09-07-SUMMARY called this 'the one gap worth a decision before the UI plan';
+    09-09-SUMMARY repeated it as 'should be filed as a follow-up issue'. Neither filed it.
+  risk_if_wrong: "Moderate. No work is lost and the failure is loud, but the first failed or conflicting task in a real fan-out strands the rest of the epic with no in-app recovery, which is the ordinary case rather than the edge."
+  automatable: "YES. A core command `retry_task` (stuck state back to `planned`) and `skip_task` (to `skipped`), human-only, plus one `dispatch_auto_merge.rs` test per command driving a failed run and a real conflict to a drained wave. The cause string for the three states is a one-line addition to `attention_for`'s sibling."
+
+- id: D-REV-42
+  phase: "09 — Planned Fan-Out (verifier finding; PLAN-04 and ROADMAP criterion 3)"
+  truth: "A write outside a task's declared file-set is stopped at the tool level. Today that holds for `Write`, `Edit`, `MultiEdit` and `NotebookEdit` only. A write through `Bash` is found at session close and recorded, but it does not stop the run, and a detected breach does not stop the automatic merge."
+  status: open
+  why_deferred: |
+    This is an owner acceptance, not a check: 09-RESEARCH Pitfall 2 and 09-01-SUMMARY state that the file-tool
+    matcher cannot see `Bash` (`echo >`, `sed -i`, `rm`, an installer rewriting a lockfile) and that the
+    close-time backstop is detective. Nobody recorded that the owner accepted that against the wording of
+    PLAN-04 ('prevented at the tool level') and criterion 3 ('stopped at the tool level'), and REQUIREMENTS.md
+    marks PLAN-04 Complete without qualification. Second half, verified in code and not in any SUMMARY's risk
+    list: `decide` and `merge_task` never read `task.scope_denied`, so a run whose Bash write was flagged
+    after the fact still merges into the integration branch automatically (D-156), and wave two builds on it.
+    The 'also clean up an undeclared file' check PITFALLS.md names would, if the agent does it with `rm`,
+    be a Bash write.
+  risk_if_wrong: "Moderate to high for the headline claim. Disjointness is enforced for file tools and merely observed for Bash, and the merge that follows an observed breach is automatic and unreviewed."
+  automatable: "PARTLY. Prevention for Bash is a design question, not a test. The cheap half is YES: make `after_completed_run` return a needs-attention cause when the run has a `detected_after_the_fact` scope event, plus one `dispatch_auto_merge.rs` test. Owner decision still needed on whether to reword PLAN-04 to 'file-writing tools'."
