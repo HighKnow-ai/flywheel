@@ -759,7 +759,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-37
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-02, WR-01)"
   truth: "Between the dispatcher's readiness decision and `launch_run_for_task`, nothing re-checks overlap, the cap or task liveness — so a manual launch or a live widen landing in that window can still put two agents on the same files."
-  status: open
+  status: resolved
   why_deferred: |
     Not deferred for lack of automation — deferred because it is a second, separable defect class that
     the phase's two Critical fixes do not cover, and closing it needs a design choice (re-check at launch,
@@ -772,10 +772,17 @@ At Phase 11, with an installed, usable build:
   risk_if_wrong: "High for the phase's headline claim. Two agents can briefly hold overlapping sets, which is precisely what the phase promises cannot happen. Bounded by the window being short and by the merge-conflict path as a last guard."
   automatable: "YES. A test that interleaves a manual launch (or a widen) between `decide` and `launch_run_for_task` and asserts refusal. The existing `dispatch_auto_merge.rs` harness already drives real runs and git."
 
+  **RESOLVED 2026-10-10 by the phase 09 re-verification (plans 09-11, 09-12, 09-13).** One rule
+  (`dispatch::launch_conflict`) is now called by `readiness` and by `prepare_launch`, under the lock and
+  before the run row exists, so the decide-to-launch window is closed at the shared launch body. A declare on
+  a task with a live run is refused in `declare_file_set_in_tx`. A task's own live run refuses on both launch
+  paths. NOT changed, by an earlier recorded choice (09-07): a manual launch over a DIFFERENT live task still
+  proceeds; it is now recorded as `task.launch_overlap` and warned on screen. Residuals: D-REV-44, D-REV-46.
+
 - id: D-REV-38
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-06, and the D-149 review point)"
   truth: "`dispatch_why` answers `DisjointSets` / 'neither waits' for an undeclared pair that, after the CR-02 fix, genuinely IS waiting; and the wave plan sheet shows no 'no files declared, runs alone' signal at the one human look."
-  status: open
+  status: resolved
   why_deferred: |
     This became WRONG rather than merely incomplete as a result of closing CR-02. `EDGE_CAUSE_WIDEN` is
     declared and never used, and a live widen writes no ordering edge, so `why` has nothing to report for
@@ -784,6 +791,12 @@ At Phase 11, with an installed, usable build:
     which tasks have no declared set at all.
   risk_if_wrong: "Medium. Nothing executes wrongly, but the sequencing explanation the phase sells (PLAN-07, D-157: 'the user can ask why this one is waiting') returns a false answer, and the D-149 gate is reviewed with a material fact missing from the screen."
   automatable: "YES. Assert `why` for an undeclared pair returns a runs-alone cause, not `DisjointSets`; assert the sheet renders the signal. `dispatch_plan.rs` has six `why` tests to extend and `wave-plan-sheet.test.tsx` exists."
+
+  **RESOLVED 2026-10-10 by the phase 09 re-verification (plans 09-10, 09-11).** `why` returns a runs-alone
+  cause for an undeclared same-wave pair, a live widen writes a `widen` edge and `task.sequenced` event in its
+  own transaction, and the wave plan sheet says "No files declared, so this task runs alone." Residual:
+  D-REV-45. Also unfiled and one line: the runs-alone sentence says "never shares a wave" for a pair that IS
+  in one wave (review WR-04); reword to "never runs at the same time as another task".
 
 - id: D-REV-39
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-03, WR-04, WR-05, WR-07, and the three Info items)"
@@ -858,3 +871,43 @@ At Phase 11, with an installed, usable build:
     not rendered there yet; the appended `task.launch_overlap` event is the durable record for that path.
   risk_if_wrong: "Low. The launch is recorded and allowed either way; a missing toast makes the overlap silent on screen again, though it stays in the activity trail."
   automatable: "YES. A render test of `AppShell` with `startAgentRun` mocked to return a warning, asserting the note appears after the sheet closes. Cheaper still: lift the toast into its own component and test that. Also: computing the same warning in `agent_run_preview` would show it BEFORE the click, one more field on the preview response."
+
+- id: D-REV-44
+  phase: "09 — Planned Fan-Out (09-REVIEW.md WR-02; verifier-confirmed in code)"
+  truth: "The launch body and the dispatcher return the same verdict for the same pair on every repository."
+  status: open
+  why_deferred: |
+    Not a human item; deferred only by the ship-first instruction. `prepare_launch` passes `fold_case = true`
+    (`agent_run.rs:786`); `readiness` passes the repository's observed flag (`dispatch.rs:595`). On a
+    case-insensitive filesystem they agree. On a case-sensitive one, a same-wave pair differing only in case is
+    disjoint to `decide` and refused by the launch, which `run_pass` records as a pre-spawn `LaunchFailed`;
+    `is_startable` retries it every tick until the live peer ends. Safe-side: the launch is stricter, so no
+    collision is admitted. It does falsify plan 09-12's "can never drift apart".
+  risk_if_wrong: "Low on macOS, the v1 target. On a case-sensitive repository: a repeating spurious 'Needs you' for a pair the dispatcher judged safe."
+  automatable: "YES. Read repo_path under a short lock, call `repo_is_case_insensitive` (make it `pub`) outside the lock, re-lock and pass the flag into `prepare_launch`. Add a test with `Src/a.rs` and `src/a.rs` on a case-sensitive fixture that both callers agree on."
+
+- id: D-REV-45
+  phase: "09 — Planned Fan-Out (09-REVIEW.md WR-03; verifier-confirmed in code)"
+  truth: "A live widen that reaches a same-wave task waiting in a pre-spawn needs_attention state records an ordering edge, so the task waits for the widener's MERGE."
+  status: open
+  why_deferred: |
+    `record_widen_sequencing` selects queued tasks with `pt.state IN ('planned','waiting','held_by_limit')`
+    (`domain/file_set.rs:564-575`), but `is_startable` also starts a pre-spawn `needs_attention` task, which a
+    launch refused by the new `Refuse` path produces. With no edge, that task becomes ready the moment the
+    widener's run stops, before its work is merged, and cuts its worktree from a base without it (the
+    merge-conflict case the edge exists to prevent). `why` also answers `DisjointSets` for that pair.
+  risk_if_wrong: "Low to moderate. Needs a widen into a task parked at pre-spawn attention; the result is a later merge conflict, caught by the conflict path."
+  automatable: "YES. Reuse `is_startable`'s predicate (or add the pre-spawn attention state) in the queued-task select, plus one `scope_widen.rs` test with a `needs_attention` task."
+
+- id: D-REV-46
+  phase: "09 — Planned Fan-Out (09-REVIEW.md WR-01, WR-05; verifier-confirmed in code)"
+  truth: "A launch that fails after its run row exists leaves no running row, and every manual launch site shows the overlap warning and the refusal reason."
+  status: open
+  why_deferred: |
+    After `start_agent_run_recording_first`, `record_launch_overlap(...)?`, `merge_shim_env_for_run(...)?` and
+    `send_gated_spawn(...)?` return with the row still `running`. Before 09-13 that cost a cap slot until the
+    startup reconcile (D-REV-39 WR-03). Now `launch_conflict`'s `HasLiveRun` also refuses every manual retry of
+    that task. `MergeConfirmSheet.tsx:213-224` calls the same `startAgentRun`, ignores `overlapWarning`, and
+    replaces every error with a fixed string, so a refusal reason is swallowed there. Extends D-REV-39 and D-REV-43.
+  risk_if_wrong: "Moderate for a user whose sidecar hiccups: the task cannot be relaunched until the app restarts."
+  automatable: "YES. Close the run as `failed` on each post-insert error path (the `fail_planning_start` remedy), or write the overlap event in the run's own transaction; surface `overlapWarning` and the error message in `MergeConfirmSheet`. One test per path."
