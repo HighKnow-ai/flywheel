@@ -686,6 +686,22 @@ pub fn agent_run_start(
     launch_run_for_task(&state, &app, &task_id, &permission_mode, &instruction)
 }
 
+/// D-52/WORK-05: the ONLY place a spawn request leaves the app — it goes through
+/// `SidecarHandle::send_spawn_request`, which enforces the per-repository spawn floor. Both
+/// [`launch_run_for_task`] and the planning run (phase 09 plan 09-08) call it, so a spawn that
+/// is not a task launch is still staggered. The caller must NOT hold the `AppState.db` lock: the
+/// floor sleeps. With no sidecar attached there is nothing to send and this succeeds.
+pub(crate) fn send_gated_spawn(
+    state: &AppState,
+    repo_path: &str,
+    request: &serde_json::Value,
+) -> Result<(), String> {
+    match state.sidecar.as_ref() {
+        Some(sidecar) => sidecar.send_spawn_request(repo_path, &request.to_string()).map_err(|e| e.to_string()),
+        None => Ok(()),
+    }
+}
+
 /// The launch body, after argument validation: resolves the human actor server-side (T-01-04),
 /// credential resolution before any run/worktree state exists (D-39, T-02-42), the DB-only half
 /// ([`start_agent_run_recording_first`], which arms the scope marker), the shim env merge, the
@@ -743,25 +759,19 @@ pub(crate) fn launch_run_for_task(
 
     drop(conn);
 
-    if let Some(sidecar) = state.sidecar.as_ref() {
-        let request = serde_json::json!({
-            "id": outcome.run_id,
-            "op": "spawn",
-            "runId": outcome.run_id,
-            "worktreePath": outcome.worktree_path,
-            "prompt": outcome.prompt,
-            "permissionMode": permission_mode,
-            "scopeArmed": outcome.scope_armed,
-            "env": env,
-        });
-        // D-52/WORK-05: the ONLY path a spawn request may take — enforces the per-repository
-        // spawn floor. Called after `drop(conn)` above, so the floor's sleep never runs while
-        // holding the SQLite mutex (T-03-04-05), mirroring `agent_run_stop`'s own
-        // resolve-before-lock discipline.
-        sidecar
-            .send_spawn_request(&repo_path, &request.to_string())
-            .map_err(|e| e.to_string())?;
-    }
+    let request = serde_json::json!({
+        "id": outcome.run_id,
+        "op": "spawn",
+        "runId": outcome.run_id,
+        "worktreePath": outcome.worktree_path,
+        "prompt": outcome.prompt,
+        "permissionMode": permission_mode,
+        "scopeArmed": outcome.scope_armed,
+        "env": env,
+    });
+    // Called after `drop(conn)` above, so the floor's sleep never runs while holding the SQLite
+    // mutex (T-03-04-05), mirroring `agent_run_stop`'s own resolve-before-lock discipline.
+    send_gated_spawn(state, &repo_path, &request)?;
 
     app.emit(
         "board:changed",

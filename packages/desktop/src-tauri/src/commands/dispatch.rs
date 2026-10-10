@@ -576,11 +576,9 @@ pub(crate) fn start_planning_run(state: &AppState, epic_id: &str) -> Result<Plan
     if let Err(e) = crate::sidecar::merge_shim_env_for_run(&mut env, &start.run_id) {
         return Err(fail_planning_start(state, &start.run_id, ipc_error("dispatch_plan_generate:shim", e)));
     }
-    if let Some(sidecar) = state.sidecar.as_ref() {
-        let request = planning_spawn_request(&start.run_id, &start.worktree_path, &start.prompt, &env);
-        if let Err(e) = sidecar.send_spawn_request(&start.repo_path, &request.to_string()) {
-            return Err(fail_planning_start(state, &start.run_id, ipc_error("dispatch_plan_generate:spawn", e)));
-        }
+    let request = planning_spawn_request(&start.run_id, &start.worktree_path, &start.prompt, &env);
+    if let Err(e) = crate::commands::agent_run::send_gated_spawn(state, &start.repo_path, &request) {
+        return Err(fail_planning_start(state, &start.run_id, ipc_error("dispatch_plan_generate:spawn", e)));
     }
     Ok(PlanningRunDto { run_id: start.run_id, epic_id: start.epic_id })
 }
