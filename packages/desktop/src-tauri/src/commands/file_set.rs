@@ -397,6 +397,44 @@ mod tests {
     /// The command that stores a set is human-only: no actor argument, no worktree path, no
     /// absolute path (T-09-01-08). Asserted over this file's own source so a later edit that adds
     /// an `actor_id` parameter to the handler goes red.
+    /// A `running` agent run for `task_id`, inserted directly: the handler only reads run status.
+    fn give_live_run(conn: &Connection, task_id: &str, actor: &str) {
+        let (project_id, agent): (String, String) = (
+            conn.query_row("SELECT project_id FROM tasks WHERE id = ?1", rusqlite::params![task_id], |r| r.get(0)).unwrap(),
+            flywheel_core::domain::agent_run::agent_actor_id(conn).unwrap(),
+        );
+        let (trigger_id, run_id) = (flywheel_core::ids::new_id(), flywheel_core::ids::new_id());
+        let now = "2026-01-01T00:00:00.000Z";
+        conn.execute(
+            "INSERT INTO triggers (id, project_id, target_task_id, source, config, enabled, last_fired_at, created_by, created_at)
+             VALUES (?1, ?2, ?3, 'user_action', NULL, 1, NULL, ?4, ?5)",
+            rusqlite::params![trigger_id, project_id, task_id, actor, now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO agent_runs (id, worktree_id, task_id, project_id, trigger_id, adapter, actor_id, status,
+                external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path, started_at, ended_at)
+             VALUES (?1, NULL, ?2, ?3, ?4, 'claude_code', ?5, 'running', NULL, 'default', NULL, NULL, NULL, '/tmp/x.jsonl', ?6, NULL)",
+            rusqlite::params![run_id, task_id, project_id, trigger_id, agent, now],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn replacing_the_set_of_a_task_with_a_live_run_reaches_the_renderer_as_a_readable_refusal() {
+        let (mut conn, actor, task_id) = seeded();
+        set_task_file_set(&mut conn, &task_id, &strings(&["src/a/"]), &actor).unwrap();
+        give_live_run(&conn, &task_id, &actor);
+
+        let message = set_task_file_set(&mut conn, &task_id, &strings(&["src/b/"]), &actor)
+            .expect_err("the declare is refused while the run is live");
+
+        assert!(!message.starts_with("failed:"), "the renderer must see the reason, not an opaque code: {message}");
+        assert!(message.to_lowercase().contains("widen"), "points at the widen path: {message}");
+        assert_eq!(get_task_file_set(&conn, &task_id).unwrap(), vec![dto("dir", "src/a/")], "stored set untouched");
+        assert_eq!(event_payloads(&conn, &task_id).len(), 1, "no second declared event");
+    }
+
     #[test]
     fn the_command_handlers_accept_no_actor_and_no_path_argument() {
         let source = include_str!("file_set.rs");

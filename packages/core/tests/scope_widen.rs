@@ -506,6 +506,101 @@ fn the_widen_and_its_record_land_together_or_not_at_all() {
     });
 }
 
+// --- the declare path re-checks nothing, so it refuses a task with a live run (D-152) -------------
+
+fn declared_events(conn: &Connection, task_id: &str) -> i64 {
+    count(
+        conn,
+        "SELECT COUNT(*) FROM events WHERE task_id = ?1 AND event_type = 'task.file_set_declared'",
+        params![task_id],
+    )
+}
+
+fn declare(fx: &mut Fixture, task_id: &str, raw: &[&str]) -> anyhow::Result<()> {
+    let entries: Vec<_> = raw.iter().map(|r| parse_entry(r).unwrap()).collect();
+    declare_file_set(&mut fx.conn, task_id, &entries, &fx.actor)
+}
+
+/// The refusal names the task, points at the widen, and writes nothing.
+fn assert_declare_refused(fx: &mut Fixture, task_id: &str, raw: &[&str]) {
+    let rows = count(&fx.conn, "SELECT COUNT(*) FROM task_file_set_entries WHERE task_id = ?1", params![task_id]);
+    let events = declared_events(&fx.conn, task_id);
+    let stored = paths(&fx.conn, task_id);
+    let key: String = fx.conn.query_row("SELECT key FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0)).unwrap();
+
+    let err = declare(fx, task_id, raw).expect_err("a declare against a live task is refused");
+
+    let message = format!("{err:#}");
+    assert!(message.contains(&key), "names the task: {message}");
+    assert!(message.to_lowercase().contains("widen"), "points at the widen: {message}");
+    assert_eq!(count(&fx.conn, "SELECT COUNT(*) FROM task_file_set_entries WHERE task_id = ?1", params![task_id]), rows);
+    assert_eq!(declared_events(&fx.conn, task_id), events);
+    assert_eq!(paths(&fx.conn, task_id), stored);
+}
+
+#[test]
+fn replacing_the_set_of_a_task_with_a_running_run_is_refused_naming_the_task_and_the_widen() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let a = running(&mut fx, "a", None, &["src/a/"]);
+        assert_declare_refused(&mut fx, &a.task_id, &["src/a/", "src/elsewhere/"]);
+    });
+}
+
+#[test]
+fn replacing_the_set_of_a_task_with_a_blocked_run_is_refused() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let a = running(&mut fx, "a", None, &["src/a/"]);
+        fx.conn.execute("UPDATE agent_runs SET status = 'blocked' WHERE id = ?1", params![a.run.id]).unwrap();
+        assert_declare_refused(&mut fx, &a.task_id, &["src/other/"]);
+    });
+}
+
+#[test]
+fn clearing_the_set_of_a_task_with_a_live_run_is_refused() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let a = running(&mut fx, "a", None, &["src/a/"]);
+        assert_declare_refused(&mut fx, &a.task_id, &[]);
+    });
+}
+
+#[test]
+fn submitting_the_same_set_for_a_task_with_a_live_run_is_refused_too() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let a = running(&mut fx, "a", None, &["src/a/"]);
+        assert_declare_refused(&mut fx, &a.task_id, &["src/a/"]);
+    });
+}
+
+#[test]
+fn replacing_the_set_of_a_task_whose_runs_have_all_ended_is_allowed() {
+    for ended in ["completed", "failed", "interrupted", "abandoned"] {
+        with_scratch_env(|_| {
+            let mut fx = fixture();
+            let a = running(&mut fx, "a", None, &["src/a/"]);
+            fx.conn.execute("UPDATE agent_runs SET status = ?1 WHERE id = ?2", params![ended, a.run.id]).unwrap();
+
+            declare(&mut fx, &a.task_id, &["src/new/"]).unwrap_or_else(|e| panic!("{ended}: {e:#}"));
+
+            assert_eq!(paths(&fx.conn, &a.task_id), vec!["src/new/"], "{ended}");
+        });
+    }
+}
+
+#[test]
+fn replacing_the_set_of_a_task_with_no_runs_is_allowed() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let epic = create_epic(&mut fx.conn, &fx.project_id, &fx.actor, "E", None).unwrap();
+        let b = queued(&mut fx, "b", &epic.id, &["src/b/"]);
+        declare(&mut fx, &b, &["src/c/"]).unwrap();
+        assert_eq!(paths(&fx.conn, &b), vec!["src/c/"]);
+    });
+}
+
 /// T-09-06-02: the widen is human-only. No sidecar source (the MCP permission server, the adapters,
 /// the hooks) may name it, so no agent-reachable tool can call it.
 #[test]
