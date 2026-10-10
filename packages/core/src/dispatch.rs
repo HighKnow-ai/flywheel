@@ -591,27 +591,9 @@ fn readiness(
             return Ok(Err(ReadinessRefusal::WaitingOn { task_id: edge.before_task_id.clone() }));
         }
     }
-    let entries = list_entries_for_task(conn, &t.task_id)?;
     let fold = obs.case_insensitive.get(&t.project_id).copied().unwrap_or(false);
-    // Read from the rows, not the marker file; includes a set widened mid-flight (09-06).
-    let mut others = in_flight_sets(conn, &t.project_id)?;
-    others.extend(
-        taken.iter().filter(|(p, ..)| *p == t.project_id).map(|(_, id, e)| (id.clone(), e.clone())),
-    );
-    for (other_id, other_entries) in others.iter().filter(|(id, _)| *id != t.task_id) {
-        // D-150, enforced HERE because every launch the dispatcher makes (any plan, any caller that
-        // built or edited or approved it) is decided by this one function. An empty set on either
-        // side is no claim of disjointness: the pair never runs together. The hook stays disarmed
-        // for the undeclared task; it is sequenced, not refused writes.
-        if entries.is_empty() || other_entries.is_empty() {
-            return Ok(Err(ReadinessRefusal::RunsAlone { task_id: other_id.clone() }));
-        }
-        if let Some(c) = collisions(&entries, other_entries, fold).first() {
-            return Ok(Err(ReadinessRefusal::OverlapsInFlight {
-                task_id: other_id.clone(),
-                path: entry_path(c.first).to_string(),
-            }));
-        }
+    if let Some(refusal) = launch_conflict(conn, &t.task_id, &t.project_id, fold, taken)? {
+        return Ok(Err(refusal));
     }
     if let Some(stale) = obs.worktrees.get(&t.task_id).and_then(|o| o.stale_against.clone()) {
         return Ok(Err(ReadinessRefusal::BaseStale { integration_branch: stale }));
@@ -619,7 +601,29 @@ fn readiness(
     Ok(Ok(()))
 }
 
-/// RED stub: the real rule arrives with the extraction commit.
+/// May `task_id` put its declared set in flight right now? `None` means yes.
+///
+/// This is the ONE implementation of the launch-time disjointness rule. [`readiness`] calls it for
+/// the dispatcher's decision, and every other path that starts an agent (the shared launch body, a
+/// user's own launch, any future caller) must call this same function rather than restate the loop.
+/// A verdict taken under the lock is acted on after the lock is released, so the re-check at the
+/// launch is this function again, not a copy.
+///
+/// It answers with the existing [`ReadinessRefusal`] vocabulary: the task already has a live run
+/// ([`ReadinessRefusal::HasLiveRun`]); either side declared nothing (D-150,
+/// [`ReadinessRefusal::RunsAlone`]); or the sets collide ([`ReadinessRefusal::OverlapsInFlight`],
+/// naming the other task and the colliding path). It reads the stored rows through
+/// `list_entries_for_task`, never the enforcement marker file, so a set widened mid-flight is seen.
+/// Overlap goes through `collisions`, the same predicate the pre-write hook reaches through the
+/// shim, so there is exactly one containment implementation.
+///
+/// `fold_case` is a parameter, not a probe: resolving it runs git, and this function must be
+/// callable while the database lock is held. `taken` is the `(project, task, entries)` of tasks
+/// already chosen earlier in the same decision, compared against as though live.
+///
+/// The rule lives in code rather than in a schema constraint because it is a cross-row predicate
+/// over a child table (disjointness between two different tasks' file sets), which no uniqueness
+/// constraint can state.
 pub fn launch_conflict(
     conn: &Connection,
     task_id: &str,
@@ -627,7 +631,37 @@ pub fn launch_conflict(
     fold_case: bool,
     taken: &[(String, String, Vec<FileSetEntry>)],
 ) -> anyhow::Result<Option<ReadinessRefusal>> {
-    let _ = (conn, task_id, project_id, fold_case, taken);
+    let live: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM agent_runs WHERE task_id = ?1 AND status IN ('running', 'blocked'))",
+            params![task_id],
+            |r| r.get(0),
+        )
+        .context("failed to read whether the task has a live run")?;
+    if live {
+        return Ok(Some(ReadinessRefusal::HasLiveRun));
+    }
+    let entries = list_entries_for_task(conn, task_id)?;
+    // Read from the rows, not the marker file; includes a set widened mid-flight (09-06).
+    let mut others = in_flight_sets(conn, project_id)?;
+    others.extend(
+        taken.iter().filter(|(p, ..)| p == project_id).map(|(_, id, e)| (id.clone(), e.clone())),
+    );
+    for (other_id, other_entries) in others.iter().filter(|(id, _)| id != task_id) {
+        // D-150, enforced HERE because every launch the dispatcher makes (any plan, any caller that
+        // built or edited or approved it) is decided by this one function. An empty set on either
+        // side is no claim of disjointness: the pair never runs together. The hook stays disarmed
+        // for the undeclared task; it is sequenced, not refused writes.
+        if entries.is_empty() || other_entries.is_empty() {
+            return Ok(Some(ReadinessRefusal::RunsAlone { task_id: other_id.clone() }));
+        }
+        if let Some(c) = collisions(&entries, other_entries, fold_case).first() {
+            return Ok(Some(ReadinessRefusal::OverlapsInFlight {
+                task_id: other_id.clone(),
+                path: entry_path(c.first).to_string(),
+            }));
+        }
+    }
     Ok(None)
 }
 
