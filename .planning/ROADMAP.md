@@ -1078,7 +1078,7 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: 13 plans — 9/9 executed in 7 waves, plus 4 gap-closure plans (09-10 … 09-13) in 3 further waves
+**Plans**: 10/13 plans executed — 9/9 executed in 7 waves, plus 4 gap-closure plans (09-10 … 09-13) in 3 further waves
 
 Plans:
 
@@ -1116,7 +1116,7 @@ Plans:
 
 **Gap wave 1** *(09-10 and 09-11 share no file: the first is `dispatch.rs` plus the two desktop surfaces, the second is `domain/file_set.rs`)*
 
-- [ ] 09-10-PLAN.md — Gap 1: `why` tells the truth on the DEFAULT path — a runs-alone cause for a pair that declared nothing (D-150), and the wave plan sheet showing which tasks declared no files at D-149's one human look (PLAN-07)
+- [x] 09-10-PLAN.md — Gap 1: `why` tells the truth on the DEFAULT path — a runs-alone cause for a pair that declared nothing (D-150), and the wave plan sheet showing which tasks declared no files at D-149's one human look (PLAN-07)
 - [ ] 09-11-PLAN.md — Gap 1 and 2: a live widen writes the `widen` edge and its sequenced event in its own transaction (D-157, finally writing what `0019` was built for), and replacing a declared set is refused while the task has a live run (D-152) (PLAN-02, PLAN-07)
 
 **Gap wave 2** *(blocked on 09-10 — same file, `packages/core/src/dispatch.rs`)*
@@ -1239,7 +1239,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
-| 9. Planned Fan-Out That Does Not Collide | 9/9 | In Progress|  |
+| 9. Planned Fan-Out That Does Not Collide | 10/13 | In Progress|  |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 09
 current_phase_name: Planned Fan-Out That Does Not Collide
 status: executing
-stopped_at: Phase 9 context gathered
-last_updated: "2026-10-09T09:10:47.703Z"
-last_activity: 2026-10-07
-last_activity_desc: Phase 08.1 execution started
-state_head: bdc1d92b002f16a1f94b9bb5d72da91960aa69b9
+stopped_at: Completed 09-10-PLAN.md
+last_updated: "2026-10-10T09:25:20.906Z"
+last_activity: 2026-10-10
+last_activity_desc: Phase 09 execution started
+state_head: bf7a4b69b34506beba3dd5972f257234543e0058
 progress:
   total_phases: 13
   completed_phases: 0
-  total_plans: 215
-  completed_plans: 206
+  total_plans: 219
+  completed_plans: 216
   percent: 0
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-02)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 08.1 — Visual polish: brand assets and confirmed motion (INSERTED)
+**Current focus:** Phase 09 — Planned Fan-Out That Does Not Collide
 
 ## Current Position
 
-Phase: 09 (Planned Fan-Out That Does Not Collide) — READY TO EXECUTE
-Plan: 21 of 21 (all plan SUMMARYs written; 08.1-20, the closing plan, is complete; the phase awaits the orchestrator's verification and close)
+Phase: 09 (Planned Fan-Out That Does Not Collide) — EXECUTING
+Plan: 2 of 13
 Status: Ready to execute
-Last activity: 2026-10-07 — Phase 08.1 execution started
+Last activity: 2026-10-10 — Phase 09 execution started
 
 Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/158 planned plans executed; phases 7-11 are not yet planned)
 
@@ -268,6 +268,16 @@ Progress: [░░░░░░░░░░] 0% — 6 of 13 phases complete (158/1
 | Phase 08.1 P19 | 20 min | 3 tasks | 11 files |
 | Phase 08.1 P21 | stalled-recovered | 3 tasks | 30 files |
 | Phase 08.1 P20 | 30 min | 2 tasks | 8 files |
+| Phase 09 P01 | 52 min | 2 tasks | 22 files |
+| Phase 09 P02 | 100 min | 2 tasks | 11 files |
+| Phase 09 P03 | 25 min | 2 tasks | 7 files |
+| Phase 09 P04 | 20 min | 2 tasks | 10 files |
+| Phase 09 P05 | 45min | 2 tasks | 9 files |
+| Phase 09 P06 | 25 min | 3 tasks | 15 files |
+| Phase 09 P07 | 180min | 3 tasks | 17 files |
+| Phase 09 P08 | 2h | 2 tasks | 16 files |
+| Phase 09 P09 | 35 min | 3 tasks | 23 files |
+| Phase 09 P10 | 30 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -623,6 +633,21 @@ Recent decisions affecting current work:
 - [Phase 08.1]: 08.1-19: the real unreachable project is a duplicate registration of the active project's path; contract copy left unchanged, logged for the owner
 - [Phase 08.1]: [Phase 08.1-21]: A review decline is one task.changes_requested event (count and criterion ids) in the same transaction as the status write; the reason text is derived live from unchecked criteria and reaches the agent as ContextPacket.review_feedback / a '## Review Feedback' section. No table, column or migration. D-122 narrowed: the forge-driven changes-requested path still moves nothing; one single-purpose, task-id-only command invoked by a human press may write one status edge. Offered on in_progress as well as in_review because all five worktree tasks are in_progress.
 - [Phase 08.1]: 08.1-20: retired --text-on-accent (unreferenced); kept --destructive-strip (four files still use it as text/edge colour) — A declared-but-unreferenced role is wired back up later; destructive-strip is still consumed
+- [Phase 09]: Scope hook is preventive for the file-writing tools only; Bash writes are detective, owned by plan 09-02 — The matcher is Write|Edit|MultiEdit|NotebookEdit; a write through Bash never reaches it
+- [Phase 09]: Arming is an explicit marker Rust writes (armed or unarmed); an absent, unreadable or unrecognised-version marker denies — D-150 and D-151: enforcement exists exactly where a declaration exists, and never as an empty set that refuses every write
+- [Phase 09]: PreToolUse deny holds under all four permission modes and for Task sub-agents (A9 and A3 measured live on claude 2.1.285) — scope-hook-live.test.mjs measured by file effect; the sub-agent observation is pinned in the test
+- [Phase 09]: A failed scope-marker write closes the new run failed and aborts the start — A running row with no session would hold a dispatcher slot forever
+- [Phase 09]: 09-02: an outside-the-worktree scope refusal stores only the file name; backstop rows are deduped per (run, path); the backstop reads git against the declared DB rows, never the marker
+- [Phase 09]: Only the colliding pair is ordered (D-158): edges are oriented by board rank then task id, frozen with their colliding paths at approval; why() reads the stored edge first
+- [Phase 09]: 09-04: parallel cap ceiling of 8 is a judgement anchored to a measurement of a different configuration, not a measurement of this one; cap gates dispatcher spawns only, never a user launch
+- [Phase 09]: 09-05: the limit gate refuses nothing a user does; only the dispatcher reads it (may_spawn / may_advance). Absent resetsAt pauses with no resume instant; a rejection within 120s of a time-driven resume pauses for manual resume.
+- [Phase 09]: 09-06: widen re-checks every in-flight declared set inside the same IMMEDIATE transaction as the write; marker rewritten only after commit; an undeclared manual launch cannot be checked against (merge-conflict path is the only guard)
+- [Phase 09]: 09-07: decide takes a plain-values git snapshot; readiness is merged not finished; automatic merge recorded by the system actor (Phase 8 per-task gate no longer mandatory during fan-out, one-way)
+- [Phase 09]: 09-08: the draft plan row is created by the first valid submission, not at run start; the one-live-plan-per-epic index is the only guard on a second plan
+- [Phase 09]: 09-08: a planning run is identified by shape (epic-scoped, no task, no authoring stage), authority is a Rust-side database read, and no run-kind column was added
+- [Phase 09]: 09-08: the planning launch pre-approves submit_plan only and records an armed empty scope marker; a failure to record it aborts the start
+- [Phase 09]: 09-09: a draft's DTO now carries declared entries and a core-computed preview of the edges approval will freeze (edgesFrozen:false), so the colliding paths show before approval; dispatch_planning_run exposes the planning window
+- [Phase 09]: 09-10: SequencingReason::RunsAlone carries the undeclared task ids; why's no-edge same-wave arm reads list_entries_for_task so the explanation matches readiness's D-150 refusal; frozen-edge read stays first
 
 ### Pending Todos
 
@@ -684,6 +709,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-09T07:55:49.989Z
-Stopped at: Phase 9 context gathered
-Resume file: .planning/phases/09-planned-fan-out-that-does-not-collide/09-CONTEXT.md
+Last session: 2026-10-10T09:25:20.730Z
+Stopped at: Completed 09-10-PLAN.md
+Resume file: None
