@@ -13,8 +13,8 @@ use std::process::Command;
 use std::sync::Mutex;
 
 use core::dispatch::{
-    attention_for, decide, observation_targets, ready_tasks, wave_is_drained, Action, AttentionCause,
-    Observations, ReadinessRefusal,
+    attention_for, decide, launch_conflict, observation_targets, ready_tasks, wave_is_drained, Action,
+    AttentionCause, Observations, ReadinessRefusal,
 };
 use core::dispatch_exec::run_pass;
 use core::domain::actor::system_actor;
@@ -24,11 +24,11 @@ use core::domain::dispatch_plan::{
     set_task_dispatch_state, AdvanceOutcome, DraftEdit, PlanControl,
 };
 use core::domain::epic::create_epic;
-use core::domain::file_set::declare_file_set;
+use core::domain::file_set::{declare_file_set, widen_file_set};
 use core::domain::settings::set_dispatch_max_parallel;
 use core::domain::task::create_task;
 use core::domain::worktree::worktree_for_task;
-use core::file_set::parse_entry;
+use core::file_set::{parse_entry, FileSetEntry};
 use core::git_facts::observe;
 use core::limit_gate::{apply_rate_limit_signal, LimitSignal, LimitTier};
 use rusqlite::{params, Connection};
@@ -886,4 +886,145 @@ fn undeclared_tasks_of_two_plans_in_one_project_are_not_spawned_together() {
     }
     assert_eq!(spawns(&fx.actions()), vec![a.as_str()], "the second plan's undeclared task waits for the first");
     let _ = b;
+}
+
+// ===== 09-12 Task 1: the ONE launch-conflict rule, called directly ===============================
+
+type Taken = Vec<(String, String, Vec<FileSetEntry>)>;
+
+fn conflict(fx: &Fx, task: &str, fold: bool, taken: &Taken) -> Option<ReadinessRefusal> {
+    launch_conflict(&fx.conn(), task, &fx.project_id, fold, taken).unwrap()
+}
+
+fn set(paths: &[&str]) -> Vec<FileSetEntry> {
+    paths.iter().map(|p| parse_entry(p).unwrap()).collect()
+}
+
+#[test]
+fn launch_conflict_refuses_a_task_with_a_running_run_of_its_own() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    assert_eq!(conflict(&fx, &a, false, &vec![]), None, "nothing live yet");
+    fx.launch(&a);
+    assert_eq!(conflict(&fx, &a, false, &vec![]), Some(ReadinessRefusal::HasLiveRun));
+}
+
+#[test]
+fn launch_conflict_refuses_a_task_with_a_blocked_run_of_its_own() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    fx.launch(&a);
+    fx.conn().execute("UPDATE agent_runs SET status = 'blocked' WHERE task_id = ?1", [&a]).unwrap();
+    assert_eq!(conflict(&fx, &a, false, &vec![]), Some(ReadinessRefusal::HasLiveRun), "a blocked run still holds a slot");
+}
+
+#[test]
+fn launch_conflict_names_the_other_task_and_the_colliding_path() {
+    let fx = fx();
+    let a = fx.task("A", &["src/"], w("src/a.rs"));
+    let b = fx.task("B", &["src/x.rs"], w("src/x.rs"));
+    fx.launch(&b);
+    assert_eq!(
+        conflict(&fx, &a, false, &vec![]),
+        Some(ReadinessRefusal::OverlapsInFlight { task_id: b, path: "src/".into() })
+    );
+}
+
+#[test]
+fn launch_conflict_runs_a_task_with_no_declared_set_alone() {
+    let fx = fx();
+    let a = fx.task("A", &[], w("a.txt"));
+    let b = fx.task("B", &["b/"], w("b/1"));
+    fx.launch(&b);
+    assert_eq!(conflict(&fx, &a, false, &vec![]), Some(ReadinessRefusal::RunsAlone { task_id: b }));
+}
+
+#[test]
+fn launch_conflict_runs_alone_when_the_other_in_flight_task_has_no_declared_set() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let b = fx.task("B", &[], w("b.txt"));
+    fx.launch(&b);
+    assert_eq!(conflict(&fx, &a, false, &vec![]), Some(ReadinessRefusal::RunsAlone { task_id: b }));
+}
+
+#[test]
+fn launch_conflict_lets_disjoint_declared_sets_run_together() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let b = fx.task("B", &["b/"], w("b/1"));
+    assert_eq!(conflict(&fx, &a, false, &vec![]), None, "nothing else in flight");
+    fx.launch(&b);
+    assert_eq!(conflict(&fx, &a, false, &vec![]), None, "disjoint beside a live sibling");
+}
+
+#[test]
+fn launch_conflict_is_per_repository_and_ignores_another_projects_colliding_run() {
+    let fx = fx();
+    let a = fx.task("A", &["src/"], w("src/a.rs"));
+
+    let other_repo = tempfile::tempdir().unwrap();
+    for args in [&["init", "--initial-branch=main"][..], &["config", "user.email", "o@x.y"], &["config", "user.name", "O"]] {
+        git(other_repo.path(), args);
+    }
+    std::fs::write(other_repo.path().join("README.md"), "other\n").unwrap();
+    git(other_repo.path(), &["add", "README.md"]);
+    git(other_repo.path(), &["commit", "-m", "initial"]);
+    let other = core::domain::project::create_project(
+        &mut fx.conn(), &fx.human, "Other", &other_repo.path().to_string_lossy(), "OTH", "main",
+    )
+    .unwrap();
+    let theirs = create_task(&mut fx.conn(), &other.id, &fx.human, "theirs", None).unwrap();
+    declare_file_set(&mut fx.conn(), &theirs.id, &set(&["src/"]), &fx.human).unwrap();
+    fx.launch(&theirs.id);
+
+    assert_eq!(conflict(&fx, &a, false, &vec![]), None, "the invariant is per-repository");
+    let foreign: Taken = vec![(other.id.clone(), theirs.id.clone(), set(&["src/"]))];
+    assert_eq!(conflict(&fx, &a, false, &foreign), None, "a chosen-in-this-decision task of another project is ignored too");
+}
+
+#[test]
+fn launch_conflict_reads_the_rows_so_a_set_widened_mid_flight_is_seen() {
+    let fx = fx();
+    let a = fx.task("A", &["y/"], w("y/a"));
+    let b = fx.task("B", &["x/"], w("x/b"));
+    fx.launch(&b);
+    assert_eq!(conflict(&fx, &a, false, &vec![]), None, "disjoint when B started");
+    let outcome = widen_file_set(&mut fx.conn(), &b, "y/", &fx.human).unwrap();
+    assert!(matches!(outcome, core::domain::file_set::WidenOutcome::Accepted { .. }), "{outcome:?}");
+    assert_eq!(
+        conflict(&fx, &a, false, &vec![]),
+        Some(ReadinessRefusal::OverlapsInFlight { task_id: b, path: "y/".into() }),
+        "the widen that landed after B started still refuses A"
+    );
+}
+
+#[test]
+fn launch_conflict_compares_against_tasks_already_chosen_in_this_decision() {
+    let fx = fx();
+    let a = fx.task("A", &["src/"], w("src/a.rs"));
+    let chosen = "task-chosen-earlier".to_string();
+    let overlapping: Taken = vec![(fx.project_id.clone(), chosen.clone(), set(&["src/x.rs"]))];
+    assert_eq!(
+        conflict(&fx, &a, false, &overlapping),
+        Some(ReadinessRefusal::OverlapsInFlight { task_id: chosen.clone(), path: "src/".into() })
+    );
+    let undeclared: Taken = vec![(fx.project_id.clone(), chosen.clone(), vec![])];
+    assert_eq!(conflict(&fx, &a, false, &undeclared), Some(ReadinessRefusal::RunsAlone { task_id: chosen }));
+    let disjoint: Taken = vec![(fx.project_id.clone(), "other".into(), set(&["docs/"]))];
+    assert_eq!(conflict(&fx, &a, false, &disjoint), None);
+}
+
+#[test]
+fn launch_conflict_honours_the_case_folding_flag_it_is_given() {
+    let fx = fx();
+    let a = fx.task("A", &["Src/Lib.rs"], w("Src/Lib.rs"));
+    let b = fx.task("B", &["src/lib.rs"], w("src/lib.rs"));
+    fx.launch(&b);
+    assert_eq!(
+        conflict(&fx, &a, true, &vec![]),
+        Some(ReadinessRefusal::OverlapsInFlight { task_id: b, path: "Src/Lib.rs".into() }),
+        "folded: the same file"
+    );
+    assert_eq!(conflict(&fx, &a, false, &vec![]), None, "not folded: two files");
 }

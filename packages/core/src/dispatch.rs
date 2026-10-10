@@ -619,6 +619,18 @@ fn readiness(
     Ok(Ok(()))
 }
 
+/// RED stub: the real rule arrives with the extraction commit.
+pub fn launch_conflict(
+    conn: &Connection,
+    task_id: &str,
+    project_id: &str,
+    fold_case: bool,
+    taken: &[(String, String, Vec<FileSetEntry>)],
+) -> anyhow::Result<Option<ReadinessRefusal>> {
+    let _ = (conn, task_id, project_id, fold_case, taken);
+    Ok(None)
+}
+
 /// The tasks of `plan_id` that could start right now, ignoring the cap, the gate and the plan's own
 /// pause. Board order.
 pub fn ready_tasks(conn: &Connection, plan_id: &str, obs: &Observations) -> anyhow::Result<Vec<String>> {
