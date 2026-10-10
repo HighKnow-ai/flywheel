@@ -36,6 +36,7 @@ use flywheel_core::context_packet::{
     DiffSoFar, PacketExtras,
 };
 use flywheel_core::domain::session_summary::{DecisionEntry, SessionSummary};
+use flywheel_core::dispatch::ReadinessRefusal;
 use rusqlite::{Connection, Transaction};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -748,7 +749,6 @@ pub(crate) fn prepare_launch(
     instruction: &str,
     conflict: CrossTaskConflict,
 ) -> Result<PreparedLaunch, String> {
-    let _ = conflict;
     let human_actor_id =
         flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
 
@@ -773,9 +773,100 @@ pub(crate) fn prepare_launch(
         .map_err(|e| e.to_string())?;
     let env = crate::sidecar::resolved_env_for_run(conn, &project_id).map_err(|e| e.to_string())?;
 
+    // The disjointness rule, consulted BEFORE `start_agent_run_recording_first` inserts the run row,
+    // so a refused launch creates nothing: no `running` row holding a cap slot, no worktree. Plan
+    // 09-12's single rule, the same function the dispatcher's `readiness` calls; a verdict the
+    // dispatcher took under its own lock can be stale by now, which is exactly why it is asked again
+    // here, at the body every launch passes through.
+    // ponytail: folds case unconditionally (a launch picks one task, so `taken` is empty). Folding
+    // finds MORE collisions, the conservative side for a refusal, and resolving the repository's real
+    // case sensitivity runs git while this lock is held. Ceiling: on a case-sensitive repository a
+    // pair whose paths differ only in case can be refused here though the dispatcher allowed it.
+    // Upgrade: resolve the flag before taking the lock.
+    let cross_task = match flywheel_core::dispatch::launch_conflict(conn, task_id, &project_id, true, &[])
+        .map_err(|e| e.to_string())?
+    {
+        None => None,
+        // Not a cap refusal: two agents in one worktree corrupts the work, `readiness` already
+        // refuses it for the dispatcher, and no contract promises a user they may do it. So it
+        // refuses on BOTH dispositions.
+        Some(ReadinessRefusal::HasLiveRun) => {
+            return Err("This task already has a running or blocked run. A second agent in the same \
+                        worktree would corrupt the work, so this launch is refused."
+                .to_string());
+        }
+        Some(refusal @ (ReadinessRefusal::OverlapsInFlight { .. } | ReadinessRefusal::RunsAlone { .. })) => {
+            Some(conflict_sentence(conn, &refusal)?)
+        }
+        Some(other) => return Err(format!("Launch refused: {other:?}")),
+    };
+    if let (Some(sentence), CrossTaskConflict::Refuse) = (&cross_task, conflict) {
+        return Err(format!("Launch refused: {sentence}"));
+    }
+
     let outcome =
         start_agent_run_recording_first(conn, task_id, permission_mode, instruction, &human_actor_id)?;
-    Ok(PreparedLaunch { outcome, repo_path, env, overlap_warning: None })
+    // A user's own launch proceeds, but no longer silently. The run id exists now, so the event can
+    // carry it; its own transaction, as the neighbouring event writes do.
+    if let Some(sentence) = &cross_task {
+        record_launch_overlap(conn, &project_id, task_id, &outcome.run_id, &human_actor_id, sentence)?;
+    }
+    Ok(PreparedLaunch { outcome, repo_path, env, overlap_warning: cross_task })
+}
+
+/// The one sentence for a cross-task launch conflict, composed from the stored rows: it names the
+/// other task by key and, for an overlap, the colliding path. Shown verbatim by the renderer.
+fn conflict_sentence(conn: &Connection, refusal: &ReadinessRefusal) -> Result<String, String> {
+    let key_of = |task_id: &str| -> Result<String, String> {
+        conn.query_row("SELECT key FROM tasks WHERE id = ?1", rusqlite::params![task_id], |r| r.get(0))
+            .map_err(|e| e.to_string())
+    };
+    Ok(match refusal {
+        ReadinessRefusal::OverlapsInFlight { task_id, path } => {
+            format!("Overlaps {}, which is running now: both declare {path}.", key_of(task_id)?)
+        }
+        ReadinessRefusal::RunsAlone { task_id } => format!(
+            "{} is running now and a task with no declared file set runs alone, so nothing shows these two are disjoint.",
+            key_of(task_id)?
+        ),
+        other => return Err(format!("not a cross-task conflict: {other:?}")),
+    })
+}
+
+/// Append one [`EVENT_LAUNCH_OVERLAP`] row for a user's launch that overlaps a live task, in its own
+/// transaction. Payload follows the `task.scope_denied` idiom: a human `label`, then the facts.
+fn record_launch_overlap(
+    conn: &mut Connection,
+    project_id: &str,
+    task_id: &str,
+    run_id: &str,
+    actor_id: &str,
+    sentence: &str,
+) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let epic_id: Option<String> = tx
+        .query_row("SELECT epic_id FROM tasks WHERE id = ?1", rusqlite::params![task_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    let payload = serde_json::json!({ "label": sentence, "run_id": run_id });
+    let sequence =
+        flywheel_core::domain::event::next_sequence(&tx, project_id, "local").map_err(|e| e.to_string())?;
+    flywheel_core::domain::event::append_event(
+        &tx,
+        project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id.as_deref(),
+        actor_id,
+        EVENT_LAUNCH_OVERLAP,
+        &payload,
+        &now,
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())
 }
 
 /// The launch body, after argument validation: resolves the human actor server-side (T-01-04),
@@ -786,7 +877,11 @@ pub(crate) fn prepare_launch(
 /// Called by [`agent_run_start`] for a user's launch and by the dispatcher for an autonomous one:
 /// one launch path, so there is one place the order below can be wrong. The cap and the limit gate
 /// are the DISPATCHER's to consult; neither is consulted here, so a user's own launch is never
-/// refused by either. Callers pass an already-validated mode and instruction.
+/// refused by either. The disjointness rule IS consulted here ([`prepare_launch`], before any run
+/// state exists); it is the caller's `conflict` disposition that decides whether a conflict with a
+/// DIFFERENT task refuses or is merely recorded and surfaced, and a user's own launch is still never
+/// refused for one (the recorded choice in `09-07-SUMMARY`). A task's OWN live run refuses on both.
+/// Callers pass an already-validated mode and instruction.
 pub(crate) fn launch_run_for_task(
     state: &AppState,
     app: &AppHandle,
