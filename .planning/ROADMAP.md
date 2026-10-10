@@ -1078,7 +1078,7 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: 12/13 plans executed — 9/9 executed in 7 waves, plus 4 gap-closure plans (09-10 … 09-13) in 3 further waves
+**Plans**: 13/13 plans executed — 9/9 executed in 7 waves, plus 4 gap-closure plans (09-10 … 09-13) in 3 further waves
 
 Plans:
 
@@ -1125,7 +1125,7 @@ Plans:
 
 **Gap wave 3** *(blocked on 09-12 for the rule, and on 09-10 for `commands/dispatch.rs`)*
 
-- [ ] 09-13-PLAN.md — Gap 2: the shared launch body consults the rule before it creates any state — the dispatcher refuses and retries on the next pass, a task's own live run refuses on both paths, and a user's own overlapping launch stays ALLOWED per 09-07 but is recorded and surfaced instead of silent (PLAN-02, PLAN-03)
+- [x] 09-13-PLAN.md — Gap 2: the shared launch body consults the rule before it creates any state — the dispatcher refuses and retries on the next pass, a task's own live run refuses on both paths, and a user's own overlapping launch stays ALLOWED per 09-07 but is recorded and surfaced instead of silent (PLAN-02, PLAN-03)
 
 **UI hint**: yes
 
@@ -1239,7 +1239,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. The Board Tells The Git Truth | 12/12 | Complete    | 2026-10-05 |
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
-| 9. Planned Fan-Out That Does Not Collide | 12/13 | In Progress|  |
+| 9. Planned Fan-Out That Does Not Collide | 13/13 | In Progress|  |
 | 10. Fleet Supervision Across Every Project | 0/TBD | Not started | - |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
