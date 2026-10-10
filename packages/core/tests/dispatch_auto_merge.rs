@@ -1050,7 +1050,11 @@ fn windowed_pass(
     let refusals = Mutex::new(Vec::new());
     let report = run_pass(&fx.db, now(), &system, |plan, task| {
         intrude(fx, task);
-        // GREEN adds the guard here.
+        if let Some(refusal) = launch_conflict(&fx.conn(), task, &fx.project_id, false, &[]).unwrap() {
+            let error = format!("{refusal:?}");
+            refusals.lock().unwrap().push(refusal);
+            return Err(error);
+        }
         fx.spawn(plan, task)
     })
     .unwrap();
