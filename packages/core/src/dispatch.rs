@@ -197,7 +197,21 @@ pub fn why(
     };
     Ok(match (wave_of(task_a)?, wave_of(task_b)?) {
         (Some(a), Some(b)) if a != b => SequencingReason::DifferentWaves { wave_a: a, wave_b: b },
-        (Some(_), Some(_)) => SequencingReason::DisjointSets,
+        (Some(_), Some(_)) => {
+            // D-150: read the same rows `readiness` refuses on, so the explanation cannot disagree
+            // with the refusal about which task declared nothing.
+            let mut undeclared_task_ids = Vec::new();
+            for id in [task_a, task_b] {
+                if list_entries_for_task(conn, id)?.is_empty() {
+                    undeclared_task_ids.push(id.to_string());
+                }
+            }
+            if undeclared_task_ids.is_empty() {
+                SequencingReason::DisjointSets
+            } else {
+                SequencingReason::RunsAlone { undeclared_task_ids }
+            }
+        }
         _ => SequencingReason::NotInPlan,
     })
 }

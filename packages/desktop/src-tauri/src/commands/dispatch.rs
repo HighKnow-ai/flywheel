@@ -403,9 +403,17 @@ fn why_dto(conn: &rusqlite::Connection, plan_id: &str, task_a: &str, task_b: &st
             cause: None,
             colliding_paths: Vec::new(),
         },
-        SequencingReason::RunsAlone { .. } => WhyDto {
+        SequencingReason::RunsAlone { undeclared_task_ids } => WhyDto {
             kind: "runsAlone".into(),
-            sentence: String::new(),
+            sentence: match undeclared_task_ids.as_slice() {
+                [one] => format!(
+                    "{} has no declared file-set, so it runs alone and never shares a wave.",
+                    key(one)
+                ),
+                _ => format!(
+                    "Neither {ka} nor {kb} has a declared file-set, so each runs alone and never shares a wave."
+                ),
+            },
             before_task_id: None,
             after_task_id: None,
             cause: None,
