@@ -1078,7 +1078,7 @@ phase is the roadmap view of work the board already tracks item-by-item.
   4. User caps global parallel width and the planner never exceeds it.
   5. When the backend returns a rate limit or session limit, Flywheel backs off and tells the user, instead of retrying blindly.
 
-**Plans**: 9/9 plans executed in 7 waves
+**Plans**: 13 plans — 9/9 executed in 7 waves, plus 4 gap-closure plans (09-10 … 09-13) in 3 further waves
 
 Plans:
 
@@ -1111,6 +1111,21 @@ Plans:
 **Wave 7** *(blocked on 09-07 and 09-08 — renders their DTOs)*
 
 - [x] 09-09-PLAN.md — The surfaces: the wave plan sheet with each sequenced pair's colliding paths shown inline and editable before dispatch, the epic's dispatch controls, and the line that says why dispatch is waiting (PLAN-07)
+
+**Gap closure** *(`09-VERIFICATION.md` status `gaps_found`, 8/13 — two gaps, registered as D-REV-38 and D-REV-37. Run with `/gsd-execute-phase 09 --gaps-only`.)*
+
+**Gap wave 1** *(09-10 and 09-11 share no file: the first is `dispatch.rs` plus the two desktop surfaces, the second is `domain/file_set.rs`)*
+
+- [ ] 09-10-PLAN.md — Gap 1: `why` tells the truth on the DEFAULT path — a runs-alone cause for a pair that declared nothing (D-150), and the wave plan sheet showing which tasks declared no files at D-149's one human look (PLAN-07)
+- [ ] 09-11-PLAN.md — Gap 1 and 2: a live widen writes the `widen` edge and its sequenced event in its own transaction (D-157, finally writing what `0019` was built for), and replacing a declared set is refused while the task has a live run (D-152) (PLAN-02, PLAN-07)
+
+**Gap wave 2** *(blocked on 09-10 — same file, `packages/core/src/dispatch.rs`)*
+
+- [ ] 09-12-PLAN.md — Gap 2: ONE launch-conflict rule, extracted from `readiness` so a launch path can call it, with the dispatcher's verdicts proved unchanged; and the first test of the decide-to-launch window. A partial unique index on `agent_runs` is deliberately REJECTED — it cannot state a cross-row predicate over a child table, and it would make the out-of-scope WR-03 leaked row permanent (PLAN-02, PLAN-03)
+
+**Gap wave 3** *(blocked on 09-12 for the rule, and on 09-10 for `commands/dispatch.rs`)*
+
+- [ ] 09-13-PLAN.md — Gap 2: the shared launch body consults the rule before it creates any state — the dispatcher refuses and retries on the next pass, a task's own live run refuses on both paths, and a user's own overlapping launch stays ALLOWED per 09-07 but is recorded and surfaced instead of silent (PLAN-02, PLAN-03)
 
 **UI hint**: yes
 
