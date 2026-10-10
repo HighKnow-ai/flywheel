@@ -731,3 +731,59 @@ describe("LaunchSheet — the epic-authoring variant (D-91, plan 05-10 Task 1(c)
     expect(previewEpicMock).not.toHaveBeenCalled();
   });
 });
+
+describe("LaunchSheet overlap warning (phase 09 plan 09-13)", () => {
+  // A string no component could have composed: it names a task key and a path the sheet was never
+  // handed, so seeing it in full proves the sheet displays a Rust verdict rather than deriving one.
+  const WARNING = "Overlaps ZZZ-901, which is running now: both declare vendor/obscure/never-seen.ts.";
+  const run = (overrides: Record<string, unknown> = {}) => ({
+    id: "run-1",
+    taskId: "task-1",
+    status: "running",
+    permissionMode: "acceptEdits",
+    overlapWarning: null,
+    ...overrides,
+  });
+
+  async function launch() {
+    const utils = renderSheet();
+    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
+    await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
+    return utils;
+  }
+
+  it("renders the warning verbatim after the launch resolves", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket());
+    startMock.mockReset().mockResolvedValue(run({ overlapWarning: WARNING }));
+    await launch();
+
+    expect(await screen.findByText(WARNING)).toBeInTheDocument();
+  });
+
+  it("renders nothing extra when the result carries no warning", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket());
+    startMock.mockReset().mockResolvedValue(run());
+    const { onStarted } = await launch();
+
+    await waitFor(() => expect(onStarted).toHaveBeenCalled());
+    expect(screen.queryByRole("note", { name: "Launch overlap warning" })).toBeNull();
+  });
+
+  it("does not use the alert role, which is reserved for money burning", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket());
+    startMock.mockReset().mockResolvedValue(run({ overlapWarning: WARNING }));
+    await launch();
+
+    await screen.findByText(WARNING);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("still completes the launch exactly as before", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket());
+    startMock.mockReset().mockResolvedValue(run({ overlapWarning: WARNING }));
+    const { onStarted } = await launch();
+
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1", WARNING));
+  });
+});
