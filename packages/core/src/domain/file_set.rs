@@ -469,6 +469,7 @@ pub fn widen_file_set(
             &tx, &project_id, "local", sequence, "task", task_id, Some(task_id),
             epic_id.as_deref(), actor_id, EVENT_FILE_SET_WIDENED, &payload, &now,
         )?;
+        record_widen_sequencing(&tx, &project_id, task_id, &candidate, fold_case, actor_id, &now)?;
     }
     tx.commit().context("failed to commit widen_file_set transaction")?;
 
@@ -477,6 +478,89 @@ pub fn widen_file_set(
         Ok(()) => Ok(WidenOutcome::Accepted { entries }),
         Err(error) => Ok(WidenOutcome::MarkerNotRewritten { entries, error }),
     }
+}
+
+/// D-157: when a live widen makes the (running) widening task reach a QUEUED task in the same wave
+/// of the same live plan, store the ordering edge and its `task.sequenced` event, in the widen's own
+/// transaction. Execution already waits (readiness reads the widened rows); this is the record that
+/// lets `why` answer a week later, and it is written through the same two writers approval uses.
+///
+/// Orientation comes from reality, not board rank: the widening task is live, so it is the before
+/// side; the queued task waits. No cycle is possible. Approval's edges get acyclicity from a total
+/// order, these get it from liveness: the before side is always running, and a queued task can only
+/// become the live side of a later widen edge after its own predecessor has merged, when it is no
+/// longer queued, so the edge points from live to not-yet-live and never back.
+///
+/// A pair that already has an edge, in either orientation, is skipped: the first answer is the one
+/// acted on, and `dispatch_edges` is unique on (plan, before, after), so a blind insert would abort
+/// the transaction and roll back a legitimate scope grant for bookkeeping.
+fn record_widen_sequencing(
+    tx: &Transaction,
+    project_id: &str,
+    task_id: &str,
+    candidate: &FileSetEntry,
+    fold_case: bool,
+    actor_id: &str,
+    now: &str,
+) -> anyhow::Result<()> {
+    use crate::dispatch::{DispatchEdge, EDGE_CAUSE_WIDEN};
+    use crate::domain::dispatch_plan::{append_sequenced_event, insert_edge_in_tx};
+
+    // Live plan membership of the widening task, with its wave. `queued` states are those a task has
+    // before it ever spawns; a finished, failed or merged task is not waiting on anyone.
+    let memberships: Vec<(String, String, u32)> = tx
+        .prepare(
+            "SELECT p.id, p.epic_id, pt.wave FROM dispatch_plan_tasks pt
+               JOIN dispatch_plans p ON p.id = pt.plan_id
+              WHERE pt.task_id = ?1 AND p.status IN ('approved', 'running', 'paused')",
+        )?
+        .query_map(params![task_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<Result<_, _>>()
+        .context("failed to read the widening task's live plans")?;
+
+    for (plan_id, epic_id, wave) in memberships {
+        let queued: Vec<String> = tx
+            .prepare(
+                "SELECT pt.task_id FROM dispatch_plan_tasks pt
+                  WHERE pt.plan_id = ?1 AND pt.wave = ?2 AND pt.task_id <> ?3
+                    AND pt.state IN ('planned', 'waiting', 'held_by_limit')
+                    AND NOT EXISTS (SELECT 1 FROM agent_runs r
+                                     WHERE r.task_id = pt.task_id AND r.status IN ('running', 'blocked'))
+                  ORDER BY pt.task_id",
+            )?
+            .query_map(params![plan_id, wave, task_id], |r| r.get(0))?
+            .collect::<Result<_, _>>()
+            .context("failed to read the queued tasks of the wave")?;
+        for other_id in queued {
+            let other_entries = list_entries_for_task(tx, &other_id)?;
+            let found = crate::file_set::collisions(std::slice::from_ref(candidate), &other_entries, fold_case);
+            if found.is_empty() {
+                continue;
+            }
+            let already: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM dispatch_edges WHERE plan_id = ?1
+                   AND ((before_task_id = ?2 AND after_task_id = ?3)
+                     OR (before_task_id = ?3 AND after_task_id = ?2)))",
+                params![plan_id, task_id, other_id],
+                |r| r.get(0),
+            )?;
+            if already {
+                continue;
+            }
+            let edge = DispatchEdge {
+                before_task_id: task_id.to_string(),
+                after_task_id: other_id,
+                cause: EDGE_CAUSE_WIDEN.to_string(),
+                colliding_paths: found
+                    .iter()
+                    .map(|c| (entry_path(c.first).to_string(), entry_path(c.second).to_string()))
+                    .collect(),
+            };
+            insert_edge_in_tx(tx, &plan_id, &edge, now)?;
+            append_sequenced_event(tx, project_id, &epic_id, &plan_id, &edge, actor_id, now)?;
+        }
+    }
+    Ok(())
 }
 
 /// Re-arm the scope marker of every live run of `task_id` from the stored rows. A task with no live

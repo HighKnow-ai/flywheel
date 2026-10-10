@@ -269,7 +269,10 @@ pub fn approve_plan_with(
     Ok(())
 }
 
-fn append_sequenced_event(
+/// Append the `task.sequenced` event for one edge, attributed to the waiting task. The one writer
+/// of that event shape, with two callers: [`approve_plan_with`] (cause `overlap`) and the live
+/// widen in `domain::file_set` (cause `widen`), so `why` and the sheet read a single shape.
+pub(crate) fn append_sequenced_event(
     tx: &Transaction,
     project_id: &str,
     epic_id: &str,
