@@ -88,6 +88,13 @@ pub(crate) fn set_task_file_set(
         return Err(format!("task {task_id:?} was not found"));
     }
 
+    // The core guard in `declare_file_set_in_tx` is the authority; asking first only lets the
+    // reason reach the renderer, since `ipc_error` reduces a core error to an opaque code.
+    if let Some(refusal) = flywheel_core::domain::file_set::declare_refusal(conn, task_id)
+        .map_err(|e| ipc_error("task_file_set_set:guard", e))?
+    {
+        return Err(refusal);
+    }
     flywheel_core::domain::file_set::declare_file_set(conn, task_id, &parsed, actor_id)
         .map_err(|e| ipc_error("task_file_set_set:declare", e))?;
     get_task_file_set(conn, task_id)

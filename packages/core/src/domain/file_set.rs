@@ -51,9 +51,35 @@ fn entry_strings(entries: &[FileSetEntry]) -> Vec<String> {
     entries.iter().map(|e| entry_path(e).to_string()).collect()
 }
 
+/// Why replacing `task_id`'s declared set must be refused right now, or `None` if it may proceed.
+/// A task with a running or blocked run holds a live scope marker, and the widen re-arms that
+/// marker from ALL stored rows, so an unchecked replace would launder entries into a running
+/// agent's scope. The widen is the one write that re-checks against every other in-flight set.
+pub fn declare_refusal(conn: &Connection, task_id: &str) -> anyhow::Result<Option<String>> {
+    let live: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM agent_runs WHERE task_id = ?1 AND status IN ('running', 'blocked'))",
+            params![task_id],
+            |row| row.get(0),
+        )
+        .context("failed to read the task's live runs")?;
+    if !live {
+        return Ok(None);
+    }
+    let key: String = conn
+        .query_row("SELECT key FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
+        .unwrap_or_else(|_| task_id.to_string());
+    Ok(Some(format!(
+        "task {key} has an agent run in flight, so its declared file-set cannot be replaced. \
+         Widen it instead: the widen is the one write that can change a live task's scope, because \
+         it re-checks against every other in-flight set in its own transaction (D-152)."
+    )))
+}
+
 /// Replace `task_id`'s declared set with `entries` and append one [`EVENT_FILE_SET_DECLARED`]
 /// event, inside the caller's transaction. Duplicate entries collapse (first occurrence wins). An
-/// unchanged set is a no-op and appends nothing. An empty `entries` clears the set — and the next
+/// unchanged set is a no-op and appends nothing, except against a task with a live run, which is
+/// refused outright (see [`declare_refusal`]). An empty `entries` clears the set — and the next
 /// run of the task starts unarmed (D-150).
 pub fn declare_file_set_in_tx(
     tx: &Transaction,
@@ -62,6 +88,9 @@ pub fn declare_file_set_in_tx(
     actor_id: &str,
     now: &str,
 ) -> anyhow::Result<()> {
+    if let Some(refusal) = declare_refusal(tx, task_id)? {
+        return Err(anyhow!(refusal));
+    }
     let (project_id, epic_id): (String, Option<String>) = tx
         .query_row(
             "SELECT project_id, epic_id FROM tasks WHERE id = ?1",

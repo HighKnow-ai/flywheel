@@ -3273,6 +3273,17 @@ mod tests {
                 flywheel_core::runtime_protocol::ScopeMode::Armed
             );
 
+            // The first run must end before its task's set can be replaced: a declare against a live
+            // task is refused (09-11), because only the widen re-checks against in-flight sets.
+            flywheel_core::domain::agent_run::close_agent_run(
+                &mut conn,
+                &first.run_id,
+                flywheel_core::domain::agent_run::AgentRunStatus::Completed,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
             declare_set(&mut conn, &actor, &task_id, &[]);
             let second = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor).unwrap();
             assert_eq!(
