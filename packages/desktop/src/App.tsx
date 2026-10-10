@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useMemo } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
 import { subscribeMenuAction } from "./adapters/tauri";
@@ -152,6 +152,15 @@ function AppShell() {
   // command palette (plan 02-10 Task 3), all through this one `open-settings` action id.
   const settingsOpen = useUiStore((state) => state.settingsOpen);
   const setSettingsOpen = useUiStore((state) => state.setSettingsOpen);
+  // Plan 09-13: Rust's overlap warning for a launch the user started over a live task. Shown for a
+  // while, then cleared; it is display state only, the durable record is the `task.launch_overlap`
+  // event the launch appended.
+  const [launchOverlapWarning, setLaunchOverlapWarning] = useState<string | null>(null);
+  useEffect(() => {
+    if (!launchOverlapWarning) return;
+    const timer = setTimeout(() => setLaunchOverlapWarning(null), 15000);
+    return () => clearTimeout(timer);
+  }, [launchOverlapWarning]);
   // `⌘⇧O`'s actual effect — the SAME registration flow the rail's `+` button and the palette's
   // "Register Project…" command use (`projects/RegisterProjectFlow.tsx`), never a re-derived
   // copy (01-UI-SPEC.md "Project switcher"). `isError`/`error` are surfaced below (CR-02) —
@@ -340,11 +349,14 @@ function AppShell() {
           if (launchSheetAuthoringHandoff) clearLaunchSheetAuthoringHandoff();
           else setLaunchSheetTaskId(null);
         }}
-        onStarted={(agentRunId) => {
+        onStarted={(agentRunId, overlapWarning) => {
           // `launchSheetTaskId` is captured in this closure at its render-time value, still the
           // task this run just started for — read BEFORE it is cleared below.
           setActiveAgentRunId(agentRunId, launchSheetTaskId);
           setLaunchSheetTaskId(null);
+          // The sheet unmounts here, so its own copy of the warning is gone with it; this is the
+          // copy the user actually sees (plan 09-13). Rust's sentence, verbatim.
+          if (overlapWarning) setLaunchOverlapWarning(overlapWarning);
         }}
         onAuthoringStarted={(run) => {
           setActiveAgentRunId(run.id, null, run.authoringStage, run.epicId);
@@ -352,6 +364,28 @@ function AppShell() {
         }}
       />
       <WavePlanSheet epicId={wavePlanSheetEpicId} onClose={() => setWavePlanSheetEpicId(null)} />
+      {launchOverlapWarning && (
+        <div
+          role="note"
+          aria-label="Launch overlap warning"
+          className="type-label"
+          style={{
+            position: "fixed",
+            bottom: "var(--space-lg)",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 1400,
+            color: "var(--destructive-text-rack)",
+            background: "var(--surface-secondary)",
+            border: "1px solid var(--divider)",
+            borderRadius: "var(--radius-chrome)",
+            padding: "var(--space-sm) var(--space-md)",
+            maxWidth: "80vw",
+          }}
+        >
+          {launchOverlapWarning}
+        </div>
+      )}
       {registerNoticeNode}
     </>
   );

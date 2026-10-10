@@ -584,8 +584,10 @@ export interface LaunchSheetProps {
   /** Called with the new run's id once `startAgentRun` resolves — the caller decides what
    * "route to the session surface" means, matching `ItemDetailPanel.tsx`'s own
    * `onSessionStarted` precedent before this plan replaced it. Only fires for the task-scoped
-   * flow (`authoring` unset). */
-  onStarted: (agentRunId: string) => void;
+   * flow (`authoring` unset). The second argument is Rust's overlap warning for a launch that
+   * overlaps a DIFFERENT live task (plan 09-13), passed on so a host that closes the sheet in this
+   * callback can still show it. */
+  onStarted: (agentRunId: string, overlapWarning?: string | null) => void;
   /** Called once `startAuthoringRun` resolves for the `authoring` flow — carries the full run
    * shape (never just the id) since the caller needs `authoringStage`/`epicId` to open the
    * session surface with `SessionSurface.tsx`'s `ProposalTray` mounted immediately, matching
@@ -606,6 +608,7 @@ export function LaunchSheet({
   const [permissionMode, setPermissionMode] = useState(DEFAULT_PERMISSION_MODE);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [overlapWarning, setOverlapWarning] = useState<string | null>(null);
   const instructionRef = useRef<HTMLTextAreaElement>(null);
   // WR-03 (plan 05-09 code review): `handleSubmit` is reachable both from a click on the submit
   // button and, independently, from `handleDialogKeyDown`'s own Enter branch — React has not
@@ -644,6 +647,7 @@ export function LaunchSheet({
       setStarting(false);
       startingRef.current = false;
       setError(null);
+      setOverlapWarning(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, isAuthoring, authoringEpicId, authoringProjectId]);
@@ -682,7 +686,8 @@ export function LaunchSheet({
     }
     startAgentRun(taskId as string, permissionMode, instruction)
       .then((run) => {
-        onStarted(run.id);
+        setOverlapWarning(run.overlapWarning ?? null);
+        onStarted(run.id, run.overlapWarning ?? null);
       })
       .catch((err: unknown) => {
         startingRef.current = false;
@@ -767,6 +772,20 @@ export function LaunchSheet({
               {error && (
                 <p className="type-body" style={{ color: "var(--destructive-text-rack)" }}>
                   {error}
+                </p>
+              )}
+              {/* Plan 09-13: the launch went ahead over a live task; Rust's own sentence, shown as
+                  given — this component composes no task name and compares no path. Not the alert
+                  role, for the reason DriftWarningSection gives: that is reserved for money burning,
+                  and an overlap the user chose is not that. */}
+              {overlapWarning && (
+                <p
+                  role="note"
+                  aria-label="Launch overlap warning"
+                  className="type-body"
+                  style={{ color: "var(--destructive-text-rack)" }}
+                >
+                  {overlapWarning}
                 </p>
               )}
             </div>

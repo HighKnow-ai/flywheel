@@ -66,6 +66,9 @@ export interface AgentRunDto {
   taskId: string;
   status: string;
   permissionMode: string;
+  /** Set only when a user's own launch overlaps a DIFFERENT live task: one sentence Rust composed
+   * from the stored rows (`overlap_warning`), to be shown verbatim and never recomputed here. */
+  overlapWarning?: string | null;
 }
 
 export async function startAgentRun(
