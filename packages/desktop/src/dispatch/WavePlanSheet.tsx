@@ -152,6 +152,9 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
         </div>
         {task.rationale && <p className="type-label wave-plan-note">{task.rationale}</p>}
         {task.attention && <p className="type-label wave-plan-attention">{task.attention}</p>}
+        {task.entries.length === 0 && task.state !== "skipped" && (
+          <p className="type-label wave-plan-note">No files declared, so this task runs alone.</p>
+        )}
         {isDraft && task.state !== "skipped" ? (
           <div className="wave-plan-files">
             <textarea
