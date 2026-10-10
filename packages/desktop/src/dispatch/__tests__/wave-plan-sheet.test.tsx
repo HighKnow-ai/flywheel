@@ -231,4 +231,46 @@ describe("WavePlanSheet", () => {
     await loaded();
     expect(screen.queryByRole("button", { name: /Why does/ })).toBeNull();
   });
+
+  describe("a task that declared no files (D-150, D-149)", () => {
+    const signal = /no files declared/i;
+    const titles: Record<string, string> = { "1": "Parse the header", "2": "Render the header", "4": "Migrate the store" };
+    const row = (n: string) => screen.getByRole("listitem", { name: `FLY-${n} ${titles[n]}` });
+
+    it("shows the signal on a draft task alongside its editable box", async () => {
+      const p = plan();
+      p.tasks[1] = { ...p.tasks[1], entries: [] };
+      await loaded(p);
+      const fly2 = row("2");
+      expect(within(fly2).getByText(signal)).toBeInTheDocument();
+      expect(within(fly2).getByLabelText("Files for FLY-2")).toBeInTheDocument();
+    });
+
+    it("shows the signal on a read-only (running) task", async () => {
+      const p = plan({ status: "running", edgesFrozen: true });
+      p.tasks[1] = { ...p.tasks[1], entries: [] };
+      await loaded(p);
+      expect(within(row("2")).getByText(signal)).toBeInTheDocument();
+    });
+
+    it("shows no signal on a task that declared files", async () => {
+      await loaded();
+      expect(within(row("1")).queryByText(signal)).toBeNull();
+      expect(within(row("2")).queryByText(signal)).toBeNull();
+    });
+
+    it("shows no signal on a skipped task, which is not going to run", async () => {
+      await loaded();
+      expect(within(row("4")).queryByText(signal)).toBeNull();
+    });
+
+    it("reports the declared sets it was given even when the response's edge list says the pair collides", async () => {
+      const p = plan();
+      p.tasks[0] = { ...p.tasks[0], entries: [] };
+      p.tasks[1] = { ...p.tasks[1], entries: [] };
+      await loaded(p);
+      expect(within(row("1")).getByText(signal)).toBeInTheDocument();
+      expect(within(row("2")).getByText(signal)).toBeInTheDocument();
+    });
+  });
 });
