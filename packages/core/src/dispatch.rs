@@ -79,6 +79,10 @@ pub enum SequencingReason {
     DifferentWaves { wave_a: u32, wave_b: u32 },
     /// No edge, same wave: the declared sets were disjoint.
     DisjointSets,
+    /// No edge, same wave, and at least one of the two declared nothing (D-150): no declaration is
+    /// no claim of disjointness, so the pair never shares a wave. Holds the undeclared task ids
+    /// (one or both) in argument order, read from the same rows `readiness` refuses on.
+    RunsAlone { undeclared_task_ids: Vec<String> },
     /// At least one of the two tasks is not in this plan.
     NotInPlan,
 }

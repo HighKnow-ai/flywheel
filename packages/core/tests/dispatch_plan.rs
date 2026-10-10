@@ -448,6 +448,51 @@ fn why_two_disjoint_tasks_in_one_wave_says_their_sets_are_disjoint() {
 }
 
 #[test]
+fn why_two_same_wave_tasks_that_declared_nothing_run_alone_not_disjoint() {
+    // D-150 / PLAN-07: the default path. A QuickAdd epic declares nothing, so `readiness` holds
+    // the pair apart; `why` must say that, not "disjoint sets".
+    let mut s = stored(&[(1, &[]), (1, &[])]);
+    approve_plan(&mut s.conn, &s.plan_id, &s.actor).unwrap();
+    let expected = SequencingReason::RunsAlone { undeclared_task_ids: vec![s.tasks[0].clone(), s.tasks[1].clone()] };
+    assert_eq!(why(&s.conn, &s.plan_id, &s.tasks[0], &s.tasks[1]).unwrap(), expected);
+}
+
+#[test]
+fn why_one_undeclared_task_in_a_pair_names_only_that_task_in_either_argument_order() {
+    let mut s = stored(&[(1, &["a.rs"]), (1, &[])]);
+    approve_plan(&mut s.conn, &s.plan_id, &s.actor).unwrap();
+    let expected = SequencingReason::RunsAlone { undeclared_task_ids: vec![s.tasks[1].clone()] };
+    assert_eq!(why(&s.conn, &s.plan_id, &s.tasks[0], &s.tasks[1]).unwrap(), expected);
+    assert_eq!(why(&s.conn, &s.plan_id, &s.tasks[1], &s.tasks[0]).unwrap(), expected);
+}
+
+#[test]
+fn why_a_frozen_edge_still_wins_after_both_declared_sets_are_emptied() {
+    let mut s = stored(&[(1, &["a.rs"]), (1, &["a.rs"])]);
+    approve_plan(&mut s.conn, &s.plan_id, &s.actor).unwrap();
+    declare_file_set(&mut s.conn, &s.tasks[0], &[], &s.actor).unwrap();
+    declare_file_set(&mut s.conn, &s.tasks[1], &[], &s.actor).unwrap();
+    match why(&s.conn, &s.plan_id, &s.tasks[0], &s.tasks[1]).unwrap() {
+        SequencingReason::Sequenced { colliding_paths, .. } => assert_eq!(colliding_paths, pair("a.rs", "a.rs")),
+        other => panic!("clearing a set must not rewrite the frozen edge, got {other:?}"),
+    }
+}
+
+#[test]
+fn why_undeclared_tasks_in_different_waves_still_answer_different_waves() {
+    let mut s = stored(&[(1, &[]), (2, &[])]);
+    approve_plan(&mut s.conn, &s.plan_id, &s.actor).unwrap();
+    assert_eq!(
+        why(&s.conn, &s.plan_id, &s.tasks[0], &s.tasks[1]).unwrap(),
+        SequencingReason::DifferentWaves { wave_a: 1, wave_b: 2 }
+    );
+    assert_eq!(
+        why(&s.conn, &s.plan_id, &s.tasks[1], &s.tasks[0]).unwrap(),
+        SequencingReason::DifferentWaves { wave_a: 2, wave_b: 1 }
+    );
+}
+
+#[test]
 fn why_a_task_that_is_not_in_the_plan_is_a_named_answer_not_an_error() {
     let mut s = stored(&[(1, &["a.rs"])]);
     approve_plan(&mut s.conn, &s.plan_id, &s.actor).unwrap();

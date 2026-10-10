@@ -334,7 +334,7 @@ pub fn dispatch_advance_now(state: State<AppState>, app: AppHandle, plan_id: Str
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WhyDto {
-    /// `sequenced`, `differentWaves`, `disjointSets` or `notInPlan`.
+    /// `sequenced`, `differentWaves`, `disjointSets`, `runsAlone` or `notInPlan`.
     pub kind: String,
     pub sentence: String,
     pub before_task_id: Option<String>,
@@ -356,13 +356,18 @@ pub fn dispatch_why(
     validate_id("task", &task_a)?;
     validate_id("task", &task_b)?;
     let conn = state.db.lock().map_err(|e| ipc_error("dispatch_why:lock", e))?;
+    why_dto(&conn, &plan_id, &task_a, &task_b)
+}
+
+/// The body of `dispatch_why`, over a plain connection so the sentences are testable.
+fn why_dto(conn: &rusqlite::Connection, plan_id: &str, task_a: &str, task_b: &str) -> Result<WhyDto, String> {
     let key = |id: &str| -> String {
         conn.query_row("SELECT key FROM tasks WHERE id = ?1", [id], |r| r.get(0)).unwrap_or_else(|_| id.to_string())
     };
     use flywheel_core::dispatch::SequencingReason;
-    let reason = flywheel_core::dispatch::why(&conn, &plan_id, &task_a, &task_b)
+    let reason = flywheel_core::dispatch::why(conn, plan_id, task_a, task_b)
         .map_err(|e| ipc_error("dispatch_why:read", e))?;
-    let (ka, kb) = (key(&task_a), key(&task_b));
+    let (ka, kb) = (key(task_a), key(task_b));
     Ok(match reason {
         SequencingReason::Sequenced { before_task_id, after_task_id, cause, colliding_paths } => {
             let shown: Vec<&str> = colliding_paths.iter().take(3).map(|(_, a)| a.as_str()).collect();
@@ -393,6 +398,14 @@ pub fn dispatch_why(
         SequencingReason::DisjointSets => WhyDto {
             kind: "disjointSets".into(),
             sentence: format!("{ka} and {kb} declare disjoint sets, so neither waits for the other."),
+            before_task_id: None,
+            after_task_id: None,
+            cause: None,
+            colliding_paths: Vec::new(),
+        },
+        SequencingReason::RunsAlone { .. } => WhyDto {
+            kind: "runsAlone".into(),
+            sentence: String::new(),
             before_task_id: None,
             after_task_id: None,
             cause: None,
@@ -721,6 +734,60 @@ mod surface_tests {
         assert_eq!(first.entries, vec!["a.rs".to_string(), "b.rs".to_string()]);
         let stored: i64 = conn.query_row("SELECT COUNT(*) FROM dispatch_edges", [], |r| r.get(0)).unwrap();
         assert_eq!(stored, 0, "reading a draft freezes nothing");
+    }
+
+    /// An epic whose tasks declared nothing, approved: the default QuickAdd shape.
+    fn undeclared_pair(declare_second: bool) -> (rusqlite::Connection, String, Vec<String>) {
+        let (mut conn, epic_id, human, tasks) = two_task_epic();
+        // `two_task_epic` declares both; clear the first, and the second too unless asked to keep it.
+        flywheel_core::domain::file_set::declare_file_set(&mut conn, &tasks[0], &[], &human).unwrap();
+        if !declare_second {
+            flywheel_core::domain::file_set::declare_file_set(&mut conn, &tasks[1], &[], &human).unwrap();
+        }
+        let plan_id = flywheel_core::domain::dispatch_plan::create_plan_for_epic(&mut conn, &epic_id, &human).unwrap();
+        flywheel_core::domain::dispatch_plan::approve_and_start(&mut conn, &plan_id, &human).unwrap();
+        (conn, plan_id, tasks)
+    }
+
+    fn key_of(conn: &rusqlite::Connection, id: &str) -> String {
+        conn.query_row("SELECT key FROM tasks WHERE id = ?1", [id], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn why_for_a_pair_that_declared_nothing_says_runs_alone_naming_both_keys() {
+        let (conn, plan_id, tasks) = undeclared_pair(false);
+        let dto = why_dto(&conn, &plan_id, &tasks[0], &tasks[1]).unwrap();
+        assert_eq!(dto.kind, "runsAlone");
+        assert!(dto.sentence.contains("runs alone") || dto.sentence.contains("run alone"), "{}", dto.sentence);
+        assert!(dto.sentence.contains(&key_of(&conn, &tasks[0])) && dto.sentence.contains(&key_of(&conn, &tasks[1])), "{}", dto.sentence);
+        assert!(!dto.sentence.contains("disjoint"), "{}", dto.sentence);
+    }
+
+    #[test]
+    fn why_for_a_pair_with_one_undeclared_task_names_that_tasks_key_only() {
+        let (conn, plan_id, tasks) = undeclared_pair(true);
+        let dto = why_dto(&conn, &plan_id, &tasks[0], &tasks[1]).unwrap();
+        assert_eq!(dto.kind, "runsAlone");
+        assert!(dto.sentence.contains(&key_of(&conn, &tasks[0])), "{}", dto.sentence);
+        assert!(dto.sentence.contains("runs alone"), "{}", dto.sentence);
+        assert!(dto.sentence.contains("no declared file-set"), "{}", dto.sentence);
+    }
+
+    #[test]
+    fn why_for_a_disjoint_declared_pair_keeps_its_exact_sentence() {
+        let (mut conn, epic_id, human, tasks) = two_task_epic();
+        let b = [flywheel_core::file_set::parse_entry("x.rs").unwrap()];
+        let c = [flywheel_core::file_set::parse_entry("y.rs").unwrap()];
+        flywheel_core::domain::file_set::declare_file_set(&mut conn, &tasks[0], &b, &human).unwrap();
+        flywheel_core::domain::file_set::declare_file_set(&mut conn, &tasks[1], &c, &human).unwrap();
+        let plan_id = flywheel_core::domain::dispatch_plan::create_plan_for_epic(&mut conn, &epic_id, &human).unwrap();
+        flywheel_core::domain::dispatch_plan::approve_and_start(&mut conn, &plan_id, &human).unwrap();
+        let dto = why_dto(&conn, &plan_id, &tasks[0], &tasks[1]).unwrap();
+        assert_eq!(dto.kind, "disjointSets");
+        assert_eq!(
+            dto.sentence,
+            format!("{} and {} declare disjoint sets, so neither waits for the other.", key_of(&conn, &tasks[0]), key_of(&conn, &tasks[1]))
+        );
     }
 
     #[test]
