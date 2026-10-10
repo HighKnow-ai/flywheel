@@ -14,7 +14,7 @@ use std::sync::Mutex;
 
 use core::dispatch::{
     attention_for, decide, launch_conflict, observation_targets, ready_tasks, wave_is_drained, Action,
-    AttentionCause, Observations, ReadinessRefusal,
+    AttentionCause, AttentionPhase, Observations, ReadinessRefusal,
 };
 use core::dispatch_exec::run_pass;
 use core::domain::actor::system_actor;
@@ -1027,4 +1027,101 @@ fn launch_conflict_honours_the_case_folding_flag_it_is_given() {
         "folded: the same file"
     );
     assert_eq!(conflict(&fx, &a, false, &vec![]), None, "not folded: two files");
+}
+
+// ===== 09-12 Task 2: the decide-to-launch window =================================================
+//
+// `run_pass` decides under the lock, RELEASES it, then calls the spawn closure once per decided
+// action with no lock held. A manual launch or a live widen can land in exactly that gap. The
+// closure below is the shape of the real launch body: first let the world move (`intrude`), then
+// ask the one rule, and refuse with an error. No sleep: the window is a lock release, not a duration.
+
+fn runs_for(fx: &Fx, task: &str) -> i64 {
+    fx.conn().query_row("SELECT COUNT(*) FROM agent_runs WHERE task_id = ?1", [task], |r| r.get(0)).unwrap()
+}
+
+/// One pass whose spawn closure runs `intrude` first, then consults the launch rule. Returns the
+/// report and every refusal the rule produced, as the enum rather than as message text.
+fn windowed_pass(
+    fx: &Fx,
+    intrude: impl Fn(&Fx, &str),
+) -> (core::dispatch_exec::PassReport, Vec<ReadinessRefusal>) {
+    let system = system_actor(&fx.conn()).unwrap().id;
+    let refusals = Mutex::new(Vec::new());
+    let report = run_pass(&fx.db, now(), &system, |plan, task| {
+        intrude(fx, task);
+        // GREEN adds the guard here.
+        fx.spawn(plan, task)
+    })
+    .unwrap();
+    (report, refusals.into_inner().unwrap())
+}
+
+/// Two colliding tasks in one wave: the dispatcher spawns A and sequences B behind it.
+fn colliding_pair(fx: &Fx) -> (String, String, String) {
+    let a = fx.task("A", &["src/"], w("src/a.rs"));
+    let b = fx.task("B", &["src/x.rs"], w("src/x.rs"));
+    let plan = fx.plan(&[(&a, 1), (&b, 1)]);
+    assert_eq!(spawns(&fx.actions()), vec![a.as_str()], "the fixture decides to spawn A alone");
+    (plan, a, b)
+}
+
+#[test]
+fn a_competing_run_landing_in_the_window_refuses_the_spawn_and_the_task_recovers() {
+    let fx = fx();
+    let (plan, a, b) = colliding_pair(&fx);
+    let b_run = Mutex::new(None);
+
+    let (report, refusals) = windowed_pass(&fx, |fx, _| {
+        *b_run.lock().unwrap() = Some(fx.launch(&b)); // a manual launch of B, after the decision
+    });
+
+    assert_eq!(refusals, vec![ReadinessRefusal::OverlapsInFlight { task_id: b.clone(), path: "src/".into() }]);
+    assert_eq!(report.spawned, 0);
+    assert_eq!(runs_for(&fx, &a), 0, "refused before any run row exists: no cap slot leaks");
+    let (phase, kind, _) = attention_for(&fx.conn(), &plan, &a).unwrap().unwrap();
+    assert_eq!(phase, AttentionPhase::PreSpawn, "a launch failure is pre-spawn, so it retries");
+    assert_eq!(kind, "launch_failed");
+    assert_eq!(fx.state(&plan, &a), "needs_attention");
+    assert!(
+        !ready_tasks(&fx.conn(), &plan, &Observations::default()).unwrap().contains(&a),
+        "while B holds the files A is not ready"
+    );
+
+    // B's run ends. The dispatcher's own readiness path now offers A again: it did not strand.
+    fx.finish(&b, b_run.lock().unwrap().as_ref().unwrap());
+    assert!(ready_tasks(&fx.conn(), &plan, &Observations::default()).unwrap().contains(&a));
+    fx.drive(12, |fx| fx.state(&plan, &a) == "merged");
+    assert_eq!(runs_for(&fx, &a), 1, "spawned normally once the competitor is gone");
+}
+
+#[test]
+fn an_undeclared_competitor_in_the_window_is_the_runs_alone_refusal_not_an_overlap() {
+    let fx = fx();
+    let a = fx.task("A", &["src/"], w("src/a.rs"));
+    let u = fx.task("U", &[], w("u.txt"));
+    let plan = fx.plan(&[(&a, 1), (&u, 1)]);
+    assert_eq!(spawns(&fx.actions()), vec![a.as_str()]);
+
+    let (_, refusals) = windowed_pass(&fx, |fx, _| {
+        fx.launch(&u);
+    });
+
+    assert_eq!(refusals, vec![ReadinessRefusal::RunsAlone { task_id: u.clone() }]);
+    assert_eq!(runs_for(&fx, &a), 0);
+    let (phase, ..) = attention_for(&fx.conn(), &plan, &a).unwrap().unwrap();
+    assert_eq!(phase, AttentionPhase::PreSpawn);
+}
+
+#[test]
+fn with_no_competitor_in_the_window_the_same_fixture_spawns() {
+    let fx = fx();
+    let (plan, a, _b) = colliding_pair(&fx);
+
+    let (report, refusals) = windowed_pass(&fx, |_, _| {});
+
+    assert!(refusals.is_empty(), "{refusals:?}");
+    assert_eq!(report.spawned, 1);
+    assert_eq!(runs_for(&fx, &a), 1);
+    assert_eq!(fx.state(&plan, &a), "running");
 }
