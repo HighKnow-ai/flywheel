@@ -844,3 +844,17 @@ At Phase 11, with an installed, usable build:
     be a Bash write.
   risk_if_wrong: "Moderate to high for the headline claim. Disjointness is enforced for file tools and merely observed for Bash, and the merge that follows an observed breach is automatic and unreviewed."
   automatable: "PARTLY. Prevention for Bash is a design question, not a test. The cheap half is YES: make `after_completed_run` return a needs-attention cause when the run has a `detected_after_the_fact` scope event, plus one `dispatch_auto_merge.rs` test. Owner decision still needed on whether to reword PLAN-04 to 'file-writing tools'."
+
+- id: D-REV-43
+  phase: "09 — Planned Fan-Out (plan 09-13, overlap warning host)"
+  truth: "A user who launches a task over a different live task sees Rust's overlap warning after the launch sheet closes."
+  status: open
+  why_deferred: |
+    `App.tsx` receives the warning as `onStarted`'s second argument and shows it as a fixed toast, because the
+    sheet unmounts in that same callback and its own copy of the warning (which IS tested) is gone with it. The
+    toast has no component test: `App` has no existing render harness, and standing one up for a 15-second
+    toast was not worth the diff. The Rust side (event, warning on the result, dispositions) and the sheet are
+    covered; only the host wiring is not. The same field reaches `MergeConfirmSheet.tsx`'s launch call and is
+    not rendered there yet; the appended `task.launch_overlap` event is the durable record for that path.
+  risk_if_wrong: "Low. The launch is recorded and allowed either way; a missing toast makes the overlap silent on screen again, though it stays in the activity trail."
+  automatable: "YES. A render test of `AppShell` with `startAgentRun` mocked to return a warning, asserting the note appears after the sheet closes. Cheaper still: lift the toast into its own component and test that. Also: computing the same warning in `agent_run_preview` would show it BEFORE the click, one more field on the preview response."
