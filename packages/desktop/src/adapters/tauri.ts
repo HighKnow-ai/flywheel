@@ -1400,6 +1400,57 @@ export async function fleetBlockedQueue(): Promise<BlockedQueueEntryDto[]> {
   return invokeCommand<BlockedQueueEntryDto[]>("fleet_blocked_queue");
 }
 
+/** The closed reason words the core's `ReclaimReason` can return (plan 10-08). */
+export type InventoryReason =
+  | "task_done"
+  | "merged"
+  | "agent_running"
+  | "blocked"
+  | "uncommitted_changes"
+  | "project_unreachable"
+  | "directory_missing"
+  | "task_open";
+
+/**
+ * One task worktree (plan 10-08, WORK-07) — mirrors `commands/fleet.rs`'s `WorktreeInventoryRowDto`
+ * field-for-field. `sizeBytes: null` means never measured, which is not zero. `disposition` is the
+ * chip and `reason` is the basis the core derived it from.
+ */
+export interface WorktreeInventoryRowDto {
+  taskId: string;
+  taskKey: string;
+  taskTitle: string;
+  taskStatus: string;
+  projectId: string;
+  projectName: string;
+  projectStatus: string;
+  branch: string;
+  sizeBytes: number | null;
+  sizeMeasuredAt: string | null;
+  disposition: "reclaimable" | "in_use" | "keep";
+  reason: InventoryReason;
+}
+
+/** Every task worktree across every registered project, largest first. Read-only, no argument. */
+export async function worktreeInventory(): Promise<WorktreeInventoryRowDto[]> {
+  return invokeCommand<WorktreeInventoryRowDto[]>("worktree_inventory");
+}
+
+/** One worktree's measurement outcome (plan 10-08). `sizeBytes: null` with `bounded` set means the
+ * walk could not finish and nothing was cached. */
+export interface WorktreeMeasureDto {
+  taskId: string;
+  sizeBytes: number | null;
+  bounded: boolean;
+  error: string | null;
+}
+
+/** Measure and cache the disk size of the named worktrees, or of all of them. Ids only: every path
+ * is derived in the core. */
+export async function worktreeMeasure(taskIds?: string[]): Promise<WorktreeMeasureDto[]> {
+  return invokeCommand<WorktreeMeasureDto[]>("worktree_measure", { taskIds: taskIds ?? null });
+}
+
 /**
  * One epic's roll-up for the roster (Phase 8.1 plan 05, D-05/D-06) — mirrors
  * `commands/board.rs`'s `EpicProgressDto` field-for-field. `epicId: null` is the "No epic" bucket.

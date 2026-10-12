@@ -674,3 +674,196 @@ pub fn resolve_open_argv(conn: &Connection, task_id: &str, surface: OpenSurface)
 
     Ok(argv)
 }
+
+// ---------------------------------------------------------------------------------------------
+// The worktree inventory's judgement and measurement (Phase 10 plan 10-08, WORK-07, D-177/D-178).
+// ---------------------------------------------------------------------------------------------
+
+/// Why a worktree has the disposition it has. A closed enum, because every inventory row must name
+/// its basis and a free-text reason would drift from the legend that renders it.
+///
+/// `worktrees.status` also allows `stale` and `merged` in its CHECK constraint. **Nothing writes
+/// either, on purpose (D-178):** reclaimability is derived from facts already recorded, so there is
+/// no stored judgement to go stale. The only writers of that column are [`reconcile_worktrees`] and
+/// [`recreate_worktree_for_task`], writing `active` or `missing`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReclaimReason {
+    /// The task is Done.
+    TaskDone,
+    /// The task branch is integrated into its epic integration branch.
+    Merged,
+    /// A run against this worktree is running.
+    AgentRunning,
+    /// A run against this worktree is blocked on a permission request.
+    Blocked,
+    /// The tree has uncommitted changes.
+    UncommittedChanges,
+    /// The owning project cannot be reached, so nothing about its worktrees can be evaluated.
+    ProjectUnreachable,
+    /// The row exists but its directory does not.
+    DirectoryMissing,
+    /// The task is still open and its branch is not integrated: nothing says the work is finished.
+    TaskOpen,
+}
+
+impl ReclaimReason {
+    /// The wire word the renderer matches on.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReclaimReason::TaskDone => "task_done",
+            ReclaimReason::Merged => "merged",
+            ReclaimReason::AgentRunning => "agent_running",
+            ReclaimReason::Blocked => "blocked",
+            ReclaimReason::UncommittedChanges => "uncommitted_changes",
+            ReclaimReason::ProjectUnreachable => "project_unreachable",
+            ReclaimReason::DirectoryMissing => "directory_missing",
+            ReclaimReason::TaskOpen => "task_open",
+        }
+    }
+}
+
+/// What the inventory says about one worktree. `Reclaimable` is the only variant plan 10-09 may act
+/// on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReclaimDisposition {
+    Reclaimable(ReclaimReason),
+    InUse(ReclaimReason),
+    Keep(ReclaimReason),
+}
+
+impl ReclaimDisposition {
+    /// The chip word: `reclaimable`, `in_use` or `keep`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReclaimDisposition::Reclaimable(_) => "reclaimable",
+            ReclaimDisposition::InUse(_) => "in_use",
+            ReclaimDisposition::Keep(_) => "keep",
+        }
+    }
+
+    pub fn reason(self) -> ReclaimReason {
+        match self {
+            ReclaimDisposition::Reclaimable(r) | ReclaimDisposition::InUse(r) | ReclaimDisposition::Keep(r) => r,
+        }
+    }
+}
+
+/// THE definition of a reclaimable worktree: the inventory read and plan 10-09's reclaim both call
+/// this, so the list and the action cannot disagree. Pure: plain values in, no connection, no git.
+///
+/// A worktree is reclaimable when its task is Done **or** its branch is integrated, AND no run is
+/// live against it, AND its tree is clean. `live_run` is the status of a running or blocked run
+/// against the task, if any; `dirty` is whether `porcelain_entries` found anything.
+///
+/// Precedence, so exactly one reason is ever shown: project unreachable, then directory missing,
+/// then a live run, then a dirty tree, then the reclaimable reasons -- and when both reclaimable
+/// reasons hold, **task done wins over merged** (the board's explicit decision outranks a derived
+/// git fact). A worktree satisfying neither is kept as `TaskOpen`.
+pub fn reclaim_eligibility(
+    task_status: &str,
+    integrated: bool,
+    live_run: Option<&str>,
+    dirty: bool,
+    project_status: &str,
+    directory_present: bool,
+) -> ReclaimDisposition {
+    if project_status == "unreachable" {
+        return ReclaimDisposition::Keep(ReclaimReason::ProjectUnreachable);
+    }
+    if !directory_present {
+        return ReclaimDisposition::Keep(ReclaimReason::DirectoryMissing);
+    }
+    if let Some(status) = live_run {
+        let reason = if status == "blocked" { ReclaimReason::Blocked } else { ReclaimReason::AgentRunning };
+        return ReclaimDisposition::InUse(reason);
+    }
+    if dirty {
+        return ReclaimDisposition::Keep(ReclaimReason::UncommittedChanges);
+    }
+    if task_status == "done" {
+        ReclaimDisposition::Reclaimable(ReclaimReason::TaskDone)
+    } else if integrated {
+        ReclaimDisposition::Reclaimable(ReclaimReason::Merged)
+    } else {
+        ReclaimDisposition::Keep(ReclaimReason::TaskOpen)
+    }
+}
+
+/// The most entries one [`worktree_size`] walk examines before it stops and says so.
+pub const WORKTREE_WALK_MAX_ENTRIES: usize = 2_000_000;
+/// The deepest directory nesting one walk descends into.
+pub const WORKTREE_WALK_MAX_DEPTH: usize = 64;
+
+/// A measured size. `bounded` means the walk hit a bound or could not read part of the tree, so
+/// `bytes` is a lower bound and must not be presented as the size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalkSize {
+    pub bytes: u64,
+    pub bounded: bool,
+}
+
+/// The allocated size of everything under `path` (D-177): blocks times 512, not apparent length,
+/// because that is what a reclaim actually frees.
+///
+/// Never follows a symlink: every entry is read with `symlink_metadata`, so a link counts as the
+/// link itself and a loop or a link out of the tree contributes nothing from outside. Refuses any
+/// path not under [`worktree_root`] (or carrying a `..`) before reading anything. Bounded by
+/// [`WORKTREE_WALK_MAX_ENTRIES`] and [`WORKTREE_WALK_MAX_DEPTH`].
+///
+/// Known ceiling (Pitfall 8, accepted): a file hard-linked several times inside the tree is counted
+/// once per link, so the figure can overstate; solving it needs an inode set that grows with the
+/// tree. `st_blocks` is in 512-byte units on every unix this app targets.
+pub fn worktree_size(path: &Path) -> anyhow::Result<WalkSize> {
+    worktree_size_limited(path, WORKTREE_WALK_MAX_ENTRIES, WORKTREE_WALK_MAX_DEPTH)
+}
+
+/// [`worktree_size`] with its two bounds as arguments, so a test can hit them without building two
+/// million files. Production code calls [`worktree_size`].
+pub fn worktree_size_limited(path: &Path, max_entries: usize, max_depth: usize) -> anyhow::Result<WalkSize> {
+    use std::os::unix::fs::MetadataExt;
+
+    let root = worktree_root();
+    if !path.starts_with(&root) || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        anyhow::bail!("refusing to measure {path:?}: it is not under the worktree root {root:?}");
+    }
+
+    let top = std::fs::symlink_metadata(path).with_context(|| format!("failed to read {path:?}"))?;
+    let mut bytes = top.blocks() * 512;
+    let mut bounded = false;
+    let mut entries = 0usize;
+    let mut pending: Vec<(PathBuf, usize)> = Vec::new();
+    if top.is_dir() {
+        pending.push((path.to_path_buf(), 0));
+    }
+
+    'walk: while let Some((dir, depth)) = pending.pop() {
+        let Ok(listing) = std::fs::read_dir(&dir) else {
+            bounded = true;
+            continue;
+        };
+        for entry in listing {
+            entries += 1;
+            if entries > max_entries {
+                bounded = true;
+                break 'walk;
+            }
+            let Ok(entry) = entry else {
+                bounded = true;
+                continue;
+            };
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                bounded = true;
+                continue;
+            };
+            bytes += meta.blocks() * 512;
+            if meta.is_dir() {
+                if depth + 1 > max_depth {
+                    bounded = true;
+                } else {
+                    pending.push((entry.path(), depth + 1));
+                }
+            }
+        }
+    }
+    Ok(WalkSize { bytes, bounded })
+}

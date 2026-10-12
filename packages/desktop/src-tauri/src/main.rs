@@ -246,6 +246,8 @@ fn main() {
             commands::fleet::fleet_list,
             commands::fleet::fleet_blocked_queue,
             commands::fleet::fleet_watch_run,
+            commands::fleet::worktree_inventory,
+            commands::fleet::worktree_measure,
             commands::settings::settings_set_notifications_enabled,
             commands::forge::settings_set_project_forge,
             commands::forge::project_forge_overrides,

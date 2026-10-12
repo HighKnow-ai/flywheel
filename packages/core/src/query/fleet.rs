@@ -21,8 +21,13 @@
 //! * **Runs with no task are first-class (Finding 10).** `agent_runs.task_id` is nullable (an
 //!   authoring or planning run), so `tasks` and `epics` are `LEFT JOIN`ed.
 
+use std::path::Path;
+
 use anyhow::Context;
 use rusqlite::{params, Connection};
+
+use crate::domain::worktree::{porcelain_entries, reclaim_eligibility, ReclaimDisposition};
+use crate::merge::{integrated_merge_commit, merge_commit_is_reachable};
 
 /// The hard ceiling on one fleet window. The Tauri command applies its own cap before it calls in
 /// here; this clamp is the backstop for any other caller.
@@ -272,4 +277,214 @@ pub fn blocked_queue(conn: &Connection, limit: usize) -> anyhow::Result<Vec<Bloc
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the blocked queue")?;
     Ok(rows)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The worktree inventory (WORK-07, D-177, D-178): task worktrees across every project, each with
+// its cached disk size and a stated disposition. Two phases on `change_flags`' template: a board
+// half under the database lock, a git and filesystem half without it.
+//
+// Task worktrees only. `worktrees.task_id` is UNIQUE and NOT NULL, so epic integration worktrees
+// (real directories under the same root, used by merges and planning runs) have no row and cannot
+// be listed or sized here (RESEARCH Finding 8).
+// ---------------------------------------------------------------------------------------------
+
+/// The hard ceiling on one inventory window. The Tauri command applies its own cap first.
+pub const WORKTREE_INVENTORY_MAX_LIMIT: usize = 500;
+
+/// What the git half needs per worktree, resolved from the board so no path, ref or sha crosses IPC.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorktreeInventoryInput {
+    pub task_id: String,
+    pub task_key: String,
+    pub task_title: String,
+    pub task_status: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_status: String,
+    pub repo_path: String,
+    pub path: String,
+    pub branch: String,
+    /// The epic's integration branch; `None` for a task with no epic (task-Done is then the only
+    /// reclaimable reason) or an epic whose branch was never cut.
+    pub integration_branch: Option<String>,
+    /// The merge commit recorded by the task's integrated event, read here under the lock so the
+    /// git half only runs the ancestry check (the split of `merge::is_integrated`).
+    pub merge_commit: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub size_measured_at: Option<String>,
+    /// `blocked` or `running` when a run is live against the task; `blocked` wins over `running`.
+    pub live_run_status: Option<String>,
+}
+
+/// One inventory row: the facts the renderer shows plus the derived disposition.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorktreeInventoryRow {
+    pub task_id: String,
+    pub task_key: String,
+    pub task_title: String,
+    pub task_status: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_status: String,
+    pub path: String,
+    pub branch: String,
+    pub size_bytes: Option<i64>,
+    pub size_measured_at: Option<String>,
+    pub disposition: ReclaimDisposition,
+}
+
+/// The inventory statement. Size descending (never-measured last: SQLite sorts NULL lowest), task
+/// key ascending as the tie-break, then the worktree id so two reads are byte-identical.
+pub const WORKTREE_INVENTORY_SQL: &str = "SELECT t.id, t.key, t.title, t.status, p.id, p.name, p.status, \
+        p.repo_path, w.path, w.branch, e.integration_branch, w.size_bytes, w.size_measured_at, \
+        (SELECT ar.status FROM agent_runs ar WHERE ar.task_id = t.id AND ar.status IN ('running', 'blocked') \
+            ORDER BY ar.status ASC LIMIT 1) \
+    FROM worktrees w \
+    JOIN tasks t ON t.id = w.task_id \
+    JOIN projects p ON p.id = w.project_id \
+    LEFT JOIN epics e ON e.id = t.epic_id \
+    ORDER BY w.size_bytes DESC, t.key ASC, w.id ASC \
+    LIMIT ?1";
+
+/// The board half: every task worktree across every project, at most `limit` (clamped to
+/// [`WORKTREE_INVENTORY_MAX_LIMIT`]). Takes only a `&Connection` and spawns no process, so it is
+/// safe under the database lock; hand the result to [`finish_worktree_inventory`] once the lock is
+/// released. One database holds every project, so there is no project argument.
+pub fn worktree_inventory_inputs(conn: &Connection, limit: usize) -> anyhow::Result<Vec<WorktreeInventoryInput>> {
+    let limit = limit.min(WORKTREE_INVENTORY_MAX_LIMIT) as i64;
+    let mut stmt = conn.prepare(WORKTREE_INVENTORY_SQL)?;
+    let mut inputs = stmt
+        .query_map(params![limit], |row| {
+            Ok(WorktreeInventoryInput {
+                task_id: row.get(0)?,
+                task_key: row.get(1)?,
+                task_title: row.get(2)?,
+                task_status: row.get(3)?,
+                project_id: row.get(4)?,
+                project_name: row.get(5)?,
+                project_status: row.get(6)?,
+                repo_path: row.get(7)?,
+                path: row.get(8)?,
+                branch: row.get(9)?,
+                integration_branch: row.get(10)?,
+                merge_commit: None,
+                size_bytes: row.get(11)?,
+                size_measured_at: row.get(12)?,
+                live_run_status: row.get(13)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the worktree inventory")?;
+    // ponytail: one small indexed read per row (at most the window); fold into the statement with
+    // json_extract if the window ever grows past a few hundred.
+    for input in &mut inputs {
+        input.merge_commit = integrated_merge_commit(conn, &input.task_id)?;
+    }
+    Ok(inputs)
+}
+
+/// The git and filesystem half: takes no connection. Order is preserved (the SQL order is the
+/// list's order). Spawns are minimised: an unreachable project, a missing directory and a live run
+/// short-circuit before any git call, the ancestry check runs only for a task that is not already
+/// Done, and the porcelain read -- through [`porcelain_entries`], the one porcelain site -- runs
+/// only for a row that has already passed the board-state test and has no live run. A porcelain
+/// read that fails is treated as dirty: a tree git cannot describe is never offered for reclaim.
+pub fn finish_worktree_inventory(inputs: Vec<WorktreeInventoryInput>) -> Vec<WorktreeInventoryRow> {
+    inputs
+        .into_iter()
+        .map(|input| {
+            let reachable = input.project_status != "unreachable";
+            let present = reachable && Path::new(&input.path).try_exists().unwrap_or(false);
+            let evaluable = reachable && present && input.live_run_status.is_none();
+            let integrated = evaluable
+                && input.task_status != "done"
+                && match (&input.merge_commit, &input.integration_branch) {
+                    (Some(commit), Some(branch)) => {
+                        merge_commit_is_reachable(Path::new(&input.repo_path), commit, branch).unwrap_or(false)
+                    }
+                    _ => false,
+                };
+            let passed_board_test = input.task_status == "done" || integrated;
+            let dirty = evaluable
+                && passed_board_test
+                && porcelain_entries(Path::new(&input.path)).map(|e| !e.is_empty()).unwrap_or(true);
+            let disposition = reclaim_eligibility(
+                &input.task_status,
+                integrated,
+                input.live_run_status.as_deref(),
+                dirty,
+                &input.project_status,
+                present || !reachable,
+            );
+            WorktreeInventoryRow {
+                task_id: input.task_id,
+                task_key: input.task_key,
+                task_title: input.task_title,
+                task_status: input.task_status,
+                project_id: input.project_id,
+                project_name: input.project_name,
+                project_status: input.project_status,
+                path: input.path,
+                branch: input.branch,
+                size_bytes: input.size_bytes,
+                size_measured_at: input.size_measured_at,
+                disposition,
+            }
+        })
+        .collect()
+}
+
+/// A worktree a measure call should walk: the id and the path the core read from the row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorktreeMeasureTarget {
+    pub task_id: String,
+    pub path: String,
+}
+
+/// The paths to measure for `task_ids`, or for every worktree when `None`, at most `limit`. An id
+/// with no worktree row is simply absent. The renderer only ever names ids; every path comes from
+/// the `worktrees` rows here.
+pub fn worktree_measure_targets(
+    conn: &Connection,
+    task_ids: Option<&[String]>,
+    limit: usize,
+) -> anyhow::Result<Vec<WorktreeMeasureTarget>> {
+    let mut targets = Vec::new();
+    match task_ids {
+        Some(ids) => {
+            for id in ids.iter().take(limit) {
+                if let Some(wt) = crate::domain::worktree::worktree_for_task(conn, id)? {
+                    targets.push(WorktreeMeasureTarget { task_id: wt.task_id, path: wt.path });
+                }
+            }
+        }
+        None => {
+            let mut stmt = conn.prepare("SELECT task_id, path FROM worktrees ORDER BY id ASC LIMIT ?1")?;
+            targets = stmt
+                .query_map(params![limit as i64], |row| {
+                    Ok(WorktreeMeasureTarget { task_id: row.get(0)?, path: row.get(1)? })
+                })?
+                .collect::<Result<Vec<_>, _>>()
+                .context("failed to read the worktrees to measure")?;
+        }
+    }
+    Ok(targets)
+}
+
+/// Cache one measured size: writes `size_bytes` and `size_measured_at` for the one worktree of
+/// `task_id` and nothing else. Returns whether a row was updated.
+pub fn record_worktree_size(
+    conn: &Connection,
+    task_id: &str,
+    size_bytes: i64,
+    measured_at: &str,
+) -> anyhow::Result<bool> {
+    let changed = conn
+        .execute(
+            "UPDATE worktrees SET size_bytes = ?1, size_measured_at = ?2 WHERE task_id = ?3",
+            params![size_bytes, measured_at, task_id],
+        )
+        .context("failed to record the worktree size")?;
+    Ok(changed == 1)
 }

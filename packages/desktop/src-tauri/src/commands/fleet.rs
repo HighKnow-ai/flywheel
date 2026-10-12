@@ -225,6 +225,145 @@ fn set_watched_run(state: &AppState, agent_run_id: Option<String>) -> Result<(),
     Ok(())
 }
 
+/// The server-side cap on the worktree inventory window (T-10-08-02).
+const WORKTREE_INVENTORY_CAP: usize = 500;
+
+/// Mirrors `flywheel_core::query::fleet::WorktreeInventoryRow`. `disposition` is `reclaimable`,
+/// `in_use` or `keep`, and `reason` is the closed `ReclaimReason` word that justifies it, so a row
+/// never reaches the renderer without its basis. `sizeBytes` and `sizeMeasuredAt` are null until the
+/// worktree is first measured; null renders blank, never `0 B`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeInventoryRowDto {
+    pub task_id: String,
+    pub task_key: String,
+    pub task_title: String,
+    pub task_status: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_status: String,
+    pub branch: String,
+    pub size_bytes: Option<i64>,
+    pub size_measured_at: Option<String>,
+    pub disposition: String,
+    pub reason: String,
+}
+
+impl From<flywheel_core::query::fleet::WorktreeInventoryRow> for WorktreeInventoryRowDto {
+    fn from(row: flywheel_core::query::fleet::WorktreeInventoryRow) -> Self {
+        Self {
+            task_id: row.task_id,
+            task_key: row.task_key,
+            task_title: row.task_title,
+            task_status: row.task_status,
+            project_id: row.project_id,
+            project_name: row.project_name,
+            project_status: row.project_status,
+            branch: row.branch,
+            size_bytes: row.size_bytes,
+            size_measured_at: row.size_measured_at,
+            disposition: row.disposition.as_str().to_string(),
+            reason: row.disposition.reason().as_str().to_string(),
+        }
+    }
+}
+
+/// Every task worktree across every registered project with its cached size and a derived, named
+/// disposition (WORK-07, D-177, D-178). Read-only, cross-project, takes no arguments. The board half
+/// runs under the database lock; the git half (ancestry check, porcelain read) runs on the blocking
+/// pool after the lock is released.
+#[tauri::command(async)]
+pub async fn worktree_inventory(state: State<'_, AppState>) -> Result<Vec<WorktreeInventoryRowDto>, String> {
+    let inputs = {
+        let conn = state.db.lock().map_err(|e| ipc_error("worktree_inventory:lock", e))?;
+        let inputs = flywheel_core::query::fleet::worktree_inventory_inputs(&conn, WORKTREE_INVENTORY_CAP)
+            .map_err(|e| ipc_error("worktree_inventory:read", e));
+        // Released explicitly: nothing below may run with the database mutex held.
+        drop(conn);
+        inputs?
+    };
+
+    let rows = tauri::async_runtime::spawn_blocking(move || {
+        flywheel_core::query::fleet::finish_worktree_inventory(inputs)
+    })
+    .await
+    .map_err(|e| ipc_error("worktree_inventory:join", e))?;
+
+    Ok(rows.into_iter().map(WorktreeInventoryRowDto::from).collect())
+}
+
+/// The server-side cap on how many worktrees one measure call may walk (T-10-08-02).
+const WORKTREE_MEASURE_CAP: usize = 200;
+
+/// One worktree's measurement outcome. `sizeBytes` is null when the walk was bounded or failed, in
+/// which case nothing was cached; `bounded` says the figure would have been a lower bound.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeMeasureDto {
+    pub task_id: String,
+    pub size_bytes: Option<i64>,
+    pub bounded: bool,
+    pub error: Option<String>,
+}
+
+/// Measure the disk usage of the named task worktrees (all of them when none are named) and cache
+/// each result with the moment it was taken. Takes ids only: every path is read from the
+/// `worktrees` rows, the walk never follows a symlink and is bounded, and it runs on the blocking
+/// pool with the database lock released. A bounded walk is reported and not cached, because a
+/// lower bound is not a size.
+#[tauri::command(async)]
+pub async fn worktree_measure(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    task_ids: Option<Vec<String>>,
+) -> Result<Vec<WorktreeMeasureDto>, String> {
+    let targets = {
+        let conn = state.db.lock().map_err(|e| ipc_error("worktree_measure:lock", e))?;
+        let targets = flywheel_core::query::fleet::worktree_measure_targets(
+            &conn,
+            task_ids.as_deref(),
+            WORKTREE_MEASURE_CAP,
+        )
+        .map_err(|e| ipc_error("worktree_measure:read", e));
+        // Released explicitly: the walk below can take seconds and must never hold the mutex.
+        drop(conn);
+        targets?
+    };
+
+    let walked = tauri::async_runtime::spawn_blocking(move || {
+        targets
+            .into_iter()
+            .map(|t| {
+                let result = flywheel_core::domain::worktree::worktree_size(std::path::Path::new(&t.path));
+                (t.task_id, result)
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| ipc_error("worktree_measure:join", e))?;
+
+    let measured_at = chrono::Utc::now().to_rfc3339();
+    let mut out = Vec::with_capacity(walked.len());
+    {
+        let conn = state.db.lock().map_err(|e| ipc_error("worktree_measure:lock", e))?;
+        for (task_id, result) in walked {
+            out.push(match result {
+                Ok(size) if !size.bounded => {
+                    let bytes = i64::try_from(size.bytes).unwrap_or(i64::MAX);
+                    match flywheel_core::query::fleet::record_worktree_size(&conn, &task_id, bytes, &measured_at) {
+                        Ok(_) => WorktreeMeasureDto { task_id, size_bytes: Some(bytes), bounded: false, error: None },
+                        Err(e) => WorktreeMeasureDto { task_id, size_bytes: None, bounded: false, error: Some(e.to_string()) },
+                    }
+                }
+                Ok(_) => WorktreeMeasureDto { task_id, size_bytes: None, bounded: true, error: None },
+                Err(e) => WorktreeMeasureDto { task_id, size_bytes: None, bounded: false, error: Some(e.to_string()) },
+            });
+        }
+    }
+    let _ = tauri::Emitter::emit(&app, "board:changed", serde_json::json!({ "entity": "worktree_size" }));
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
