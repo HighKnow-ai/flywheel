@@ -1118,6 +1118,43 @@ fn an_undeclared_competitor_in_the_window_is_the_runs_alone_refusal_not_an_overl
 }
 
 #[test]
+fn a_live_widen_landing_in_the_window_refuses_the_spawn_and_leaves_exactly_one_run_on_the_files() {
+    // D-REV-37: the widen half of the window. B is live on `x/`; A is disjoint (`y/`), so the
+    // dispatcher decides to spawn A. Between that decision and the launch, B widens into `y/`.
+    let fx = fx();
+    let a = fx.task("A", &["y/"], w("y/a"));
+    let b = fx.task("B", &["x/"], w("x/b"));
+    let plan = fx.plan(&[(&a, 1), (&b, 1)]);
+    fx.launch(&b);
+    assert_eq!(spawns(&fx.actions()), vec![a.as_str()], "disjoint beside live B: the fixture decides to spawn A");
+
+    let (report, refusals) = windowed_pass(&fx, |fx, _| {
+        let outcome = widen_file_set(&mut fx.conn(), &b, "y/", &fx.human).unwrap();
+        assert!(matches!(outcome, core::domain::file_set::WidenOutcome::Accepted { .. }), "{outcome:?}");
+    });
+
+    assert_eq!(refusals, vec![ReadinessRefusal::OverlapsInFlight { task_id: b.clone(), path: "y/".into() }]);
+    assert_eq!(report.spawned, 0);
+    assert_eq!(runs_for(&fx, &a), 0, "refused before any run row exists");
+    let live: i64 = fx
+        .conn()
+        .query_row("SELECT COUNT(*) FROM agent_runs WHERE status IN ('running', 'blocked')", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(live, 1, "exactly one live run on the overlapping files: B's");
+    let (phase, kind, _) = attention_for(&fx.conn(), &plan, &a).unwrap().unwrap();
+    assert_eq!((phase, kind.as_str()), (AttentionPhase::PreSpawn, "launch_failed"));
+    assert!(
+        !ready_tasks(&fx.conn(), &plan, &Observations::default()).unwrap().contains(&a),
+        "A is not ready while B holds the files"
+    );
+    let edge: String = fx
+        .conn()
+        .query_row("SELECT cause FROM dispatch_edges WHERE before_task_id = ?1 AND after_task_id = ?2", [&b, &a], |r| r.get(0))
+        .unwrap();
+    assert_eq!(edge, "widen", "A waits for B's merge, not merely its run");
+}
+
+#[test]
 fn with_no_competitor_in_the_window_the_same_fixture_spawns() {
     let fx = fx();
     let (plan, a, _b) = colliding_pair(&fx);
