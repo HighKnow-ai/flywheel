@@ -268,11 +268,56 @@ pub fn remove_worktree_for_task(
         );
     }
 
-    git::worktree_remove(Path::new(&repo_path), Path::new(&worktree.path))
-        .with_context(|| format!("failed to remove worktree for task {task_id:?}"))?;
+    // The final live-run guard, as close to the removal as this function can put it (WR-04). The
+    // caller's own eligibility read can be seconds old by now (git calls in between), and Start Work
+    // on a Done task, or a restart into this worktree, can have begun a run in the meantime. A
+    // freshly started agent has written nothing yet, so the porcelain check above cannot see it.
+    // This narrows the window to the gap between this query and `git worktree remove`; it does not
+    // close it (that would need a marker `agent_run_start` refuses against).
+    let live_run: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM agent_runs
+                WHERE (task_id = ?1 OR worktree_id = ?2) AND status IN ('running', 'blocked'))",
+            params![task_id, worktree.id],
+            |row| row.get(0),
+        )
+        .context("failed to check for a live run before removing the worktree")?;
+    if live_run {
+        anyhow::bail!("worktree_remove refused: an agent run is live in the worktree for task {task_id:?}");
+    }
 
+    if let Err(e) = git::worktree_remove(Path::new(&repo_path), Path::new(&worktree.path)) {
+        // A removal that errors or times out is not "nothing happened": git may have deleted part
+        // of a large tree before it was killed (WR-05). Say what is on disk so the failure is not
+        // mistaken for a clean refusal.
+        let on_disk = if Path::new(&worktree.path).exists() {
+            "the directory still exists and may be partially deleted -- check it before retrying"
+        } else {
+            "the directory is gone but git reported an error, so the worktree record was kept"
+        };
+        return Err(e.context(format!("failed to remove worktree for task {task_id:?}: {on_disk}")));
+    }
+
+    // Past this point the directory is gone, so a database failure is its own outcome (WR-05).
+    record_worktree_removed(conn, &worktree, task_id, &task_key, actor_id).map_err(|e| {
+        anyhow::anyhow!("the worktree directory was removed but its record was not updated: {e:#}")
+    })
+}
+
+/// The database half of [`remove_worktree_for_task`]: decouple runs, delete the row, append the
+/// `worktree.removed` event, in one transaction. The transaction takes the write lock up front
+/// (`Immediate`): the batch reclaim runs on a second writer connection, and a deferred transaction
+/// that reads before it writes fails with `SQLITE_BUSY_SNAPSHOT` -- which `busy_timeout` does not
+/// retry -- if another writer commits in between.
+fn record_worktree_removed(
+    conn: &mut Connection,
+    worktree: &Worktree,
+    task_id: &str,
+    task_key: &str,
+    actor_id: &str,
+) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
-    let tx = conn.transaction()?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
     // `agent_runs.worktree_id` is a NULLABLE `REFERENCES worktrees(id)` (unlike
     // `agent_runs.task_id`, which is NOT NULL) — a run's history belongs to its task forever, but

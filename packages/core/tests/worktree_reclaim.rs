@@ -92,6 +92,25 @@ fn a_run_inserted_after_the_read_refuses_that_row_and_removes_the_others() {
     });
 }
 
+/// WR-04: the eligibility read can be stale by the time the removal runs. A run that appears between
+/// the two must stop the removal itself, not only the earlier read. Calls the removal verb directly,
+/// which is exactly the position a stale selection reaches.
+#[test]
+fn the_removal_verb_refuses_a_worktree_a_run_started_in_after_the_eligibility_read() {
+    with_scratch_worktree_root(|_| {
+        let (mut conn, actor, project, _repo) = common::seeded_git_project();
+        let (a, path) = done_worktree(&mut conn, &project.id, &actor, "a");
+        core::domain::agent_run::start_agent_run(&mut conn, &a, "default", &actor).unwrap();
+
+        let err = core::domain::worktree::remove_worktree_for_task(&mut conn, &a, &actor)
+            .expect_err("a live run must stop the removal");
+
+        assert!(format!("{err:#}").contains("agent run is live"), "{err:#}");
+        assert!(path.exists(), "the live worktree must be untouched");
+        assert!(worktree_for_task(&conn, &a).unwrap().is_some());
+    });
+}
+
 #[test]
 fn a_blocked_run_is_refused_with_the_blocked_reason() {
     with_scratch_worktree_root(|_| {
@@ -218,6 +237,11 @@ fn a_removal_that_fails_is_reported_as_refused_with_its_error_and_the_batch_cont
         assert!(!failed.removed, "{failed:?}");
         assert!(failed.reason.is_none());
         assert!(failed.error.as_deref().map(|e| !e.is_empty()).unwrap_or(false));
+        // WR-05: a failed removal says what is on disk, so it is not read as a clean refusal.
+        assert!(
+            failed.error.as_deref().unwrap().contains("directory still exists"),
+            "the error must name the on-disk state: {failed:?}"
+        );
         assert!(worktree_for_task(&conn, &a).unwrap().is_some(), "the row must survive a failed removal");
         assert!(outcome(&out, &b).removed);
     });
