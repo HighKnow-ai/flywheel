@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-10-12T14:09:49.960Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-10-12T14:16:46.866Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 11 execution started
-state_head: 2d189cf49e5701f29b2ac2a7f45bf1876507de38
+state_head: 2dad4e92f61b6b7e4c24d84fdf2d35ca7852d077
 progress:
   total_phases: 13
   completed_phases: 1
   total_plans: 249
-  completed_plans: 229
+  completed_plans: 230
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 2 of 21
+Plan: 3 of 21
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 11 execution started
 
@@ -292,6 +292,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 10 P08 | 55 min | 3 tasks | 17 files |
 | Phase 10 P09 | 35 min | 2 tasks | 10 files |
 | Phase 11 P01 | 45 min | 3 tasks | 8 files |
+| Phase 11 P02 | 15 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -676,6 +677,7 @@ Recent decisions affecting current work:
 - [Phase 10]: 10-08: merge::is_integrated split at its existing seam (integrated_merge_commit under the lock, merge_commit_is_reachable after); task done outranks merged; a bounded walk is reported and not cached
 - [Phase 10]: 10-09: reclaim runs on a connection of its own (default_db_path + apply_pragmas) because remove_worktree_for_task takes &mut Connection and runs git inside, and must not change; eligibility is re-read fresh per row
 - [Phase 11]: 11-01: bundle a staged Node 22 runtime + dist/ + launcher instead of pkg/nexe; createUpdaterArtifacts deferred to 11-05 (needs updater pubkey)
+- [Phase 11]: Owner decision (11-02): copyright HighKnow 2026; repository to be renamed cymarechal/flywheel before any release; updater endpoint slug is cymarechal/flywheel (not highknow-harness); .planning published unscrubbed, no exceptions. gh repo rename is a pending owner action before 11-08.
 
 ### Pending Todos
 
@@ -737,6 +739,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T14:09:49.762Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-10-12T14:16:46.665Z
+Stopped at: Completed 11-02-PLAN.md
 Resume file: None
