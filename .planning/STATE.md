@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 10
 current_phase_name: Fleet Supervision Across Every Project
 status: executing
-stopped_at: Completed 10-07-PLAN.md
-last_updated: "2026-10-12T06:07:06.540Z"
+stopped_at: Completed 10-08-PLAN.md
+last_updated: "2026-10-12T06:32:44.707Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 10 execution started
-state_head: 20c067fb4daa7794f05aeb46998ce83300e41ae8
+state_head: 3bbe2e97bdf6f5d1a635f1bf4909c02393b78362
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 228
-  completed_plans: 226
+  completed_plans: 227
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 10 (Fleet Supervision Across Every Project) — EXECUTING
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 10 execution started
 
@@ -288,6 +288,7 @@ Progress: [░░░░░░░░░░] 0% — 11 of 13 phases complete (219/
 | Phase 10 P05 | 33min | 3 tasks | 22 files |
 | Phase 10 P06 | 9 min | 2 tasks | 9 files |
 | Phase 10 P07 | 25 min | 3 tasks | 18 files |
+| Phase 10 P08 | 55 min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -669,6 +670,7 @@ Recent decisions affecting current work:
 - [Phase 10]: 10-05: blocked queue owner is marked by a 4px --selection-rule left rule plus words; fleet/queue views switch from a header button group; rail Blocked opens the queue (fleet-wide count), Needs decision opens the fleet list; one ref-counted invalidation subscription per QueryClient
 - [Phase 10]: 10-06: fleet row jumps use b for the board item and a one-shot pendingFocusItemId consumed by a BoardView effect declared after the project-change clear; unresolvable requests drop on a settled window or a 4000 ms deadline
 - [Phase 10]: 10-07: COALESCE_WINDOW is 3 s, banner target cap 60 chars; suppression applied per transition at fire time; notification checkbox in its own file
+- [Phase 10]: 10-08: merge::is_integrated split at its existing seam (integrated_merge_commit under the lock, merge_commit_is_reachable after); task done outranks merged; a bounded walk is reported and not cached
 
 ### Pending Todos
 
@@ -730,6 +732,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T06:07:06.343Z
-Stopped at: Completed 10-07-PLAN.md
+Last session: 2026-10-12T06:32:44.518Z
+Stopped at: Completed 10-08-PLAN.md
 Resume file: None

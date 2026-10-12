@@ -1008,3 +1008,19 @@ At Phase 11, with an installed, usable build:
     no in-app signal to assert on. Physical reason: the prompt is drawn and answered by the operating system.
   risk_if_wrong: "Moderate. A declined permission would silence every banner while Settings still says they are on."
   automatable: "NO. The permission state lives in System Settings for the installed bundle."
+
+- id: D-REV-54
+  phase: "10 — Fleet Supervision (plan 10-08)"
+  truth: "In the running app, the Worktrees rail entry opens an inventory of every task worktree across projects with a size and its age, Re-measure fills in the sizes of a freshly created worktree without freezing the window, and each row's chip and reason read clearly at row density."
+  status: open
+  why_deferred: |
+    Asserted: the eligibility table (done, merged, both, running, blocked, dirty, unreachable, missing, no epic) and
+    the board-then-git read against real git repositories, including a count of the porcelain reads performed
+    (worktree_inventory.rs); the bounded, symlink-safe walk and the two-column cache write (worktree_size.rs); the
+    view's size-with-age, blank-when-unmeasured, chip-with-reason, empty-state and ordering rendering
+    (worktree-inventory.test.tsx). Not exercised: the two Tauri commands over real IPC (no AppHandle in a unit
+    test), whether a multi-second walk really leaves the window responsive, and the look of the row in a WKWebView,
+    which has no WebDriver. One walk over this repository (45 GiB of target/ plus node_modules, 92 GB allocated)
+    took 31-51 s in an unoptimised build and did not hit the entry bound; a single task worktree is far smaller.
+  risk_if_wrong: "Low to moderate. The decision and the walk are tested; the risk is a slow first measure of a very large worktree or a cramped row."
+  automatable: "PARTLY. A Playwright run with the adapter stubbed can assert the view; responsiveness during a real walk needs the installed app."
