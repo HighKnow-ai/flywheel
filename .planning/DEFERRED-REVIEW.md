@@ -983,3 +983,28 @@ At Phase 11, with an installed, usable build:
     in a WKWebView, which has no WebDriver.
   risk_if_wrong: "Moderate for the shell half (a jump that lands on the board without the item open); low for the look."
   automatable: "PARTLY. A Playwright run against the Vite dev server with the adapter stubbed can mount App.tsx and assert the detail panel after the subject key is pressed; the look cannot."
+
+- id: D-REV-52
+  phase: "10 — Fleet Supervision (plan 10-07)"
+  truth: "Against an installed, signed build, a real banner appears in the macOS Notification Center when an agent blocks, finishes or fails."
+  status: open
+  why_deferred: |
+    Asserted: the coalescing window and the one-banner-for-a-wave behaviour, the single and summary wording, the
+    run-and-kind collapse, the suppression rule, the body cap, the exclusion of interrupted and abandoned by type,
+    the switch read at fire time, and a capability file with no notification grant (notify.rs, agent_run.rs).
+    Not exercised: the operating system actually drawing the banner. Under `tauri dev` the banner is attributed to
+    the terminal application and may need that application's own notification permission, which is a packaging
+    property Phase 11 produces (RESEARCH Pitfall 6). Physical reason: the OS notification centre is outside the
+    process and has no automation surface.
+  risk_if_wrong: "Moderate. The decision logic is tested, but a build whose bundle identity the OS rejects would show no banner at all."
+  automatable: "NO. Needs a signed bundle and a person (or an OS-level accessibility harness) looking at the Notification Center."
+
+- id: D-REV-53
+  phase: "10 — Fleet Supervision (plan 10-07)"
+  truth: "On a fresh macOS install, the first notification triggers (or silently skips) the system permission prompt, and a user who declines it is not left believing banners are on."
+  status: open
+  why_deferred: |
+    The plugin reports the permission as granted on desktop without asking (RESEARCH Assumption A6), so there is
+    no in-app signal to assert on. Physical reason: the prompt is drawn and answered by the operating system.
+  risk_if_wrong: "Moderate. A declined permission would silence every banner while Settings still says they are on."
+  automatable: "NO. The permission state lives in System Settings for the installed bundle."
