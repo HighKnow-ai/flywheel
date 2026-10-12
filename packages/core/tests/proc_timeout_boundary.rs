@@ -65,3 +65,26 @@ fn a_child_that_never_exits_is_still_killed_and_reported_as_a_timeout() {
     assert!(!alive, "the timed-out child (pid {pid}) must not survive");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// WR-02: the child exits, but a descendant it started keeps the stdout pipe open. The drain must
+/// not wait for that descendant: the call returns by the ceiling with the child's real status and
+/// the output read so far.
+#[test]
+fn a_descendant_holding_the_pipe_open_does_not_hold_the_call_past_its_ceiling() {
+    let started = std::time::Instant::now();
+    let out = output_with_timeout(
+        // The background `sleep` inherits stdout and outlives the shell that exits straight away.
+        &mut sh("sleep 5 & printf hi"),
+        None,
+        Duration::from_millis(500),
+        "leaked pipe",
+    )
+    .expect("the child itself exited in time, so this is not a timeout");
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(out.stdout, b"hi");
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "the call waited for the descendant: {:?}",
+        started.elapsed()
+    );
+}
