@@ -242,6 +242,31 @@ pub fn remove_worktree_for_task(
     task_id: &str,
     actor_id: &str,
 ) -> anyhow::Result<()> {
+    remove_worktree(conn, task_id, actor_id, false)
+}
+
+/// [`remove_worktree_for_task`] with one more refusal: a run that is `running` or `blocked` on the
+/// task or in the worktree stops the removal, checked immediately before `git worktree remove`
+/// (WR-04). The batch reclaim uses this because its eligibility read can be seconds stale by the
+/// time the removal runs, and an agent started in a Done task's worktree in between has written
+/// nothing yet, so the porcelain check cannot see it. The single-worktree remove keeps its
+/// established behaviour (its callers and tests remove worktrees whose runs are still recorded as
+/// live). This narrows the window to the gap between the query and the `git` call; it does not
+/// close it -- that would need a marker `agent_run_start` refuses against.
+pub fn remove_worktree_for_task_refusing_live_run(
+    conn: &mut Connection,
+    task_id: &str,
+    actor_id: &str,
+) -> anyhow::Result<()> {
+    remove_worktree(conn, task_id, actor_id, true)
+}
+
+fn remove_worktree(
+    conn: &mut Connection,
+    task_id: &str,
+    actor_id: &str,
+    refuse_live_run: bool,
+) -> anyhow::Result<()> {
     let worktree = worktree_for_task(conn, task_id)?
         .ok_or_else(|| anyhow::anyhow!("no worktree exists for task {task_id:?}"))?;
 
@@ -268,22 +293,18 @@ pub fn remove_worktree_for_task(
         );
     }
 
-    // The final live-run guard, as close to the removal as this function can put it (WR-04). The
-    // caller's own eligibility read can be seconds old by now (git calls in between), and Start Work
-    // on a Done task, or a restart into this worktree, can have begun a run in the meantime. A
-    // freshly started agent has written nothing yet, so the porcelain check above cannot see it.
-    // This narrows the window to the gap between this query and `git worktree remove`; it does not
-    // close it (that would need a marker `agent_run_start` refuses against).
-    let live_run: bool = conn
-        .query_row(
-            "SELECT EXISTS (SELECT 1 FROM agent_runs
-                WHERE (task_id = ?1 OR worktree_id = ?2) AND status IN ('running', 'blocked'))",
-            params![task_id, worktree.id],
-            |row| row.get(0),
-        )
-        .context("failed to check for a live run before removing the worktree")?;
-    if live_run {
-        anyhow::bail!("worktree_remove refused: an agent run is live in the worktree for task {task_id:?}");
+    if refuse_live_run {
+        let live_run: bool = conn
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM agent_runs
+                    WHERE (task_id = ?1 OR worktree_id = ?2) AND status IN ('running', 'blocked'))",
+                params![task_id, worktree.id],
+                |row| row.get(0),
+            )
+            .context("failed to check for a live run before removing the worktree")?;
+        if live_run {
+            anyhow::bail!("worktree_remove refused: an agent run is live in the worktree for task {task_id:?}");
+        }
     }
 
     if let Err(e) = git::worktree_remove(Path::new(&repo_path), Path::new(&worktree.path)) {
@@ -935,7 +956,8 @@ pub struct ReclaimOutcome {
 /// [`crate::query::fleet::finish_worktree_inventory`], which applies [`reclaim_eligibility`], the
 /// same function the inventory list uses -- so a selection that went stale between the list and this
 /// call (an agent started in the worktree, the tree was edited) is refused, not obeyed. Only a
-/// `Reclaimable` row reaches [`remove_worktree_for_task`], which is called UNCHANGED: its own
+/// `Reclaimable` row reaches [`remove_worktree_for_task_refusing_live_run`], which is the unchanged
+/// removal plus a live-run re-check made right before `git worktree remove`: its own
 /// `git status --porcelain` re-read stays the final guard, and **no parameter exists here or there
 /// that could skip it**. Do not add a `force` flag.
 ///
@@ -985,7 +1007,7 @@ pub fn reclaim_worktrees(conn: &mut Connection, task_ids: &[String], actor_id: &
             });
             continue;
         };
-        outcomes.push(match remove_worktree_for_task(conn, task_id, actor_id) {
+        outcomes.push(match remove_worktree_for_task_refusing_live_run(conn, task_id, actor_id) {
             Ok(()) => ReclaimOutcome { task_id: task_id.clone(), removed: true, reason: Some(reason), error: None },
             Err(e) => failed(format!("{e:#}")),
         });
