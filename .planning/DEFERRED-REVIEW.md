@@ -967,3 +967,19 @@ At Phase 11, with an installed, usable build:
     which has no WebDriver.
   risk_if_wrong: "Moderate for the live half (a queue that fails to refresh would leave a blocked agent unseen, though the fleet still shows it); low for the look."
   automatable: "PARTLY. A harness run against a scratch FLYWHEEL_APP_DATA_DIR can seed two blocked runs, call fleet_blocked_queue and agent_run_answer_permission and assert the queue shrinks by one per call; the look of the owner marking cannot."
+
+- id: D-REV-51
+  phase: "10 — Fleet Supervision (plan 10-06)"
+  truth: "In the running app, Enter or a click on a fleet row opens that agent's live output (and Back returns to the fleet), and the subject key on a row in another project lands on that item's detail panel."
+  status: open
+  why_deferred: |
+    Asserted: the session opener receiving run id, task id, stage, epic id and the row's status for task, authoring,
+    no-subject, failed and awaiting-review rows; Dismiss and the subject key not bubbling into the row; the fleet
+    field left set so the session's back lands on it; the one-shot pendingFocusItemId surviving BoardView's
+    project-change clear, consumed once, held for a later window, opening a collapsed group, and dropped when
+    unresolvable (jump.test.tsx, board-pending-focus.test.tsx), with the cross-project jump run through a real
+    BoardView. Not exercised: the real shell (App.tsx mounting Board for the switched project and the fleet
+    giving way to it), a project whose epics roster loads slowly, and how the key-as-button reads at row density
+    in a WKWebView, which has no WebDriver.
+  risk_if_wrong: "Moderate for the shell half (a jump that lands on the board without the item open); low for the look."
+  automatable: "PARTLY. A Playwright run against the Vite dev server with the adapter stubbed can mount App.tsx and assert the detail panel after the subject key is pressed; the look cannot."
