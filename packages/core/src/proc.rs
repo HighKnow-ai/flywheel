@@ -84,14 +84,15 @@ pub fn output_with_timeout(
 
     let start = Instant::now();
     let status = loop {
+        // Read the clock BEFORE the exit check, never after it: the deadline is only acted on
+        // when the child was still running at an exit check made at-or-after the deadline. The
+        // reverse order left a window in which a child that exited between the check and the
+        // clock read was killed and reported as `TimedOut`, discarding its real status.
+        let expired = start.elapsed() >= timeout;
         match child.try_wait()? {
             Some(status) => break Some(status),
-            None => {
-                if start.elapsed() >= timeout {
-                    break None;
-                }
-                std::thread::sleep(POLL_INTERVAL);
-            }
+            None if expired => break None,
+            None => std::thread::sleep(POLL_INTERVAL),
         }
     };
 
