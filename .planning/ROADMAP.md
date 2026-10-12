@@ -1203,7 +1203,30 @@ notification click-to-jump is deferred to a board issue and is in no requirement
   3. A developer clones the repository and builds a working desktop application by following the documented steps.
   4. The installed open-source application is fully functional standalone — no account, no network service, and no feature gated behind either.
 
-**Plans**: TBD
+**Plans**: 21 plans
+
+Plans:
+- [ ] 11-01-PLAN.md — TRACER: one `tauri build` from a source-built sidecar yields a working `.dmg` and updater tarball
+- [ ] 11-02-PLAN.md — OSS identity: the three one-way calls, LICENSE (Apache-2.0), ARCHITECTURE.md §8
+- [ ] 11-03-PLAN.md — Clean-clone CI workflow and the open-core proof job (relay-client deleted)
+- [ ] 11-04-PLAN.md — Tag-driven release: version from the tag, dmg + tarball + sig + latest.json, unsigned-first
+- [ ] 11-05-PLAN.md — Updater plugin, signing keypair, Rust check/install with the live-run refusal
+- [ ] 11-06-PLAN.md — The update banner: offered, named, dismissible, refused while agents run
+- [ ] 11-07-PLAN.md — Signed and notarized: the Apple gate and the Gatekeeper proof
+- [ ] 11-08-PLAN.md — Cut v0.1.0: public repo, signed install, and an offered update observed
+- [ ] 11-09-PLAN.md — Register drain: dispatch invariants in core (D-REV-37, 38, 45, 46)
+- [ ] 11-10-PLAN.md — Register drain: the seven Phase 09 findings and the case-fold divergence (D-REV-39, 44)
+- [ ] 11-11-PLAN.md — Register drain: retry/skip a stuck task, and an observed scope breach stops the merge (D-REV-41, 42)
+- [ ] 11-12-PLAN.md — Register drain: forge-publish ordering, conflict keyboard exit, overlap toast (D-REV-02, 03, 43, 46)
+- [ ] 11-13-PLAN.md — Register drain: review and board measurements (D-REV-06, 07, 09, 10, 23, 27)
+- [ ] 11-14-PLAN.md — Register drain: session and dispatch surfaces (D-REV-32, 33, 36)
+- [ ] 11-15-PLAN.md — Register drain: fleet and worktree live reads and layout (D-REV-47…51, 54, 55)
+- [ ] 11-16-PLAN.md — Register drain: a whole fan-out with only the model faked (D-REV-34, 35)
+- [ ] 11-17-PLAN.md — Register drain: eight finish-reviewer runs over regenerated captures (D-REV-11, 12, 14…19, 26)
+- [ ] 11-18-PLAN.md — Register drain: the locked doc amendments D-197, D-198, D-199 (D-REV-01, 13, 28, 30)
+- [ ] 11-19-PLAN.md — Register drain: reversible project soft-hide and two live-board data measurements (D-200, D-REV-29, 25, 04)
+- [ ] 11-20-PLAN.md — Register drain: the installed-build items — bundle icon and system appearance (D-REV-20, 22)
+- [ ] 11-21-PLAN.md — The single owner pass, register closure, and survivors filed on Flywheel's own board (D-194, D-196)
 **UI hint**: no
 
 **Notes**: Criterion 4 is the open-core boundary made verifiable: the clean module seam between
