@@ -18,15 +18,26 @@ import { MARKS_BY_ID } from "../../legend/marks";
 import { RUN_STATUS_LABELS, RUN_STATUS_MARK_IDS } from "../../legend/runStatus";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import appSource from "../../App.tsx?raw";
+import { SessionSurface } from "../../session/SessionSurface";
 import { FleetSurface } from "../FleetSurface";
 
 const fleetListMock = vi.fn<() => Promise<FleetListDto>>();
 
-vi.mock("../../adapters/tauri", () => ({
-  fleetList: () => fleetListMock(),
-  subscribeBoardChanged: () => Promise.resolve(() => {}),
-  invokeCommand: () => Promise.reject(new Error("unexpected invokeCommand in a fleet test")),
-}));
+vi.mock("../../adapters/tauri", async () => {
+  const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
+  return {
+    ...actual,
+    fleetList: () => fleetListMock(),
+    subscribeBoardChanged: () => Promise.resolve(() => {}),
+    subscribeAgentEvent: () => Promise.resolve(() => {}),
+    // The session surface's own reads, for the shared-vocabulary test below: an empty feed.
+    agentRunLogWindow: (_agentRunId: string, offset: number, limit: number) =>
+      Promise.resolve({ entries: [], offset, limit, total: 0 }),
+    agentRunRawWindow: (_agentRunId: string, offset: number, limit: number) =>
+      Promise.resolve({ entries: [], offset, limit, total: 0 }),
+    pendingPermissionRequests: () => Promise.resolve([]),
+  };
+});
 
 function row(overrides: Partial<FleetRowDto>): FleetRowDto {
   return {
@@ -232,5 +243,40 @@ describe("the vocabulary", () => {
     for (const id of Object.values(RUN_STATUS_MARK_IDS)) {
       expect(MARKS_BY_ID[id], id).toBeDefined();
     }
+  });
+});
+
+describe("one vocabulary across the fleet and the session surface", () => {
+  it("renders an abandoned run's word from the same map on both surfaces", async () => {
+    fleetListMock.mockResolvedValue(list([row({ agentRunId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" })]));
+    const fleet = renderFleet();
+    const fleetRow = await waitFor(() => {
+      const el = document.querySelector('[data-fleet-state="abandoned"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    const fleetWord = within(fleetRow).getByText(RUN_STATUS_LABELS.abandoned).textContent;
+    fleet.unmount();
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="r-ab" taskId="task-1" initialStatus="abandoned" onBack={() => {}} />
+      </QueryClientProvider>,
+    );
+    const sessionWord = (await screen.findByText(RUN_STATUS_LABELS.abandoned)).textContent;
+    expect(sessionWord).toBe(fleetWord);
+    expect(sessionWord).toBe("Abandoned");
+  });
+
+  it("opens a terminal run with its caller-supplied status, not the running default", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="r-failed" taskId="task-1" initialStatus="failed" onBack={() => {}} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("Failed")).toBeInTheDocument();
+    expect(screen.queryByText("Running")).not.toBeInTheDocument();
   });
 });

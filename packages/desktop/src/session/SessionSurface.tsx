@@ -46,6 +46,17 @@ import { ProposalTray } from "../authoring/ProposalTray";
 import { useRunProposals } from "../authoring/useAuthoringQuery";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
+import {
+  RUN_STATUS_COLOR_ROLES,
+  RUN_STATUS_LABELS,
+  RUN_STATUS_MARK_IDS,
+  TERMINAL_STATUSES,
+  formatCostUsd,
+  formatCount,
+  formatElapsed,
+  isRunStatus,
+} from "../legend/runStatus";
+import type { RunStatus } from "../legend/runStatus";
 import { useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
@@ -54,43 +65,6 @@ import { RawLogView } from "./RawLogView";
 import "./session.css";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-
-/** The five values `agent_runs.status` can hold (migration `0003_agent_runtime.sql`). */
-export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted";
-
-const RUN_STATUS_LABELS: Record<RunStatus, string> = {
-  running: "Running",
-  blocked: "Blocked",
-  completed: "Completed",
-  failed: "Failed",
-  interrupted: "Interrupted",
-};
-
-const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "interrupted"];
-
-function isRunStatus(value: unknown): value is RunStatus {
-  return typeof value === "string" && value in RUN_STATUS_LABELS;
-}
-
-/** `agent_runs.status` -> the matching published `agent`-channel mark id (`legend/marks.ts`,
- * plan 02-03) — the run-status badge's own glyph/label source, never a second hand-typed list. */
-const RUN_STATUS_MARK_ID: Record<RunStatus, string> = {
-  running: "run-running",
-  blocked: "blocked-indicator",
-  completed: "run-completed",
-  failed: "run-failed",
-  interrupted: "run-interrupted",
-};
-
-/** 02-UI-SPEC.md's "Run Status" table — running/interrupted reuse existing roles, the other
- * three are the colour roles plan 02-03 published. */
-const RUN_STATUS_COLOR: Record<RunStatus, string> = {
-  running: "var(--accent-text-rack)",
-  blocked: "var(--blocked-text-rack)",
-  completed: "var(--success-text-rack)",
-  failed: "var(--destructive-text-rack)",
-  interrupted: "var(--text-muted-rack)",
-};
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
@@ -109,12 +83,12 @@ function Icon({ name, size = 14 }: { name: string; size?: number }) {
  * preference rather than merely zeroed, so the glyph stays static rather than freezing mid-pulse —
  * but it is never removed, the running state must stay legible either way. */
 function RunStatusBadge({ status }: { status: RunStatus }) {
-  const mark = MARKS_BY_ID[RUN_STATUS_MARK_ID[status]];
+  const mark = MARKS_BY_ID[RUN_STATUS_MARK_IDS[status]];
   const pulsing = status === "running" && !prefersReducedMotion();
   return (
     <span
       className="type-label"
-      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR[status] }}
+      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR_ROLES[status] }}
     >
       <span aria-hidden="true" className={pulsing ? "agent-pulse" : undefined} style={{ display: "inline-flex" }}>
         <Icon name={mark?.glyph ?? "Circle"} />
@@ -142,24 +116,6 @@ function latestNumericField(entries: Record<string, unknown>[], fields: string[]
     }
   }
   return undefined;
-}
-
-function formatElapsed(startIso: string | undefined, nowMs: number): string {
-  if (!startIso) return "0:00";
-  const startMs = new Date(startIso).getTime();
-  if (Number.isNaN(startMs)) return "0:00";
-  const deltaSeconds = Math.max(0, Math.floor((nowMs - startMs) / 1000));
-  const minutes = Math.floor(deltaSeconds / 60);
-  const seconds = deltaSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function formatCount(value: number): string {
-  return value.toLocaleString();
-}
-
-function formatCostUsd(value: number): string {
-  return `$${value.toFixed(4)}`;
 }
 
 /** Re-renders once a second while `enabled` — the status strip's own elapsed-time ticker. Its
@@ -241,7 +197,7 @@ const AUTHORING_STAGE_LABELS: Record<string, string> = {
 };
 
 /** `authoring_stage` value -> the matching published `agent`-channel mark id (`legend/marks.ts`,
- * plan 05-03) — mirrors `RUN_STATUS_MARK_ID`'s own role for run status, above. */
+ * plan 05-03) — mirrors `RUN_STATUS_MARK_IDS`'s own role for run status, above. */
 const AUTHORING_STAGE_MARK_ID: Record<string, string> = {
   challenge: "authoring-stage-challenge",
   decompose: "authoring-stage-decompose",
@@ -268,7 +224,7 @@ export function previousAuthoringStage(stage: string): string | undefined {
 /** The stage indicator (D-88, plan 05-03) — its own independently-rendering sibling of
  * `StatusStrip`, mounted the same way (never woven into `FeedRow.tsx`). Shows all three stages in
  * their fixed order with the current one marked (current = `--accent-text-rack`, the same role
- * `RUN_STATUS_COLOR.running` already reuses; the others = `--text-muted-rack`) — no new colour
+ * `RUN_STATUS_COLOR_ROLES.running` already reuses; the others = `--text-muted-rack`) — no new colour
  * token, reusing the existing agent signal vocabulary block. */
 function AuthoringStageIndicator({ stage }: { stage: string }) {
   return (
@@ -473,11 +429,12 @@ export interface SessionSurfaceProps {
    * fresh authoring launch for the SAME epic on resolution, mirroring `taskId`'s own reasoning:
    * the surface has no other source for this id. */
   epicId?: string | null;
-  /** The run's status when this surface first mounts. Defaults to `"running"` — in this phase
-   * the surface is only ever pushed into right after Start Work; a later plan that adds a "View"
-   * affordance for an already-terminal run should pass its real starting status here instead of
-   * relying on this default. */
-  initialStatus?: RunStatus;
+  /** The run's status when this surface first mounts. A caller that already knows it (the fleet,
+   * whose row is showing a `failed` run) passes it here so the surface agrees with that row from the
+   * first frame; `"running"` is only the no-information fallback, used right after Start Work when
+   * nothing but a live session is possible (Phase 10 plan 10-01, RESEARCH Pitfall 7 — nothing
+   * re-reads the status on mount, so a terminal run opened without this reads "Running" for good). */
+  initialStatus?: RunStatus | null;
   /** D-88/D-84 (plan 05-02): the run's `agent_runs.authoring_stage`, or `null`/`undefined` for an
    * ordinary task-execution run. `ProposalTray` mounts beside the feed ONLY when this is present —
    * an authoring run's own distinguishing fact, carried from `App.tsx`'s `activeAgentRunAuthoringStage`
@@ -825,11 +782,11 @@ export function SessionSurface({
   onBack,
   taskId = null,
   epicId = null,
-  initialStatus = "running",
+  initialStatus = null,
   authoringStage = null,
   initialFeedOffset = null,
 }: SessionSurfaceProps) {
-  const [status, setStatus] = useState<RunStatus>(initialStatus);
+  const [status, setStatus] = useState<RunStatus>(initialStatus ?? "running");
   const [stopping, setStopping] = useState(false);
   // `stopping` alone is not a sufficient guard against two activations in one synchronous tick —
   // React has not necessarily flushed the re-render that disables the Stop button before a

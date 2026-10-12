@@ -60,12 +60,12 @@ export const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "
 
 /** Narrows an arbitrary string (a wire value, an event reason) to a run status. */
 export function isRunStatus(value: unknown): value is RunStatus {
-  return typeof value === "string" && value in RUN_STATUS_LABELS && value !== "awaiting_review";
+  return isFleetState(value) && value !== "awaiting_review";
 }
 
 /** Narrows an arbitrary string from the fleet read to a fleet state. */
 export function isFleetState(value: unknown): value is FleetState {
-  return typeof value === "string" && value in RUN_STATUS_LABELS;
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(RUN_STATUS_LABELS, value);
 }
 
 export type FleetBandId = "needs-you" | "running" | "done-failed";

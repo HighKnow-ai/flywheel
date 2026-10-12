@@ -9,11 +9,9 @@
  * IS the signal that work has started (State Inventory "No runs yet").
  *
  * Each row carries its run-status badge (glyph + word, resolved from `legend/marks.ts`'s `agent`
- * channel — the same published vocabulary `SessionSurface.tsx`'s own `RunStatusBadge` renders;
- * this file duplicates the small status/label/colour lookup tables locally rather than importing
- * SessionSurface's unexported component, following this codebase's own established per-file
- * duplication convention for small building blocks (`MONO_STACK` is already duplicated across
- * `FeedRow.tsx`/`RawLogView.tsx`/`SessionSurface.tsx`/`PermissionRequestCard.tsx`)), its relative
+ * channel — the same published vocabulary `SessionSurface.tsx`'s own `RunStatusBadge` renders; the
+ * status, label, mark and colour tables and the cost formatter live once in `legend/runStatus.ts`
+ * (Phase 10 plan 10-01, Finding 14) and are imported here, not declared), its relative
  * start time, a duration (terminal runs) or a live elapsed counter (running/blocked runs, ticking
  * once a second in its own isolated `RunRow` component so the tick never re-renders the whole
  * list), and its cost so far.
@@ -38,55 +36,19 @@ import {
 } from "../adapters/tauri";
 import { useAgentRuns, usePendingPermissionRequests, useTaskSessionSummaries } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
+import {
+  RUN_STATUS_COLOR_ROLES,
+  RUN_STATUS_LABELS,
+  RUN_STATUS_MARK_IDS,
+  TERMINAL_STATUSES,
+  formatCostUsd,
+  isRunStatus,
+} from "../legend/runStatus";
+import type { RunStatus } from "../legend/runStatus";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 import "./item-detail.css";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-
-/** The six values `agent_runs.status` can hold (migration `0003_agent_runtime.sql`, `abandoned`
- * added by migration `0006_recovery_statuses.sql`, D-49) — mirrors `session/SessionSurface.tsx`'s
- * own `RunStatus` type. */
-export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted" | "abandoned";
-
-const RUN_STATUS_LABELS: Record<RunStatus, string> = {
-  running: "Running",
-  blocked: "Blocked",
-  completed: "Completed",
-  failed: "Failed",
-  interrupted: "Interrupted",
-  abandoned: "Abandoned",
-};
-
-const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "interrupted", "abandoned"];
-
-function isRunStatus(value: string): value is RunStatus {
-  return value in RUN_STATUS_LABELS;
-}
-
-/** `agent_runs.status` -> the matching published `agent`-channel mark id (`legend/marks.ts`,
- * plan 02-03; `abandoned` added plan 03-10, D-49) — mirrors `SessionSurface.tsx`'s own lookup,
- * never a second hand-typed glyph. */
-const RUN_STATUS_MARK_ID: Record<RunStatus, string> = {
-  running: "run-running",
-  blocked: "blocked-indicator",
-  completed: "run-completed",
-  failed: "run-failed",
-  interrupted: "run-interrupted",
-  abandoned: "run-abandoned",
-};
-
-/** 02-UI-SPEC.md's "Run Status" table, extended by 03-UI-SPEC.md's "Color Additions" (`abandoned`
- * reuses the same `--destructive-text-rack` token `failed` already spends this budget on — zero
- * new colour tokens, distinguished by glyph and word alone) — mirrors `SessionSurface.tsx`'s own
- * colour lookup. */
-const RUN_STATUS_COLOR: Record<RunStatus, string> = {
-  running: "var(--accent-text-rack)",
-  blocked: "var(--blocked-text-rack)",
-  completed: "var(--success-text-rack)",
-  failed: "var(--destructive-text-rack)",
-  interrupted: "var(--text-muted-rack)",
-  abandoned: "var(--destructive-text-rack)",
-};
 
 /** The abandoned-run explanation + Acknowledge button's own answering/error state
  * (`session/PermissionRequestCard.tsx`'s `RowState` pattern) — guards a second press while
@@ -116,12 +78,12 @@ function prefersReducedMotion(): boolean {
  * `SessionSurface.tsx`'s own `RunStatusBadge`, duplicated locally per this file's own doc
  * comment above. */
 function RunStatusBadge({ status }: { status: RunStatus }) {
-  const mark = MARKS_BY_ID[RUN_STATUS_MARK_ID[status]];
+  const mark = MARKS_BY_ID[RUN_STATUS_MARK_IDS[status]];
   const pulsing = status === "running" && !prefersReducedMotion();
   return (
     <span
       className="type-label"
-      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR[status] }}
+      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR_ROLES[status] }}
     >
       <span aria-hidden="true" className={pulsing ? "agent-pulse" : undefined} style={{ display: "inline-flex" }}>
         <Icon name={mark?.glyph ?? "Circle"} />
@@ -129,10 +91,6 @@ function RunStatusBadge({ status }: { status: RunStatus }) {
       {RUN_STATUS_LABELS[status]}
     </span>
   );
-}
-
-function formatCostUsd(value: number | null | undefined): string {
-  return value == null ? "—" : `$${value.toFixed(4)}`;
 }
 
 /** A relative "Xm/Xh/Xd ago" label, the absolute timestamp carried in the entry's own `title`
