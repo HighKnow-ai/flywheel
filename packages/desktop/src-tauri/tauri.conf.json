@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm --prefix ../../sidecar run build:dist && npm run build",
+    "beforeBuildCommand": "npm --prefix ../sidecar run build:dist && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -41,9 +41,8 @@
       "binaries/flywheel-node",
       "binaries/flywheel-shim"
     ],
-    "createUpdaterArtifacts": true,
-    "resources": [
-      "resources/sidecar"
-    ]
+    "resources": {
+      "resources/sidecar": "sidecar"
+    }
   }
 }
