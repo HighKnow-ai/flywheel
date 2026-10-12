@@ -66,7 +66,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8: Review And Merge Inside Flywheel** - Review an agent's diff against its acceptance criteria and land it in-app (completed 2026-10-07)
 - [x] **Phase 8.1: Visual polish: brand assets and confirmed motion** (INSERTED) - A bolder, more modern direction; Flywheel wears its own mark and moves the way its contract says it moves
 - [x] **Phase 9: Planned Fan-Out That Does Not Collide** - Turn one epic into several agents at once, bounded by real file-set disjointness (completed 2026-10-10)
-- [ ] **Phase 10: Fleet Supervision Across Every Project** - Answer "what is every agent everywhere doing, and what needs me?" in one glance
+- [x] **Phase 10: Fleet Supervision Across Every Project** - Answer "what is every agent everywhere doing, and what needs me?" in one glance (completed 2026-10-12)
 - [ ] **Phase 11: Ship It** - Install Flywheel like any Mac app; another developer builds it from source
 - [x] **Phase 12: Destructive-gate trust boundary redesign** - Close the destructive-command gate's trust hole at a layer the developer's login shell cannot reorder (completed 2026-10-02)
 
@@ -1274,7 +1274,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
 | 9. Planned Fan-Out That Does Not Collide | 13/13 | Complete    | 2026-10-10 |
-| 10. Fleet Supervision Across Every Project | 9/9 | In Progress|  |
+| 10. Fleet Supervision Across Every Project | 9/9 | Complete    | 2026-10-12 |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
 

@@ -1,8 +1,9 @@
 ---
 phase: 10-fleet-supervision-across-every-project
 verified: 2026-10-12T17:00:00Z
-status: deferred
+status: passed
 score: 5/5 roadmap success criteria verified by automated evidence; OS-level rendering of criterion 4 queued, not observed
+closed_under: "deferred-human-verification policy (.claude/CLAUDE.md): a phase closes on its automated verification plus its ROADMAP success criteria. `passed` here records that rule being met — it does NOT assert that any queued item below was observed by a human. D-REV-52 and D-REV-53 (macOS drawing the banner, first-run permission prompt) remain unobserved and are tracked in .planning/DEFERRED-REVIEW.md."
 covered_files:
   - .planning/REQUIREMENTS.md
   - .planning/phases/10-fleet-supervision-across-every-project/10-01-PLAN.md
