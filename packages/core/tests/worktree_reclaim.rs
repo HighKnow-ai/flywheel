@@ -222,3 +222,26 @@ fn a_removal_that_fails_is_reported_as_refused_with_its_error_and_the_batch_cont
         assert!(outcome(&out, &b).removed);
     });
 }
+
+/// The command runs the batch on a connection of its own (opened and pragma'd the way it does), so the
+/// application's shared connection is free throughout. What that connection wrote is visible on the first.
+#[test]
+fn a_batch_run_on_a_second_connection_is_visible_on_the_first() {
+    with_scratch_worktree_root(|_| {
+        let (mut conn, actor, project, _repo) = common::seeded_git_project();
+        let (a, path) = done_worktree(&mut conn, &project.id, &actor, "a");
+        let db_path = conn.path().map(PathBuf::from).expect("file-backed database");
+
+        let mut second = Connection::open(&db_path).unwrap();
+        core::db::apply_pragmas(&second).unwrap();
+        let out = reclaim_worktrees(&mut second, &[a.clone()], &actor);
+
+        assert!(out[0].removed, "{out:?}");
+        assert!(!path.exists());
+        assert!(worktree_for_task(&conn, &a).unwrap().is_none());
+        let events: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'worktree.removed'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(events, 1);
+    });
+}
