@@ -8,11 +8,14 @@
  * The current project is marked NEUTRALLY, by a surface shift (08.1-UI-SPEC.md § The brand rule,
  * D-12): the brand carries progress, never the current position.
  *
- * FLEET and REVIEW QUEUE rows are READ-ONLY FACTS, not links. The comp's Mission Control, Agents,
- * Worktrees, In review and Challenges rows imply destinations that do not exist, and a row that
- * looks like a button and does nothing is worse than a plain number. "Challenges" is also
- * deliberately absent: pending proposals never surface in this rail (D-46/D-82, pinned by
- * `project-rail.test.tsx`'s source scan), so that comp row is not built.
+ * The FLEET section's "All agents" row is an ENTRY POINT (Phase 10, D-163): it opens the fleet
+ * surface, the one view of every agent across every project. 08.1 held every row in this rail back as
+ * a read-only fact because "a row that looks like a button and does nothing is worse than a plain
+ * number" — the fleet surface now exists, so that one row is a real button. The Worktrees, Blocked and
+ * Needs decision rows stay READ-ONLY FACTS, not links: their destinations (the worktree inventory and
+ * the blocked queue) are later plans in this phase, and the review-queue row is not wired here.
+ * "Challenges" is also deliberately absent: pending items of that kind never surface in this rail
+ * (D-46/D-82, pinned by `project-rail.test.tsx`'s source scan), so that comp row is not built.
  *
  * An unreachable project (D-16) renders a warning glyph *in addition to* its key glyph, plus the
  * literal word "Unreachable" — never a colour change alone (01-UI-SPEC.md "Accessibility").
@@ -40,6 +43,7 @@ import glyphUrl from "../assets/logo-glyph.svg";
 import type { Project } from "../board/useBoardQuery";
 import { useBlockedSummary, useChangeFlags, useRecoverySummary } from "../board/useBoardQuery";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
+import { useUiStore } from "../state/uiStore";
 
 // The comp's rail is a labelled list, not an icon column (08.1-DIRECTION): wide enough for a project
 // name beside its key and for a section row's label beside its count.
@@ -121,6 +125,7 @@ function Section({ id, label, children }: { id: string; label: string; children:
 
 export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRailProps) {
   const [notice, setNotice] = useState<string | null>(null);
+  const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const {
     registerProjectFlow,
     isError: registerIsError,
@@ -233,6 +238,16 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
       </Section>
 
       <Section id="rail-fleet" label="Fleet">
+        <button
+          type="button"
+          className="type-body"
+          aria-label="Open fleet"
+          title="Every agent across every project"
+          onClick={() => setFleetSurface({ view: "fleet" })}
+          style={entryStyle}
+        >
+          <span>All agents</span>
+        </button>
         {worktreeCount !== undefined && (
           <div className="type-body" style={rowStyle}>
             <span>Worktrees</span>

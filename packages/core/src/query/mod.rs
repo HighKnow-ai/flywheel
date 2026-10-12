@@ -28,6 +28,7 @@ pub mod change_flags;
 pub mod epic_progress;
 pub mod events;
 pub mod filter;
+pub mod fleet;
 pub mod forge;
 pub mod permissions;
 pub mod recovery;

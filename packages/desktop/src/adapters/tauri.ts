@@ -1282,6 +1282,49 @@ export async function boardChangeFlags(projectId: string): Promise<ChangeFlagDto
 }
 
 /**
+ * One row of the fleet (Phase 10 plan 10-01, FLEET-01) — mirrors `commands/fleet.rs`'s `FleetRowDto`
+ * field-for-field. `fleetState` is the derived state the row draws (`awaiting_review` is a `completed`
+ * run whose task is not yet Done; the run status is `runStatus`). `subjectKind` is `task`, `epic` or
+ * `authoring`; a run with no task carries `taskKey: null` and the renderer must still draw it.
+ */
+export interface FleetRowDto {
+  agentRunId: string;
+  projectId: string;
+  projectName: string;
+  projectKeyPrefix: string;
+  projectStatus: string;
+  subjectKind: "task" | "epic" | "authoring";
+  taskId: string | null;
+  taskKey: string | null;
+  taskTitle: string | null;
+  taskStatus: string | null;
+  epicId: string | null;
+  epicKey: string | null;
+  authoringStage: string | null;
+  runStatus: string;
+  fleetState: string;
+  startedAt: string;
+  endedAt: string | null;
+  /** When the run's oldest pending permission request was raised; `null` when it is not waiting. */
+  blockedSince: string | null;
+  costUsd: number | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+}
+
+export interface FleetListDto {
+  rows: FleetRowDto[];
+  /** The length of `rows` — one source, so the header count and the list cannot disagree. */
+  totalRows: number;
+}
+
+/** Every agent run across every registered project, banded and ordered by the Rust core (D-164,
+ * D-168). Read-only and takes no argument: no project id, path or actor can be named. */
+export async function fleetList(): Promise<FleetListDto> {
+  return invokeCommand<FleetListDto>("fleet_list");
+}
+
+/**
  * One epic's roll-up for the roster (Phase 8.1 plan 05, D-05/D-06) — mirrors
  * `commands/board.rs`'s `EpicProgressDto` field-for-field. `epicId: null` is the "No epic" bucket.
  * `criteria: null` means the epic's tasks carry no criteria at all, which is NOT the same as

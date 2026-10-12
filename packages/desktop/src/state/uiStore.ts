@@ -91,6 +91,12 @@ export interface PendingDone {
   anchorRect?: { top: number; left: number; bottom: number };
 }
 
+/** What the fleet surface (Phase 10, D-163) is showing. A single discriminant so a later plan can
+ * widen it (the blocked queue) without changing the field's shape; `null` means the fleet is closed. */
+export interface FleetSurfaceTarget {
+  view: "fleet";
+}
+
 /** What the review surface is open for: a task or an epic, plus its key and title for the header. */
 export interface ReviewSurfaceTarget {
   scope: "task" | "epic";
@@ -223,6 +229,11 @@ interface UiState {
    * cross-tree reasoning as the triage field above: mounted once in `App.tsx`, opened from the
    * item detail panel's Review button. `label` is the item's key and title for the surface header. */
   reviewSurface: ReviewSurfaceTarget | null;
+  /** Whether the fleet surface (Phase 10, D-163) is open, and which view — same cross-tree
+   * reasoning as the fields above: mounted once in `App.tsx`, opened from the project rail's Fleet
+   * row, the global `open-fleet` binding, the palette and the native menu, none of which import the
+   * surface. `null` when closed. */
+  fleetSurface: FleetSurfaceTarget | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -273,6 +284,8 @@ interface UiState {
   setTriageSurfaceProjectId: (projectId: string | null) => void;
   /** Opens/closes the review surface (`null` to close). */
   setReviewSurface: (target: ReviewSurfaceTarget | null) => void;
+  /** Opens/closes the fleet surface (`null` to close). */
+  setFleetSurface: (target: FleetSurfaceTarget | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -301,6 +314,7 @@ export const useUiStore = create<UiState>((set) => ({
   settingsOpen: false,
   triageSurfaceProjectId: null,
   reviewSurface: null,
+  fleetSurface: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -387,6 +401,7 @@ export const useUiStore = create<UiState>((set) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setTriageSurfaceProjectId: (projectId) => set({ triageSurfaceProjectId: projectId }),
   setReviewSurface: (target) => set({ reviewSurface: target }),
+  setFleetSurface: (target) => set({ fleetSurface: target }),
 }));
 
 /** Resets every UI field back to its initial value — the shared reset four test suites
@@ -421,5 +436,6 @@ export function resetUiState() {
     settingsOpen: false,
     triageSurfaceProjectId: null,
     reviewSurface: null,
+    fleetSurface: null,
   });
 }

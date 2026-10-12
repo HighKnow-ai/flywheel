@@ -31,6 +31,10 @@ import { TriageSurface } from "./triage/TriageSurface";
 const ReviewSurface = React.lazy(() =>
   import("./review/ReviewSurface").then((m) => ({ default: m.ReviewSurface })),
 );
+// Phase 10 plan 10-01: the fleet surface, loaded on first open like the review surface.
+const FleetSurface = React.lazy(() =>
+  import("./fleet/FleetSurface").then((m) => ({ default: m.FleetSurface })),
+);
 import "./styles/tokens.css";
 import "./styles/type.css";
 import "./styles/motion.css";
@@ -123,6 +127,10 @@ function AppShell() {
   // Phase 8 plan 08-01: the review surface — same cross-tree trigger shape as the triage surface.
   const reviewSurface = useUiStore((state) => state.reviewSurface);
   const setReviewSurface = useUiStore((state) => state.setReviewSurface);
+  // Phase 10 plan 10-01 (D-163): the fleet surface — opened from the project rail's Fleet row, the
+  // global `open-fleet` binding, the palette and the native menu.
+  const fleetSurface = useUiStore((state) => state.fleetSurface);
+  const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   // The triage surface's own epic roster — read the same way `BoardView.tsx` does (`useEpics`),
   // since `AppShell` has no other source for it. Gated on `triageSurfaceProjectId` itself
   // (`useEpics`'s own `enabled: Boolean(projectId)`), so this issues no read while the surface is
@@ -326,6 +334,14 @@ function AppShell() {
               initialFeedOffset={activeAgentRunInitialLogOffset}
               onBack={() => setActiveAgentRunId(null)}
             />
+          ) : fleetSurface ? (
+            // Phase 10 (D-163): checked BELOW the session branch on purpose. A session opened from
+            // the fleet only sets `activeAgentRunId`, so the session's own "← Board" (which calls
+            // `setActiveAgentRunId(null)`) lands back on the fleet, which is where draining a queue
+            // needs to land. Do not copy the triage surface's clear-itself-before-opening-a-session.
+            <Suspense fallback={null}>
+              <FleetSurface onClose={() => setFleetSurface(null)} />
+            </Suspense>
           ) : project.status === "unreachable" ? (
             // D-16: an unreachable project's marker no longer matches its cached path — this
             // surface replaces the board entirely and offers only explicit relocation, never a

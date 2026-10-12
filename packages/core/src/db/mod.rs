@@ -38,6 +38,7 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0017_forge_setting.sql"),
         include_str!("migrations/0018_criterion_anchors.sql"),
         include_str!("migrations/0019_fan_out.sql"),
+        include_str!("migrations/0020_fleet.sql"),
     ]
 }
 

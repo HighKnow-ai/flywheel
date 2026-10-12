@@ -15,7 +15,7 @@ import App from "../../App";
 import { ProjectRail } from "../ProjectRail";
 import { ProjectUnreachable } from "../ProjectUnreachable";
 import type { Project } from "../../board/useBoardQuery";
-import { resetUiState } from "../../state/uiStore";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 
 const invokeCommandMock = vi.fn();
 
@@ -90,6 +90,20 @@ describe("ProjectRail", () => {
     // name above (which only reads "Unreachable" because of it) plus a real SVG in the DOM,
     // never a colour change alone (01-UI-SPEC.md "Accessibility").
     expect(entry.querySelector("svg")).not.toBeNull();
+  });
+});
+
+describe("ProjectRail's Fleet entry point (Phase 10, D-163)", () => {
+  it("renders the Fleet row as a button that opens the fleet surface", () => {
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    const fleetGroup = screen.getByRole("group", { name: "Fleet" });
+    const row = within(fleetGroup).getByRole("button", { name: "Open fleet" });
+    expect(row.tagName).toBe("BUTTON");
+    expect(useUiStore.getState().fleetSurface).toBeNull();
+    fireEvent.click(row);
+    expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
   });
 });
 
