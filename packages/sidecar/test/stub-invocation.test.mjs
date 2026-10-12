@@ -25,6 +25,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // packages/sidecar/test -> packages/sidecar -> packages -> repository root.
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+// The generated launcher: `build:dist` copies scripts/launcher.sh here. It is a build output and
+// is not tracked (D-192), so a fresh clone has none until `build:dist` has run.
 const STUB_PATH = path.join(
   REPO_ROOT,
   "packages",
@@ -36,10 +38,9 @@ const STUB_PATH = path.join(
 const BUILD_OUTPUT_DIR = path.join(REPO_ROOT, "target");
 const BUILD_COMMAND = "npm --prefix packages/sidecar run build";
 
-assert.ok(
-  fs.existsSync(STUB_PATH),
-  `the tracked dev sidecar stub is missing at ${STUB_PATH} — this test's own resolution of it has drifted from where the stub actually lives`,
-);
+const SKIP_REASON = fs.existsSync(STUB_PATH)
+  ? false
+  : `the generated launcher is missing at ${STUB_PATH} — run: npm --prefix packages/sidecar run build:dist`;
 
 /** Every scratch directory a test in this file has created, removed unconditionally after every
  * test has settled — regardless of outcome, so a failing assertion never leaves state behind
@@ -100,7 +101,7 @@ function withTimeout(promise, ms, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-test("the stub boots the sidecar from the location tauri copies it to", async () => {
+test("the stub boots the sidecar from the location tauri copies it to", { skip: SKIP_REASON }, async () => {
   const dir = scratchUnderBuildOutput();
   const copiedStub = copyStubInto(dir);
 
@@ -120,7 +121,7 @@ test("the stub boots the sidecar from the location tauri copies it to", async ()
   );
 });
 
-test("the copied stub answers the readiness handshake on its own protocol", async () => {
+test("the copied stub answers the readiness handshake on its own protocol", { skip: SKIP_REASON }, async () => {
   const dir = scratchUnderBuildOutput();
   const copiedStub = copyStubInto(dir);
 
@@ -159,7 +160,7 @@ test("the copied stub answers the readiness handshake on its own protocol", asyn
   }
 });
 
-test("the stub run from outside the repository fails with an actionable message", async () => {
+test("the stub run from outside the repository fails with an actionable message", { skip: SKIP_REASON }, async () => {
   const dir = scratchOutsideRepository();
   const copiedStub = copyStubInto(dir);
 

@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm --prefix ../../sidecar run build:dist && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -25,7 +25,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "dmg",
+      "app"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -33,6 +36,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/flywheel-sidecar"]
+    "externalBin": [
+      "binaries/flywheel-sidecar",
+      "binaries/flywheel-node",
+      "binaries/flywheel-shim"
+    ],
+    "createUpdaterArtifacts": true,
+    "resources": [
+      "resources/sidecar"
+    ]
   }
 }

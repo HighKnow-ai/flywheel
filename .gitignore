@@ -17,3 +17,10 @@ dist-ssr/
 
 # Vitest browser-mode failure screenshots (regenerated on every red run)
 packages/desktop/.vitest/
+
+# Generated sidecar build outputs (plan 11-01, D-192): launcher, Node runtime, shim, staged resources
+packages/desktop/src-tauri/binaries/flywheel-sidecar-*
+packages/desktop/src-tauri/binaries/flywheel-node-*
+packages/desktop/src-tauri/binaries/flywheel-shim-*
+packages/desktop/src-tauri/resources/sidecar/
+packages/sidecar/.runtime-cache/
