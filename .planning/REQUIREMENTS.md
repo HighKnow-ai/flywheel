@@ -39,7 +39,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **WORK-04**: Concurrent git operations against the same repository retry with exponential backoff and jitter on index-lock contention rather than failing the task
 - [x] **WORK-05**: Agent spawn timing is desynchronised so that parallel starts do not collide on the same repository index
 - [x] **WORK-06**: On launch, the application reconciles worktrees recorded in the database against those actually present on disk and surfaces any discrepancy to the user rather than silently repairing it
-- [ ] **WORK-07**: User can see all worktrees across all projects, their disk usage, and reclaim stale ones
+- [x] **WORK-07**: User can see all worktrees across all projects, their disk usage, and reclaim stale ones
 - [x] **WORK-08**: A task's worktree persists across many agent sessions and is only removed on explicit completion or user action
 
 ### Git & Forge Linkage
@@ -243,7 +243,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | WORK-04 | Phase 3 | Complete |
 | WORK-05 | Phase 3 | Complete |
 | WORK-06 | Phase 3 | Complete |
-| WORK-07 | Phase 10 | Pending |
+| WORK-07 | Phase 10 | Complete |
 | WORK-08 | Phase 2 | Complete |
 | LINK-01 | Phase 2 | Complete |
 | LINK-02 | Phase 7 | Complete |

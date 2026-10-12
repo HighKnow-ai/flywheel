@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 10
 current_phase_name: Fleet Supervision Across Every Project
-status: executing
-stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-10-12T06:32:44.707Z"
+status: verifying
+stopped_at: Completed 10-09-PLAN.md
+last_updated: "2026-10-12T06:51:48.767Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 10 execution started
-state_head: 3bbe2e97bdf6f5d1a635f1bf4909c02393b78362
+state_head: 10c4c54d4c1e301d742a3c6b332ff75fb6bd02f4
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 228
-  completed_plans: 227
+  completed_plans: 228
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 
 Phase: 10 (Fleet Supervision Across Every Project) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-12 — Phase 10 execution started
 
 Progress: [░░░░░░░░░░] 0% — 11 of 13 phases complete (219/228 planned plans executed; phase 10 is planned and unexecuted, phase 11 is not yet planned)
@@ -289,6 +289,7 @@ Progress: [░░░░░░░░░░] 0% — 11 of 13 phases complete (219/
 | Phase 10 P06 | 9 min | 2 tasks | 9 files |
 | Phase 10 P07 | 25 min | 3 tasks | 18 files |
 | Phase 10 P08 | 55 min | 3 tasks | 17 files |
+| Phase 10 P09 | 35 min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -671,6 +672,7 @@ Recent decisions affecting current work:
 - [Phase 10]: 10-06: fleet row jumps use b for the board item and a one-shot pendingFocusItemId consumed by a BoardView effect declared after the project-change clear; unresolvable requests drop on a settled window or a 4000 ms deadline
 - [Phase 10]: 10-07: COALESCE_WINDOW is 3 s, banner target cap 60 chars; suppression applied per transition at fire time; notification checkbox in its own file
 - [Phase 10]: 10-08: merge::is_integrated split at its existing seam (integrated_merge_commit under the lock, merge_commit_is_reachable after); task done outranks merged; a bounded walk is reported and not cached
+- [Phase 10]: 10-09: reclaim runs on a connection of its own (default_db_path + apply_pragmas) because remove_worktree_for_task takes &mut Connection and runs git inside, and must not change; eligibility is re-read fresh per row
 
 ### Pending Todos
 
@@ -732,6 +734,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T06:32:44.518Z
-Stopped at: Completed 10-08-PLAN.md
+Last session: 2026-10-12T06:51:48.577Z
+Stopped at: Completed 10-09-PLAN.md
 Resume file: None
