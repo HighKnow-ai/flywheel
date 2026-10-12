@@ -11,7 +11,9 @@ import {
   buildClaudeArgv,
   ClaudeCodeAdapter,
   noticeToAgentEvent,
+  emitStreamEvents,
   normaliseStreamEvent,
+  normaliseStreamEvents,
   STDERR_DETAIL_MAX_CHARS,
 } from "../dist/claude-code-adapter.js";
 import { startPermissionServer } from "../dist/mcp-permission-server.js";
@@ -961,4 +963,65 @@ test("a first-attempt success never produces a notice (no retry, no exhaustion)"
   );
   assert.equal(notices.length, 0, "no notice connection means no notice event");
   handle.close();
+});
+
+// -------------------------------------------------------------------------------------------
+// Narration and a tool call on one stream line both reach the feed (plan 10-02). The live binary
+// has been measured splitting blocks across lines, so the multi-block line is built directly here.
+// -------------------------------------------------------------------------------------------
+
+const AT = "2026-01-01T00:00:00.000Z";
+const assistantLine = (content) => JSON.stringify({ type: "assistant", message: { role: "assistant", content } });
+const events = (line, seq = 10) => normaliseStreamEvents(JSON.parse(line), line, "run-1", seq, AT);
+
+test("normaliseStreamEvents: narration then a tool call on one line yields both, narration first", () => {
+  const line = assistantLine([
+    { type: "text", text: "Reading the config first." },
+    { type: "tool_use", name: "Read", id: "toolu_a", input: { file_path: "a.txt" } },
+  ]);
+  const out = events(line);
+  assert.deepEqual(out.map((e) => e.type), ["assistant_text", "tool_call"]);
+  assert.equal(out[0].text, "Reading the config first.");
+  assert.equal(out[1].toolName, "Read");
+  assert.equal(out[1].toolUseId, "toolu_a");
+  assert.deepEqual(out.map((e) => e.seq), [10, 11]);
+});
+
+test("normaliseStreamEvents: two text blocks and a tool_use yield three events in source-block order", () => {
+  const line = assistantLine([
+    { type: "text", text: "one" },
+    { type: "tool_use", name: "Bash", id: "toolu_b", input: {} },
+    { type: "text", text: "two" },
+  ]);
+  const out = events(line);
+  assert.deepEqual(out.map((e) => e.type), ["assistant_text", "tool_call", "assistant_text"]);
+  assert.deepEqual(out.map((e) => e.seq), [10, 11, 12]);
+  assert.equal(out[2].text, "two");
+});
+
+test("normaliseStreamEvents: a single-block line is exactly what normaliseStreamEvent returns", () => {
+  for (const content of [
+    [{ type: "text", text: "just words" }],
+    [{ type: "tool_use", name: "Bash", id: "toolu_c", input: {} }],
+  ]) {
+    const line = assistantLine(content);
+    assert.deepEqual(events(line, 3), [normaliseStreamEvent(JSON.parse(line), line, "run-1", 3, AT)]);
+  }
+});
+
+test("normaliseStreamEvents: a non-object line degrades to the single unknown event, never throws", () => {
+  assert.deepEqual(events("null", 4).map((e) => e.type), ["unknown"]);
+});
+
+test("emitStreamEvents: every event from one line claims its own sequence number, and the next line continues after them", () => {
+  const session = { nextSeq: 0, lastResult: undefined };
+  const seen = [];
+  const line = assistantLine([
+    { type: "text", text: "narration" },
+    { type: "tool_use", name: "Read", id: "toolu_d", input: {} },
+  ]);
+  const seq = session.nextSeq++; // the number the line-reader takes before parsing
+  emitStreamEvents(session, (e) => seen.push(e), JSON.parse(line), line, "run-1", seq, AT);
+  assert.deepEqual(seen.map((e) => e.seq), [0, 1]);
+  assert.equal(session.nextSeq, 2, "the next line must not reuse a number already emitted");
 });

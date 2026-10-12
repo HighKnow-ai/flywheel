@@ -1101,6 +1101,72 @@ export function normaliseStreamEvent(
   return { ...base, type: "unknown" };
 }
 
+/**
+ * The ordered, multi-event sibling of {@link normaliseStreamEvent}: one parsed stream line in, every
+ * event it carries out, in source-block order, numbered `seq`, `seq + 1`, ... .
+ *
+ * {@link normaliseStreamEvent} returns exactly one event per line, and its `tool_use` search
+ * returns before its text search, so an assistant line carrying narration AND a tool call lost the
+ * narration. What the agent said is part of the supervision signal (the session feed and the
+ * fleet's activity cell both read it), so this function emits one event per `text` / `tool_use`
+ * block when an assistant line holds more than one of them. Every other line, including a line with
+ * exactly one such block, is exactly `[normaliseStreamEvent(...)]` — byte-identical, because that is
+ * what it returns. Each per-block event is built by `normaliseStreamEvent` itself on a one-block
+ * copy of the line, so the field rules (`toolUseId`, `questions`, error flags) live in one place.
+ *
+ * The caller owns the sequence counter: it has already taken `seq` for this line and must advance
+ * past the extra `events.length - 1` numbers (see {@link emitStreamEvents}).
+ */
+export function normaliseStreamEvents(
+  parsed: ClaudeStreamEvent,
+  raw: string,
+  runId: string,
+  seq: number,
+  at: string,
+): AgentEvent[] {
+  if (parsed !== null && typeof parsed === "object" && parsed.type === "assistant") {
+    const message = (parsed as ClaudeStreamMessage).message;
+    const blocks = (message?.content ?? []).filter((block) => block.type === "text" || block.type === "tool_use");
+    if (message && blocks.length > 1) {
+      return blocks.map((block, index) =>
+        normaliseStreamEvent({ ...parsed, message: { ...message, content: [block] } } as ClaudeStreamEvent, raw, runId, seq + index, at),
+      );
+    }
+  }
+  return [normaliseStreamEvent(parsed, raw, runId, seq, at)];
+}
+
+/**
+ * Normalise one parsed line and hand every resulting event to `onEvent`, claiming a sequence number
+ * for each. `seq` is the number the caller already took for the line; every event after the first
+ * claims its own from `session.nextSeq`, so no two events share one. Records the run's final
+ * `result` on the session, as both stdout loops need.
+ */
+export function emitStreamEvents(
+  session: LiveSession,
+  onEvent: (event: AgentEvent) => void,
+  parsed: ClaudeStreamEvent,
+  raw: string,
+  runId: string,
+  seq: number,
+  at: string,
+): void {
+  const events = normaliseStreamEvents(parsed, raw, runId, seq, at);
+  session.nextSeq += events.length - 1; // the `seq + index` numbers normaliseStreamEvents assigned
+  for (const normalised of events) {
+    if (normalised.type === "result") {
+      session.lastResult = {
+        subtype: normalised.subtype,
+        totalCostUsd: normalised.totalCostUsd,
+        sessionId: normalised.sessionId,
+        inputTokens: normalised.inputTokens,
+        outputTokens: normalised.outputTokens,
+      };
+    }
+    onEvent(normalised);
+  }
+}
+
 const CAPABILITIES: AdapterCapabilities = {
   supportsResume: false,
   supportsPermissionPrompt: true,
@@ -1583,17 +1649,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
           reject(new Error(message));
           return;
         }
-        const normalised = normaliseStreamEvent(parsed, line, options.runId, seq, at);
-        if (normalised.type === "result") {
-          session.lastResult = {
-            subtype: normalised.subtype,
-            totalCostUsd: normalised.totalCostUsd,
-            sessionId: normalised.sessionId,
-            inputTokens: normalised.inputTokens,
-            outputTokens: normalised.outputTokens,
-          };
-        }
-        options.onEvent(normalised);
+        emitStreamEvents(session, options.onEvent, parsed, line, options.runId, seq, at);
       });
 
       child.on("error", (err) => {
@@ -1816,17 +1872,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
           reject(new Error(message));
           return;
         }
-        const normalised = normaliseStreamEvent(parsed, line, options.runId, seq, at);
-        if (normalised.type === "result") {
-          session.lastResult = {
-            subtype: normalised.subtype,
-            totalCostUsd: normalised.totalCostUsd,
-            sessionId: normalised.sessionId,
-            inputTokens: normalised.inputTokens,
-            outputTokens: normalised.outputTokens,
-          };
-        }
-        options.onEvent(normalised);
+        emitStreamEvents(session, options.onEvent, parsed, line, options.runId, seq, at);
       });
 
       child.on("error", (err) => {
