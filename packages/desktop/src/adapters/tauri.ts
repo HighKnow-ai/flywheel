@@ -1350,6 +1350,37 @@ export async function fleetList(): Promise<FleetListDto> {
 }
 
 /**
+ * One agent blocked at a pending permission request (plan 10-05, FLEET-02) — mirrors
+ * `commands/fleet.rs`'s `BlockedQueueEntryDto` field-for-field. One entry per blocked run: its
+ * earliest-created pending request.
+ */
+export interface BlockedQueueEntryDto {
+  requestId: string;
+  toolName: string;
+  inputPayload: string | null;
+  createdAt: string;
+  destructiveCategory: string | null;
+  agentRunId: string;
+  projectId: string;
+  projectName: string;
+  projectKeyPrefix: string;
+  subjectKind: "task" | "epic" | "authoring";
+  taskId: string | null;
+  taskKey: string | null;
+  taskTitle: string | null;
+  epicId: string | null;
+  epicKey: string | null;
+  authoringStage: string | null;
+  blockedSince: string;
+}
+
+/** Every agent across every registered project blocked at a pending permission request, longest
+ * waiting first (D-172). Read-only, no argument. Answer through `answerPermissionRequest`. */
+export async function fleetBlockedQueue(): Promise<BlockedQueueEntryDto[]> {
+  return invokeCommand<BlockedQueueEntryDto[]>("fleet_blocked_queue");
+}
+
+/**
  * One epic's roll-up for the roster (Phase 8.1 plan 05, D-05/D-06) — mirrors
  * `commands/board.rs`'s `EpicProgressDto` field-for-field. `epicId: null` is the "No epic" bucket.
  * `criteria: null` means the epic's tasks carry no criteria at all, which is NOT the same as

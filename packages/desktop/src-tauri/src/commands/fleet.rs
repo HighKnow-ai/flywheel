@@ -147,6 +147,69 @@ pub async fn fleet_list(state: State<'_, AppState>) -> Result<FleetListDto, Stri
     Ok(FleetListDto { total_rows, visible_cost_usd, rows })
 }
 
+/// The server-side cap on the blocked queue (T-10-05-04), equal to the core's backstop clamp.
+const BLOCKED_QUEUE_CAP: usize = 200;
+
+/// Mirrors `flywheel_core::query::fleet::BlockedQueueEntry` field-for-field: the pending request the
+/// permission card renders, plus the run, project and subject the queue row names.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockedQueueEntryDto {
+    pub request_id: String,
+    pub tool_name: String,
+    pub input_payload: Option<String>,
+    pub created_at: String,
+    pub destructive_category: Option<String>,
+    pub agent_run_id: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_key_prefix: String,
+    pub subject_kind: String,
+    pub task_id: Option<String>,
+    pub task_key: Option<String>,
+    pub task_title: Option<String>,
+    pub epic_id: Option<String>,
+    pub epic_key: Option<String>,
+    pub authoring_stage: Option<String>,
+    pub blocked_since: String,
+}
+
+impl From<flywheel_core::query::fleet::BlockedQueueEntry> for BlockedQueueEntryDto {
+    fn from(e: flywheel_core::query::fleet::BlockedQueueEntry) -> Self {
+        Self {
+            request_id: e.request_id,
+            tool_name: e.tool_name,
+            input_payload: e.input_payload,
+            created_at: e.created_at,
+            destructive_category: e.destructive_category,
+            agent_run_id: e.agent_run_id,
+            project_id: e.project_id,
+            project_name: e.project_name,
+            project_key_prefix: e.project_key_prefix,
+            subject_kind: e.subject_kind.as_str().to_string(),
+            task_id: e.task_id,
+            task_key: e.task_key,
+            task_title: e.task_title,
+            epic_id: e.epic_id,
+            epic_key: e.epic_key,
+            authoring_stage: e.authoring_stage,
+            blocked_since: e.blocked_since,
+        }
+    }
+}
+
+/// Every agent across every registered project currently blocked at a pending permission request
+/// (FLEET-02, D-172): live blocks only, one entry per run. Read-only, cross-project by design, takes
+/// no arguments. Answering goes through the existing, unchanged `agent_run_answer_permission` (D-173).
+/// Pure database read, so it is a plain sync command like the other short reads.
+#[tauri::command]
+pub fn fleet_blocked_queue(state: State<'_, AppState>) -> Result<Vec<BlockedQueueEntryDto>, String> {
+    let conn = state.db.lock().map_err(|e| ipc_error("fleet_blocked_queue:lock", e))?;
+    let entries = flywheel_core::query::fleet::blocked_queue(&conn, BLOCKED_QUEUE_CAP)
+        .map_err(|e| ipc_error("fleet_blocked_queue:read", e))?;
+    Ok(entries.into_iter().map(BlockedQueueEntryDto::from).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

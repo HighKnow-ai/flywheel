@@ -188,3 +188,88 @@ pub fn fleet_rows(conn: &Connection, limit: usize) -> anyhow::Result<FleetList> 
     let visible_cost_usd = rows.iter().filter_map(|r| r.cost_usd).fold(None, |sum, c| Some(sum.unwrap_or(0.0) + c));
     Ok(FleetList { rows, total_rows, visible_cost_usd })
 }
+
+/// The hard ceiling on one blocked-queue window (T-10-05-04).
+pub const BLOCKED_QUEUE_MAX_LIMIT: usize = 200;
+
+/// One agent sitting at a pending permission request (FLEET-02, D-172): the request the card needs
+/// plus the run, project and subject the queue row names. One entry per run — its earliest-created
+/// pending request — because the card answers one request at a time and two entries for one agent
+/// would read as two blocked agents.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockedQueueEntry {
+    pub request_id: String,
+    pub tool_name: String,
+    pub input_payload: Option<String>,
+    pub created_at: String,
+    pub destructive_category: Option<String>,
+    pub agent_run_id: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_key_prefix: String,
+    pub subject_kind: FleetSubjectKind,
+    pub task_id: Option<String>,
+    pub task_key: Option<String>,
+    pub task_title: Option<String>,
+    pub epic_id: Option<String>,
+    pub epic_key: Option<String>,
+    pub authoring_stage: Option<String>,
+    pub blocked_since: String,
+}
+
+/// `permissions::PENDING_REQUESTS_FOR_RUN_SQL`'s predicate and `created_at ASC, id ASC` tie-break,
+/// generalised across projects (no `project_id` predicate, D-14) and inverted to one request per run
+/// by a correlated subselect. Only `blocked` runs: abandoned and awaiting-review work stays on the
+/// fleet (D-172), so a cold backlog can never bury a live block.
+pub const BLOCKED_QUEUE_SQL: &str = "SELECT pr.id, pr.tool_name, pr.input_payload, pr.created_at, \
+        pr.destructive_category, ar.id, ar.project_id, p.name, p.key_prefix, \
+        ar.task_id, t.key, t.title, ar.epic_id, e.key, ar.authoring_stage \
+    FROM permission_requests pr \
+    JOIN agent_runs ar ON ar.id = pr.agent_run_id \
+    JOIN projects p ON p.id = ar.project_id \
+    LEFT JOIN tasks t ON t.id = ar.task_id \
+    LEFT JOIN epics e ON e.id = ar.epic_id \
+    WHERE ar.status = 'blocked' AND pr.status = 'pending' \
+        AND pr.id = ( \
+            SELECT pr2.id FROM permission_requests pr2 \
+            WHERE pr2.agent_run_id = ar.id AND pr2.status = 'pending' \
+            ORDER BY pr2.created_at ASC, pr2.id ASC LIMIT 1) \
+    ORDER BY pr.created_at ASC, pr.id ASC \
+    LIMIT ?1";
+
+/// Every agent across every registered project currently blocked at a pending permission request,
+/// longest-waiting first, at most `limit` (clamped to [`BLOCKED_QUEUE_MAX_LIMIT`]). An empty
+/// database returns zero entries, never an error.
+pub fn blocked_queue(conn: &Connection, limit: usize) -> anyhow::Result<Vec<BlockedQueueEntry>> {
+    let limit = limit.min(BLOCKED_QUEUE_MAX_LIMIT) as i64;
+    let mut stmt = conn.prepare(BLOCKED_QUEUE_SQL)?;
+    let rows = stmt
+        .query_map(params![limit], |row| {
+            let task_id: Option<String> = row.get(9)?;
+            let epic_id: Option<String> = row.get(12)?;
+            let authoring_stage: Option<String> = row.get(14)?;
+            let created_at: String = row.get(3)?;
+            Ok(BlockedQueueEntry {
+                request_id: row.get(0)?,
+                tool_name: row.get(1)?,
+                input_payload: row.get(2)?,
+                blocked_since: created_at.clone(),
+                created_at,
+                destructive_category: row.get(4)?,
+                agent_run_id: row.get(5)?,
+                project_id: row.get(6)?,
+                project_name: row.get(7)?,
+                project_key_prefix: row.get(8)?,
+                subject_kind: subject_kind(&task_id, &epic_id, &authoring_stage),
+                task_id,
+                task_key: row.get(10)?,
+                task_title: row.get(11)?,
+                epic_id,
+                epic_key: row.get(13)?,
+                authoring_stage,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the blocked queue")?;
+    Ok(rows)
+}

@@ -13,7 +13,7 @@ use core::domain::epic::create_epic;
 use core::domain::project::{create_project, Project};
 use core::domain::task::create_task;
 use core::ids::new_id;
-use core::query::fleet::{fleet_rows, FleetSubjectKind, FLEET_ROWS_MAX_LIMIT};
+use core::query::fleet::{blocked_queue, fleet_rows, FleetSubjectKind, FLEET_ROWS_MAX_LIMIT};
 use rusqlite::{params, Connection};
 
 struct Fixture {
@@ -484,4 +484,103 @@ fn visible_cost_is_none_without_a_costed_row_and_the_exact_sum_otherwise() {
     let t4 = task(&mut f, &p.id, "t4", "in_progress");
     insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t4), status: "completed", started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), cost: Some(0.25), ..Default::default() });
     assert_eq!(fleet_rows(&f.conn, 50).unwrap().visible_cost_usd, Some(1.75));
+}
+
+// ---- FLEET-02 (10-05, D-172): the blocked queue ----
+
+/// `permission_requests.id` is CHECKed to 26 characters; right-pad so ids keep their sort order.
+fn rid(s: &str) -> String {
+    format!("{s:0<26}")
+}
+
+fn pending(f: &Fixture, project_id: &str, run: &str, request_id: &str, at: &str) {
+    let request_id = rid(request_id);
+    f.conn
+        .execute(
+            "INSERT INTO permission_requests (id, agent_run_id, project_id, tool_name, status, created_by, created_at)
+             VALUES (?1, ?2, ?3, 'Bash', 'pending', ?4, ?5)",
+            params![request_id, run, project_id, f.actor_id, at],
+        )
+        .unwrap();
+}
+
+#[test]
+fn the_queue_spans_projects_and_carries_each_project_name() {
+    let mut f = fixture();
+    let a = project(&mut f, "Alpha", "ALP");
+    let b = project(&mut f, "Beta", "BET");
+    let (ta, tb) = (trigger(&f, &a.id), trigger(&f, &b.id));
+    let blocked = Run { status: "blocked", started_at: "2026-01-01T00:00:00Z", ..Default::default() };
+    let ra = insert_run(&f, &a.id, &ta, &blocked);
+    let rb = insert_run(&f, &b.id, &tb, &blocked);
+    pending(&f, &a.id, &ra, "req-a", "2026-01-01T01:00:00Z");
+    pending(&f, &b.id, &rb, "req-b", "2026-01-01T02:00:00Z");
+    let q = blocked_queue(&f.conn, 50).unwrap();
+    assert_eq!(q.len(), 2);
+    assert_eq!((q[0].project_name.as_str(), q[0].request_id.as_str()), ("Alpha", rid("req-a").as_str()));
+    assert_eq!((q[1].project_name.as_str(), q[1].request_id.as_str()), ("Beta", rid("req-b").as_str()));
+    assert_eq!(q[0].tool_name, "Bash");
+    assert_eq!(q[0].agent_run_id, ra);
+}
+
+#[test]
+fn a_run_with_two_pending_requests_is_one_entry_carrying_the_earlier() {
+    let mut f = fixture();
+    let a = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &a.id);
+    let r = insert_run(&f, &a.id, &trig, &Run { status: "blocked", started_at: "2026-01-01T00:00:00Z", ..Default::default() });
+    pending(&f, &a.id, &r, "req-late", "2026-01-01T03:00:00Z");
+    pending(&f, &a.id, &r, "req-early", "2026-01-01T02:00:00Z");
+    let q = blocked_queue(&f.conn, 50).unwrap();
+    assert_eq!(q.len(), 1);
+    assert_eq!(q[0].request_id, rid("req-early"));
+}
+
+#[test]
+fn an_answered_request_does_not_appear() {
+    let mut f = fixture();
+    let a = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &a.id);
+    let r = insert_run(&f, &a.id, &trig, &Run { status: "blocked", started_at: "2026-01-01T00:00:00Z", ..Default::default() });
+    pending(&f, &a.id, &r, "req-1", "2026-01-01T02:00:00Z");
+    f.conn.execute("UPDATE permission_requests SET status = 'allowed'", []).unwrap();
+    assert!(blocked_queue(&f.conn, 50).unwrap().is_empty());
+}
+
+#[test]
+fn only_blocked_runs_are_queued_and_the_fleet_band_disagrees_where_d172_says() {
+    let mut f = fixture();
+    let a = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &a.id);
+    let t = task(&mut f, &a.id, "cold", "in_progress");
+    let abandoned = insert_run(&f, &a.id, &trig, &Run { task_id: Some(&t), status: "abandoned", started_at: "2026-01-01T00:00:00Z", ..Default::default() });
+    let t2 = task(&mut f, &a.id, "review", "in_review");
+    insert_run(&f, &a.id, &trig, &Run { task_id: Some(&t2), status: "completed", started_at: "2026-01-01T00:00:00Z", ended_at: Some("2026-01-01T01:00:00Z"), ..Default::default() });
+    insert_run(&f, &a.id, &trig, &Run { status: "running", started_at: "2026-01-01T00:00:00Z", ..Default::default() });
+    let fleet = fleet_rows(&f.conn, 50).unwrap();
+    assert!(ids(&fleet).contains(&abandoned), "the fleet's NEEDS YOU band holds the abandoned run");
+    assert!(blocked_queue(&f.conn, 50).unwrap().is_empty(), "the queue holds live blocks only");
+}
+
+#[test]
+fn ties_on_created_at_order_by_request_id_and_repeat_identically() {
+    let mut f = fixture();
+    let a = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &a.id);
+    let blocked = Run { status: "blocked", started_at: "2026-01-01T00:00:00Z", ..Default::default() };
+    let r1 = insert_run(&f, &a.id, &trig, &blocked);
+    let r2 = insert_run(&f, &a.id, &trig, &blocked);
+    pending(&f, &a.id, &r1, "req-z", "2026-01-01T02:00:00Z");
+    pending(&f, &a.id, &r2, "req-a", "2026-01-01T02:00:00Z");
+    let first = blocked_queue(&f.conn, 50).unwrap();
+    let second = blocked_queue(&f.conn, 50).unwrap();
+    let order: Vec<&str> = first.iter().map(|e| e.request_id.as_str()).collect();
+    assert_eq!(order, vec![rid("req-a").as_str(), rid("req-z").as_str()]);
+    assert_eq!(first, second);
+}
+
+#[test]
+fn an_empty_database_has_an_empty_queue() {
+    let f = fixture();
+    assert!(blocked_queue(&f.conn, 50).unwrap().is_empty());
 }

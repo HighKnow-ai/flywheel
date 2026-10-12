@@ -237,6 +237,7 @@ fn main() {
             commands::forge::board_forge_flags,
             commands::change_flags::board_change_flags,
             commands::fleet::fleet_list,
+            commands::fleet::fleet_blocked_queue,
             commands::forge::settings_set_project_forge,
             commands::forge::project_forge_overrides,
             commands::forge::forge_request_draft,
