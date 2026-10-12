@@ -867,3 +867,83 @@ pub fn worktree_size_limited(path: &Path, max_entries: usize, max_depth: usize) 
     }
     Ok(WalkSize { bytes, bounded })
 }
+
+// ---------------------------------------------------------------------------------------------
+// The batch reclaim (Phase 10 plan 10-09, WORK-07, D-179).
+// ---------------------------------------------------------------------------------------------
+
+/// What happened to one selected worktree. `removed` is the only claim of success; a refusal names
+/// its basis in `reason` (an eligibility refusal) or `error` (the removal itself failed, a timeout
+/// at the subprocess ceiling included), and a worktree that was removed carries the reason it was
+/// reclaimable. `error` is `None` unless the removal or the lookup failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReclaimOutcome {
+    pub task_id: String,
+    pub removed: bool,
+    pub reason: Option<ReclaimReason>,
+    pub error: Option<String>,
+}
+
+/// Reclaim the named task worktrees, one outcome per distinct id, in submitted order.
+///
+/// Per row, the disposition is re-derived NOW -- from the board and from git, through
+/// [`crate::query::fleet::finish_worktree_inventory`], which applies [`reclaim_eligibility`], the
+/// same function the inventory list uses -- so a selection that went stale between the list and this
+/// call (an agent started in the worktree, the tree was edited) is refused, not obeyed. Only a
+/// `Reclaimable` row reaches [`remove_worktree_for_task`], which is called UNCHANGED: its own
+/// `git status --porcelain` re-read stays the final guard, and **no parameter exists here or there
+/// that could skip it**. Do not add a `force` flag.
+///
+/// One refusal never fails the batch: every failure is recorded as that row's outcome and the loop
+/// goes on, which is why this returns a vector and not a `Result`.
+///
+/// This holds no lock of its own, but `remove_worktree_for_task` runs `git worktree remove` on
+/// whatever `conn` it is given, so the caller must pass a connection that is NOT behind the
+/// application's shared mutex.
+pub fn reclaim_worktrees(conn: &mut Connection, task_ids: &[String], actor_id: &str) -> Vec<ReclaimOutcome> {
+    let mut seen = std::collections::HashSet::new();
+    let mut outcomes = Vec::new();
+    for task_id in task_ids {
+        if !seen.insert(task_id.as_str()) {
+            continue;
+        }
+        let failed = |error: String| ReclaimOutcome {
+            task_id: task_id.clone(),
+            removed: false,
+            reason: None,
+            error: Some(error),
+        };
+        let input = match crate::query::fleet::worktree_inventory_input_for_task(conn, task_id) {
+            Ok(Some(input)) => input,
+            Ok(None) => {
+                outcomes.push(failed(format!("no worktree exists for task {task_id:?}")));
+                continue;
+            }
+            Err(e) => {
+                outcomes.push(failed(format!("{e:#}")));
+                continue;
+            }
+        };
+        let disposition = match crate::query::fleet::finish_worktree_inventory(vec![input]).pop() {
+            Some(row) => row.disposition,
+            None => {
+                outcomes.push(failed("the worktree could not be evaluated".to_string()));
+                continue;
+            }
+        };
+        let ReclaimDisposition::Reclaimable(reason) = disposition else {
+            outcomes.push(ReclaimOutcome {
+                task_id: task_id.clone(),
+                removed: false,
+                reason: Some(disposition.reason()),
+                error: None,
+            });
+            continue;
+        };
+        outcomes.push(match remove_worktree_for_task(conn, task_id, actor_id) {
+            Ok(()) => ReclaimOutcome { task_id: task_id.clone(), removed: true, reason: Some(reason), error: None },
+            Err(e) => failed(format!("{e:#}")),
+        });
+    }
+    outcomes
+}

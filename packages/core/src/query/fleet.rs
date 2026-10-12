@@ -24,7 +24,7 @@
 use std::path::Path;
 
 use anyhow::Context;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::domain::worktree::{porcelain_entries, reclaim_eligibility, ReclaimDisposition};
 use crate::merge::{integrated_merge_commit, merge_commit_is_reachable};
@@ -334,18 +334,68 @@ pub struct WorktreeInventoryRow {
     pub disposition: ReclaimDisposition,
 }
 
-/// The inventory statement. Size descending (never-measured last: SQLite sorts NULL lowest), task
-/// key ascending as the tie-break, then the worktree id so two reads are byte-identical.
-pub const WORKTREE_INVENTORY_SQL: &str = "SELECT t.id, t.key, t.title, t.status, p.id, p.name, p.status, \
+/// The SELECT and joins shared by the inventory and by the single-row re-read the reclaim batch
+/// makes (plan 10-09), so the live-run clause that makes a stale selection harmless has exactly one
+/// definition. A macro rather than a `const` because `concat!` only accepts literals.
+macro_rules! worktree_inventory_select {
+    () => {
+        "SELECT t.id, t.key, t.title, t.status, p.id, p.name, p.status, \
         p.repo_path, w.path, w.branch, e.integration_branch, w.size_bytes, w.size_measured_at, \
         (SELECT ar.status FROM agent_runs ar WHERE ar.task_id = t.id AND ar.status IN ('running', 'blocked') \
             ORDER BY ar.status ASC LIMIT 1) \
     FROM worktrees w \
     JOIN tasks t ON t.id = w.task_id \
     JOIN projects p ON p.id = w.project_id \
-    LEFT JOIN epics e ON e.id = t.epic_id \
-    ORDER BY w.size_bytes DESC, t.key ASC, w.id ASC \
-    LIMIT ?1";
+    LEFT JOIN epics e ON e.id = t.epic_id"
+    };
+}
+
+/// The inventory statement. Size descending (never-measured last: SQLite sorts NULL lowest), task
+/// key ascending as the tie-break, then the worktree id so two reads are byte-identical.
+pub const WORKTREE_INVENTORY_SQL: &str =
+    concat!(worktree_inventory_select!(), " ORDER BY w.size_bytes DESC, t.key ASC, w.id ASC LIMIT ?1");
+
+const WORKTREE_INVENTORY_ONE_SQL: &str = concat!(worktree_inventory_select!(), " WHERE t.id = ?1");
+
+fn inventory_input_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorktreeInventoryInput> {
+    Ok(WorktreeInventoryInput {
+        task_id: row.get(0)?,
+        task_key: row.get(1)?,
+        task_title: row.get(2)?,
+        task_status: row.get(3)?,
+        project_id: row.get(4)?,
+        project_name: row.get(5)?,
+        project_status: row.get(6)?,
+        repo_path: row.get(7)?,
+        path: row.get(8)?,
+        branch: row.get(9)?,
+        integration_branch: row.get(10)?,
+        merge_commit: None,
+        size_bytes: row.get(11)?,
+        size_measured_at: row.get(12)?,
+        live_run_status: row.get(13)?,
+    })
+}
+
+/// The board half for ONE task, read fresh: `None` when the task has no worktree row. Plan 10-09's
+/// reclaim calls this per row, at the moment it acts, so a selection made against an earlier read
+/// is judged against what is true now.
+pub fn worktree_inventory_input_for_task(
+    conn: &Connection,
+    task_id: &str,
+) -> anyhow::Result<Option<WorktreeInventoryInput>> {
+    let input = conn
+        .query_row(WORKTREE_INVENTORY_ONE_SQL, params![task_id], inventory_input_from_row)
+        .optional()
+        .context("failed to read one worktree for reclaim")?;
+    match input {
+        Some(mut input) => {
+            input.merge_commit = integrated_merge_commit(conn, &input.task_id)?;
+            Ok(Some(input))
+        }
+        None => Ok(None),
+    }
+}
 
 /// The board half: every task worktree across every project, at most `limit` (clamped to
 /// [`WORKTREE_INVENTORY_MAX_LIMIT`]). Takes only a `&Connection` and spawns no process, so it is
@@ -355,25 +405,7 @@ pub fn worktree_inventory_inputs(conn: &Connection, limit: usize) -> anyhow::Res
     let limit = limit.min(WORKTREE_INVENTORY_MAX_LIMIT) as i64;
     let mut stmt = conn.prepare(WORKTREE_INVENTORY_SQL)?;
     let mut inputs = stmt
-        .query_map(params![limit], |row| {
-            Ok(WorktreeInventoryInput {
-                task_id: row.get(0)?,
-                task_key: row.get(1)?,
-                task_title: row.get(2)?,
-                task_status: row.get(3)?,
-                project_id: row.get(4)?,
-                project_name: row.get(5)?,
-                project_status: row.get(6)?,
-                repo_path: row.get(7)?,
-                path: row.get(8)?,
-                branch: row.get(9)?,
-                integration_branch: row.get(10)?,
-                merge_commit: None,
-                size_bytes: row.get(11)?,
-                size_measured_at: row.get(12)?,
-                live_run_status: row.get(13)?,
-            })
-        })?
+        .query_map(params![limit], inventory_input_from_row)?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the worktree inventory")?;
     // ponytail: one small indexed read per row (at most the window); fold into the statement with

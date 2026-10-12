@@ -364,6 +364,80 @@ pub async fn worktree_measure(
     Ok(out)
 }
 
+/// The server-side cap on one reclaim batch (T-10-09-04). Refuses an oversized list as a whole.
+pub const RECLAIM_BATCH_CAP: usize = 50;
+
+/// One selected worktree's outcome (WORK-07, D-179). `removed` is the only success claim; a refused
+/// row carries `reason` (a closed `ReclaimReason` word: it was not, or no longer is, reclaimable)
+/// or `error` (it was reclaimable but the removal itself failed, or the id named nothing).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReclaimOutcomeDto {
+    pub task_id: String,
+    pub removed: bool,
+    pub reason: Option<String>,
+    pub error: Option<String>,
+}
+
+impl From<flywheel_core::domain::worktree::ReclaimOutcome> for ReclaimOutcomeDto {
+    fn from(o: flywheel_core::domain::worktree::ReclaimOutcome) -> Self {
+        Self {
+            task_id: o.task_id,
+            removed: o.removed,
+            reason: o.reason.map(|r| r.as_str().to_string()),
+            error: o.error,
+        }
+    }
+}
+
+/// Refuses a batch longer than [`RECLAIM_BATCH_CAP`] before anything is removed.
+fn check_reclaim_batch(len: usize) -> Result<(), String> {
+    if len > RECLAIM_BATCH_CAP {
+        return Err(format!("worktree_reclaim refused: {len} worktrees selected, at most {RECLAIM_BATCH_CAP} at a time"));
+    }
+    Ok(())
+}
+
+/// Reclaim the named task worktrees (WORK-07, D-179). Takes task ids and NOTHING else: no path, ref,
+/// sha, actor, and no parameter of any kind that could skip a guard. Per row, the core re-derives
+/// eligibility with the inventory's own function (so a selection that went stale is refused) and
+/// then calls the unchanged `remove_worktree_for_task`, whose own `git status --porcelain` re-read
+/// remains the final guard. Results are per row; one refusal never fails the batch.
+///
+/// Unlike the synchronous `worktree_remove`, this never holds the shared database mutex across a
+/// git call and never runs on the IPC thread: the mutex is taken only to resolve the actor, then
+/// the batch runs on the blocking pool over a connection of its own (WAL plus `busy_timeout`).
+#[tauri::command(async)]
+pub async fn worktree_reclaim(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    task_ids: Vec<String>,
+) -> Result<Vec<ReclaimOutcomeDto>, String> {
+    check_reclaim_batch(task_ids.len())?;
+
+    let actor = {
+        let conn = state.db.lock().map_err(|e| ipc_error("worktree_reclaim:lock", e))?;
+        let actor = flywheel_core::domain::actor::local_human_actor_id(&conn)
+            .map_err(|e| ipc_error("worktree_reclaim:actor", e));
+        // Released explicitly: nothing below may run with the database mutex held.
+        drop(conn);
+        actor?
+    };
+    let db_path = flywheel_core::db::default_db_path().map_err(|e| ipc_error("worktree_reclaim:open", e))?;
+
+    let outcomes = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Vec<_>> {
+        let mut conn = rusqlite::Connection::open(&db_path)?;
+        flywheel_core::db::apply_pragmas(&conn)?;
+        Ok(flywheel_core::domain::worktree::reclaim_worktrees(&mut conn, &task_ids, &actor))
+    })
+    .await
+    .map_err(|e| ipc_error("worktree_reclaim:join", e))?
+    .map_err(|e| ipc_error("worktree_reclaim:git", e))?;
+
+    let _ = tauri::Emitter::emit(&app, "board:changed", serde_json::json!({ "entity": "worktree" }));
+    Ok(outcomes.into_iter().map(ReclaimOutcomeDto::from).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,5 +535,12 @@ mod tests {
         let mut rows = vec![row("a", "running")];
         attach_activity(&mut rows, |_| Ok(LogTail { lines: Vec::new(), truncated: true }));
         assert!(rows[0].activity.truncated);
+    }
+
+    #[test]
+    fn a_reclaim_batch_over_the_cap_is_refused_whole_and_one_at_the_cap_is_not() {
+        assert!(check_reclaim_batch(0).is_ok());
+        assert!(check_reclaim_batch(RECLAIM_BATCH_CAP).is_ok());
+        assert!(check_reclaim_batch(RECLAIM_BATCH_CAP + 1).is_err());
     }
 }

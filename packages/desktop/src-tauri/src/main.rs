@@ -248,6 +248,7 @@ fn main() {
             commands::fleet::fleet_watch_run,
             commands::fleet::worktree_inventory,
             commands::fleet::worktree_measure,
+            commands::fleet::worktree_reclaim,
             commands::settings::settings_set_notifications_enabled,
             commands::forge::settings_set_project_forge,
             commands::forge::project_forge_overrides,

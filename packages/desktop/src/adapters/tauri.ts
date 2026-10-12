@@ -1452,6 +1452,24 @@ export async function worktreeMeasure(taskIds?: string[]): Promise<WorktreeMeasu
 }
 
 /**
+ * One selected worktree's outcome (plan 10-09, WORK-07, D-179) — mirrors `commands/fleet.rs`'s
+ * `ReclaimOutcomeDto`. `removed` is the only success claim. A refused row carries `reason` (it was not,
+ * or no longer is, reclaimable) or `error` (the removal itself failed, or the id named no worktree).
+ */
+export interface ReclaimOutcomeDto {
+  taskId: string;
+  removed: boolean;
+  reason: InventoryReason | null;
+  error: string | null;
+}
+
+/** Reclaim the named worktrees. Ids only: no path, ref, actor, and no way to skip a guard. The core
+ * re-derives each row's eligibility itself, so this selection is advisory. At most 50 per call. */
+export async function worktreeReclaim(taskIds: string[]): Promise<ReclaimOutcomeDto[]> {
+  return invokeCommand<ReclaimOutcomeDto[]>("worktree_reclaim", { taskIds });
+}
+
+/**
  * One epic's roll-up for the roster (Phase 8.1 plan 05, D-05/D-06) — mirrors
  * `commands/board.rs`'s `EpicProgressDto` field-for-field. `epicId: null` is the "No epic" bucket.
  * `criteria: null` means the epic's tasks carry no criteria at all, which is NOT the same as
