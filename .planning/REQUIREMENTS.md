@@ -75,7 +75,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [ ] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
 - [x] **AGNT-06**: Permission requests raised by a running agent surface to the user and block that agent until answered
 - [x] **AGNT-07**: Destructive actions (force-push, branch deletion, recursive delete) always require explicit confirmation, even when the session is running in an auto-accept permission mode
-- [ ] **AGNT-08**: The adapter reports token usage and cost per session
+- [x] **AGNT-08**: The adapter reports token usage and cost per session
 
 ### Context Reconstitution
 
@@ -118,7 +118,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Fleet Supervision
 
-- [ ] **FLEET-01**: User can see, in one view, every agent running across every registered project and what each is doing
+- [x] **FLEET-01**: User can see, in one view, every agent running across every registered project and what each is doing
 - [ ] **FLEET-02**: A dedicated queue shows every agent currently blocked and waiting on a human, across all projects
 - [ ] **FLEET-03**: User can jump from any fleet entry directly to that agent's live output and its board item
 - [x] **FLEET-04**: The fleet view distinguishes running, blocked, finished-awaiting-review, and failed states at a glance
@@ -270,7 +270,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | AGNT-05 | Phase 9 | Deferred — gate implemented and unit-tested; a real hard rate limit against a live account was never observed (09-VERIFICATION.md, DEFERRED-REVIEW.md) |
 | AGNT-06 | Phase 2 | Complete |
 | AGNT-07 | Phase 3 | Complete |
-| AGNT-08 | Phase 10 | Pending |
+| AGNT-08 | Phase 10 | Complete |
 | CTX-01 | Phase 4 | Complete |
 | CTX-02 | Phase 4 | Complete |
 | CTX-03 | Phase 4 | Complete |
@@ -298,7 +298,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PLAN-05 | Phase 9 | Complete |
 | PLAN-06 | Phase 9 | Complete |
 | PLAN-07 | Phase 9 | Complete |
-| FLEET-01 | Phase 10 | Pending |
+| FLEET-01 | Phase 10 | Complete |
 | FLEET-02 | Phase 10 | Pending |
 | FLEET-03 | Phase 10 | Pending |
 | FLEET-04 | Phase 10 | Complete |

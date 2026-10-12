@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 10
 current_phase_name: Fleet Supervision Across Every Project
 status: executing
-stopped_at: Completed 10-03-PLAN.md
-last_updated: "2026-10-12T05:04:23.643Z"
+stopped_at: Completed 10-04-PLAN.md
+last_updated: "2026-10-12T05:17:45.566Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 10 execution started
-state_head: 4822089667e4066bee1975d9a755e25f1d1dd81c
+state_head: 6eec9114a6106374341879abab77e7b8f696eba0
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 228
-  completed_plans: 222
+  completed_plans: 223
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 10 (Fleet Supervision Across Every Project) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 10 execution started
 
@@ -284,6 +284,7 @@ Progress: [░░░░░░░░░░] 0% — 11 of 13 phases complete (219/
 | Phase 10 P01 | 24min | 3 tasks | 26 files |
 | Phase 10 P02 | 20 min | 3 tasks | 5 files |
 | Phase 10 P03 | 35 min | 2 tasks | 9 files |
+| Phase 10 P04 | 25 min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -661,6 +662,7 @@ Recent decisions affecting current work:
 - [Phase 10]: 10-02: deadline race closed by reading the clock before the exit check (one try_wait); normaliseStreamEvents emits one event per text/tool_use block, sequence numbers claimed in emitStreamEvents; forge resolution failures memoised per tick
 - [Phase 10]: 10-03: one throttled app-level agent:event listener (invalidation only, 1000 ms trailing edge) added beside board:changed; deliberate D-171 deviation
 - [Phase 10]: 10-03: activity line is 80 chars with tail ellipsis; LOG_TAIL_MAX_BYTES 256 KiB; fleet_list is async+spawn_blocking (read_tail ~1 ms/call)
+- [Phase 10]: 10-04: acknowledge_run takes no actor (the statement appends no event); Dismiss is a button with no key until plan 10-06 adds row selection; moving a task to Done does not clear its fleet row
 
 ### Pending Todos
 
@@ -722,6 +724,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T05:04:23.457Z
-Stopped at: Completed 10-03-PLAN.md
+Last session: 2026-10-12T05:17:45.375Z
+Stopped at: Completed 10-04-PLAN.md
 Resume file: None
