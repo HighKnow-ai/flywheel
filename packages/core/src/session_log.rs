@@ -213,3 +213,17 @@ pub fn read_window(agent_run_id: &str, offset: usize, limit: usize) -> anyhow::R
 
     Ok(LogWindow { entries, offset, limit: effective_limit, total })
 }
+
+pub const LOG_TAIL_MAX_BYTES: usize = 256 * 1024;
+pub const LOG_TAIL_MAX_LINES: usize = 16;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LogTail {
+    pub lines: Vec<String>,
+    pub truncated: bool,
+}
+
+pub fn read_tail(agent_run_id: &str) -> anyhow::Result<LogTail> {
+    session_log_path(agent_run_id)?;
+    Ok(LogTail::default())
+}
