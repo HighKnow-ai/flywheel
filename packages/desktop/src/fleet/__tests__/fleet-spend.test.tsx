@@ -190,6 +190,34 @@ describe("dismiss", () => {
     expect(acknowledgeManyMock).toHaveBeenCalledWith(["f1", "c1"]);
   });
 
+  it("says so when a single Dismiss fails instead of leaving the row with no message", async () => {
+    acknowledgeMock.mockRejectedValueOnce(new Error("database is locked"));
+    fleetListMock.mockResolvedValue(list([failed("one")]));
+    const { container } = renderFleet();
+    await screen.findByText("Dismiss");
+    fireEvent.click(container.querySelector('[data-run-id="one"] [data-field="dismiss"] button') as HTMLElement);
+    expect((await screen.findByRole("status")).textContent).toMatch(/Could not dismiss/);
+  });
+
+  it("reports how many runs a batch dismiss could not write, and nothing for a benign no-op", async () => {
+    fleetListMock.mockResolvedValue(list([failed("f1"), completed("c1")]));
+    acknowledgeManyMock.mockResolvedValueOnce([
+      { agentRunId: "f1", acknowledged: false, error: null }, // already acknowledged: not a failure
+      { agentRunId: "c1", acknowledged: false, error: "database is locked" },
+    ]);
+    renderFleet();
+    fireEvent.click(await screen.findByText("Dismiss finished"));
+    expect((await screen.findByRole("status")).textContent).toBe("Could not dismiss 1 of 2 runs.");
+  });
+
+  it("says so when the whole batch is refused", async () => {
+    fleetListMock.mockResolvedValue(list([failed("f1")]));
+    acknowledgeManyMock.mockRejectedValueOnce("refused: too many");
+    renderFleet();
+    fireEvent.click(await screen.findByText("Dismiss finished"));
+    expect((await screen.findByRole("status")).textContent).toMatch(/Could not dismiss/);
+  });
+
   it("is offered on the DONE / FAILED band only", async () => {
     fleetListMock.mockResolvedValue(list([row({ agentRunId: "live" })]));
     renderFleet();

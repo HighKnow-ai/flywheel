@@ -624,14 +624,17 @@ export async function acknowledgeAgentRun(agentRunId: string): Promise<void> {
   await invokeCommand<void>("agent_run_acknowledge", { agentRunId });
 }
 
-/** One id's outcome of a batch acknowledge; `acknowledged: false` covers an unknown, live or
- * already-acknowledged run, and never fails the rest of the batch. */
+/** One id's outcome of a batch acknowledge; `acknowledged: false` with no `error` covers an unknown,
+ * live or already-acknowledged run, and never fails the rest of the batch. `error` is set when the
+ * write itself failed, which is not the same as there being nothing to dismiss. */
 export interface AcknowledgeResultDto {
   agentRunId: string;
   acknowledged: boolean;
+  error?: string | null;
 }
 
-/** The fleet's "Dismiss finished" action (plan 10-04): ids only, capped server-side. */
+/** The fleet's "Dismiss finished" action (plan 10-04): ids only. A list longer than the server-side
+ * cap is refused as a whole, so the promise rejects rather than dismissing part of it. */
 export async function agentRunAcknowledgeMany(agentRunIds: string[]): Promise<AcknowledgeResultDto[]> {
   return invokeCommand<AcknowledgeResultDto[]>("agent_run_acknowledge_many", { agentRunIds });
 }

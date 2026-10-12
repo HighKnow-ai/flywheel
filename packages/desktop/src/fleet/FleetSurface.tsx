@@ -300,6 +300,7 @@ export function FleetRowView({
   const pulsing = state === "running" && !prefersReducedMotion();
   const subject = subjectLabel(row);
   const age = formatAge(ageSince(row, state), now);
+  const [dismissFailed, setDismissFailed] = useState(false);
 
   return (
     <div
@@ -360,6 +361,11 @@ export function FleetRowView({
         {age}
       </span>
       <span data-field="dismiss" style={{ textAlign: "right" }}>
+        {dismissFailed && (
+          <span role="status" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+            Could not dismiss.{" "}
+          </span>
+        )}
         {isTerminalRun(row) && (
           <button
             type="button"
@@ -368,7 +374,8 @@ export function FleetRowView({
             onClick={(event: MouseEvent) => {
               // Its own act: a click here must not also bubble into the row and open the session.
               event.stopPropagation();
-              void acknowledgeAgentRun(row.agentRunId).catch(() => {});
+              setDismissFailed(false);
+              void acknowledgeAgentRun(row.agentRunId).catch(() => setDismissFailed(true));
             }}
           >
             Dismiss
@@ -394,6 +401,7 @@ export function FleetBand({
   onOpenSession?: (row: FleetRowDto) => void;
   onOpenSubject?: (row: FleetRowDto) => void;
 }) {
+  const [dismissNotice, setDismissNotice] = useState<string | null>(null);
   return (
     <section data-band={band.id} aria-label={band.header}>
       <div
@@ -411,15 +419,29 @@ export function FleetBand({
           {band.header}
         </h2>
         {band.id === "done-failed" && (
-          <button
-            type="button"
-            className="type-label"
-            onClick={() =>
-              void agentRunAcknowledgeMany(rows.filter(isTerminalRun).map((r) => r.agentRunId)).catch(() => {})
-            }
-          >
-            Dismiss finished
-          </button>
+          <span>
+            {dismissNotice && (
+              <span role="status" className="type-label" style={{ marginRight: "var(--space-sm)" }}>
+                {dismissNotice}
+              </span>
+            )}
+            <button
+              type="button"
+              className="type-label"
+              onClick={() => {
+                setDismissNotice(null);
+                void agentRunAcknowledgeMany(rows.filter(isTerminalRun).map((r) => r.agentRunId))
+                  .then((results) => {
+                    // A write that failed is not "nothing to dismiss": only an `error` is reported.
+                    const failed = results.filter((r) => r.error).length;
+                    if (failed > 0) setDismissNotice(`Could not dismiss ${failed} of ${results.length} runs.`);
+                  })
+                  .catch(() => setDismissNotice("Could not dismiss the finished runs."));
+              }}
+            >
+              Dismiss finished
+            </button>
+          </span>
         )}
       </div>
       <div role="list">

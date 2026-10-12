@@ -2055,12 +2055,36 @@ pub fn agent_run_acknowledge(
 const ACKNOWLEDGE_MANY_CAP: usize = 200;
 
 /// One id's outcome in [`agent_run_acknowledge_many`]. `acknowledged` is false for an unknown id,
-/// a live run, an already-acknowledged run, or a failed write — the batch never aborts on one.
+/// a live run or an already-acknowledged run -- all of them benign -- and `error` is set, with
+/// `acknowledged` false, when the write itself failed (locked database, I/O), so a failed dismiss
+/// is never mistaken for "nothing to do". The batch never aborts on one id.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcknowledgeResultDto {
     pub agent_run_id: String,
     pub acknowledged: bool,
+    pub error: Option<String>,
+}
+
+/// Acknowledge each id through [`flywheel_core::domain::agent_run::acknowledge_run`]. A list longer
+/// than [`ACKNOWLEDGE_MANY_CAP`] is refused as a whole, before anything is written, as the reclaim
+/// batch is -- never silently truncated.
+fn acknowledge_many(conn: &Connection, agent_run_ids: Vec<String>) -> Result<Vec<AcknowledgeResultDto>, String> {
+    if agent_run_ids.len() > ACKNOWLEDGE_MANY_CAP {
+        return Err(format!(
+            "agent_run_acknowledge_many refused: {} runs named, at most {ACKNOWLEDGE_MANY_CAP} at a time",
+            agent_run_ids.len()
+        ));
+    }
+    Ok(agent_run_ids
+        .into_iter()
+        .map(|agent_run_id| {
+            match flywheel_core::domain::agent_run::acknowledge_run(conn, &agent_run_id) {
+                Ok(acknowledged) => AcknowledgeResultDto { agent_run_id, acknowledged, error: None },
+                Err(e) => AcknowledgeResultDto { agent_run_id, acknowledged: false, error: Some(format!("{e:#}")) },
+            }
+        })
+        .collect())
 }
 
 /// The fleet's "Dismiss finished" action: acknowledge each id through the same single statement as
@@ -2073,20 +2097,12 @@ pub fn agent_run_acknowledge_many(
     agent_run_ids: Vec<String>,
 ) -> Result<Vec<AcknowledgeResultDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let results: Vec<AcknowledgeResultDto> = agent_run_ids
-        .into_iter()
-        .take(ACKNOWLEDGE_MANY_CAP)
-        .map(|agent_run_id| {
-            let acknowledged =
-                flywheel_core::domain::agent_run::acknowledge_run(&conn, &agent_run_id).unwrap_or(false);
-            AcknowledgeResultDto { agent_run_id, acknowledged }
-        })
-        .collect();
+    let results = acknowledge_many(&conn, agent_run_ids);
     drop(conn);
 
     app.emit("board:changed", serde_json::json!({ "entity": "agent_run" })).ok();
 
-    Ok(results)
+    results
 }
 
 /// A task's worktree summary line (02-UI-SPEC.md "Worktree summary") — mirrors
@@ -2655,6 +2671,43 @@ mod tests {
         assert_eq!(t.run_id, run_id);
         assert_eq!(t.project_name, "Test Project");
         assert_eq!(t.tool, Some("Bash".to_string()));
+    }
+
+    // --- WR-09: the batch acknowledge never hides truncation or a failed write ------------------
+
+    #[test]
+    fn acknowledge_many_refuses_an_over_cap_list_as_a_whole_and_writes_nothing() {
+        let (conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        conn.execute("UPDATE agent_runs SET status = 'completed', ended_at = started_at WHERE id = ?1", [&run_id])
+            .unwrap();
+        let mut ids = vec![run_id.clone()];
+        ids.extend((0..ACKNOWLEDGE_MANY_CAP).map(|n| format!("no-such-run-{n}")));
+        assert!(ids.len() > ACKNOWLEDGE_MANY_CAP);
+
+        let err = acknowledge_many(&conn, ids).expect_err("an oversize list is refused");
+
+        assert!(err.contains("refused"), "{err}");
+        let ack: Option<String> =
+            conn.query_row("SELECT acknowledged_at FROM agent_runs WHERE id = ?1", [&run_id], |r| r.get(0)).unwrap();
+        assert_eq!(ack, None, "nothing may be written when the list is refused");
+    }
+
+    #[test]
+    fn acknowledge_many_tells_an_unknown_id_from_a_write_error_and_acknowledges_the_rest() {
+        let (conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        conn.execute("UPDATE agent_runs SET status = 'completed', ended_at = started_at WHERE id = ?1", [&run_id])
+            .unwrap();
+
+        let results = acknowledge_many(&conn, vec![run_id.clone(), "no-such-run".to_string()]).unwrap();
+        assert!(results[0].acknowledged && results[0].error.is_none());
+        assert!(!results[1].acknowledged && results[1].error.is_none(), "unknown is benign, not an error");
+
+        // A real write failure: the table the statement targets is gone.
+        conn.execute_batch("DROP INDEX IF EXISTS idx_agent_runs_fleet; ALTER TABLE agent_runs RENAME TO agent_runs_gone;")
+            .unwrap();
+        let results = acknowledge_many(&conn, vec![run_id]).unwrap();
+        assert!(!results[0].acknowledged);
+        assert!(results[0].error.is_some(), "a failed write must carry its error");
     }
 
     #[test]
