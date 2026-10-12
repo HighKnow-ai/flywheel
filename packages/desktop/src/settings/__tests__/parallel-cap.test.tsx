@@ -41,6 +41,7 @@ function settingsFixture(maxParallel: number, occupiedSlots: number): SettingsDt
     apiKeyConfigured: false,
     apiKeyConfiguredAt: null,
     dispatchCap: { maxParallel, occupiedSlots },
+    notificationsEnabled: true,
   };
 }
 

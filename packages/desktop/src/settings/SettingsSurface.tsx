@@ -58,6 +58,7 @@ import {
   type WorktreeOpenSurface,
 } from "../adapters/tauri";
 import { useProjects } from "../board/useBoardQuery";
+import { NotificationsControl } from "./NotificationsControl";
 import { PermissionRulesTable } from "./PermissionRulesTable";
 import "../styles/admin-surfaces.css";
 
@@ -560,6 +561,18 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
               Parallel Agents
             </span>
             <ParallelCapControl settings={settings} />
+          </section>
+        )}
+
+        {!loading && settings && (
+          <section className="admin-section">
+            <span className="type-body admin-section-label">
+              Notifications
+            </span>
+            <NotificationsControl
+              settings={settings}
+              onChanged={() => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY })}
+            />
           </section>
         )}
 
