@@ -2,7 +2,15 @@
  * The worktree inventory (Phase 10 plan 10-08, WORK-07, D-177/D-178): every task worktree across every
  * registered project with how much disk it uses, how old that figure is, and a chip plus a named reason
  * for what can be done with it. Pushed into the shell and popped back out of like the fleet surface;
- * `App.tsx` mounts it. It is READ-ONLY: the multi-select and the reclaim batch are plan 10-09's.
+ * `App.tsx` mounts it.
+ *
+ * Plan 10-09 (WORK-07, D-179) adds the reclaim: a checkbox on RECLAIMABLE rows only (an in-use or keep
+ * row renders none, not a disabled one), a bar naming the count and the total bytes of the selection,
+ * one confirmation, and a per-row result list. There is deliberately no select-all and no
+ * reclaim-everything action: D-179 rejected it by name, because there would be no way to keep one. The
+ * selection is ADVISORY. The core re-derives every row's eligibility when it acts, so a row an agent
+ * started in since the list was read comes back refused and the view shows exactly that; the list is
+ * refetched afterwards rather than edited locally, so what stays on screen is the server's current truth.
  *
  * The Rust core derives the disposition and its reason (`reclaim_eligibility`) and orders the list
  * (size descending, task key ascending); this file only renders them. A size is the core's cached
@@ -15,14 +23,24 @@
  * same root but has no `worktrees` row (`task_id` is unique and not null), so it cannot appear here; the
  * empty state says so rather than letting the user conclude the directories are gone.
  */
-import { useState, type ComponentType } from "react";
+import { useRef, useState, type ComponentType } from "react";
+import { createPortal } from "react-dom";
 import * as icons from "lucide-react";
+import { FocusScope } from "@radix-ui/react-focus-scope";
+import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useQueryClient } from "@tanstack/react-query";
-import { worktreeMeasure, type WorktreeInventoryRowDto, type InventoryReason } from "../adapters/tauri";
+import {
+  worktreeMeasure,
+  worktreeReclaim,
+  type InventoryReason,
+  type ReclaimOutcomeDto,
+  type WorktreeInventoryRowDto,
+} from "../adapters/tauri";
 import { MARKS_BY_ID } from "../legend/marks";
 import { formatAge } from "../legend/runStatus";
 import { useWorktreeInventory, worktreeInventoryQueryKey } from "./useFleet";
 import "../styles/admin-surfaces.css";
+import "../styles/states-and-confirms.css";
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
@@ -80,6 +98,162 @@ export function formatMeasuredAge(measuredAtIso: string, nowMs: number): string 
   return `measured ${formatAge(measuredAtIso, nowMs)} ago`;
 }
 
+/** The most worktrees one reclaim call may carry. The core refuses a longer list as a whole. */
+export const RECLAIM_BATCH_CAP = 50;
+
+/** One line of the result list: a snapshot of what the row was called when it was submitted, since a
+ * removed row is gone from the refetched list. */
+interface ResultLine {
+  label: string;
+  outcome: ReclaimOutcomeDto;
+}
+
+/** The sum of the measured sizes, and how many selected rows have no measurement. An unmeasured size
+ * is absent, never zero, so the total says how many it leaves out. */
+function selectionTotal(rows: WorktreeInventoryRowDto[]): { bytes: number; unmeasured: number } {
+  let bytes = 0;
+  let unmeasured = 0;
+  for (const r of rows) {
+    if (r.sizeBytes == null) unmeasured += 1;
+    else bytes += r.sizeBytes;
+  }
+  return { bytes, unmeasured };
+}
+
+function totalWords({ bytes, unmeasured }: { bytes: number; unmeasured: number }, count: number): string {
+  if (unmeasured === count) return "size not measured";
+  return unmeasured === 0 ? formatBytes(bytes) : `${formatBytes(bytes)} measured, ${unmeasured} not measured`;
+}
+
+function worktreesWord(count: number): string {
+  return `${count} ${count === 1 ? "worktree" : "worktrees"}`;
+}
+
+function outcomeWords(o: ReclaimOutcomeDto): string {
+  if (o.removed) return "removed";
+  if (o.reason != null) return `refused: ${RECLAIM_REASON_WORDS[o.reason]}`;
+  return `refused: ${o.error ?? "not removed"}`;
+}
+
+/** The one confirmation (Dialog tier of the Overlay Rule: scrim, centred, asks for a decision). Cancel
+ * holds the first focus and Escape or a click outside cancels, so a stray Enter cannot remove anything. */
+function ReclaimConfirm({
+  count,
+  total,
+  onConfirm,
+  onCancel,
+}: {
+  count: number;
+  total: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  return createPortal(
+    <FocusScope
+      trapped
+      loop
+      asChild
+      onMountAutoFocus={(event) => {
+        event.preventDefault();
+        cancelRef.current?.focus();
+      }}
+    >
+      <DismissableLayer
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          onCancel();
+        }}
+        onPointerDownOutside={onCancel}
+        asChild
+      >
+        <div role="alertdialog" aria-label={`Remove ${worktreesWord(count)}?`} className="confirm-scrim">
+          <div className="type-body confirm-dialog">
+            <h2 className="type-heading">Remove {worktreesWord(count)}?</h2>
+            <p className="type-body">
+              {total}. Their directories are removed from disk. Branches and commits are kept. A worktree with
+              uncommitted changes, or one an agent has started in since the list was read, is refused and left
+              alone.
+            </p>
+            <div className="confirm-actions">
+              <button ref={cancelRef} type="button" autoFocus className="type-body control-edge confirm-action" onClick={onCancel}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="type-body control-edge confirm-action confirm-action-destructive"
+                onClick={onConfirm}
+              >
+                <Icon name="Trash2" />
+                Remove {worktreesWord(count)}
+              </button>
+            </div>
+          </div>
+        </div>
+      </DismissableLayer>
+    </FocusScope>,
+    document.body,
+  );
+}
+
+function ReclaimBar({
+  rows,
+  busy,
+  onReclaim,
+}: {
+  rows: WorktreeInventoryRowDto[];
+  busy: boolean;
+  onReclaim: () => void;
+}) {
+  const over = rows.length > RECLAIM_BATCH_CAP;
+  return (
+    <div
+      data-reclaim-bar
+      className="type-body"
+      style={{ display: "flex", gap: "var(--space-md)", alignItems: "center", padding: "var(--space-xs) var(--space-md)", borderBottom: "1px solid var(--divider)" }}
+    >
+      <span data-field="selection" className="tabular-nums">
+        {`Reclaim ${worktreesWord(rows.length)} · ${totalWords(selectionTotal(rows), rows.length)}`}
+      </span>
+      {over && (
+        <span role="status" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          {`At most ${RECLAIM_BATCH_CAP} at a time.`}
+        </span>
+      )}
+      <button type="button" className="type-label control-edge" disabled={busy || over} onClick={onReclaim}>
+        {busy ? "Removing…" : "Reclaim"}
+      </button>
+    </div>
+  );
+}
+
+function ReclaimResultList({ lines }: { lines: ResultLine[] }) {
+  const removed = lines.filter((l) => l.outcome.removed).length;
+  return (
+    <section data-reclaim-result style={{ padding: "var(--space-xs) var(--space-md)", borderBottom: "1px solid var(--divider)" }}>
+      <h3 className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        {`Result · ${removed} of ${lines.length} removed`}
+      </h3>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {lines.map(({ label, outcome }) => (
+          <li
+            key={outcome.taskId}
+            data-reclaim-outcome={outcome.removed ? "removed" : "refused"}
+            data-task-id={outcome.taskId}
+            className="type-body"
+            style={{ display: "flex", gap: "var(--space-xs)", alignItems: "center" }}
+          >
+            <Icon name={outcome.removed ? "Check" : "X"} />
+            <span>{label}</span>
+            {" "}
+            <span>{outcomeWords(outcome)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Chip({ row }: { row: WorktreeInventoryRowDto }) {
   const mark = MARKS_BY_ID[CHIP_MARK_IDS[row.disposition]];
   return (
@@ -95,19 +269,41 @@ function Chip({ row }: { row: WorktreeInventoryRowDto }) {
   );
 }
 
-function Row({ row, now }: { row: WorktreeInventoryRowDto; now: number }) {
+function Row({
+  row,
+  now,
+  selected,
+  onToggle,
+}: {
+  row: WorktreeInventoryRowDto;
+  now: number;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   return (
     <li
       data-worktree-row={row.taskId}
       style={{
         display: "grid",
-        gridTemplateColumns: "minmax(120px, 1fr) minmax(80px, 100px) minmax(160px, 1.4fr) minmax(280px, 2fr)",
+        gridTemplateColumns: "20px minmax(120px, 1fr) minmax(80px, 100px) minmax(160px, 1.4fr) minmax(280px, 2fr)",
         gap: "var(--space-md)",
         alignItems: "center",
         padding: "var(--space-xs) var(--space-md)",
         borderBottom: "1px solid var(--divider)",
       }}
     >
+      {/* Only a reclaimable row can be selected. An in-use or keep row renders no checkbox at all: an
+          affordance that looks live and is not is worse than its absence. */}
+      {row.disposition === "reclaimable" ? (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          aria-label={`Select ${row.projectName} ${row.taskKey} for reclaim`}
+        />
+      ) : (
+        <span aria-hidden="true" />
+      )}
       <span data-field="project" className="type-body" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {row.projectName}
       </span>
@@ -132,8 +328,44 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const [measuring, setMeasuring] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+  const [reclaiming, setReclaiming] = useState(false);
+  const [results, setResults] = useState<ResultLine[] | null>(null);
   const rows = inventory.data ?? [];
   const now = Date.now();
+  // The selection can only ever name rows that are reclaimable in the CURRENT list, so a row that
+  // came back in use after a refusal drops out of it instead of sitting selected and unselectable.
+  const selectedRows = rows.filter((r) => r.disposition === "reclaimable" && selected.has(r.taskId));
+
+  const toggle = (taskId: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+
+  const reclaim = async () => {
+    setConfirming(false);
+    setReclaiming(true);
+    setNotice(null);
+    const submitted = selectedRows.map((r) => ({ id: r.taskId, label: `${r.projectName} ${r.taskKey}` }));
+    try {
+      const outcomes = await worktreeReclaim(submitted.map((r) => r.id));
+      const labels = new Map(submitted.map((r) => [r.id, r.label]));
+      setResults(outcomes.map((outcome) => ({ label: labels.get(outcome.taskId) ?? outcome.taskId, outcome })));
+      // Removed rows leave the selection; refused rows stay in it so a retry costs no re-selection.
+      const gone = new Set(outcomes.filter((o) => o.removed).map((o) => o.taskId));
+      setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
+    } catch {
+      setNotice("Could not reclaim the worktrees. Nothing is reported as removed; the list below is current.");
+    } finally {
+      setReclaiming(false);
+      // Refetch rather than edit the list: a refused row reappears with its real disposition.
+      await queryClient.invalidateQueries({ queryKey: worktreeInventoryQueryKey() });
+    }
+  };
 
   const remeasure = async () => {
     setMeasuring(true);
@@ -179,6 +411,18 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
           {notice}
         </p>
       )}
+      {selectedRows.length > 0 && (
+        <ReclaimBar rows={selectedRows} busy={reclaiming} onReclaim={() => setConfirming(true)} />
+      )}
+      {results !== null && results.length > 0 && <ReclaimResultList lines={results} />}
+      {confirming && selectedRows.length > 0 && (
+        <ReclaimConfirm
+          count={selectedRows.length}
+          total={totalWords(selectionTotal(selectedRows), selectedRows.length)}
+          onConfirm={() => void reclaim()}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {inventory.isError ? (
           <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text-rack)" }}>
@@ -196,7 +440,7 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
         ) : (
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {rows.map((row) => (
-              <Row key={row.taskId} row={row} now={now} />
+              <Row key={row.taskId} row={row} now={now} selected={selected.has(row.taskId)} onToggle={() => toggle(row.taskId)} />
             ))}
           </ul>
         )}

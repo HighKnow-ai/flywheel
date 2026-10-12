@@ -5,7 +5,7 @@
  * - An unreachable-project row reads keep, with that reason.
  * - Re-measure calls the adapter once; the empty state names the task-worktrees-only limit.
  * - Rows render in the order the core sent them (equal sizes: task key ascending).
- * - The rail's Worktrees row is a button that opens the view, and the view has no reclaim control.
+ * - The rail's Worktrees row is a button that opens the view, and the view offers no bulk control.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -175,8 +175,9 @@ describe("WorktreeInventory", () => {
     expect(keys).toEqual(["ALP-1", "ALP-2"]);
   });
 
-  it("contains no reclaim or delete control (plan 10-09 builds those with their guards)", () => {
-    expect(inventorySource).not.toMatch(/worktree_reclaim|worktreeReclaim|Reclaim selected|Delete/);
+  it("offers no bulk control: no select-all and no reclaim-everything (D-179 rejected it by name)", () => {
+    expect(inventorySource).not.toMatch(/select ?all|reclaim ?all|Reclaim selected/i);
+    expect(inventorySource).not.toMatch(/\bDelete\b/);
   });
 });
 
