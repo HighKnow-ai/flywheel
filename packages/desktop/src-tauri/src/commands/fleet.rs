@@ -95,6 +95,9 @@ impl From<flywheel_core::query::fleet::FleetRow> for FleetRowDto {
 pub struct FleetListDto {
     pub rows: Vec<FleetRowDto>,
     pub total_rows: usize,
+    /// Sum of the visible rows' recorded costs, or null when none has one. An estimate (bundled
+    /// price table), computed by the core read so the renderer never sums.
+    pub visible_cost_usd: Option<f64>,
 }
 
 /// A live run is one a person could be watching: its activity line is a liveness signal, so a
@@ -132,6 +135,7 @@ pub async fn fleet_list(state: State<'_, AppState>) -> Result<FleetListDto, Stri
     };
 
     let total_rows = list.total_rows;
+    let visible_cost_usd = list.visible_cost_usd;
     let mut rows: Vec<FleetRowDto> = list.rows.into_iter().map(FleetRowDto::from).collect();
     let rows = tauri::async_runtime::spawn_blocking(move || {
         attach_activity(&mut rows, flywheel_core::session_log::read_tail);
@@ -140,7 +144,7 @@ pub async fn fleet_list(state: State<'_, AppState>) -> Result<FleetListDto, Stri
     .await
     .map_err(|e| ipc_error("fleet_list:tail", e))?;
 
-    Ok(FleetListDto { total_rows, rows })
+    Ok(FleetListDto { total_rows, visible_cost_usd, rows })
 }
 
 #[cfg(test)]

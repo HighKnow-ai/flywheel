@@ -449,3 +449,39 @@ fn moving_a_task_to_done_does_not_clear_its_row_it_re_reads_as_plain_completed()
     assert_eq!(state(&f).as_deref(), Some("completed"), "still on the fleet, now plain completed");
     assert_eq!(acknowledged_at(&f, &run), None, "moving a task never acknowledges its run");
 }
+
+#[test]
+fn spend_projects_null_for_a_live_run_and_its_cost_for_a_failed_one() {
+    let mut f = fixture();
+    let p = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &p.id);
+    let t1 = task(&mut f, &p.id, "t1", "in_progress");
+    let t2 = task(&mut f, &p.id, "t2", "in_progress");
+    let live = insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t1), status: "running", started_at: "2026-01-01T01:00:00Z", ..Default::default() });
+    let failed = insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t2), status: "failed", started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), cost: Some(0.42), ..Default::default() });
+
+    let list = fleet_rows(&f.conn, 50).unwrap();
+    let cost = |id: &str| list.rows.iter().find(|r| r.agent_run_id == id).unwrap().cost_usd;
+    assert_eq!(cost(&live), None);
+    assert_eq!(cost(&failed), Some(0.42));
+}
+
+#[test]
+fn visible_cost_is_none_without_a_costed_row_and_the_exact_sum_otherwise() {
+    let mut f = fixture();
+    let p = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &p.id);
+    assert_eq!(fleet_rows(&f.conn, 50).unwrap().visible_cost_usd, None, "an empty fleet has no total");
+
+    let t1 = task(&mut f, &p.id, "t1", "in_progress");
+    let t2 = task(&mut f, &p.id, "t2", "in_progress");
+    let t3 = task(&mut f, &p.id, "t3", "in_progress");
+    insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t1), status: "running", started_at: "2026-01-01T01:00:00Z", ..Default::default() });
+    insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t2), status: "completed", started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), ..Default::default() });
+    assert_eq!(fleet_rows(&f.conn, 50).unwrap().visible_cost_usd, None, "rows with no recorded cost sum to nothing, not zero");
+
+    insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t3), status: "failed", started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), cost: Some(1.5), ..Default::default() });
+    let t4 = task(&mut f, &p.id, "t4", "in_progress");
+    insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t4), status: "completed", started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), cost: Some(0.25), ..Default::default() });
+    assert_eq!(fleet_rows(&f.conn, 50).unwrap().visible_cost_usd, Some(1.75));
+}

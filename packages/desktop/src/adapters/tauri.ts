@@ -605,14 +605,26 @@ export async function sessionSummariesForTask(taskId: string): Promise<SessionSu
 }
 
 /**
- * D-49's abandoned-run acknowledgment (plan 03-10). Thin typed wrapper over
- * `agent_run_acknowledge`. Changes nothing about the underlying record — the run is already
- * abandoned, already terminal, already exactly what it will remain — this call records only that
- * the user has seen it. A no-op (rejects nothing, writes nothing) when the target run is not
- * `abandoned`; the backend guards this, not the renderer.
+ * The acknowledgment of a finished run (D-49 for `abandoned`, widened by plan 10-04 to `completed`,
+ * `failed` and `interrupted`). Thin typed wrapper over `agent_run_acknowledge`. Changes nothing about
+ * the run's status — it records only that the user has dealt with it, which is what clears its fleet
+ * row. A no-op (rejects nothing, writes nothing) when the target run is live or already acknowledged;
+ * the backend's statement guards this, not the renderer.
  */
 export async function acknowledgeAgentRun(agentRunId: string): Promise<void> {
   await invokeCommand<void>("agent_run_acknowledge", { agentRunId });
+}
+
+/** One id's outcome of a batch acknowledge; `acknowledged: false` covers an unknown, live or
+ * already-acknowledged run, and never fails the rest of the batch. */
+export interface AcknowledgeResultDto {
+  agentRunId: string;
+  acknowledged: boolean;
+}
+
+/** The fleet's "Dismiss finished" action (plan 10-04): ids only, capped server-side. */
+export async function agentRunAcknowledgeMany(agentRunIds: string[]): Promise<AcknowledgeResultDto[]> {
+  return invokeCommand<AcknowledgeResultDto[]>("agent_run_acknowledge_many", { agentRunIds });
 }
 
 /**
@@ -1326,6 +1338,9 @@ export interface FleetListDto {
   rows: FleetRowDto[];
   /** The length of `rows` — one source, so the header count and the list cannot disagree. */
   totalRows: number;
+  /** Sum of the visible rows' recorded costs, computed by the core read; `null` when no row has one.
+   * An estimate from a bundled price table, not billing data (plan 10-04). */
+  visibleCostUsd: number | null;
 }
 
 /** Every agent run across every registered project, banded and ordered by the Rust core (D-164,

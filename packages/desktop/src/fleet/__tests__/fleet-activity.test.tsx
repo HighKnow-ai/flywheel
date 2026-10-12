@@ -70,7 +70,7 @@ function row(id: string, overrides: Partial<FleetRowDto> = {}): FleetRowDto {
 }
 
 function list(rows: FleetRowDto[]): FleetListDto {
-  return { rows, totalRows: rows.length };
+  return { rows, totalRows: rows.length, visibleCostUsd: null };
 }
 
 let queryClient: QueryClient;

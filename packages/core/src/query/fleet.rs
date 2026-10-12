@@ -86,6 +86,11 @@ pub struct FleetList {
     pub rows: Vec<FleetRow>,
     /// The length of `rows` — never a second count, so the header and the list cannot disagree.
     pub total_rows: usize,
+    /// The sum of the non-NULL `cost_usd` of the rows returned, computed here so the renderer never
+    /// aggregates; `None` when no returned row carries a cost, so the footer shows no total rather
+    /// than a zero. `cost_usd` is the client-side estimate `apply_session_closed` stores from a
+    /// bundled price table, not billing data (Finding 11).
+    pub visible_cost_usd: Option<f64>,
 }
 
 /// The fleet statement. The `ORDER BY` sits in an outer select so it can name the `fleet_state`
@@ -180,5 +185,6 @@ pub fn fleet_rows(conn: &Connection, limit: usize) -> anyhow::Result<FleetList> 
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the fleet")?;
     let total_rows = rows.len();
-    Ok(FleetList { rows, total_rows })
+    let visible_cost_usd = rows.iter().filter_map(|r| r.cost_usd).fold(None, |sum, c| Some(sum.unwrap_or(0.0) + c));
+    Ok(FleetList { rows, total_rows, visible_cost_usd })
 }

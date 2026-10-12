@@ -14,11 +14,16 @@
  * A live row also carries its activity cell (plan 10-03, D-167): the newest feed row of that run's own
  * log, built by the session feed's `buildFeedRows` and worded by its `feedRowText`, so the fleet and
  * the session never tell different stories about the same moment. A row has no interactive target in
- * this plan; the spend column and the jumps into a session or a board item are later plans.
+ * this plan; the jumps into a session or a board item are later plans.
+ *
+ * Plan 10-04 adds what a finished row cost (`SpendCell`), the labelled fleet total (`FleetFooter`) and
+ * the dismiss actions. Dismissing is the user's explicit act and nothing else clears a row: opening a
+ * session, a refresh and a restart all leave it (D-165). There is no dismiss key yet because a row has
+ * no selection model to aim one at (plan 10-06 adds one); the actions are focusable buttons.
  */
 import { useEffect, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
-import type { FleetActivityDto, FleetRowDto } from "../adapters/tauri";
+import { acknowledgeAgentRun, agentRunAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
 import { MARKS_BY_ID } from "../legend/marks";
 import {
   FLEET_BANDS,
@@ -27,6 +32,8 @@ import {
   RUN_STATUS_MARK_IDS,
   bandForState,
   formatAge,
+  formatCostUsd,
+  formatCount,
   isFleetState,
   type FleetBandId,
   type FleetState,
@@ -61,7 +68,7 @@ function useNowTick(enabled: boolean): number {
 }
 
 /** Grid shared by the header-less rows so the columns line up down the whole list. */
-const ROW_COLUMNS = "minmax(150px, 190px) minmax(80px, 140px) 1fr minmax(120px, 1.4fr) 64px";
+const ROW_COLUMNS = "minmax(150px, 190px) minmax(80px, 140px) 1fr minmax(120px, 1.4fr) minmax(90px, 1fr) 64px 76px";
 
 /** The activity line's width in characters, ellipsis at the TAIL — the start of a line (the tool, the
  * first clause) is what says what the agent is doing. Applied to every row kind alike. */
@@ -127,6 +134,68 @@ function ActivityCell({ row }: { row: FleetRowDto }) {
     >
       {line}
     </span>
+  );
+}
+
+/** A run that has ended: the only kind that can be dismissed. A live run can be stopped, not cleared. */
+function isTerminalRun(row: FleetRowDto): boolean {
+  return row.runStatus !== "running" && row.runStatus !== "blocked";
+}
+
+/** What a finished run cost. Blank — an empty span, no text — for a live run and for a figure that
+ * never arrived: an honest absence, never `$0.00` and never the dash `formatAge` uses for "no time".
+ * A failed run keeps what it spent before it failed. `tokensIn` is a sum that includes cache reads
+ * (Finding 11), so it is labelled as such and reads larger than the prompt. */
+export function SpendCell({ row }: { row: FleetRowDto }) {
+  if (!isTerminalRun(row)) return <span data-field="spend" />;
+  const tokens =
+    row.tokensIn == null && row.tokensOut == null
+      ? null
+      : [
+          row.tokensIn == null ? null : `${formatCount(row.tokensIn)} in incl. cache`,
+          row.tokensOut == null ? null : `${formatCount(row.tokensOut)} out`,
+        ]
+          .filter((part) => part !== null)
+          .join(" \u00b7 ");
+  return (
+    <span
+      data-field="spend"
+      className="tabular-nums"
+      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+    >
+      {row.costUsd != null && <span title="Estimated cost, not a billed amount">{formatCostUsd(row.costUsd)}</span>}
+      {row.costUsd != null && tokens ? " " : ""}
+      {tokens && (
+        <span
+          className="type-label"
+          title="Input tokens include cache reads, so this is larger than the prompt size"
+          style={{ color: "var(--text-muted-rack)" }}
+        >
+          {tokens}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The fleet's visible spend, as the core read summed it. Renders nothing when no row carries a cost.
+ * The wording says it is Flywheel's own estimate from a bundled price table — not a billed amount. */
+export function FleetFooter({ visibleCostUsd }: { visibleCostUsd: number | null }) {
+  if (visibleCostUsd == null) return null;
+  return (
+    <footer
+      data-fleet-footer
+      className="type-label tabular-nums"
+      style={{
+        padding: "var(--space-xs) var(--space-md)",
+        borderTop: "1px solid var(--divider)",
+        color: "var(--text-muted-rack)",
+        textAlign: "right",
+      }}
+    >
+      Estimated spend, this fleet: {formatCostUsd(visibleCostUsd)} (Flywheel's own estimate from a bundled price
+      table, not a billed amount)
+    </footer>
   );
 }
 
@@ -197,6 +266,7 @@ export function FleetRowView({ row, now }: { row: FleetRowDto; now: number }) {
         {subject.detail && <span style={{ color: "var(--text-muted-rack)" }}>{subject.detail}</span>}
       </span>
       <ActivityCell row={row} />
+      <SpendCell row={row} />
       <span
         className="type-label tabular-nums"
         data-field="age"
@@ -204,6 +274,18 @@ export function FleetRowView({ row, now }: { row: FleetRowDto; now: number }) {
         style={{ color: "var(--text-muted-rack)", textAlign: "right" }}
       >
         {age}
+      </span>
+      <span data-field="dismiss" style={{ textAlign: "right" }}>
+        {isTerminalRun(row) && (
+          <button
+            type="button"
+            className="type-label"
+            aria-label={`Dismiss ${subject.key || "run"}`}
+            onClick={() => void acknowledgeAgentRun(row.agentRunId).catch(() => {})}
+          >
+            Dismiss
+          </button>
+        )}
       </span>
     </div>
   );
@@ -220,20 +302,32 @@ export function FleetBand({
 }) {
   return (
     <section data-band={band.id} aria-label={band.header}>
-      <h2
-        className="type-label"
+      <div
         style={{
-          margin: 0,
           padding: "var(--space-xs) var(--space-md)",
           minHeight: 28,
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           color: "var(--text-muted-rack)",
           borderBottom: "1px solid var(--divider)",
         }}
       >
-        {band.header}
-      </h2>
+        <h2 className="type-label" style={{ margin: 0 }}>
+          {band.header}
+        </h2>
+        {band.id === "done-failed" && (
+          <button
+            type="button"
+            className="type-label"
+            onClick={() =>
+              void agentRunAcknowledgeMany(rows.filter(isTerminalRun).map((r) => r.agentRunId)).catch(() => {})
+            }
+          >
+            Dismiss finished
+          </button>
+        )}
+      </div>
       <div role="list">
         {rows.map((row) => (
           <FleetRowView key={row.agentRunId} row={row} now={now} />
@@ -299,6 +393,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
           ))
         )}
       </div>
+      <FleetFooter visibleCostUsd={fleet.data?.visibleCostUsd ?? null} />
     </div>
   );
 }
