@@ -41,6 +41,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeAgentEvent: () => Promise.resolve(() => {}),
   fleetBlockedQueue: () => Promise.resolve([]),
+  fleetWatchRun: () => Promise.resolve(),
   subscribeMenuAction: (handler: (actionId: string) => void) => {
     capturedMenuActionHandler = handler;
     return Promise.resolve(() => {

@@ -15,6 +15,7 @@ import {
   type EpicSummary,
 } from "./board/useBoardQuery";
 import { WavePlanSheet } from "./dispatch/WavePlanSheet";
+import { useWatchedRun } from "./fleet/useWatchedRun";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
@@ -253,6 +254,10 @@ function AppShell() {
   // Pushes the layer guard's verdict onto the native menu bar (`state/menuSync.ts`) — mounted
   // alongside the bridge effect above since both own the same menu seam (01-16-PLAN.md Task 3).
   useMenuLayerSync();
+
+  // Phase 10 plan 10-07 (D-174): reports which session run is the visible surface, so the core can
+  // withhold the one banner for the session being watched. Before the early returns below (hooks).
+  useWatchedRun();
 
   // Loading: no copy, no spinner mid-content (01-UI-SPEC.md State Inventory) — the rack ground
   // alone is the boot state until the first project list resolves.

@@ -25,6 +25,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeAgentEvent: () => Promise.resolve(() => {}),
   fleetBlockedQueue: () => fleetBlockedQueueMock(),
+  fleetWatchRun: () => Promise.resolve(),
   boardRecoverySummary: (projectId: string) => invokeCommandMock("board_recovery_summary", { projectId }),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),

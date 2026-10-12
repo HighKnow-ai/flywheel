@@ -1299,6 +1299,77 @@ pub fn process_inbound_permission_request(
     Ok(PermissionRequestOutcome::Pending { db_request_id: request.id })
 }
 
+/// The project name and subject label a notification names, read in the caller's existing
+/// connection. A missing row degrades to a generic word rather than failing: this is on the
+/// must-never-panic path of both hooks below.
+fn notify_context(conn: &Connection, run_id: &str) -> (String, String) {
+    let row: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT p.name, COALESCE(t.key, e.key)
+               FROM agent_runs ar
+               JOIN projects p ON p.id = ar.project_id
+               LEFT JOIN tasks t ON t.id = ar.task_id
+               LEFT JOIN epics e ON e.id = ar.epic_id
+              WHERE ar.id = ?1",
+            rusqlite::params![run_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok();
+    match row {
+        Some((project, subject)) => (project, subject.unwrap_or_else(|| "An agent".to_string())),
+        None => ("Flywheel".to_string(), "An agent".to_string()),
+    }
+}
+
+/// The notification a freshly pending permission request earns (D-174), or `None`. Only the
+/// `running` -> `blocked` edge notifies: a run that was already `blocked` and received a second
+/// concurrent request must not announce itself again (Finding 5, Pitfall 3).
+fn permission_transition(
+    conn: &Connection,
+    run_id: &str,
+    prior_status: Option<&str>,
+    tool_name: &str,
+    input: &serde_json::Value,
+) -> Option<crate::notify::Transition> {
+    if prior_status != Some("running") {
+        return None;
+    }
+    let (project_name, subject_label) = notify_context(conn, run_id);
+    Some(crate::notify::Transition {
+        run_id: run_id.to_string(),
+        project_name,
+        subject_label,
+        kind: crate::notify::TransitionKind::Blocked,
+        tool: Some((tool_name.to_string(), crate::notify::target_of(input))),
+    })
+}
+
+/// The notification a closed session earns (D-174), or `None`. `Completed` and `Failed` only.
+/// `Interrupted` is user-initiated, and an already-terminal or backfilled-terminal outcome means
+/// nothing transitioned. Both exclusions fall out for free and need no extra guard: the Stop path
+/// writes `interrupted` first, so the later `session_closed` is already-terminal, and
+/// `mark_abandoned` runs at launch before any window exists.
+fn closed_transition(
+    conn: &Connection,
+    run_id: &str,
+    outcome: &flywheel_core::domain::agent_run::SessionClosedOutcome,
+) -> Option<crate::notify::Transition> {
+    use flywheel_core::domain::agent_run::{AgentRunStatus, SessionClosedOutcome};
+    let kind = match outcome {
+        SessionClosedOutcome::Closed(AgentRunStatus::Completed) => crate::notify::TransitionKind::Completed,
+        SessionClosedOutcome::Closed(AgentRunStatus::Failed) => crate::notify::TransitionKind::Failed,
+        _ => return None,
+    };
+    let (project_name, subject_label) = notify_context(conn, run_id);
+    Some(crate::notify::Transition {
+        run_id: run_id.to_string(),
+        project_name,
+        subject_label,
+        kind,
+        tool: None,
+    })
+}
+
 /// The Tauri-facing half of the inbound path — called from `sidecar.rs`'s reader loop for every
 /// `permission_request` event. Extracts the event's fields, locks the DB, calls
 /// [`process_inbound_permission_request`], and performs the IPC relay/`board:changed` emit the
@@ -1338,6 +1409,12 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
     let Some(sidecar) = state.sidecar.as_ref() else { return };
     let Ok(mut conn) = state.db.lock() else { return };
 
+    // Read BEFORE the request is processed: processing blocks the run, so this is the only moment
+    // the prior status (the edge a notification needs) is still observable.
+    let prior_status: Option<String> = conn
+        .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |r| r.get(0))
+        .ok();
+
     let outcome = match process_inbound_permission_request(
         &mut conn,
         run_id,
@@ -1347,6 +1424,13 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
     ) {
         Ok(outcome) => outcome,
         Err(_) => return,
+    };
+    // The banner's text is gathered with the connection still held, so it needs no second lock.
+    let transition = match &outcome {
+        PermissionRequestOutcome::Pending { .. } => {
+            permission_transition(&conn, run_id, prior_status.as_deref(), tool_name, &input)
+        }
+        _ => None,
     };
     drop(conn);
 
@@ -1360,6 +1444,9 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
                 "board:changed",
                 serde_json::json!({ "entity": "agent_run", "id": run_id }),
             );
+            if let Some(t) = transition {
+                crate::notify::push(t);
+            }
         }
         PermissionRequestOutcome::UnknownRun => {}
     }
@@ -1383,9 +1470,10 @@ pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value)
         Ok(outcome) => outcome,
         Err(_) => return,
     };
+    let run_id = event.get("runId").and_then(|v| v.as_str());
+    let transition = run_id.and_then(|id| closed_transition(&conn, id, &outcome));
     drop(conn);
 
-    let run_id = event.get("runId").and_then(|v| v.as_str());
     let changed = matches!(
         outcome,
         flywheel_core::domain::agent_run::SessionClosedOutcome::Closed(_)
@@ -1396,6 +1484,9 @@ pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value)
             "board:changed",
             serde_json::json!({ "entity": "agent_run", "id": run_id }),
         );
+    }
+    if let Some(t) = transition {
+        crate::notify::push(t);
     }
 }
 
@@ -2553,6 +2644,71 @@ mod tests {
         .expect("failed to insert fixture agent_runs row");
 
         (conn, run_id, task_id, project_id)
+    }
+
+    // --- Phase 10 plan 10-07: which transitions earn a notification (D-174) -------------------
+
+    #[test]
+    fn a_running_run_that_gets_a_pending_request_notifies_once_with_the_tool_and_target() {
+        let (conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        let input = serde_json::json!({ "command": "rm -rf target/", "env": { "TOKEN": "s3cret" } });
+        let t = permission_transition(&conn, &run_id, Some("running"), "Bash", &input).expect("a transition");
+        assert_eq!(t.kind, crate::notify::TransitionKind::Blocked);
+        assert_eq!(t.run_id, run_id);
+        assert_eq!(t.project_name, "Test Project");
+        assert_eq!(t.tool, Some(("Bash".to_string(), Some("rm -rf target/".to_string()))));
+    }
+
+    #[test]
+    fn a_run_already_blocked_that_gets_a_second_request_notifies_nothing() {
+        let (conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        let input = serde_json::Value::Null;
+        assert!(permission_transition(&conn, &run_id, Some("blocked"), "Bash", &input).is_none());
+        assert!(permission_transition(&conn, &run_id, None, "Bash", &input).is_none());
+    }
+
+    #[test]
+    fn a_pending_request_with_no_target_still_notifies_and_reads_as_text() {
+        let (conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        let t = permission_transition(&conn, &run_id, Some("running"), "WebSearch", &serde_json::Value::Null)
+            .expect("a transition");
+        let mut co = crate::notify::Coalescer::new(crate::notify::COALESCE_WINDOW);
+        let t0 = std::time::Instant::now();
+        co.push(t, t0);
+        let banner = co.take_due(t0 + crate::notify::COALESCE_WINDOW, |_| true).expect("a banner");
+        let (title, body) = banner.text();
+        assert!(!title.is_empty());
+        assert_eq!(body, "WebSearch");
+    }
+
+    #[test]
+    fn only_completed_and_failed_closes_notify() {
+        use flywheel_core::domain::agent_run::{AgentRunStatus, SessionClosedOutcome};
+        let (conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        let kind = |o: SessionClosedOutcome| closed_transition(&conn, &run_id, &o).map(|t| t.kind);
+        assert_eq!(
+            kind(SessionClosedOutcome::Closed(AgentRunStatus::Completed)),
+            Some(crate::notify::TransitionKind::Completed)
+        );
+        assert_eq!(
+            kind(SessionClosedOutcome::Closed(AgentRunStatus::Failed)),
+            Some(crate::notify::TransitionKind::Failed)
+        );
+        assert_eq!(kind(SessionClosedOutcome::Closed(AgentRunStatus::Interrupted)), None);
+        assert_eq!(kind(SessionClosedOutcome::Closed(AgentRunStatus::Abandoned)), None);
+        assert_eq!(kind(SessionClosedOutcome::AlreadyTerminal), None);
+        assert_eq!(kind(SessionClosedOutcome::BackfilledTerminal), None);
+        assert_eq!(kind(SessionClosedOutcome::UnknownRun), None);
+        assert_eq!(kind(SessionClosedOutcome::Ignored), None);
+    }
+
+    #[test]
+    fn a_missing_project_or_task_row_degrades_to_generic_words_and_never_panics() {
+        let (conn, _run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
+        assert_eq!(notify_context(&conn, "no-such-run"), ("Flywheel".to_string(), "An agent".to_string()));
+        let t = permission_transition(&conn, "no-such-run", Some("running"), "Bash", &serde_json::Value::Null)
+            .expect("still a transition");
+        assert_eq!(t.subject_label, "An agent");
     }
 
     #[test]

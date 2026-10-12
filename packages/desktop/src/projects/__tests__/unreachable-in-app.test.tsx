@@ -17,6 +17,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeAgentEvent: () => Promise.resolve(() => {}),
   fleetBlockedQueue: () => Promise.resolve([]),
+  fleetWatchRun: () => Promise.resolve(),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
   gitFacts: () => Promise.resolve(null),

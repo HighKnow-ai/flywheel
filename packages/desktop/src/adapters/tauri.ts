@@ -477,6 +477,15 @@ export async function gitTruthFocusTask(taskId: string | null): Promise<void> {
 }
 
 /**
+ * Reports which agent run's session surface is the visible one, or `null` when none is (Phase 10
+ * plan 10-07, D-174), so the core can withhold the one banner for the session the user is already
+ * looking at. Thin typed wrapper over `fleet_watch_run`; display input only.
+ */
+export async function fleetWatchRun(agentRunId: string | null): Promise<void> {
+  await invokeCommand<void>("fleet_watch_run", { agentRunId });
+}
+
+/**
  * Which of the two "open this worktree" actions a call targets (D-130, LINK-11) — mirrors
  * `domain::worktree::OpenSurface`'s serde representation (`#[serde(rename_all = "lowercase")]`)
  * field-for-field.
@@ -802,6 +811,8 @@ export interface SettingsDto {
   apiKeyConfigured: boolean;
   apiKeyConfiguredAt: string | null;
   dispatchCap: DispatchCapDto;
+  /** The one global OS-notification switch (Phase 10 plan 10-07, D-176). */
+  notificationsEnabled: boolean;
 }
 
 /**
@@ -821,6 +832,15 @@ export interface DispatchCapDto {
  */
 export async function settingsSetDispatchMaxParallel(value: number): Promise<DispatchCapDto> {
   return invokeCommand<DispatchCapDto>("settings_set_dispatch_max_parallel", { value });
+}
+
+/**
+ * Set the one global switch for OS notifications on a blocked, finished or failed agent (Phase 10
+ * plan 10-07, D-176). Human-only. Returns the stored value. Thin typed wrapper over
+ * `settings_set_notifications_enabled`.
+ */
+export async function settingsSetNotificationsEnabled(value: boolean): Promise<boolean> {
+  return invokeCommand<boolean>("settings_set_notifications_enabled", { value });
 }
 
 /**
