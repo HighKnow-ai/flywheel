@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 10
 current_phase_name: Fleet Supervision Across Every Project
 status: executing
-stopped_at: Completed 10-05-PLAN.md
-last_updated: "2026-10-12T05:31:51.624Z"
+stopped_at: Completed 10-06-PLAN.md
+last_updated: "2026-10-12T05:42:03.741Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 10 execution started
-state_head: 2f72f0e6c6bf0c7729fd3aa388512d8b17cb8715
+state_head: 5dae2f039bdf3e492d7ddded7637e27e934e4e0c
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 228
-  completed_plans: 224
+  completed_plans: 225
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 10 (Fleet Supervision Across Every Project) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 10 execution started
 
@@ -286,6 +286,7 @@ Progress: [░░░░░░░░░░] 0% — 11 of 13 phases complete (219/
 | Phase 10 P03 | 35 min | 2 tasks | 9 files |
 | Phase 10 P04 | 25 min | 2 tasks | 13 files |
 | Phase 10 P05 | 33min | 3 tasks | 22 files |
+| Phase 10 P06 | 9 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -665,6 +666,7 @@ Recent decisions affecting current work:
 - [Phase 10]: 10-03: activity line is 80 chars with tail ellipsis; LOG_TAIL_MAX_BYTES 256 KiB; fleet_list is async+spawn_blocking (read_tail ~1 ms/call)
 - [Phase 10]: 10-04: acknowledge_run takes no actor (the statement appends no event); Dismiss is a button with no key until plan 10-06 adds row selection; moving a task to Done does not clear its fleet row
 - [Phase 10]: 10-05: blocked queue owner is marked by a 4px --selection-rule left rule plus words; fleet/queue views switch from a header button group; rail Blocked opens the queue (fleet-wide count), Needs decision opens the fleet list; one ref-counted invalidation subscription per QueryClient
+- [Phase 10]: 10-06: fleet row jumps use b for the board item and a one-shot pendingFocusItemId consumed by a BoardView effect declared after the project-change clear; unresolvable requests drop on a settled window or a 4000 ms deadline
 
 ### Pending Todos
 
@@ -726,6 +728,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T05:31:51.434Z
-Stopped at: Completed 10-05-PLAN.md
+Last session: 2026-10-12T05:42:03.547Z
+Stopped at: Completed 10-06-PLAN.md
 Resume file: None

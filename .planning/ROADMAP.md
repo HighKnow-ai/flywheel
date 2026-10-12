@@ -1149,7 +1149,7 @@ visible backoff is what keeps Flywheel from looking like abuse to the backend.
   4. User receives an operating-system notification when an agent becomes blocked or completes, without watching the window.
   5. User sees every worktree across all projects with its disk usage and reclaims stale ones, and sees token usage and cost for each session.
 
-**Plans**: 5/9 plans executed in 7 waves (tracer-first; the serial tail is forced by the same chokepoint files Phase 08 hit — `adapters/tauri.ts`, `src-tauri/src/main.rs`, `capabilities/default.json` — plus `FleetSurface.tsx` and `query/fleet.rs`, which almost every plan touches)
+**Plans**: 6/9 plans executed in 7 waves (tracer-first; the serial tail is forced by the same chokepoint files Phase 08 hit — `adapters/tauri.ts`, `src-tauri/src/main.rs`, `capabilities/default.json` — plus `FleetSurface.tsx` and `query/fleet.rs`, which almost every plan touches)
 
 Plans:
 **Wave 1**
@@ -1171,7 +1171,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 10-06-PLAN.md — Jump from a row to the live output and to the board item, in any project (FLEET-03)
+- [x] 10-06-PLAN.md — Jump from a row to the live output and to the board item, in any project (FLEET-03)
 - [ ] 10-07-PLAN.md — OS notification when an agent blocks, finishes or fails, coalesced (FLEET-05)
 
 **Wave 6** *(blocked on Wave 5 completion)*
@@ -1274,7 +1274,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. Review And Merge Inside Flywheel | 15/15 | Complete    | 2026-10-07 |
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
 | 9. Planned Fan-Out That Does Not Collide | 13/13 | Complete    | 2026-10-10 |
-| 10. Fleet Supervision Across Every Project | 5/9 | In Progress|  |
+| 10. Fleet Supervision Across Every Project | 6/9 | In Progress|  |
 | 11. Ship It | 0/TBD | Not started | - |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
 
