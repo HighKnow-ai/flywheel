@@ -951,3 +951,19 @@ At Phase 11, with an installed, usable build:
     WKWebView with no WebDriver.
   risk_if_wrong: "Low. The cell could clip or look crowded; no figure is wrong and no row is cleared by accident."
   automatable: "PARTLY. A harness run against a scratch FLYWHEEL_APP_DATA_DIR can call agent_run_acknowledge and assert fleet_list drops the row; the look cannot."
+
+- id: D-REV-50
+  phase: "10 — Fleet Supervision (plan 10-05)"
+  truth: "In the running app, with real blocked agents in two or more projects, the blocked queue lists each one, a single `a` press answers exactly the marked agent and the list then advances, and the queue reads well at row density."
+  status: open
+  why_deferred: |
+    Asserted: the cross-project read, one entry per run, live blocks only and the specified order (fleet_query.rs);
+    that one a, d and shift-a keypress over three queued cards answers exactly one request, that the owner moves
+    when the list moves, that Escape dismisses nothing, that a destructive entry leads with Deny, and that the
+    card's two earlier mounts still own the keyboard by the index rule (blocked-queue.test.tsx); the rail's
+    fleet-wide count and its separation from the needs-decision count (project-rail.test.tsx). Not exercised: a
+    real sidecar raising real requests in two projects while the queue is open, and the real Tauri round trip from
+    a keypress to the row leaving. The look of the owner marking is a human aesthetic judgement in a WKWebView,
+    which has no WebDriver.
+  risk_if_wrong: "Moderate for the live half (a queue that fails to refresh would leave a blocked agent unseen, though the fleet still shows it); low for the look."
+  automatable: "PARTLY. A harness run against a scratch FLYWHEEL_APP_DATA_DIR can seed two blocked runs, call fleet_blocked_queue and agent_run_answer_permission and assert the queue shrinks by one per call; the look of the owner marking cannot."
