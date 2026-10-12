@@ -16,9 +16,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRun, AgentRunStatus};
-use core::dispatch::{why, SequencingReason};
+use core::dispatch::{why, AttentionCause, SequencingReason};
 use core::domain::dispatch_plan::{
-    approve_plan_with, create_draft_plan_in_tx, replace_plan_tasks_in_tx, PlanTaskInput, EVENT_TASK_SEQUENCED,
+    approve_plan_with, create_draft_plan_in_tx, mark_needs_attention, replace_plan_tasks_in_tx, PlanTaskInput,
+    EVENT_TASK_SEQUENCED,
 };
 use core::domain::epic::create_epic;
 use core::domain::file_set::{
@@ -400,6 +401,64 @@ fn a_widen_reaching_a_queued_same_wave_task_is_accepted_and_records_edge_event_a
             other => panic!("expected the sequenced answer, got {other:?}"),
         }
     });
+}
+
+/// D-REV-45: a widen into a task parked in a state `is_startable` would start must leave its edge.
+fn set_state(fx: &mut Fixture, plan: &str, task: &str, state: &str) {
+    fx.conn
+        .execute(
+            "UPDATE dispatch_plan_tasks SET state = ?3 WHERE plan_id = ?1 AND task_id = ?2",
+            params![plan, task, state],
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_widen_reaching_a_task_parked_at_pre_spawn_attention_records_a_widen_edge() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let (a, b, plan) = a_running_and_a_queued(&mut fx);
+        let cause = AttentionCause::LaunchFailed { error: "sidecar hiccup".into() };
+        mark_needs_attention(&mut fx.conn, &plan, &b, &cause, &fx.actor).unwrap();
+
+        let outcome = widen_file_set(&mut fx.conn, &a.task_id, "src/b/deep.rs", &fx.actor).unwrap();
+
+        assert!(matches!(outcome, WidenOutcome::Accepted { .. }), "{outcome:?}");
+        let edges = edge_rows(&fx.conn);
+        assert_eq!(edges.len(), 1, "the parked task waits for the widener's merge: {edges:?}");
+        assert_eq!((edges[0].0.as_str(), edges[0].1.as_str(), edges[0].2.as_str()), (a.task_id.as_str(), b.as_str(), "widen"));
+        assert_eq!(sequenced_events(&fx.conn, &b), 1);
+    });
+}
+
+#[test]
+fn a_widen_reaching_a_task_that_needs_attention_after_its_run_records_no_edge() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let (a, b, plan) = a_running_and_a_queued(&mut fx);
+        let cause = AttentionCause::Uncommitted { count: 1, first: "x".into() };
+        mark_needs_attention(&mut fx.conn, &plan, &b, &cause, &fx.actor).unwrap();
+
+        widen_file_set(&mut fx.conn, &a.task_id, "src/b/deep.rs", &fx.actor).unwrap();
+
+        assert!(edge_rows(&fx.conn).is_empty(), "a post-run attention task is waiting on a merge, not a start");
+    });
+}
+
+#[test]
+fn a_widen_still_records_its_edge_for_every_previously_covered_queued_state() {
+    for state in ["planned", "waiting", "held_by_limit"] {
+        with_scratch_env(|_| {
+            let mut fx = fixture();
+            let (a, b, plan) = a_running_and_a_queued(&mut fx);
+            set_state(&mut fx, &plan, &b, state);
+
+            widen_file_set(&mut fx.conn, &a.task_id, "src/b/deep.rs", &fx.actor).unwrap();
+
+            assert_eq!(edge_rows(&fx.conn).len(), 1, "state {state}: nothing narrowed");
+            assert_eq!(sequenced_events(&fx.conn, &b), 1, "state {state}");
+        });
+    }
 }
 
 #[test]
