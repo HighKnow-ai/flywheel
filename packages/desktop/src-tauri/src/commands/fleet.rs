@@ -292,7 +292,9 @@ pub async fn worktree_inventory(state: State<'_, AppState>) -> Result<Vec<Worktr
     Ok(rows.into_iter().map(WorktreeInventoryRowDto::from).collect())
 }
 
-/// The server-side cap on how many worktrees one measure call may walk (T-10-08-02).
+/// The server-side cap on how many worktrees one measure call may walk (T-10-08-02). Smaller than
+/// [`WORKTREE_INVENTORY_CAP`] on purpose, to bound one call's walking time; "measure all" orders
+/// stalest-first so repeated presses reach every row (WR-03).
 const WORKTREE_MEASURE_CAP: usize = 200;
 
 /// One worktree's measurement outcome. `sizeBytes` is null when the walk was bounded or failed, in
@@ -317,6 +319,15 @@ pub async fn worktree_measure(
     app: tauri::AppHandle,
     task_ids: Option<Vec<String>>,
 ) -> Result<Vec<WorktreeMeasureDto>, String> {
+    // An over-long explicit list is refused as a whole, never silently truncated (WR-03).
+    if let Some(ids) = &task_ids {
+        if ids.len() > WORKTREE_MEASURE_CAP {
+            return Err(format!(
+                "worktree_measure refused: {} worktrees named, at most {WORKTREE_MEASURE_CAP} at a time",
+                ids.len()
+            ));
+        }
+    }
     let targets = {
         let conn = state.db.lock().map_err(|e| ipc_error("worktree_measure:lock", e))?;
         let targets = flywheel_core::query::fleet::worktree_measure_targets(

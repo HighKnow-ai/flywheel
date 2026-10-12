@@ -9,7 +9,7 @@ use core::domain::task::create_task;
 use core::domain::worktree::{
     ensure_worktree, worktree_size, worktree_size_limited, WORKTREE_WALK_MAX_DEPTH,
 };
-use core::query::fleet::record_worktree_size;
+use core::query::fleet::{record_worktree_size, worktree_measure_targets};
 use rusqlite::params;
 
 static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -128,6 +128,33 @@ fn recording_a_size_writes_exactly_the_two_columns_of_the_one_row() {
         assert_eq!((path, status), (wa.path, "active".to_string()), "nothing else changed");
         assert_eq!(read(&b.id).0, None, "the sibling row is untouched");
         assert!(!record_worktree_size(&conn, "no-such-task", 1, "x").unwrap());
+    });
+}
+
+/// WR-03: with more worktrees than the cap, "measure all" must reach the ones never measured and
+/// then the stalest, not re-walk the first rows by id on every press.
+#[test]
+fn measure_all_over_the_cap_takes_the_never_measured_then_the_stalest() {
+    with_scratch_worktree_root(|_| {
+        let (mut conn, actor, project, _repo) = common::seeded_git_project();
+        let mut tasks = Vec::new();
+        for n in 0..4 {
+            let t = create_task(&mut conn, &project.id, &actor, &format!("t{n}"), None).unwrap();
+            ensure_worktree(&mut conn, &t.id, &actor).unwrap();
+            tasks.push(t.id);
+        }
+        // tasks[0] measured recently, tasks[1] long ago, tasks[2] and tasks[3] never.
+        record_worktree_size(&conn, &tasks[0], 1, "2026-10-12T00:00:00Z").unwrap();
+        record_worktree_size(&conn, &tasks[1], 1, "2026-01-01T00:00:00Z").unwrap();
+
+        let ids = |limit| -> Vec<String> {
+            worktree_measure_targets(&conn, None, limit).unwrap().into_iter().map(|t| t.task_id).collect()
+        };
+        let first_two = ids(2);
+        assert!(first_two.contains(&tasks[2]) && first_two.contains(&tasks[3]), "never measured first: {first_two:?}");
+        let three = ids(3);
+        assert_eq!(three[2], tasks[1], "then the stalest measurement");
+        assert_eq!(ids(4).last(), Some(&tasks[0]), "the freshest is last");
     });
 }
 

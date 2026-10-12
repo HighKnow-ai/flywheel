@@ -477,6 +477,12 @@ pub struct WorktreeMeasureTarget {
 /// The paths to measure for `task_ids`, or for every worktree when `None`, at most `limit`. An id
 /// with no worktree row is simply absent. The renderer only ever names ids; every path comes from
 /// the `worktrees` rows here.
+///
+/// The `None` case is stalest-first (never measured, then oldest measurement), so when there are
+/// more worktrees than `limit` each call advances through the set instead of re-walking the same
+/// first rows forever. SQLite sorts NULL before every value in an ascending order, which is what
+/// puts "never measured" first. The `Some` case silently ignores ids past `limit`; the command
+/// refuses an over-long list before calling here.
 pub fn worktree_measure_targets(
     conn: &Connection,
     task_ids: Option<&[String]>,
@@ -492,7 +498,7 @@ pub fn worktree_measure_targets(
             }
         }
         None => {
-            let mut stmt = conn.prepare("SELECT task_id, path FROM worktrees ORDER BY id ASC LIMIT ?1")?;
+            let mut stmt = conn.prepare("SELECT task_id, path FROM worktrees ORDER BY size_measured_at ASC, id ASC LIMIT ?1")?;
             targets = stmt
                 .query_map(params![limit as i64], |row| {
                     Ok(WorktreeMeasureTarget { task_id: row.get(0)?, path: row.get(1)? })
