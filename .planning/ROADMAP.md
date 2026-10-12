@@ -1149,12 +1149,26 @@ visible backoff is what keeps Flywheel from looking like abuse to the backend.
   4. User receives an operating-system notification when an agent becomes blocked or completes, without watching the window.
   5. User sees every worktree across all projects with its disk usage and reclaims stale ones, and sees token usage and cost for each session.
 
-**Plans**: TBD
+**Plans**: 9 plans in 7 waves (tracer-first; the serial tail is forced by the same chokepoint files Phase 08 hit — `adapters/tauri.ts`, `src-tauri/src/main.rs`, `capabilities/default.json` — plus `FleetSurface.tsx` and `query/fleet.rs`, which almost every plan touches)
+
+Plans:
+- [ ] 10-01-PLAN.md — TRACER: one view lists every agent across every project with its state (FLEET-01, FLEET-04)
+- [ ] 10-02-PLAN.md — The three folded defects: the timeout-boundary race, the dropped narration, the unmemoised forge failure
+- [ ] 10-03-PLAN.md — The activity cell: what each agent is doing, live (FLEET-01)
+- [ ] 10-04-PLAN.md — Spend per session, the fleet total, and draining the DONE / FAILED band (AGNT-08)
+- [ ] 10-05-PLAN.md — The blocked queue, answered in place, one keystroke per agent (FLEET-02)
+- [ ] 10-06-PLAN.md — Jump from a row to the live output and to the board item, in any project (FLEET-03)
+- [ ] 10-07-PLAN.md — OS notification when an agent blocks, finishes or fails, coalesced (FLEET-05)
+- [ ] 10-08-PLAN.md — Worktree inventory across every project, with disk usage and a reason per row (WORK-07)
+- [ ] 10-09-PLAN.md — Reclaim the accumulation: multi-select, one confirmation, per-row results (WORK-07)
+
 **UI hint**: yes
 
 **Notes**: Generalises the single-project views proven in earlier phases; research is explicit
 that multi-project aggregation only makes sense once single-project supervision is solid.
 Criterion 2 is the one that decides whether fleet supervision beats tab-cycling through terminals.
+Criterion 4 ships on the pinned `tauri = "=2.11.5"` with `tauri-plugin-notification` 2.4.0 per D-181;
+notification click-to-jump is deferred to a board issue and is in no requirement.
 
 ### Phase 11: Ship It
 
