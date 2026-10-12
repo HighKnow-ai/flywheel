@@ -1,6 +1,12 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { fleetBlockedQueue, fleetList, subscribeAgentEvent, subscribeBoardChanged } from "../adapters/tauri";
+import {
+  fleetBlockedQueue,
+  fleetList,
+  subscribeAgentEvent,
+  subscribeBoardChanged,
+  worktreeInventory,
+} from "../adapters/tauri";
 
 /** How often a running agent's activity line may be re-read: `agent:event` fires per stream event, far
  * faster than a row needs to move. Trailing edge, so the last event of a burst is always picked up. */
@@ -15,6 +21,11 @@ export function fleetQueryKey() {
 /** The blocked queue's query key (plan 10-05). Also app-wide: no project id. */
 export function blockedQueueQueryKey() {
   return ["fleet-blocked-queue"] as const;
+}
+
+/** The worktree inventory's query key (plan 10-08). Also app-wide: no project id. */
+export function worktreeInventoryQueryKey() {
+  return ["worktree-inventory"] as const;
 }
 
 /**
@@ -50,6 +61,20 @@ export function useBlockedQueue() {
   });
 }
 
+/**
+ * Every task worktree across every registered project with its cached size and a named disposition
+ * (WORK-07, plan 10-08). Rides the shared subscription like the other two reads, but only
+ * `board:changed` invalidates it: a run starting or a task reaching Done changes a row's
+ * disposition, whereas an agent event stream would re-run git for every row many times a second.
+ */
+export function useWorktreeInventory() {
+  useFleetInvalidation();
+  return useQuery({
+    queryKey: worktreeInventoryQueryKey(),
+    queryFn: () => worktreeInventory(),
+  });
+}
+
 /** One invalidation subscription per QueryClient, shared by every mounted consumer (`useFleet`,
  * `useBlockedQueue`, the project rail's count). Plan 10-03 fixed ONE app-level `agent:event` listener
  * for the fleet; a second consumer must not buy a second listener. Reference counted, so the
@@ -61,12 +86,16 @@ function startInvalidation(queryClient: QueryClient): () => void {
     void queryClient.invalidateQueries({ queryKey: fleetQueryKey() });
     void queryClient.invalidateQueries({ queryKey: blockedQueueQueryKey() });
   };
+  const invalidateOnBoardChange = () => {
+    invalidate();
+    void queryClient.invalidateQueries({ queryKey: worktreeInventoryQueryKey() });
+  };
   let cancelled = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let unlistenBoard: (() => void) | undefined;
   let unlistenAgent: (() => void) | undefined;
 
-  subscribeBoardChanged(invalidate).then((fn) => {
+  subscribeBoardChanged(invalidateOnBoardChange).then((fn) => {
     if (cancelled) fn();
     else unlistenBoard = fn;
   });

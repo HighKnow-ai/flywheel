@@ -114,6 +114,20 @@ describe("ProjectRail's Fleet entry point (Phase 10, D-163)", () => {
   });
 });
 
+describe("ProjectRail's Worktrees entry point (Phase 10 plan 10-08, WORK-07)", () => {
+  it("renders the Worktrees row as a button that opens the inventory", () => {
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    const fleetGroup = screen.getByRole("group", { name: "Fleet" });
+    const row = within(fleetGroup).getByRole("button", { name: "Open worktree inventory" });
+    expect(row.tagName).toBe("BUTTON");
+    expect(useUiStore.getState().worktreeInventoryOpen).toBe(false);
+    fireEvent.click(row);
+    expect(useUiStore.getState().worktreeInventoryOpen).toBe(true);
+  });
+});
+
 describe("ProjectRail's review queue entry points (Phase 10 plan 10-05, FLEET-02)", () => {
   it("renders the Blocked row as a button that opens the blocked queue", () => {
     renderWithClient(

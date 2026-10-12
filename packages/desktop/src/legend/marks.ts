@@ -418,6 +418,29 @@ export const MARKS: Mark[] = [
     meaning: "The worktree Flywheel recorded for this task is not on disk.",
   },
   {
+    id: "worktree-reclaimable",
+    channel: "agent",
+    glyph: "Recycle",
+    label: "Reclaimable",
+    meaning:
+      "The task is done or its branch is integrated, no agent is running in it and nothing in it is uncommitted, so its disk space can be freed. The row names which.",
+  },
+  {
+    id: "worktree-in-use",
+    channel: "agent",
+    glyph: "Activity",
+    label: "In use",
+    meaning: "An agent is running in this worktree, or is blocked waiting on you in it. It is never offered for reclaim.",
+  },
+  {
+    id: "worktree-keep",
+    channel: "agent",
+    glyph: "Lock",
+    label: "Keep",
+    meaning:
+      "Not offered for reclaim, for the reason the row states: the task is still open, the tree has uncommitted changes, the directory is missing or the project cannot be reached.",
+  },
+  {
     id: "run-abandoned",
     channel: "agent",
     glyph: "Unplug",

@@ -64,7 +64,7 @@ describe("MARKS registry", () => {
 describe("agent channel", () => {
   const agentMarks = MARKS.filter((m) => m.channel === "agent");
 
-  it("has exactly seventeen entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md/08.1-01-PLAN.md specify", () => {
+  it("has exactly twenty entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md/08.1-01-PLAN.md specify", () => {
     const expected = [
       { id: "run-running", glyph: "Loader", label: "Running" },
       { id: "run-completed", glyph: "CircleCheckBig", label: "Completed" },
@@ -83,8 +83,11 @@ describe("agent channel", () => {
       { id: "authoring-stage-decompose", glyph: "ListTree", label: "Decompose" },
       { id: "authoring-stage-criteria", glyph: "ListChecks", label: "Criteria" },
       { id: "proposal-pending", glyph: "FileClock", label: "Pending proposal" },
+      { id: "worktree-reclaimable", glyph: "Recycle", label: "Reclaimable" },
+      { id: "worktree-in-use", glyph: "Activity", label: "In use" },
+      { id: "worktree-keep", glyph: "Lock", label: "Keep" },
     ];
-    expect(agentMarks).toHaveLength(17);
+    expect(agentMarks).toHaveLength(20);
     for (const exp of expected) {
       const mark = agentMarks.find((m) => m.id === exp.id);
       expect(mark, `missing agent mark "${exp.id}"`).toBeDefined();
@@ -260,9 +263,9 @@ describe("the legend tells the truth about the world 08.1 built", () => {
       estimate: 3,
       assignee: 4,
       project: 3,
-      agent: 17,
+      agent: 20,
     });
-    expect(MARKS).toHaveLength(54);
+    expect(MARKS).toHaveLength(57);
   });
 });
 

@@ -11,8 +11,10 @@
  * The FLEET section's "All agents" row is an ENTRY POINT (Phase 10, D-163): it opens the fleet
  * surface, the one view of every agent across every project. 08.1 held every row in this rail back as
  * a read-only fact because "a row that looks like a button and does nothing is worse than a plain
- * number" — the fleet surface now exists, so that row is a real button. The Worktrees row stays a
- * READ-ONLY FACT: its destination (the worktree inventory) is a later plan in this phase.
+ * number" — the fleet surface now exists, so that row is a real button. So is "Worktrees" (plan
+ * 10-08): it opens the cross-project worktree inventory. It carries no count of its own, because a
+ * count of the current project's worktrees beside a view of every project's would disagree with it;
+ * the inventory's header holds the total.
  * REVIEW QUEUE holds the two rows that wait on the owner, and both are entry points (plan 10-05):
  * "Blocked" opens the blocked queue, and "Needs decision" opens the fleet list, where the NEEDS YOU
  * band is its first section.
@@ -42,7 +44,7 @@ import { useState, type CSSProperties } from "react";
 import { Plus, TriangleAlert } from "lucide-react";
 import glyphUrl from "../assets/logo-glyph.svg";
 import type { Project } from "../board/useBoardQuery";
-import { useChangeFlags, useRecoverySummary } from "../board/useBoardQuery";
+import { useRecoverySummary } from "../board/useBoardQuery";
 import { useBlockedQueue } from "../fleet/useFleet";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 import { useUiStore } from "../state/uiStore";
@@ -128,6 +130,7 @@ function Section({ id, label, children }: { id: string; label: string; children:
 export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRailProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
+  const setWorktreeInventoryOpen = useUiStore((state) => state.setWorktreeInventoryOpen);
   const {
     registerProjectFlow,
     isError: registerIsError,
@@ -158,9 +161,6 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   // exists to make at a glance.
   const recoverySummaryQuery = useRecoverySummary(currentProjectId);
   const recoveryCount = recoverySummaryQuery.data?.recoveryCount ?? 0;
-  // FLEET's worktree count: one change flag per task that has a worktree, the SAME query the board
-  // already holds (deduplicated by key). Absent until it lands — an unknown is not a zero.
-  const worktreeCount = useChangeFlags(currentProjectId).data?.length;
 
   if (projects.length === 0) {
     // Not present pre-first-registration — `App.tsx` renders `FirstRun` instead, but this guard
@@ -249,14 +249,16 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
         >
           <span>All agents</span>
         </button>
-        {worktreeCount !== undefined && (
-          <div className="type-body" style={rowStyle}>
-            <span>Worktrees</span>
-            <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
-              {worktreeCount}
-            </span>
-          </div>
-        )}
+        <button
+          type="button"
+          className="type-body"
+          aria-label="Open worktree inventory"
+          title="Every task worktree across every project, with its disk usage"
+          onClick={() => setWorktreeInventoryOpen(true)}
+          style={entryStyle}
+        >
+          <span>Worktrees</span>
+        </button>
       </Section>
 
       <Section id="rail-review-queue" label="Review queue">

@@ -36,6 +36,10 @@ const ReviewSurface = React.lazy(() =>
 const FleetSurface = React.lazy(() =>
   import("./fleet/FleetSurface").then((m) => ({ default: m.FleetSurface })),
 );
+// Phase 10 plan 10-08: the worktree inventory, loaded on first open the same way.
+const WorktreeInventory = React.lazy(() =>
+  import("./fleet/WorktreeInventory").then((m) => ({ default: m.WorktreeInventory })),
+);
 import "./styles/tokens.css";
 import "./styles/type.css";
 import "./styles/motion.css";
@@ -136,6 +140,8 @@ function AppShell() {
   // global `open-fleet` binding, the palette and the native menu.
   const fleetSurface = useUiStore((state) => state.fleetSurface);
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
+  const worktreeInventoryOpen = useUiStore((state) => state.worktreeInventoryOpen);
+  const setWorktreeInventoryOpen = useUiStore((state) => state.setWorktreeInventoryOpen);
   // The triage surface's own epic roster — read the same way `BoardView.tsx` does (`useEpics`),
   // since `AppShell` has no other source for it. Gated on `triageSurfaceProjectId` itself
   // (`useEpics`'s own `enabled: Boolean(projectId)`), so this issues no read while the surface is
@@ -352,6 +358,12 @@ function AppShell() {
             // needs to land. Do not copy the triage surface's clear-itself-before-opening-a-session.
             <Suspense fallback={null}>
               <FleetSurface onClose={() => setFleetSurface(null)} />
+            </Suspense>
+          ) : worktreeInventoryOpen ? (
+            // Plan 10-08 (WORK-07): beside the fleet branch, below the session branch, for the same
+            // reason: a session opened from here would land back on this view.
+            <Suspense fallback={null}>
+              <WorktreeInventory onClose={() => setWorktreeInventoryOpen(false)} />
             </Suspense>
           ) : project.status === "unreachable" ? (
             // D-16: an unreachable project's marker no longer matches its cached path — this

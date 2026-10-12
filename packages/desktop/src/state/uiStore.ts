@@ -240,6 +240,11 @@ interface UiState {
    * row, the global `open-fleet` binding, the palette and the native menu, none of which import the
    * surface. `null` when closed. */
   fleetSurface: FleetSurfaceTarget | null;
+  /** Whether the worktree inventory (Phase 10 plan 10-08, WORK-07) is open. A separate flag from
+   * `fleetSurface` on purpose: the fleet's row selection and key bindings are scoped to a non-null
+   * `fleetSurface`, and the inventory has no rows to select. The two are mutually exclusive: opening
+   * either closes the other. */
+  worktreeInventoryOpen: boolean;
   /** A one-shot request to select a board item and open its detail (Phase 10 plan 10-06, FLEET-03,
    * RESEARCH Finding 9). It exists because `BoardView` clears selection, detail and delete whenever its
    * project id changes, so a jump into another project that sets those three fields directly (as the
@@ -300,6 +305,8 @@ interface UiState {
   setReviewSurface: (target: ReviewSurfaceTarget | null) => void;
   /** Opens/closes the fleet surface (`null` to close). */
   setFleetSurface: (target: FleetSurfaceTarget | null) => void;
+  /** Opens/closes the worktree inventory; opening it closes the fleet surface. */
+  setWorktreeInventoryOpen: (open: boolean) => void;
   setPendingFocusItemId: (id: string | null) => void;
   /** Returns the pending focus request and clears it in the same call. */
   consumePendingFocusItemId: () => string | null;
@@ -333,6 +340,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   triageSurfaceProjectId: null,
   reviewSurface: null,
   fleetSurface: null,
+  worktreeInventoryOpen: false,
   pendingFocusItemId: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
@@ -422,7 +430,10 @@ export const useUiStore = create<UiState>((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setTriageSurfaceProjectId: (projectId) => set({ triageSurfaceProjectId: projectId }),
   setReviewSurface: (target) => set({ reviewSurface: target }),
-  setFleetSurface: (target) => set({ fleetSurface: target }),
+  setFleetSurface: (target) =>
+    set(target ? { fleetSurface: target, worktreeInventoryOpen: false } : { fleetSurface: null }),
+  setWorktreeInventoryOpen: (open) =>
+    set(open ? { worktreeInventoryOpen: true, fleetSurface: null } : { worktreeInventoryOpen: false }),
   setPendingFocusItemId: (id) => set({ pendingFocusItemId: id }),
   consumePendingFocusItemId: () => {
     const id = get().pendingFocusItemId;
@@ -465,6 +476,7 @@ export function resetUiState() {
     triageSurfaceProjectId: null,
     reviewSurface: null,
     fleetSurface: null,
+    worktreeInventoryOpen: false,
     pendingFocusItemId: null,
   });
 }
