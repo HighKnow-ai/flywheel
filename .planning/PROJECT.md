@@ -98,11 +98,24 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
   measured, not inferred: `scripts/uat/uat-10-agent-backlog.mjs --live` drove a real `claude`
   execution-run session that chose to call `propose_item` on its own.
 
+- ✓ **Multi-project fleet supervision** — Phase 10. One view lists every agent across every
+  registered project with what each is doing, distinguishing running, blocked, finished-awaiting-review
+  and failed; a dedicated cross-project queue shows every agent blocked on a human and is answerable
+  in place at one keystroke per agent; any fleet row jumps to that agent's live session and to its
+  board item in any project; the OS raises a banner when an agent blocks, finishes or fails (coalesced
+  at 3s, on the pinned `tauri = "=2.11.5"` with `tauri-plugin-notification =2.4.0` per D-181, no
+  click-through); and every worktree across all projects is listed with its disk usage and reclaimable
+  in a multi-select batch, with token usage and cost surfaced per session and totalled for the fleet.
+  5/5 roadmap success criteria and all 7 requirement IDs verified by automated evidence. The cross-project
+  read returns a full 200-row window in 4ms under 5,000 runs. Reclaim eligibility is **derived** from
+  facts already recorded — nothing writes `worktrees.status = 'stale'`, so there is no populator to drift.
+  What was NOT observed: macOS actually drawing a banner, and the first-run permission prompt (D-REV-52,
+  D-REV-53) — both physically unautomatable and queued in `DEFERRED-REVIEW.md`.
+
 ### Active
 
 - [ ] Board-native work model: epics, tasks and issues are the primary artifact, replacing `.planning/` files as the store of record for phase structure
 - [ ] Socratic epic authoring: the agent challenges the user while an epic is being shaped, in the manner of GSD's discuss/research/plan phases, and writes the resulting structure as board items
-- [ ] Multi-project fleet supervision: one view answering "what is every agent, everywhere, doing — and what needs me?"
 - [ ] Git worktree multiplexing with fixed topology: task worktree → epic integration branch → main
 - [ ] Planner-sized fan-out: the planner decides parallel width and wave grouping from declared file-sets, with a runtime file-overlap guard as a safety net
 - [ ] Claude Code as the v1 agent backend, using the developer's existing local credentials
@@ -152,6 +165,24 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
   full-screen replacement view. `SessionSurface` and `SettingsSurface` share the same gap, which
   makes this a general fix to the layer model rather than a per-surface patch. No triage-safety
   consequence — nothing reachable this way can promote or bulk-accept — but a real UX regression risk.
+
+- [ ] Two tiers of the forge tick still hold the database mutex across git — **emerged in Phase 10**
+  (`10-REVIEW.md` WR-01, partially fixed). The forge *detection* path now reads the stored forge under
+  the lock and runs `git remote get-url origin` after dropping it, which was the default path because
+  `projects.forge` is NULL until set. But the hot and cold tier ticks still hold the mutex across all
+  their git reads, so "no mutex is held across a subprocess" is still not true repo-wide and a hung
+  repository can still freeze every command for up to 120s. The larger restructuring was deliberately
+  not taken.
+- [ ] Worktree reclaim is not atomic across git and the database — **emerged in Phase 10**
+  (`10-REVIEW.md` WR-04/WR-05, partially fixed). Reclaim now re-checks for a live run immediately
+  before removal via a reclaim-only path, but that only narrows the race to the gap between the query
+  and the `git` call — it does not close it. A removal killed at the 120s ceiling can still leave a
+  half-deleted worktree that can never be reclaimed again, and the shared-connection read-then-write
+  paths still use deferred transactions, leaving the `SQLITE_BUSY_SNAPSHOT` hazard on their side.
+- [ ] One Rust suite takes ~503s — **emerged in Phase 10.** The worktree size walk's suite runs for
+  over eight minutes because its fixture walks a real repository root (measured at 92GB allocated,
+  31–51s for a single walk in an unoptimised build). The whole workspace suite is green, but this one
+  suite is most of its wall-clock and was twice misread in-phase as a hang. Bound the fixture.
 
 ### Out of Scope
 
@@ -250,4 +281,4 @@ This document evolves at phase transitions and milestone boundaries.
 > milestone review.
 
 ---
-*Last updated: 2026-10-02 after Phase 6*
+*Last updated: 2026-10-12 after Phase 10*
