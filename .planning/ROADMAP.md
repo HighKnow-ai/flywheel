@@ -1152,14 +1152,34 @@ visible backoff is what keeps Flywheel from looking like abuse to the backend.
 **Plans**: 9 plans in 7 waves (tracer-first; the serial tail is forced by the same chokepoint files Phase 08 hit — `adapters/tauri.ts`, `src-tauri/src/main.rs`, `capabilities/default.json` — plus `FleetSurface.tsx` and `query/fleet.rs`, which almost every plan touches)
 
 Plans:
+**Wave 1**
+
 - [ ] 10-01-PLAN.md — TRACER: one view lists every agent across every project with its state (FLEET-01, FLEET-04)
 - [ ] 10-02-PLAN.md — The three folded defects: the timeout-boundary race, the dropped narration, the unmemoised forge failure
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 10-03-PLAN.md — The activity cell: what each agent is doing, live (FLEET-01)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 10-04-PLAN.md — Spend per session, the fleet total, and draining the DONE / FAILED band (AGNT-08)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 10-05-PLAN.md — The blocked queue, answered in place, one keystroke per agent (FLEET-02)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 10-06-PLAN.md — Jump from a row to the live output and to the board item, in any project (FLEET-03)
 - [ ] 10-07-PLAN.md — OS notification when an agent blocks, finishes or fails, coalesced (FLEET-05)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 10-08-PLAN.md — Worktree inventory across every project, with disk usage and a reason per row (WORK-07)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 10-09-PLAN.md — Reclaim the accumulation: multi-select, one confirmation, per-row results (WORK-07)
 
 **UI hint**: yes

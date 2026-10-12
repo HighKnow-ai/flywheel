@@ -234,6 +234,17 @@ Decision ids continue the project-wide sequence; Phase 9 ended at D-162.
   is satisfied by the existing session surface and Runs section — but roadmap criterion 5 names cost
   visibility as something the user must see).
 
+- **D-181:** **Stay on the pinned `tauri = "=2.11.5"`; take `tauri-plugin-notification` 2.4.0, not
+  2.6.0.** FLEET-05 and roadmap criterion 4 require only that the OS notification *fire* when an
+  agent becomes blocked or completes; neither names click-through. 2.4.0 delivers that on the pinned
+  Tauri. Owner decision, 2026-10-12, answering research Open Question 0.
+  Rejected: bumping to Tauri 2.12.x for plugin 2.6.0's Rust-side `on_action` click handler — it is
+  the only way to make a banner click jump to the agent's live output, and research dry-ran the bump
+  clean (compiles, 103 desktop tests pass), but it buys an affordance no requirement asks for at the
+  cost of re-exposing every Tauri surface to a minor-version change. **Click-to-jump from a
+  notification is deferred to a board issue, not planned in this phase.** Any `on_action` /
+  notification-click wiring in a plan for this phase is out of scope.
+
 ### Claude's Discretion
 
 The following were deliberately not decided and are the builder's to choose, within the authoritative
