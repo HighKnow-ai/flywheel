@@ -24,8 +24,14 @@ use tauri::{Emitter, Manager};
 /// (01-16-PLAN.md Task 2, UAT gap G-01-1) — `state/keyboard.ts`'s `MENU_ACTION_IDS` is their
 /// renderer-side mirror, kept in sync by hand across the IPC seam since a Rust const and a
 /// TypeScript array cannot share a single source.
-const FORWARDED_MENU_ACTIONS: &[&str] =
-    &["register-project", "create-task", "create-epic", "open-palette", "open-settings"];
+const FORWARDED_MENU_ACTIONS: &[&str] = &[
+    "register-project",
+    "create-task",
+    "create-epic",
+    "open-palette",
+    "open-settings",
+    "open-fleet",
+];
 
 fn main() {
     tauri::Builder::default()

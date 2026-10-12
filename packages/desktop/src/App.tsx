@@ -213,6 +213,7 @@ function AppShell() {
       if (project) setCurrentProjectId(project.id);
     },
     "open-settings": () => setSettingsOpen(true),
+    "open-fleet": () => setFleetSurface({ view: "fleet" }),
   });
 
   // Bridges a native menu click/accelerator (`src-tauri/src/menu.rs`'s `on_menu_event`) into the

@@ -33,7 +33,9 @@ export type FocusRegion =
   // tray's, so the two never fork into separate row implementations.
   | "triage-surface"
   // Phase 8 plan 08-01: the review surface's own region — `j`/`k` through its file list.
-  | "review-surface";
+  | "review-surface"
+  // Phase 10 plan 10-01 (D-163): the fleet surface's own region — added the way `triage-surface` was.
+  | "fleet-surface";
 
 /** Every board action reachable from the keyboard, the palette, or (menu.rs) the native menu.
  * `create-issue`/`open-legend`/`filter-status`/`filter-epic`/`filter-assignee`/`filter-priority`
@@ -81,6 +83,9 @@ export type ActionId =
   | "answer-permission-deny"
   | "answer-permission-allow-always"
   | "open-settings"
+  // Phase 10 plan 10-01 (D-163): open the fleet surface — one global binding, reachable identically
+  // from the keystroke, the command palette and the native menu (never a broader capability).
+  | "open-fleet"
   // D-84/D-88 (plan 05-02): start a fresh epic-authoring session. Command-palette-only in this
   // plan (no key binding yet), mirroring `create-issue`/`open-legend`'s own palette-only entries
   // above — the palette is the least invasive entry point and it re-enters the same
@@ -229,6 +234,9 @@ export const BINDINGS: Binding[] = [
 
   // ---- Global (agent additions) -----------------------------------------------------------
   { id: "open-settings", region: "global", key: ",", meta: true, label: "Open Settings" },
+  // D-163: `⌘⇧F`. The uniqueness test in `keyboard-fleet.test.ts` proves no other global binding
+  // shares this key-plus-modifier combination (`⌘F` is Search Board, which differs by shift).
+  { id: "open-fleet", region: "global", key: "f", meta: true, shift: true, label: "Open Fleet" },
 
   // ---- Proposal tray (D-92/D-95, plan 05-07) — region-scoped so `a`/`d`/`Shift+A` here reuse
   // the exact permission-card vocabulary without colliding with it (a different region namespace
@@ -290,6 +298,13 @@ export const BINDINGS: Binding[] = [
   { id: "move-down", region: "review-surface", key: "ArrowDown", label: "Move selection down" },
   { id: "move-up", region: "review-surface", key: "k", label: "Move selection up" },
   { id: "move-up", region: "review-surface", key: "ArrowUp", label: "Move selection up" },
+  // Phase 10 plan 10-01 (D-163): the fleet surface's selection movement. Deliberately NO `a`, `d` or
+  // `Shift+A` here — the permission card owns those three keys and a later plan mounts it inside this
+  // surface; `bindingAllowedInLayer` refuses them under the `"fleet-surface"` layer too.
+  { id: "move-down", region: "fleet-surface", key: "j", label: "Move selection down" },
+  { id: "move-down", region: "fleet-surface", key: "ArrowDown", label: "Move selection down" },
+  { id: "move-up", region: "fleet-surface", key: "k", label: "Move selection up" },
+  { id: "move-up", region: "fleet-surface", key: "ArrowUp", label: "Move selection up" },
   { id: "expand-file", region: "review-surface", key: "Enter", label: "Expand file" },
   { id: "expand-file", region: "review-surface", key: " ", label: "Expand file" },
   // The check is the act of attestation (T-08-06-01): selecting lines alone never writes. The
@@ -420,8 +435,8 @@ export function actionLabel(id: ActionId): string {
   return BINDINGS.find((b) => b.id === id)?.label ?? id;
 }
 
-/** The TypeScript mirror of `src-tauri/src/main.rs`'s `FORWARDED_MENU_ACTIONS` — the exact five
- * ids `menu.rs` builds as custom native menu items and `on_menu_event` forwards over
+/** The TypeScript mirror of `src-tauri/src/main.rs`'s `FORWARDED_MENU_ACTIONS` — the exact
+ * set of ids `menu.rs` builds as custom native menu items and `on_menu_event` forwards over
  * `menu:action`. This is the set `state/menuSync.ts`'s `useMenuLayerSync` (01-16-PLAN.md Task 3)
  * drives native enable/disable state for, and the set `App.tsx`'s bridge re-enters
  * `dispatchAction`/`bindingAllowedInLayer` for exactly like a real keystroke (G-01-1, threat
@@ -433,6 +448,7 @@ export const MENU_ACTION_IDS: readonly ActionId[] = [
   "create-epic",
   "open-palette",
   "open-settings",
+  "open-fleet",
 ];
 
 // -------------------------------------------------------------------------------------------
@@ -467,7 +483,9 @@ export type UiLayer =
   // D-103 (plan 06-07): the triage surface's own layer — see `TRIAGE_SURFACE_ACTION_IDS` below.
   | "triage-surface"
   // Phase 8 plan 08-01: the review surface's own layer — its allow-list sits beside the triage one below.
-  | "review-surface";
+  | "review-surface"
+  // Phase 10 plan 10-01 (D-163): the fleet surface's own layer — see `FLEET_SURFACE_ACTION_IDS` below.
+  | "fleet-surface";
 
 /** The four booleans every layer decision is made from. `EscapeLadderState` below extends this
  * with only `hasSelection` — the two are the same subject read two ways (which layer to CLOSE on
@@ -549,6 +567,12 @@ const REVIEW_SURFACE_ACTION_IDS = new Set<ActionId>([
   "open-epic-request",
 ]);
 
+// Phase 10 plan 10-01: the fleet surface's complete allow-list — selection movement only. The three
+// permission-answer ids are refused by the `PERMISSION_CARD_ACTION_IDS` clause in
+// `bindingAllowedInLayer` (they fire only under the `"permission-card"` layer), so a stray `a`/`d`
+// over the fleet can never approve or deny a tool call.
+const FLEET_SURFACE_ACTION_IDS = new Set<ActionId>(["move-down", "move-up"]);
+
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "open-palette") return layer !== "picker" && layer !== "palette";
   // T-02-15 (STRIDE, elevation of privilege): permission-answer bindings must never fire outside
@@ -563,6 +587,7 @@ export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
     return TRIAGE_SURFACE_ACTION_IDS.has(id) || TRAY_SELECTION_ACTION_IDS.has(id);
   }
   if (layer === "review-surface") return REVIEW_SURFACE_ACTION_IDS.has(id);
+  if (layer === "fleet-surface") return FLEET_SURFACE_ACTION_IDS.has(id);
   // Unlike `move-down`/`move-up` (shared with the board, so they cannot be refused here), these four
   // are the review surface's alone; every other layer must refuse them rather than fall through to
   // the board clause.

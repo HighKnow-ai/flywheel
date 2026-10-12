@@ -138,6 +138,17 @@ describe("global additions", () => {
   });
 });
 
+describe("global additions (Phase 10)", () => {
+  it("⌘⇧F resolves to open-fleet from every region, and ⌘F still resolves to search", () => {
+    const regions = ["board-list", "session-surface", "permission-card", "item-detail"] as const;
+    for (const region of regions) {
+      const binding = resolveBinding(fakeEvent("f", { meta: true, shift: true }), region);
+      expect(binding?.id, `expected ⌘⇧F to resolve to open-fleet from region "${region}"`).toBe("open-fleet");
+    }
+    expect(resolveBinding(fakeEvent("f", { meta: true }), "board-list")?.id).toBe("focus-search");
+  });
+});
+
 describe("registry completeness", () => {
   it("allActionIds() contains all eight new ids exactly once each", () => {
     const ids = allActionIds();

@@ -55,13 +55,15 @@ pub struct MenuHandles<R: tauri::Runtime> {
     pub create_epic: MenuItem<R>,
     pub open_palette: MenuItem<R>,
     pub open_settings: MenuItem<R>,
+    /// Phase 10 plan 10-01 (D-163): the Fleet item under View.
+    pub open_fleet: MenuItem<R>,
 }
 
 impl<R: tauri::Runtime> MenuHandles<R> {
-    /// Resolves an action id string to its handle, or `None` for anything outside the five
+    /// Resolves an action id string to its handle, or `None` for anything outside the
     /// forwarded ids. `commands::menu::menu_set_action_enabled` uses the `None` case to refuse an
     /// unrecognised id rather than silently doing nothing — the renderer may only ever toggle
-    /// the five items the menu bar itself declares, never an arbitrary menu node
+    /// the items the menu bar itself declares, never an arbitrary menu node
     /// (threat T-01-16-01).
     pub fn get(&self, action_id: &str) -> Option<&MenuItem<R>> {
         match action_id {
@@ -70,6 +72,7 @@ impl<R: tauri::Runtime> MenuHandles<R> {
             "create-epic" => Some(&self.create_epic),
             "open-palette" => Some(&self.open_palette),
             "open-settings" => Some(&self.open_settings),
+            "open-fleet" => Some(&self.open_fleet),
             _ => None,
         }
     }
