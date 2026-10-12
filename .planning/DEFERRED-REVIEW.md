@@ -937,3 +937,17 @@ At Phase 11, with an installed, usable build:
     judgement in a WKWebView, which has no WebDriver.
   risk_if_wrong: "Low to moderate. The cell could lag or read poorly; nothing is lost and no state is wrong."
   automatable: "PARTLY. The live half can be a harness run against a scratch FLYWHEEL_APP_DATA_DIR that appends log lines and asserts `fleet_list` returns the new tail; the look of the line cannot."
+
+- id: D-REV-49
+  phase: "10 — Fleet Supervision (plan 10-04)"
+  truth: "In the running app the spend column, the labelled estimate footer and the Dismiss buttons read clearly at row density, and a dismissed row leaves the fleet."
+  status: open
+  why_deferred: |
+    Asserted: the NULL and sum behaviour of the read (fleet_query.rs), blank-while-running, a failed run
+    keeping its cost, the token label, the footer wording, Dismiss only on terminal rows, the batch call and
+    that a click on a row acknowledges nothing (fleet-spend.test.tsx), and the one acknowledge statement
+    (fleet_query.rs, recovery_summary.rs). Not exercised: the real Tauri round trip from a button press to the
+    row leaving, and how the token text fits at narrow widths, which is a human aesthetic judgement in a
+    WKWebView with no WebDriver.
+  risk_if_wrong: "Low. The cell could clip or look crowded; no figure is wrong and no row is cleared by accident."
+  automatable: "PARTLY. A harness run against a scratch FLYWHEEL_APP_DATA_DIR can call agent_run_acknowledge and assert fleet_list drops the row; the look cannot."
