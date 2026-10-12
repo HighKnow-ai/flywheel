@@ -118,6 +118,7 @@ function AppShell() {
   const activeAgentRunAuthoringStage = useUiStore((state) => state.activeAgentRunAuthoringStage);
   const activeAgentRunEpicId = useUiStore((state) => state.activeAgentRunEpicId);
   const activeAgentRunInitialLogOffset = useUiStore((state) => state.activeAgentRunInitialLogOffset);
+  const activeAgentRunInitialStatus = useUiStore((state) => state.activeAgentRunInitialStatus);
   const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
   // D-103 (plan 06-08): the dedicated triage surface, mounted once here like the session surface
   // and Settings above — opened from `board/TriageLane.tsx`'s header route control, which sets
@@ -333,6 +334,7 @@ function AppShell() {
               authoringStage={activeAgentRunAuthoringStage}
               epicId={activeAgentRunEpicId}
               initialFeedOffset={activeAgentRunInitialLogOffset}
+              initialStatus={activeAgentRunInitialStatus}
               onBack={() => setActiveAgentRunId(null)}
             />
           ) : fleetSurface ? (

@@ -86,6 +86,9 @@ export type ActionId =
   // Phase 10 plan 10-01 (D-163): open the fleet surface — one global binding, reachable identically
   // from the keystroke, the command palette and the native menu (never a broader capability).
   | "open-fleet"
+  // Phase 10 plan 10-06 (D-166, FLEET-03): the fleet list's primary action — open the selected row's
+  // session. Region-scoped to the fleet surface; Enter on a focused button keeps its own activation.
+  | "open-fleet-row"
   // D-84/D-88 (plan 05-02): start a fresh epic-authoring session. Command-palette-only in this
   // plan (no key binding yet), mirroring `create-issue`/`open-legend`'s own palette-only entries
   // above — the palette is the least invasive entry point and it re-enters the same
@@ -305,6 +308,7 @@ export const BINDINGS: Binding[] = [
   { id: "move-down", region: "fleet-surface", key: "ArrowDown", label: "Move selection down" },
   { id: "move-up", region: "fleet-surface", key: "k", label: "Move selection up" },
   { id: "move-up", region: "fleet-surface", key: "ArrowUp", label: "Move selection up" },
+  { id: "open-fleet-row", region: "fleet-surface", key: "Enter", label: "Open selected agent's session" },
   { id: "expand-file", region: "review-surface", key: "Enter", label: "Expand file" },
   { id: "expand-file", region: "review-surface", key: " ", label: "Expand file" },
   // The check is the act of attestation (T-08-06-01): selecting lines alone never writes. The
@@ -567,11 +571,12 @@ const REVIEW_SURFACE_ACTION_IDS = new Set<ActionId>([
   "open-epic-request",
 ]);
 
-// Phase 10 plan 10-01: the fleet surface's complete allow-list — selection movement only. The three
+// Phase 10 plan 10-01: the fleet surface's complete allow-list — selection movement, plus (plan 10-06)
+// the jumps out of a row. The three
 // permission-answer ids are refused by the `PERMISSION_CARD_ACTION_IDS` clause in
 // `bindingAllowedInLayer` (they fire only under the `"permission-card"` layer), so a stray `a`/`d`
 // over the fleet can never approve or deny a tool call.
-const FLEET_SURFACE_ACTION_IDS = new Set<ActionId>(["move-down", "move-up"]);
+const FLEET_SURFACE_ACTION_IDS = new Set<ActionId>(["move-down", "move-up", "open-fleet-row"]);
 
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "open-palette") return layer !== "picker" && layer !== "palette";

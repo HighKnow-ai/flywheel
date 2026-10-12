@@ -17,6 +17,7 @@ import { create } from "zustand";
 // Type-only — erased at compile time, so this does not create a runtime circular dependency even
 // though `board/useBoardQuery.ts` itself imports `BoardFilterDraft` from this module.
 import type { BoardItemKind } from "../board/useBoardQuery";
+import type { RunStatus } from "../legend/runStatus";
 
 /**
  * The in-progress filter selection (BOARD-06): every field is an empty array when that dimension
@@ -194,6 +195,11 @@ interface UiState {
    * jump (`App.tsx`'s `TriageSurface` `onOpenSession`), which is the one caller that has a
    * recorded log offset to open at rather than "whatever the tail currently is". */
   activeAgentRunInitialLogOffset: number | null;
+  /** The status the opener already knows for `activeAgentRunId` (Phase 10 plan 10-06, Pitfall 7), or
+   * `null` for every caller that does not — the session then falls back to its running default. Set
+   * only by the fleet, whose row is already showing the run's real status; without it a terminal run
+   * reads "Running" until something else re-reads it, which nothing does. */
+  activeAgentRunInitialStatus: RunStatus | null;
   /** The task id the launch sheet (D-27, plan 02-04) is currently open for, or `null` when it is
    * closed. Lives here for the same cross-tree reasoning as `activeAgentRunId`: the sheet is
    * mounted once at the `App.tsx` level (a peer of `CommandPalette`, per its own "briefing gate
@@ -269,6 +275,7 @@ interface UiState {
     authoringStage?: string | null,
     epicId?: string | null,
     initialLogOffset?: number | null,
+    initialStatus?: RunStatus | null,
   ) => void;
   setLaunchSheetTaskId: (taskId: string | null) => void;
   setWavePlanSheetEpicId: (epicId: string | null) => void;
@@ -308,6 +315,7 @@ export const useUiStore = create<UiState>((set) => ({
   activeAgentRunAuthoringStage: null,
   activeAgentRunEpicId: null,
   activeAgentRunInitialLogOffset: null,
+  activeAgentRunInitialStatus: null,
   launchSheetTaskId: null,
   wavePlanSheetEpicId: null,
   launchSheetAuthoringHandoff: null,
@@ -386,6 +394,7 @@ export const useUiStore = create<UiState>((set) => ({
     authoringStage = null,
     epicId = null,
     initialLogOffset = null,
+    initialStatus = null,
   ) =>
     set({
       activeAgentRunId: agentRunId,
@@ -393,6 +402,7 @@ export const useUiStore = create<UiState>((set) => ({
       activeAgentRunAuthoringStage: authoringStage,
       activeAgentRunEpicId: epicId,
       activeAgentRunInitialLogOffset: initialLogOffset,
+      activeAgentRunInitialStatus: initialStatus,
     }),
   setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
   setWavePlanSheetEpicId: (epicId) => set({ wavePlanSheetEpicId: epicId }),
@@ -430,6 +440,7 @@ export function resetUiState() {
     activeAgentRunAuthoringStage: null,
     activeAgentRunEpicId: null,
     activeAgentRunInitialLogOffset: null,
+    activeAgentRunInitialStatus: null,
     launchSheetTaskId: null,
     wavePlanSheetEpicId: null,
     launchSheetAuthoringHandoff: null,

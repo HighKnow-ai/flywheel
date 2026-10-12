@@ -13,15 +13,17 @@
  * Elapsed times tick from `startedAt` on ONE interval for the whole list; no IPC per second (D-171).
  * A live row also carries its activity cell (plan 10-03, D-167): the newest feed row of that run's own
  * log, built by the session feed's `buildFeedRows` and worded by its `feedRowText`, so the fleet and
- * the session never tell different stories about the same moment. A row has no interactive target in
- * this plan; the jumps into a session or a board item are later plans.
+ * the session never tell different stories about the same moment. A row's primary
+ * action is its session (plan 10-06, D-166); see `FleetRowView`.
  *
  * Plan 10-04 adds what a finished row cost (`SpendCell`), the labelled fleet total (`FleetFooter`) and
  * the dismiss actions. Dismissing is the user's explicit act and nothing else clears a row: opening a
- * session, a refresh and a restart all leave it (D-165). There is no dismiss key yet because a row has
- * no selection model to aim one at (plan 10-06 adds one); the actions are focusable buttons.
+ * session, a refresh and a restart all leave it (D-165). Plan 10-06 gives the list a selection model
+ * (`j`/`k`, Enter) for the jumps; dismissal still has NO key — that restates 10-04's choice rather than
+ * lifting it, because a key that clears the selected row one keystroke from Enter is how a finished run
+ * gets cleared by accident. Dismiss stays a focusable button.
  */
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType, type MouseEvent } from "react";
 import * as icons from "lucide-react";
 import { acknowledgeAgentRun, agentRunAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
 import { MARKS_BY_ID } from "../legend/marks";
@@ -35,11 +37,13 @@ import {
   formatCostUsd,
   formatCount,
   isFleetState,
+  isRunStatus,
   type FleetBandId,
   type FleetState,
 } from "../legend/runStatus";
 import { feedRowText } from "../session/FeedRow";
 import { buildFeedRows } from "../session/SessionSurface";
+import { nextSelectionId, useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import { BlockedQueue } from "./BlockedQueue";
 import { useBlockedQueue, useFleet } from "./useFleet";
@@ -222,7 +226,36 @@ function ageSince(row: FleetRowDto, state: FleetState): string | undefined {
   return row.startedAt;
 }
 
-export function FleetRowView({ row, now }: { row: FleetRowDto; now: number }) {
+/** The row's primary action (D-166, FLEET-03): open this run's session, handing over everything the
+ * surface needs to mount in its correct shape in ONE call. `agent_runs.task_id` and `epic_id` are both
+ * nullable and mutually exclusive (Finding 10), so an authoring or planning run carries an epic or
+ * nothing; `setActiveAgentRunId` documents that every call site sets the four together, and the session
+ * will not mount its proposal tray without the stage and the epic. The status is the raw run status the
+ * row is already showing — `awaiting_review` is a fleet-only state, the session knows that run as
+ * `completed` — so a terminal run does not read "Running" while nothing re-reads it (Pitfall 7).
+ *
+ * The fleet field is deliberately NOT cleared here. The shell checks the fleet branch BELOW the session
+ * branch (plan 10-01, Pattern 4), which is what makes the session's own back action land on the fleet.
+ * Anything else that calls the opener with `null` while the fleet is open reveals the fleet; that is
+ * intended. The triage surface clears itself first, which is the opposite pattern. */
+function sessionOpenerArgs(row: FleetRowDto): Parameters<UiOpener> {
+  const status = isRunStatus(row.runStatus) ? row.runStatus : null;
+  return [row.agentRunId, row.taskId, row.authoringStage, row.epicId, null, status];
+}
+
+type UiOpener = ReturnType<typeof useUiStore.getState>["setActiveAgentRunId"];
+
+export function FleetRowView({
+  row,
+  now,
+  selected = false,
+  onOpenSession,
+}: {
+  row: FleetRowDto;
+  now: number;
+  selected?: boolean;
+  onOpenSession?: (row: FleetRowDto) => void;
+}) {
   const state: FleetState = isFleetState(row.fleetState) ? row.fleetState : "running";
   const mark = MARKS_BY_ID[RUN_STATUS_MARK_IDS[state]];
   const pulsing = state === "running" && !prefersReducedMotion();
@@ -234,8 +267,14 @@ export function FleetRowView({ row, now }: { row: FleetRowDto; now: number }) {
       role="listitem"
       data-fleet-state={state}
       data-run-id={row.agentRunId}
+      data-selected={selected ? "true" : undefined}
+      aria-current={selected ? "true" : undefined}
       className="type-body"
+      onClick={() => onOpenSession?.(row)}
       style={{
+        cursor: onOpenSession ? "pointer" : undefined,
+        // The codebase's "selected" grammar: a left rule in --selection-rule, never colour on the text.
+        boxShadow: selected ? "inset 4px 0 0 var(--selection-rule)" : undefined,
         display: "grid",
         gridTemplateColumns: ROW_COLUMNS,
         alignItems: "center",
@@ -283,7 +322,11 @@ export function FleetRowView({ row, now }: { row: FleetRowDto; now: number }) {
             type="button"
             className="type-label"
             aria-label={`Dismiss ${subject.key || "run"}`}
-            onClick={() => void acknowledgeAgentRun(row.agentRunId).catch(() => {})}
+            onClick={(event: MouseEvent) => {
+              // Its own act: a click here must not also bubble into the row and open the session.
+              event.stopPropagation();
+              void acknowledgeAgentRun(row.agentRunId).catch(() => {});
+            }}
           >
             Dismiss
           </button>
@@ -297,10 +340,14 @@ export function FleetBand({
   band,
   rows,
   now,
+  selectedRunId = null,
+  onOpenSession,
 }: {
   band: { id: FleetBandId; header: string };
   rows: FleetRowDto[];
   now: number;
+  selectedRunId?: string | null;
+  onOpenSession?: (row: FleetRowDto) => void;
 }) {
   return (
     <section data-band={band.id} aria-label={band.header}>
@@ -332,7 +379,13 @@ export function FleetBand({
       </div>
       <div role="list">
         {rows.map((row) => (
-          <FleetRowView key={row.agentRunId} row={row} now={now} />
+          <FleetRowView
+            key={row.agentRunId}
+            row={row}
+            now={now}
+            selected={row.agentRunId === selectedRunId}
+            onOpenSession={onOpenSession}
+          />
         ))}
       </div>
     </section>
@@ -350,6 +403,8 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
   // unset target reads as the fleet list.
   const view = useUiStore((state) => state.fleetSurface?.view ?? "fleet");
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
+  const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const rows = fleet.data?.rows ?? [];
   const total = fleet.data?.totalRows ?? 0;
   const queue = blocked.data ?? [];
@@ -364,6 +419,28 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
     if (bucket) bucket.push(row);
     else byBand.set(band, [row]);
   }
+  // Selection moves through the rows in the order they are drawn: band by band, as grouped above.
+  const drawnRows = FLEET_BANDS.flatMap((band) => byBand.get(band.id) ?? []).map((r) => ({ ...r, id: r.agentRunId }));
+  const openSession = (row: FleetRowDto) => {
+    setSelectedRunId(row.agentRunId);
+    setActiveAgentRunId(...sessionOpenerArgs(row));
+  };
+  const selectedRow = view === "fleet" ? drawnRows.find((r) => r.agentRunId === selectedRunId) : undefined;
+  // The queue view owns `a`/`d`/shift-`a` through its keyboard-owner card, and the layer refuses those
+  // ids here anyway; this surface registers nothing while the queue is showing.
+  useRegionBindings(
+    "fleet-surface",
+    "fleet-surface",
+    view === "fleet"
+      ? {
+          "move-down": () => setSelectedRunId((current) => nextSelectionId(drawnRows, current, 1)),
+          "move-up": () => setSelectedRunId((current) => nextSelectionId(drawnRows, current, -1)),
+          "open-fleet-row": () => {
+            if (selectedRow) openSession(selectedRow);
+          },
+        }
+      : {},
+  );
   const needYou = byBand.get("needs-you")?.length ?? 0;
   const countText =
     `${total} ${total === 1 ? "agent" : "agents"}` + (needYou > 0 ? ` · ${needYou} need you` : "");
@@ -423,7 +500,14 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
           </div>
         ) : (
           FLEET_BANDS.filter((band) => byBand.has(band.id)).map((band) => (
-            <FleetBand key={band.id} band={band} rows={byBand.get(band.id) ?? []} now={now} />
+            <FleetBand
+              key={band.id}
+              band={band}
+              rows={byBand.get(band.id) ?? []}
+              now={now}
+              selectedRunId={selectedRunId}
+              onOpenSession={openSession}
+            />
           ))
         )}
       </div>
