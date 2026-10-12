@@ -121,7 +121,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [ ] **FLEET-01**: User can see, in one view, every agent running across every registered project and what each is doing
 - [ ] **FLEET-02**: A dedicated queue shows every agent currently blocked and waiting on a human, across all projects
 - [ ] **FLEET-03**: User can jump from any fleet entry directly to that agent's live output and its board item
-- [ ] **FLEET-04**: The fleet view distinguishes running, blocked, finished-awaiting-review, and failed states at a glance
+- [x] **FLEET-04**: The fleet view distinguishes running, blocked, finished-awaiting-review, and failed states at a glance
 - [ ] **FLEET-05**: The user receives an operating-system notification when an agent becomes blocked or completes
 
 ### Review & Merge
@@ -301,7 +301,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FLEET-01 | Phase 10 | Pending |
 | FLEET-02 | Phase 10 | Pending |
 | FLEET-03 | Phase 10 | Pending |
-| FLEET-04 | Phase 10 | Pending |
+| FLEET-04 | Phase 10 | Complete |
 | FLEET-05 | Phase 10 | Pending |
 | REVW-01 | Phase 8 | Complete |
 | REVW-02 | Phase 8 | Complete |

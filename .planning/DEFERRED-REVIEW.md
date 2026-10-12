@@ -911,3 +911,15 @@ At Phase 11, with an installed, usable build:
     replaces every error with a fixed string, so a refusal reason is swallowed there. Extends D-REV-39 and D-REV-43.
   risk_if_wrong: "Moderate for a user whose sidecar hiccups: the task cannot be relaunched until the app restarts."
   automatable: "YES. Close the run as `failed` on each post-insert error path (the `fail_planning_start` remedy), or write the overlap event in the run's own transaction; surface `overlapWarning` and the error message in `MergeConfirmSheet`. One test per path."
+
+- id: D-REV-47
+  phase: "10 — Fleet Supervision (plan 10-01)"
+  truth: "The fleet surface reads at a glance in the running app: the three band headers, the state glyph plus word, the project column and the age column are legible and scannable at the real row density, in light and dark."
+  status: open
+  why_deferred: |
+    Everything structural is asserted: band order, the word and mark per state, the muted `interrupted`, the
+    project column, the empty state (fleet-surface.test.tsx) and the 5,000-row read budget (fleet_perf.rs).
+    What no test can say is whether the rendered layout is easy to scan. The physical reason is that the app's
+    WebView is WKWebView, which has no WebDriver, and "scannable" is a human aesthetic judgement.
+  risk_if_wrong: "Cosmetic. A cramped or noisy fleet row is a follow-up styling issue, not a correctness fault."
+  automatable: "PARTLY. A Playwright screenshot of the surface in light and dark against the browser-test config can catch gross overflow and truncation, not the judgement of whether it reads well."

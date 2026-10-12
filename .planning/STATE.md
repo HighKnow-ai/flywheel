@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 10
 current_phase_name: Fleet Supervision Across Every Project
-status: planning
-stopped_at: Phase 10 context gathered
-last_updated: "2026-10-12T03:36:21.719Z"
-last_activity: 2026-10-10
-last_activity_desc: Phase 09 gap closure executed and phase closed
-state_head: c2f000b42efd4a50cd04560008901b1836629217
+status: executing
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-10-12T04:19:23.486Z"
+last_activity: 2026-10-12
+last_activity_desc: Phase 10 execution started
+state_head: 9d26938378f8bf8bf0fba85be6047477d4365622
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 228
-  completed_plans: 219
+  completed_plans: 220
   percent: 0
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-02)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 10 — Fleet Supervision Across Every Project (planned: 9 plans in 7 waves, ready to execute)
+**Current focus:** Phase 10 — Fleet Supervision Across Every Project
 
 ## Current Position
 
-Phase: 10 (Fleet Supervision Across Every Project) — READY TO EXECUTE
-Plan: 0 of 9
-Status: Ready to execute — /gsd-execute-phase 10
-Last activity: 2026-10-10 — Phase 09 closed after gap closure (09-10 … 09-13)
+Phase: 10 (Fleet Supervision Across Every Project) — EXECUTING
+Plan: 2 of 9
+Status: Ready to execute
+Last activity: 2026-10-12 — Phase 10 execution started
 
 Progress: [░░░░░░░░░░] 0% — 11 of 13 phases complete (219/228 planned plans executed; phase 10 is planned and unexecuted, phase 11 is not yet planned)
 
@@ -281,6 +281,7 @@ Progress: [░░░░░░░░░░] 0% — 11 of 13 phases complete (219/
 | Phase 09 P11 | 25 min | 2 tasks | 5 files |
 | Phase 09 P12 | 25 min | 2 tasks | 2 files |
 | Phase 09 P13 | 35 min | 2 tasks | 7 files |
+| Phase 10 P01 | 24min | 3 tasks | 26 files |
 
 ## Accumulated Context
 
@@ -654,6 +655,7 @@ Recent decisions affecting current work:
 - [Phase 09]: 09-11: widen edges are oriented live-before-queued (acyclic by liveness); declare guard lives in declare_file_set_in_tx via declare_refusal
 - [Phase 09]: 09-12: no partial unique index on agent_runs(task_id); the launch-time disjointness rule is one pure function (dispatch::launch_conflict) called at decision and launch — Disjointness is a cross-row predicate over a child table no uniqueness constraint can state; an index would make leaked running rows (D-REV-39) permanently unlaunchable
 - [Phase 09]: 09-13: manual cross-task overlapping launch stays allowed (09-07 choice) but is now recorded as task.launch_overlap and warned; dispatched launch refuses; own live run refuses on both paths — The invariant is a property of the shared launch body, not of one caller; refusing the manual path is the owner's decision (one call site)
+- [Phase 10]: 10-01: open-fleet accelerator is Cmd+Shift+F (uniqueness-tested); rail Fleet entry is a new All agents button; fleet state derived in SQL, banded and ordered in the read
 
 ### Pending Todos
 
@@ -715,6 +717,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T02:17:22.941Z
-Stopped at: Phase 10 context gathered
-Resume file: .planning/phases/10-fleet-supervision-across-every-project/10-CONTEXT.md
+Last session: 2026-10-12T04:19:23.270Z
+Stopped at: Completed 10-01-PLAN.md
+Resume file: None

@@ -46,12 +46,12 @@
     {
       "number": "8.1",
       "name": "Visual polish: brand assets and confirmed motion",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "9",
       "name": "Planned Fan-Out That Does Not Collide",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "10",
@@ -71,8 +71,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step (plan phase 8.1)",
-    "reason": "Phase 8.1 of 13 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 10 of 13 · 0% · executing"
   },
-  "updated_at": "2026-10-07T08:17:24.249Z"
+  "updated_at": "2026-10-12T04:19:21.774Z"
 }
