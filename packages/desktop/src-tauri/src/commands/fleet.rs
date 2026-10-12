@@ -351,7 +351,15 @@ pub async fn worktree_measure(
                 Ok(size) if !size.bounded => {
                     let bytes = i64::try_from(size.bytes).unwrap_or(i64::MAX);
                     match flywheel_core::query::fleet::record_worktree_size(&conn, &task_id, bytes, &measured_at) {
-                        Ok(_) => WorktreeMeasureDto { task_id, size_bytes: Some(bytes), bounded: false, error: None },
+                        Ok(true) => WorktreeMeasureDto { task_id, size_bytes: Some(bytes), bounded: false, error: None },
+                        // No row was updated: the worktree was reclaimed or forgotten while the walk ran,
+                        // so nothing was cached and the renderer must not be told otherwise.
+                        Ok(false) => WorktreeMeasureDto {
+                            task_id,
+                            size_bytes: None,
+                            bounded: false,
+                            error: Some("worktree no longer exists".to_string()),
+                        },
                         Err(e) => WorktreeMeasureDto { task_id, size_bytes: None, bounded: false, error: Some(e.to_string()) },
                     }
                 }
