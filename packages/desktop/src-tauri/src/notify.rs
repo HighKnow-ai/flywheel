@@ -217,26 +217,39 @@ pub fn push(t: Transition) {
     }
 }
 
-/// Starts the one task that closes each window and shows the banner.
+/// Closes the due window, if any, and shows its banner. Blocking by nature: `tick` locks the
+/// database (which a scheduler tick can hold for a long time) and `.show()` is a synchronous call
+/// into the OS that can park a thread (Pitfall 5), so this runs only on the blocking pool.
+fn show_due_banner(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    // Focus is read in Rust at fire time: one source of truth, no race with a renderer report.
+    let focused = app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false);
+    let watched = state.watched_run.lock().ok().and_then(|w| w.clone());
+    let Some(banner) = tick(coalescer(), &state.db, Instant::now(), focused, watched.as_deref()) else {
+        return;
+    };
+    let (title, body) = banner.text();
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
+        eprintln!("notify: could not show a banner: {e}");
+    }
+}
+
+/// Starts the one task that closes each window and shows the banner. The async side only asks
+/// whether a window is due (a brief in-memory lock); everything that can block goes to
+/// `spawn_blocking`, so a held database mutex or a slow banner parks a pool thread, never a tokio
+/// worker.
 pub fn spawn_notify_task(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(TICK);
         loop {
             interval.tick().await;
-            let Some(state) = app.try_state::<AppState>() else { continue };
-            // Focus is read in Rust at fire time: one source of truth, no race with a renderer report.
-            let focused = app
-                .get_webview_window("main")
-                .and_then(|w| w.is_focused().ok())
-                .unwrap_or(false);
-            let watched = state.watched_run.lock().ok().and_then(|w| w.clone());
-            let Some(banner) = tick(coalescer(), &state.db, Instant::now(), focused, watched.as_deref())
-            else {
+            let due = coalescer().lock().map(|co| co.is_due(Instant::now())).unwrap_or(false);
+            if !due {
                 continue;
-            };
-            let (title, body) = banner.text();
-            if let Err(e) = app.notification().builder().title(title).body(body).show() {
-                eprintln!("notify: could not show a banner: {e}");
+            }
+            let app = app.clone();
+            if let Err(e) = tauri::async_runtime::spawn_blocking(move || show_due_banner(&app)).await {
+                eprintln!("notify: the banner task failed: {e}");
             }
         }
     });
