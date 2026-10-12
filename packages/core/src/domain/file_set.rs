@@ -548,18 +548,16 @@ fn record_widen_sequencing(
         .context("failed to read the widening task's live plans")?;
 
     for (plan_id, epic_id, wave) in memberships {
-        let queued: Vec<String> = tx
-            .prepare(
-                "SELECT pt.task_id FROM dispatch_plan_tasks pt
-                  WHERE pt.plan_id = ?1 AND pt.wave = ?2 AND pt.task_id <> ?3
-                    AND pt.state IN ('planned', 'waiting', 'held_by_limit')
-                    AND NOT EXISTS (SELECT 1 FROM agent_runs r
-                                     WHERE r.task_id = pt.task_id AND r.status IN ('running', 'blocked'))
-                  ORDER BY pt.task_id",
-            )?
-            .query_map(params![plan_id, wave, task_id], |r| r.get(0))?
-            .collect::<Result<_, _>>()
-            .context("failed to read the queued tasks of the wave")?;
+        // D-REV-45: "queued" is exactly what the dispatcher would start, asked of the dispatcher's own
+        // predicate. A hand-written state list here had drifted from `is_startable` and missed a task
+        // parked at pre-spawn attention, which then cut its worktree from a base without the widener.
+        let mut queued: Vec<String> = Vec::new();
+        for t in crate::dispatch::task_views(tx, &plan_id)? {
+            if t.wave == wave && t.task_id != task_id && !t.live && crate::dispatch::is_startable(tx, &plan_id, &t)? {
+                queued.push(t.task_id);
+            }
+        }
+        queued.sort();
         for other_id in queued {
             let other_entries = list_entries_for_task(tx, &other_id)?;
             let found = crate::file_set::collisions(std::slice::from_ref(candidate), &other_entries, fold_case);

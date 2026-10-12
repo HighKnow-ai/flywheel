@@ -448,13 +448,13 @@ struct LivePlan {
 }
 
 #[derive(Debug, Clone)]
-struct TaskView {
-    task_id: String,
-    wave: u32,
-    state: String,
-    project_id: String,
-    live: bool,
-    latest_run: Option<String>,
+pub(crate) struct TaskView {
+    pub(crate) task_id: String,
+    pub(crate) wave: u32,
+    pub(crate) state: String,
+    pub(crate) project_id: String,
+    pub(crate) live: bool,
+    pub(crate) latest_run: Option<String>,
 }
 
 fn live_plans(conn: &Connection) -> anyhow::Result<Vec<LivePlan>> {
@@ -472,7 +472,7 @@ fn live_plans(conn: &Connection) -> anyhow::Result<Vec<LivePlan>> {
     Ok(rows)
 }
 
-fn task_views(conn: &Connection, plan_id: &str) -> anyhow::Result<Vec<TaskView>> {
+pub(crate) fn task_views(conn: &Connection, plan_id: &str) -> anyhow::Result<Vec<TaskView>> {
     let mut stmt = conn
         .prepare(
             "SELECT pt.task_id, pt.wave, pt.state, t.project_id,
@@ -546,7 +546,7 @@ pub fn wave_is_drained(conn: &Connection, plan_id: &str, wave: u32) -> anyhow::R
     Ok(open == 0)
 }
 
-fn is_startable(conn: &Connection, plan_id: &str, t: &TaskView) -> anyhow::Result<bool> {
+pub(crate) fn is_startable(conn: &Connection, plan_id: &str, t: &TaskView) -> anyhow::Result<bool> {
     Ok(match t.state.as_str() {
         "planned" | "waiting" | "held_by_limit" => true,
         // `running` with no run row at all: the process died between the state write and the run row.
