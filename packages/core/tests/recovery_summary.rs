@@ -5,7 +5,7 @@
 
 mod common;
 
-use core::domain::agent_run::{mark_abandoned, start_agent_run};
+use core::domain::agent_run::{acknowledge_run, mark_abandoned, start_agent_run};
 use core::domain::project;
 use core::domain::task::create_task;
 use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
@@ -26,17 +26,6 @@ fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
     let result = f();
     unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
     result
-}
-
-/// Mirrors `agent_run_acknowledge`'s own literal SQL (`commands/agent_run.rs`) exactly — the
-/// fixture writes `acknowledged_at` the same way the real command does, not through a shortcut
-/// unique to this test file.
-fn acknowledge_run(conn: &Connection, run_id: &str) {
-    conn.execute(
-        "UPDATE agent_runs SET acknowledged_at = ?1 WHERE id = ?2 AND status = 'abandoned'",
-        params!["2026-09-15T00:00:00Z", run_id],
-    )
-    .expect("failed to acknowledge run in fixture");
 }
 
 #[test]
@@ -111,7 +100,10 @@ fn an_acknowledged_abandoned_run_with_a_healthy_worktree_is_excluded() {
             .expect("start_agent_run should succeed");
         mark_abandoned(&mut conn, &run.id, &actor_id, Some("killed-by-user-at-launch"))
             .expect("mark_abandoned should succeed");
-        acknowledge_run(&conn, &run.id);
+        assert!(
+            acknowledge_run(&conn, &run.id).expect("acknowledge_run should succeed"),
+            "an abandoned run must be acknowledgeable"
+        );
 
         let ids = recovery_task_ids_for_project(&conn, &project.id)
             .expect("recovery_task_ids_for_project should succeed");

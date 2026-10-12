@@ -8,6 +8,7 @@
 
 use core::db::{migration_sources, open_and_migrate};
 use core::domain::actor::local_human_actor_id;
+use core::domain::agent_run::{acknowledge_run, ACKNOWLEDGEABLE_STATUSES};
 use core::domain::epic::create_epic;
 use core::domain::project::{create_project, Project};
 use core::domain::task::create_task;
@@ -375,4 +376,76 @@ fn migration_0020_backfills_history_so_first_launch_shows_only_live_and_abandone
         .query_row("SELECT COUNT(*) FROM agent_runs WHERE status = 'abandoned' AND acknowledged_at IS NULL", [], |r| r.get(0))
         .unwrap();
     assert_eq!(untouched, 1, "the backfill must leave abandoned rows for the recovery surface");
+}
+
+// ---- 10-04: acknowledging a run, and what the fleet says it spent ----------------------------------
+
+fn acknowledged_at(f: &Fixture, run_id: &str) -> Option<String> {
+    f.conn
+        .query_row("SELECT acknowledged_at FROM agent_runs WHERE id = ?1", params![run_id], |r| r.get(0))
+        .unwrap()
+}
+
+#[test]
+fn the_acknowledgeable_statuses_are_exactly_the_four_terminal_ones() {
+    assert_eq!(ACKNOWLEDGEABLE_STATUSES, ["abandoned", "completed", "failed", "interrupted"]);
+}
+
+#[test]
+fn acknowledging_each_terminal_status_removes_the_run_from_the_fleet() {
+    let mut f = fixture();
+    let p = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &p.id);
+    for status in ACKNOWLEDGEABLE_STATUSES {
+        let t = task(&mut f, &p.id, status, "in_progress");
+        let run = insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t), status, started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), ..Default::default() });
+        assert!(ids(&fleet_rows(&f.conn, 50).unwrap()).contains(&run), "{status} should be on the fleet first");
+        assert!(acknowledge_run(&f.conn, &run).unwrap(), "{status} should be acknowledged");
+        assert!(acknowledged_at(&f, &run).is_some());
+        assert!(!ids(&fleet_rows(&f.conn, 50).unwrap()).contains(&run), "{status} should have left the fleet");
+    }
+}
+
+#[test]
+fn a_live_run_cannot_be_acknowledged() {
+    let mut f = fixture();
+    let p = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &p.id);
+    for status in ["running", "blocked"] {
+        let t = task(&mut f, &p.id, status, "in_progress");
+        let run = insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t), status, started_at: "2026-01-01T01:00:00Z", ..Default::default() });
+        assert!(!acknowledge_run(&f.conn, &run).unwrap(), "{status} must be refused");
+        assert_eq!(acknowledged_at(&f, &run), None);
+        assert!(ids(&fleet_rows(&f.conn, 50).unwrap()).contains(&run));
+    }
+}
+
+#[test]
+fn acknowledging_twice_keeps_the_first_timestamp_and_an_unknown_id_is_refused() {
+    let mut f = fixture();
+    let p = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &p.id);
+    let t = task(&mut f, &p.id, "t", "in_progress");
+    let run = insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t), status: "completed", started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), ..Default::default() });
+
+    assert!(acknowledge_run(&f.conn, &run).unwrap());
+    let first = acknowledged_at(&f, &run);
+    assert!(!acknowledge_run(&f.conn, &run).unwrap(), "the second acknowledge changes nothing");
+    assert_eq!(acknowledged_at(&f, &run), first);
+    assert!(!acknowledge_run(&f.conn, "01NOSUCHRUN0000000000000").unwrap());
+}
+
+#[test]
+fn moving_a_task_to_done_does_not_clear_its_row_it_re_reads_as_plain_completed() {
+    let mut f = fixture();
+    let p = project(&mut f, "Alpha", "ALP");
+    let trig = trigger(&f, &p.id);
+    let t = task(&mut f, &p.id, "t", "in_review");
+    let run = insert_run(&f, &p.id, &trig, &Run { task_id: Some(&t), status: "completed", started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), ..Default::default() });
+    let state = |f: &Fixture| fleet_rows(&f.conn, 50).unwrap().rows.into_iter().find(|r| r.agent_run_id == run).map(|r| r.fleet_state);
+    assert_eq!(state(&f).as_deref(), Some("awaiting_review"));
+
+    f.conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?1", params![t]).unwrap();
+    assert_eq!(state(&f).as_deref(), Some("completed"), "still on the fleet, now plain completed");
+    assert_eq!(acknowledged_at(&f, &run), None, "moving a task never acknowledges its run");
 }

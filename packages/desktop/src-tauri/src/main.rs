@@ -186,6 +186,7 @@ fn main() {
             commands::agent_run::agent_runs_for_task,
             commands::agent_run::task_session_summaries,
             commands::agent_run::agent_run_acknowledge,
+            commands::agent_run::agent_run_acknowledge_many,
             commands::agent_run::worktree_summary,
             commands::agent_run::worktree_remove_check,
             commands::agent_run::worktree_remove,

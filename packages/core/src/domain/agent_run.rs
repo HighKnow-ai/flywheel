@@ -655,6 +655,30 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
     Ok(SessionClosedOutcome::Closed(status))
 }
 
+/// The run statuses a user may acknowledge (D-165, 10-04). A live run (`running`, `blocked`) is
+/// absent on purpose: it can be stopped but not dismissed. `abandoned` stays because the recovery
+/// surface acknowledges it exactly as before; `interrupted` is here because D-165 as first written
+/// omitted it, which would have left an interrupted row unable ever to leave the fleet.
+pub const ACKNOWLEDGEABLE_STATUSES: [&str; 4] = ["abandoned", "completed", "failed", "interrupted"];
+
+/// Stamp `acknowledged_at` on a finished run, the ONE statement that does so (Finding 13: the
+/// command and a test fixture used to carry separate copies, and they had drifted). The status
+/// guard is inside the statement, so a live run is refused whoever the caller is, and an already
+/// acknowledged run keeps its first timestamp. Returns whether a row changed; an unknown id is
+/// `Ok(false)`. It changes no status and appends no event, as the inline statement it replaces did
+/// not — so the activity trail is unchanged.
+pub fn acknowledge_run(conn: &Connection, agent_run_id: &str) -> anyhow::Result<bool> {
+    let [a, b, c, d] = ACKNOWLEDGEABLE_STATUSES;
+    let changed = conn
+        .execute(
+            "UPDATE agent_runs SET acknowledged_at = ?1
+             WHERE id = ?2 AND acknowledged_at IS NULL AND status IN (?3, ?4, ?5, ?6)",
+            params![Utc::now().to_rfc3339(), agent_run_id, a, b, c, d],
+        )
+        .context("failed to acknowledge the run")?;
+    Ok(changed == 1)
+}
+
 /// Move a run to `blocked` (AGNT-06, D-37) inside the CALLER'S transaction — never opens its own.
 /// Called only from `domain::permission_request::create_pending_request`'s own transaction, so a
 /// blocked run and its pending request row are written together or not at all; there is no

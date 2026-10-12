@@ -1934,16 +1934,12 @@ pub fn task_session_summaries(
     Ok(rows.into_iter().map(SessionSummaryDto::from).collect())
 }
 
-/// D-49's abandoned-run acknowledgment (plan 03-10 Task 2). `actor_id` is resolved server-side
-/// (T-01-04) — never accepted from the renderer. Writes `acknowledged_at` through a
-/// compile-time-literal `UPDATE` statement GUARDED to `status = 'abandoned'` in its own `WHERE`
-/// clause — no domain function backs this (deliberately not in this plan's `files_modified`), so
-/// acknowledging a non-abandoned run is a no-op (zero rows affected) rather than a state change of
-/// any kind: this command is read-only in effect on every run except an abandoned one, and even
-/// there it changes exactly one timestamp column, never `status`. Emits `board:changed` with
-/// `{ entity: "agent_run", id: agent_run_id }` on success — `useAgentRuns`'s existing invalidation
-/// is what makes the Acknowledge button disappear once the row re-reads a non-null
-/// `acknowledgedAt`.
+/// The acknowledgment of a finished run (D-49 for `abandoned`, widened by D-165 / plan 10-04 to
+/// `completed`, `failed` and `interrupted`). The statement lives in exactly one place,
+/// `flywheel_core::domain::agent_run::acknowledge_run`, whose `WHERE` clause refuses a live run, so
+/// this command cannot dismiss one however it is called. No actor is needed: the statement changes
+/// one timestamp column and appends no event. Emits `board:changed` with
+/// `{ entity: "agent_run", id: agent_run_id }` so `useAgentRuns` and the fleet re-read.
 #[tauri::command]
 pub fn agent_run_acknowledge(
     state: State<AppState>,
@@ -1951,12 +1947,8 @@ pub fn agent_run_acknowledge(
     agent_run_id: String,
 ) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "UPDATE agent_runs SET acknowledged_at = ?1 WHERE id = ?2 AND status = 'abandoned'",
-        rusqlite::params![now, agent_run_id],
-    )
-    .map_err(|e| e.to_string())?;
+    flywheel_core::domain::agent_run::acknowledge_run(&conn, &agent_run_id)
+        .map_err(|e| e.to_string())?;
     drop(conn);
 
     app.emit(
@@ -1966,6 +1958,45 @@ pub fn agent_run_acknowledge(
     .ok();
 
     Ok(())
+}
+
+/// The server-side cap on one "Dismiss finished" call (T-10-04-02), the same order as the fleet
+/// window it clears.
+const ACKNOWLEDGE_MANY_CAP: usize = 200;
+
+/// One id's outcome in [`agent_run_acknowledge_many`]. `acknowledged` is false for an unknown id,
+/// a live run, an already-acknowledged run, or a failed write — the batch never aborts on one.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcknowledgeResultDto {
+    pub agent_run_id: String,
+    pub acknowledged: bool,
+}
+
+/// The fleet's "Dismiss finished" action: acknowledge each id through the same single statement as
+/// [`agent_run_acknowledge`], at most [`ACKNOWLEDGE_MANY_CAP`] of them, one result per id. Ids only
+/// from the renderer; one `board:changed` is emitted for the whole batch.
+#[tauri::command]
+pub fn agent_run_acknowledge_many(
+    state: State<AppState>,
+    app: AppHandle,
+    agent_run_ids: Vec<String>,
+) -> Result<Vec<AcknowledgeResultDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let results: Vec<AcknowledgeResultDto> = agent_run_ids
+        .into_iter()
+        .take(ACKNOWLEDGE_MANY_CAP)
+        .map(|agent_run_id| {
+            let acknowledged =
+                flywheel_core::domain::agent_run::acknowledge_run(&conn, &agent_run_id).unwrap_or(false);
+            AcknowledgeResultDto { agent_run_id, acknowledged }
+        })
+        .collect();
+    drop(conn);
+
+    app.emit("board:changed", serde_json::json!({ "entity": "agent_run" })).ok();
+
+    Ok(results)
 }
 
 /// A task's worktree summary line (02-UI-SPEC.md "Worktree summary") — mirrors
