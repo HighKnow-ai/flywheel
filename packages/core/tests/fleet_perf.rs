@@ -96,9 +96,20 @@ fn seed_and_migrate() -> Seeded {
             id
         };
 
+        // 500 historic terminal runs nobody ever acknowledged: exactly what the backfill exists for.
+        // Seeded FIRST so they are the oldest run of their task, as real history is. A historic
+        // `completed` run that is still the LATEST run of a not-done task is the review backlog and
+        // migration 0021 deliberately brings it back (WR-06; pinned in `fleet_query.rs`), so it
+        // would not belong in a "contributes zero rows" fixture.
+        let mut n = 0usize;
+        for h in 0..HISTORIC_UNACKNOWLEDGED {
+            let (project_id, trigger_id, task_id) = &task_ids[h % task_ids.len()];
+            let status = ["completed", "failed", "interrupted"][h % 3];
+            historic_ids.insert(insert_run(project_id, trigger_id, Some(task_id), status, n, None));
+            n += 1;
+        }
         // Four runs per task: three old acknowledged terminal runs, then one latest run whose status
         // cycles through the mix a real fleet holds.
-        let mut n = 0usize;
         for (i, (project_id, trigger_id, task_id)) in task_ids.iter().enumerate() {
             for _ in 0..(RUNS_PER_TASK - 1) {
                 insert_run(project_id, trigger_id, Some(task_id), "completed", n, Some("2025-03-30T00:00:00Z"));
@@ -114,13 +125,6 @@ fn seed_and_migrate() -> Seeded {
                 _ => ("completed", Some("2025-03-30T00:00:00Z")),
             };
             insert_run(project_id, trigger_id, Some(task_id), status, n, ack);
-            n += 1;
-        }
-        // 500 historic terminal runs nobody ever acknowledged: exactly what the backfill exists for.
-        for h in 0..HISTORIC_UNACKNOWLEDGED {
-            let (project_id, trigger_id, task_id) = &task_ids[h % task_ids.len()];
-            let status = ["completed", "failed", "interrupted"][h % 3];
-            historic_ids.insert(insert_run(project_id, trigger_id, Some(task_id), status, n, None));
             n += 1;
         }
         // 500 runs with no task (authoring and planning runs), half of them live.

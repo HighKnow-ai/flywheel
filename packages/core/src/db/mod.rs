@@ -39,6 +39,7 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0018_criterion_anchors.sql"),
         include_str!("migrations/0019_fan_out.sql"),
         include_str!("migrations/0020_fleet.sql"),
+        include_str!("migrations/0021_fleet_review_backlog.sql"),
     ]
 }
 

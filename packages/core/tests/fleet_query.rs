@@ -378,6 +378,89 @@ fn migration_0020_backfills_history_so_first_launch_shows_only_live_and_abandone
     assert_eq!(untouched, 1, "the backfill must leave abandoned rows for the recovery surface");
 }
 
+/// WR-06: 0020 acknowledged the review backlog along with the noise. Migration 0021 repairs rows
+/// 0020 already wrote: the latest `completed` run of a not-done task comes back as `awaiting_review`;
+/// everything else 0020 hid stays hidden, and a run a person dismissed stays dismissed.
+#[test]
+fn migration_0021_restores_the_review_backlog_0020_swallowed_and_nothing_else() {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    let db_path = dir.path().join("flywheel.db");
+    let backups_dir = dir.path().join("backups");
+
+    let (want, hidden) = {
+        let mut conn = Connection::open(&db_path).unwrap();
+        core::db::apply_pragmas(&conn).unwrap();
+        let sources = migration_sources();
+        rusqlite_migration::Migrations::new(
+            sources[..19].iter().map(|s| rusqlite_migration::M::up(s)).collect(),
+        )
+        .to_latest(&mut conn)
+        .expect("pre-0020 migrations should apply");
+
+        let actor_id = local_human_actor_id(&conn).unwrap();
+        let project_id = new_id();
+        conn.execute(
+            "INSERT INTO projects (id, key_prefix, name, repo_path, default_branch, key_counter, status, created_by, created_at)
+             VALUES (?1, 'OLD', 'Old', '/repo/old', 'main', 0, 'active', ?2, '2025-01-01T00:00:00Z')",
+            params![project_id, actor_id],
+        )
+        .unwrap();
+        let trigger_id = new_id();
+        conn.execute(
+            "INSERT INTO triggers (id, project_id, source, enabled, created_by, created_at)
+             VALUES (?1, ?2, 'user_action', 1, ?3, '2025-01-01T00:00:00Z')",
+            params![trigger_id, project_id, actor_id],
+        )
+        .unwrap();
+        let mut n = 0;
+        let mut task = |status: &str| {
+            n += 1;
+            let id = new_id();
+            conn.execute(
+                "INSERT INTO tasks (id, project_id, key, title, status, rank, priority, created_by, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, 'T', ?4, ?5, 2, ?6, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                params![id, project_id, format!("OLD-{n}"), status, format!("a{n}"), actor_id],
+            )
+            .unwrap();
+            id
+        };
+        let (in_review, done, reviewed_twice, dismissed, failed_last) =
+            (task("in_review"), task("done"), task("in_review"), task("in_review"), task("in_review"));
+        let insert = |task_id: &str, status: &str, started: &str, ended: Option<&str>, ack: Option<&str>| {
+            let id = new_id();
+            conn.execute(
+                "INSERT INTO agent_runs (id, task_id, project_id, trigger_id, adapter, actor_id, status, permission_mode, log_path, started_at, ended_at, acknowledged_at)
+                 VALUES (?1, ?2, ?3, ?4, 'claude_code', ?5, ?6, 'acceptEdits', '/dev/null', ?7, ?8, ?9)",
+                params![id, task_id, project_id, trigger_id, actor_id, status, started, ended, ack],
+            )
+            .unwrap();
+            id
+        };
+        let t = "2025-02-01T00:00:00Z";
+        let e = Some("2025-02-01T00:10:00Z");
+        let a = insert(&in_review, "completed", t, e, None); // the backlog: comes back
+        let b = insert(&done, "completed", t, e, None); // task is done: stays hidden
+        insert(&reviewed_twice, "completed", "2025-01-01T00:00:00Z", e, None); // older run: stays hidden
+        let c = insert(&reviewed_twice, "completed", t, e, None); // latest run: comes back
+        // A person dismissed this one after it ended (a stamp that is not its own end time).
+        let d = insert(&dismissed, "completed", t, e, Some("2025-03-01T09:00:00Z"));
+        insert(&failed_last, "failed", t, e, None); // only `completed` is restored
+        let mut want = vec![a, c];
+        want.sort();
+        (want, vec![b, d])
+    };
+
+    let conn = open_and_migrate(&db_path, &backups_dir).expect("0020 and 0021 should apply");
+    let list = fleet_rows(&conn, 200).unwrap();
+    let mut got = ids(&list);
+    got.sort();
+    assert_eq!(got, want, "exactly the latest completed run of each not-done task returns");
+    assert!(list.rows.iter().all(|r| r.fleet_state == "awaiting_review"));
+    for id in hidden {
+        assert!(!got.contains(&id), "{id} must stay hidden");
+    }
+}
+
 // ---- 10-04: acknowledging a run, and what the fleet says it spent ----------------------------------
 
 fn acknowledged_at(f: &Fixture, run_id: &str) -> Option<String> {
