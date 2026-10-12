@@ -24,8 +24,6 @@ use crate::state::AppState;
 /// couple of seconds; this is long enough to merge it and short enough that a lone block is not
 /// noticeably late.
 pub const COALESCE_WINDOW: Duration = Duration::from_secs(3);
-/// Longest target (a command, a path) a banner body carries, in characters.
-pub const TARGET_CAP: usize = 60;
 /// Longest tool name a banner body carries, in characters.
 pub const TOOL_CAP: usize = 32;
 /// More banners than this inside [`BURST_SPAN`] is logged (Pitfall 5: a macOS banner can park a
@@ -50,8 +48,9 @@ pub struct Transition {
     pub project_name: String,
     pub subject_label: String,
     pub kind: TransitionKind,
-    /// `(tool name, target)` of the request a `Blocked` transition waits on. Never the full input.
-    pub tool: Option<(String, Option<String>)>,
+    /// Name of the tool a `Blocked` transition waits on. Deliberately the NAME only: a command, path
+    /// or URL can carry a secret, and the OS notification centre persists and syncs off-device.
+    pub tool: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,7 +83,7 @@ fn single(t: &Transition) -> Banner {
         TransitionKind::Blocked => (
             "is blocked",
             match &t.tool {
-                Some((tool, target)) => banner_body(tool, target.as_deref()),
+                Some(tool) => banner_body(tool),
                 None => "Waiting on a permission request.".to_string(),
             },
         ),
@@ -105,24 +104,12 @@ fn cap(raw: &str, max: usize) -> String {
     cut
 }
 
-/// The banner body for a blocked run: the tool name plus a length-capped target and nothing else —
-/// never the tool's full input, which leaves the application and is retained by the notification
-/// centre (Pitfall 4).
-pub fn banner_body(tool_name: &str, target: Option<&str>) -> String {
+/// The banner body for a blocked run: the tool name and nothing else. Never any part of the tool's
+/// input (command, path, URL): a capped command is still a command, and `export TOKEN=...` puts the
+/// secret in the first few characters. The notification centre retains and syncs what it is given.
+pub fn banner_body(tool_name: &str) -> String {
     let tool = cap(tool_name, TOOL_CAP);
-    let tool = if tool.is_empty() { "a tool".to_string() } else { tool };
-    match target.map(|t| cap(t, TARGET_CAP)).filter(|t| !t.is_empty()) {
-        Some(t) => format!("{tool}: {t}"),
-        None => tool,
-    }
-}
-
-/// The one field of a tool's input worth showing: the command, or the path or address it acts on.
-pub fn target_of(input: &serde_json::Value) -> Option<String> {
-    ["command", "file_path", "path", "url", "pattern"]
-        .iter()
-        .find_map(|k| input.get(k).and_then(|v| v.as_str()))
-        .map(str::to_string)
+    if tool.is_empty() { "a tool".to_string() } else { tool }
 }
 
 /// A banner is withheld for exactly two reasons: the user's switch is off, or the user is already
@@ -372,29 +359,25 @@ mod tests {
     }
 
     #[test]
-    fn a_body_carries_the_tool_and_a_capped_target_never_the_payload() {
-        let payload = format!("rm -rf {}END-OF-PAYLOAD", "x".repeat(500));
-        let body = banner_body("Bash", Some(&payload));
-        assert!(body.starts_with("Bash: rm -rf "));
-        assert!(body.chars().count() <= "Bash: ".len() + TARGET_CAP);
-        assert!(!body.contains("END-OF-PAYLOAD"));
+    fn a_body_is_the_tool_name_alone_and_one_line() {
+        assert_eq!(banner_body("Bash"), "Bash");
+        assert_eq!(banner_body(""), "a tool");
+        assert_eq!(banner_body("  \n "), "a tool");
+        assert_eq!(banner_body("a\n  b\tc"), "a b c");
+        let long = banner_body(&"x".repeat(500));
+        assert!(long.chars().count() <= TOOL_CAP);
     }
 
     #[test]
-    fn a_body_is_one_line_and_readable_without_a_target() {
-        assert_eq!(banner_body("Bash", None), "Bash");
-        assert_eq!(banner_body("Bash", Some("   ")), "Bash");
-        assert_eq!(banner_body("", None), "a tool");
-        assert_eq!(banner_body("Bash", Some("a\n  b\tc")), "Bash: a b c");
-    }
-
-    #[test]
-    fn target_of_reads_one_known_field_and_ignores_the_rest() {
-        let input = serde_json::json!({ "command": "ls", "env": { "TOKEN": "secret" } });
-        assert_eq!(target_of(&input).as_deref(), Some("ls"));
-        assert_eq!(target_of(&serde_json::json!({ "file_path": "/a/b" })).as_deref(), Some("/a/b"));
-        assert_eq!(target_of(&serde_json::json!({ "x": 1 })), None);
-        assert_eq!(target_of(&serde_json::Value::Null), None);
+    fn a_blocked_banner_never_carries_the_tool_input() {
+        let (mut co, t0) = (Coalescer::new(COALESCE_WINDOW), Instant::now());
+        let mut tr = t("a", "api", TransitionKind::Blocked);
+        tr.tool = Some("Bash".into());
+        co.push(tr, t0);
+        let Some(banner) = drain(&mut co, after(t0)) else { panic!() };
+        let (title, body) = banner.text();
+        assert_eq!(body, "Bash");
+        assert_eq!(title, "api · TASK-02 is blocked");
     }
 
     #[test]

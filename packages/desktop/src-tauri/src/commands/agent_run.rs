@@ -1329,7 +1329,6 @@ fn permission_transition(
     run_id: &str,
     prior_status: Option<&str>,
     tool_name: &str,
-    input: &serde_json::Value,
 ) -> Option<crate::notify::Transition> {
     if prior_status != Some("running") {
         return None;
@@ -1340,7 +1339,7 @@ fn permission_transition(
         project_name,
         subject_label,
         kind: crate::notify::TransitionKind::Blocked,
-        tool: Some((tool_name.to_string(), crate::notify::target_of(input))),
+        tool: Some(tool_name.to_string()),
     })
 }
 
@@ -1428,7 +1427,7 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
     // The banner's text is gathered with the connection still held, so it needs no second lock.
     let transition = match &outcome {
         PermissionRequestOutcome::Pending { .. } => {
-            permission_transition(&conn, run_id, prior_status.as_deref(), tool_name, &input)
+            permission_transition(&conn, run_id, prior_status.as_deref(), tool_name)
         }
         _ => None,
     };
@@ -2649,28 +2648,26 @@ mod tests {
     // --- Phase 10 plan 10-07: which transitions earn a notification (D-174) -------------------
 
     #[test]
-    fn a_running_run_that_gets_a_pending_request_notifies_once_with_the_tool_and_target() {
+    fn a_running_run_that_gets_a_pending_request_notifies_once_with_the_tool_name_only() {
         let (conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
-        let input = serde_json::json!({ "command": "rm -rf target/", "env": { "TOKEN": "s3cret" } });
-        let t = permission_transition(&conn, &run_id, Some("running"), "Bash", &input).expect("a transition");
+        let t = permission_transition(&conn, &run_id, Some("running"), "Bash").expect("a transition");
         assert_eq!(t.kind, crate::notify::TransitionKind::Blocked);
         assert_eq!(t.run_id, run_id);
         assert_eq!(t.project_name, "Test Project");
-        assert_eq!(t.tool, Some(("Bash".to_string(), Some("rm -rf target/".to_string()))));
+        assert_eq!(t.tool, Some("Bash".to_string()));
     }
 
     #[test]
     fn a_run_already_blocked_that_gets_a_second_request_notifies_nothing() {
         let (conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
-        let input = serde_json::Value::Null;
-        assert!(permission_transition(&conn, &run_id, Some("blocked"), "Bash", &input).is_none());
-        assert!(permission_transition(&conn, &run_id, None, "Bash", &input).is_none());
+        assert!(permission_transition(&conn, &run_id, Some("blocked"), "Bash").is_none());
+        assert!(permission_transition(&conn, &run_id, None, "Bash").is_none());
     }
 
     #[test]
     fn a_pending_request_with_no_target_still_notifies_and_reads_as_text() {
         let (conn, run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
-        let t = permission_transition(&conn, &run_id, Some("running"), "WebSearch", &serde_json::Value::Null)
+        let t = permission_transition(&conn, &run_id, Some("running"), "WebSearch")
             .expect("a transition");
         let mut co = crate::notify::Coalescer::new(crate::notify::COALESCE_WINDOW);
         let t0 = std::time::Instant::now();
@@ -2706,7 +2703,7 @@ mod tests {
     fn a_missing_project_or_task_row_degrades_to_generic_words_and_never_panics() {
         let (conn, _run_id, _task_id, _project_id) = seeded_conn_with_running_agent_run();
         assert_eq!(notify_context(&conn, "no-such-run"), ("Flywheel".to_string(), "An agent".to_string()));
-        let t = permission_transition(&conn, "no-such-run", Some("running"), "Bash", &serde_json::Value::Null)
+        let t = permission_transition(&conn, "no-such-run", Some("running"), "Bash")
             .expect("still a transition");
         assert_eq!(t.subject_label, "An agent");
     }
