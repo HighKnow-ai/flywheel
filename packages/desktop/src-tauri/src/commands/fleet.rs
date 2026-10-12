@@ -210,6 +210,21 @@ pub fn fleet_blocked_queue(state: State<'_, AppState>) -> Result<Vec<BlockedQueu
     Ok(entries.into_iter().map(BlockedQueueEntryDto::from).collect())
 }
 
+/// Declares which agent run's session surface is the visible one (D-174), so a notification for
+/// the session the user is already watching can be withheld. Writes `AppState.watched_run` and
+/// nothing else; `None` means no session is showing. Suppression additionally needs the window to
+/// be focused, which Rust reads itself at fire time (T-10-07-03).
+#[tauri::command]
+pub fn fleet_watch_run(state: State<AppState>, agent_run_id: Option<String>) -> Result<(), String> {
+    set_watched_run(&state, agent_run_id)
+}
+
+fn set_watched_run(state: &AppState, agent_run_id: Option<String>) -> Result<(), String> {
+    let mut watched = state.watched_run.lock().map_err(|e| e.to_string())?;
+    *watched = agent_run_id;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,6 +260,21 @@ mod tests {
 
     fn tail(line: &str) -> anyhow::Result<LogTail> {
         Ok(LogTail { lines: vec![line.to_string()], truncated: false })
+    }
+
+    #[test]
+    fn fleet_watch_run_sets_the_field_and_clears_it_when_passed_nothing() {
+        let state = AppState {
+            db: std::sync::Mutex::new(rusqlite::Connection::open_in_memory().unwrap()),
+            sidecar: None,
+            pending_orphans: std::sync::Mutex::new(Vec::new()),
+            focused_task: std::sync::Mutex::new(None),
+            watched_run: std::sync::Mutex::new(None),
+        };
+        set_watched_run(&state, Some("run-1".into())).unwrap();
+        assert_eq!(state.watched_run.lock().unwrap().as_deref(), Some("run-1"));
+        set_watched_run(&state, None).unwrap();
+        assert_eq!(*state.watched_run.lock().unwrap(), None);
     }
 
     #[test]

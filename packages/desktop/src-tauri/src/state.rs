@@ -29,6 +29,11 @@ pub struct AppState {
     /// input only — never a source of truth about anything else, and never read by any mutation
     /// path in this codebase.
     pub focused_task: Mutex<Option<String>>,
+    /// Phase 10 plan 10-07 (D-174): the agent run whose session surface the renderer is showing
+    /// right now, or `None` (the fleet, the board and every other surface all report `None`).
+    /// Read only by `notify.rs`, together with the window's focus read in Rust, to withhold the one
+    /// banner for the session the user is already looking at.
+    pub watched_run: Mutex<Option<String>>,
 }
 
 /// Native menu handles for the five forwarded custom items — `main.rs`'s

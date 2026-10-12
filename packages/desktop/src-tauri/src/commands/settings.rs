@@ -51,6 +51,8 @@ pub struct SettingsDto {
     pub api_key_configured: bool,
     pub api_key_configured_at: Option<String>,
     pub dispatch_cap: DispatchCapDto,
+    /// The one global OS-notification switch (D-176).
+    pub notifications_enabled: bool,
 }
 
 /// Read the full Settings state. Read-only.
@@ -86,6 +88,8 @@ pub fn settings_get(state: State<AppState>) -> Result<SettingsDto, String> {
         api_key_configured,
         api_key_configured_at,
         dispatch_cap: read_dispatch_cap(&conn)?,
+        notifications_enabled: flywheel_core::domain::settings::notifications_enabled(&conn)
+            .map_err(|e| e.to_string())?,
     })
 }
 
@@ -115,6 +119,18 @@ pub fn settings_set_dispatch_max_parallel(
     flywheel_core::domain::settings::set_dispatch_max_parallel(&mut conn, &actor_id, value)
         .map_err(|e| e.to_string())?;
     read_dispatch_cap(&conn)
+}
+
+/// Set the one global OS-notification switch (D-176). Human-only: the actor is resolved
+/// server-side, so the handler accepts none. Returns the stored value re-read.
+#[tauri::command]
+pub fn settings_set_notifications_enabled(state: State<AppState>, value: bool) -> Result<bool, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+        .map_err(|e| e.to_string())?;
+    flywheel_core::domain::settings::set_notifications_enabled(&mut conn, &actor_id, value)
+        .map_err(|e| e.to_string())?;
+    flywheel_core::domain::settings::notifications_enabled(&conn).map_err(|e| e.to_string())
 }
 
 /// Rejects a `mode` outside exactly `"local"`/`"api_key"` before any DB call (mirrors

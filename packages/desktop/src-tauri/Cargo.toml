@@ -28,6 +28,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # the underlying package (and `cargo metadata`'s workspace member) is still named `core`.
 flywheel_core = { path = "../../core", package = "core" }
 tauri-plugin-dialog = "2.7.3"
+# D-181 (Phase 10 plan 10-07): OS notifications, emitted by the Rust core only. Pinned to 2.4.0 so the
+# phase stays on `tauri = "=2.11.5"`; the window is granted nothing from this plugin (D-175).
+tauri-plugin-notification = "=2.4.0"
 # D-113: the Rust core's periodic git-truth tick needs a tokio runtime and `app.emit`, which
 # `packages/core` (sync, no `AppHandle`) does not have — so the desktop crate, which already owns
 # the tokio runtime, starts the scheduler. This adds no new package to the dependency tree:

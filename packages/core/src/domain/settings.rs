@@ -26,6 +26,11 @@ use crate::domain::event::{append_event, next_sequence};
 
 const SETTING_GLOBAL_CREDENTIAL_MODE: &str = "global_credential_mode";
 const SETTING_DISPATCH_MAX_PARALLEL: &str = "dispatch_max_parallel";
+const SETTING_NOTIFICATIONS_ENABLED: &str = "notifications_enabled";
+
+/// Whether the OS notifications for a blocked, finished or failed agent are on when Settings has
+/// never said (D-176).
+pub const DEFAULT_NOTIFICATIONS_ENABLED: bool = true;
 
 /// How many agent sessions the dispatcher may keep running at once when Settings has never said.
 pub const DEFAULT_DISPATCH_MAX_PARALLEL: u32 = 3;
@@ -141,6 +146,30 @@ pub fn set_dispatch_max_parallel(
     upsert_setting(&tx, SETTING_DISPATCH_MAX_PARALLEL, &value.to_string(), actor_id, &now)?;
     tx.commit()
         .context("failed to commit set_dispatch_max_parallel transaction")?;
+    Ok(())
+}
+
+/// The one global switch for OS notifications (D-176). An absent or unparseable stored value reads
+/// as [`DEFAULT_NOTIFICATIONS_ENABLED`], like [`dispatch_max_parallel`]: the notify path reads this at
+/// fire time, so a bad row must degrade to "on" rather than fail or silence a block.
+pub fn notifications_enabled(conn: &Connection) -> anyhow::Result<bool> {
+    let stored = read_setting(conn, SETTING_NOTIFICATIONS_ENABLED)?;
+    Ok(stored
+        .and_then(|raw| raw.parse::<bool>().ok())
+        .unwrap_or(DEFAULT_NOTIFICATIONS_ENABLED))
+}
+
+/// Set the global notification switch. Writes one `settings` row and no event.
+pub fn set_notifications_enabled(
+    conn: &mut Connection,
+    actor_id: &str,
+    value: bool,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    upsert_setting(&tx, SETTING_NOTIFICATIONS_ENABLED, &value.to_string(), actor_id, &now)?;
+    tx.commit()
+        .context("failed to commit set_notifications_enabled transaction")?;
     Ok(())
 }
 

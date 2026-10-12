@@ -3,6 +3,7 @@
 
 mod commands;
 mod menu;
+mod notify;
 mod scheduler;
 mod sidecar;
 mod state;
@@ -37,6 +38,8 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        // D-175: granted to the Rust core only. No notification permission is added to the window.
+        .plugin(tauri_plugin_notification::init())
         .menu(|app| menu::build_menu(app))
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
@@ -100,6 +103,7 @@ fn main() {
                 sidecar: Some(sidecar_handle),
                 pending_orphans: Mutex::new(pending_orphans),
                 focused_task: Mutex::new(None),
+                watched_run: Mutex::new(None),
             });
 
             // D-113/D-114/D-116 (Phase 7 plan 07-01): start the git-truth scheduler AFTER
@@ -116,6 +120,9 @@ fn main() {
                     .await
                     .expect("failed to start the git-truth scheduler");
             });
+
+            // D-174/D-175: the one task that closes each coalescing window and shows the banner.
+            notify::spawn_notify_task(app.handle().clone());
 
             Ok(())
         })
@@ -238,6 +245,8 @@ fn main() {
             commands::change_flags::board_change_flags,
             commands::fleet::fleet_list,
             commands::fleet::fleet_blocked_queue,
+            commands::fleet::fleet_watch_run,
+            commands::settings::settings_set_notifications_enabled,
             commands::forge::settings_set_project_forge,
             commands::forge::project_forge_overrides,
             commands::forge::forge_request_draft,
