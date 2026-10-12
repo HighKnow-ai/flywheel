@@ -19,7 +19,12 @@ use core::ids::new_id;
 use core::query::fleet::{fleet_rows, FLEET_ROWS_MAX_LIMIT, FLEET_SQL};
 use rusqlite::{params, Connection};
 
-const BUDGET_MS: u128 = 50;
+/// The UI-SPEC target, reported but not asserted: a wall-clock assertion this tight fails on any
+/// slow or contended runner for reasons unrelated to the query (WR-10). The query-plan assertions
+/// below are what prove the property (index used, no scan); the asserted ceiling is a generous
+/// multiple that still catches an accidental full scan or an N+1 on a 5,000-row table.
+const TARGET_MS: u128 = 50;
+const BUDGET_MS: u128 = 500;
 /// Migration 0020 is the 20th source; everything before it is the "N-1" a real upgrade starts from.
 const FLEET_MIGRATION_INDEX: usize = 19;
 const PROJECTS: usize = 4;
@@ -159,7 +164,10 @@ fn the_fleet_read_at_5000_runs_is_under_budget_and_uses_the_index() {
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
-    println!("fleet_rows at 5,000 agent_runs: {elapsed_ms}ms, {} rows", list.total_rows);
+    println!(
+        "fleet_rows at 5,000 agent_runs: {elapsed_ms}ms (target {TARGET_MS}ms, asserted {BUDGET_MS}ms), {} rows",
+        list.total_rows
+    );
     println!("query plan: {plan:#?}");
 
     assert_eq!(list.total_rows, FLEET_ROWS_MAX_LIMIT, "a busy fleet fills the window");

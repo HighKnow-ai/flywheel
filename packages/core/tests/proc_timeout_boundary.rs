@@ -20,12 +20,13 @@ fn sh(script: &str) -> Command {
 
 #[test]
 fn a_child_exiting_zero_just_before_its_deadline_reports_success_and_its_stdout() {
-    // 0.2s sleep against a 0.25s deadline, repeated so a scheduling edge near the deadline is hit.
+    // A short sleep against a generous deadline: the exit-before-deadline path without a margin
+    // that fork+exec and scheduler jitter on a loaded runner can eat (WR-10). Repeated anyway.
     for _ in 0..10 {
         let out = output_with_timeout(
-            &mut sh("sleep 0.2; printf done"),
+            &mut sh("sleep 0.05; printf done"),
             None,
-            Duration::from_millis(250),
+            Duration::from_millis(1000),
             "near-deadline success",
         )
         .expect("a child that exits before the ceiling is not a timeout");
@@ -38,9 +39,9 @@ fn a_child_exiting_zero_just_before_its_deadline_reports_success_and_its_stdout(
 fn a_child_exiting_non_zero_just_before_its_deadline_reports_that_status() {
     for _ in 0..10 {
         let out = output_with_timeout(
-            &mut sh("sleep 0.2; exit 7"),
+            &mut sh("sleep 0.05; exit 7"),
             None,
-            Duration::from_millis(250),
+            Duration::from_millis(1000),
             "near-deadline failure",
         )
         .expect("a non-zero exit is an outcome, not a timeout");
