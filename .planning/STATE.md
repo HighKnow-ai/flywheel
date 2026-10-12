@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 10
 current_phase_name: Fleet Supervision Across Every Project
 status: executing
-stopped_at: Completed 10-01-PLAN.md
-last_updated: "2026-10-12T04:19:23.486Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-10-12T04:50:36.110Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 10 execution started
-state_head: 9d26938378f8bf8bf0fba85be6047477d4365622
+state_head: 53c60e91c59b6c38574f44004dda0d4b553803c0
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 228
-  completed_plans: 220
+  completed_plans: 221
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 10 (Fleet Supervision Across Every Project) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 10 execution started
 
@@ -282,6 +282,7 @@ Progress: [░░░░░░░░░░] 0% — 11 of 13 phases complete (219/
 | Phase 09 P12 | 25 min | 2 tasks | 2 files |
 | Phase 09 P13 | 35 min | 2 tasks | 7 files |
 | Phase 10 P01 | 24min | 3 tasks | 26 files |
+| Phase 10 P02 | 20 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -656,6 +657,7 @@ Recent decisions affecting current work:
 - [Phase 09]: 09-12: no partial unique index on agent_runs(task_id); the launch-time disjointness rule is one pure function (dispatch::launch_conflict) called at decision and launch — Disjointness is a cross-row predicate over a child table no uniqueness constraint can state; an index would make leaked running rows (D-REV-39) permanently unlaunchable
 - [Phase 09]: 09-13: manual cross-task overlapping launch stays allowed (09-07 choice) but is now recorded as task.launch_overlap and warned; dispatched launch refuses; own live run refuses on both paths — The invariant is a property of the shared launch body, not of one caller; refusing the manual path is the owner's decision (one call site)
 - [Phase 10]: 10-01: open-fleet accelerator is Cmd+Shift+F (uniqueness-tested); rail Fleet entry is a new All agents button; fleet state derived in SQL, banded and ordered in the read
+- [Phase 10]: 10-02: deadline race closed by reading the clock before the exit check (one try_wait); normaliseStreamEvents emits one event per text/tool_use block, sequence numbers claimed in emitStreamEvents; forge resolution failures memoised per tick
 
 ### Pending Todos
 
@@ -717,6 +719,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T04:19:23.270Z
-Stopped at: Completed 10-01-PLAN.md
+Last session: 2026-10-12T04:50:35.919Z
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
