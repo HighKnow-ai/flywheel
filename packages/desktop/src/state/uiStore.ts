@@ -240,6 +240,13 @@ interface UiState {
    * row, the global `open-fleet` binding, the palette and the native menu, none of which import the
    * surface. `null` when closed. */
   fleetSurface: FleetSurfaceTarget | null;
+  /** A one-shot request to select a board item and open its detail (Phase 10 plan 10-06, FLEET-03,
+   * RESEARCH Finding 9). It exists because `BoardView` clears selection, detail and delete whenever its
+   * project id changes, so a jump into another project that sets those three fields directly (as the
+   * palette's git-identifier jump does) is undone by that effect the moment it runs. The request outlives
+   * the clear, `BoardView` acts on it once the item is among its rows, and `consumePendingFocusItemId`
+   * reads and clears it in one call so it can never fire twice. */
+  pendingFocusItemId: string | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -293,9 +300,12 @@ interface UiState {
   setReviewSurface: (target: ReviewSurfaceTarget | null) => void;
   /** Opens/closes the fleet surface (`null` to close). */
   setFleetSurface: (target: FleetSurfaceTarget | null) => void;
+  setPendingFocusItemId: (id: string | null) => void;
+  /** Returns the pending focus request and clears it in the same call. */
+  consumePendingFocusItemId: () => string | null;
 }
 
-export const useUiStore = create<UiState>((set) => ({
+export const useUiStore = create<UiState>((set, get) => ({
   searchTerm: "",
   filterDraft: EMPTY_FILTER_DRAFT,
   selectedItemId: null,
@@ -323,6 +333,7 @@ export const useUiStore = create<UiState>((set) => ({
   triageSurfaceProjectId: null,
   reviewSurface: null,
   fleetSurface: null,
+  pendingFocusItemId: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -412,6 +423,12 @@ export const useUiStore = create<UiState>((set) => ({
   setTriageSurfaceProjectId: (projectId) => set({ triageSurfaceProjectId: projectId }),
   setReviewSurface: (target) => set({ reviewSurface: target }),
   setFleetSurface: (target) => set({ fleetSurface: target }),
+  setPendingFocusItemId: (id) => set({ pendingFocusItemId: id }),
+  consumePendingFocusItemId: () => {
+    const id = get().pendingFocusItemId;
+    if (id !== null) set({ pendingFocusItemId: null });
+    return id;
+  },
 }));
 
 /** Resets every UI field back to its initial value — the shared reset four test suites
@@ -448,5 +465,6 @@ export function resetUiState() {
     triageSurfaceProjectId: null,
     reviewSurface: null,
     fleetSurface: null,
+    pendingFocusItemId: null,
   });
 }

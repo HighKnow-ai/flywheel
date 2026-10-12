@@ -267,7 +267,18 @@ export interface BoardViewProps {
   /** `undefined` preserves this component's pre-01-08 behavior exactly (headers + quick-add
    * only, no overlay) — existing callers/tests that never pass this prop are unaffected. */
   emptyState?: EmptyStateContent;
+  /** False while `items` is still the previous project's window kept on screen during a project switch
+   * (`placeholderData: keepPreviousData`). A pending focus request is only given up on once the window
+   * is the right project's, so a jump into another project is not abandoned against stale rows. Omitted
+   * means settled, which is every caller that has no such placeholder. */
+  windowSettled?: boolean;
 }
+
+/** How long a pending focus request may wait for its row before it is dropped. A backstop for the
+ * cases no signal covers (a group fetch that fails, a filter that hides the item): the request is
+ * cleared and the board stays as it was, rather than waiting forever and firing at some later,
+ * unrelated moment. */
+const PENDING_FOCUS_DEADLINE_MS = 4000;
 
 interface AnchorRect {
   top: number;
@@ -282,6 +293,7 @@ export function BoardView({
   counts,
   onCreateTask,
   emptyState,
+  windowSettled = true,
 }: BoardViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -694,6 +706,53 @@ export function BoardView({
     () => rows.filter((r): r is SelectableRow => r.kind === "task" || (r.kind === "epic-header" && r.item !== undefined)),
     [rows],
   );
+
+  // A request from another surface to land on one item (Phase 10 plan 10-06, Finding 9). This effect is
+  // declared AFTER the project-change clear above on purpose: effects run in declaration order, and the
+  // clear writes to the store synchronously, so by the time this one reads and acts, the clear is
+  // already behind it and cannot win. The clear itself is untouched — other callers rely on a project
+  // switch dropping a stale selection.
+  const pendingFocusItemId = useUiStore((state) => state.pendingFocusItemId);
+  const consumePendingFocusItemId = useUiStore((state) => state.consumePendingFocusItemId);
+  const epicRosterLoaded = !epicsQuery.isPending;
+  useEffect(() => {
+    if (!pendingFocusItemId) return;
+    // Resolved: it is one of the rows. Take the request (read-and-clear) and land on it.
+    if (selectableItems.some((r) => r.item.id === pendingFocusItemId)) {
+      const id = consumePendingFocusItemId();
+      if (id) {
+        setSelectedId(id);
+        setDetailItemId(id);
+      }
+      return;
+    }
+    // Loaded but not a row: its group is collapsed. Open that group; the rows change and this runs again.
+    const loaded = items.find((item) => item.id === pendingFocusItemId);
+    if (loaded && (groupingKey === "status" || (loaded.kind ?? "task") !== "epic")) {
+      const groupKey = groupCollapseKey(groupingKey, groupingKey === "status" ? loaded.status : loaded.epicId);
+      // An epic group starts collapsed, a status band open. Only open one that is actually closed: an
+      // open group that still has no row for the item is waiting on its fetch, and re-opening it would
+      // rebuild the rows and re-run this effect forever. The deadline below ends that wait.
+      if (collapsedByStatus[groupKey] ?? groupingKey === "epic") expandBand(projectId ?? "", groupKey);
+      return;
+    }
+    // Not in the window and not in the epic roster either, and both are this project's: it cannot be
+    // found here. Say nothing and open nothing — an unrelated item or an empty panel would read as the
+    // wrong answer.
+    if (!loaded && windowSettled && epicRosterLoaded && !epics.some((epic) => epic.id === pendingFocusItemId)) {
+      consumePendingFocusItemId();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFocusItemId, selectableItems, items, windowSettled, epicRosterLoaded, epics, groupingKey, projectId, collapsedByStatus]);
+  useEffect(() => {
+    if (!pendingFocusItemId) return undefined;
+    const timer = setTimeout(() => {
+      // Only this request: a newer one replaced the id and this timer with it.
+      if (useUiStore.getState().pendingFocusItemId === pendingFocusItemId) consumePendingFocusItemId();
+    }, PENDING_FOCUS_DEADLINE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFocusItemId]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,

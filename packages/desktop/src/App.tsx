@@ -100,6 +100,9 @@ function Board({ projectId, projectName }: { projectId: string; projectName: str
             counts={boardQuery.data.counts}
             onCreateTask={(title, epicId) => createTask.mutate({ title, epicId })}
             emptyState={emptyState}
+            // keepPreviousData keeps the last project's rows on screen while a switched-to project loads;
+            // a pending jump must not be judged against them.
+            windowSettled={!boardQuery.isPlaceholderData}
           />
         ) : null}
       </div>

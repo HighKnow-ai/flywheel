@@ -89,6 +89,8 @@ export type ActionId =
   // Phase 10 plan 10-06 (D-166, FLEET-03): the fleet list's primary action — open the selected row's
   // session. Region-scoped to the fleet surface; Enter on a focused button keeps its own activation.
   | "open-fleet-row"
+  // ...and its secondary target: the board item the row's subject names, in whatever project it lives.
+  | "open-fleet-row-subject"
   // D-84/D-88 (plan 05-02): start a fresh epic-authoring session. Command-palette-only in this
   // plan (no key binding yet), mirroring `create-issue`/`open-legend`'s own palette-only entries
   // above — the palette is the least invasive entry point and it re-enters the same
@@ -309,6 +311,9 @@ export const BINDINGS: Binding[] = [
   { id: "move-up", region: "fleet-surface", key: "k", label: "Move selection up" },
   { id: "move-up", region: "fleet-surface", key: "ArrowUp", label: "Move selection up" },
   { id: "open-fleet-row", region: "fleet-surface", key: "Enter", label: "Open selected agent's session" },
+  // `b` for board item: not Enter (the session), not `a`, `d` or shift-`a` (the permission card's), and
+  // there is no dismiss key to avoid (plan 10-04 chose none; 10-06 keeps it that way).
+  { id: "open-fleet-row-subject", region: "fleet-surface", key: "b", label: "Open selected agent's board item" },
   { id: "expand-file", region: "review-surface", key: "Enter", label: "Expand file" },
   { id: "expand-file", region: "review-surface", key: " ", label: "Expand file" },
   // The check is the act of attestation (T-08-06-01): selecting lines alone never writes. The
@@ -576,7 +581,12 @@ const REVIEW_SURFACE_ACTION_IDS = new Set<ActionId>([
 // permission-answer ids are refused by the `PERMISSION_CARD_ACTION_IDS` clause in
 // `bindingAllowedInLayer` (they fire only under the `"permission-card"` layer), so a stray `a`/`d`
 // over the fleet can never approve or deny a tool call.
-const FLEET_SURFACE_ACTION_IDS = new Set<ActionId>(["move-down", "move-up", "open-fleet-row"]);
+const FLEET_SURFACE_ACTION_IDS = new Set<ActionId>([
+  "move-down",
+  "move-up",
+  "open-fleet-row",
+  "open-fleet-row-subject",
+]);
 
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "open-palette") return layer !== "picker" && layer !== "palette";
@@ -599,6 +609,9 @@ export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   if (id === "expand-file" || id === "check-with-selection" || id === "open-merge" || id === "open-epic-request") {
     return false;
   }
+  // The fleet row's two jumps are that surface's alone, for the same reason: refuse them elsewhere rather
+  // than fall through to the board clause.
+  if (id === "open-fleet-row" || id === "open-fleet-row-subject") return false;
   if (PROPOSAL_TRAY_ACTION_IDS.has(id)) return layer === "proposal-tray";
   if (layer === "proposal-tray") return TRAY_SELECTION_ACTION_IDS.has(id);
   return layer === "board" || layer === "quick-add";

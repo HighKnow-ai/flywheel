@@ -102,3 +102,20 @@ describe("the fleet-surface layer", () => {
     }
   });
 });
+
+describe("the fleet row jumps (plan 10-06, FLEET-03)", () => {
+  it("binds the session and the board item to two distinct keys that avoid the permission card's", () => {
+    const session = BINDINGS.filter((b) => b.id === "open-fleet-row");
+    const subject = BINDINGS.filter((b) => b.id === "open-fleet-row-subject");
+    expect(session.map((b) => [b.region, b.key])).toEqual([["fleet-surface", "Enter"]]);
+    expect(subject.map((b) => [b.region, b.key])).toEqual([["fleet-surface", "b"]]);
+    expect(["a", "d"]).not.toContain(subject[0].key);
+  });
+
+  it("admits both on the fleet layer and on no other", () => {
+    for (const id of ["open-fleet-row", "open-fleet-row-subject"] as const) {
+      expect(bindingAllowedInLayer(id, "fleet-surface")).toBe(true);
+      expect(bindingAllowedInLayer(id, "board")).toBe(false);
+    }
+  });
+});

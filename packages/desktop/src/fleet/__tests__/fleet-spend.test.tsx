@@ -169,15 +169,15 @@ describe("dismiss", () => {
     fleetListMock.mockResolvedValue(list([row({ agentRunId: "live" }), failed("done")]));
     const { container } = renderFleet();
     await screen.findByText("Dismiss");
-    expect(container.querySelector('[data-run-id="done"] button')).not.toBeNull();
-    expect(container.querySelector('[data-run-id="live"] button')).toBeNull();
+    expect(container.querySelector('[data-run-id="done"] [data-field="dismiss"] button')).not.toBeNull();
+    expect(container.querySelector('[data-run-id="live"] [data-field="dismiss"] button')).toBeNull();
   });
 
   it("acknowledges exactly that run when its Dismiss is pressed", async () => {
     fleetListMock.mockResolvedValue(list([failed("one"), failed("two")]));
     const { container } = renderFleet();
     await screen.findAllByText("Dismiss");
-    fireEvent.click(container.querySelector('[data-run-id="two"] button') as HTMLElement);
+    fireEvent.click(container.querySelector('[data-run-id="two"] [data-field="dismiss"] button') as HTMLElement);
     expect(acknowledgeMock).toHaveBeenCalledTimes(1);
     expect(acknowledgeMock).toHaveBeenCalledWith("two");
   });

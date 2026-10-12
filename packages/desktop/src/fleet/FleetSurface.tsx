@@ -226,6 +226,43 @@ function ageSince(row: FleetRowDto, state: FleetState): string | undefined {
   return row.startedAt;
 }
 
+/** The board item a row's subject names: its task, or for an epic or an authoring run on an existing epic,
+ * that epic. `null` when the run has no board subject at all (a fresh-epic authoring run), and also for a
+ * project that is unreachable — its board is replaced by the relocate screen, so the jump would land on
+ * something other than the item. Either way the row shows no target (D-166: an affordance that looks like
+ * a link and goes nowhere is worse than a plain label). */
+export function subjectTargetId(row: FleetRowDto): string | null {
+  if (row.projectStatus === "unreachable") return null;
+  return row.taskId ?? row.epicId ?? null;
+}
+
+/** The row's secondary target (D-166, FLEET-03): the subject key as a button of its own, reaching the
+ * board item. Its click is stopped here so it never also opens the session; the key `b` reaches the same
+ * place from the selected row. Rendered only when the row has a board subject. */
+export function SubjectTarget({
+  label,
+  onOpen,
+}: {
+  label: string;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-subject-target
+      className="type-label tabular-nums"
+      aria-label={`Open ${label} on the board`}
+      title={`Open ${label} on the board`}
+      onClick={(event: MouseEvent) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 /** The row's primary action (D-166, FLEET-03): open this run's session, handing over everything the
  * surface needs to mount in its correct shape in ONE call. `agent_runs.task_id` and `epic_id` are both
  * nullable and mutually exclusive (Finding 10), so an authoring or planning run carries an epic or
@@ -250,11 +287,13 @@ export function FleetRowView({
   now,
   selected = false,
   onOpenSession,
+  onOpenSubject,
 }: {
   row: FleetRowDto;
   now: number;
   selected?: boolean;
   onOpenSession?: (row: FleetRowDto) => void;
+  onOpenSubject?: (row: FleetRowDto) => void;
 }) {
   const state: FleetState = isFleetState(row.fleetState) ? row.fleetState : "running";
   const mark = MARKS_BY_ID[RUN_STATUS_MARK_IDS[state]];
@@ -302,7 +341,11 @@ export function FleetRowView({
         title={subject.detail ? `${subject.key} ${subject.detail}`.trim() : subject.key}
         style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
       >
-        {subject.key && <span className="type-label tabular-nums">{subject.key}</span>}
+        {subjectTargetId(row) !== null && onOpenSubject ? (
+          <SubjectTarget label={subject.key || (row.taskId ? "Task" : "Epic")} onOpen={() => onOpenSubject(row)} />
+        ) : (
+          subject.key && <span className="type-label tabular-nums">{subject.key}</span>
+        )}
         {subject.key && subject.detail ? " " : ""}
         {subject.detail && <span style={{ color: "var(--text-muted-rack)" }}>{subject.detail}</span>}
       </span>
@@ -342,12 +385,14 @@ export function FleetBand({
   now,
   selectedRunId = null,
   onOpenSession,
+  onOpenSubject,
 }: {
   band: { id: FleetBandId; header: string };
   rows: FleetRowDto[];
   now: number;
   selectedRunId?: string | null;
   onOpenSession?: (row: FleetRowDto) => void;
+  onOpenSubject?: (row: FleetRowDto) => void;
 }) {
   return (
     <section data-band={band.id} aria-label={band.header}>
@@ -385,6 +430,7 @@ export function FleetBand({
             now={now}
             selected={row.agentRunId === selectedRunId}
             onOpenSession={onOpenSession}
+            onOpenSubject={onOpenSubject}
           />
         ))}
       </div>
@@ -404,6 +450,8 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
   const view = useUiStore((state) => state.fleetSurface?.view ?? "fleet");
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
+  const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
+  const setPendingFocusItemId = useUiStore((state) => state.setPendingFocusItemId);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const rows = fleet.data?.rows ?? [];
   const total = fleet.data?.totalRows ?? 0;
@@ -425,6 +473,17 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
     setSelectedRunId(row.agentRunId);
     setActiveAgentRunId(...sessionOpenerArgs(row));
   };
+  // The secondary target: switch to the row's project, leave a one-shot request for the board to act on
+  // (the board's own project-change clear would undo anything set directly, Finding 9), and close the
+  // fleet so the board shows. Opens nothing else — the session is the primary target, not this one.
+  const openSubject = (row: FleetRowDto) => {
+    const target = subjectTargetId(row);
+    if (target === null) return;
+    setSelectedRunId(row.agentRunId);
+    setCurrentProjectId(row.projectId);
+    setPendingFocusItemId(target);
+    setFleetSurface(null);
+  };
   const selectedRow = view === "fleet" ? drawnRows.find((r) => r.agentRunId === selectedRunId) : undefined;
   // The queue view owns `a`/`d`/shift-`a` through its keyboard-owner card, and the layer refuses those
   // ids here anyway; this surface registers nothing while the queue is showing.
@@ -437,6 +496,9 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
           "move-up": () => setSelectedRunId((current) => nextSelectionId(drawnRows, current, -1)),
           "open-fleet-row": () => {
             if (selectedRow) openSession(selectedRow);
+          },
+          "open-fleet-row-subject": () => {
+            if (selectedRow) openSubject(selectedRow);
           },
         }
       : {},
@@ -507,6 +569,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
               now={now}
               selectedRunId={selectedRunId}
               onOpenSession={openSession}
+              onOpenSubject={openSubject}
             />
           ))
         )}
