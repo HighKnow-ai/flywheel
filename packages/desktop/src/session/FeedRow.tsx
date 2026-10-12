@@ -34,6 +34,14 @@ export function toolCallTarget(input: unknown): string {
   return "";
 }
 
+/** The collapsed tool-call label — the tool's name and its target. The one place this string is built,
+ * so the fleet's activity cell (`fleet/FleetSurface.tsx`) and `ToolCallRow` below can never word the
+ * same call differently. */
+export function toolCallLabel(toolName: string, input: unknown): string {
+  const target = toolCallTarget(input);
+  return target ? `${toolName} · ${target}` : toolName;
+}
+
 /** One structured feed row's own data — the shape `SessionSurface.tsx`'s pairing/filtering step
  * produces from the raw windowed-read entries. `key` is a stable React key, independent of
  * whatever field(s) a given row kind happens to carry. */
@@ -112,7 +120,6 @@ function ToolCallRow({
   onToggleExpand: () => void;
   live: boolean;
 }) {
-  const target = toolCallTarget(row.input);
   return (
     <div role="listitem" style={{ padding: "var(--space-xs) 0", minWidth: 0 }}>
       <button
@@ -140,8 +147,7 @@ function ToolCallRow({
           {expanded ? "▾" : "▸"}
         </span>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-          {row.toolName}
-          {target ? ` · ${target}` : ""}
+          {toolCallLabel(row.toolName, row.input)}
         </span>
         {/* The live mark: a block caret after the call, the terminal's own "it is working here". It is the
             running-session pulse (the one scoped opacity animation) moved to where the work is; under reduced
@@ -319,6 +325,29 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
+/** The refusal's one-line wording, shared with the fleet's activity cell. */
+function scopeDeniedText(row: Extract<FeedRowData, { kind: "scope_denied" }>): string {
+  return row.outsideWorktree
+    ? `Scope: ${row.tool} · ${baseName(row.path)} is outside the repository, not this task's files`
+    : `Scope: ${row.tool} · ${row.path} is outside this task's declared files`;
+}
+
+/** The text a row reads as on one line — what the fleet's activity cell shows for a row (D-167: the
+ * fleet defines no vocabulary of its own for agent activity). Each kind returns the same words its
+ * feed row prints. */
+export function feedRowText(row: FeedRowData): string {
+  switch (row.kind) {
+    case "tool_call":
+      return toolCallLabel(row.toolName, row.input);
+    case "scope_denied":
+      return scopeDeniedText(row);
+    case "git_lock_exhausted":
+      return "";
+    default:
+      return expandableRowText(row) ?? "";
+  }
+}
+
 /** D-153: a refused write, with the one action that answers it — widen the set to the refused path.
  * The verdict is the Rust core's: the response carries the accepted set or the colliding path, and
  * this component only displays it. One line, like every fixed-height feed row.
@@ -363,9 +392,7 @@ function ScopeDeniedRow({
         : widened
           ? "widened"
           : null;
-  const text = row.outsideWorktree
-    ? `Scope: ${row.tool} · ${baseName(row.path)} is outside the repository, not this task's files`
-    : `Scope: ${row.tool} · ${row.path} is outside this task's declared files`;
+  const text = scopeDeniedText(row);
   const full = outcome ? `${text} — ${outcome}` : text;
 
   return (

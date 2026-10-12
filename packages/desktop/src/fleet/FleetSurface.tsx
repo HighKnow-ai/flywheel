@@ -11,12 +11,14 @@
  * it (Finding 14) — so a state is always a glyph plus a word, never colour alone.
  *
  * Elapsed times tick from `startedAt` on ONE interval for the whole list; no IPC per second (D-171).
- * A row has no interactive target in this plan; the activity cell, the spend column and the jumps into
- * a session or a board item are later plans in this phase.
+ * A live row also carries its activity cell (plan 10-03, D-167): the newest feed row of that run's own
+ * log, built by the session feed's `buildFeedRows` and worded by its `feedRowText`, so the fleet and
+ * the session never tell different stories about the same moment. A row has no interactive target in
+ * this plan; the spend column and the jumps into a session or a board item are later plans.
  */
 import { useEffect, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
-import type { FleetRowDto } from "../adapters/tauri";
+import type { FleetActivityDto, FleetRowDto } from "../adapters/tauri";
 import { MARKS_BY_ID } from "../legend/marks";
 import {
   FLEET_BANDS,
@@ -29,6 +31,8 @@ import {
   type FleetBandId,
   type FleetState,
 } from "../legend/runStatus";
+import { feedRowText } from "../session/FeedRow";
+import { buildFeedRows } from "../session/SessionSurface";
 import { useFleet } from "./useFleet";
 import "../styles/admin-surfaces.css";
 
@@ -57,7 +61,74 @@ function useNowTick(enabled: boolean): number {
 }
 
 /** Grid shared by the header-less rows so the columns line up down the whole list. */
-const ROW_COLUMNS = "minmax(150px, 190px) minmax(80px, 140px) 1fr 64px";
+const ROW_COLUMNS = "minmax(150px, 190px) minmax(80px, 140px) 1fr minmax(120px, 1.4fr) 64px";
+
+/** The activity line's width in characters, ellipsis at the TAIL — the start of a line (the tool, the
+ * first clause) is what says what the agent is doing. Applied to every row kind alike. */
+export const ACTIVITY_MAX_CHARS = 80;
+
+/** The mark for a value that could not be read — the same dash `formatAge` and `formatCostUsd` use. */
+const ABSENT = "\u2014";
+
+/** The first clause of narration: up to the first sentence or clause break, or the first line. */
+function firstClause(text: string): string {
+  const firstLine = text.trim().split("\n")[0] ?? "";
+  const match = /[.!?:;]\s/.exec(firstLine);
+  return match ? firstLine.slice(0, match.index + 1) : firstLine;
+}
+
+function clip(text: string): string {
+  return text.length > ACTIVITY_MAX_CHARS ? `${text.slice(0, ACTIVITY_MAX_CHARS - 1)}\u2026` : text;
+}
+
+/** One tail line as the entry the feed expects: its parsed JSON, or the same `unknown` fallback
+ * `session_log.rs` makes for a line that is not JSON (a line is never dropped). */
+function parseTailLine(line: string): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(line);
+    if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  } catch {
+    // falls through to the unknown entry
+  }
+  return { type: "unknown", raw: line };
+}
+
+/** The one line a live row shows: the newest feed row of the tail, or `null` when there is none (an
+ * empty tail, a tail that did not fit the window, or one that normalises to no row at all). */
+export function activityLine(activity: FleetActivityDto): string | null {
+  if (activity.truncated || activity.lines.length === 0) return null;
+  const rows = buildFeedRows(activity.lines.map(parseTailLine));
+  const last = rows[rows.length - 1];
+  if (!last) return null;
+  const text = feedRowText(last);
+  const line = last.kind === "assistant_text" ? firstClause(text) : text;
+  return line.trim() === "" ? null : clip(line);
+}
+
+/** A live row's activity, or an explicit dash when it cannot be read — never the line it used to have:
+ * the text is derived from this render's tail alone. A terminal row renders nothing. */
+function ActivityCell({ row }: { row: FleetRowDto }) {
+  if (row.runStatus !== "running" && row.runStatus !== "blocked") return <span data-field="activity" />;
+  const line = activityLine(row.activity);
+  return line === null ? (
+    <span
+      data-field="activity"
+      data-absent="true"
+      title="No activity could be read"
+      style={{ color: "var(--text-muted-rack)" }}
+    >
+      {ABSENT}
+    </span>
+  ) : (
+    <span
+      data-field="activity"
+      title={line}
+      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted-rack)" }}
+    >
+      {line}
+    </span>
+  );
+}
 
 /** What the run is *about*: a task key and title, an epic key, an authoring stage — or, for a run with
  * no subject at all, just the word for what kind of run it is. Never empty (Finding 10). */
@@ -125,6 +196,7 @@ export function FleetRowView({ row, now }: { row: FleetRowDto; now: number }) {
         {subject.key && subject.detail ? " " : ""}
         {subject.detail && <span style={{ color: "var(--text-muted-rack)" }}>{subject.detail}</span>}
       </span>
+      <ActivityCell row={row} />
       <span
         className="type-label tabular-nums"
         data-field="age"

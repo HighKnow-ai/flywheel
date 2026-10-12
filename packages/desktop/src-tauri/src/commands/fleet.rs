@@ -4,9 +4,10 @@
 //!
 //! Read-only, and it takes NO arguments at all: no project id (D-14 — one database holds every
 //! project), no path, no ref, no actor. There is therefore no parameter a renderer could widen, and
-//! the window is capped server-side. It is a pure database read — no filesystem walk and no git
-//! process — so it uses the plain synchronous `#[tauri::command]` + `state.db.lock()` shape of
-//! `settings_get`, not the `async` + `spawn_blocking` split the git-reaching commands need.
+//! the window is capped server-side. No git process runs here. Plan 10-03 adds one bounded file read
+//! per LIVE row (the end of that run's session log, for the activity cell), so the command takes the
+//! `async` + `spawn_blocking` shape `board_change_flags` uses: the database lock is released first and
+//! the file reads run off the IPC thread.
 
 use serde::Serialize;
 use tauri::State;
@@ -44,6 +45,20 @@ pub struct FleetRowDto {
     pub cost_usd: Option<f64>,
     pub tokens_in: Option<i64>,
     pub tokens_out: Option<i64>,
+    /// The end of this run's session log, for the activity cell (plan 10-03, D-167). Always empty for
+    /// a run that is not live.
+    pub activity: FleetActivityDto,
+}
+
+/// Raw tail lines, NOT a rendered string: the normaliser that turns log lines into the line the
+/// fleet shows lives in the renderer (the session feed's own `buildFeedRows`) and must not be
+/// duplicated here. An empty `lines` is how the renderer tells "nothing to show" from a value;
+/// `truncated` separates "nothing there" from "there, but it did not fit the read window".
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetActivityDto {
+    pub lines: Vec<String>,
+    pub truncated: bool,
 }
 
 impl From<flywheel_core::query::fleet::FleetRow> for FleetRowDto {
@@ -70,6 +85,7 @@ impl From<flywheel_core::query::fleet::FleetRow> for FleetRowDto {
             cost_usd: row.cost_usd,
             tokens_in: row.tokens_in,
             tokens_out: row.tokens_out,
+            activity: FleetActivityDto::default(),
         }
     }
 }
@@ -81,15 +97,133 @@ pub struct FleetListDto {
     pub total_rows: usize,
 }
 
-/// Every agent run across every registered project that belongs on the fleet (capped). Read-only,
-/// cross-project by design, accepts no arguments.
-#[tauri::command]
-pub fn fleet_list(state: State<AppState>) -> Result<FleetListDto, String> {
-    let conn = state.db.lock().map_err(|e| ipc_error("fleet_list:lock", e))?;
-    let list = flywheel_core::query::fleet::fleet_rows(&conn, FLEET_ROWS_CAP)
-        .map_err(|e| ipc_error("fleet_list:read", e))?;
-    Ok(FleetListDto {
-        total_rows: list.total_rows,
-        rows: list.rows.into_iter().map(FleetRowDto::from).collect(),
+/// A live run is one a person could be watching: its activity line is a liveness signal, so a
+/// terminal row never gets one (and is never read).
+fn is_live(run_status: &str) -> bool {
+    matches!(run_status, "running" | "blocked")
+}
+
+/// Fill `activity` for every live row, reading each run's log tail through `read`. A row whose read
+/// fails keeps the empty default, which the renderer draws as an explicit absence — one unreadable
+/// log must not fail the whole fleet. `read` is a parameter so a test can count the calls.
+fn attach_activity(
+    rows: &mut [FleetRowDto],
+    read: impl Fn(&str) -> anyhow::Result<flywheel_core::session_log::LogTail>,
+) {
+    for row in rows.iter_mut().filter(|row| is_live(&row.run_status)) {
+        if let Ok(tail) = read(&row.agent_run_id) {
+            row.activity = FleetActivityDto { lines: tail.lines, truncated: tail.truncated };
+        }
+    }
+}
+
+/// Every agent run across every registered project that belongs on the fleet (capped), with the end
+/// of each live run's log for the activity cell. Read-only, cross-project by design, accepts no
+/// arguments.
+#[tauri::command(async)]
+pub async fn fleet_list(state: State<'_, AppState>) -> Result<FleetListDto, String> {
+    let list = {
+        let conn = state.db.lock().map_err(|e| ipc_error("fleet_list:lock", e))?;
+        let list = flywheel_core::query::fleet::fleet_rows(&conn, FLEET_ROWS_CAP)
+            .map_err(|e| ipc_error("fleet_list:read", e));
+        // Released explicitly: nothing below may run with the database mutex held.
+        drop(conn);
+        list?
+    };
+
+    let total_rows = list.total_rows;
+    let mut rows: Vec<FleetRowDto> = list.rows.into_iter().map(FleetRowDto::from).collect();
+    let rows = tauri::async_runtime::spawn_blocking(move || {
+        attach_activity(&mut rows, flywheel_core::session_log::read_tail);
+        rows
     })
+    .await
+    .map_err(|e| ipc_error("fleet_list:tail", e))?;
+
+    Ok(FleetListDto { total_rows, rows })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flywheel_core::session_log::LogTail;
+    use std::cell::Cell;
+
+    fn row(id: &str, run_status: &str) -> FleetRowDto {
+        FleetRowDto {
+            agent_run_id: id.to_string(),
+            project_id: "p".into(),
+            project_name: "P".into(),
+            project_key_prefix: "P".into(),
+            project_status: "active".into(),
+            subject_kind: "task".into(),
+            task_id: None,
+            task_key: None,
+            task_title: None,
+            task_status: None,
+            epic_id: None,
+            epic_key: None,
+            authoring_stage: None,
+            run_status: run_status.into(),
+            fleet_state: run_status.into(),
+            started_at: "2026-10-12T00:00:00Z".into(),
+            ended_at: None,
+            blocked_since: None,
+            cost_usd: None,
+            tokens_in: None,
+            tokens_out: None,
+            activity: FleetActivityDto::default(),
+        }
+    }
+
+    fn tail(line: &str) -> anyhow::Result<LogTail> {
+        Ok(LogTail { lines: vec![line.to_string()], truncated: false })
+    }
+
+    #[test]
+    fn only_live_rows_are_read_and_terminal_rows_never_are() {
+        let calls = Cell::new(0);
+        let mut rows = vec![
+            row("a", "running"),
+            row("b", "blocked"),
+            row("c", "completed"),
+            row("d", "failed"),
+            row("e", "interrupted"),
+            row("f", "abandoned"),
+        ];
+        attach_activity(&mut rows, |_| {
+            calls.set(calls.get() + 1);
+            tail("{}")
+        });
+        assert_eq!(calls.get(), 2);
+        assert_eq!(rows[0].activity.lines, vec!["{}".to_string()]);
+        assert_eq!(rows[1].activity.lines, vec!["{}".to_string()]);
+        assert!(rows[2..].iter().all(|r| r.activity.lines.is_empty()));
+    }
+
+    #[test]
+    fn a_database_whose_only_runs_are_terminal_makes_no_read_at_all() {
+        let calls = Cell::new(0);
+        let mut rows = vec![row("a", "completed"), row("b", "abandoned")];
+        attach_activity(&mut rows, |_| {
+            calls.set(calls.get() + 1);
+            tail("{}")
+        });
+        assert_eq!(calls.get(), 0);
+    }
+
+    #[test]
+    fn a_failed_read_leaves_that_row_empty_and_does_not_fail_the_rest() {
+        let mut rows = vec![row("bad", "running"), row("good", "running")];
+        attach_activity(&mut rows, |id| if id == "bad" { Err(anyhow::anyhow!("nope")) } else { tail("{}") });
+        assert!(rows[0].activity.lines.is_empty());
+        assert_eq!(rows[1].activity.lines.len(), 1);
+    }
+
+    #[test]
+    fn the_truncated_flag_is_carried_through() {
+        let mut rows = vec![row("a", "running")];
+        attach_activity(&mut rows, |_| Ok(LogTail { lines: Vec::new(), truncated: true }));
+        assert!(rows[0].activity.truncated);
+    }
 }

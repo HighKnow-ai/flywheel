@@ -62,6 +62,7 @@ function row(overrides: Partial<FleetRowDto>): FleetRowDto {
     costUsd: null,
     tokensIn: null,
     tokensOut: null,
+    activity: { lines: [], truncated: false },
     ...overrides,
   };
 }
@@ -234,6 +235,28 @@ describe("the fleet opens under the session", () => {
     expect(session).toBeGreaterThan(-1);
     expect(fleet).toBeGreaterThan(session);
     expect(unreachable).toBeGreaterThan(fleet);
+  });
+});
+
+describe("the activity column", () => {
+  it("renders no activity text for a failed row, even one that carries a tail", async () => {
+    fleetListMock.mockResolvedValue(
+      list([
+        row({
+          runStatus: "failed",
+          fleetState: "failed",
+          endedAt: new Date().toISOString(),
+          activity: {
+            lines: [JSON.stringify({ type: "assistant_text", seq: 1, text: "Still going." })],
+            truncated: false,
+          },
+        }),
+      ]),
+    );
+    renderFleet();
+    const item = (await screen.findAllByRole("listitem"))[0];
+    expect(within(item).queryByText("Still going.")).toBeNull();
+    expect(item.querySelector('[data-field="activity"]')?.textContent).toBe("");
   });
 });
 

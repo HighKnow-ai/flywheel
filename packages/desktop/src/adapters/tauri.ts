@@ -1310,6 +1310,16 @@ export interface FleetRowDto {
   costUsd: number | null;
   tokensIn: number | null;
   tokensOut: number | null;
+  /** The end of the run's session log, raw (plan 10-03, D-167); empty for a run that is not live. The
+   * renderer turns it into one line through the session feed's own normaliser. */
+  activity: FleetActivityDto;
+}
+
+/** Raw tail lines of a live run's session log, oldest first. Empty `lines` means nothing could be read;
+ * `truncated` means something was there but did not fit the read window. */
+export interface FleetActivityDto {
+  lines: string[];
+  truncated: boolean;
 }
 
 export interface FleetListDto {
