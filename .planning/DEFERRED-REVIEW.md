@@ -923,3 +923,17 @@ At Phase 11, with an installed, usable build:
     WebView is WKWebView, which has no WebDriver, and "scannable" is a human aesthetic judgement.
   risk_if_wrong: "Cosmetic. A cramped or noisy fleet row is a follow-up styling issue, not a correctness fault."
   automatable: "PARTLY. A Playwright screenshot of the surface in light and dark against the browser-test config can catch gross overflow and truncation, not the judgement of whether it reads well."
+
+- id: D-REV-48
+  phase: "10 — Fleet Supervision (plan 10-03)"
+  truth: "In the running app a live agent's activity cell shows what it is doing and moves within about a second of its tool call, and reads well as one truncated line."
+  status: open
+  why_deferred: |
+    Asserted piecewise: `read_tail`'s boundary cases and bounded cost (session_log_tail.rs), the live-rows-only
+    read and the lock discipline (fleet.rs tests and grep gate), the throttle, the single listener and its
+    cleanup, the dash for an unreadable tail, and word-for-word parity with the session feed
+    (fleet-activity.test.tsx). Not exercised end to end: a real sidecar writing a real log while the fleet is
+    open. The visual half (80-character clip, tail ellipsis, muted ink at row density) is a human aesthetic
+    judgement in a WKWebView, which has no WebDriver.
+  risk_if_wrong: "Low to moderate. The cell could lag or read poorly; nothing is lost and no state is wrong."
+  automatable: "PARTLY. The live half can be a harness run against a scratch FLYWHEEL_APP_DATA_DIR that appends log lines and asserts `fleet_list` returns the new tail; the look of the line cannot."

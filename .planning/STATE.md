@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 10
 current_phase_name: Fleet Supervision Across Every Project
 status: executing
-stopped_at: Completed 10-02-PLAN.md
-last_updated: "2026-10-12T04:50:36.110Z"
+stopped_at: Completed 10-03-PLAN.md
+last_updated: "2026-10-12T05:04:23.643Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 10 execution started
-state_head: 53c60e91c59b6c38574f44004dda0d4b553803c0
+state_head: 4822089667e4066bee1975d9a755e25f1d1dd81c
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 228
-  completed_plans: 221
+  completed_plans: 222
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-02)
 ## Current Position
 
 Phase: 10 (Fleet Supervision Across Every Project) — EXECUTING
-Plan: 3 of 9
+Plan: 4 of 9
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 10 execution started
 
@@ -283,6 +283,7 @@ Progress: [░░░░░░░░░░] 0% — 11 of 13 phases complete (219/
 | Phase 09 P13 | 35 min | 2 tasks | 7 files |
 | Phase 10 P01 | 24min | 3 tasks | 26 files |
 | Phase 10 P02 | 20 min | 3 tasks | 5 files |
+| Phase 10 P03 | 35 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -658,6 +659,8 @@ Recent decisions affecting current work:
 - [Phase 09]: 09-13: manual cross-task overlapping launch stays allowed (09-07 choice) but is now recorded as task.launch_overlap and warned; dispatched launch refuses; own live run refuses on both paths — The invariant is a property of the shared launch body, not of one caller; refusing the manual path is the owner's decision (one call site)
 - [Phase 10]: 10-01: open-fleet accelerator is Cmd+Shift+F (uniqueness-tested); rail Fleet entry is a new All agents button; fleet state derived in SQL, banded and ordered in the read
 - [Phase 10]: 10-02: deadline race closed by reading the clock before the exit check (one try_wait); normaliseStreamEvents emits one event per text/tool_use block, sequence numbers claimed in emitStreamEvents; forge resolution failures memoised per tick
+- [Phase 10]: 10-03: one throttled app-level agent:event listener (invalidation only, 1000 ms trailing edge) added beside board:changed; deliberate D-171 deviation
+- [Phase 10]: 10-03: activity line is 80 chars with tail ellipsis; LOG_TAIL_MAX_BYTES 256 KiB; fleet_list is async+spawn_blocking (read_tail ~1 ms/call)
 
 ### Pending Todos
 
@@ -719,6 +722,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T04:50:35.919Z
-Stopped at: Completed 10-02-PLAN.md
+Last session: 2026-10-12T05:04:23.457Z
+Stopped at: Completed 10-03-PLAN.md
 Resume file: None
