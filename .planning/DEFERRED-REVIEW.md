@@ -1024,3 +1024,22 @@ At Phase 11, with an installed, usable build:
     took 31-51 s in an unoptimised build and did not hit the entry bound; a single task worktree is far smaller.
   risk_if_wrong: "Low to moderate. The decision and the walk are tested; the risk is a slow first measure of a very large worktree or a cramped row."
   automatable: "PARTLY. A Playwright run with the adapter stubbed can assert the view; responsiveness during a real walk needs the installed app."
+
+- id: D-REV-55
+  phase: "10 — Fleet Supervision (plan 10-09)"
+  truth: "In the running app, selecting reclaimable worktrees, confirming, and pressing Remove deletes exactly those directories while the window stays responsive, and the confirmation and the result list read clearly at row density."
+  status: open
+  why_deferred: |
+    Asserted: the batch against real git repositories (three removed; a run inserted after the read refused with
+    the live-run reason while the others are removed; a tree dirtied after the read refused with its file intact;
+    an open task and an unreachable project refused; an unknown id failing alone; duplicates handled once; a
+    removal git refuses, a locked worktree, reported as refused with the row kept; the batch on a second
+    connection visible on the first) in worktree_reclaim.rs; the 50-row cap in fleet.rs; and the view's
+    checkbox-on-reclaimable-only, count-and-bytes bar, one confirmation, cancel calling nothing, no select-all,
+    mixed result with no success claim, refetch and selection retention (worktree-reclaim.test.tsx). Not
+    exercised: the command over real Tauri IPC (no AppHandle in a unit test), whether a multi-second removal of a
+    worktree holding node_modules really leaves the window responsive, and how the dialog reads in a WKWebView,
+    which has no WebDriver. The subprocess-ceiling timeout path is not driven end to end: proc.rs offers no seam
+    for a shorter ceiling, so it is covered only through the shared Err branch.
+  risk_if_wrong: "Moderate for the live half (a removal that blocks the window); low for the look. The data guards are tested: eligibility is re-derived per row and the dirty-tree refusal is untouched."
+  automatable: "PARTLY. A harness run against a scratch FLYWHEEL_APP_DATA_DIR can seed worktrees, call worktree_reclaim and assert the outcomes and that fleet_list stays answerable meanwhile; the look cannot."
