@@ -164,6 +164,13 @@ export interface PermissionRequestCardProps {
    * placeholder (E3 `empty`). */
   requests: PendingPermissionRequest[];
   onAnswer: (requestId: string, decision: PermissionDecision) => Promise<void>;
+  /** Whether this card instance may own `a`/`d`/Shift+A. Omitted, the card keeps its original rule:
+   * the first request of the array it received is the keyboard owner. Passed `false`, NO row in this
+   * instance listens. Every row of every instance registers its own window-level listener with no
+   * deduplication (`useRegionBindings`), so a surface mounting one card per blocked agent (the fleet's
+   * blocked queue) must pass `true` to exactly one of them — otherwise one `a` press answers every
+   * agent across every project, destructive requests included. */
+  keyboardEnabled?: boolean;
 }
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
@@ -243,17 +250,20 @@ function PermissionRequestRow({
   // visually occupies differs (03-UI-SPEC.md Keyboard Map Additions). `Shift+A` is inert on this
   // variant per that same section ("has no effect... since it renders no allow-always action to
   // trigger") — gated here, in this row's own handler, not by touching the shared binding table.
-  useRegionBindings("permission-card", "permission-card", {
-    "answer-permission-allow": () => {
-      if (keyboardEnabled) void answer("allow");
-    },
-    "answer-permission-deny": () => {
-      if (keyboardEnabled) void answer("deny");
-    },
-    "answer-permission-allow-always": () => {
-      if (keyboardEnabled && !isDestructive) void answer("allow_always");
-    },
-  });
+  useRegionBindings(
+    "permission-card",
+    "permission-card",
+    // A row that does not own the keyboard registers no handler at all, so a keypress finds nothing here.
+    keyboardEnabled
+      ? {
+          "answer-permission-allow": () => void answer("allow"),
+          "answer-permission-deny": () => void answer("deny"),
+          "answer-permission-allow-always": () => {
+            if (!isDestructive) void answer("allow_always");
+          },
+        }
+      : {},
+  );
 
   const payloadMaxHeight = variant === "compact" ? 160 : 240;
 
@@ -388,7 +398,12 @@ function PermissionRequestRow({
   );
 }
 
-export function PermissionRequestCard({ variant, requests, onAnswer }: PermissionRequestCardProps) {
+export function PermissionRequestCard({
+  variant,
+  requests,
+  onAnswer,
+  keyboardEnabled = true,
+}: PermissionRequestCardProps) {
   if (requests.length === 0) return null;
 
   return (
@@ -402,7 +417,7 @@ export function PermissionRequestCard({ variant, requests, onAnswer }: Permissio
           key={request.id}
           request={request}
           variant={variant}
-          keyboardEnabled={index === 0}
+          keyboardEnabled={keyboardEnabled && index === 0}
           onAnswer={onAnswer}
         />
       ))}
