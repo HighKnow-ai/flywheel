@@ -6,6 +6,7 @@
   "description": "The Node process that drives one Claude Code session per agent run (AGNT-01, AGNT-02) — a thin process driver with no decision authority of its own, supervised by the Rust core over stdio.",
   "scripts": {
     "build": "tsc",
+    "build:dist": "tsc && node scripts/stage-runtime.mjs",
     "test": "npm run build && FLYWHEEL_RUNTIME_DIR=\"${FLYWHEEL_RUNTIME_DIR:-$(mktemp -d)}\" FLYWHEEL_HEARTBEAT_STALE_MS=\"${FLYWHEEL_HEARTBEAT_STALE_MS:-120000}\" node --test test/*.test.mjs"
   },
   "devDependencies": {
