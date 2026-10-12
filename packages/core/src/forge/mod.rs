@@ -175,8 +175,9 @@ pub fn forge_and_repo_path(
 }
 
 /// The board-only half of [`forge_and_repo_path`]: the stored override (`None` when
-/// `projects.forge` is NULL and detection is still owed) and the repo path. Spawns nothing.
-fn stored_forge_and_repo_path(
+/// `projects.forge` is NULL and detection is still owed) and the repo path. Spawns nothing. A caller
+/// holding the database lock uses this and runs [`detect_forge_from_origin`] itself after release.
+pub fn stored_forge_and_repo_path(
     conn: &Connection,
     project_id: &str,
 ) -> anyhow::Result<(Option<Forge>, PathBuf)> {

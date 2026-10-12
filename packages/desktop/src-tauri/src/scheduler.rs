@@ -48,7 +48,9 @@ use crate::state::AppState;
 /// guarantees the network phase runs with no lock held.
 struct ForgePollTarget {
     task_id: String,
-    forge: Forge,
+    /// The project's stored forge override, or `None` when detection from the origin remote is
+    /// still owed. Detection spawns `git`, so it runs in [`poll_forge_targets`], lock-free.
+    forge: Option<Forge>,
     repo_path: std::path::PathBuf,
     branch: String,
     /// The task's status as of this read (quick task 261005-mn5) — carried through
@@ -332,11 +334,12 @@ fn run_fetch_tick(app: &AppHandle) {
 
 /// Phase one of the forge tick: every tracked worktree's forge poll target, read under the lock.
 /// Resolves each distinct `project_id` exactly once through
-/// [`flywheel_core::forge::forge_and_repo_path`], memoised in a local map — several worktrees in
+/// [`flywheel_core::forge::stored_forge_and_repo_path`] (a board-only read that spawns nothing),
+/// memoised in a local map — several worktrees in
 /// the same project cost one resolution, not one per worktree. A worktree whose project fails to
 /// resolve is logged and omitted from the returned list; the remaining worktrees are unaffected.
 fn forge_tick_targets(conn: &rusqlite::Connection) -> Vec<ForgePollTarget> {
-    forge_tick_targets_with(conn, flywheel_core::forge::forge_and_repo_path)
+    forge_tick_targets_with(conn, flywheel_core::forge::stored_forge_and_repo_path)
 }
 
 /// [`forge_tick_targets`] with the per-project resolver passed in, so a test can count attempts
@@ -344,12 +347,11 @@ fn forge_tick_targets(conn: &rusqlite::Connection) -> Vec<ForgePollTarget> {
 /// failure is logged on its first attempt only: a project whose resolution fails costs one attempt
 /// and one log line per tick, not one per tracked worktree (phase 10 plan 10-02).
 ///
-/// ponytail: a first-time resolution can still spawn `git remote get-url origin` while the caller
-/// holds the database lock. Memoising bounds that to one spawn per project per tick; moving the
-/// spawn out from under the lock is the larger change this does not make.
+/// Nothing here spawns a process: a project with no stored forge override carries `None` and
+/// [`poll_forge_targets`] runs `git remote get-url origin` after the lock is released (WR-01).
 fn forge_tick_targets_with<R>(conn: &rusqlite::Connection, mut resolve: R) -> Vec<ForgePollTarget>
 where
-    R: FnMut(&rusqlite::Connection, &str) -> anyhow::Result<(Forge, std::path::PathBuf)>,
+    R: FnMut(&rusqlite::Connection, &str) -> anyhow::Result<(Option<Forge>, std::path::PathBuf)>,
 {
     let worktrees: Vec<TrackedWorktree> = match tracked_worktrees(conn, false) {
         Ok(rows) => rows,
@@ -360,7 +362,7 @@ where
     };
 
     // `None` records a failed resolution so later worktrees of the same project skip silently.
-    let mut resolved: HashMap<String, Option<(Forge, std::path::PathBuf)>> = HashMap::new();
+    let mut resolved: HashMap<String, Option<(Option<Forge>, std::path::PathBuf)>> = HashMap::new();
     let mut targets = Vec::with_capacity(worktrees.len());
     for worktree in worktrees {
         let resolution = if let Some(cached) = resolved.get(&worktree.project_id) {
@@ -417,11 +419,20 @@ where
 /// the fix: this function runs with no lock held at all, so a hung `gh`/`glab` can never block any
 /// other command. A read that errors is logged and skipped, never applied — an unreachable forge
 /// must never be mistaken for a closed request.
+///
+/// A target with no stored forge override is detected here, from its origin remote, memoised per
+/// repo path so a project costs one `git` spawn per tick however many worktrees it has.
 fn poll_forge_targets(targets: &[ForgePollTarget]) -> Vec<ForgePollResult> {
     let mut results = Vec::with_capacity(targets.len());
+    let mut detected: HashMap<std::path::PathBuf, Forge> = HashMap::new();
     for target in targets {
+        let forge = target.forge.unwrap_or_else(|| {
+            *detected
+                .entry(target.repo_path.clone())
+                .or_insert_with(|| flywheel_core::forge::detect_forge_from_origin(&target.repo_path))
+        });
         let observed = match flywheel_core::forge::request_for_branch_at(
-            target.forge,
+            forge,
             &target.repo_path,
             &target.branch,
         ) {
@@ -834,6 +845,19 @@ mod forge_tick_tests {
 
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].status_at_poll, "in_review");
+    }
+
+    #[test]
+    fn an_unset_forge_override_leaves_detection_for_after_the_lock_is_released() {
+        let (conn, _task_id, _human_actor_id, _system_actor_id) = seeded_tick_fixture();
+        conn.execute("UPDATE projects SET forge = NULL", []).expect("clear the forge override");
+
+        // /tmp/... is not a repository: had the read tried to detect, it would have spawned git
+        // (and fallen back to Local). `None` is the proof it deferred.
+        let targets = forge_tick_targets(&conn);
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].forge, None, "detection is owed to the lock-free poll phase");
     }
 
     #[test]
