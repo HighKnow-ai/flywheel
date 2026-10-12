@@ -336,6 +336,21 @@ fn run_fetch_tick(app: &AppHandle) {
 /// the same project cost one resolution, not one per worktree. A worktree whose project fails to
 /// resolve is logged and omitted from the returned list; the remaining worktrees are unaffected.
 fn forge_tick_targets(conn: &rusqlite::Connection) -> Vec<ForgePollTarget> {
+    forge_tick_targets_with(conn, flywheel_core::forge::forge_and_repo_path)
+}
+
+/// [`forge_tick_targets`] with the per-project resolver passed in, so a test can count attempts
+/// instead of spawning `git`. Both outcomes of a resolution are memoised for the tick, and a
+/// failure is logged on its first attempt only: a project whose resolution fails costs one attempt
+/// and one log line per tick, not one per tracked worktree (phase 10 plan 10-02).
+///
+/// ponytail: a first-time resolution can still spawn `git remote get-url origin` while the caller
+/// holds the database lock. Memoising bounds that to one spawn per project per tick; moving the
+/// spawn out from under the lock is the larger change this does not make.
+fn forge_tick_targets_with<R>(conn: &rusqlite::Connection, mut resolve: R) -> Vec<ForgePollTarget>
+where
+    R: FnMut(&rusqlite::Connection, &str) -> anyhow::Result<(Forge, std::path::PathBuf)>,
+{
     let worktrees: Vec<TrackedWorktree> = match tracked_worktrees(conn, false) {
         Ok(rows) => rows,
         Err(err) => {
@@ -344,26 +359,26 @@ fn forge_tick_targets(conn: &rusqlite::Connection) -> Vec<ForgePollTarget> {
         }
     };
 
-    let mut resolved: HashMap<String, (Forge, std::path::PathBuf)> = HashMap::new();
+    // `None` records a failed resolution so later worktrees of the same project skip silently.
+    let mut resolved: HashMap<String, Option<(Forge, std::path::PathBuf)>> = HashMap::new();
     let mut targets = Vec::with_capacity(worktrees.len());
     for worktree in worktrees {
         let resolution = if let Some(cached) = resolved.get(&worktree.project_id) {
-            Some(cached.clone())
+            cached.clone()
         } else {
-            match flywheel_core::forge::forge_and_repo_path(conn, &worktree.project_id) {
-                Ok(pair) => {
-                    resolved.insert(worktree.project_id.clone(), pair.clone());
-                    Some(pair)
-                }
+            let outcome = match resolve(conn, &worktree.project_id) {
+                Ok(pair) => Some(pair),
                 Err(err) => {
                     eprintln!(
                         "git-truth forge tick: failed to resolve forge for project {} (task {}): \
-                         {err:#}, skipping this worktree",
+                         {err:#}, skipping this project's worktrees for this tick",
                         worktree.project_id, worktree.task_id
                     );
                     None
                 }
-            }
+            };
+            resolved.insert(worktree.project_id.clone(), outcome.clone());
+            outcome
         };
         if let Some((forge, repo_path)) = resolution {
             // Quick task 261005-mn5: read the task's status now, while still under the lock —
@@ -819,6 +834,49 @@ mod forge_tick_tests {
 
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].status_at_poll, "in_review");
+    }
+
+    #[test]
+    fn a_failing_forge_resolution_is_attempted_once_per_tick_not_once_per_worktree() {
+        let (mut conn, _task_id, human_actor_id, _system_actor_id) = seeded_tick_fixture();
+        let project_id: String = conn
+            .query_row("SELECT id FROM projects LIMIT 1", [], |row| row.get(0))
+            .expect("project id read should succeed");
+        // Two more tracked worktrees in the same project: three in all.
+        for n in 0..2 {
+            let task = flywheel_core::domain::task::create_task(
+                &mut conn,
+                &project_id,
+                &human_actor_id,
+                &format!("Extra task {n}"),
+                None,
+            )
+            .expect("create_task should succeed");
+            conn.execute(
+                "INSERT INTO worktrees (
+                    id, task_id, project_id, path, branch, base_branch, status, created_by, created_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, 'main', 'active', ?6, '2026-01-01T00:00:00.000Z')",
+                rusqlite::params![
+                    flywheel_core::ids::new_id(),
+                    task.id,
+                    project_id,
+                    format!("/tmp/does-not-need-to-exist-{n}"),
+                    format!("flywheel/extra-{n}"),
+                    human_actor_id
+                ],
+            )
+            .expect("failed to insert extra worktree row");
+        }
+        assert_eq!(tracked_worktrees(&conn, false).expect("read").len(), 3);
+
+        let mut attempts = 0;
+        let targets = forge_tick_targets_with(&conn, |_conn, _project| {
+            attempts += 1;
+            Err(anyhow::anyhow!("the repository path is gone"))
+        });
+
+        assert_eq!(attempts, 1, "one failing project costs one resolution attempt per tick");
+        assert!(targets.is_empty(), "no worktree of an unresolvable project becomes a target");
     }
 
     #[test]
