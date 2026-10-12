@@ -18,10 +18,14 @@ import type { Project } from "../../board/useBoardQuery";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 
 const invokeCommandMock = vi.fn();
+const fleetBlockedQueueMock = vi.fn(() => Promise.resolve<unknown[]>([]));
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+  fleetBlockedQueue: () => fleetBlockedQueueMock(),
+  boardRecoverySummary: (projectId: string) => invokeCommandMock("board_recovery_summary", { projectId }),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
 }));
@@ -46,6 +50,8 @@ function renderWithClient(node: React.ReactElement) {
 beforeEach(() => {
   resetUiState();
   invokeCommandMock.mockReset();
+  fleetBlockedQueueMock.mockReset();
+  fleetBlockedQueueMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -103,6 +109,64 @@ describe("ProjectRail's Fleet entry point (Phase 10, D-163)", () => {
     expect(row.tagName).toBe("BUTTON");
     expect(useUiStore.getState().fleetSurface).toBeNull();
     fireEvent.click(row);
+    expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
+  });
+});
+
+describe("ProjectRail's review queue entry points (Phase 10 plan 10-05, FLEET-02)", () => {
+  it("renders the Blocked row as a button that opens the blocked queue", () => {
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    const group = screen.getByRole("group", { name: "Review queue" });
+    const row = within(group).getByRole("button", { name: "Open blocked queue" });
+    expect(row.tagName).toBe("BUTTON");
+    fireEvent.click(row);
+    expect(useUiStore.getState().fleetSurface).toEqual({ view: "queue" });
+  });
+
+  it("counts blocked agents fleet-wide, not just the current project's share", async () => {
+    // Two blocked agents in project A, one in project B; the current project is A.
+    fleetBlockedQueueMock.mockResolvedValue([
+      { requestId: "r1", projectId: "proj-1" },
+      { requestId: "r2", projectId: "proj-1" },
+      { requestId: "r3", projectId: "proj-2" },
+    ]);
+    renderWithClient(
+      <ProjectRail
+        projects={[project({}), project({ id: "proj-2", name: "Other", keyPrefix: "OTH" })]}
+        currentProjectId="proj-1"
+        onSelect={() => {}}
+      />,
+    );
+    const row = await screen.findByRole("button", { name: "Open blocked queue, 3 waiting" });
+    expect(row.querySelector('[data-count="blocked"]')).toHaveTextContent("3");
+  });
+
+  it("shows no figure at all at zero blocked agents", async () => {
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    await waitFor(() => expect(fleetBlockedQueueMock).toHaveBeenCalled());
+    expect(document.querySelector('[data-count="blocked"]')).toBeNull();
+  });
+
+  it("keeps the blocked count and the needs-decision count as separate figures, and Needs decision opens the fleet list", async () => {
+    invokeCommandMock.mockImplementation((command: string) =>
+      command === "board_recovery_summary"
+        ? Promise.resolve({ recoveryTaskIds: [], recoveryCount: 4 })
+        : Promise.resolve(undefined),
+    );
+    fleetBlockedQueueMock.mockResolvedValue([{ requestId: "r1" }, { requestId: "r2" }]);
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    const blocked = await screen.findByRole("button", { name: /Open blocked queue/ });
+    const decision = await screen.findByRole("button", { name: "Open decisions" });
+    expect(blocked.querySelector('[data-count="blocked"]')).toHaveTextContent("2");
+    expect(decision.querySelector('[data-count="needs-decision"]')).toHaveTextContent("4");
+    expect(screen.queryByText("6")).not.toBeInTheDocument();
+    fireEvent.click(decision);
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
   });
 });

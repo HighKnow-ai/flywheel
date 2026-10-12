@@ -11,7 +11,7 @@
  *   BELOW the session branch.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
 import { MARKS_BY_ID } from "../../legend/marks";
@@ -28,6 +28,7 @@ vi.mock("../../adapters/tauri", async () => {
   return {
     ...actual,
     fleetList: () => fleetListMock(),
+    fleetBlockedQueue: () => Promise.resolve([]),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
     // The session surface's own reads, for the shared-vocabulary test below: an empty feed.
@@ -301,5 +302,20 @@ describe("one vocabulary across the fleet and the session surface", () => {
     );
     expect(await screen.findByText("Failed")).toBeInTheDocument();
     expect(screen.queryByText("Running")).not.toBeInTheDocument();
+  });
+});
+
+describe("the fleet surface's two views (plan 10-05)", () => {
+  it("shows the queue for the queue view, and moves to the fleet list from inside the surface", async () => {
+    fleetListMock.mockResolvedValue({ rows: [], totalRows: 0, visibleCostUsd: null });
+    useUiStore.getState().setFleetSurface({ view: "queue" });
+    const { findByText, getByRole, findByRole } = renderFleet();
+    expect(await findByText("No agent is blocked")).toBeTruthy();
+    expect(getByRole("button", { name: "Blocked 0" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(getByRole("button", { name: "All agents" }));
+    expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
+    expect(await findByText("No agents running")).toBeTruthy();
+    expect(await findByRole("button", { name: "Blocked 0" })).toHaveAttribute("aria-pressed", "false");
   });
 });

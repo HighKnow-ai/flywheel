@@ -24,6 +24,7 @@ vi.mock("../../adapters/tauri", async () => {
   return {
     ...actual,
     fleetList: () => fleetListMock(),
+    fleetBlockedQueue: () => Promise.resolve([]),
     acknowledgeAgentRun: (id: string) => acknowledgeMock(id),
     agentRunAcknowledgeMany: (ids: string[]) => acknowledgeManyMock(ids),
     subscribeBoardChanged: () => Promise.resolve(() => {}),

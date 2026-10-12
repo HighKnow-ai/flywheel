@@ -17,7 +17,7 @@ import type { FleetActivityDto, FleetListDto, FleetRowDto } from "../../adapters
 import { buildFeedRows } from "../../session/SessionSurface";
 import { feedRowText, toolCallLabel } from "../../session/FeedRow";
 import { FleetSurface, ACTIVITY_MAX_CHARS, activityLine } from "../FleetSurface";
-import { FLEET_ACTIVITY_THROTTLE_MS, fleetQueryKey } from "../useFleet";
+import { FLEET_ACTIVITY_THROTTLE_MS, blockedQueueQueryKey, fleetQueryKey } from "../useFleet";
 
 const fleetListMock = vi.fn<() => Promise<FleetListDto>>();
 const subscribeAgentEventMock = vi.fn();
@@ -28,6 +28,7 @@ vi.mock("../../adapters/tauri", async () => {
   return {
     ...actual,
     fleetList: () => fleetListMock(),
+    fleetBlockedQueue: () => Promise.resolve([]),
     subscribeBoardChanged: (handler: () => void) => subscribeBoardChangedMock(handler),
     subscribeAgentEvent: (handler: (event: Record<string, unknown>) => void) => subscribeAgentEventMock(handler),
   };
@@ -242,7 +243,7 @@ describe("the agent:event listener", () => {
     });
   });
 
-  it("invalidates the fleet key once for ten events inside one throttle window", async () => {
+  it("invalidates the fleet key and the blocked-queue key once each for ten events inside one throttle window", async () => {
     expect(FLEET_ACTIVITY_THROTTLE_MS).toBe(1000);
     let onAgentEvent: (event: Record<string, unknown>) => void = () => {};
     subscribeAgentEventMock.mockImplementation((handler: (event: Record<string, unknown>) => void) => {
@@ -262,13 +263,15 @@ describe("the agent:event listener", () => {
     vi.advanceTimersByTime(FLEET_ACTIVITY_THROTTLE_MS - 1);
     expect(invalidate).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
-    expect(invalidate).toHaveBeenCalledTimes(1);
+    // One window, one invalidation per key (plan 10-05 added the queue key to the same listener).
+    expect(invalidate).toHaveBeenCalledTimes(2);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: fleetQueryKey() });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: blockedQueueQueryKey() });
 
-    // A later window gets its own single invalidation.
+    // A later window gets its own single invalidation of each.
     onAgentEvent({ type: "tool_call", seq: 11 });
     vi.advanceTimersByTime(FLEET_ACTIVITY_THROTTLE_MS);
-    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledTimes(4);
   });
 
   it("does not invalidate after unmount", async () => {

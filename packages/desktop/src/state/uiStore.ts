@@ -91,10 +91,10 @@ export interface PendingDone {
   anchorRect?: { top: number; left: number; bottom: number };
 }
 
-/** What the fleet surface (Phase 10, D-163) is showing. A single discriminant so a later plan can
- * widen it (the blocked queue) without changing the field's shape; `null` means the fleet is closed. */
+/** What the fleet surface (Phase 10, D-163) is showing: the banded fleet list, or (plan 10-05) the
+ * blocked queue. One field, one surface, two views; `null` means the fleet is closed. */
 export interface FleetSurfaceTarget {
-  view: "fleet";
+  view: "fleet" | "queue";
 }
 
 /** What the review surface is open for: a task or an epic, plus its key and title for the header. */

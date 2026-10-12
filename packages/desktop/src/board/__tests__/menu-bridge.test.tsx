@@ -39,6 +39,8 @@ let capturedMenuActionHandler: ((actionId: string) => void) | null = null;
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+  fleetBlockedQueue: () => Promise.resolve([]),
   subscribeMenuAction: (handler: (actionId: string) => void) => {
     capturedMenuActionHandler = handler;
     return Promise.resolve(() => {

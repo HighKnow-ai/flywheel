@@ -16,6 +16,8 @@ const openFolderMock = vi.fn(() => Promise.resolve<string | null>(null));
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: () => Promise.resolve(undefined),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+  fleetBlockedQueue: () => Promise.resolve([]),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => openFolderMock(),
 }));

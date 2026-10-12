@@ -40,7 +40,9 @@ import {
 } from "../legend/runStatus";
 import { feedRowText } from "../session/FeedRow";
 import { buildFeedRows } from "../session/SessionSurface";
-import { useFleet } from "./useFleet";
+import { useUiStore } from "../state/uiStore";
+import { BlockedQueue } from "./BlockedQueue";
+import { useBlockedQueue, useFleet } from "./useFleet";
 import "../styles/admin-surfaces.css";
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
@@ -343,9 +345,15 @@ export interface FleetSurfaceProps {
 
 export function FleetSurface({ onClose }: FleetSurfaceProps) {
   const fleet = useFleet();
+  const blocked = useBlockedQueue();
+  // One surface, two views (plan 10-05): the banded list, or the queue of live blocks. A closed or
+  // unset target reads as the fleet list.
+  const view = useUiStore((state) => state.fleetSurface?.view ?? "fleet");
+  const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const rows = fleet.data?.rows ?? [];
   const total = fleet.data?.totalRows ?? 0;
-  const now = useNowTick(rows.length > 0);
+  const queue = blocked.data ?? [];
+  const now = useNowTick(rows.length > 0 || queue.length > 0);
 
   // The core orders rows by band, so grouping is a single pass over consecutive rows.
   const byBand = new Map<FleetBandId, FleetRowDto[]>();
@@ -366,17 +374,43 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
         <button type="button" onClick={onClose} className="type-label admin-back">
           ← Board
         </button>
-        <span className="type-heading">Fleet</span>
+        <span className="type-heading">{view === "queue" ? "Blocked queue" : "Fleet"}</span>
+        <div role="group" aria-label="Fleet views" style={{ display: "flex", gap: "var(--space-xs)" }}>
+          <button
+            type="button"
+            className="type-label"
+            aria-pressed={view === "fleet"}
+            onClick={() => setFleetSurface({ view: "fleet" })}
+          >
+            All agents
+          </button>
+          <button
+            type="button"
+            className="type-label tabular-nums"
+            aria-pressed={view === "queue"}
+            onClick={() => setFleetSurface({ view: "queue" })}
+          >
+            {`Blocked ${queue.length}`}
+          </button>
+        </div>
         <span
           className="type-label tabular-nums"
           aria-live="polite"
           style={{ marginLeft: "auto", color: "var(--text-muted-rack)" }}
         >
-          {countText}
+          {view === "queue" ? `${queue.length} blocked` : countText}
         </span>
       </header>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-        {fleet.isError ? (
+        {view === "queue" ? (
+          blocked.isError ? (
+            <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text-rack)" }}>
+              Could not load the blocked queue. It will retry on the next change.
+            </p>
+          ) : (
+            blocked.isSuccess && <BlockedQueue entries={queue} now={now} />
+          )
+        ) : fleet.isError ? (
           <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text-rack)" }}>
             Could not load the fleet. It will retry on the next change.
           </p>
@@ -393,7 +427,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
           ))
         )}
       </div>
-      <FleetFooter visibleCostUsd={fleet.data?.visibleCostUsd ?? null} />
+      {view === "fleet" && <FleetFooter visibleCostUsd={fleet.data?.visibleCostUsd ?? null} />}
     </div>
   );
 }

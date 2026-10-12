@@ -11,9 +11,12 @@
  * The FLEET section's "All agents" row is an ENTRY POINT (Phase 10, D-163): it opens the fleet
  * surface, the one view of every agent across every project. 08.1 held every row in this rail back as
  * a read-only fact because "a row that looks like a button and does nothing is worse than a plain
- * number" — the fleet surface now exists, so that one row is a real button. The Worktrees, Blocked and
- * Needs decision rows stay READ-ONLY FACTS, not links: their destinations (the worktree inventory and
- * the blocked queue) are later plans in this phase, and the review-queue row is not wired here.
+ * number" — the fleet surface now exists, so that row is a real button. The Worktrees row stays a
+ * READ-ONLY FACT: its destination (the worktree inventory) is a later plan in this phase.
+ * REVIEW QUEUE holds the two rows that wait on the owner, and both are entry points (plan 10-05):
+ * "Blocked" opens the blocked queue, and "Needs decision" opens the fleet list, where the NEEDS YOU
+ * band is its first section.
+ *
  * "Challenges" is also deliberately absent: pending items of that kind never surface in this rail
  * (D-46/D-82, pinned by `project-rail.test.tsx`'s source scan), so that comp row is not built.
  *
@@ -25,23 +28,22 @@
  * The `+` affordance at the rail's foot opens the SAME registration flow ⌘⇧O and the native File
  * menu use (`RegisterProjectFlow.tsx`) — never a second, rail-local copy of that sequence.
  *
- * Plan 02-06 Task 3 adds the current project's blocked-count badge (D-37, AGNT-06) — the
- * per-project half of the mechanism FLEET-02 generalises across projects in Phase 10, built as the
- * real mechanism rather than a placeholder. Renders a numeral, never a raw dot, and renders
- * nothing at all at zero (never a visible "0") — only the CURRENT project's entry carries it, per
- * this plan's own scope (a rail-wide per-project count is FLEET-02's job).
+ * Plan 02-06 Task 3 added a blocked-count badge (D-37, AGNT-06); plan 10-05 (FLEET-02) makes it
+ * FLEET-WIDE: it is the length of the blocked queue's own read, across every registered project, not the
+ * current project's share. Renders a numeral, never a raw dot, and renders no figure at all at zero
+ * (never a visible "0").
  *
- * Plan 03-11 Task 3 adds a SECOND, visually distinct badge for D-46's "recovery needed" count —
- * never summed with the blocked-count badge above, since the two carry different urgency (Blocked:
- * a live agent is waiting on the user right now; Needs Decision: a past session left something to
- * decide, with no live spend attached). Same zero-renders-nothing rule, same current-project-only
- * scope, opposite corner so the two badges never visually collide.
+ * Plan 03-11 Task 3 added a SECOND, visually distinct figure for D-46's "recovery needed" count —
+ * never summed with the blocked count, since the two carry different urgency (Blocked: a live agent is
+ * waiting on the user right now; Needs Decision: a past session left something to decide, with no live
+ * spend attached). That one remains the CURRENT project's count.
  */
 import { useState, type CSSProperties } from "react";
 import { Plus, TriangleAlert } from "lucide-react";
 import glyphUrl from "../assets/logo-glyph.svg";
 import type { Project } from "../board/useBoardQuery";
-import { useBlockedSummary, useChangeFlags, useRecoverySummary } from "../board/useBoardQuery";
+import { useChangeFlags, useRecoverySummary } from "../board/useBoardQuery";
+import { useBlockedQueue } from "../fleet/useFleet";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 import { useUiStore } from "../state/uiStore";
 
@@ -144,13 +146,12 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   // `isError`/`error` entirely (CR-02) — reuses the same transient-notice slot below rather than
   // a second one, and `FirstRun.tsx`'s own error copy/styling rather than a third idiom.
   const registrationErrorNotice = useRegistrationErrorNotice(registerIsError, registerError);
-  // The current project's blocked count (D-37) — called unconditionally, above the early return
-  // below, so this hook's call order never changes between renders (Rules of Hooks). Disabled
-  // entirely (no read at all) when no project is current.
-  const blockedSummaryQuery = useBlockedSummary(currentProjectId);
-  const blockedCount = blockedSummaryQuery.data?.blockedCount ?? 0;
+  // The fleet-wide blocked count (FLEET-02): the queue's own read, so the figure and the list cannot
+  // disagree. Called unconditionally, above the early return below, so this hook's call order never
+  // changes between renders (Rules of Hooks).
+  const blockedCount = useBlockedQueue().data?.length ?? 0;
   // D-46's board-visible "recovery needed" count (plan 03-11 Task 3) — called unconditionally,
-  // immediately after the blocked-summary call above, for the same reason. A SEPARATE badge from
+  // immediately after the blocked-count call above, for the same reason. A SEPARATE figure from
   // blockedCount, never summed into it: Blocked means a live agent is waiting on the user right
   // now; Needs Decision means a past session left something to decide with no live spend
   // attached — different urgencies, so a single number would flatten the one distinction the rail
@@ -256,31 +257,45 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
             </span>
           </div>
         )}
-        {blockedCount > 0 && (
-          // A numeral, never a raw dot (D-37) — absent entirely at zero, never a visible "0". The
-          // blocked role is a data channel (D-11), so the figure takes the colour, not a fill.
-          <div className="type-body" style={rowStyle}>
-            <span>Blocked</span>
+      </Section>
+
+      <Section id="rail-review-queue" label="Review queue">
+        <button
+          type="button"
+          className="type-body"
+          aria-label={blockedCount > 0 ? `Open blocked queue, ${blockedCount} waiting` : "Open blocked queue"}
+          title="Open the blocked queue"
+          onClick={() => setFleetSurface({ view: "queue" })}
+          style={{ ...entryStyle, color: blockedCount > 0 ? "var(--text-primary-rack)" : "var(--text-muted-rack)" }}
+        >
+          <span>Blocked</span>
+          {blockedCount > 0 && (
+            // A numeral, never a raw dot (D-37) — absent entirely at zero, never a visible "0". The
+            // blocked role is a data channel (D-11), so the figure takes the colour, not a fill.
             <span
-              aria-hidden="true"
-              title={blockedCount === 1 ? "1 task waiting on you" : `${blockedCount} tasks waiting on you`}
+              data-count="blocked"
+              title={blockedCount === 1 ? "1 agent waiting on you" : `${blockedCount} agents waiting on you`}
               className="type-label tabular-nums"
               style={{ color: "var(--blocked-text-rack)", fontWeight: 600 }}
             >
               {blockedCount}
             </span>
-          </div>
-        )}
-      </Section>
-
-      <Section id="rail-review-queue" label="Review queue">
-        {recoveryCount > 0 ? (
+          )}
+        </button>
+        {recoveryCount > 0 && (
           // Never merged with the blocked count (D-46): different urgency, so a different row and a
-          // different data-channel role.
-          <div className="type-body" style={rowStyle}>
+          // different data-channel role. It opens the fleet list, not the queue: the queue holds live
+          // blocks only.
+          <button
+            type="button"
+            className="type-body"
+            aria-label="Open decisions"
+            onClick={() => setFleetSurface({ view: "fleet" })}
+            style={entryStyle}
+          >
             <span>Needs decision</span>
             <span
-              aria-hidden="true"
+              data-count="needs-decision"
               title={
                 recoveryCount === 1 ? "1 task needs a decision." : `${recoveryCount} tasks need a decision.`
               }
@@ -289,11 +304,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
             >
               {recoveryCount}
             </span>
-          </div>
-        ) : (
-          <div className="type-body" style={{ ...rowStyle, color: "var(--text-muted-rack)" }}>
-            Nothing waiting
-          </div>
+          </button>
         )}
       </Section>
 

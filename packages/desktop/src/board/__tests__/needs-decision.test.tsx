@@ -18,6 +18,8 @@ const invokeCommandMock = vi.fn();
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+  fleetBlockedQueue: () => invokeCommandMock("fleet_blocked_queue", undefined),
   openFolderDialog: () => Promise.resolve(null),
   blockedSummary: (projectId: string) => invokeCommandMock("board_blocked_summary", { projectId }),
   boardRecoverySummary: (projectId: string) => invokeCommandMock("board_recovery_summary", { projectId }),
@@ -130,8 +132,10 @@ describe("ProjectRail second count badge (D-46)", () => {
   function renderRail(blockedCount: number, recoveryCount: number) {
     invokeCommandMock.mockReset();
     invokeCommandMock.mockImplementation((command: string) => {
-      if (command === "board_blocked_summary") {
-        return Promise.resolve({ blockedTaskIds: [], blockedCount });
+      if (command === "fleet_blocked_queue") {
+        // Plan 10-05: the rail's count is the fleet-wide queue's length (FLEET-02), no longer the
+        // current project's `board_blocked_summary`.
+        return Promise.resolve(Array.from({ length: blockedCount }, (_, i) => ({ requestId: `req-${i}` })));
       }
       if (command === "board_recovery_summary") {
         return Promise.resolve({ recoveryTaskIds: [], recoveryCount });
@@ -155,13 +159,13 @@ describe("ProjectRail second count badge (D-46)", () => {
 
   it("renders exactly one badge (the Blocked one) when the recovery count is zero but the blocked count is not", async () => {
     renderRail(2, 0);
-    expect(await screen.findByTitle("2 tasks waiting on you")).toBeInTheDocument();
+    expect(await screen.findByTitle("2 agents waiting on you")).toBeInTheDocument();
     expect(screen.queryByTitle(/need.*a decision/)).not.toBeInTheDocument();
   });
 
   it("renders two figures in different data-channel colours when both counts are non-zero", async () => {
     renderRail(2, 3);
-    const blockedBadge = await screen.findByTitle("2 tasks waiting on you");
+    const blockedBadge = await screen.findByTitle("2 agents waiting on you");
     const recoveryBadge = await screen.findByTitle("3 tasks need a decision.");
     expect(blockedBadge).toBeInTheDocument();
     expect(recoveryBadge).toBeInTheDocument();

@@ -15,6 +15,8 @@ const invokeCommandMock = vi.fn();
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+  fleetBlockedQueue: () => Promise.resolve([]),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
   gitFacts: () => Promise.resolve(null),
