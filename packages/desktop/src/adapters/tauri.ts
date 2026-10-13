@@ -1389,6 +1389,51 @@ export async function fleetList(): Promise<FleetListDto> {
 }
 
 /**
+ * What `update_check` found (plan 11-06, DIST-02) — mirrors `commands/update.rs`'s `UpdateCheckDto`
+ * field-for-field. `version` and `notes` are `null` when nothing newer exists; `notes` is the release
+ * body, which is untrusted text and must only ever be rendered as text.
+ */
+export interface UpdateCheckDto {
+  available: boolean;
+  version: string | null;
+  notes: string | null;
+  currentVersion: string;
+}
+
+/**
+ * What `update_install` did — mirrors `commands/update.rs`'s `UpdateInstallDto`. `staged` means a
+ * relaunch applies the new version; `refused` means an agent run is live and nothing was installed,
+ * with `liveRuns` the count Rust saw. `message` is ready to show.
+ */
+export interface UpdateInstallDto {
+  staged: boolean;
+  refused: boolean;
+  liveRuns: number;
+  version: string | null;
+  message: string;
+}
+
+/** Ask the release feed whether a newer version exists. Takes no argument: the update source is
+ * compiled into the application, so the renderer cannot name one (T-11-14). Rejects when the feed
+ * cannot be reached or its manifest fails signature verification; that is never "no update". */
+export async function updateCheck(): Promise<UpdateCheckDto> {
+  return invokeCommand<UpdateCheckDto>("update_check");
+}
+
+/**
+ * Download, verify and install the newer version for the next relaunch. Rust is the enforcement point
+ * for the live-run refusal (D-188): it counts runs itself, before the fetch and again before the
+ * install, and returns `refused: true` with the count. The renderer's own check is display only and
+ * must not be treated as the guard; do not move the guard here.
+ *
+ * The updater plugin is driven from Rust, so no `@tauri-apps/plugin-updater` import exists or is
+ * needed. If a later feature needs the plugin's JS API, it is added in this module and only here.
+ */
+export async function updateInstall(): Promise<UpdateInstallDto> {
+  return invokeCommand<UpdateInstallDto>("update_install");
+}
+
+/**
  * One agent blocked at a pending permission request (plan 10-05, FLEET-02) — mirrors
  * `commands/fleet.rs`'s `BlockedQueueEntryDto` field-for-field. One entry per blocked run: its
  * earliest-created pending request.
