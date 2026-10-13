@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-04-PLAN.md
-last_updated: "2026-10-13T04:54:03.092Z"
+stopped_at: Completed 11-10-PLAN.md
+last_updated: "2026-10-13T07:54:55.552Z"
 last_activity: 2026-10-13
 last_activity_desc: Phase 11 execution started
-state_head: f306e6e1ae7db81c0cff1cf0302e40d47162db0e
+state_head: baec4d687de367b83b5d3d70da377017f58b78eb
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 249
-  completed_plans: 237
+  completed_plans: 238
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 3 of 21
+Plan: 4 of 21
 Status: Ready to execute
 Last activity: 2026-10-13 — Phase 11 execution started
 
@@ -300,6 +300,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 11 P15 | 50 min | 3 tasks | 10 files |
 | Phase 11 P03 | 10 min | 3 tasks | 4 files |
 | Phase 11 P04 | 2h 45m (continuation) | 3 tasks | 7 files |
+| Phase 11 P10 | 190 min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -697,6 +698,8 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-15: two fleet/session defects held as it.fails, not fixed: Back loses the selected fleet row; a finished run with an empty log reads 'Starting session...'
 - [Phase 11]: 11-03: open-core grep gate runs after the Cargo.toml members sed (the members line is itself a reference); Cargo.lock not searched
 - [Phase 11]: 11-04: asset assertion is conditional on createUpdaterArtifacts; release notes capped at 200 commits; repo slug rename is a prerequisite for 11-05 and 11-08 — 11-01 left updater artifacts unset until the signing key exists (11-05); first throwaway body was 116,932 chars against a 125,000 limit
+- [Phase 11]: 11-10: a task the user ran by hand is adopted by decide (merged or recorded), not relaunched; adoption merges it unreviewed with the system actor, owner may veto — Leaving it startable double-runs the task; merely refusing strands the wave silently in planned.
+- [Phase 11]: 11-10: git config never runs under AppState.db; a command reads the repo path under a short lock, drops it, probes, re-locks, and calls the *_with twin — D-REV-39 WR-07; pinned by no_desktop_command_runs_the_case_probe_under_the_database_lock. Exception: project registration (D-REV-58).
 
 ### Pending Todos
 
@@ -730,6 +733,7 @@ Recent decisions affecting current work:
 - [Phase 03] scripts/uat/run-all.sh failed 4/6 scriptable items (UAT 3, 5, 6a, 6b) when run once as plan 03-34's own end-of-phase regression gate. This plan's diff (test-corpus + docs only) cannot plausibly cause a live-claude-session failure; judged pre-existing flakiness matching the phase's repeated 03-24/03-26/03-29/03-30/03-32 pattern, per 03-34-SUMMARY.md. Next phase verification should judge whether this needs a dedicated live-session investigation before AGNT-07 closes. See WINDOWS.md entry 11.
 - Live gate (uat-08-socratic-authoring.mjs) now PASSES: run 01M3QQQM4GAYB2Y9RQMJDRWAX0 exited 0 on 2026-09-30 — the first clean live pass the phase has produced. SHAPE-01 challenged=true noWorkPlanned=refused; SHAPE-02 board-counts delta=6 (before epics:0/tasks:0/criteria:0, after epics:1/tasks:1/criteria:4) via acceptPath=task-subtree; SHAPE-03/04 reject and amend each exercised individually; SHAPE-05 informational (needs a second session, proven structurally by authoring_acceptance.rs::criterion_4_*). The answer-bank fallback ratio was 0/9 — nine real developer answers, zero generic fallbacks, against 6/6 generic the run before. Enabled by three instrument closures (260929-lq1 stale-snapshot decision targets; 260929-nxq the question extractor and withheld-consent classifier plus SHAPE-02's board-row delta; 260929-p61 the developer-answer handoff that made the answer bank unreachable from the live arm). The 2026-09-29 backend_refusal/invalid_request death at the distillation turn did NOT recur and is judged transient. REMAINING: the SHAPE-01 challenge-quality and SHAPE-03 draft-usefulness verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md are still UNJUDGED — a human read of the conversation, which no script can certify.
 - 08-08: epic scope has no roll-up of its tasks (D-132); needs a core query and command, logged in WINDOWS.md as an unmet truth
+- Do not SIGTERM packages/core/tests/credentials.rs: it hangs on the real macOS Keychain and a kill leaves its fixture key in com.highknow.flywheel/anthropic-api-key (11-10 removed one; owner should confirm no real key was lost).
 
 ### Quick Tasks Completed
 
@@ -758,6 +762,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T04:54:02.891Z
-Stopped at: Completed 11-04-PLAN.md
+Last session: 2026-10-13T07:54:55.340Z
+Stopped at: Completed 11-10-PLAN.md
 Resume file: None

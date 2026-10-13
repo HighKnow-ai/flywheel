@@ -1203,7 +1203,7 @@ notification click-to-jump is deferred to a board issue and is in no requirement
   3. A developer clones the repository and builds a working desktop application by following the documented steps.
   4. The installed open-source application is fully functional standalone — no account, no network service, and no feature gated behind either.
 
-**Plans**: 9/21 plans executed
+**Plans**: 10/21 plans executed
 
 Plans:
 **Wave 1**
@@ -1220,7 +1220,7 @@ Plans:
 
 - [x] 11-03-PLAN.md — Clean-clone CI workflow and the open-core proof job (relay-client deleted)
 - [x] 11-04-PLAN.md — Tag-driven release: version from the tag, dmg + tarball + sig + latest.json, unsigned-first
-- [ ] 11-10-PLAN.md — Register drain: the seven Phase 09 findings and the case-fold divergence (D-REV-39, 44)
+- [x] 11-10-PLAN.md — Register drain: the seven Phase 09 findings and the case-fold divergence (D-REV-39, 44)
 - [ ] 11-16-PLAN.md — Register drain: a whole fan-out with only the model faked (D-REV-34, 35)
 - [ ] 11-17-PLAN.md — Register drain: eight finish-reviewer runs over regenerated captures (D-REV-11, 12, 14…19, 26)
 - [ ] 11-18-PLAN.md — Register drain: the locked doc amendments D-197, D-198, D-199 (D-REV-01, 13, 28, 30)
@@ -1319,7 +1319,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
 | 9. Planned Fan-Out That Does Not Collide | 13/13 | Complete    | 2026-10-10 |
 | 10. Fleet Supervision Across Every Project | 9/9 | Complete    | 2026-10-12 |
-| 11. Ship It | 9/21 | In Progress|  |
+| 11. Ship It | 10/21 | In Progress|  |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
 
 ### Phase 12: Destructive-gate trust boundary redesign
