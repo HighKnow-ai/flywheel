@@ -1059,3 +1059,17 @@ At Phase 11, with an installed, usable build:
   risk_if_wrong: "Moderate for the live half (a removal that blocks the window); low for the look. The data guards are tested: eligibility is re-derived per row and the dirty-tree refusal is untouched."
   automatable: "PARTLY. A harness run against a scratch FLYWHEEL_APP_DATA_DIR can seed worktrees, call worktree_reclaim and assert the outcomes and that fleet_list stays answerable meanwhile; the look cannot."
   update_11-15: "Removal half CLOSED: uat-12 section D-REV-55 builds a repository of 6000 committed files, four reclaimable worktrees and one live-run worktree, reclaims three by id: those three directories are gone from disk, the fourth reclaimable one and the live run's are untouched and the live row is still on the fleet. During the 2.2 s reclaim the harness issued fleet_list back to back: 321 calls completed inside it, slowest 11 ms, bound 2000 ms, all returned the live row. The harness refuses to pass if no read fit inside the reclaim (INSTRUMENT message; UAT12_BULK_FILES=0 trips it). CAVEAT on the responsiveness claim: each fleet_list is its own process with its own connection, so this proves a reader is not blocked by the reclaim's connection under WAL and busy_timeout; it does NOT prove the desktop command keeps the AppState mutex released across the git calls. That is a property of commands/fleet.rs and is only reachable through a Rust test in the desktop crate (tauri's test mock_app; needs the tauri `test` feature). automatable: YES for that, but a cold desktop test build is ~13 minutes, over the executor watchdog, so it was not attempted: route to a plan that can run it detached. STILL OPEN: (1) a worktree holding node_modules (a multi-second removal) through the installed app (physical reason: no WebDriver for WKWebView); (2) how the confirmation and result list read at row density (aesthetic judgement)."
+
+- id: D-REV-56
+  phase: "11 — Ship It (plan 11-03)"
+  truth: "On GitHub's macos-14 runner, a push runs ci.yml green end to end (sidecar staging, cargo build and test, vitest, tauri build, dmg upload), and open-core.yml goes green with packages/relay-client deleted."
+  status: open
+  why_deferred: |
+    Asserted locally: both files parse as YAML; the staging step precedes the first cargo step; no continue-on-error;
+    the open-core sed plus cargo metadata pair exits 0 against a tree with the crate moved away, the non-comment
+    grep gate finds zero references (and its comment filter was driven with a sample hit), and Cargo.toml was
+    restored byte-identical; README commands are line-for-line the ci.yml run strings. Not exercised: neither
+    workflow has run on a GitHub runner, so nothing observed that a clean macos-14 image, with only the README
+    prerequisites, completes the sequence (Rust 1.96+ on stable, npm cache keys, the Node download, tauri build time).
+  risk_if_wrong: "Moderate. The first push may fail on a runner-only difference; the fix is a workflow edit, nothing shipped depends on it yet."
+  automatable: "NO locally (needs a GitHub runner), but it is redeemed for free by the first push of this branch: read the two run results."
