@@ -146,6 +146,27 @@ describe("WorktreeInventory", () => {
     await waitFor(() => expect(measureMock).toHaveBeenCalledTimes(1));
   });
 
+  // D-REV-54 (plan 11-15): a worktree nobody has measured yet shows nothing in its size cell, and the
+  // figure appears, with its age, only once Re-measure has run and the list has been read again.
+  it("shows a never-measured size as blank until Re-measure, then a figure with its age", async () => {
+    const fresh = row({ sizeBytes: null, sizeMeasuredAt: null });
+    const measured = row({ sizeBytes: 2.5 * 1024 ** 3, sizeMeasuredAt: new Date().toISOString() });
+    inventoryMock.mockResolvedValueOnce([fresh]).mockResolvedValue([measured]);
+    measureMock.mockResolvedValue([{ taskId: "task-1", sizeBytes: measured.sizeBytes, bounded: false, error: null }]);
+    const { container } = renderInventory();
+    await screen.findByText("ALP-1");
+    const sizeCell = () => container.querySelector("[data-field='size']") as HTMLElement;
+    expect(sizeCell().textContent).toBe("");
+    expect(container.querySelector("[data-field='measured']")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Re-measure sizes" }));
+
+    await waitFor(() => expect(sizeCell().textContent).toContain("2.5 GiB"));
+    expect(sizeCell().textContent).toContain("measured 0s ago");
+    expect(measureMock).toHaveBeenCalledTimes(1);
+    expect(inventoryMock, "the list was read again, not edited locally").toHaveBeenCalledTimes(2);
+  });
+
   it("says when a walk could not finish instead of showing a size", async () => {
     inventoryMock.mockResolvedValue([row({ sizeBytes: null, sizeMeasuredAt: null })]);
     measureMock.mockResolvedValue([{ taskId: "task-1", sizeBytes: null, bounded: true, error: null }]);
