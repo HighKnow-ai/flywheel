@@ -8,6 +8,11 @@
  *   Pitfall 7).
  * - The fleet surface never clears itself before opening a session, so the session's own back action
  *   lands on the fleet (RESEARCH Pattern 4).
+ *
+ * Plan 11-15 (D-REV-51) adds the last describe block below: the same jumps, but mounted through the REAL
+ * AppShell (rendered by `<App />`, its only export) over a stubbed adapter, so the assertion is about where
+ * you LAND, which is `App.tsx`'s surface switch, not about what the row called. A component test of the
+ * origin proves nothing about the destination (the D-REV-43 lesson).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -15,6 +20,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import appSource from "../../App.tsx?raw";
+import App from "../../App";
+import { queryClient as appQueryClient } from "../../adapters/queryClient";
 import { FleetSurface } from "../FleetSurface";
 import { BoardView } from "../../board/BoardView";
 import { showStatusBands } from "../../board/__tests__/lens";
@@ -22,6 +29,7 @@ import type { BoardItem } from "../../board/useBoardQuery";
 
 const fleetListMock = vi.fn<() => Promise<FleetListDto>>();
 const invokeCommandMock = vi.fn();
+const logWindowMock = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -36,6 +44,13 @@ vi.mock("../../adapters/tauri", async () => {
     subscribeAgentEvent: () => Promise.resolve(() => {}),
     acknowledgeAgentRun: () => Promise.resolve(),
     agentRunAcknowledgeMany: () => Promise.resolve(),
+    // The rest of what the real shell and a mounted session reach for (plan 11-15).
+    fleetWatchRun: () => Promise.resolve(),
+    subscribeMenuAction: () => Promise.resolve(() => {}),
+    openFolderDialog: () => Promise.resolve(null),
+    agentRunLogWindow: (id: string, offset: number, limit: number) => logWindowMock(id, offset, limit),
+    agentRunRawWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ entries: [], offset, limit, total: 0 }),
+    pendingPermissionRequests: () => Promise.resolve([]),
   };
 });
 
@@ -353,5 +368,193 @@ describe("the secondary target: the subject key reaches its board item", () => {
       fireEvent.click(within(rowFor(container, id)).getByRole("button", { name: /Open ALP-1 on the board/ }));
       expect(useUiStore.getState().pendingFocusItemId).toBe("task-1");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// D-REV-51 (plan 11-15): where a fleet row takes you, asserted at the AppShell.
+//
+// `<App />` renders AppShell with the real project rail, the real board for the current project, the real
+// item detail panel and the real session surface. Only the adapter is stubbed: `invokeCommand` answers the
+// project and board reads, `fleetList` serves the rows, and the session's log window serves the run's feed.
+// What this does NOT cover: the Tauri IPC behind those reads, a project whose epic roster loads slowly, and
+// how the key-as-button reads at row density in a WKWebView (no WebDriver) - those stay in the register.
+// ---------------------------------------------------------------------------------------------
+
+const PROJECT_A = { id: "proj-A", keyPrefix: "ALP", name: "Alpha", repoPath: "/repo/alpha", defaultBranch: "main", status: "active" };
+const PROJECT_B = { id: "proj-B", keyPrefix: "BET", name: "Beta", repoPath: "/repo/beta", defaultBranch: "main", status: "active" };
+const BOARDS: Record<string, BoardItem[]> = {
+  "proj-A": [{ id: "task-a1", key: "ALP-1", title: "Alpha one", status: "backlog", rank: "10", priority: 0, epicId: null }],
+  "proj-B": [{ id: "task-b7", key: "BET-7", title: "Beta seven", status: "backlog", rank: "10", priority: 0, epicId: null }],
+};
+const unhandled = new Set<string>();
+
+function stubShellReads() {
+  invokeCommandMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+    if (command === "actor_list") return Promise.resolve([]);
+    if (command === "project_list") return Promise.resolve([PROJECT_A, PROJECT_B]);
+    if (command === "board_list" || command === "board_search") {
+      const items = BOARDS[(args?.projectId as string) ?? ""] ?? [];
+      return Promise.resolve({ items, issues: [], counts: { backlog: items.length, todo: 0, inProgress: 0, inReview: 0, done: 0 } });
+    }
+    // Fire-and-forget: the native menu's enabled-state sync (`state/menuSync.ts`). Nothing reads its answer.
+    if (command === "menu_set_action_enabled") return Promise.resolve(undefined);
+    unhandled.add(command);
+    return Promise.resolve(undefined);
+  });
+}
+
+const FEED_LINE = { type: "assistant_text", seq: 0, at: new Date().toISOString(), raw: "{}", text: "Reading the reconciliation module." };
+
+/** The run in project B that every shell test starts from: live, with output on disk. */
+const RUN_B = row({ agentRunId: "run-b", projectId: "proj-B", projectName: "Beta", taskId: "task-b7", taskKey: "BET-7", taskTitle: "Beta seven" });
+
+async function mountShellOnFleet(rows: FleetRowDto[], currentProjectId = "proj-A") {
+  useUiStore.setState({ currentProjectId, fleetSurface: { view: "fleet" } });
+  fleetListMock.mockResolvedValue(list(rows));
+  const view = render(<App />);
+  await waitFor(() => expect(view.container.querySelector("[data-run-id]")).not.toBeNull());
+  return view;
+}
+
+const sessionBack = () => document.querySelector<HTMLElement>(".session-back");
+const fleetRows = () => document.querySelectorAll("[data-run-id]");
+
+describe("AppShell: where a fleet row takes you", () => {
+  beforeEach(() => {
+    appQueryClient.clear();
+    unhandled.clear();
+    logWindowMock.mockReset();
+    logWindowMock.mockImplementation((_id: string, offset: number, limit: number) =>
+      Promise.resolve({ entries: [FEED_LINE], offset, limit, total: 1 }),
+    );
+    stubShellReads();
+  });
+
+  it("Enter on a selected row replaces the fleet with that run's session, reading that run's log", async () => {
+    await mountShellOnFleet([RUN_B]);
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() => expect(sessionBack()).not.toBeNull());
+    expect(fleetRows().length, "the fleet gave way to the session").toBe(0);
+    expect(useUiStore.getState().activeAgentRunId).toBe("run-b");
+    await waitFor(() => expect(logWindowMock).toHaveBeenCalled());
+    expect(logWindowMock.mock.calls.every((call) => call[0] === "run-b"), "every log read names the row's own run").toBe(true);
+    expect(await screen.findByText("Reading the reconciliation module.")).toBeInTheDocument();
+  });
+
+  it("a click on the row lands in the same place", async () => {
+    const { container } = await mountShellOnFleet([RUN_B]);
+    fireEvent.click(rowFor(container, "run-b"));
+    await waitFor(() => expect(sessionBack()).not.toBeNull());
+    expect(fleetRows().length).toBe(0);
+    expect(useUiStore.getState().activeAgentRunId).toBe("run-b");
+    expect(await screen.findByText("Reading the reconciliation module.")).toBeInTheDocument();
+  });
+
+  it("Back from the session returns to the fleet", async () => {
+    const { container } = await mountShellOnFleet([RUN_B]);
+    fireEvent.click(rowFor(container, "run-b"));
+    await waitFor(() => expect(sessionBack()).not.toBeNull());
+
+    fireEvent.click(sessionBack() as HTMLElement);
+
+    await waitFor(() => expect(fleetRows().length).toBe(1));
+    expect(sessionBack(), "the session is gone").toBeNull();
+    expect(useUiStore.getState().activeAgentRunId).toBeNull();
+    expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
+  });
+
+  // FINDING (plan 11-15, D-REV-51): the plan expects Back to land with "the same row focused". It does
+  // not: the selection is local state in FleetSurface (`selectedRunId`), and the shell unmounts the whole
+  // surface while the session is showing, so the row is unselected when the fleet returns. Held green as
+  // an expected failure rather than asserted as correct; when the selection survives the round trip this
+  // turns red, which is the cue to make it a plain `it`. Logged in deferred-items.md.
+  it.fails("Back from the session returns to the fleet with the same row selected", async () => {
+    const { container } = await mountShellOnFleet([RUN_B, row({ agentRunId: "run-other", taskId: "task-o", taskKey: "ALP-2" })]);
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() => expect(sessionBack()).not.toBeNull());
+    fireEvent.click(sessionBack() as HTMLElement);
+    await waitFor(() => expect(fleetRows().length).toBe(2));
+    const selected = container.querySelector("[data-selected='true']") as HTMLElement | null;
+    expect(selected?.dataset.runId).toBe(useUiStore.getState().activeAgentRunId ?? "run-other");
+  });
+
+  it("the subject key on a row in another project lands on that item's detail panel, in that project", async () => {
+    await mountShellOnFleet([RUN_B], "proj-A");
+    expect(useUiStore.getState().currentProjectId).toBe("proj-A");
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open BET-7 on the board/ }));
+
+    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-b7"));
+    expect(fleetRows().length, "the fleet gave way to the board").toBe(0);
+    expect(useUiStore.getState().currentProjectId, "the project switched, not only the surface").toBe("proj-B");
+    expect(useUiStore.getState().pendingFocusItemId, "the one-shot request was consumed").toBeNull();
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent, "the panel is about BET-7, not a stale item from project A").toContain("BET-7");
+    expect(screen.getByText("Beta", { selector: ".board-header" }), "the board on screen is B's").toBeInTheDocument();
+    expect(document.querySelector("[data-run-id]")).toBeNull();
+    // The panel's own secondary reads (criterion_list, epic_list_all, events_activity_trail,
+    // review_criteria_state) get `undefined` from this stub and are not asserted here: this test is about
+    // WHICH item and WHICH project the jump lands on, not about what the panel goes on to show.
+  });
+
+  it("the key `b` does the same from the keyboard, and never opens the session", async () => {
+    await mountShellOnFleet([RUN_B], "proj-A");
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(window, { key: "b" });
+    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-b7"));
+    expect(useUiStore.getState().currentProjectId).toBe("proj-B");
+    expect(useUiStore.getState().activeAgentRunId).toBeNull();
+    expect(sessionBack()).toBeNull();
+  });
+
+  it("a subject in the project already showing lands on its detail without switching project", async () => {
+    await mountShellOnFleet([row({ agentRunId: "run-a", projectId: "proj-A", projectName: "Alpha", taskId: "task-a1", taskKey: "ALP-1" })], "proj-A");
+    fireEvent.click(await screen.findByRole("button", { name: /Open ALP-1 on the board/ }));
+    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-a1"));
+    expect(useUiStore.getState().currentProjectId).toBe("proj-A");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("opening a session from the fleet reaches for no command the stub does not know about", async () => {
+    // A stubbed command answering `undefined` could hide a real read the shell makes; list them so a
+    // new one is a conscious addition to the stub, not a silent hole.
+    const { container } = await mountShellOnFleet([RUN_B]);
+    fireEvent.click(rowFor(container, "run-b"));
+    await waitFor(() => expect(sessionBack()).not.toBeNull());
+    expect([...unhandled].sort()).toEqual([]);
+  });
+
+  const noLog = () =>
+    logWindowMock.mockImplementation((_id: string, offset: number, limit: number) =>
+      Promise.resolve({ entries: [], offset, limit, total: 0 }),
+    );
+
+  it("a live run with nothing on disk yet opens a session that says it is starting", async () => {
+    noLog();
+    const { container } = await mountShellOnFleet([RUN_B]);
+    fireEvent.click(rowFor(container, "run-b"));
+    await waitFor(() => expect(sessionBack()).not.toBeNull());
+    expect(await screen.findByText("Starting session\u2026")).toBeInTheDocument();
+  });
+
+  // FINDING (plan 11-15, D-REV-51): a FINISHED run whose log is empty (a run that failed before writing
+  // a line, or whose log was removed) opens a session that reads "Starting session..." above "This run
+  // has ended. Nothing more will be added to this transcript." The fleet row is a plain jump with no
+  // output check, and the session's empty-feed row does not look at the run's status. Pre-existing and in
+  // SessionSurface, which this plan does not edit; held as an expected failure, not asserted as correct,
+  // and logged in deferred-items.md. When it is fixed this turns red: make it a plain `it`.
+  it.fails("a finished run with no output opens a session that does not claim to be starting", async () => {
+    noLog();
+    const { container } = await mountShellOnFleet([
+      row({ agentRunId: "run-f", projectId: "proj-B", runStatus: "failed", fleetState: "failed", endedAt: new Date().toISOString() }),
+    ]);
+    fireEvent.click(rowFor(container, "run-f"));
+    await waitFor(() => expect(sessionBack()).not.toBeNull());
+    expect(await screen.findByText(/This run has ended/)).toBeInTheDocument();
+    expect(screen.queryByText("Starting session\u2026")).toBeNull();
   });
 });
