@@ -32,6 +32,10 @@ name = "uat_fleet_ops"
 path = "tests/bin/uat_fleet_ops.rs"
 
 [[bin]]
+name = "uat_fanout_ops"
+path = "tests/bin/uat_fanout_ops.rs"
+
+[[bin]]
 name = "forge_probe"
 path = "tests/bin/forge_probe.rs"
 

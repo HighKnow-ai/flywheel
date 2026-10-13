@@ -52,6 +52,15 @@
  * `isError` and the answer's text. The call is HELD by the server until the Rust core answers, so a
  * session whose `submit_plan` callback is not wired never prints that line.
  *
+ * **Commit mode** (`FLYWHEEL_FAKE_COMMIT_FILE=<repo-relative path>`, plan 11-16, D-REV-34): plays an
+ * agent that does the work and commits it, but ONLY when its briefing tells it to. It reads its own
+ * `-p <prompt>` argv and commits just when the prompt carries the dispatcher's commit instruction
+ * (`DISPATCHED_COMMIT_INSTRUCTION`, "Commit your work on this branch ..."); it writes the file in
+ * its own working directory (the run's worktree), `git add`s and `git commit`s it, and prints a
+ * `fake_commit` line with the new HEAD (or a `fake_commit_skipped` line when the briefing did not
+ * say to). Run through the session's `PATH`, so the commit passes the real PATH shim. This is
+ * wiring, not obedience: a real model's compliance with the instruction is not what it shows.
+ *
  * **Usage block** (G-02-4, plan 02-18): both of this script's `result` lines carry a `usage`
  * object in the real CLI's own field shape (`input_tokens`, `cache_creation_input_tokens`,
  * `cache_read_input_tokens`, `output_tokens`) — the same shape measured live against claude
@@ -59,7 +68,9 @@
  * so that their sum equals no single one of them, on purpose: a test asserting the summed total
  * cannot pass by accident against any one field alone.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { createInterface } from "node:readline";
 
 const SESSION_ID = "fake-session-0001";
@@ -183,6 +194,29 @@ if (process.env.FLYWHEEL_FAKE_SUBMIT_PLAN) {
   printLine({ type: "allowed_tools", tools: allowedToolsFromArgv() });
   const result = await callMcpToolOnce("submit_plan", JSON.parse(process.env.FLYWHEEL_FAKE_SUBMIT_PLAN));
   printLine({ type: "submit_plan_result", isError: result.isError === true, text: result.content?.[0]?.text ?? "" });
+}
+
+const COMMIT_FILE = process.env.FLYWHEEL_FAKE_COMMIT_FILE;
+if (COMMIT_FILE) {
+  // Matches the first words of `DISPATCHED_COMMIT_INSTRUCTION` in packages/core/src/context_packet.rs.
+  if (!(readFlag("-p") ?? "").includes("Commit your work on this branch")) {
+    printLine({ type: "fake_commit_skipped", reason: "the briefing did not tell the agent to commit" });
+  } else {
+    fs.mkdirSync(path.dirname(path.resolve(COMMIT_FILE)), { recursive: true });
+    fs.writeFileSync(COMMIT_FILE, `written by the fake agent in ${path.basename(process.cwd())}\n`);
+    // Identity through the environment, not `git -c ...`: the PATH shim classifies a git command line
+    // that opens with global options as uncategorised and raises a permission request for it, so the
+    // plain `git add` / `git commit` below is also what a real agent's briefing leads to.
+    const identity = { GIT_AUTHOR_NAME: "Fake Agent", GIT_AUTHOR_EMAIL: "fake@flywheel.test", GIT_COMMITTER_NAME: "Fake Agent", GIT_COMMITTER_EMAIL: "fake@flywheel.test" };
+    const git = (...args) => spawnSync("git", args, { encoding: "utf8", env: { ...process.env, ...identity } });
+    const steps = [git("add", "--", COMMIT_FILE), git("commit", "-m", `agent work: ${COMMIT_FILE}`)];
+    const failed = steps.find((r) => r.status !== 0);
+    if (failed) {
+      printLine({ type: "fake_commit_failed", stderr: failed.stderr.trim() });
+    } else {
+      printLine({ type: "fake_commit", head: git("log", "-1", "--format=%H").stdout.trim() });
+    }
+  }
 }
 
 const CHECK_ENV_VAR = process.env.FLYWHEEL_FAKE_CHECK_ENV_VAR;
