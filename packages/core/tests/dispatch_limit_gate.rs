@@ -11,12 +11,10 @@
 mod common;
 
 use core::limit_gate::{
-    clear_expired_warning, hold_for_limit, may_advance, may_merge, may_spawn, resume_if_due, resume_now,
+    clear_expired_warning, may_advance, may_spawn, resume_if_due, resume_now,
     apply_rate_limit_signal, apply_rate_limit_signal_for_run, normalise_resets_at, read_gate, GateReason,
     GateState, LimitSignal, LimitTier, DISPATCH_REJECT_FLOOR_SECS, SETTING_DISPATCH_GATE,
 };
-use core::domain::dispatch_plan::{create_draft_plan_in_tx, read_plan, replace_plan_tasks_in_tx, set_task_dispatch_state, PlanTaskInput};
-use core::domain::epic::create_epic;
 use core::domain::task::create_task;
 use core::ids::new_id;
 use rusqlite::{params, Connection};
@@ -280,14 +278,13 @@ fn a_warning_does_not_soften_a_pause() {
 // --- the paused state and its two exits ------------------------------------------------------
 
 #[test]
-fn a_paused_gate_permits_a_merge_and_refuses_a_spawn_and_an_advance() {
+fn a_paused_gate_refuses_a_spawn_and_an_advance() {
     let (mut conn, _a, _p) = common::seeded_project();
     let paused = apply_rate_limit_signal(&mut conn, &rejected(Some(RESET)), NOW).unwrap().after;
-    assert!(may_merge(&paused));
     assert!(!may_spawn(&paused));
     assert!(!may_advance(&paused));
     let open = GateState::Open { resumed_at: None };
-    assert!(may_spawn(&open) && may_advance(&open) && may_merge(&open));
+    assert!(may_spawn(&open) && may_advance(&open));
 }
 
 #[test]
@@ -377,26 +374,6 @@ fn a_malformed_stored_gate_reads_open_and_never_errors() {
         .unwrap();
         assert!(read_gate(&conn, NOW).unwrap().is_open(), "{junk:?}");
     }
-}
-
-#[test]
-fn a_task_held_by_the_limit_reads_held_not_failed_and_no_run_is_touched() {
-    let (mut conn, actor, project) = common::seeded_project();
-    let epic = create_epic(&mut conn, &project.id, &actor, "Epic", None).unwrap();
-    let task = create_task(&mut conn, &project.id, &actor, "T", Some(&epic.id)).unwrap();
-    let run_id = insert_running_run(&mut conn, &actor, &project.id);
-    let tx = conn.transaction().unwrap();
-    let plan_id = create_draft_plan_in_tx(&tx, &epic.id, None, &actor, "2026-10-09T00:00:00Z").unwrap();
-    replace_plan_tasks_in_tx(&tx, &plan_id, &[PlanTaskInput { task_id: task.id.clone(), wave: 1, rationale: None }]).unwrap();
-    tx.commit().unwrap();
-    set_task_dispatch_state(&conn, &plan_id, &task.id, "running").unwrap();
-
-    hold_for_limit(&conn, &plan_id, &task.id).unwrap();
-
-    let state = read_plan(&conn, &plan_id).unwrap().unwrap().tasks[0].state.clone();
-    assert_eq!(state, "held_by_limit");
-    let status: String = conn.query_row("SELECT status FROM agent_runs WHERE id = ?1", params![run_id], |r| r.get(0)).unwrap();
-    assert_eq!(status, "running");
 }
 
 /// Write a gate state straight into the settings row, as a prior session would have left it.

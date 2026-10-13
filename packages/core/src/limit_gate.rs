@@ -360,11 +360,6 @@ pub fn may_advance(gate: &GateState) -> bool {
     gate.is_open()
 }
 
-/// May a merge run now? Always: a merge is local git and touches no backend.
-pub fn may_merge(_gate: &GateState) -> bool {
-    true
-}
-
 fn write_transition(
     conn: &mut Connection,
     before: GateState,
@@ -414,11 +409,4 @@ pub fn resume_now(conn: &mut Connection, actor_id: &str) -> anyhow::Result<GateC
     let before = read_stored(conn)?;
     let after = if before.is_open() { before.clone() } else { GateState::Open { resumed_at: None } };
     write_transition(conn, before, after, Some(actor_id))
-}
-
-/// Mark a task whose run ended because of the limit as held by it, not failed, so a later resume can
-/// start a FRESH run on the same durable worktree. Changes the dispatcher's display state only; no
-/// agent run is touched.
-pub fn hold_for_limit(conn: &Connection, plan_id: &str, task_id: &str) -> anyhow::Result<()> {
-    crate::domain::dispatch_plan::set_task_dispatch_state(conn, plan_id, task_id, "held_by_limit")
 }
