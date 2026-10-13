@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
 // The spec the allowlist mirrors, read as bytes. The test fails in both directions: code that spends the
 // brand where the spec is silent, and a use the allowlist names that the spec no longer does. Vite's `?raw`
 // refuses a path outside the package root, so the spec (a planning file) is read with node:fs instead.
-const specSource = readFileSync(
-  resolve(__dirname, "../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/08.1-UI-SPEC.md"),
-  "utf8",
+const HERE = decodeURIComponent(import.meta.url.replace(/^file:\/\//, ""));
+const specSource = new TextDecoder().decode(
+  readFileSync(
+    HERE.slice(0, HERE.indexOf("/packages/desktop/")) +
+      "/.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/08.1-UI-SPEC.md",
+  ),
 );
 
 /**
@@ -67,9 +69,19 @@ function code(path: string, text: string): string {
   return path.endsWith(".css") ? noBlock : noBlock.replace(/(^|[^:\w"'`])\/\/.*$/gm, "$1");
 }
 
+/** A glob key is relative to this file (src/theme/__tests__); return the path under src/. */
+function fromSrc(key: string): string {
+  const parts = ["theme", "__tests__"];
+  for (const seg of key.split("/")) {
+    if (seg === "..") parts.pop();
+    else if (seg !== ".") parts.push(seg);
+  }
+  return parts.join("/");
+}
+
 const files = Object.entries(sources)
   // Vite shortens a key to the nearest relative form (`../tokens.ts`), so resolve it back to a path under src/.
-  .map(([path, text]) => [relative(resolve(__dirname, "../.."), resolve(__dirname, path)), text] as const)
+  .map(([path, text]) => [fromSrc(path), text] as const)
   .filter(([path]) => !DEFINITIONS.has(path))
   .map(([path, text]) => [path, code(path, text)] as const);
 
