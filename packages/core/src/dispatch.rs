@@ -531,6 +531,11 @@ pub fn attention_for(
     )))
 }
 
+/// RED stub.
+pub fn stuck_cause(_conn: &Connection, _plan_id: &str, _task_id: &str, _state: &str) -> anyhow::Result<Option<String>> {
+    Ok(None)
+}
+
 /// Is every task in `wave` merged or skipped? Merged, NOT finished: worktrees are cut lazily at
 /// spawn from the epic integration tip, so a wave that advanced on "finished" would branch the next
 /// wave from a base without the last wave's work. A wave with no tasks is drained.

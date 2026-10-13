@@ -13,15 +13,16 @@ use std::process::Command;
 use std::sync::Mutex;
 
 use core::dispatch::{
-    attention_for, decide, launch_conflict, observation_targets, ready_tasks, wave_is_drained, Action,
+    attention_for, decide, launch_conflict, observation_targets, ready_tasks, stuck_cause, wave_is_drained, Action,
     AttentionCause, AttentionPhase, Observations, ReadinessRefusal,
 };
 use core::dispatch_exec::run_pass;
 use core::domain::actor::system_actor;
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
 use core::domain::dispatch_plan::{
-    advance_wave, approve_and_start, control_plan, create_plan_for_epic, edit_draft_plan, read_plan,
-    set_task_dispatch_state, AdvanceOutcome, DraftEdit, PlanControl,
+    advance_wave, approve_and_start, control_plan, create_plan_for_epic, edit_draft_plan, read_plan, retry_task,
+    set_task_dispatch_state, skip_task, AdvanceOutcome, DraftEdit, PlanControl, StuckRefusal, EVENT_TASK_RETRIED,
+    EVENT_TASK_SKIPPED,
 };
 use core::domain::epic::create_epic;
 use core::domain::file_set::{declare_file_set, widen_file_set};
@@ -884,6 +885,206 @@ fn a_failed_run_is_recorded_and_blocks_its_wave() {
     assert_eq!(fx.state(&plan, &a), "failed");
     assert!(!has_advance(&fx.actions()));
     assert!(spawns(&fx.actions()).is_empty(), "a failed task is the user's to retry or skip");
+}
+
+// ===== D-REV-41: a stuck task has a way out, and only a human can take it =======================
+
+fn events_of(fx: &Fx, task: &str, event_type: &str) -> i64 {
+    fx.conn()
+        .query_row("SELECT COUNT(*) FROM events WHERE task_id = ?1 AND event_type = ?2", params![task, event_type], |r| r.get(0))
+        .unwrap()
+}
+
+fn refusal(e: anyhow::Error) -> StuckRefusal {
+    e.downcast_ref::<StuckRefusal>().cloned().unwrap_or_else(|| panic!("not a named refusal: {e:#}"))
+}
+
+fn latest_run(fx: &Fx, task: &str) -> String {
+    fx.conn()
+        .query_row("SELECT id FROM agent_runs WHERE task_id = ?1 ORDER BY started_at DESC, id DESC LIMIT 1", [task], |r| r.get(0))
+        .unwrap()
+}
+
+/// One task whose held run ended `status`, taken through a pass so the dispatcher has recorded it.
+fn ended_badly(fx: &Fx, plan: &str, task: &str, status: AgentRunStatus) {
+    fx.hold.lock().unwrap().push(task.to_string());
+    fx.pass();
+    let run = latest_run(fx, task);
+    close_agent_run(&mut fx.conn(), &run, status, None, None, None).unwrap();
+    fx.pass();
+    fx.hold.lock().unwrap().retain(|t| t != task);
+    let _ = plan;
+}
+
+/// Two tasks that both write `shared.txt`; one merges, the other lands in `conflict`. Returns
+/// `(plan, loser)`.
+fn conflicted_pair(fx: &Fx) -> (String, String) {
+    let a = fx.task("A", &["a/"], Work { file: "shared.txt", content: "from a\n", commit: true });
+    let b = fx.task("B", &["b/"], Work { file: "shared.txt", content: "from b\n", commit: true });
+    let plan = fx.plan(&[(&a, 1), (&b, 1)]);
+    fx.drive(10, |f| f.state(&plan, &a) == "conflict" || f.state(&plan, &b) == "conflict");
+    let loser = if fx.state(&plan, &a) == "conflict" { a } else { b };
+    (plan, loser)
+}
+
+#[test]
+fn a_failed_task_is_retried_by_a_human_and_the_wave_then_drains() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let plan = fx.plan(&[(&a, 1)]);
+    ended_badly(&fx, &plan, &a, AgentRunStatus::Failed);
+    assert_eq!(fx.state(&plan, &a), "failed");
+    let cause = stuck_cause(&fx.conn(), &plan, &a, "failed").unwrap().expect("a failed task says why it is stuck");
+    assert!(cause.contains("failed"), "{cause}");
+    assert!(spawns(&fx.actions()).is_empty(), "a failed task is not restarted on its own");
+
+    let human = fx.human.clone();
+    assert_eq!(retry_task(&mut fx.conn(), &a, &human).unwrap(), plan);
+    assert_eq!(fx.state(&plan, &a), "planned");
+    assert_eq!(events_of(&fx, &a, EVENT_TASK_RETRIED), 1);
+    fx.drive(10, |f| f.plan_status(&plan) == "completed");
+    assert_eq!(fx.state(&plan, &a), "merged");
+}
+
+#[test]
+fn a_stopped_task_is_skipped_and_this_and_every_later_wave_advance() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let b = fx.task("B", &["b/"], w("b/2"));
+    let plan = fx.plan(&[(&a, 1), (&b, 2)]);
+    ended_badly(&fx, &plan, &a, AgentRunStatus::Interrupted);
+    assert_eq!(fx.state(&plan, &a), "stopped");
+    let cause = stuck_cause(&fx.conn(), &plan, &a, "stopped").unwrap().expect("a stopped task says why it is stuck");
+    assert!(cause.contains("stopped"), "{cause}");
+    assert!(!has_advance(&fx.actions()), "a stopped task holds its wave");
+
+    let human = fx.human.clone();
+    assert_eq!(skip_task(&mut fx.conn(), &a, &human).unwrap(), plan);
+    assert_eq!(fx.state(&plan, &a), "skipped");
+    assert_eq!(events_of(&fx, &a, EVENT_TASK_SKIPPED), 1);
+    fx.drive(20, |f| f.plan_status(&plan) == "completed");
+    assert_eq!(fx.state(&plan, &b), "merged", "wave two ran once wave one was drained by the skip");
+    assert_eq!(fx.state(&plan, &a), "skipped");
+}
+
+#[test]
+fn a_conflicted_task_is_retried_after_the_user_resolves_it_and_the_wave_drains() {
+    let fx = fx();
+    let (plan, loser) = conflicted_pair(&fx);
+    let cause = stuck_cause(&fx.conn(), &plan, &loser, "conflict").unwrap().expect("a conflict says why");
+    assert!(cause.contains("shared.txt") && cause.contains("conflict"), "{cause}");
+
+    // The user's resolution: bring the integration branch into the task branch, taking its side.
+    let wt = fx.worktree(&loser);
+    git(&wt, &["-c", "user.email=u@b.c", "-c", "user.name=User", "merge", "-X", "theirs", "--no-edit", &fx.integration_branch()]);
+
+    let human = fx.human.clone();
+    assert_eq!(retry_task(&mut fx.conn(), &loser, &human).unwrap(), plan);
+    assert_eq!(events_of(&fx, &loser, EVENT_TASK_RETRIED), 1);
+    fx.drive(10, |f| f.plan_status(&plan) == "completed");
+    assert_eq!(fx.state(&plan, &loser), "merged");
+}
+
+#[test]
+fn a_retried_conflict_that_still_stands_lands_back_in_conflict_with_a_fresh_record() {
+    let fx = fx();
+    let (plan, loser) = conflicted_pair(&fx);
+    let aborted = |fx: &Fx| events_of(fx, &loser, "task.merge_aborted");
+    assert_eq!(aborted(&fx), 1);
+
+    let human = fx.human.clone();
+    retry_task(&mut fx.conn(), &loser, &human).unwrap();
+    fx.pass();
+    fx.pass();
+    assert_eq!(fx.state(&plan, &loser), "conflict", "nothing was resolved, so it conflicts again");
+    assert_eq!(aborted(&fx), 2, "one new record for the one retry, not one per tick");
+    assert_eq!(fx.cursor(&plan), 1);
+}
+
+#[test]
+fn retry_and_skip_refuse_by_name_outside_the_three_states_and_write_nothing() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let loose = fx.task("Loose", &["l/"], w("l/1"));
+    let plan = fx.plan(&[(&a, 1)]);
+    let human = fx.human.clone();
+    let written = |fx: &Fx, t: &str| events_of(fx, t, EVENT_TASK_RETRIED) + events_of(fx, t, EVENT_TASK_SKIPPED);
+
+    // Not in any live plan.
+    assert_eq!(refusal(retry_task(&mut fx.conn(), &loose, &human).unwrap_err()), StuckRefusal::NotInLivePlan);
+    assert_eq!(refusal(skip_task(&mut fx.conn(), &loose, &human).unwrap_err()), StuckRefusal::NotInLivePlan);
+
+    // Running: held, not finished.
+    fx.hold.lock().unwrap().push(a.clone());
+    fx.pass();
+    assert_eq!(fx.state(&plan, &a), "running");
+    assert_eq!(refusal(retry_task(&mut fx.conn(), &a, &human).unwrap_err()), StuckRefusal::NotStuck { state: "running".into() });
+    assert_eq!(refusal(skip_task(&mut fx.conn(), &a, &human).unwrap_err()), StuckRefusal::NotStuck { state: "running".into() });
+    assert_eq!(fx.state(&plan, &a), "running");
+    assert_eq!(written(&fx, &a), 0);
+
+    // Failed, but the user has a run of their own going on it right now.
+    let run = latest_run(&fx, &a);
+    close_agent_run(&mut fx.conn(), &run, AgentRunStatus::Failed, None, None, None).unwrap();
+    fx.pass();
+    assert_eq!(fx.state(&plan, &a), "failed");
+    fx.launch(&a);
+    assert_eq!(refusal(retry_task(&mut fx.conn(), &a, &human).unwrap_err()), StuckRefusal::HasLiveRun);
+    assert_eq!(refusal(skip_task(&mut fx.conn(), &a, &human).unwrap_err()), StuckRefusal::HasLiveRun);
+    assert_eq!(fx.state(&plan, &a), "failed");
+    assert_eq!(written(&fx, &a), 0);
+
+    // The refusal sentences are composed here, never git or CLI text.
+    for r in [StuckRefusal::NotInLivePlan, StuckRefusal::NotStuck { state: "running".into() }, StuckRefusal::HasLiveRun] {
+        assert!(!r.to_string().is_empty());
+    }
+    assert!(StuckRefusal::NotStuck { state: "running".into() }.to_string().contains("running"));
+}
+
+#[test]
+fn a_task_the_user_ran_by_hand_that_failed_is_started_again_only_by_a_retry() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let plan = fx.plan(&[(&a, 1)]);
+    let run = fx.launch(&a); // the user's own run, not the dispatcher's
+    close_agent_run(&mut fx.conn(), &run, AgentRunStatus::Failed, None, None, None).unwrap();
+    fx.pass(); // adopted: its ending is recorded
+    assert_eq!(fx.state(&plan, &a), "failed");
+
+    let human = fx.human.clone();
+    retry_task(&mut fx.conn(), &a, &human).unwrap();
+    assert_eq!(spawns(&fx.actions()), vec![a.as_str()], "the retry must not be re-adopted as the hand-run it follows");
+    fx.drive(10, |f| f.plan_status(&plan) == "completed");
+}
+
+#[test]
+fn retry_and_skip_are_not_reachable_from_an_agent() {
+    fn walk(dir: &Path, hits: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, hits);
+            } else if let Ok(text) = std::fs::read_to_string(&path) {
+                if text.contains("retry_task") || text.contains("skip_task") {
+                    hits.push(path.display().to_string());
+                }
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../sidecar/src");
+    let mut hits = Vec::new();
+    walk(&root, &mut hits);
+    assert!(hits.is_empty(), "the sidecar names a human-only verb: {hits:?}");
+    let command_source = read("packages/desktop/src-tauri/src/commands/dispatch.rs");
+    let production = command_source.split("#[cfg(test)]").next().unwrap();
+    for name in ["pub fn retry_task", "pub fn skip_task"] {
+        let at = production.find(name).unwrap_or_else(|| panic!("{name} is missing from commands/dispatch.rs"));
+        let signature = &production[at..at + production[at..].find(") ->").unwrap()];
+        assert!(signature.contains("task_id: String"), "{name} takes a task id");
+        assert!(!signature.contains("plan_id"), "{name} takes a task id and nothing else: {signature}");
+        let body = &production[at..at + production[at..].find("#[tauri::command]").unwrap_or(production.len() - at)];
+        assert!(body.contains("local_human_actor_id"), "{name} resolves the actor server-side");
+    }
 }
 
 // ===== source gates ===========================================================================

@@ -565,6 +565,39 @@ pub fn advance_wave(conn: &mut Connection, plan_id: &str, actor_id: &str) -> any
     Ok(outcome)
 }
 
+/// Appended when a user retries a stuck task (D-REV-41).
+pub const EVENT_TASK_RETRIED: &str = "dispatch.task_retried";
+/// Appended when a user leaves a stuck task out of its plan (D-REV-41).
+pub const EVENT_TASK_SKIPPED: &str = "dispatch.task_skipped";
+
+/// Why [`retry_task`] or [`skip_task`] did nothing. The sentence is composed here, from names and
+/// states only, so a command can hand it to the renderer as it is (no git or CLI text reaches it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StuckRefusal {
+    NotInLivePlan,
+    NotStuck { state: String },
+    HasLiveRun,
+}
+
+impl std::fmt::Display for StuckRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let _ = f;
+        Err(std::fmt::Error) // RED stub
+    }
+}
+
+impl std::error::Error for StuckRefusal {}
+
+/// RED stub.
+pub fn retry_task(_conn: &mut Connection, _task_id: &str, _actor_id: &str) -> anyhow::Result<String> {
+    Err(StuckRefusal::NotInLivePlan.into())
+}
+
+/// RED stub.
+pub fn skip_task(_conn: &mut Connection, _task_id: &str, _actor_id: &str) -> anyhow::Result<String> {
+    Err(StuckRefusal::NotInLivePlan.into())
+}
+
 /// A user's control over a plan. Pause and stop change what the dispatcher STARTS; neither touches
 /// a running session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
