@@ -8,7 +8,7 @@ Both halt without it.
 
 1. **Option id: `highknow-rename`**
    - Copyright holder: **HighKnow**
-   - Repository slug: **rename to `cymarechal/flywheel`** before any release. This resolves the
+   - Repository slug: **transfer to the `HighKnow-ai` org and rename to `HighKnow-ai/flywheel`** before any release. This resolves the
      Harness.io name collision named as a hard constraint in PROJECT.md.
 2. **Copyright year: 2026**
 3. **`publish .planning unscrubbed: yes`** - the owner explicitly confirms no file under
@@ -20,20 +20,41 @@ Both halt without it.
 | Consumer | Value |
 | -------- | ----- |
 | Copyright line (`NOTICE`, LICENSE appendix usage) | `Copyright 2026 HighKnow` |
-| Updater endpoint (plan 11-05, `plugins.updater.endpoints`) | `https://github.com/cymarechal/flywheel/releases/latest/download/latest.json` |
+| Updater endpoint (plan 11-05, `plugins.updater.endpoints`) | `https://github.com/HighKnow-ai/flywheel/releases/latest/download/latest.json` |
 | Publication consent (plan 11-08, T-11-04) | yes, unscrubbed, no exceptions |
 
-The updater endpoint is NOT `highknow-harness`. That slug is the current name of the repository and
-must not be compiled into any binary.
+The updater endpoint is NOT `highknow-harness` and NOT `cymarechal/flywheel`. Both are former names
+of this repository and neither may be compiled into any binary. The live slug is
+`HighKnow-ai/flywheel` - see the completion note below.
 
-## Pending owner action (hard prerequisite for plan 11-08)
+## Owner action COMPLETED 2026-10-13
 
-The repository is still `cymarechal/highknow-harness` and still private. The rename to
-`cymarechal/flywheel` has NOT happened. It is outside this plan's scope and no GitHub mutation was
-made while executing it. The owner must run the rename (`gh repo rename flywheel` from the
-repository, or the GitHub settings page) before the first release, and therefore before plan 11-08
-publishes anything. Until the rename happens, the compiled updater URL in plan 11-05 points at a
-repository that does not yet exist under that name.
+The owner created the `HighKnow-ai` organisation (https://github.com/HighKnow-ai) and decided the
+project should live there rather than under a personal account. Executed the same day, before plan
+11-05 compiled any endpoint:
+
+- **Transferred and renamed** `cymarechal/highknow-harness` to **`HighKnow-ai/flywheel`**
+  (`POST /repos/.../transfer` with `new_name=flywheel`). This resolves the Harness.io name collision
+  PROJECT.md names as a hard constraint - the public name carries no "harness".
+- **Made public**, on the owner's explicit decision, after a mechanical credential scan of all
+  tracked files found nothing (the only pattern hit is `sk-ant-should-never-appear-anywhere`, a
+  deliberate negative-test sentinel in `packages/sidecar/test/permission.test.mjs` asserting that a
+  key never leaks). This also removes the Actions-minutes ceiling: a private repo on the free org
+  plan gets 2,000 minutes/month billed at 10x for macOS, roughly 200 macOS-minutes, which plans
+  11-08 and 11-20 would have strained. A public repo gets unlimited Actions.
+- **Local `origin` updated** to `git@github.com:HighKnow-ai/flywheel.git`, fetch verified.
+- **Workflows indexed: 3.** `release.yml` needed no edit - it names no owner, using
+  `tauri-apps/tauri-action@v0` with `secrets.GITHUB_TOKEN`, so it followed the transfer unchanged.
+
+Two consequences downstream plans must not be surprised by:
+
+- **GitHub reports no licence for the repository yet** (`licenseInfo: null`). `LICENSE` and `NOTICE`
+  exist on `cymarechal-devoteam/gsd-new-project-ade` but not on `main`, so GitHub's detector has not
+  seen them. The repository is public now, so a visitor sees no licence badge until the branch
+  merges. Not a defect in plan 11-02's work.
+- **Actions secrets do not survive a transfer.** None existed (the release is unsigned by design,
+  D-185), so nothing was lost. Plan 11-07 is the first plan that needs secrets, and it must set the
+  notarization secrets on `HighKnow-ai/flywheel`, not on the old personal repository.
 
 ## Reversibility
 
