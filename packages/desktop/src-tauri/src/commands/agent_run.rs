@@ -869,6 +869,42 @@ fn record_launch_overlap(
     tx.commit().map_err(|e| e.to_string())
 }
 
+/// The process-facing half of a launch, after [`prepare_launch`] inserted the run row: the shim env
+/// merge, then the spawn request through the one gated path. `merge_shim` and `send` are parameters
+/// only so a test can force each to fail; [`launch_run_for_task`] passes the real ones.
+///
+/// D-51: the shim's per-run directory is keyed by the run id, which only exists from `prepare_launch`
+/// on, so a shim-install failure here refuses the spawn (see `merge_shim_env_for_run`'s own doc
+/// comment for why this cannot live inside `resolved_env_for_run`). `conn` is the caller's held
+/// `AppState.db` guard; it is dropped before `send` so the spawn floor's sleep never runs while
+/// holding the SQLite mutex (T-03-04-05), mirroring `agent_run_stop`'s own resolve-before-lock
+/// discipline.
+pub(crate) fn spawn_prepared_run(
+    db: &std::sync::Mutex<Connection>,
+    conn: std::sync::MutexGuard<'_, Connection>,
+    outcome: &StartRunOutcome,
+    mut env: std::collections::HashMap<String, String>,
+    permission_mode: &str,
+    merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
+    send: impl FnOnce(&serde_json::Value) -> Result<(), String>,
+) -> Result<(), String> {
+    merge_shim(&mut env, &outcome.run_id).map_err(|e| e.to_string())?;
+    drop(conn);
+
+    let request = serde_json::json!({
+        "id": outcome.run_id,
+        "op": "spawn",
+        "runId": outcome.run_id,
+        "worktreePath": outcome.worktree_path,
+        "prompt": outcome.prompt,
+        "permissionMode": permission_mode,
+        "scopeArmed": outcome.scope_armed,
+        "env": env,
+    });
+    let _ = db;
+    send(&request)
+}
+
 /// The launch body, after argument validation: resolves the human actor server-side (T-01-04),
 /// credential resolution before any run/worktree state exists (D-39, T-02-42), the DB-only half
 /// ([`prepare_launch`]), the shim env merge, the spawn request through the one gated path, and the
@@ -891,29 +927,17 @@ pub(crate) fn launch_run_for_task(
     conflict: CrossTaskConflict,
 ) -> Result<AgentRunDto, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let PreparedLaunch { outcome, repo_path, mut env, overlap_warning } =
+    let PreparedLaunch { outcome, repo_path, env, overlap_warning } =
         prepare_launch(&mut conn, task_id, permission_mode, instruction, conflict)?;
-
-    // D-51: the shim's per-run directory is keyed by the run id, which only exists from this
-    // point on — a shim-install failure here refuses the spawn (see `merge_shim_env_for_run`'s
-    // own doc comment for why this cannot live inside `resolved_env_for_run`).
-    crate::sidecar::merge_shim_env_for_run(&mut env, &outcome.run_id).map_err(|e| e.to_string())?;
-
-    drop(conn);
-
-    let request = serde_json::json!({
-        "id": outcome.run_id,
-        "op": "spawn",
-        "runId": outcome.run_id,
-        "worktreePath": outcome.worktree_path,
-        "prompt": outcome.prompt,
-        "permissionMode": permission_mode,
-        "scopeArmed": outcome.scope_armed,
-        "env": env,
-    });
-    // Called after `drop(conn)` above, so the floor's sleep never runs while holding the SQLite
-    // mutex (T-03-04-05), mirroring `agent_run_stop`'s own resolve-before-lock discipline.
-    send_gated_spawn(state, &repo_path, &request)?;
+    spawn_prepared_run(
+        &state.db,
+        conn,
+        &outcome,
+        env,
+        permission_mode,
+        crate::sidecar::merge_shim_env_for_run,
+        |request| send_gated_spawn(state, &repo_path, request),
+    )?;
 
     app.emit(
         "board:changed",
@@ -3878,6 +3902,111 @@ mod tests {
                 .expect("the cap is the dispatcher's alone (D-159)");
             assert!(prepared.overlap_warning.is_none(), "disjoint sets: nothing to warn about");
             let _ = &f.other;
+        });
+    }
+
+    // --- D-REV-46: a launch that fails after its run row exists leaves no `running` row -----------------
+
+    fn live_run_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM agent_runs WHERE status IN ('running', 'blocked')", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    /// The three facts every failed-launch path must leave: the run is `failed` (not `running`), the
+    /// cap slot is back where it was, and the task is not refused as `HasLiveRun` on the next try.
+    fn assert_failed_launch_left_nothing_running(conn: &Connection, task_id: &str, live_before: i64) {
+        let (status, run_id): (String, String) = conn
+            .query_row(
+                "SELECT status, id FROM agent_runs WHERE task_id = ?1 ORDER BY started_at DESC, rowid DESC LIMIT 1",
+                rusqlite::params![task_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "failed", "run {run_id} must be closed, not left running");
+        assert_eq!(live_run_count(conn), live_before, "the cap slot is released");
+        let project_id: String = conn
+            .query_row("SELECT project_id FROM tasks WHERE id = ?1", rusqlite::params![task_id], |r| r.get(0))
+            .unwrap();
+        let refusal = flywheel_core::dispatch::launch_conflict(conn, task_id, &project_id, true, &[]).unwrap();
+        assert!(
+            !matches!(refusal, Some(ReadinessRefusal::HasLiveRun)),
+            "the task must be relaunchable without a restart: {refusal:?}"
+        );
+    }
+
+    #[test]
+    fn a_failure_between_the_run_insert_and_the_scope_marker_closes_the_run_failed() {
+        with_scratch_worktree_root(|| {
+            let (mut conn, _actor, _p, task, _repo) = seeded_git_conn_with_task();
+            // Step 8 of the run start writes the criteria pin; make exactly that write fail.
+            conn.execute_batch(
+                "CREATE TRIGGER boom BEFORE UPDATE OF criteria_revision_pin ON agent_runs
+                 BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+            )
+            .unwrap();
+            let live_before = live_run_count(&conn);
+            let err = match launch(&mut conn, &task, CrossTaskConflict::WarnAndProceed) {
+                Ok(_) => panic!("the pin write was made to fail"),
+                Err(e) => e,
+            };
+            assert!(err.contains("criteria_revision_pin"), "{err}");
+            conn.execute_batch("DROP TRIGGER boom").unwrap();
+            assert_failed_launch_left_nothing_running(&conn, &task, live_before);
+        });
+    }
+
+    #[test]
+    fn a_failure_recording_the_launch_overlap_closes_the_run_failed() {
+        with_scratch_worktree_root(|| {
+            let mut f = two_tasks(&["src/a/"], &["src/a/"]);
+            f.conn
+                .execute_batch(&format!(
+                    "CREATE TRIGGER boom BEFORE INSERT ON events WHEN NEW.event_type = '{EVENT_LAUNCH_OVERLAP}'
+                     BEGIN SELECT RAISE(ABORT, 'boom'); END;"
+                ))
+                .unwrap();
+            let live_before = live_run_count(&f.conn);
+            let err = match launch(&mut f.conn, &f.task, CrossTaskConflict::WarnAndProceed) {
+                Ok(_) => panic!("the overlap event write was made to fail"),
+                Err(e) => e,
+            };
+            assert!(err.contains("append event"), "{err}");
+            f.conn.execute_batch("DROP TRIGGER boom").unwrap();
+            assert_failed_launch_left_nothing_running(&f.conn, &f.task, live_before);
+        });
+    }
+
+    /// Drive `prepare_launch` then `spawn_prepared_run` with the given shim and send, returning the
+    /// error and the database for the assertions.
+    fn spawn_with(
+        merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
+        send: impl FnOnce(&serde_json::Value) -> Result<(), String>,
+    ) -> (String, std::sync::Mutex<Connection>, String, tempfile::TempDir) {
+        let (conn, _actor, _p, task, repo) = seeded_git_conn_with_task();
+        let db = std::sync::Mutex::new(conn);
+        let mut guard = db.lock().unwrap();
+        let prepared = prepare_launch(&mut guard, &task, "acceptEdits", "", CrossTaskConflict::WarnAndProceed)
+            .expect("the run row is inserted");
+        let err = spawn_prepared_run(&db, guard, &prepared.outcome, prepared.env, "acceptEdits", merge_shim, send)
+            .expect_err("the injected step fails");
+        (err, db, task, repo)
+    }
+
+    #[test]
+    fn a_shim_install_failure_closes_the_run_failed() {
+        with_scratch_worktree_root(|| {
+            let (err, db, task, _repo) = spawn_with(|_, _| Err(anyhow::anyhow!("shim boom")), |_| Ok(()));
+            assert!(err.contains("shim boom"), "{err}");
+            assert_failed_launch_left_nothing_running(&db.lock().unwrap(), &task, 0);
+        });
+    }
+
+    #[test]
+    fn a_failed_gated_spawn_closes_the_run_failed() {
+        with_scratch_worktree_root(|| {
+            let (err, db, task, _repo) = spawn_with(|_, _| Ok(()), |_| Err("spawn boom".to_string()));
+            assert!(err.contains("spawn boom"), "{err}");
+            assert_failed_launch_left_nothing_running(&db.lock().unwrap(), &task, 0);
         });
     }
 }
