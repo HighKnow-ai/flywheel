@@ -330,7 +330,7 @@ describe("the wave plan sheet, every state the register names", () => {
     await expectReachable(dialog);
   });
 
-  // KNOWN DEFECT, found by this plan (pre-existing, WavePlanSheet.tsx, deferred: see 11-DEFERRED-ITEMS /
+  // KNOWN DEFECT, found by this plan (pre-existing, WavePlanSheet.tsx, deferred: see phases/11-ship-it/deferred-items.md /
   // 11-14-SUMMARY). The approval error renders at the END of the scrolling body, so for any plan taller
   // than the dialog (four tasks is enough at 1440x900) a refused Approve shows nothing: the message is
   // below the fold and the footer, where the user's eye is, says nothing. `it.fails` keeps the suite
