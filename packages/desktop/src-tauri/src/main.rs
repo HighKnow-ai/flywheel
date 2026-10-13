@@ -136,6 +136,8 @@ fn main() {
             commands::project::project_reconcile,
             commands::project::project_relocate,
             commands::task::task_create,
+            commands::task::task_header,
+            commands::task::epic_header,
             commands::task::task_update,
             commands::task::task_delete,
             commands::task::task_set_status,

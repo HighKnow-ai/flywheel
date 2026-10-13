@@ -31,6 +31,7 @@ import {
   type KeyboardEvent,
   type UIEvent,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import * as icons from "lucide-react";
 import {
@@ -38,9 +39,11 @@ import {
   authoringStageAdvance,
   authoringStageReturn,
   discardSession,
+  epicHeader,
   sendAuthoringTurn,
   stopAgentRun,
   subscribeAgentEvent,
+  taskHeader,
 } from "../adapters/tauri";
 import { ProposalTray } from "../authoring/ProposalTray";
 import { useRunProposals } from "../authoring/useAuthoringQuery";
@@ -777,6 +780,10 @@ function StartingSessionRow() {
 
 const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 
+/** The title of a run whose board item cannot be resolved (read failed, item gone, or no id). A live run
+ * still needs its surface, so an unresolvable item degrades to this and never blanks or throws. */
+const SESSION_FALLBACK_TITLE = "Session";
+
 export function SessionSurface({
   agentRunId,
   onBack,
@@ -787,6 +794,18 @@ export function SessionSurface({
   initialFeedOffset = null,
 }: SessionSurfaceProps) {
   const [status, setStatus] = useState<RunStatus>(initialStatus ?? "running");
+  // Core Value (finish-review four-1): the header names the board item this run serves — the task, or
+  // for an authoring run the epic. A failed or empty read resolves to `null` and the header says "Session".
+  const { data: itemHeader } = useQuery({
+    queryKey: ["session-header", taskId, epicId],
+    queryFn: () =>
+      (taskId ? taskHeader(taskId) : epicId ? epicHeader(epicId) : Promise.resolve(null))
+        .then((header) => header ?? null)
+        .catch(() => null),
+    enabled: Boolean(taskId || epicId),
+    retry: false,
+  });
+  const headerText = itemHeader ? `${itemHeader.key} ${itemHeader.title}` : SESSION_FALLBACK_TITLE;
   const [stopping, setStopping] = useState(false);
   // `stopping` alone is not a sufficient guard against two activations in one synchronous tick —
   // React has not necessarily flushed the re-render that disables the Stop button before a
@@ -1085,7 +1104,9 @@ export function SessionSurface({
         <button type="button" onClick={onBack} className="session-back type-label">
           ← Board
         </button>
-        <span className="type-heading">Session</span>
+        <span className="type-heading session-title" title={headerText}>
+          {headerText}
+        </span>
         <RunStatusBadge status={status} />
 
         <StatusStrip entries={entries} running={status === "running" || status === "blocked"} />

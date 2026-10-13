@@ -161,6 +161,35 @@ pub fn list_tasks_for_epic(
     Ok(result)
 }
 
+/// Enough of a board item to NAME it — its key and title, nothing else (plan 11-22, finish-review
+/// four-1). The session surface is handed an id and must say which board item the run serves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemHeader {
+    pub key: String,
+    pub title: String,
+}
+
+fn header_row(row: &rusqlite::Row) -> rusqlite::Result<ItemHeader> {
+    Ok(ItemHeader { key: row.get(0)?, title: row.get(1)? })
+}
+
+/// One task's key and title by id; `None` when no such task exists (deleted mid-run). Not
+/// project-scoped, unlike [`get_epic_for_agent`]: this is the renderer's read, and the renderer
+/// already holds every project's rows, so there is nothing to withhold.
+pub fn task_header(conn: &Connection, task_id: &str) -> anyhow::Result<Option<ItemHeader>> {
+    conn.query_row("SELECT key, title FROM tasks WHERE id = ?1", params![task_id], header_row)
+        .optional()
+        .context("failed to read a task's header")
+}
+
+/// One epic's key and title by id — an authoring run has an epic and no task.
+pub fn epic_header(conn: &Connection, epic_id: &str) -> anyhow::Result<Option<ItemHeader>> {
+    conn.query_row("SELECT key, title FROM epics WHERE id = ?1", params![epic_id], header_row)
+        .optional()
+        .context("failed to read an epic's header")
+}
+
 /// Plan 05-05 (D-87): one epic's own facts, for the agent's `epic_get` read tool. A single-row
 /// lookup needs no `limit` — bounding is moot at cardinality one — but IS scoped SERVER-SIDE to
 /// `project_id`: an `epic_id` naming an epic outside this project (or naming no epic at all)

@@ -711,6 +711,22 @@ export async function latestAgentRunIdForTask(taskId: string): Promise<string | 
   return invokeCommand<string | null>("task_latest_agent_run", { taskId });
 }
 
+/** A board item's key and title — enough to name it (plan 11-22, finish-review four-1). */
+export interface ItemHeaderDto {
+  key: string;
+  title: string;
+}
+
+/** The task a session serves, by id; `null` when it no longer exists. Thin typed wrapper over `task_header`. */
+export async function taskHeader(taskId: string): Promise<ItemHeaderDto | null> {
+  return invokeCommand<ItemHeaderDto | null>("task_header", { taskId });
+}
+
+/** The epic an authoring session serves, by id; `null` when it no longer exists. Wrapper over `epic_header`. */
+export async function epicHeader(epicId: string): Promise<ItemHeaderDto | null> {
+  return invokeCommand<ItemHeaderDto | null>("epic_header", { epicId });
+}
+
 /**
  * D-37's board-visible blocked signal for one project (plan 02-06 Task 3): every blocked task id
  * plus the count, read together so the board row indicator and the project-rail badge always agree

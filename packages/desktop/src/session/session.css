@@ -23,6 +23,14 @@
   padding: var(--space-md);
 }
 
+/* The board item's name (four-1) can be a long title: it truncates rather than push the run's controls off the row. */
+.session-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* "← Board" is navigation, not a command: type with a quiet inset wash on hover, like a rail row. */
 .session-back {
   background: transparent;
