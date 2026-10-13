@@ -615,6 +615,45 @@ fn a_dirty_integration_worktree_is_refused_with_a_named_cause_visible_in_the_pla
     fx.drive(10, |f| f.state(&plan, &b) == "merged");
 }
 
+/// D-REV-39 WR-04: a merge that errors on every attempt (here a `pre-merge-commit` hook that
+/// refuses) is one record, and the task is not walked through `merging` and back every tick.
+#[test]
+fn a_persistently_failing_merge_appends_one_event_and_does_not_flap() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/one.txt"));
+    let plan = fx.plan(&[(&a, 1)]);
+    let hook = fx.repo.path().join(".git/hooks/pre-merge-commit");
+    std::fs::write(&hook, "#!/bin/sh\necho refused >&2\nexit 1\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fx.drive(10, |f| f.state(&plan, &a) == "needs_attention");
+    let marks = |f: &Fx| -> i64 {
+        f.conn().query_row(
+            "SELECT COUNT(*) FROM events WHERE event_type = 'dispatch.task_needs_attention' AND task_id = ?1",
+            [&a],
+            |r| r.get(0),
+        ).unwrap()
+    };
+    let (_, kind, _) = attention_for(&fx.conn(), &plan, &a).unwrap().unwrap();
+    assert_eq!(kind, "merge_blocked", "the fixture fails the merge itself, not a precheck");
+    let once = marks(&fx);
+    assert_eq!(once, 1);
+
+    for _ in 0..3 {
+        let report = fx.pass();
+        assert!(merges(&report.actions).contains(&a.as_str()), "the merge is still being retried each tick");
+        assert_eq!(fx.state(&plan, &a), "needs_attention");
+    }
+    assert_eq!(marks(&fx), once, "three more failed ticks append nothing");
+
+    // Fixed, it lands on its own.
+    std::fs::remove_file(&hook).unwrap();
+    fx.drive(10, |f| f.state(&plan, &a) == "merged");
+}
+
 #[test]
 fn an_epic_with_no_integration_branch_gets_one_from_the_lazy_cut_not_the_merge() {
     let fx = fx();
