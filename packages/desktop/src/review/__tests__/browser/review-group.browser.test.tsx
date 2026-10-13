@@ -245,6 +245,15 @@ describe(`review group, built, ${scheme} scheme`, () => {
     expectDrawn(confirm, "the confirm Merge", PALETTE.surfaceSecondary);
     expect(getComputedStyle(confirm).borderTopWidth, "the confirm is the sheet's lead").toBe("2px");
     expect(dialog.textContent).toMatch(/3 commits, 5 files, into FLY-7's integration branch\./);
+    // 11-17 finish review (group three): the title wraps BETWEEN the two branch names, never inside one
+    // ("fly-7-" / "integration" in the capture). Each name is one box no taller than a single line of the title.
+    const title = dialog.querySelector<HTMLElement>(".review-sheet-title")!;
+    const names = Array.from(title.querySelectorAll<HTMLElement>(":scope > span"));
+    expect(names.map((n) => n.textContent)).toEqual(["flywheel/fly-9-add-push-retry", "flywheel/fly-7-integration"]);
+    const line = parseFloat(getComputedStyle(title).lineHeight);
+    for (const name of names) {
+      expect(name.getBoundingClientRect().height, `"${name.textContent}" is broken across lines`).toBeLessThanOrEqual(line * 1.2);
+    }
 
     await settle();
     await page.screenshot({ path: `${OUT}/review-group-built-${scheme}-merge-sheet-1440x900.png` });

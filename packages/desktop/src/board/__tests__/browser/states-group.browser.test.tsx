@@ -334,6 +334,15 @@ describe(`states and confirms group, built, ${scheme} scheme${reduced ? ", reduc
     const body = screen.getByText(/Nothing was scanned or guessed automatically/);
     expect(body.textContent).toContain(REAL_REPO_PATH);
     expect(body.scrollWidth, "a long path wraps, it does not overflow").toBeLessThanOrEqual(body.clientWidth);
+    // 11-17 finish review (group six): the path is the one fact the user acts on, so it is read letter by letter,
+    // in mono, as the register confirmation already draws it, and it is not a fragment of proportional prose. The
+    // sentence itself is the Copywriting Contract's, word for word, so only the path's face changed.
+    const pathEl = within(body).getByText(REAL_REPO_PATH);
+    expect(pathEl.tagName, "the path is its own element").toBe("SPAN");
+    expect(getComputedStyle(pathEl).fontFamily, "the path is mono").toMatch(/monospace|Menlo/);
+    expect(body.textContent).toBe(
+      `Flywheel expected threadfin at ${REAL_REPO_PATH}, but the repository marker there no longer matches. Nothing was scanned or guessed automatically.`,
+    );
 
     const locate = screen.getByRole("button", { name: "Locate Project…" });
     expect(within(surface).getAllByRole("button"), "one action on the surface").toHaveLength(1);
@@ -515,6 +524,11 @@ describe(`states and confirms group, built, ${scheme} scheme${reduced ? ", reduc
     // The footnote is on the locked scale (11px), not the 10px micro role, and is legible.
     const note = within(dialog).getByText(/spending tokens right now/);
     expect(getComputedStyle(note).fontSize).toBe("11px");
+    // 11-17 finish review (group six): the reason is read before the choice it bears on, so the footnote sits above
+    // both answers, in the DOM and on the page.
+    expect(note.compareDocumentPosition(leave) & Node.DOCUMENT_POSITION_FOLLOWING, "the footnote precedes Leave them running").toBeTruthy();
+    expect(note.compareDocumentPosition(killAll) & Node.DOCUMENT_POSITION_FOLLOWING, "the footnote precedes Kill All").toBeTruthy();
+    expect(note.getBoundingClientRect().bottom, "the footnote is drawn above the answers").toBeLessThanOrEqual(leave.getBoundingClientRect().top);
     expect(ratio(toHex(getComputedStyle(note).color), PALETTE.surfaceSecondary)).toBeGreaterThanOrEqual(4.5);
 
     // The running glyph pulses (the carve-out), or sits at full opacity under reduced motion: the class is absent.

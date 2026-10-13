@@ -122,7 +122,6 @@ const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const PALETTE = scheme === "dark" ? DARK : LIGHT;
 const OUT = "../../../../../../.impeccable/review";
 const OUT_FROM_ROOT = "../../.impeccable/review";
-void data;
 
 const toHex = (computed: string): string => {
   const m = computed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)!;
@@ -459,14 +458,18 @@ describe(`launch sheet with a reviewer's decline, ${scheme} scheme`, () => {
       drift: [{ kind: "StaleSinceLastSummary", sentence: "The branch has moved since the last session's summary." }],
       reviewFeedback: {
         lead: "A reviewer sent this task back. These acceptance criteria are still unchecked:",
-        statements: [
-          "Closing the dialog returns focus to the element that held it before it opened.",
-          "Initial focus lands on the first focusable control.",
-        ],
+        // The sheet derives these live from the task's own unchecked criteria (A-08(a)), so the fixture takes the
+        // real criteria's statements word for word; a paraphrase here would suggest the text is reworded.
+        statements: (data.criteria as { task_key: string; statement: string }[]).filter((c) => c.task_key === "THRE-58").slice(1).map((c) => c.statement),
       },
     };
     mountSession({ sheet: true });
     const feedback = await screen.findByText("Review feedback");
+    const sent = (world.packetExtra.reviewFeedback as { statements: string[] }).statements;
+    expect(sent.length).toBe(2);
+    for (const statement of sent) {
+      expect(screen.getAllByText(statement), "each feedback line is also one of the Acceptance Criteria, word for word").toHaveLength(2);
+    }
     expect(screen.getByText("Warnings").compareDocumentPosition(feedback) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(feedback.compareDocumentPosition(screen.getByText("Epic")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await settle();

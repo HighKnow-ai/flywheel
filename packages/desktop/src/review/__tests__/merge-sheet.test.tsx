@@ -185,7 +185,11 @@ describe("the confirm sheet", () => {
   it("shows the source branch, the target branch and the commit and file counts", async () => {
     renderSurface();
     const dialog = await openSheet();
-    expect(await within(dialog).findByText(/Merge flywheel\/fly-9-add-retry → flywheel\/fly-7-integration/)).toBeInTheDocument();
+    // The branch names are their own elements (each an unbreakable unit, 11-17 finish review), so the title is
+    // matched on its whole text, not on one text node.
+    expect(
+      await within(dialog).findByText((_, node) => Boolean(node?.classList.contains("review-sheet-title")) && node?.textContent === "Merge flywheel/fly-9-add-retry → flywheel/fly-7-integration"),
+    ).toBeInTheDocument();
     expect(within(dialog).getByText(/3 commits, 2 files, into FLY-7/)).toBeInTheDocument();
   });
 

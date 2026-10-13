@@ -334,6 +334,13 @@ export function OrphanRecoveryModal() {
             })}
           </div>
 
+          {/* The reason is read before the choice it bears on (11-17 finish review, group six): it sits above the
+              answers, not under them. */}
+          <p className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+            Every process above is spending tokens right now — Flywheel didn&apos;t start any of
+            them this time.
+          </p>
+
           <div className="confirm-actions">
             <button type="button" onClick={handleLeave} className="type-body control-edge confirm-action">
               Leave them running
@@ -348,11 +355,6 @@ export function OrphanRecoveryModal() {
               Kill All
             </button>
           </div>
-
-          <p className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-            Every process above is spending tokens right now — Flywheel didn&apos;t start any of
-            them this time.
-          </p>
         </div>
       </div>
     </FocusScope>,

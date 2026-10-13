@@ -242,6 +242,11 @@ describe(`board group one, built, ${scheme} scheme`, () => {
     for (const label of labels) {
       expect(label.scrollWidth, `"${label.textContent}" is clipped`).toBeLessThanOrEqual(label.clientWidth);
       expect(getComputedStyle(label).textOverflow, `"${label.textContent}" would ellipsize`).not.toBe("ellipsis");
+      // 11-17 finish review (group one): at the full window width the caption fits on ONE line, the "No epic" bucket's
+      // three-digit count included ("186 / open" had wrapped). Wrapping stays the fallback at narrow widths, never the norm.
+      const lines = document.createRange();
+      lines.selectNodeContents(label);
+      expect(lines.getClientRects().length, `"${label.textContent}" wraps at ${WIDTH}px`).toBe(1);
     }
     // Finding 8: all three fixture kinds are tagged, the two challenge rows included.
     for (const challenge of Array.from(root.querySelectorAll('[data-challenge-id]'))) {

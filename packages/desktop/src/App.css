@@ -169,7 +169,7 @@ button.control-edge:hover:not(:disabled) {
 }
 
 .epic-header-row {
-  grid-template-columns: minmax(0, 1fr) 220px 150px 56px 56px 56px 260px;
+  grid-template-columns: minmax(0, 1fr) 220px 200px 56px 56px 56px 260px;
   column-gap: var(--space-md);
 }
 

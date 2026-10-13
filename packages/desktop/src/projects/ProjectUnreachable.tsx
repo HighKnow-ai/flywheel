@@ -55,8 +55,8 @@ export function ProjectUnreachable({ project }: { project: Project }) {
           which is on screen beside this surface (it replaces the board, not the window). */}
       <h1 className="state-heading">Can&rsquo;t find this project</h1>
       <p className="type-body state-body">
-        Flywheel expected {project.name} at {project.repoPath}, but the repository marker there no
-        longer matches. Nothing was scanned or guessed automatically.
+        Flywheel expected {project.name} at <span className="state-path">{project.repoPath}</span>, but the
+        repository marker there no longer matches. Nothing was scanned or guessed automatically.
       </p>
       <button
         type="button"

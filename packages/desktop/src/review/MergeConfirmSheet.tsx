@@ -249,7 +249,18 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
           <div role="dialog" aria-label="Merge sheet" className="review-sheet" style={{ width: 560 }}>
             <header style={{ padding: "var(--space-md)", borderBottom: "1px solid var(--divider)", flexShrink: 0 }}>
               <span className="type-heading review-sheet-title" style={{ fontFamily: MONO_STACK, overflowWrap: "anywhere" }}>
-                {result ? "Merge result" : preview ? `Merge ${preview.sourceBranch} → ${preview.targetBranch}` : "Merge"}
+                {result ? (
+                  "Merge result"
+                ) : preview ? (
+                  <>
+                    {/* Each branch name is one unbreakable unit: the title wraps BETWEEN the names and only breaks inside
+                        one when that single name is wider than the sheet (`anywhere` on the title still covers that). */}
+                    Merge <span style={{ display: "inline-block", maxWidth: "100%" }}>{preview.sourceBranch}</span> →{" "}
+                    <span style={{ display: "inline-block", maxWidth: "100%" }}>{preview.targetBranch}</span>
+                  </>
+                ) : (
+                  "Merge"
+                )}
               </span>
             </header>
 
