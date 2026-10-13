@@ -288,6 +288,15 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     await settle();
     await page.screenshot({ path: `${OUT}/admin-group-built-${scheme}-settings-1440x900.png` });
     await writeHtml("admin-group-built-settings");
+
+    // 11-17 (D-REV-17): the permission-rules table sits below the fold of the capture above, so the finish reviewer
+    // never saw it. The surface scrolls inside its own container; scroll it to the end and capture the table.
+    table.scrollIntoView({ block: "end" });
+    await settle();
+    const box = table.getBoundingClientRect();
+    expect(box.top, "the rules table is in the window").toBeGreaterThanOrEqual(0);
+    expect(box.bottom, "the rules table is in the window (to within a pixel)").toBeLessThanOrEqual(901);
+    await page.screenshot({ path: `${OUT}/admin-group-built-${scheme}-settings-rules-1440x900.png` });
   });
 
   it("triage: Pending is a chosen value, rows select with the neutral rule, a click leaves no ring, nothing is filled", async () => {
