@@ -27,6 +27,7 @@ import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { TriangleAlert } from "lucide-react";
 import { useGitFacts } from "../board/useBoardQuery";
 import * as adapter from "../adapters/tauri";
+import { useUiStore } from "../state/uiStore";
 import "./review.css";
 import type { MergePreviewDto, ReviewMergeOutcomeDto } from "../adapters/tauri";
 import { useMergePrecheck, useReviewCriteriaState } from "./useReviewQuery";
@@ -217,10 +218,15 @@ export function MergeConfirmSheet({ taskId, onClose, onOpenSession }: MergeConfi
     setSideError(null);
     adapter
       .startAgentRun(taskId, "acceptEdits", conflictBrief(confirmed, files))
-      .then((run) => onOpenSession?.(run.id))
-      .catch(() => {
+      .then((run) => {
+        // The sheet unmounts as the session takes the screen, so the warning goes to the app-level toast.
+        if (run.overlapWarning) useUiStore.getState().setLaunchOverlapWarning(run.overlapWarning);
+        onOpenSession?.(run.id);
+      })
+      .catch((err: unknown) => {
         setStarting(false);
-        setSideError("Could not start a session on this task.");
+        // The refusal reason is composed server-side; show it rather than a fixed string (D-REV-46).
+        setSideError(err instanceof Error ? err.message : String(err));
       });
   }
 

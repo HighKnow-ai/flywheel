@@ -298,6 +298,10 @@ interface UiState {
    * call, mirroring `setLaunchSheetTaskId(null)`'s "closed" convention. */
   clearLaunchSheetAuthoringHandoff: () => void;
   setSettingsOpen: (open: boolean) => void;
+  /** Rust's overlap warning for a launch over a live task (plan 09-13), set by every launch site and
+   * shown by `shell/LaunchOverlapToast` mounted once in App, because the launch surface unmounts. */
+  launchOverlapWarning: string | null;
+  setLaunchOverlapWarning: (warning: string | null) => void;
   /** Opens/closes the dedicated triage surface for `projectId` (`null` to close) — the route
    * control's own call, mirroring `setLaunchSheetTaskId`'s "one field, one writer" shape. */
   setTriageSurfaceProjectId: (projectId: string | null) => void;
@@ -428,6 +432,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   setLaunchSheetAuthoringHandoff: (epicId) => set({ launchSheetAuthoringHandoff: { epicId } }),
   clearLaunchSheetAuthoringHandoff: () => set({ launchSheetAuthoringHandoff: null }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+  launchOverlapWarning: null,
+  setLaunchOverlapWarning: (warning) => set({ launchOverlapWarning: warning }),
   setTriageSurfaceProjectId: (projectId) => set({ triageSurfaceProjectId: projectId }),
   setReviewSurface: (target) => set({ reviewSurface: target }),
   setFleetSurface: (target) =>
@@ -473,6 +479,7 @@ export function resetUiState() {
     wavePlanSheetEpicId: null,
     launchSheetAuthoringHandoff: null,
     settingsOpen: false,
+    launchOverlapWarning: null,
     triageSurfaceProjectId: null,
     reviewSurface: null,
     fleetSurface: null,

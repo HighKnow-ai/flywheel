@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
 import { subscribeMenuAction } from "./adapters/tauri";
@@ -22,6 +22,7 @@ import { ProjectUnreachable } from "./projects/ProjectUnreachable";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
 import { OrphanRecoveryModal } from "./recovery/OrphanRecoveryModal";
 import { SessionSurface } from "./session/SessionSurface";
+import { LaunchOverlapToast } from "./shell/LaunchOverlapToast";
 import { SettingsSurface } from "./settings/SettingsSurface";
 import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
@@ -171,15 +172,11 @@ function AppShell() {
   // command palette (plan 02-10 Task 3), all through this one `open-settings` action id.
   const settingsOpen = useUiStore((state) => state.settingsOpen);
   const setSettingsOpen = useUiStore((state) => state.setSettingsOpen);
-  // Plan 09-13: Rust's overlap warning for a launch the user started over a live task. Shown for a
-  // while, then cleared; it is display state only, the durable record is the `task.launch_overlap`
-  // event the launch appended.
-  const [launchOverlapWarning, setLaunchOverlapWarning] = useState<string | null>(null);
-  useEffect(() => {
-    if (!launchOverlapWarning) return;
-    const timer = setTimeout(() => setLaunchOverlapWarning(null), 15000);
-    return () => clearTimeout(timer);
-  }, [launchOverlapWarning]);
+  // Plan 09-13 / D-REV-43: every launch site writes Rust's overlap warning to the store; this is the
+  // one place it is shown, because each launch surface unmounts as the session takes the screen.
+  const launchOverlapWarning = useUiStore((state) => state.launchOverlapWarning);
+  const setLaunchOverlapWarning = useUiStore((state) => state.setLaunchOverlapWarning);
+  const dismissLaunchOverlapWarning = useCallback(() => setLaunchOverlapWarning(null), [setLaunchOverlapWarning]);
   // `⌘⇧O`'s actual effect — the SAME registration flow the rail's `+` button and the palette's
   // "Register Project…" command use (`projects/RegisterProjectFlow.tsx`), never a re-derived
   // copy (01-UI-SPEC.md "Project switcher"). `isError`/`error` are surfaced below (CR-02) —
@@ -403,28 +400,7 @@ function AppShell() {
         }}
       />
       <WavePlanSheet epicId={wavePlanSheetEpicId} onClose={() => setWavePlanSheetEpicId(null)} />
-      {launchOverlapWarning && (
-        <div
-          role="note"
-          aria-label="Launch overlap warning"
-          className="type-label"
-          style={{
-            position: "fixed",
-            bottom: "var(--space-lg)",
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 1400,
-            color: "var(--destructive-text-rack)",
-            background: "var(--surface-secondary)",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
-            padding: "var(--space-sm) var(--space-md)",
-            maxWidth: "80vw",
-          }}
-        >
-          {launchOverlapWarning}
-        </div>
-      )}
+      <LaunchOverlapToast warning={launchOverlapWarning} onDismiss={dismissLaunchOverlapWarning} />
       {registerNoticeNode}
     </>
   );
