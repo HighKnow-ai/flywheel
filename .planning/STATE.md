@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-03-PLAN.md
-last_updated: "2026-10-13T01:48:59.644Z"
+stopped_at: Completed 11-04-PLAN.md
+last_updated: "2026-10-13T04:54:03.092Z"
 last_activity: 2026-10-13
 last_activity_desc: Phase 11 execution started
-state_head: 1ab315506826a23e51f111792c2dcb4c3818d0f3
+state_head: f306e6e1ae7db81c0cff1cf0302e40d47162db0e
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 249
-  completed_plans: 236
+  completed_plans: 237
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 2 of 21
+Plan: 3 of 21
 Status: Ready to execute
 Last activity: 2026-10-13 — Phase 11 execution started
 
@@ -299,6 +299,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 11 P14 | 35 min | 3 tasks | 5 files |
 | Phase 11 P15 | 50 min | 3 tasks | 10 files |
 | Phase 11 P03 | 10 min | 3 tasks | 4 files |
+| Phase 11 P04 | 2h 45m (continuation) | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -695,6 +696,7 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-15: the fleet UAT harness drives core functions through uat_fleet_ops, not the Tauri commands; the AppState mutex and IPC stay unexercised (needs a ~13 min desktop test build with tauri/test, routed)
 - [Phase 11]: 11-15: two fleet/session defects held as it.fails, not fixed: Back loses the selected fleet row; a finished run with an empty log reads 'Starting session...'
 - [Phase 11]: 11-03: open-core grep gate runs after the Cargo.toml members sed (the members line is itself a reference); Cargo.lock not searched
+- [Phase 11]: 11-04: asset assertion is conditional on createUpdaterArtifacts; release notes capped at 200 commits; repo slug rename is a prerequisite for 11-05 and 11-08 — 11-01 left updater artifacts unset until the signing key exists (11-05); first throwaway body was 116,932 chars against a 125,000 limit
 
 ### Pending Todos
 
@@ -756,6 +758,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T01:48:59.447Z
-Stopped at: Completed 11-03-PLAN.md
+Last session: 2026-10-13T04:54:02.891Z
+Stopped at: Completed 11-04-PLAN.md
 Resume file: None

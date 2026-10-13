@@ -1063,7 +1063,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-56
   phase: "11 — Ship It (plan 11-03)"
   truth: "On GitHub's macos-14 runner, a push runs ci.yml green end to end (sidecar staging, cargo build and test, vitest, tauri build, dmg upload), and open-core.yml goes green with packages/relay-client deleted."
-  status: open
+  status: closed (observed on GitHub macos-14 - 2026-10-13, plan 11-04)
   why_deferred: |
     Asserted locally: both files parse as YAML; the staging step precedes the first cargo step; no continue-on-error;
     the open-core sed plus cargo metadata pair exits 0 against a tree with the crate moved away, the non-comment
@@ -1073,3 +1073,40 @@ At Phase 11, with an installed, usable build:
     prerequisites, completes the sequence (Rust 1.96+ on stable, npm cache keys, the Node download, tauri build time).
   risk_if_wrong: "Moderate. The first push may fail on a runner-only difference; the fix is a workflow edit, nothing shipped depends on it yet."
   automatable: "NO locally (needs a GitHub runner), but it is redeemed for free by the first push of this branch: read the two run results."
+  update_11-04: |
+    CLOSED, but not on the first try, and the first push said so. The branch reached origin for the first time on
+    2026-10-13 (the three workflow files were not indexed until then; push fired CI and Open core). Both went RED at
+    f2b04b5, and every red was a defect already in the tree, not a runner difference:
+    (1) cargo test: packages/core/tests/scope_marker_contract.rs had two source-text tests broken by 11-09's
+    spawn_prepared_run extraction (cf2cb20); red locally as well. Fixed 2727b09 (the invariants are unchanged and
+    still asserted).
+    (2) npm test in packages/sidecar: 6 of 11 executions failed, always stop.test.mjs test 274 or 276. Root cause:
+    permission.test.mjs's after() ran `pkill -f <fake-claude path>`, and node --test runs files concurrently, so it
+    SIGTERMed stop.test.mjs's stubborn sessions mid-assertion. Fixed b1275de by scoping the cleanup to the file's own
+    descendants. Two earlier fixes of mine (a poll, then zombie tolerance) were guesses at the wrong cause and were
+    reverted in b1275de; do not trust 2727b09..46f0cef as evidence about that flake.
+    At f306e6e both are green on a branch push: ci.yml run 38346860234 (sidecar staging, cargo build and test,
+    desktop vitest, tauri build, flywheel-dmg artifact 45,663,820 bytes uploaded, 18m50s) and open-core.yml run
+    38346860235 (relay crate deleted, grep gate clean, full build and test, 12m17s).
+    STILL NOT PROVEN: stability. After the pkill fix the sidecar step passed 5 of 5 executions and cargo test 7 of 8;
+    the one red was packages/core/tests/authoring_lifecycle.rs
+    `mark_abandoned_on_an_authoring_run_writes_a_fallback_summary_inside_its_own_transaction`, "failed to write the
+    authoring stage runtime marker ... No such file or directory" (a runtime-directory race between concurrent core
+    tests). Logged in phase 11 deferred-items.md. Expect an occasional red on ci.yml and open-core.yml until that is
+    fixed; re-running the failed job is the remedy and proves nothing is wrong with the workflow.
+
+- id: D-REV-57
+  phase: "11 - Ship It (plan 11-04)"
+  truth: "One pushed v* tag produces a release carrying FOUR assets: the .dmg, the .app.tar.gz, its .sig, and latest.json with a non-empty signature, and a client can read releases/latest/download/latest.json."
+  status: open
+  why_deferred: |
+    Plan 11-04 proved the pipeline unsigned and can prove only half the assets. 11-01 deliberately left
+    bundle.createUpdaterArtifacts unset (tauri refuses to build updater artifacts without a signing key), so the
+    bundle produces a .dmg and a .app.tar.gz and nothing else. Observed on the throwaway tag v0.0.1-ci (runs
+    38344857442 and 38346874913, both success): exactly two assets, Flywheel_0.0.1-ci_aarch64.dmg (46,101,060 bytes)
+    and Flywheel_aarch64.app.tar.gz (45,857,998 bytes). No .sig, no latest.json. release.yml's asset assertion is
+    conditional for that reason: it always requires the .dmg and .app.tar.gz, and requires the .sig and latest.json
+    the moment tauri.conf.json contains createUpdaterArtifacts. Plan 11-05 adds that key together with the updater
+    keypair, so it is the plan that makes the assertion bite.
+  risk_if_wrong: "High for the self-update claim, none for the first download. If 11-05 lands and the assertion is not exercised on a real tag, a release with no signature or no manifest ships, and no installed client can update from it."
+  automatable: "YES, in the same way 11-04 did it: push a throwaway tag after 11-05 and read gh release view; the assertion step fails the run if any of the four is missing. Delete the tag and release afterwards."

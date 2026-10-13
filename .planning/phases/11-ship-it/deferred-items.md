@@ -27,3 +27,17 @@
 - Effect: a run that failed before writing a line, or whose log was removed, shows a contradiction. The fleet row is a plain jump with no check that there is anything to open.
 - Why not fixed in 11-15: pre-existing, in a file this plan does not edit.
 - Fix shape: render `StartingSessionRow` only while the run is live; for a terminal run with an empty feed say that no output was recorded. Flip the `it.fails` to `it`.
+
+## Found by plan 11-04
+
+### A core test races on the authoring stage runtime marker directory
+
+- File: `packages/core/tests/authoring_lifecycle.rs`, test `mark_abandoned_on_an_authoring_run_writes_a_fallback_summary_inside_its_own_transaction` (panics at line 269, the `start_authoring_run` or `mark_abandoned` unwrap).
+- Evidence: open-core.yml run 38346874919 on macos-14, once in about 8 `cargo test --workspace` executions: `failed to write the authoring stage runtime marker for "01M4SRSBRQ97BK4SBDBF139W70": No such file or directory (os error 2)`. Green on the identical SHA in run 38346860235.
+- Effect: a red ci.yml or open-core.yml, and a red release.yml, with nothing wrong in the change under test. Re-running the failed job clears it. `release.yml` gates the artifact on `cargo test --workspace`, so on the real v0.1.0 tag this can block the release until a re-run.
+- Probable cause (not confirmed): the marker lives in a runtime directory that a concurrent test in the same binary or a sibling binary removes or never creates, the same family of defect as the `pkill -f` cross-file kill fixed in `permission.test.mjs`. Reproduce by running `cargo test -p core --test authoring_lifecycle` in a loop under CPU load.
+- Why not fixed in 11-04: it was not on the path of the failures this plan had to clear, it is one failure in eight, and the cause is a guess. Fix shape: give each test its own runtime directory (a `tempfile::TempDir` passed or exported per test) instead of a shared one.
+
+### GitHub Actions runs of ci.yml and open-core.yml also fire on every tag push
+
+- Both workflows use bare `on: push`, so pushing `v0.1.0` starts ci.yml, open-core.yml and release.yml together, three macos-14 jobs for one tag. Harmless to correctness (the release builds its own copy), wasteful of runner minutes. Fix shape: `on: push: branches: ['**']` in both. Owned by plan 11-03's files, so not changed in 11-04.
