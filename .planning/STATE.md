@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-12-PLAN.md
-last_updated: "2026-10-13T00:27:23.064Z"
+stopped_at: Completed 11-13-PLAN.md
+last_updated: "2026-10-13T00:46:07.865Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 11 execution started
-state_head: 3a485673d1e2b51da42d3d1c0aa518e06b22fe22
+state_head: f095cf80aafea7c02a40009c9d1bf19792fc090a
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 249
-  completed_plans: 232
+  completed_plans: 233
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 5 of 21
+Plan: 6 of 21
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 11 execution started
 
@@ -295,6 +295,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 11 P02 | 15 min | 3 tasks | 4 files |
 | Phase 11 P09 | 3 attempts | 3 tasks | 5 files |
 | Phase 11 P12 | 35 min | 3 tasks | 12 files |
+| Phase 11 P13 | 17 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -684,6 +685,8 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-09: fail_launch(conn, run_id, why) is the single close-the-failed-run helper for every post-insert launch path (D-REV-46)
 - [Phase 11]: 11-12: overlap warning travels via uiStore.launchOverlapWarning, shown by one LaunchOverlapToast in App, because launch surfaces unmount
 - [Phase 11]: 11-12: Tab traversal not asserted in WebKit (WKWebView does not Tab to buttons); jsdom asserts tabbable order, WebKit asserts focus + Enter
+- [Phase 11]: 11-13: epic lens narrows headers client-side from the core's own filtered board_list (fail-open at 500 rows); header counts stay board-wide
+- [Phase 11]: 11-13: row-enter keyframe needs an explicit 'to' - WebKit does not interpolate inset() with none
 
 ### Pending Todos
 
@@ -745,6 +748,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T00:27:22.869Z
-Stopped at: Completed 11-12-PLAN.md
+Last session: 2026-10-13T00:46:07.659Z
+Stopped at: Completed 11-13-PLAN.md
 Resume file: None
