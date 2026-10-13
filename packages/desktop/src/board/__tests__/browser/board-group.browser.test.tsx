@@ -19,7 +19,8 @@
  * that actually sees what these components paint.
  */
 import { describe, expect, it } from "vitest";
-import { render } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { userEvent } from "vitest/browser";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { commands, page } from "vitest/browser";
 import tokensCss from "../../../styles/tokens.css?raw";
@@ -193,7 +194,7 @@ function Page() {
  * browser. This answers the three reads the rail makes with the real board's own numbers (five
  * worktrees, nothing blocked, nothing awaiting a decision) and swallows event subscriptions.
  */
-function installTauriBridge() {
+function installTauriBridge(refuse: string[] = []) {
   const answers: Record<string, unknown> = {
     board_change_flags: (data.worktrees as { task_id: string; ahead: number; dirty: boolean }[]).map((w) => ({
       taskId: w.task_id, epicId: null, ahead: w.ahead, dirty: w.dirty,
@@ -209,7 +210,8 @@ function installTauriBridge() {
   (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
     transformCallback: () => 1,
     unregisterCallback: () => {},
-    invoke: (command: string) => Promise.resolve(answers[command] ?? 1),
+    invoke: (command: string) =>
+      refuse.includes(command) ? Promise.reject(new Error(`${command} refused`)) : Promise.resolve(answers[command] ?? 1),
   };
 }
 
@@ -254,5 +256,73 @@ describe(`board group one, built, ${scheme} scheme`, () => {
     const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>board group one, built, ${scheme}</title>` +
       `<style>${tokensCss}\n${typeCss}\n${motionCss}\n${appCss}</style></head><body>${document.body.innerHTML}</body></html>`;
     await commands.writeFile(`${OUT_FROM_ROOT}/board-group-built-${scheme}.html`, html);
+  });
+});
+
+/**
+ * D-REV-10, the layout half: a challenge row is ONE 48px line of the rack. A staged proposal with a
+ * long agent-written title must truncate the title (the one flexible piece) and keep the type label,
+ * Accept and Reject inside the row, also while a failed decision adds its error beside them. The
+ * accept itself (task appears, epic total +1, failed accept leaves the row) is proved against a fake
+ * core in `challenge-inline.test.tsx`; this is the part jsdom cannot measure, which has no layout.
+ *
+ * Width 716 is the board column at the 900px window minimum beside the 184px project rail, detail panel closed.
+ */
+describe(`challenge row at ${ROW_HEIGHT_BY_KIND.challenge}px, measured in WebKit, ${scheme} scheme`, () => {
+  const LONG = "Should a filter chip persist when the owner switches project, or reset to the default every single time the board is opened again? ".repeat(2);
+
+  function renderChallenge() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <div className="rack-ground" style={{ width: 716 }}>
+          <Sized kind="challenge">
+            <ChallengeRow proposal={proposal("p-long", LONG, "question")} epicLabel="THRE-14 Filters" />
+          </Sized>
+        </div>
+      </QueryClientProvider>,
+    );
+    return document.querySelector<HTMLElement>("[data-challenge-id]")!;
+  }
+
+  /** Every piece of the row, named, that sits outside the row's own box. */
+  function escapes(row: HTMLElement): string[] {
+    const box = row.getBoundingClientRect();
+    return Array.from(row.querySelectorAll<HTMLElement>("span, button"))
+      .map((el) => ({ name: (el.getAttribute("aria-label") ?? el.textContent ?? el.tagName).slice(0, 30), r: el.getBoundingClientRect() }))
+      .filter(({ r }) => r.width > 0 && (r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5 || r.left < box.left - 0.5 || r.right > box.right + 0.5))
+      .map(({ name, r }) => `${name} spans x ${Math.round(r.left)}-${Math.round(r.right)}, y ${Math.round(r.top)}-${Math.round(r.bottom)} outside the row x ${Math.round(box.left)}-${Math.round(box.right)}, y ${Math.round(box.top)}-${Math.round(box.bottom)}`);
+  }
+
+  it("truncates a long title with an ellipsis and keeps the label, Accept and Reject inside the 48px row", () => {
+    const row = renderChallenge();
+    expect(row.getBoundingClientRect().height).toBe(ROW_HEIGHT_BY_KIND.challenge);
+    expect(row.scrollWidth, "the row overflows sideways instead of truncating its title").toBeLessThanOrEqual(row.clientWidth);
+
+    const title = screen.getByText(LONG.trim());
+    expect(getComputedStyle(title).textOverflow).toBe("ellipsis");
+    expect(title.scrollWidth, "the title is not long enough to exercise truncation").toBeGreaterThan(title.clientWidth);
+    expect(title.getBoundingClientRect().height, "the title wrapped onto a second line").toBeLessThan(ROW_HEIGHT_BY_KIND.challenge / 2);
+
+    for (const name of [/^Accept /, /^Reject /]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.getBoundingClientRect().height, `${name} button is taller than its row`).toBeLessThanOrEqual(ROW_HEIGHT_BY_KIND.challenge);
+    }
+    expect(escapes(row), "a piece of the challenge row escapes its 48px box").toEqual([]);
+  });
+
+  it("keeps the same pieces inside the row, and the title still readable, when a failed decision adds its error", async () => {
+    installTauriBridge(["authoring_proposal_accept"]);
+    const row = renderChallenge();
+    await userEvent.click(screen.getByRole("button", { name: /^Accept / }));
+    const alert = await waitFor(() => screen.getByRole("alert"));
+    expect(alert.textContent).toContain("Could not accept");
+
+    expect(row.getBoundingClientRect().height).toBe(ROW_HEIGHT_BY_KIND.challenge);
+    expect(escapes(row), "the error pushed a piece of the challenge row out of its 48px box").toEqual([]);
+    // The error must not squeeze the title to nothing: a row that says "Could not accept" about a
+    // proposal the reader can no longer identify is not legible.
+    const title = screen.getByText(LONG.trim());
+    expect(title.clientWidth, "the error squeezed the title out of the row").toBeGreaterThanOrEqual(80);
   });
 });
