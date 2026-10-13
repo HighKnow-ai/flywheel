@@ -10,7 +10,7 @@
  * avoid. The third (does the rail *feel* usable) is a judgement, and what is left of it for a human
  * is named at the bottom.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { page } from "vitest/browser";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -139,6 +139,46 @@ describe("UAT 2 — the rail over a long diff", () => {
     // At review width the three panes fit without the page itself scrolling sideways.
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth + 1);
   });
+});
+
+/**
+ * D-REV-07's threshold, stated so the remaining judgement is answerable rather than a shrug: at the
+ * narrowest window the app allows (`tauri.conf.json` minWidth 900) the rail scrolls on its own, no
+ * control in it is clipped by its edge, the first criterion is on screen at scroll 0, and the page
+ * never scrolls sideways. Whether that FEELS usable is the only part left for a person.
+ */
+describe("UAT 2 — the rail at the narrowest window the app allows (D-REV-07)", () => {
+  afterEach(async () => {
+    await page.viewport(1440, 900);
+  });
+
+  for (const scope of ["task", "epic"] as const) {
+    it(`keeps the ${scope}-scope rail scrollable, unclipped and starting at its first criterion at 900px wide`, async () => {
+      await page.viewport(900, 600);
+      state.longFile = true;
+      renderSurface(scope);
+      const aside = await screen.findByRole("complementary", { name: "Criteria rail" });
+      const rail = aside.parentElement as HTMLElement;
+      await screen.findByRole("region", { name: "Acceptance criteria" });
+
+      expect(["auto", "scroll"], "the rail has no vertical scroll of its own").toContain(getComputedStyle(rail).overflowY);
+      expect(rail.scrollTop).toBe(0);
+
+      const edge = rail.getBoundingClientRect();
+      const controls = Array.from(aside.querySelectorAll<HTMLElement>("button, input, [role='checkbox']"));
+      expect(controls.length, "the rail rendered no controls to measure").toBeGreaterThan(0);
+      const clipped = controls
+        .map((el) => ({ el, r: el.getBoundingClientRect() }))
+        .filter(({ r }) => r.left < edge.left - 1 || r.right > edge.right + 1)
+        .map(({ el, r }) => `${(el.getAttribute("aria-label") ?? el.textContent ?? el.tagName).slice(0, 40)} spans ${Math.round(r.left)}-${Math.round(r.right)} outside the rail ${Math.round(edge.left)}-${Math.round(edge.right)}`);
+      expect(clipped, "a rail control is clipped by the rail's edge").toEqual([]);
+
+      const first = controls[0].getBoundingClientRect();
+      expect(first.top, "the first control starts above the rail").toBeGreaterThanOrEqual(edge.top - 1);
+      expect(first.bottom, "the first control starts below the rail's visible area").toBeLessThanOrEqual(edge.bottom);
+      expect(document.documentElement.scrollWidth, "the page scrolls sideways").toBeLessThanOrEqual(document.documentElement.clientWidth + 1);
+    });
+  }
 });
 
 describe("UAT 2 — the epic roll-up beneath the epic's own criteria", () => {
