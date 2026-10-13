@@ -154,7 +154,8 @@ function ConflictExits({
   } as const;
   return (
     <div style={{ display: "flex", gap: "var(--space-md)" }}>
-      <button type="button" disabled={starting} onClick={onResolve} className="type-label" style={{ ...style, opacity: starting ? 0.6 : 1 }}>
+      {/* The confirm button that held focus has just unmounted; focus follows what is rendered (D-REV-02). */}
+      <button type="button" autoFocus disabled={starting} onClick={onResolve} className="type-label" style={{ ...style, opacity: starting ? 0.6 : 1 }}>
         Start a session to resolve
       </button>
       <button type="button" onClick={onOpenEditor} className="type-label" style={style}>

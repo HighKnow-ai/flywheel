@@ -240,6 +240,27 @@ describe("UAT 6 — Enter and Space really activate a focused button (CR-03)", (
   });
 });
 
+describe("D-REV-02 — leaving a conflicting merge result by keyboard", () => {
+  it("lands focus on a conflict exit when the result renders, and Enter on it activates it (no Tab: see header)", async () => {
+    state.precheck = CONFLICTED_PRECHECK;
+    spies.mergeTask.mockResolvedValue({ kind: "conflicted", files: ["src/lib.rs"] });
+    renderSurface();
+    await surfaceReady();
+    await activateByKey("Merge", "{Enter}");
+    const sheet = await screen.findByRole("dialog", { name: "Merge sheet" });
+    await activateByKey("Attempt merge", "{Enter}", sheet);
+
+    const first = await waitFor(() => {
+      const b = buttonNamed("Start a session to resolve", sheet);
+      expect(b).toBeTruthy();
+      return b as HTMLButtonElement;
+    });
+    await waitFor(() => expect(document.activeElement).toBe(first));
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(spies.startAgentRun).toHaveBeenCalledTimes(1));
+  });
+});
+
 describe("UAT 6 — reaching those buttons with the keyboard alone", () => {
   // The route is a binding, not Tab: see this file's header. No test here presses Tab.
   async function epicSurfaceReady() {
