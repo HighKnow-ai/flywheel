@@ -41,3 +41,17 @@
 ### GitHub Actions runs of ci.yml and open-core.yml also fire on every tag push
 
 - Both workflows use bare `on: push`, so pushing `v0.1.0` starts ci.yml, open-core.yml and release.yml together, three macos-14 jobs for one tag. Harmless to correctness (the release builds its own copy), wasteful of runner minutes. Fix shape: `on: push: branches: ['**']` in both. Owned by plan 11-03's files, so not changed in 11-04.
+
+## Found by plan 11-16
+
+### The PATH shim raises a permission request for read-only git commands it does not list
+
+- Files: `packages/core/src/destructive.rs` (`SAFE_GIT_SUBCOMMANDS`, `classify_git`), reached through `packages/shim`.
+- Evidence: running `uat-13` with a fake agent that called `git rev-parse HEAD` and `git -c user.email=... -c user.name=... add -- f` produced a `permission_request` for each (`destructiveCategory: "uncategorized"`) and the session sat blocked until the harness timed out. Plain `git add`, `git commit` and `git log` passed. `rev-parse` is not in `SAFE_GIT_SUBCOMMANDS`, and a command line that opens with global options (`-c`, `-C <dir>`) has the option as its "subcommand", which no arm matches.
+- Effect: a dispatched run (acceptEdits) whose agent runs `git rev-parse HEAD`, `git -C path status`, `git ls-tree`, `git cat-file` or `git symbolic-ref` stops as `blocked` and holds a cap slot until a person answers. The design is deliberate (the module is fail-closed and says it never uses a catch-all), so this is a coverage question, not a bug in the classifier. Agents reach for `rev-parse` constantly.
+- Why not fixed in 11-16: it is a product-policy change in `destructive.rs` with its own tests, outside this plan's files. Not hit by the harness after it switched to `git log` and environment-supplied identity.
+- Fix shape: add the read-only subcommands (`rev-parse`, `ls-tree`, `cat-file`, `symbolic-ref`, `rev-list`, `merge-base`, `for-each-ref`, `name-rev`, `show-ref`) to the allow-list, and skip leading `-c <kv>` / `-C <dir>` pairs before choosing the subcommand. Each needs a test that the destructive forms of the same family (`git -c ... push --force`) still classify as before.
+
+### The register's "Read, Grep, Glob" wording is stale for the installed CLI
+
+- `claude` 2.1.287 offers no Grep or Glob tool; search goes through Bash. Recorded under D-REV-35 in `DEFERRED-REVIEW.md`. No prompt or source file in this repository names Grep or Glob (grepped), so nothing is broken by it; only the register's sentence is out of date.
