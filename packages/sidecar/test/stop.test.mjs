@@ -158,6 +158,21 @@ test("interrupting a stubborn session escalates to a group SIGTERM and tears dow
   assert.ok(closed, "expected a session_closed event for the stubborn session");
   assert.equal(closed.reason, "interrupted");
 
+  // The group SIGTERM has been sent by the time the session closes, but the grandchild is
+  // reparented to launchd and only disappears from the process table once that reaps it. On a
+  // loaded CI runner that lags the close by a few hundred ms (11-04: green once, red once on the
+  // same code), so poll for the disappearance rather than sampling it at one instant.
+  await waitForCondition(
+    () => {
+      try {
+        process.kill(grandchildPid, 0);
+        return false;
+      } catch (err) {
+        return err.code === "ESRCH";
+      }
+    },
+    { timeoutMs: 3000 },
+  ).catch(() => {});
   assert.throws(
     () => process.kill(grandchildPid, 0),
     (err) => err.code === "ESRCH",
