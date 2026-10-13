@@ -345,6 +345,20 @@ context to be answerable months later by someone who was not in the room:
   automatable: "PARTLY. The no-clipping and reachability half is already a WebKit test (dispatch-layout.browser.test.tsx). The click path through the packaged app and the judgement of how it looks are not."
   update_11-14: "Containment and reachability half CLOSED across every state the truth names: dispatch-layout.browser.test.tsx now measures the cell in eight states plus the Stop confirmation (nothing planned, planning in progress, draft, running with a stuck task, paused plan, paused gate with and without a reset time, warning gate) with its words present, every control inside the 64px row's cell and reachable by Option+Tab, and the sheet in five (draft with wave pickers and path fields, a path edit with a long core refusal, the wave picker, a failed Approve, a plan in force), light and dark. FOUND, not fixed (pre-existing, see deferred-items.md): a refused Approve renders its message at the end of the scrolling body, below the fold for any plan taller than the dialog; held as an `it.fails`. STILL NOT AUTOMATED, two separate things: (1) the click path through the PACKAGED app is scriptable once the installed build from 11-08 exists; no physical obstacle, route to 11-21. (2) how the sheet and row LOOK is aesthetic judgement and stays human."
 
+- id: D-REV-61
+  phase: "11 - Ship It (plan 06, DIST-02, D-187, D-188)"
+  truth: "In an installed build older than the latest release, the update banner appears over the running application, naming the new version and its notes; accepting it stages the update; a relaunch runs the new version; and with an agent running the banner names the count and installs nothing."
+  status: open
+  why_deferred: |
+    Physical: it needs two installed builds of different versions, a published newer release, and a real
+    relaunch. What IS proven: the banner, its dismissal, the live-run count and the failed-install case in
+    jsdom over a stubbed adapter, mounted in the real application shell on both the board and a fresh
+    install; and (plan 11-05) the Rust refusal and a four-asset release with a signature made by the owner's
+    key. NOT shown: that an installed older build downloads, verifies and installs a newer one (D-REV-57's
+    installed-client half), and how the banner LOOKS in the corner of a real window.
+  risk_if_wrong: "Moderate for the update path (a user is stranded on an old build), low for the look. Releases are unsigned by Apple (D-REV-60); the update payload is verified by the Tauri updater key, a different trust root."
+  automatable: "PARTLY. Install v0.1.0, publish v0.1.1, launch and read the banner from the DOM is scriptable once 11-08's installed build exists. How it looks is aesthetic judgement."
+
 ## Redemption protocol
 
 At Phase 11, with an installed, usable build:

@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-22-PLAN.md
-last_updated: "2026-10-13T13:24:25.349Z"
+stopped_at: Completed 11-06-PLAN.md
+last_updated: "2026-10-13T13:42:34.786Z"
 last_activity: 2026-10-13
 last_activity_desc: Phase 11 execution started
-state_head: c1beffc0fba899a8ad2e737dd7f5e203d2117495
+state_head: 37a4edc9e979a37295331243a37a1c57819fe7ef
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 250
-  completed_plans: 243
+  completed_plans: 245
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 9 of 21
+Plan: 10 of 21
 Status: Ready to execute
 Last activity: 2026-10-13 — Phase 11 execution started
 
@@ -306,6 +306,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 11 P18 | 25 min | 3 tasks | 20 files |
 | Phase 11 P05 | 2h | 3 tasks | 11 files |
 | Phase 11 P22 | 25 min | 2 tasks | 13 files |
+| Phase 11 P06 | 20 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -709,6 +710,7 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-17: the nine high finish-review findings (no masthead, split controls row, review pane order and file column, no +/- diff sign, session header without a task name, proposal row eyebrow, triage button wall, rail counts) are owner decisions or larger than a finish pass; recorded for D-196, not fixed — Independent reviewers returned fix on every group; only defects that were small, contract-clear and testable were fixed (8); contract-contradicting findings were rejected with the sentence quoted (8); the rest recorded (45)
 - [Phase 11]: 11-18: the developer's turn keeps the brand colour; recorded in 08.1-UI-SPEC as an existing use D-199 did not decide, filed at 11-21 as an owner decision — Moving it to ink would remove the feed's only speaker channel; a replacement is a design call the owner has not made
 - [Phase 11]: 11-05: tauri-plugin-updater pinned =2.12.0; tauri stays =2.11.5 (D-181). update_install re-checks the live-run count after the download, before the install (D-188).
+- [Phase 11]: 11-06: update banner is position:fixed bottom-right (not a flex row); dismissal is a per-window version string; display count from fleet read, Rust refusal count shown when fleet read missed it
 
 ### Pending Todos
 
@@ -771,6 +773,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T13:24:25.142Z
-Stopped at: Completed 11-22-PLAN.md
+Last session: 2026-10-13T13:42:34.585Z
+Stopped at: Completed 11-06-PLAN.md
 Resume file: None

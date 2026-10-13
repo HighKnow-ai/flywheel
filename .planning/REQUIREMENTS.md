@@ -136,7 +136,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 ### Distribution
 
 - [ ] **DIST-01**: The application installs and runs on macOS from a signed, notarized build
-- [ ] **DIST-02**: The application updates itself to new releases without a manual reinstall
+- [x] **DIST-02**: The application updates itself to new releases without a manual reinstall
 - [ ] **DIST-03**: A developer can clone the repository and build a working desktop application from source following the documented steps
 - [x] **DIST-04**: The open-source desktop application is fully functional standalone, with no feature gated behind an account or network service
 
@@ -310,7 +310,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | REVW-04 | Phase 8 | Complete |
 | REVW-05 | Phase 8 | Complete |
 | DIST-01 | Phase 11 | Pending |
-| DIST-02 | Phase 11 | Pending |
+| DIST-02 | Phase 11 | Complete |
 | DIST-03 | Phase 11 | Pending |
 | DIST-04 | Phase 11 | Complete |
 
