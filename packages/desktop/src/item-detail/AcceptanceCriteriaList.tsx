@@ -494,6 +494,10 @@ export function AcceptanceCriteriaList({
               }}
               style={{
                 display: "flex",
+                // Wrap, so a narrow host (the review rail at the 900px window minimum) drops the
+                // actions below the statement instead of squeezing it to a word a line and
+                // pushing the buttons past the container's edge (D-REV-07).
+                flexWrap: "wrap",
                 alignItems: "flex-start",
                 gap: "var(--space-sm)",
                 padding: "var(--space-sm) var(--space-sm)",
@@ -540,7 +544,7 @@ export function AcceptanceCriteriaList({
                   />
                 </span>
               ) : (
-                <span style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                <span style={{ display: "flex", flexDirection: "column", flex: "1 1 10rem", minWidth: 0 }}>
                   <span className="type-body">
                     {criterion.statement}
                     {criterion.revisionOf && <RevisedMarker criterionId={criterion.id} />}
