@@ -1,0 +1,63 @@
+name: CI
+
+# DIST-03: every push is a clean-clone build on a machine that has only the
+# prerequisites listed in README.md. The commands below are the README's
+# "Building from source" commands, in the same order.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            packages/desktop/package-lock.json
+            packages/sidecar/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm --prefix packages/sidecar ci
+
+      - run: npm --prefix packages/desktop ci
+
+      # Staging MUST precede every cargo step. tauri_build::build() fails the
+      # whole workspace build when a bundle.externalBin file is missing, so a
+      # fresh clone cannot even `cargo test` until the three
+      # binaries/flywheel-* files exist.
+      - run: npm --prefix packages/sidecar run build:dist
+
+      - run: npm --prefix packages/sidecar test
+
+      - run: cargo build --workspace
+
+      - run: cargo test --workspace
+
+      - run: npm --prefix packages/desktop test
+
+      - run: npm --prefix packages/desktop run build
+
+      # Unsigned (D-185). The signing identity lives only in the release workflow.
+      - run: npm --prefix packages/desktop run tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flywheel-dmg
+          path: target/release/bundle/dmg/*.dmg
+          retention-days: 7
