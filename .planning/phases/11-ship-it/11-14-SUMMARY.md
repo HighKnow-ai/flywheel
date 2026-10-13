@@ -23,7 +23,7 @@ key-files:
     - packages/desktop/src/dispatch/__tests__/dispatch-layout.browser.test.tsx
     - .planning/DEFERRED-REVIEW.md
 key-decisions:
-  - "No real hard rate limit exists in any log on this machine, so every rejected fixture shape is labelled `documented`, never `observed`."
+  - "A real hard limit is observed only in Claude Code transcripts (assistant error shape); the rate_limit_event rejected shapes are labelled `documented`, never `observed`."
   - "A defect found in WavePlanSheet (refused Approve renders below the fold) is held as an it.fails and logged, not fixed: pre-existing and the plan forbids restructuring that file."
 requirements-completed: [DIST-04]
 status: complete
@@ -45,16 +45,20 @@ The rate-limit tier is now driven from a frozen fixture that records which shape
 
 Legend: "first run" = the test passed when first written (the behaviour was already correct). "caught" = it found a real defect. No RED run was manufactured.
 
-### D-REV-32 (rate limit on the wire) - live half CLOSED accepted-by-design; wire shape still UNOBSERVED
+### D-REV-32 (rate limit on the wire) - live half CLOSED accepted-by-design; the event-line shape is still UNOBSERVED, the assistant-error shape is now observed
 
 Tests, all in `packages/sidecar/test/rate-limit-wire.test.mjs`, reading `packages/sidecar/test/fixtures/rate-limit-rejected.json`:
-- `fixture: every documented hard-limit shape classifies rejected, and says it was never observed` - first run
+- `fixture: every hard-limit shape classifies rejected, and each says whether it was observed or only documented` - first run
 - `fixture: observed soft and overage-rejected lines do NOT classify rejected (so rejected is not vacuous)` - first run (the negative case)
 - `fixture: a frozen rejected line reaches the stream as the rejected-tier event the dispatcher keys on (the pause itself is dispatch_limit_gate.rs)` - first run
 
-The fixture records provenance per shape. I searched the Flywheel session logs (`~/Library/Application Support/Flywheel/sessions/*.jsonl`, which keep every raw line) and `~/.claude/projects` for a `rejected` status: there is none, only `allowed` and `allowed_warning`. So the two rejected-status shapes and the assistant-error shape are `documented` (09-RESEARCH.md A2/M6, citing the Agent SDK's documented status and `SDKAssistantMessageError` value), and the two real captures are `observed`. The first test asserts every rejected shape is labelled `documented`, so a hand-written shape cannot pass as an observed one; when a real line is swapped in, that assertion is the cue to relabel.
+**Correction made after I first wrote this plan as complete.** My first pass searched the Flywheel session logs and a time-limited grep of `~/.claude/projects`, concluded no hard limit had ever been observed, and wrote that into the fixture header, the register and this file. That was wrong. A later look at the grep's three unread hits showed Claude Code's own transcripts record real hard limits (four records from 2026-09-21: "You've hit your session limit" and "weekly limit"). The cause was an unfinished search I treated as finished. All three places are corrected.
 
-Live half: not pursued. Register's own words: "Provoking one deliberately is not something to do (it is the abuse this requirement exists to avoid)." Closed as `accepted-by-design`. What this does NOT close: that the documented shape is what a real limit looks like is still unconfirmed, and the register's `risk_if_wrong` stands. The pause itself is asserted by the existing `packages/core/tests/dispatch_limit_gate.rs`, which I did not re-run (the sidecar half is what this plan covers).
+What is observed: an assistant message with `error: "rate_limit"`, `isApiErrorMessage: true`, `apiErrorStatus: 429` and `quotaLimits.status: "rejected"`. It is frozen as provenance `observed-transcript`, and the adapter classifies it as `rateLimitTier: "rejected"` (it passed on first run, so no defect). Limits of that record: it is an interactive-CLI transcript serialisation (camelCase `isApiErrorMessage`), not a `-p --output-format stream-json` line, so the exact spelling the adapter sees from the sidecar's stream is not confirmed by it.
+
+What is still not observed: a top-level `rate_limit_event` line whose `rate_limit_info.status` is `rejected`. Those fixture shapes stay `documented` and a test asserts it, so they cannot be mistaken for captures.
+
+Live half: not pursued. Register's own words: "Provoking one deliberately is not something to do (it is the abuse this requirement exists to avoid)." Closed as `accepted-by-design`. The pause itself is asserted by the existing `packages/core/tests/dispatch_limit_gate.rs`, which I did not re-run.
 
 ### D-REV-33 (scope-denied row and refusal badge) - layout half CLOSED; live widen and "noticeable" remain
 
@@ -84,7 +88,7 @@ One of my own first assertions (a 20px minimum picker height) was an invented nu
 
 | Task | Commit | Notes |
 | ---- | ------ | ----- |
-| 1 D-REV-32 | e8db406 | test only; behaviour already correct |
+| 1 D-REV-32 | e8db406 | test only; behaviour already correct (provenance corrected in a follow-up commit) |
 | 2 D-REV-33 | 7fd4c42 | test only; mutation-checked |
 | 3 D-REV-36 | de68f90 | test only; one `it.fails` for the found defect |
 | register + deferred item | 0b129fa | docs |

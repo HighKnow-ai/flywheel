@@ -688,7 +688,7 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-12: Tab traversal not asserted in WebKit (WKWebView does not Tab to buttons); jsdom asserts tabbable order, WebKit asserts focus + Enter
 - [Phase 11]: 11-13: epic lens narrows headers client-side from the core's own filtered board_list (fail-open at 500 rows); header counts stay board-wide
 - [Phase 11]: 11-13: row-enter keyframe needs an explicit 'to' - WebKit does not interpolate inset() with none
-- [Phase 11]: 11-14: rate-limit fixture shapes are labelled documented, not observed; no real hard limit exists in any log (D-REV-32 live half closed accepted-by-design)
+- [Phase 11]: 11-14: rate-limit fixture labels provenance per shape: the assistant rate_limit error is observed (Claude Code transcript), the rate_limit_event rejected shapes are only documented (D-REV-32 live half closed accepted-by-design)
 - [Phase 11]: 11-14: WebKit plain Tab skips buttons; reachability probes use Option+Tab. A refused Approve renders below the fold in WavePlanSheet (it.fails, deferred-items.md)
 
 ### Pending Todos

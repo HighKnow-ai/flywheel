@@ -159,16 +159,19 @@ test("through the real stream path a rate_limit error on an assistant message ar
 // D-REV-32: the same classification, driven from the frozen fixture so provenance is on record.
 const FROZEN = JSON.parse(readFileSync(path.join(__dirname, "fixtures/rate-limit-rejected.json"), "utf8")).shapes;
 
-test("fixture: every documented hard-limit shape classifies rejected, and says it was never observed", () => {
+test("fixture: every hard-limit shape classifies rejected, and each says whether it was observed or only documented", () => {
   const hard = FROZEN.filter((s) => s.expectTier === "rejected" || s.expectRateLimitTier === "rejected");
-  assert.ok(hard.length >= 2, "at least the status shape and the assistant-error shape");
+  assert.ok(hard.length >= 3, "the status shapes and the assistant-error shapes");
   for (const shape of hard) {
     assert.ok(shape.source.length > 0, `${shape.name} records where its shape came from`);
     const event = normalise(shape.line);
     if (shape.expectTier) assert.equal(event.tier, "rejected", shape.name);
     if (shape.expectRateLimitTier) assert.equal(event.rateLimitTier, "rejected", shape.name);
   }
-  assert.ok(hard.every((s) => s.provenance === "documented"), "no rejected line is observed yet; relabel when one is");
+  // A top-level rate_limit_event with status rejected has never been seen; only the assistant-error shape has,
+  // in a Claude Code transcript (see the fixture's `honesty`). Relabel the event shapes when one is captured.
+  assert.ok(hard.filter((s) => s.line.type === "rate_limit_event").every((s) => s.provenance === "documented"));
+  assert.ok(hard.some((s) => s.provenance === "observed-transcript"), "the one real hard limit on record stays in the fixture");
 });
 
 test("fixture: observed soft and overage-rejected lines do NOT classify rejected (so rejected is not vacuous)", () => {
