@@ -19,7 +19,7 @@
  * the sheet's scrim, shadow and edge resolve to the per-mode roles.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { commands, page, userEvent } from "vitest/browser";
 import data from "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
@@ -111,6 +111,7 @@ import "../../../styles/type.css";
 import "../../../styles/motion.css";
 import "../../../App.css";
 import { SessionSurface } from "../../SessionSurface";
+import { BoardRow } from "../../../board/BoardRow";
 import { LaunchSheet } from "../../../launch-sheet/LaunchSheet";
 import { resetUiState } from "../../../state/uiStore";
 import { LIGHT, DARK } from "../../../theme/tokens";
@@ -445,5 +446,96 @@ describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" :
     await settle();
     await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-launch-sheet-1440x900.png` });
     await writeHtml("session-group-launch-sheet");
+  });
+});
+
+// D-REV-33 (plan 11-14): the scope-denied feed row and the per-task refusal badge, measured in WebKit.
+// Layout and reachability only: whether a truncated row or a 12px glyph beside a count is "noticeable"
+// is aesthetic judgement and stays in the register. No font size is touched here (11-18 owns that).
+describe(`scope-denied feed row and refusal badge, ${scheme} scheme`, () => {
+  const SHORT_PATH = "src/a.rs";
+  const LONG_PATH = `src/${"deeply-nested-directory-name/".repeat(10)}file.rs`; // 300+ characters
+  const denial = (seq: number, path: string) => ({
+    runId: "run-1", seq, at: at(seq), raw: `s${seq}`, type: "scope_denied", tool: "Write", path, outsideWorktree: false,
+  });
+
+  async function mountWithDenial(path: string) {
+    world.events = [denial(0, path)];
+    world.requests = [];
+    mountSession();
+    const row = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-kind="scope_denied"]');
+      expect(el, "the denial row").not.toBeNull();
+      return el!;
+    });
+    return row;
+  }
+
+  it("a 300-character refusal stays one line: the row is exactly as tall as with a short one, and the widen action stays inside it", async () => {
+    expect(LONG_PATH.length).toBeGreaterThanOrEqual(300);
+    const shortRow = await mountWithDenial(SHORT_PATH);
+    const shortHeight = shortRow.getBoundingClientRect().height;
+    const shortSlot = shortRow.closest<HTMLElement>('[data-testid="feed-row-slot"]')!.getBoundingClientRect().height;
+    cleanup();
+
+    const row = await mountWithDenial(LONG_PATH);
+    const slot = row.closest<HTMLElement>('[data-testid="feed-row-slot"]')!;
+    const text = row.querySelector<HTMLElement>("span.type-micro")!;
+    const widen = screen.getByRole("button", { name: "Widen scope to this path" });
+
+    expect(row.getBoundingClientRect().height, "row height does not grow with the message").toBe(shortHeight);
+    expect(slot.getBoundingClientRect().height, "the reserved slot is the same too").toBe(shortSlot);
+    expect(text.scrollWidth, "the long message is really cut, by an ellipsis, not wrapped").toBeGreaterThan(text.clientWidth);
+    expect(getComputedStyle(text).textOverflow).toBe("ellipsis");
+    expect(getComputedStyle(text).whiteSpace).toBe("nowrap");
+    expect(text.textContent).toContain(LONG_PATH); // the whole message is in the DOM, only painted short
+    expect(text.getAttribute("title")).toContain(LONG_PATH);
+
+    const r = row.getBoundingClientRect();
+    const w = widen.getBoundingClientRect();
+    expect(w.left, "widen is not pushed out the left").toBeGreaterThanOrEqual(r.left);
+    expect(w.right, "widen is not pushed out the right").toBeLessThanOrEqual(r.right + 0.5);
+    expect(w.top).toBeGreaterThanOrEqual(r.top);
+    expect(w.bottom).toBeLessThanOrEqual(r.bottom + 0.5);
+    expect(w.width, "the action keeps its natural width").toBeGreaterThan(40);
+    expect(text.getBoundingClientRect().right, "the text ends before the action begins").toBeLessThanOrEqual(w.left + 0.5);
+  });
+
+  it("the widen action is reachable from the keyboard (Option+Tab: WebKit's plain Tab skips every button by default, see review/keyboard.browser.test.tsx)", async () => {
+    await mountWithDenial(LONG_PATH);
+    const widen = screen.getByRole("button", { name: "Widen scope to this path" });
+    expect(widen.tagName, "a native button, so Enter and Space activate it").toBe("BUTTON");
+    expect(widen.getAttribute("tabindex"), "not taken out of the focus order").not.toBe("-1");
+    expect((widen as HTMLButtonElement).disabled).toBe(false);
+    let reached = false;
+    for (let i = 0; i < 20 && !reached; i++) {
+      await userEvent.keyboard("{Alt>}{Tab}{/Alt}");
+      reached = document.activeElement === widen;
+    }
+    expect(reached, "sequential focus arrives at the widen action within 20 presses").toBe(true);
+  });
+
+  it("a count of 20 renders a badge, a task with none renders nothing at all", async () => {
+    const item = { id: "t-20", key: "FLY-20", title: "Fought its file set", status: "in_progress", rank: "10", priority: 0, epicId: null, kind: "task" } as const;
+    const { unmount } = render(
+      <div style={{ width: 716 }} className="rack-ground">
+        <BoardRow item={item} scopeDenied={20} />
+        <BoardRow item={{ ...item, id: "t-0", key: "FLY-0", title: "Never refused" }} />
+      </div>,
+    );
+    const badges = screen.getAllByTestId("scope-badge");
+    expect(badges, "only the task with refusals carries a badge").toHaveLength(1);
+    expect(badges[0].textContent).toBe("20");
+    expect(badges[0].getAttribute("aria-label")).toBe("20 scope refusals");
+    const b = badges[0].getBoundingClientRect();
+    expect(b.width, "the count is painted, with its glyph").toBeGreaterThan(12);
+    const row = badges[0].closest<HTMLElement>('[role="listitem"]')!.getBoundingClientRect();
+    expect(b.right).toBeLessThanOrEqual(row.right);
+    expect(b.top).toBeGreaterThanOrEqual(row.top);
+    expect(b.bottom).toBeLessThanOrEqual(row.bottom);
+    const quiet = screen.getByText("Never refused").closest<HTMLElement>('[role="listitem"]')!;
+    expect(quiet.querySelector('[data-testid="scope-badge"]'), "zero is an absent badge, not a printed 0").toBeNull();
+    expect(quiet.getAttribute("aria-label")).not.toMatch(/scope refusal/);
+    unmount();
   });
 });
