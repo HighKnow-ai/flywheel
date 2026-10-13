@@ -810,7 +810,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-39
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-03, WR-04, WR-05, WR-07, and the three Info items)"
   truth: "Five lower-severity review findings stand unfixed: a run row inserted then abandoned on error leaks a cap slot permanently (`agent_run.rs:734`); a persistently failing `run_merge` flaps state and appends an event every 5s; `is_startable` relaunches a task the user ran manually; the `AppState.db` mutex is held across `git config` subprocesses; plus dead code (`EDGE_CAUSE_WIDEN`, `may_merge`, `hold_for_limit`), unattended spawns attributed to the human actor, and ASCII-only case-folding that errs lax for overlap detection."
-  status: open
+  status: resolved
   why_deferred: |
     Deliberate scope call at the phase close: the two Criticals were fixed because they inverted the
     phase's core value on the default path; these were filed instead of fixed, per the standing
@@ -818,6 +818,29 @@ At Phase 11, with an installed, usable build:
     design decision, unlike D-REV-37 and D-REV-38.
   risk_if_wrong: "Medium-low individually. WR-03 is the worst of them: a leaked cap slot is permanent and silently shrinks the parallelism budget until restart. WR-05 can double-run a task. The rest are noise, latency or cosmetics."
   automatable: "YES, all seven. Each is a narrow unit test; none needs a live account or human judgement."
+
+  **RESOLVED 2026-10-13 by plan 11-10 (with 11-09 for the first finding).** The entry held seven findings;
+  the register's text listed them out of the review's order. Each, with what closes it:
+  - Leaked cap slot after a post-insert launch error (WR-03): closed by plan 11-09 (`fail_launch`, D-REV-46).
+  - Failing merge flaps and appends an event every tick (WR-04): `merge_task` no longer walks a
+    `needs_attention` task through `merging` on a retry, so `mark_needs_attention`'s dedupe meets the state it
+    wrote. Test: `a_persistently_failing_merge_appends_one_event_and_does_not_flap`.
+  - `is_startable` relaunches a task the user ran by hand (WR-05): refused when the latest run's trigger was
+    fired by a human after the plan was created, and `decide` ADOPTS that run (merges it, or records that it
+    ended). Tests: `a_task_the_user_ran_by_hand_is_not_relaunched_and_its_finished_work_is_adopted`,
+    `a_dispatcher_started_task_held_by_the_limit_is_still_retried`,
+    `a_manual_run_older_than_the_plan_does_not_stop_the_plan_starting_the_task`.
+  - `AppState.db` held across `git config` (WR-07): the case probe now runs with no lock held in `plan_dto`,
+    approve, widen, the launch body and the planning run. Tests: `no_desktop_command_runs_the_case_probe_under_the_database_lock`
+    (a source gate, mutation-checked) and `the_observed_case_flag_is_the_repositorys_core_ignorecase` (desktop). Remaining `git config` sites are listed in D-REV-58 and the 11-10 SUMMARY.
+  - Dead code (IN-01): CORRECTED, not wholly true. `EDGE_CAUSE_WIDEN` is used by `record_widen_sequencing` and
+    stays. `may_merge` and `hold_for_limit` had only test callers and are removed.
+  - Unattended spawns attributed to the human (IN-02): the dispatcher's launch is initiated by the system actor
+    and `start_agent_run` flags it automatic. Tests: `an_unattended_start_is_attributed_to_the_system_actor_and_a_manual_one_to_the_human`
+    (core) and `a_dispatcher_launch_is_attributed_to_the_system_actor_and_a_manual_launch_to_the_human` (desktop).
+  - ASCII-only case fold (IN-03): `to_lowercase`. Test: `launch_conflict_folds_non_ascii_case_so_the_strict_side_wins`.
+  Not fixed, filed as D-REV-58: NFC/NFD equivalence, the unset-flag default, the second half of WR-04, plan
+  approval re-validating its tasks, and `git config core.hooksPath` under the lock at project registration.
 
 - id: D-REV-40
   phase: "09 — Planned Fan-Out (process finding, not a code defect)"
@@ -884,7 +907,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-44
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-02; verifier-confirmed in code)"
   truth: "The launch body and the dispatcher return the same verdict for the same pair on every repository."
-  status: open
+  status: resolved
   why_deferred: |
     Not a human item; deferred only by the ship-first instruction. `prepare_launch` passes `fold_case = true`
     (`agent_run.rs:786`); `readiness` passes the repository's observed flag (`dispatch.rs:595`). On a
@@ -894,6 +917,14 @@ At Phase 11, with an installed, usable build:
     collision is admitted. It does falsify plan 09-12's "can never drift apart".
   risk_if_wrong: "Low on macOS, the v1 target. On a case-sensitive repository: a repeating spurious 'Needs you' for a pair the dispatcher judged safe."
   automatable: "YES. Read repo_path under a short lock, call `repo_is_case_insensitive` (make it `pub`) outside the lock, re-lock and pass the flag into `prepare_launch`. Add a test with `Src/a.rs` and `src/a.rs` on a case-sensitive fixture that both callers agree on."
+
+  **RESOLVED 2026-10-13 by plan 11-10.** `prepare_launch` takes the repository's observed `core.ignorecase`
+  and passes it to `launch_conflict` (and into the scope marker) instead of `true`; `launch_run_for_task` reads
+  it through `observed_fold_case` with no lock held. `repo_is_case_insensitive` is `pub`. Tests:
+  `scope_widen.rs::the_launch_and_the_dispatcher_agree_on_a_case_only_pair_for_either_case_flag` drives both
+  flag values explicitly (never the host filesystem) and asserts `launch_conflict` and the dispatcher's
+  readiness agree; desktop `a_case_only_pair_is_judged_by_the_flag_the_launch_is_given` asserts the launch
+  honours the flag it is handed. Plan 09-12's "can never drift apart" now holds for the flag as well as the rule.
 
 - id: D-REV-45
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-03; verifier-confirmed in code)"
@@ -1110,3 +1141,26 @@ At Phase 11, with an installed, usable build:
     keypair, so it is the plan that makes the assertion bite.
   risk_if_wrong: "High for the self-update claim, none for the first download. If 11-05 lands and the assertion is not exercised on a real tag, a release with no signature or no manifest ships, and no installed client can update from it."
   automatable: "YES, in the same way 11-04 did it: push a throwaway tag after 11-05 and read gh release view; the assertion step fails the run if any of the four is missing. Delete the tag and release afterwards."
+
+- id: D-REV-58
+  phase: "11 - Ship It (plan 11-10, residuals of D-REV-39 and D-REV-44)"
+  truth: "Five findings that D-REV-39 and its review named, or that fixing them exposed, are still open: a merge whose event write fails after git succeeded is reported as 'nothing to merge'; plan approval does not re-check that its tasks are still startable; two spellings of one name that differ only in Unicode normalisation read as disjoint; an unreadable core.ignorecase reads as not folding; project registration runs git config under the database lock."
+  status: open
+  why_deferred: |
+    Each is real and each is separate from the seven plan 11-10 closed; none blocks the loop. (1) 09-REVIEW WR-04,
+    second half: if `record_merge_event_with` fails after `run_merge` succeeded, the state stays `merging`, the next
+    pass sees zero commits ahead and no integrated event, and reports `NoCommits` for work that IS on the
+    integration branch. The fix is to detect that the branch tip is reachable and write the event then. (2)
+    09-REVIEW WR-05, third bullet: `approve_plan_with` does not re-check that each task is still backlog or todo, so
+    a draft reviewed for an hour can include a task the user has since finished. (3) Overlap folds with
+    `to_lowercase`; APFS also equates composed and decomposed (NFC/NFD) spellings, which needs a normalisation
+    crate, so it was not added for a pair no repository here has. (4) `repo_is_case_insensitive` returns false when
+    the key is unset or git cannot run. That is the strict side for the scope hook and the lax side for overlap, one
+    bool cannot be strict for both, so changing the default needs the two consumers separated. (5)
+    `register_project` and `relocate_project` run `git config core.hooksPath` (via `git_hooks`) while
+    `project_register` / `project_relocate` hold `AppState.db`; it is once per registration and
+    `destructive_gate_layer_coverage.rs` pins how the install is routed, so splitting it was left alone. Also:
+    runs the dispatcher started BEFORE plan 11-10 were recorded with a human trigger, so a task left in
+    `held_by_limit` from an old session reads as hand-run and is adopted rather than retried.
+  risk_if_wrong: "Low to moderate. (1) is the only one that can strand a wave on a false message; the rest are narrow."
+  automatable: "YES, all five. (1) a test that fails the event write after a real merge and asserts the next pass records the integrated event. (2) a core test that moves a task to done between draft and approve. (3) a pair spelled NFC and NFD through `overlaps`. (4) a test per consumer once split. (5) move the hook install after the lock is released in the two commands."
