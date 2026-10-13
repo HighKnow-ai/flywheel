@@ -128,6 +128,16 @@ Severity is the reviewer's, copied from its line. Dispositions are decisions, no
 
 Two are worth saying aloud to 11-18: **four-2** (the developer's turn is painted in the brand, and D-199 does not widen the rule to it, so its enforcement test will flag `FeedRow.tsx:458`) and **three-4 / review-foot-2** (both want changes in `review.css` that the D-199 anchor-widget edit is already touching).
 
+## Plan 11-18 outcome (2026-10-13)
+
+Of the fifteen rows addressed to 11-18, seven fell inside D-197/198/199 and are closed; eight did not and go to 11-21.
+
+- **Closed by D-198.1:** one-8, five-8, app-shell-6 (`0/0` and "No priority" print nothing; `row-tail.test.tsx`).
+- **Closed by D-198.3:** four-8 (the retry notice moves from 10px to 11px; `.type-micro` deleted).
+- **Closed by D-199:** two-8 and six-5 (the run status and its spinner are a permitted brand use; `brand-rule.test.ts`).
+- **four-2 is NOT fixed and NOT closed.** The developer's turn is painted in the brand (`FeedRow.tsx`). D-199 did not cover it, so 11-18 recorded it in `08.1-UI-SPEC.md` as an existing use it did not decide, and the test allowlists it by name. It is the feed's only channel separating the two speakers. File it at 11-21 as an **owner decision**.
+- **Left for D-196 filing at 11-21 (outside D-197/198/199):** one-2, one-3, one-4 (the task row's cue position, key weight and cue size; D-198.4 governs the key-alignment half and leaves it), three-3, three-4, three-5 (the review diff's sign column, 3% tint, `@@` headers), four-4 (text-character disclosure glyphs), review-foot-2 (the sent-back note's ink). Of these, **three-4 and review-foot-2 were not in the list below** and must be added to it.
+
 ## For plan 11-21 (D-196 board filing)
 
 Recorded rows to file as board items, each with its row id: one-1, one-2, one-3, one-4, one-6, two-1, two-2, two-3, two-4, two-6, three-1, three-2, three-3, three-5, four-1, four-4, four-6, four-7, four-9, five-1, five-2, five-3, five-4, five-6, five-7, five-rules-1, five-rules-5, six-3, six-4, review-foot-1, review-foot-4, app-shell-1, app-shell-2, app-shell-3, app-shell-4. Rows whose only owner is 11-18 are not listed twice. The five owner decisions inside them (three-1, three-2, app-shell-1, app-shell-2, five-2) should be filed as decisions, not tasks.

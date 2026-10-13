@@ -36,7 +36,7 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-01
   phase: "03 — Nothing Lost, Nothing Left Running"
   truth: "A destructive action in an auto-accept session raises a pending permission request and blocks the session until a human answers (SC5, AGNT-07)."
-  status: contradicted-by-measurement
+  status: closed (2026-10-13, plan 11-18, D-197)
   why_deferred: |
     Already measured, twice, against claude 2.1.267 by
     scripts/uat/uat-03-destructive-gate.mjs. Safety HOLDS — the remote ref is
@@ -53,6 +53,7 @@ context to be answerable months later by someone who was not in the room:
   needs: "A decision, not a test: either the hook defers to the shim's socket (ask), or AGNT-07 is narrowed to match the shipped refusal. This is an owner call."
   automatable: "No — it is a requirements decision. The behavior itself is already measured by an automated harness."
   carried_from: ".planning/phases/03-nothing-lost-nothing-left-running/03-UAT.md gap G-03-3"
+  update_11-18: "Plan 11-18, 2026-10-13. CLOSED by D-197: the requirement was the side that was wrong. AGNT-07 now reads 'a destructive action is refused before it reaches the remote, and the user is told', with a dated narrowing note beneath it citing D-197 and scripts/uat/uat-03-destructive-gate.mjs. One sentence in docs/destructive-gate-trust-boundary.md that still claimed an ask-and-block was reworded. No gate code changed; D-197 rejected both code alternatives."
 
 - id: D-REV-02
   phase: "08 — Review And Merge Inside Flywheel"
@@ -407,7 +408,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-13
   phase: "08.1 — Visual Polish (plan 14 finish review)"
   truth: "A task row's tail should print nothing for a zero criteria count (0/0) or for no priority, as the finish reviewer asks, extending A-03's rule for the change cue."
-  status: needs-owner-decision
+  status: closed (2026-10-13, plan 11-18, D-198.1)
   why_deferred: |
     The reviewer found fourteen identical four-mark tails (estimate, assignee, 0/0, priority bars)
     flattening the change cue. Plan 14's closure removed the unassigned glyph (not a contract field)
@@ -420,7 +421,7 @@ At Phase 11, with an installed, usable build:
   risk_if_wrong: "Low. Cosmetic density, against a deliberate contract."
   needs: "An owner call: amend Row Anatomy so a zero count and 'No priority' render nothing (the count would then be absent exactly when the Done warning cannot fire, D-08), or keep them as the contract has them."
   automatable: "No. It is a design and contract decision. Once made, the edit and its tests are small."
-
+  update_11-18: "Plan 11-18, 2026-10-13. CLOSED by D-198.1. BoardRow.tsx prints no criteria count at 0/0 and no priority glyph at No priority; a real count and a real priority still print (row-tail.test.tsx, both cases). 01-UI-SPEC § Row Anatomy's 'never dropped' sentence is amended with the D-198 citation, the State Inventory and zero-one-many rows follow."
 
 - id: D-REV-14
   phase: "08.1 — Visual Polish (plan 15)"
@@ -711,7 +712,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-28
   phase: "08.1 — Visual Polish (plan 20)"
   truth: "The brand carries progress, the commits-ahead count and the focus ring, and nothing else (08.1-UI-SPEC.md, the brand rule's four permitted uses)."
-  status: needs-owner-decision
+  status: closed (2026-10-13, plan 11-18, D-199) — one residue open: the developer's turn
   why_deferred: |
     The build uses the brand in more places than the rule lists, and a new use needs an amendment. Open
     already as an owner question: the running status, the live authoring stage and the developer's own turn
@@ -723,6 +724,7 @@ At Phase 11, with an installed, usable build:
   risk_if_wrong: "Low to moderate: the brand is diluted and the rule is no longer one a reviewer can enforce. The anchor widget is a plain floor violation with a one-line fix once the owner chooses (ink or control edge)."
   needs: "An owner call: add 'text links, run status and stage, the developer's turn' to the permitted list by amendment, or move them to ink with weight. Separately, the anchor widget's border."
   automatable: "YES to enforce once decided: a grep or computed-style test over the brand tokens' consumers, like the one that pins no-fill buttons. The decision is not automatable."
+  update_11-18: "Plan 11-18, 2026-10-13. CLOSED by D-199, with a CORRECTION to this entry: .review-anchor-widget's brand colour was already gone (A-08/D-12 made its border var(--text-primary-rack)); what remained and what was fixed is the SHAPE, a 2px side stripe, now the neutral control-edge. 08.1-UI-SPEC § The brand rule lists seven uses, and theme/__tests__/brand-rule.test.ts enforces them from the shipped bytes (one allowlist, spec-phrase check, side-border ban). RESIDUE, deliberately open: the developer's turn (FeedRow.tsx) is not in D-199, and the test found two more existing uses nobody had listed, the pending-proposal count on an epic row and ::selection. All three are recorded in the spec as existing uses plan 11-18 did NOT decide, each open to the owner to reverse. File the developer's turn at 11-21 as an owner decision: moving it to ink loses the only channel that tells the two speakers apart."
 
 - id: D-REV-29
   phase: "08.1 — Visual Polish (plan 20, from plan 19)"
@@ -740,7 +742,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-30
   phase: "08.1 — Visual Polish (plan 20)"
   truth: "Row Anatomy and the Copywriting Contract in 01-UI-SPEC.md describe the product: key alignment on rows that carry a pill, the 10px micro role, and the Done warning's copy."
-  status: needs-owner-decision
+  status: closed (2026-10-13, plan 11-18, D-198)
   why_deferred: |
     Three finish-pass items declined on contract grounds, each an amendment and not a finish edit. (1) Keys
     misalign on rows that carry a pill or a change cue, because pills trail the status glyph by Row
@@ -751,6 +753,7 @@ At Phase 11, with an installed, usable build:
     D-REV-13 (a zero criteria count and 'No priority' printing nothing) is the fourth in this family.
   risk_if_wrong: "Low: cosmetic density and a stale contract string. The next phase inherits a document that disagrees with the product unless this is settled."
   automatable: "No for the decisions. Each edit, once decided, is small and testable."
+  update_11-18: "Plan 11-18, 2026-10-13. CLOSED by D-198.2, .3 and .4 (item 1 of the family is D-REV-13). The Copywriting Contract carries the shipped Done-warning string, transcribed from DoneWarning.tsx. Every type-micro site moved to type-label and the class is deleted, so zero references remain under packages/desktop/src. Key alignment on pill-bearing rows is recorded in 01-UI-SPEC as deliberate and left as it is."
 
 - id: D-REV-31
   phase: "08.1 — Visual Polish (plan 20, from A-06)"
