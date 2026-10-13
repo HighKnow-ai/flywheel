@@ -337,6 +337,39 @@ describe("the three outcomes", () => {
     }
   });
 
+  it("moves focus onto a conflict exit when the result renders, not onto the unmounted confirm button's container (D-REV-02)", async () => {
+    mergeMock.mockResolvedValue({ kind: "conflicted", files: ["src/a.rs"] });
+    renderSurface();
+    const dialog = await confirmMerge();
+    const exit = await within(dialog).findByRole("button", { name: "Start a session to resolve" });
+    await waitFor(() => expect(document.activeElement).toBe(exit));
+    const exits = [exit, within(dialog).getByRole("button", { name: "Open in editor" }), within(dialog).getByRole("button", { name: "Close" })];
+    expect(exits).toContain(document.activeElement);
+  });
+
+  it("leaves all three conflict exits tabbable, in order, so none is reachable only by mouse (D-REV-02)", async () => {
+    // jsdom cannot synthesise Tab; this asserts the precondition Tab needs (a real, enabled, non-negative-tabindex button in DOM order).
+    mergeMock.mockResolvedValue({ kind: "conflicted", files: ["src/a.rs"] });
+    renderSurface();
+    const dialog = await confirmMerge();
+    await within(dialog).findByRole("button", { name: "Start a session to resolve" });
+    const names = Array.from(dialog.querySelectorAll<HTMLButtonElement>("button")).map((b) => {
+      expect(b.disabled).toBe(false);
+      expect(b.tabIndex).toBeGreaterThanOrEqual(0);
+      return b.textContent?.trim();
+    });
+    expect(names).toEqual(["Start a session to resolve", "Open in editor", "Close"]);
+  });
+
+  it("Escape still closes the sheet from a conflict result (D-REV-02)", async () => {
+    mergeMock.mockResolvedValue({ kind: "conflicted", files: ["src/a.rs"] });
+    renderSurface();
+    const dialog = await confirmMerge();
+    await within(dialog).findByRole("button", { name: "Start a session to resolve" });
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Merge sheet" })).not.toBeInTheDocument());
+  });
+
   it("starts a resolving session with the conflict as its brief, clearing the review surface first", async () => {
     mergeMock.mockResolvedValue({ kind: "conflicted", files: ["src/a.rs", "src/b.rs"] });
     startRunMock.mockResolvedValue({ id: "run-1", taskId: "t1", status: "running", permissionMode: "acceptEdits" });
