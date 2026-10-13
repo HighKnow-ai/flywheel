@@ -67,6 +67,9 @@ vi.mock("../../adapters/tauri", async () => {
     // default so every pre-existing test in this file keeps rendering the plain event feed alone.
     pendingPermissionRequests: () => Promise.resolve([]),
     answerPermissionRequest: () => Promise.resolve(undefined),
+    // The header's two narrow board reads (plan 11-22, four-1), routed through the same mock.
+    taskHeader: (taskId: string) => invokeCommandMock("task_header", { taskId }),
+    epicHeader: (epicId: string) => invokeCommandMock("epic_header", { epicId }),
   };
 });
 
@@ -1137,5 +1140,44 @@ describe("review offer (08-04, D-133)", () => {
   it("offers nothing for a terminal run with no task id", () => {
     renderOffer("completed", null);
     expect(screen.queryByRole("button", { name: "Review changes" })).not.toBeInTheDocument();
+  });
+});
+
+describe("the header names the board item the run serves (11-22, finish-review four-1)", () => {
+  function renderHeader(props: { taskId?: string | null; epicId?: string | null }, reads: Record<string, () => Promise<unknown>>) {
+    invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], args.offset, args.limit));
+      return reads[command]?.() ?? Promise.resolve(undefined);
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} {...props} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("names the task by key and title on a task run", async () => {
+    renderHeader({ taskId: "task-1" }, { task_header: () => Promise.resolve({ key: "FLY-9", title: "Add push retry" }) });
+    expect(await screen.findByText("FLY-9 Add push retry")).toBeInTheDocument();
+    expect(screen.queryByText("Session")).not.toBeInTheDocument();
+  });
+
+  it("names the epic on an authoring run, which has no task", async () => {
+    renderHeader({ epicId: "epic-1" }, { epic_header: () => Promise.resolve({ key: "FLY-7", title: "Review inside Flywheel" }) });
+    expect(await screen.findByText("FLY-7 Review inside Flywheel")).toBeInTheDocument();
+  });
+
+  it("says Session while the read is in flight, and keeps saying it when the task is gone (read returns null)", async () => {
+    renderHeader({ taskId: "task-deleted" }, { task_header: () => Promise.resolve(null) });
+    expect(screen.getByText("Session")).toBeInTheDocument();
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("task_header", { taskId: "task-deleted" }));
+    expect(screen.getByText("Session")).toBeInTheDocument();
+  });
+
+  it("does not throw or blank the header when the read fails", async () => {
+    renderHeader({ taskId: "task-1" }, { task_header: () => Promise.reject(new Error("boom")) });
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("task_header", { taskId: "task-1" }));
+    expect(screen.getByText("Session")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "← Board" })).toBeInTheDocument();
   });
 });
