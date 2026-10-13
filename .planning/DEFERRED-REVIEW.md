@@ -200,6 +200,7 @@ context to be answerable months later by someone who was not in the room:
     measuring, so the state is unmeasured in the real engine.
   risk_if_wrong: "Low and narrow: sub-AA text only while a row is selected AND the file under review is itself a diff. Selection is transient."
   automatable: "YES, and it is the cheapest item in this register — one `fireEvent.click` on the gutter before the existing measurement loop in legibility.browser.test.tsx. It is a number, not taste; it does not belong in a human round at all."
+  update_11-13: "CLOSED by measurement. legibility.browser.test.tsx now gutter-clicks a delete and an insert row and runs the existing AA loop: min painted contrast 14.71:1 on both selected rows, and no token repaints the code. The 4.02 / 4.21 `.token.deleted` / `.token.inserted` case is unreachable, not just unmeasured: 08.1 removed every syntax hue and the highlighter registers no `diff` grammar, so a diff-of-a-diff row has no such span."
 
 - id: D-REV-07
   phase: "08 — Review And Merge Inside Flywheel"
@@ -216,6 +217,7 @@ context to be answerable months later by someone who was not in the room:
         taste with no stated threshold.
   risk_if_wrong: "Moderate on the ergonomic half — this is the surface where criterion 2's daily habit either happens or does not. Low on the behavioral half, which is already covered."
   automatable: "PARTLY. Scroll-position preservation on check: YES, one assertion against the existing browser fixture, once D-REV-04's seed data exists. 'Stays usable': No — ergonomic judgment, but it needs a threshold before it is worth asking, or it will get a shrug."
+  update_11-13: "Scroll-position preservation is asserted (ergonomics.browser.test.tsx, two tests, scrollTop unchanged). The rail at the 900px window minimum (tauri.conf.json minWidth) is now measured: it scrolls on its own, no control is clipped, the first criterion is on screen, the page does not scroll sideways, in task and epic scope. That caught a real clip (Check button 142-272 in a 0-260 rail, Edit pencil wholly outside), fixed in AcceptanceCriteriaList.tsx. STILL HUMAN, physical reason = ergonomic judgement of reading a long diff: ask only 'At 900px wide with src/long.ts open, can you check all three criteria and still see which lines you selected, without scrolling the rail sideways?'"
 
 - id: D-REV-08
   phase: "08 — Review And Merge Inside Flywheel"
@@ -247,6 +249,7 @@ context to be answerable months later by someone who was not in the room:
   risk_if_wrong: "Moderate on the focus half — an accessibility obligation, and the reason it was fixed in-phase rather than queued. Low on the glyph half: cosmetic, and swapping a registry glyph is a one-line change."
   automatable: "MOSTLY. Ratio and computed-colour assertions: YES, specified for plan 14 (contrast.test.ts plus a BoardRow test). A WebKit painted-colour assertion that the focused and unfocused rule differ: YES, one test. Only 'does the Dot read at 12px' is human aesthetic judgment."
   update_08.1-14: "The automatable half is DONE, not deferred: contrast.test.ts (rule roles 3:1 on every row surface, focused vs unfocused >= 3:1), selection-rule.test.tsx (the BoardRow branch) and legibility.browser.test.tsx (painted in WebKit, both schemes) all pass. What remains human is only the Dot-at-12px read."
+  update_11-13: "The automatable half was already done in 08.1-14 (painted focused vs unfocused rule, computed in WebKit, both schemes); 11-13 added the Dot ratio to contrast.test.ts, reading the ink from BoardRow and EpicHeaderRow so a recolour is measured (>= 3:1 on every row surface, both modes). STILL HUMAN, physical reason = perceptual judgement: only 'does the Dot read at 12px beside a status glyph'."
 
 - id: D-REV-10
   phase: "08.1 — Visual Polish (plan 12)"
@@ -261,6 +264,7 @@ context to be answerable months later by someone who was not in the room:
     this plan. How the row looks at 48px, with an error beside two buttons, is aesthetic.
   risk_if_wrong: "Low to moderate. A cramped row or an error that squeezes the title is cosmetic; the accept path itself is the tray's own and is unchanged."
   automatable: "MOSTLY. The visible-text and overflow checks (title truncates, buttons stay inside 48px) are one WebKit layout test once a proposal is staged: YES. A live accept against the real core needs a staged proposal, which Phase 11's drain can create: YES. Only 'does it read well' is human."
+  update_11-13: "Layout half CLOSED: board-group.browser.test.tsx stages a challenge with a long title in WebKit at 716px (900px minus the 184px project rail) and measures it with getBoundingClientRect: title ellipsizes, label, Accept and Reject stay inside the 48px row, also with a failed decision's error beside them, and the title keeps >= 80px. Accept raising the epic total and a failed accept were already proved in challenge-inline.test.tsx against a fake core. NOT covered: a live accept against the real core (needs a staged proposal; automatable at Phase 11). STILL HUMAN, physical reason = aesthetic judgement: only 'does the expanded epic read well'."
 
 - id: D-REV-32
   phase: "09 — Planned Fan-Out (plan 05, AGNT-05)"
@@ -633,6 +637,7 @@ At Phase 11, with an installed, usable build:
     (08.1-UI-SPEC.md Motion) decided otherwise, and the owner has not been recorded ruling on the word.
   risk_if_wrong: "Low to moderate: an expansion that reads as a pop or a flicker instead of growth; a cosmetic fix in motion.css. Separately, SC3's literal text is not what shipped."
   automatable: "PARTLY. Monotonic reveal and no overprint can be asserted in WebKit by sampling the entering row's clip-path at fixed times: YES, one test (not written here; the existing test proves a transition exists, not its shape). 'Reads as growth' is human."
+  update_11-13: "Shape CLOSED, and it caught a real defect: sampling the animations at fixed times showed the wipe STEPPED (reveal [2,2,5,6] rows, none mid-wipe) because the row-enter keyframe had no `to`, and WebKit does not interpolate inset() with `none`. Fixed in motion.css; now exactly one row is mid-wipe at each mid sample, reveal is monotonic and top-down, and the wipe front never passes the travelling row below. STILL HUMAN, physical reason = aesthetic judgement: 'reads as growth'. Wording question for the owner, unchanged: ROADMAP SC3 says 'animates its height'; the shipped technique animates no height (clip-path on the new rows plus a transform on the rows below)."
 
 - id: D-REV-24
   phase: "08.1 — Visual Polish (plan 20, success criterion 0)"
@@ -687,6 +692,7 @@ At Phase 11, with an installed, usable build:
   risk_if_wrong: "Real: a decision the owner took on a blocking-human gate is not what shipped, and the contract (A-04) says otherwise."
   needs: "A small plan: a filter-aware aggregate in the core, or a core-side 'epics matching this filter' read. Then a WebKit test over the real chip."
   automatable: "YES once built: a jsdom or browser test that turns the chip on and asserts 5 headers. The decision is already made; this is an implementation gap, not a question."
+  update_11-13: "IMPLEMENTED and asserted. The epic lens now narrows its headers under the chip (useFilteredEpics: one unscoped board_list/board_search through the same filter; headers = epic rows the core returned plus the epics of matching tasks; fails open while pending and when the answer fills its 500-row limit). lens-narrowing.browser.test.tsx asserts the narrowed set against the fixture's own worktree rows and the restore on chip-off. Honest limits: (1) header COUNTS remain board-wide, the aggregate is still not filter-aware, so a narrowed header can read '15 of 60'; (2) the core's FILTER_WHERE is stood in for by a fake in this test (the SQL itself is proved in packages/core/tests/search_filter.rs), so the 13-to-5 on the live board is not re-observed; automatable at Phase 11 against a real build."
 
 - id: D-REV-28
   phase: "08.1 — Visual Polish (plan 20)"
