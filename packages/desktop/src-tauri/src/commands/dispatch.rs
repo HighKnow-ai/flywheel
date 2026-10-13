@@ -8,7 +8,8 @@
 //! commands the renderer calls.
 //!
 //! **Human-only.** `dispatch_plan_approve`, `dispatch_plan_pause`, `dispatch_plan_resume`,
-//! `dispatch_plan_stop`, `dispatch_advance_now` and `dispatch_gate_resume_now` are in the
+//! `dispatch_plan_stop`, `dispatch_advance_now`, `dispatch_gate_resume_now`, `retry_task` and
+//! `skip_task` are in the
 //! `authoring_stage_advance` family: no MCP tool and no agent-reachable caller, because they change
 //! what the machine does unattended. Every command here accepts ids and plain values only; each
 //! branch, ref and path is derived inside core, and the actor is resolved here. Pause and stop
@@ -67,7 +68,7 @@ pub struct DispatchTaskDto {
     pub wave: u32,
     pub state: String,
     pub rationale: Option<String>,
-    /// The named cause, present only while `state` is `needs_attention`.
+    /// The named cause, present while `state` is `needs_attention`, `failed`, `stopped` or `conflict`.
     pub attention: Option<String>,
     /// The task's declared file-set as stored, in the order it was stored.
     pub entries: Vec<String>,
@@ -108,12 +109,15 @@ fn plan_dto(conn: &rusqlite::Connection, plan_id: &str, fold_case: bool) -> Resu
         let (task_key, title): (String, String) = conn
             .query_row("SELECT key, title FROM tasks WHERE id = ?1", [&t.task_id], |r| Ok((r.get(0)?, r.get(1)?)))
             .map_err(|e| ipc_error("dispatch_plan_get:task", e))?;
+        // `needs_attention` carries its own recorded cause; failed, stopped and conflict write none, so
+        // their cause is composed from the state (D-REV-41).
         let attention = if t.state == "needs_attention" {
             flywheel_core::dispatch::attention_for(conn, plan_id, &t.task_id)
                 .map_err(|e| ipc_error("dispatch_plan_get:attention", e))?
                 .map(|(_, _, cause)| cause)
         } else {
-            None
+            flywheel_core::dispatch::stuck_cause(conn, &t.task_id, &t.state)
+                .map_err(|e| ipc_error("dispatch_plan_get:stuck", e))?
         };
         // Read from the stored rows, never from the marker file (09-01).
         let entries = flywheel_core::domain::file_set::list_entries_for_task(conn, &t.task_id)
@@ -360,6 +364,56 @@ pub fn dispatch_advance_now(state: State<AppState>, app: AppHandle, plan_id: Str
     notify(&app, &plan_id);
     crate::scheduler::nudge_dispatch(&app);
     Ok(dto)
+}
+
+/// What a stuck-task verb leaves behind: the refusal's own sentence (composed in core from names and
+/// states, never git or CLI text) or the refreshed plan, with the board and the dispatcher told.
+fn finish_stuck_verb(
+    state: &AppState,
+    app: &AppHandle,
+    outcome: anyhow::Result<String>,
+    context: &str,
+) -> Result<DispatchPlanDto, String> {
+    let plan_id = outcome.map_err(|e| match e.downcast_ref::<flywheel_core::domain::dispatch_plan::StuckRefusal>() {
+        Some(refusal) => refusal.to_string(),
+        None => ipc_error(context, e),
+    })?;
+    let dto = plan_dto_unlocked(state, &plan_id)?;
+    notify(app, &plan_id);
+    crate::scheduler::nudge_dispatch(app);
+    Ok(dto)
+}
+
+/// Hand a task whose run failed or was stopped, or whose automatic merge found a conflict, back to
+/// the dispatcher (D-REV-41). A task id and nothing else: the plan is the task's live plan and the
+/// actor is resolved here. HUMAN-ONLY, in the `authoring_stage_advance` family: no MCP tool and no
+/// agent-reachable caller, because an agent restarting its own stuck work would be an agent deciding
+/// its own work is not done. Refuses by name, writing nothing, outside those three states or while a
+/// run of the task is live.
+#[tauri::command]
+pub fn retry_task(state: State<AppState>, app: AppHandle, task_id: String) -> Result<DispatchPlanDto, String> {
+    validate_id("task", &task_id)?;
+    let outcome = {
+        let mut conn = state.db.lock().map_err(|e| ipc_error("retry_task:lock", e))?;
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error("retry_task:actor", e))?;
+        flywheel_core::domain::dispatch_plan::retry_task(&mut conn, &task_id, &human)
+    };
+    finish_stuck_verb(&state, &app, outcome, "retry_task")
+}
+
+/// Leave a stuck task out of its plan so its wave and every later wave advance (D-REV-41). Same
+/// shape, same refusals and the same HUMAN-ONLY standing as [`retry_task`]: a task id and nothing
+/// else, the actor resolved here, no MCP tool, no agent-reachable caller. The task's branch and
+/// worktree are left exactly as they are.
+#[tauri::command]
+pub fn skip_task(state: State<AppState>, app: AppHandle, task_id: String) -> Result<DispatchPlanDto, String> {
+    validate_id("task", &task_id)?;
+    let outcome = {
+        let mut conn = state.db.lock().map_err(|e| ipc_error("skip_task:lock", e))?;
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error("skip_task:actor", e))?;
+        flywheel_core::domain::dispatch_plan::skip_task(&mut conn, &task_id, &human)
+    };
+    finish_stuck_verb(&state, &app, outcome, "skip_task")
 }
 
 #[derive(Debug, Clone, Serialize)]

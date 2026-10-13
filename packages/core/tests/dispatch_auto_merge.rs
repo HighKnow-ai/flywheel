@@ -934,7 +934,7 @@ fn a_failed_task_is_retried_by_a_human_and_the_wave_then_drains() {
     let plan = fx.plan(&[(&a, 1)]);
     ended_badly(&fx, &plan, &a, AgentRunStatus::Failed);
     assert_eq!(fx.state(&plan, &a), "failed");
-    let cause = stuck_cause(&fx.conn(), &plan, &a, "failed").unwrap().expect("a failed task says why it is stuck");
+    let cause = stuck_cause(&fx.conn(), &a, "failed").unwrap().expect("a failed task says why it is stuck");
     assert!(cause.contains("failed"), "{cause}");
     assert!(spawns(&fx.actions()).is_empty(), "a failed task is not restarted on its own");
 
@@ -954,7 +954,7 @@ fn a_stopped_task_is_skipped_and_this_and_every_later_wave_advance() {
     let plan = fx.plan(&[(&a, 1), (&b, 2)]);
     ended_badly(&fx, &plan, &a, AgentRunStatus::Interrupted);
     assert_eq!(fx.state(&plan, &a), "stopped");
-    let cause = stuck_cause(&fx.conn(), &plan, &a, "stopped").unwrap().expect("a stopped task says why it is stuck");
+    let cause = stuck_cause(&fx.conn(), &a, "stopped").unwrap().expect("a stopped task says why it is stuck");
     assert!(cause.contains("stopped"), "{cause}");
     assert!(!has_advance(&fx.actions()), "a stopped task holds its wave");
 
@@ -971,7 +971,7 @@ fn a_stopped_task_is_skipped_and_this_and_every_later_wave_advance() {
 fn a_conflicted_task_is_retried_after_the_user_resolves_it_and_the_wave_drains() {
     let fx = fx();
     let (plan, loser) = conflicted_pair(&fx);
-    let cause = stuck_cause(&fx.conn(), &plan, &loser, "conflict").unwrap().expect("a conflict says why");
+    let cause = stuck_cause(&fx.conn(), &loser, "conflict").unwrap().expect("a conflict says why");
     assert!(cause.contains("shared.txt") && cause.contains("conflict"), "{cause}");
 
     // The user's resolution: bring the integration branch into the task branch, taking its side.
@@ -1005,8 +1005,8 @@ fn a_retried_conflict_that_still_stands_lands_back_in_conflict_with_a_fresh_reco
 fn retry_and_skip_refuse_by_name_outside_the_three_states_and_write_nothing() {
     let fx = fx();
     let a = fx.task("A", &["a/"], w("a/1"));
-    let loose = fx.task("Loose", &["l/"], w("l/1"));
     let plan = fx.plan(&[(&a, 1)]);
+    let loose = fx.task("Loose", &["l/"], w("l/1")); // made after the plan, so it is in none
     let human = fx.human.clone();
     let written = |fx: &Fx, t: &str| events_of(fx, t, EVENT_TASK_RETRIED) + events_of(fx, t, EVENT_TASK_SKIPPED);
 

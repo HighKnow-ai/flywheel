@@ -574,28 +574,138 @@ pub const EVENT_TASK_SKIPPED: &str = "dispatch.task_skipped";
 /// states only, so a command can hand it to the renderer as it is (no git or CLI text reaches it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StuckRefusal {
+    /// The task is in no approved, running or paused plan.
     NotInLivePlan,
+    /// The task is in a live plan but not in one of [`crate::dispatch::STUCK_STATES`].
     NotStuck { state: String },
+    /// A run of the task is live (the user's own, started by hand): stop it first.
     HasLiveRun,
 }
 
 impl std::fmt::Display for StuckRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let _ = f;
-        Err(std::fmt::Error) // RED stub
+        match self {
+            StuckRefusal::NotInLivePlan => {
+                f.write_str("That task is not in a running plan, so there is nothing to retry or skip.")
+            }
+            StuckRefusal::NotStuck { state } => write!(
+                f,
+                "Only a task whose run failed, was stopped, or whose merge found a conflict can be retried or \
+                 skipped; this one is {}.",
+                match state.as_str() {
+                    "needs_attention" => "waiting for you to resolve what it names",
+                    "held_by_limit" => "held by the account limit",
+                    "merged" => "already merged",
+                    "skipped" => "already left out",
+                    other => other,
+                }
+            ),
+            StuckRefusal::HasLiveRun => {
+                f.write_str("That task has a run in progress. Stop the run first, then retry or skip it.")
+            }
+        }
     }
 }
 
 impl std::error::Error for StuckRefusal {}
 
-/// RED stub.
-pub fn retry_task(_conn: &mut Connection, _task_id: &str, _actor_id: &str) -> anyhow::Result<String> {
-    Err(StuckRefusal::NotInLivePlan.into())
+/// The plan row a stuck-task verb acts on: the task's live plan, preferring one where it is stuck.
+fn stuck_target(conn: &Connection, task_id: &str) -> anyhow::Result<(String, String)> {
+    conn.query_row(
+        "SELECT pt.plan_id, pt.state
+           FROM dispatch_plan_tasks pt JOIN dispatch_plans p ON p.id = pt.plan_id
+          WHERE pt.task_id = ?1 AND p.status IN ('approved', 'running', 'paused')
+          ORDER BY (pt.state IN ('failed', 'stopped', 'conflict')) DESC, p.created_at DESC, p.id DESC
+          LIMIT 1",
+        params![task_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .context("failed to read the task's live plan")?
+    .ok_or_else(|| StuckRefusal::NotInLivePlan.into())
 }
 
-/// RED stub.
-pub fn skip_task(_conn: &mut Connection, _task_id: &str, _actor_id: &str) -> anyhow::Result<String> {
-    Err(StuckRefusal::NotInLivePlan.into())
+/// Move a stuck task to `to`, recording who did it and what it was. One transaction: the state and
+/// its event, or neither. Refuses by name, writing nothing, outside the stuck states or with a live run.
+fn leave_stuck(
+    conn: &mut Connection,
+    task_id: &str,
+    actor_id: &str,
+    event_type: &str,
+    label: &str,
+    to_for: impl Fn(&str) -> &'static str,
+) -> anyhow::Result<String> {
+    let (plan_id, from) = stuck_target(conn, task_id)?;
+    if !crate::dispatch::STUCK_STATES.contains(&from.as_str()) {
+        return Err(StuckRefusal::NotStuck { state: from }.into());
+    }
+    let live: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM agent_runs WHERE task_id = ?1 AND status IN ('running', 'blocked'))",
+            params![task_id],
+            |r| r.get(0),
+        )
+        .context("failed to read whether the task has a live run")?;
+    if live {
+        return Err(StuckRefusal::HasLiveRun.into());
+    }
+    let (epic_id, project_id, _, _) = plan_anchor(conn, &plan_id)?;
+    let to = to_for(&from);
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let changed = tx
+        .execute(
+            "UPDATE dispatch_plan_tasks SET state = ?1 WHERE plan_id = ?2 AND task_id = ?3 AND state = ?4",
+            params![to, plan_id, task_id, from],
+        )
+        .context("failed to move the stuck task")?;
+    if changed == 0 {
+        return Err(StuckRefusal::NotStuck { state: from }.into());
+    }
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        Some(&epic_id),
+        actor_id,
+        event_type,
+        &serde_json::json!({ "field": "dispatch_state", "plan_id": plan_id, "from": from, "to": to, "label": label }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit the stuck-task change")?;
+    Ok(plan_id)
+}
+
+/// Hand a stuck task back to the dispatcher (D-REV-41). HUMAN-ONLY: the caller resolves a human
+/// actor, and no MCP tool or agent-reachable path calls this, because an agent restarting its own
+/// stuck work would be an agent deciding its own work is not done.
+///
+/// A run that `failed` or was `stopped` goes back to `planned`, and the next dispatcher pass starts it
+/// as it would any planned task. A task whose automatic merge found a `conflict` goes to `merging`:
+/// the work is finished and only the merge is repeated, not the agent. This does NOT refuse a
+/// conflict that still stands. The conflict is not checked here (that is a git dry run, and this
+/// function runs under the database lock); the next pass runs the merge's own dry run, and a merge
+/// that still conflicts lands the task back in `conflict` with one fresh record, which is the answer.
+///
+/// Returns the plan the task was in. Refuses by name, writing nothing, a task outside the stuck
+/// states or with a live run.
+pub fn retry_task(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<String> {
+    leave_stuck(conn, task_id, actor_id, EVENT_TASK_RETRIED, "Retried by the user", |from| {
+        if from == "conflict" { "merging" } else { "planned" }
+    })
+}
+
+/// Leave a stuck task out of its plan (D-REV-41). HUMAN-ONLY, for the reason [`retry_task`] gives.
+/// The task becomes `skipped`, which [`crate::dispatch::wave_is_drained`] counts and a sequenced
+/// successor does not wait on, so its wave and every later wave advance. Its branch and worktree are
+/// left exactly as they are. Returns the plan the task was in.
+pub fn skip_task(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<String> {
+    leave_stuck(conn, task_id, actor_id, EVENT_TASK_SKIPPED, "Left out by the user", |_| "skipped")
 }
 
 /// A user's control over a plan. Pause and stop change what the dispatcher STARTS; neither touches

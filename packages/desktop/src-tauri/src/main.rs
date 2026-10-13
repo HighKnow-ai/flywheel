@@ -189,6 +189,8 @@ fn main() {
             commands::dispatch::dispatch_gate_state,
             commands::dispatch::dispatch_gate_resume_now,
             commands::dispatch::dispatch_advance_now,
+            commands::dispatch::retry_task,
+            commands::dispatch::skip_task,
             commands::dispatch::dispatch_plan_generate,
             commands::dispatch::dispatch_planning_run,
             commands::menu::menu_set_action_enabled,

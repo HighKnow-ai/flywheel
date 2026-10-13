@@ -531,9 +531,54 @@ pub fn attention_for(
     )))
 }
 
-/// RED stub.
-pub fn stuck_cause(_conn: &Connection, _plan_id: &str, _task_id: &str, _state: &str) -> anyhow::Result<Option<String>> {
-    Ok(None)
+/// The three dispatch states that hold a wave until a human acts (D-REV-41): a run that failed, a run
+/// that was stopped, and an automatic merge that found conflicts. `retry_task` and `skip_task` act on
+/// exactly these and refuse everything else; the renderer offers its two buttons on the same three.
+pub const STUCK_STATES: [&str; 3] = ["failed", "stopped", "conflict"];
+
+/// Why a task in one of the [`STUCK_STATES`] is stuck, in the sentence the user reads: the sibling of
+/// [`attention_for`], which answers the same question for `needs_attention`. These three states
+/// write no needs-attention record, so the words are composed here from the state and, for a
+/// conflict, from the merge's own aborted record. `None` for any other state.
+pub fn stuck_cause(conn: &Connection, task_id: &str, state: &str) -> anyhow::Result<Option<String>> {
+    const WAY_OUT: &str = "Retry starts it again; Skip leaves it out so the wave can move on.";
+    Ok(match state {
+        "failed" => Some(format!("The run failed, so this task holds its wave. {WAY_OUT}")),
+        "stopped" => Some(format!(
+            "The run was stopped before it finished (it was interrupted, or the application closed), so \
+             this task holds its wave. {WAY_OUT}"
+        )),
+        "conflict" => {
+            let payload: Option<String> = conn
+                .query_row(
+                    "SELECT payload FROM events WHERE task_id = ?1 AND event_type = ?2
+                      ORDER BY sequence DESC LIMIT 1",
+                    params![task_id, crate::merge::EVENT_MERGE_ABORTED],
+                    |r| r.get(0),
+                )
+                .optional()
+                .context("failed to read the task's merge-conflict record")?;
+            let value: serde_json::Value =
+                payload.and_then(|p| serde_json::from_str(&p).ok()).unwrap_or(serde_json::Value::Null);
+            let target = value["target_branch"].as_str().unwrap_or("the integration branch");
+            let files: Vec<&str> =
+                value["conflicted_files"].as_array().map(|a| a.iter().filter_map(|f| f.as_str()).collect()).unwrap_or_default();
+            let named = match files.as_slice() {
+                [] => "conflicts".to_string(),
+                [one] => format!("a conflict in {one}"),
+                many => {
+                    let shown = many.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+                    let more = many.len().saturating_sub(3);
+                    format!("{} conflicting files ({shown}{})", many.len(), if more > 0 { format!(" and {more} more") } else { String::new() })
+                }
+            };
+            Some(format!(
+                "Merging into {target} found {named}, so nothing landed. Resolve it in the task's worktree and \
+                 Retry to merge again, or Skip to leave the task out so the wave can move on."
+            ))
+        }
+        _ => None,
+    })
 }
 
 /// Is every task in `wave` merged or skipped? Merged, NOT finished: worktrees are cut lazily at
@@ -566,8 +611,16 @@ pub(crate) fn manual_run_since_plan(conn: &Connection, plan_id: &str, task_id: &
               JOIN triggers tr ON tr.id = latest.trigger_id
               JOIN actors a ON a.id = tr.created_by
              WHERE a.type = 'human'
-               AND latest.started_at >= (SELECT created_at FROM dispatch_plans WHERE id = ?1))",
-        params![plan_id, task_id],
+               AND latest.started_at >= (SELECT created_at FROM dispatch_plans WHERE id = ?1)
+               -- A retry is the user handing the task back to the dispatcher (D-REV-41): without this
+               -- clause the failed hand-run it follows would be adopted again and the retry would do
+               -- nothing.
+               AND NOT EXISTS (
+                   SELECT 1 FROM events e
+                    WHERE e.task_id = ?2 AND e.event_type = ?3
+                      AND json_extract(e.payload, '$.plan_id') = ?1
+                      AND e.occurred_at >= latest.started_at))",
+        params![plan_id, task_id, crate::domain::dispatch_plan::EVENT_TASK_RETRIED],
         |r| r.get(0),
     )
     .context("failed to read whether the user ran the task by hand")
