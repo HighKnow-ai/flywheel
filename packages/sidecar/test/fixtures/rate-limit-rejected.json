@@ -1,0 +1,76 @@
+{
+  "purpose": "Frozen backend wire shapes for the rate-limit gate (D-REV-32). A hard limit is never provoked to produce these: it is the abuse requirement AGNT-05 exists to avoid.",
+  "honesty": "NO hard rate limit has ever been observed live on this machine. Searched 2026-10-13: the Flywheel session logs (~/Library/Application Support/Flywheel/sessions/*.jsonl, which keep every raw line) and ~/.claude/projects hold only `allowed` and `allowed_warning` status lines. Every shape whose provenance is \"documented\" is therefore the documented shape, not an observed one. If a real limit ever occurs, its raw line is in the session log: replace the matching documented entry with it and set provenance to \"observed\".",
+  "shapes": [
+    {
+      "name": "documented-rejected-status",
+      "provenance": "documented",
+      "source": "09-RESEARCH.md A2/M6, citing code.claude.com/docs/en/agent-sdk/typescript (SDKRateLimitInfo.status 'rejected'); recorded 2026-10-13. Never observed.",
+      "expectTier": "rejected",
+      "line": {
+        "type": "rate_limit_event",
+        "rate_limit_info": { "status": "rejected", "resetsAt": 1791538200, "rateLimitType": "five_hour" }
+      }
+    },
+    {
+      "name": "documented-rejected-with-overage-allowed",
+      "provenance": "documented",
+      "source": "same documented status; overageStatus flipped to prove the tier reads the top-level status alone (09-RESEARCH.md M6). Never observed.",
+      "expectTier": "rejected",
+      "line": {
+        "type": "rate_limit_event",
+        "rate_limit_info": { "status": "rejected", "resetsAt": 1791538200, "rateLimitType": "seven_day", "overageStatus": "allowed" }
+      }
+    },
+    {
+      "name": "documented-assistant-error-rate-limit",
+      "provenance": "documented",
+      "source": "SDKAssistantMessageError value 'rate_limit' (code.claude.com/docs/en/agent-sdk/typescript), 09-RESEARCH.md line 468; recorded 2026-10-13. Never observed.",
+      "expectRateLimitTier": "rejected",
+      "line": {
+        "type": "assistant",
+        "message": { "role": "assistant", "content": [{ "type": "text", "text": "limit reached" }] },
+        "is_api_error_message": true,
+        "error": "rate_limit"
+      }
+    },
+    {
+      "name": "observed-allowed-overage-rejected",
+      "provenance": "observed",
+      "source": "verbatim from a live run, 09-RESEARCH.md M6 (2026-10-09). NEGATIVE: the substring 'rejected' is present but the account may keep going.",
+      "expectTier": "open",
+      "line": {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+          "status": "allowed",
+          "resetsAt": 1791538200,
+          "rateLimitType": "five_hour",
+          "overageStatus": "rejected",
+          "overageDisabledReason": "org_level_disabled",
+          "isUsingOverage": false,
+          "unifiedWindows": {
+            "five_hour": { "utilization": 0.28, "resetsAt": 1791538200 },
+            "seven_day": { "utilization": 0.31, "resetsAt": 1791806400 }
+          }
+        }
+      }
+    },
+    {
+      "name": "observed-allowed-warning",
+      "provenance": "observed",
+      "source": "raw line from the Flywheel session log, run 01M27YR97ZZ01RHVREKNWH96ST seq 17, 2026-09-11. NEGATIVE: soft limit, must not read as rejected.",
+      "expectTier": "warning",
+      "line": {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+          "status": "allowed_warning",
+          "resetsAt": 1789387200,
+          "rateLimitType": "seven_day",
+          "utilization": 0.9,
+          "isUsingOverage": false,
+          "surpassedThreshold": 0.75
+        }
+      }
+    }
+  ]
+}

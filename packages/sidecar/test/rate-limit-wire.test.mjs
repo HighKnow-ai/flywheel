@@ -155,3 +155,33 @@ test("through the real stream path a rate_limit error on an assistant message ar
   const events = await runFake({ FLYWHEEL_FAKE_ASSISTANT_ERROR: "rate_limit" });
   assert.ok(events.some((e) => e.type === "assistant_text" && e.rateLimitTier === "rejected"));
 });
+
+// D-REV-32: the same classification, driven from the frozen fixture so provenance is on record.
+const FROZEN = JSON.parse(readFileSync(path.join(__dirname, "fixtures/rate-limit-rejected.json"), "utf8")).shapes;
+
+test("fixture: every documented hard-limit shape classifies rejected, and says it was never observed", () => {
+  const hard = FROZEN.filter((s) => s.expectTier === "rejected" || s.expectRateLimitTier === "rejected");
+  assert.ok(hard.length >= 2, "at least the status shape and the assistant-error shape");
+  for (const shape of hard) {
+    assert.ok(shape.source.length > 0, `${shape.name} records where its shape came from`);
+    const event = normalise(shape.line);
+    if (shape.expectTier) assert.equal(event.tier, "rejected", shape.name);
+    if (shape.expectRateLimitTier) assert.equal(event.rateLimitTier, "rejected", shape.name);
+  }
+  assert.ok(hard.every((s) => s.provenance === "documented"), "no rejected line is observed yet; relabel when one is");
+});
+
+test("fixture: observed soft and overage-rejected lines do NOT classify rejected (so rejected is not vacuous)", () => {
+  const soft = FROZEN.filter((s) => s.provenance === "observed");
+  assert.deepEqual(soft.map((s) => normalise(s.line).tier).sort(), ["open", "warning"]);
+  for (const shape of soft) assert.notEqual(normalise(shape.line).tier, "rejected", shape.name);
+});
+
+test("fixture: a frozen rejected line reaches the stream as the rejected-tier event the dispatcher keys on (the pause itself is dispatch_limit_gate.rs)", async () => {
+  const shape = FROZEN.find((s) => s.name === "documented-rejected-status");
+  const events = await runFake({ FLYWHEEL_FAKE_RATE_LIMIT: JSON.stringify(shape.line.rate_limit_info) });
+  assert.equal(events.find((e) => e.type === "rate_limit")?.tier, "rejected");
+  const soft = FROZEN.find((s) => s.name === "observed-allowed-warning");
+  const softEvents = await runFake({ FLYWHEEL_FAKE_RATE_LIMIT: JSON.stringify(soft.line.rate_limit_info) });
+  assert.equal(softEvents.find((e) => e.type === "rate_limit")?.tier, "warning");
+});
