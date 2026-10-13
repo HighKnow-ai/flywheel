@@ -69,6 +69,11 @@
   from {
     clip-path: inset(0 0 100% 0);
   }
+  /* Explicit, not implied: an omitted `to` is the underlying `none`, which does not interpolate with
+     inset() in WebKit, so the wipe flipped each row whole at its midpoint instead of growing (D-REV-23). */
+  to {
+    clip-path: inset(0 0 0 0);
+  }
 }
 
 /**
